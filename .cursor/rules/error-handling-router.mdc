@@ -14,13 +14,16 @@ This rule serves as the entry point for all error handling guidance in the Minsk
 | General error handling principles | robust-error-handling | dont-ignore-errors |
 | API error handling | robust-error-handling | N/A |
 | Filesystem error handling | robust-error-handling | N/A |
-| CLI error presentation | robust-error-handling | dont-ignore-errors |
+| CLI error presentation | robust-error-handling, user-friendly-error-messages | dont-ignore-errors |
+| User-facing error messages | user-friendly-error-messages | robust-error-handling |
+| MCP tool error responses | user-friendly-error-messages | robust-error-handling |
 
 ## Rule Relationships
 
 ### Core Error Handling Rules
 - [**robust-error-handling**](mdc:.cursor/rules/robust-error-handling.mdc): Comprehensive patterns for proper error handling
 - [**dont-ignore-errors**](mdc:.cursor/rules/dont-ignore-errors.mdc): Guidance on ensuring all errors are properly handled
+- [**user-friendly-error-messages**](mdc:.cursor/rules/user-friendly-error-messages.mdc): Transform technical errors into helpful, actionable guidance
 
 ## Key Error Handling Principles
 

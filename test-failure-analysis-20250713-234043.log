@@ -1,0 +1,3073 @@
+bun test v1.2.15 (df017990)
+
+fix-incorrect-underscore-prefixes.test.ts:
+(pass) Codemod creates TypeScript compilation errors [1.47ms]
+117 | 
+118 |   const { content: result, changes } = fixIncorrectUnderscorePrefixes(destructuringCode);
+119 | 
+120 |   // CRITICAL ISSUE: Changes destructuring pattern incorrectly
+121 |   expect(changes).toBeGreaterThan(0);
+122 |   expect(result).toContain("{ value, name }"); // Changed destructuring
+                       ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "{ value, name }"
+Received: "\nconst data = { _value: 42, _name: 'test' };\nconst {value, name} = data;\nconsole.log(value, name);\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/fix-incorrect-underscore-prefixes.test.ts:122:18)
+(fail) Codemod violates scope analysis - creates variable redeclarations [1.15ms]
+(pass) Codemod affects legitimate underscore usage patterns [0.17ms]
+158 | `;
+159 | 
+160 |   const { content: result, changes } = fixIncorrectUnderscorePrefixes(stringAndCommentCode);
+161 | 
+162 |   // CRITICAL ISSUE: No context awareness
+163 |   expect(changes).toBeGreaterThan(0);
+                        ^
+error: expect(received).toBeGreaterThan(expected)
+
+Expected: > 0
+Received: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/fix-incorrect-underscore-prefixes.test.ts:163:19)
+(fail) Codemod has no context awareness - affects strings and comments [0.05ms]
+(pass) Boundary validation confirms critical safety violations [0.10ms]
+
+test-verification/quoting.test.ts:
+(pass) Rule description quoting fix > createRule should use double quotes for descriptions with special characters [1.96ms]
+(pass) Rule description quoting fix > updateRule should use double quotes for descriptions with special characters [2.41ms]
+(pass) Rule description quoting fix > createRule should not add quotes to simple descriptions [0.51ms]
+
+codemods/modern-variable-naming-fix.test.ts:
+CONSOLIDATION BENEFITS:
+✅ Framework approach provides unified, consistent behavior
+✅ Better error handling and recovery than individual codemods
+✅ Performance monitoring built-in
+✅ Easier maintenance and testing
+✅ Follows AST-first principles
+✅ Much less code with better functionality
+(pass) Framework-based codemod CONSOLIDATION BENEFITS: unified approach vs individual codemods [0.13ms]
+✅ Applied changes to test.ts
+139 |   // Should handle errors gracefully
+140 |   expect(typeof result).toBe('boolean');
+141 | 
+142 |   // Framework approach is safer than individual regex-based codemods
+143 |   expect(safetyFeatures.astAnalysis).toContain('ts-morph');
+144 |   expect(safetyFeatures.scopeAware).toContain('scope-aware');
+                                          ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "scope-aware"
+Received: "Scope-aware variable usage analysis"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/modern-variable-naming-fix.test.ts:144:37)
+(fail) Framework-based codemod SAFETY FEATURES: AST-based with error handling [0.20ms]
+170 |     contextIgnorance: 'No understanding of code context or scope'
+171 |   };
+172 | 
+173 |   // Framework approach trades individual codemod risks for framework risks
+174 |   expect(frameworkRisks.dependencyRisk).toContain('utilities framework');
+175 |   expect(frameworkRisks.complexityRisk).toContain('framework complexity');
+                                              ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "framework complexity"
+Received: "Framework complexity may introduce new types of errors"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/modern-variable-naming-fix.test.ts:175:41)
+(fail) Framework-based codemod FRAMEWORK DEPENDENCY RISK: high coupling to utilities [0.06ms]
+CONFIGURATION ADVANTAGES:
+✅ Standardized configuration across all codemods
+✅ Flexible file pattern inclusion/exclusion
+✅ Dry-run mode for safe preview
+✅ Verbose logging for debugging
+✅ Easy adaptation to different project structures
+(pass) Framework-based codemod CONFIGURATION SYSTEM: standardized options [0.03ms]
+239 |     abstraction: 'May hide important implementation details'
+240 |   };
+241 | 
+242 |   // Framework approach represents significant evolution
+243 |   expect(evolutionBenefits.codeReduction).toContain('less code');
+244 |   expect(evolutionBenefits.consistency).toContain('consistent behavior');
+                                              ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "consistent behavior"
+Received: "Consistent behavior across all variable naming fixes"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/modern-variable-naming-fix.test.ts:244:41)
+(fail) Framework-based codemod EVOLUTION: from individual to framework approach [0.05ms]
+FRAMEWORK APPROACH RECOMMENDED FOR:
+✅ Multiple related codemods needing consistency
+✅ Long-term maintenance and evolution
+✅ Complex AST transformations
+✅ Projects where robust error handling is critical
+✅ Teams that can invest in framework learning and maintenance
+INDIVIDUAL APPROACH RECOMMENDED FOR:
+✅ One-off fixes or very specific transformations
+✅ Simple tasks that don't warrant framework overhead
+✅ Quick prototyping or experimentation
+✅ Minimal dependency requirements
+✅ Teams that prefer simple, standalone solutions
+(pass) Framework-based codemod RECOMMENDATION: when to use framework vs individual approach [0.05ms]
+
+codemods/fix-underscore-prefix.test.ts:
+(pass) fix-underscore-prefix: Critical failure - creates duplicate variable names [0.06ms]
+(pass) fix-underscore-prefix: Critical failure - renames variables still being used [0.02ms]
+86 | 
+87 |   const fixes = [{ variable: 'user', line: 2 }];
+88 |   const { content: newContent } = fixUnderscorePrefix(content, fixes);
+89 | 
+90 |   // CRITICAL: Pattern matching affects destructuring AND object properties
+91 |   expect(newContent).toContain('const { _user, admin } = getPermissions();');
+                          ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "const { _user, admin } = getPermissions();"
+Received: "\nconst { user, admin } = getPermissions();\nconst config = { user: 'default', admin: false };\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-underscore-prefix.test.ts:91:22)
+(fail) fix-underscore-prefix: Critical failure - destructuring context blindness [0.06ms]
+(pass) fix-underscore-prefix: Critical failure - function parameter scope collision
+117 | 
+118 |   // If ESLint config changes, this parsing breaks
+119 |   const match = eslintOutput.match(/^([^:]+):(\d+):\d+\s+warning\s+'([^']+)'/);
+120 | 
+121 |   // This approach is fundamentally unreliable
+122 |   expect(match).not.toBeNull();
+                          ^
+error: expect(received).not.toBeNull()
+
+Received: null
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-underscore-prefix.test.ts:122:21)
+(fail) fix-underscore-prefix: Critical failure - ESLint dependency breaks robustness [0.05ms]
+
+codemods/fix-explicit-any-simple.test.ts:
+(pass) Simple explicit any fix replaces ONLY appropriate any annotations [0.10ms]
+88 |   const { content: result, changes } = replaceExplicitAny(input);
+89 | 
+90 |   // Should replace generic any constraints
+91 |   expect(result).toContain('<T = unknown>');
+92 |   expect(result).toContain('<T extends unknown>');
+93 |   expect(result).toContain('<U = unknown, V extends unknown>');
+                      ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "<U = unknown, V extends unknown>"
+Received: "\ninterface Generic<T = unknown> {\n  value: T;\n}\n\nfunction constrained<T extends unknown>(param: T): T {\n  return param;\n}\n\nclass MyClass<U = any, V extends any> {\n  constructor(private value: U) {}\n}\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-explicit-any-simple.test.ts:93:18)
+(fail) Simple explicit any fix handles generic constraints correctly [0.10ms]
+BOUNDARY VIOLATION: Codemod modified 1 patterns in strings/comments
+(pass) Simple explicit any fix BOUNDARY ISSUE: incorrectly matches in strings and comments [0.07ms]
+CONTEXT ISSUE: Simple regex may break complex TypeScript type expressions
+(pass) Simple explicit any fix CONTEXT ISSUE: may break complex type expressions [0.03ms]
+(pass) Simple explicit any fix preserves non-any types [0.03ms]
+REGEX LIMITATION: Function parameter pattern may miss complex destructuring
+(pass) Simple explicit any fix FUNCTION PARAMETER REGEX: may miss complex parameter patterns [0.03ms]
+ARRAY TYPE ISSUE: Simple regex may miss complex array type patterns
+(pass) Simple explicit any fix ARRAY TYPE REGEX: boundary issues with array patterns [0.02ms]
+RETURN TYPE ISSUE: Specific regex patterns may miss some return type contexts
+(pass) Simple explicit any fix RETURN TYPE REGEX: specific context matching [0.02ms]
+GENERIC LIMITATION: May miss complex generic constraints or break type logic
+(pass) Simple explicit any fix GENERIC CONSTRAINT LIMITATIONS [0.02ms]
+
+codemods/fix-arrow-function-parameters.test.ts:
+(pass) Codemod creates scope collisions with existing variables [0.22ms]
+77 | `;
+78 | 
+79 |   const { content: result, changes } = fixArrowFunctionParameters(destructuringCode);
+80 | 
+81 |   // CRITICAL ISSUE: Regex cannot handle destructuring parameters
+82 |   expect(changes).toBe(0); // No changes due to regex mismatch
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 2
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-arrow-function-parameters.test.ts:82:19)
+(fail) Codemod fails with destructuring parameters [0.10ms]
+(pass) Boundary validation confirms critical anti-pattern [0.03ms]
+
+codemods/fix-ts2564-property-initialization.test.ts:
+(pass) TS2564 codemod ONLY processes configured classes and properties [12.37ms]
+(pass) TS2564 codemod skips properties that already have definite assignment assertions [0.87ms]
+(pass) TS2564 codemod handles missing properties gracefully [0.32ms]
+
+codemods/fix-quotes-to-double.test.ts:
+61 | test('Codemod is non-functional due to regex issues', () => {
+62 |   const basicInput = `const str = 'hello world';`;
+63 |   const { content: result, changes } = convertSingleToDoubleQuotes(basicInput);
+64 | 
+65 |   // ACTUAL BEHAVIOR: The regex fails to match even basic string literals
+66 |   expect(changes).toBe(0);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-quotes-to-double.test.ts:66:19)
+(fail) Codemod is non-functional due to regex issues [0.29ms]
+77 |     `const array = ['item1', 'item2'];`
+78 |   ];
+79 | 
+80 |   for (const input of inputs) {
+81 |     const { changes } = convertSingleToDoubleQuotes(input);
+82 |     expect(changes).toBe(0); // No changes made on any input
+                         ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 1
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-quotes-to-double.test.ts:82:21)
+(fail) Codemod fails on various string patterns [0.09ms]
+ 96 |   ];
+ 97 | 
+ 98 |   for (const testCase of testCases) {
+ 99 |     const matches = testCase.match(pattern);
+100 |     // The regex fails to match basic cases due to overly restrictive lookbehind/lookahead
+101 |     expect(matches).toBeNull();
+                          ^
+error: expect(received).toBeNull()
+
+Received: [ "'hello'" ]
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-quotes-to-double.test.ts:101:21)
+(fail) Regex pattern analysis reveals the issue [0.07ms]
+113 | `;
+114 | 
+115 |   const { content: result, changes } = convertSingleToDoubleQuotes(typicalCodebase);
+116 | 
+117 |   // BOUNDARY VALIDATION RESULT: Codemod is completely non-functional
+118 |   expect(changes).toBe(0);
+                        ^
+error: expect(received).toBe(expected)
+
+Expected: 0
+Received: 5
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-quotes-to-double.test.ts:118:19)
+(fail) Boundary validation confirms codemod should be removed or fixed [0.11ms]
+
+codemods/fix-incorrect-underscore-prefixes.test.ts:
+(pass) Codemod creates TypeScript compilation errors [0.17ms]
+119 | 
+120 |   const { content: result, changes } = fixIncorrectUnderscorePrefixes(destructuringCode);
+121 | 
+122 |   // CRITICAL ISSUE: Changes destructuring pattern incorrectly
+123 |   expect(changes).toBeGreaterThan(0);
+124 |   expect(result).toContain('{ value, name }'); // Changed destructuring
+                       ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "{ value, name }"
+Received: "\nconst data = { _value: 42, _name: 'test' };\nconst {value, name} = data;\nconsole.log(value, name);\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-incorrect-underscore-prefixes.test.ts:124:18)
+(fail) Codemod violates scope analysis - creates variable redeclarations [0.09ms]
+(pass) Codemod affects legitimate underscore usage patterns [0.04ms]
+160 | `;
+161 | 
+162 |   const { content: result, changes } = fixIncorrectUnderscorePrefixes(stringAndCommentCode);
+163 | 
+164 |   // CRITICAL ISSUE: No context awareness
+165 |   expect(changes).toBeGreaterThan(0);
+                        ^
+error: expect(received).toBeGreaterThan(expected)
+
+Expected: > 0
+Received: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-incorrect-underscore-prefixes.test.ts:165:19)
+(fail) Codemod has no context awareness - affects strings and comments [0.05ms]
+(pass) Pattern accumulation anti-pattern - 24 conflicting patterns [0.03ms]
+(pass) Boundary validation confirms critical safety violations [0.04ms]
+(pass) Anti-pattern confirmation - no scope analysis capability [0.04ms]
+
+codemods/fix-result-underscore-mismatch.test.ts:
+(pass) fix-result-underscore-mismatch: Critical failure - 5-line window misses broader scope usage [0.10ms]
+66 | `;
+67 | 
+68 |   const { content: newContent, changes } = fixResultUnderscoreMismatch(content);
+69 | 
+70 |   // CRITICAL: Renames _result in getData() based on unrelated 'result' usage in processData()
+71 |   expect(changes).toBe(1);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-result-underscore-mismatch.test.ts:71:19)
+(fail) fix-result-underscore-mismatch: Critical failure - scope blindness across functions [0.12ms]
+81 | `;
+82 | 
+83 |   const { content: newContent, changes } = fixResultUnderscoreMismatch(content);
+84 | 
+85 |   // CRITICAL: Creates duplicate variable name 'result'
+86 |   expect(changes).toBe(1);
+                       ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-result-underscore-mismatch.test.ts:86:19)
+(fail) fix-result-underscore-mismatch: Critical failure - creates naming conflicts [0.04ms]
+ 97 | `;
+ 98 | 
+ 99 |   const { content: newContent, changes } = fixResultUnderscoreMismatch(content);
+100 | 
+101 |   // CRITICAL: Matches 'result' in comments and strings, triggering incorrect rename
+102 |   expect(changes).toBe(1);
+                        ^
+error: expect(received).toBe(expected)
+
+Expected: 1
+Received: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-result-underscore-mismatch.test.ts:102:19)
+(fail) fix-result-underscore-mismatch: Critical failure - matches in comments and strings [0.06ms]
+116 | 
+117 |   const { content: newContent, changes } = fixResultUnderscoreMismatch(content);
+118 | 
+119 |   // CRITICAL: Renames _result even though it's never used, based on unrelated 'result'
+120 |   expect(changes).toBe(1);
+121 |   expect(newContent).toContain('const result = getData();');
+                           ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "const result = getData();"
+Received: "\nconst _result = getData();\nif (someCondition) {\n  const result = getOtherData(); // Different variable entirely\n  process(result);\n}\n// _result is never actually used\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/fix-result-underscore-mismatch.test.ts:121:22)
+(fail) fix-result-underscore-mismatch: Critical failure - no verification of actual usage [0.04ms]
+(pass) fix-result-underscore-mismatch: Limited window algorithm demonstration [0.02ms]
+
+codemods/simple-underscore-fix.test.ts:
+77 |   // Should remove underscore from used variable
+78 |   expect(result).toContain('const usedVariable = "value";');
+79 |   expect(result).not.toContain('const _usedVariable = "value";');
+80 | 
+81 |   // Should keep underscore for unused variable
+82 |   expect(result).toContain('const _unusedVariable = "value";');
+                      ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "const _unusedVariable = \"value\";"
+Received: "\nconst usedVariable = \"value\";\nconst unusedVariable = \"value\";\nconst normalVariable = \"value\";\n\nconsole.log(usedVariable); // Clean version used\n// unusedVariable never used without underscore\nconsole.log(normalVariable);\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/simple-underscore-fix.test.ts:82:18)
+(fail) Simple underscore fix removes ONLY underscores when clean variable is used [0.48ms]
+109 | 
+110 |   // Should keep underscore for _param2 since only _param2 is used
+111 |   expect(result).toContain('_param2,');
+112 | 
+113 |   // Should keep underscore for _unused since unused is never used
+114 |   expect(result).toContain('_unused');
+                       ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "_unused"
+Received: "\nfunction testFunction(param1, _param2, unused) {\n  console.log(param1); // Used without underscore\n  console.log(_param2); // Used with underscore\n  // unused never referenced\n}\n\nconst arrow = (arg1, _arg2) => {\n  return arg1 + _arg2; // arg1 used without underscore\n};\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/simple-underscore-fix.test.ts:114:18)
+(fail) Simple underscore fix handles function parameters correctly [0.34ms]
+144 | 
+145 |   // Should remove underscore from _item1 since item1 is used
+146 |   expect(result).toContain('[item1,');
+147 | 
+148 |   // Should keep underscore for _unusedItem since unusedItem is never used
+149 |   expect(result).toContain('_unusedItem');
+                       ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "_unusedItem"
+Received: "\nconst { prop1, _prop2, _unused } = obj;\nconst [item1, _item2, unusedItem] = array;\n\nconsole.log(prop1); // Used without underscore\nconsole.log(_prop2); // Used with underscore\nconsole.log(item1); // Used without underscore\n// unusedItem never used\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/simple-underscore-fix.test.ts:149:18)
+(fail) Simple underscore fix handles destructuring patterns [0.25ms]
+BOUNDARY VIOLATION: Codemod modified 1 patterns in strings/comments
+(pass) Simple underscore fix BOUNDARY ISSUE: incorrectly matches in strings and comments [0.09ms]
+SCOPE ISSUE: Codemod may incorrectly handle variable scope boundaries
+(pass) Simple underscore fix SCOPE ISSUE: may make incorrect changes across scopes [0.03ms]
+REGEX COMPLEXITY: Multiple overlapping patterns may cause unexpected behavior
+(pass) Simple underscore fix REGEX COMPLEXITY: overlapping patterns may interact unexpectedly [0.08ms]
+264 |   // Should preserve truly unused variables
+265 |   expect(result).toContain('_truly_unused');
+266 |   expect(result).toContain('_another_unused');
+267 | 
+268 |   // Should only fix the used variable
+269 |   expect(result).toContain('const used_variable = "value";');
+                       ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "const used_variable = \"value\";"
+Received: "\nconst _truly_unused = \"value\";\nconst _another_unused = \"value\";\nconst _used_variable = \"value\";\n\n// Only this variable is used without underscore\nconsole.log(used_variable);\n"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/simple-underscore-fix.test.ts:269:18)
+(fail) Simple underscore fix preserves variables that are truly unused [0.05ms]
+(pass) Simple underscore fix edge case: underscore with numbers and complex names [0.09ms]
+
+codemods/fix-indentation.test.ts:
+(pass) ESLint auto-fix codemod runs ONLY the correct ESLint command [0.05ms]
+(pass) ESLint auto-fix uses only safe ESLint flags [0.02ms]
+(pass) ESLint auto-fix handles error cases properly [0.03ms]
+(pass) ESLint auto-fix uses project configuration [0.01ms]
+(pass) ESLint auto-fix does NOT modify files directly [0.03ms]
+(pass) ESLint auto-fix provides appropriate logging [0.02ms]
+(pass) ESLint auto-fix has proper imports and dependencies [0.06ms]
+
+src/types/project.test.ts:
+(pass) ProjectContext > validateRepositoryPath > returns false for clearly invalid paths [0.08ms]
+(pass) ProjectContext > validateRepositoryPath > returns true for current working directory [0.05ms]
+(pass) ProjectContext > createProjectContext > creates a ProjectContext for current working directory [0.09ms]
+{"level":"error","message":"Invalid repository path: /definitely/does/not/exist/path/12345","timestamp":"2025-07-14T03:40:43.590Z"}
+(pass) ProjectContext > createProjectContext > throws an error for clearly invalid path [0.44ms]
+(pass) ProjectContext > createProjectContextFromCwd > creates a ProjectContext from current working directory [0.03ms]
+
+src/utils/package-manager.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../package-manager' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/package-manager.test.ts'
+-------------------------------
+
+
+src/utils/param-schemas.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../param-schemas' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/param-schemas.test.ts'
+-------------------------------
+
+
+src/utils/git-exec-enhanced.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../test-utils/mocking.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/git-exec-enhanced.test.ts'
+-------------------------------
+
+
+src/utils/filter-messages.test.ts:
+(pass) Filter Messages Utility > getStatusFilterMessage > returns correct message for a given status
+(pass) Filter Messages Utility > getStatusFilterMessage > includes the status in single quotes
+(pass) Filter Messages Utility > getActiveTasksMessage > returns message about active tasks [0.02ms]
+(pass) Filter Messages Utility > getActiveTasksMessage > includes instruction about --all flag
+(pass) Filter Messages Utility > generateFilterMessages > returns status filter message when status is provided
+(pass) Filter Messages Utility > generateFilterMessages > returns active tasks message when not showing all tasks
+(pass) Filter Messages Utility > generateFilterMessages > returns no messages when all is true
+(pass) Filter Messages Utility > generateFilterMessages > prioritizes status filter over active tasks message [0.02ms]
+(pass) Filter Messages Utility > generateFilterMessages > returns empty array when no filter options provided [0.01ms]
+
+src/utils/option-descriptions.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../option-descriptions' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/option-descriptions.test.ts'
+-------------------------------
+
+
+src/utils/logger.test.ts:
+(pass) Logger > getLogMode > should return HUMAN when configuration mode is set to HUMAN
+(pass) Logger > getLogMode > should return STRUCTURED when configuration mode is set to STRUCTURED
+(pass) Logger > getLogMode > should default to HUMAN when mode is auto and TTY is available [0.05ms]
+(pass) Logger > getLogMode > should default to STRUCTURED when mode is auto and TTY is not available [0.01ms]
+(pass) Logger > createConfigurableLogger > should create logger with configuration [0.70ms]
+(pass) Logger > createConfigurableLogger > should create logger with STRUCTURED mode [0.24ms]
+(pass) Logger > createConfigurableLogger > should expose logger methods [0.21ms]
+(pass) Logger > createConfigurableLogger > should support dependency injection for testing [0.26ms]
+(pass) Logger > createConfigurableLogger > should handle different log levels [0.28ms]
+(pass) Logger > createConfigurableLogger > should isolate logger instances [0.24ms]
+(pass) Logger > configuration integration > should maintain backward compatibility [0.14ms]
+(pass) Logger > configuration integration > should support enableAgentLogs configuration [0.05ms]
+
+src/mcp/command-mapper.test.ts:
+(pass) CommandMapper > should initialize with server and project context [0.02ms]
+(pass) CommandMapper > should add tool to server when addCommand is called [0.38ms]
+
+src/mcp/server.test.ts:
+(pass) MCP Server > should import FastMCP module successfully [44.05ms]
+(pass) MCP Server > should be able to import our server modules [0.02ms]
+
+src/errors/network-errors.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+75 |       (eaddrinuseError as unknown)?.code = "EADDRINUSE";
+            ^
+error: Invalid assignment target
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/errors/network-errors.test.ts:75:8
+
+78 |       (eaccessError as unknown)?.code = "EACCES";
+            ^
+error: Invalid assignment target
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/errors/network-errors.test.ts:78:8
+
+92 |       (originalError as unknown)?.code = "EADDRINUSE";
+            ^
+error: Invalid assignment target
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/errors/network-errors.test.ts:92:8
+
+102 |       (originalError as unknown)?.code = "EACCES";
+             ^
+error: Invalid assignment target
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/errors/network-errors.test.ts:102:8
+
+112 |       (originalError as unknown)?.code = "SOMETHING_ELSE";
+             ^
+error: Invalid assignment target
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/errors/network-errors.test.ts:112:8
+-------------------------------
+
+
+src/errors/enhanced-error-templates.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../enhanced-error-templates.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/errors/enhanced-error-templates.test.ts'
+-------------------------------
+
+
+src/errors/message-templates.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../message-templates' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/errors/message-templates.test.ts'
+-------------------------------
+
+
+src/domain/session-lookup-bug-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../git' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-lookup-bug-integration.test.ts'
+-------------------------------
+
+
+src/domain/rules.test.ts:
+(pass) RuleService > listRules > lists rules from both formats when no format specified [1.53ms]
+(pass) RuleService > listRules > filters rules by format [0.72ms]
+(pass) RuleService > listRules > filters rules by tag [0.75ms]
+(pass) RuleService > getRule > gets a rule by ID [0.40ms]
+(pass) RuleService > getRule > throws error for non-existent rule [0.53ms]
+(pass) RuleService > getRule > finds rule in specified format [0.42ms]
+(pass) RuleService > createRule > creates a new rule with metadata [0.37ms]
+(pass) RuleService > createRule > handles undefined metadata fields correctly [0.36ms]
+(pass) RuleService > createRule > throws error if rule exists and overwrite is false [0.31ms]
+(pass) RuleService > createRule > overwrites existing rule when overwrite is true [0.55ms]
+(pass) RuleService > updateRule > updates metadata only [0.53ms]
+(pass) RuleService > updateRule > updates content only [0.44ms]
+(pass) RuleService > updateRule > updates both metadata and content [0.40ms]
+(pass) RuleService > searchRules > searches for rules by content [0.58ms]
+(pass) RuleService > searchRules > searches for rules by metadata [2.26ms]
+(pass) RuleService > searchRules > filters search results by format and tag [1.42ms]
+
+src/domain/git-pr-workflow.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session.ts' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git-pr-workflow.test.ts'
+-------------------------------
+
+
+src/domain/session-lookup-bug-reproduction.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-lookup-bug-reproduction.test.ts'
+-------------------------------
+
+
+src/domain/session-pr-body-path.test.ts:
+(pass) sessionPrFromParams bodyPath file reading functionality > should read body content from bodyPath when provided [0.13ms]
+(pass) sessionPrFromParams bodyPath file reading functionality > should handle non-existent files correctly [0.08ms]
+(pass) sessionPrFromParams bodyPath file reading functionality > should detect empty files correctly [0.17ms]
+ENOENT: no such file or directory, open '/Users/edobry/.local/state/minsky/sessions/task#150/test-relative-body.txt'
+    path: "/Users/edobry/.local/state/minsky/sessions/task#150/test-relative-body.txt",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+(fail) sessionPrFromParams bodyPath file reading functionality > should work with relative paths correctly [0.15ms]
+(pass) sessionPrFromParams bodyPath file reading functionality > should validate bodyPath parameter priority logic
+
+src/domain/session-review.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-review.test.ts'
+-------------------------------
+
+
+src/domain/session-git-clone-bug-regression.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-git-clone-bug-regression.test.ts'
+-------------------------------
+
+
+src/domain/git-default-branch.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../git' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git-default-branch.test.ts'
+-------------------------------
+
+
+src/domain/gitServiceTaskStatusUpdate.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../git.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/gitServiceTaskStatusUpdate.test.ts'
+-------------------------------
+
+
+src/domain/rules-format.test.ts:
+(pass) RuleService Format Compatibility > should get a rule in its original format when requested [0.36ms]
+(pass) RuleService Format Compatibility > should get a rule in any format if no format specified [0.23ms]
+(pass) RuleService Format Compatibility > should return rule with format note when requested in different format [0.23ms]
+(pass) RuleService Format Compatibility > should prioritize the requested format for dual-format rules [0.38ms]
+(pass) RuleService Format Compatibility > should throw specific error messages for non-existent rules [1.10ms]
+
+src/domain/session-approve.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-approve.test.ts'
+-------------------------------
+
+
+src/domain/session-approve-branch-cleanup.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-approve-branch-cleanup.test.ts'
+-------------------------------
+
+
+src/domain/session-update.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session.ts' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-update.test.ts'
+-------------------------------
+
+
+src/domain/session-pr-no-branch-switch.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../git.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-pr-no-branch-switch.test.ts'
+-------------------------------
+
+
+src/domain/session-auto-task-creation.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-auto-task-creation.test.ts'
+-------------------------------
+
+
+src/domain/repository-uri.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../utils/test-utils/mocking.ts' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/repository-uri.test.ts'
+-------------------------------
+
+
+src/domain/uri-utils.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../uri-utils.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/uri-utils.test.ts'
+-------------------------------
+
+
+src/domain/workspace.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../workspace' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/workspace.test.ts'
+-------------------------------
+
+
+src/domain/session-lookup-bug-simple.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-lookup-bug-simple.test.ts'
+-------------------------------
+
+
+src/domain/repo-utils.test.ts:
+(pass) Repo Utils > normalizeRepoName extracts repo name from URL [0.14ms]
+(pass) Repo Utils > resolveRepoPath uses provided repo path [0.18ms]
+(pass) Repo Utils > resolveRepoPath resolves from session [0.08ms]
+(pass) Repo Utils > resolveRepoPath falls back to git directory [0.05ms]
+(pass) Repo Utils > resolveRepoPath falls back to current directory when git fails [0.11ms]
+
+src/domain/github-backend.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../repository/github.ts' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/github-backend.test.ts'
+-------------------------------
+
+
+src/domain/tasks.specpath.test.ts:
+
+src/domain/task-status-variables.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../tasks/taskConstants' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/task-status-variables.test.ts'
+-------------------------------
+
+
+src/domain/repository.test.ts:
+(pass) Repository backends > placeholder test to make CI pass - RepositoryBackend
+(pass) Repository backends > placeholder test for LocalGitBackend [0.01ms]
+(pass) Repository backends > placeholder test for RemoteGitBackend
+(pass) Repository backends > placeholder test for GitHubBackend [0.02ms]
+
+src/domain/tasks.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../tasks.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks.test.ts'
+-------------------------------
+
+
+src/domain/prepared-merge-commit-workflow.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../git.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/prepared-merge-commit-workflow.test.ts'
+-------------------------------
+
+
+src/domain/session-pr-refresh.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-pr-refresh.test.ts'
+-------------------------------
+
+
+src/domain/git.test.ts:
+(pass) GitService > should be able to create an instance
+(pass) GitService > should get repository status [0.04ms]
+(pass) GitService > getSessionWorkdir should return the correct path [0.03ms]
+(pass) GitService > execInRepository should execute git commands in the specified repository
+(pass) GitService > execInRepository should propagate errors [0.11ms]
+(pass) GitService > should use session-ID-based storage in getSessionWorkdir [0.04ms]
+(pass) GitService - Core Methods with Dependency Injection > PR Workflow with Dependencies > should generate PR markdown with proper dependency injection [1.25ms]
+(pass) GitService - Core Methods with Dependency Injection > PR Workflow with Dependencies > should handle missing session in PR workflow [0.29ms]
+(pass) GitService - Core Methods with Dependency Injection > PR Workflow with Dependencies > should resolve taskId to session in PR workflow [0.32ms]
+(pass) GitService - Core Methods with Dependency Injection > PR Workflow with Dependencies > should throw error when taskId has no associated session [0.09ms]
+(pass) GitService - Core Methods with Dependency Injection > PR Workflow with Dependencies > should throw error when getSessionByTaskId dependency is not available [0.06ms]
+(pass) GitService - Core Methods with Dependency Injection > PR Workflow with Dependencies > should prioritize session over taskId when both are provided [0.17ms]
+(pass) GitService - Core Methods with Dependency Injection > PR Workflow with Dependencies > should handle git command failures gracefully in PR workflow [0.40ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle commit operations with proper hash extraction
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should extract commit hash from various git output formats [0.13ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle missing commit hash in git output [0.07ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle commit with amend flag [0.11ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle stash operations with state management [0.10ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle no changes to stash scenario
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle popStash with existing stash [0.09ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle popStash with no stash available [0.04ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle merge conflicts with proper detection [0.19ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle successful merge without conflicts [0.04ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle staging operations with proper command execution [0.07ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should verify staging commands are correct [0.05ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle pullLatest with updates detected [0.10ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle pullLatest with no updates [0.03ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle pullLatest with custom remote
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle clone operations with filesystem validation [0.28ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle clone with empty repository URL validation
+{"contents":["existing-file.txt"],"level":"warn","message":"Destination directory is not empty","timestamp":"2025-07-14T03:40:43.833Z","workdir":"/test/base/dir/sessions/test-session"}
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle clone with existing non-empty directory [0.15ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle clone failure during git command execution [0.07ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle clone success verification failure [0.08ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle clone with local repository normalization [0.07ms]
+(pass) GitService - Core Methods with Dependency Injection > Repository Operations with Dependency Injection > should handle error scenarios with proper error propagation [0.08ms]
+(pass) GitService - Core Methods with Dependency Injection > Architecture Analysis - Testing Limitations > should demonstrate the core testing challenge [0.02ms]
+(pass) createGitService Factory Function > should handle undefined options parameter without throwing runtime error
+(pass) createGitService Factory Function > should handle null options parameter without throwing runtime error
+(pass) createGitService Factory Function > should handle options with undefined baseDir property
+(pass) createGitService Factory Function > should create GitService with custom baseDir when provided
+(pass) createGitService Factory Function > should create GitService with default baseDir when no options provided
+
+src/domain/session-pr-branch-reference-bug.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../utils/test-utils/mocking' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-pr-branch-reference-bug.test.ts'
+-------------------------------
+
+
+src/domain/github-basic.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../repository/github.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/github-basic.test.ts'
+-------------------------------
+
+
+src/domain/git.pr.test.ts:
+(pass) GitService PR Functionality > isGitHubRepo should identify GitHub URLs correctly [0.05ms]
+(pass) GitService PR Functionality > should create a PR description [0.05ms]
+
+src/domain/session-start-consistency.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session-start-consistency.test.ts'
+-------------------------------
+
+
+src/domain/task-status-bug-regression.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../tasks/taskConstants' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/task-status-bug-regression.test.ts'
+-------------------------------
+
+
+codemods/tests/comprehensive-underscore-fix.test.ts:
+51 | function process(_data: string) {
+52 |   return data.toUpperCase();
+53 | }
+54 |       `;
+55 | 
+56 |       writeFileSync(testFile, input);
+           ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/underscore-mismatch.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:56:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Positive Constraints: Should Fix > should fix declaration vs usage mismatches [0.17ms]
+83 | 
+84 | const result = _response.json();
+85 | console.log(\`Response: \${_response.status}\`);
+86 |       `;
+87 | 
+88 |       writeFileSync(testFile, input);
+           ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/usage-patterns.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:88:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Positive Constraints: Should Fix > should fix complex usage patterns [0.03ms]
+121 | // This should remain unchanged
+122 | const normalVariable = 'test';
+123 | const anotherVar = normalVariable.toUpperCase();
+124 |       `;
+125 | 
+126 |       writeFileSync(testFile, input);
+            ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/no-issues.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:126:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Negative Constraints: Should NOT Modify > should not modify code without underscore issues [0.07ms]
+156 |   _debug: true,
+157 |   _version: '1.0.0'
+158 | };
+159 |       `;
+160 | 
+161 |       writeFileSync(testFile, input);
+            ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/intentional-underscores.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:161:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Negative Constraints: Should NOT Modify > should not modify intentional underscore prefixes [0.04ms]
+183 | 
+184 | // Template literals and other complex patterns
+185 | const message = \`The result is: \${result}\`;
+186 |       `;
+187 | 
+188 |       writeFileSync(testFile, input);
+            ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/syntax-validation.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:188:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Negative Constraints: Should NOT Modify > should not break syntax or create invalid code [0.06ms]
+229 |   '_key': 'value',
+230 |   normal: 'value'
+231 | };
+232 |       `;
+233 | 
+234 |       writeFileSync(testFile, input);
+            ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/edge-cases.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:234:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Boundary Violation Detection > should detect overly broad regex patterns [0.06ms]
+258 | const _test = 'value';
+259 | const __test = 'value';
+260 | const ___test = 'value';
+261 |       `;
+262 | 
+263 |       writeFileSync(testFile, input);
+            ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/loop-detection.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:263:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Boundary Violation Detection > should not create infinite replacement loops [0.05ms]
+286 |       for (let i = 0; i < 1000; i++) {
+287 |         lines.push(`const _var${i} = getValue(${i});`);
+288 |         lines.push(`console.log(var${i});`);
+289 |       }
+290 | 
+291 |       writeFileSync(testFile, lines.join('\n'));
+            ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/large-file.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:291:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Performance and Safety > should handle large files efficiently [0.38ms]
+305 | const _b = 2;
+306 | const _c = 3;
+307 | console.log(a + b + c);
+308 |       `;
+309 | 
+310 |       writeFileSync(testFile, input);
+            ^
+error: ENOENT: no such file or directory, open '/tmp/codemod-test-comprehensive-underscore/src/count-validation.ts'
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/tests/comprehensive-underscore-fix.test.ts:310:7)
+(fail) Boundary Validation: fix-underscore-prefix.ts > Performance and Safety > should report accurate change counts [0.05ms]
+
+tests/consolidated-utilities/variable-naming-fixer.test.ts:
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+43 |       writeFileSync(testFile, originalCode);
+44 | 
+45 |       fixer.processFiles(`${testDir}/**/*.ts`);
+46 | 
+47 |       const fixedCode = readFileSync(testFile, "utf-8");
+48 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "function processData(data: unknown) {\n  console.log(data.length);\n  return data.toString();\n}"
+Received: "function processData(_data: unknown) {\n  console.log(data.length);\n  return data.toString();\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:48:32)
+(fail) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should fix parameter definitions with underscores when usage has no underscore [11.14ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-zuteY6/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-zuteY6/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-zuteY6/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+63 |       writeFileSync(testFile, originalCode);
+64 | 
+65 |       fixer.processFiles(`${testDir}/**/*.ts`);
+66 | 
+67 |       const fixedCode = readFileSync(testFile, "utf-8");
+68 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "const result = fetchData();\nconsole.log(result.status);\nreturn result.data;"
+Received: "const _result = fetchData();\nconsole.log(result.status);\nreturn result.data;"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:68:32)
+(fail) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should fix variable declarations with underscores when usage has no underscore [3.70ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+81 |       writeFileSync(testFile, originalCode);
+82 | 
+83 |       fixer.processFiles(`${testDir}/**/*.ts`);
+84 | 
+85 |       const fixedCode = readFileSync(testFile, "utf-8");
+86 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "const { name, age } = person;\nconsole.log(name, age);"
+Received: "const { _name, _age } = person;\nconsole.log(name, age);"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:86:32)
+(fail) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should handle destructuring with underscore mismatches [3.37ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-2ISn6n/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-2ISn6n/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-2ISn6n/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change intentionally unused parameters with underscores [2.65ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-D7315P/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-D7315P/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-D7315P/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change variables that are used with underscores consistently [1.41ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change underscore patterns in strings or comments [2.04ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+(pass) Variable Naming Fixer Consolidated > Boundary Validation - Should NOT Change > should handle scope correctly - same variable names in different scopes [2.35ms]
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+(pass) Variable Naming Fixer Consolidated > Error Handling > should handle files with syntax errors gracefully [2.24ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-Fg4rrc/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-Fg4rrc/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-Fg4rrc/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Variable Naming Fixer Consolidated > Error Handling > should handle non-existent patterns gracefully [1.44ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-6DqbnA/broken.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-6DqbnA/broken.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-6DqbnA/broken.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+221 |       writeFileSync(testFile, originalCode);
+222 | 
+223 |       fixer.processFiles(`${testDir}/**/*.ts`);
+224 | 
+225 |       const fixedCode = readFileSync(testFile, "utf-8");
+226 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "function complex(_config: Config, data: Data) {\n  // _config is unused, should stay with underscore\n  const result = processData(data);\n  console.log(result.status); // result used without underscore\n  \n  const { name, age } = data;\n  console.log(name); // name used without underscore\n  console.log(age);  // age used consistently\n  \n  return result;\n}"
+Received: "function complex(_config: Config, data: Data) {\n  // _config is unused, should stay with underscore\n  const _result = processData(data);\n  console.log(result.status); // result used without underscore\n  \n  const { _name, age } = data;\n  console.log(name); // name used without underscore\n  console.log(age);  // age used consistently\n  \n  return result;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:226:32)
+(fail) Variable Naming Fixer Consolidated > Complex Scenarios > should handle mixed scenarios correctly [3.62ms]
+249 | 
+250 |       console.log = originalLog;
+251 | 
+252 |       // Check that metrics were logged
+253 |       const metricsLog = logs.find(log => log.includes("Variable Naming Fix Results"));
+254 |       expect(metricsLog).toBeDefined();
+                               ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:254:26)
+(fail) Variable Naming Fixer Consolidated > Performance and Metrics > should provide accurate metrics [2.27ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-RuMdTF/mixed.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-RuMdTF/mixed.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-RuMdTF/mixed.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+284 |       writeFileSync(testFile, originalCode);
+285 | 
+286 |       fixer.processFiles(`${testDir}/**/*.ts`);
+287 | 
+288 |       const fixedCode = readFileSync(testFile, "utf-8");
+289 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "interface Config {\n  _value: string;\n}\n\nfunction test<T>(_generic: T): Promise<T> {\n  const typed: T = _generic;\n  return Promise.resolve(typed);\n}"
+Received: "interface Config {\n  _value: string;\n}\n\nfunction test<T>(_generic: T): Promise<T> {\n  const _typed: T = _generic;\n  return Promise.resolve(typed);\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/variable-naming-fixer.test.ts:289:32)
+(fail) Variable Naming Fixer Consolidated > Integration with AST Analysis > should properly parse TypeScript files with complex syntax [3.04ms]
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-mKUvm3/metrics.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-mKUvm3/metrics.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-mKUvm3/metrics.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+
+tests/consolidated-utilities/typescript-error-fixer.test.ts:
+Error saving /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-7120cO/complex-syntax.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-7120cO/complex-syntax.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-7120cO/complex-syntax.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+41 |       writeFileSync(testFile, originalCode);
+42 | 
+43 |       fixer.processFiles(`${testDir}/**/*.ts`);
+44 | 
+45 |       const fixedCode = readFileSync(testFile, "utf-8");
+46 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "function test(param: any) {\n  return param;\n}"
+Received: "function test(param) {\n  return param;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:46:32)
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should add missing type annotations [350.16ms]
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+65 |       writeFileSync(testFile, originalCode);
+66 | 
+67 |       fixer.processFiles(`${testDir}/**/*.ts`);
+68 | 
+69 |       const fixedCode = readFileSync(testFile, "utf-8");
+70 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "let data: any;\nconst array: any[] = [];\nfunction process(value: any) {\n  return value;\n}"
+Received: "let data;\nconst array = [];\nfunction process(value) {\n  return value;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:70:32)
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should fix implicit any types [201.26ms]
+🔧 Processing 1 TypeScript files for error fixing...
+Error fixing TS2339 in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-xeGglQ/test.ts: 331 | (function (errors) {
+332 |     class BaseError extends Error {
+333 |         constructor(message, node) {
+334 |             const nodeLocation = node && getPrettyNodeLocation(node);
+335 |             const messageWithLocation = nodeLocation ? `${message}\n\n${nodeLocation}` : message;
+336 |             super(messageWithLocation);
+                  ^
+error: Manipulation error: A syntax error was inserted.
+
+[96m../../../../../../../var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-xeGglQ/test.ts[0m:[93m3[0m:[93m24[0m - [91merror[0m[90m TS1005: [0m';' expected.
+
+[7m3[0m   return Promise as any?.resolve("test" as any);
+[7m [0m [91m                       ~~[0m
+
+Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+
+-- Details --
+Path: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-xeGglQ/test.ts
+Text: "\nfunction test() {\n  return Promise as any?.resolve(\"test\" as any);\n}"
+Stack: Error: Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1494:23)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2389:21)
+    at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+    at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+    at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+    at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:84:13)
+ filePath: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-xeGglQ/test.ts",
+  oldText: "\nfunction test() {\n  return Promise?.resolve(\"test\" as any);\n}",
+  newText: "\nfunction test() {\n  return Promise as any?.resolve(\"test\" as any);\n}",
+
+      at new BaseError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:336:13)
+      at new InvalidOperationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:388:13)
+      at new ManipulationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2376:9)
+      at throwError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2405:19)
+      at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2399:13)
+      at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+      at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+      at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:84:13)
+
+(pass) TypeScript Error Fixer Consolidated > Import/Export Fixes > should fix missing imports [239.03ms]
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) TypeScript Error Fixer Consolidated > Import/Export Fixes > should fix export syntax [166.76ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-xeGglQ/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-xeGglQ/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-xeGglQ/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2345: 1 fixes
+   TS18048: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Generic Type Fixes > should fix generic constraint errors [170.38ms]
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Generic Type Fixes > should handle complex generic scenarios [173.64ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-ucRom9/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-ucRom9/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-ucRom9/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change properly typed code [178.97ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-n3Ile5/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-n3Ile5/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-n3Ile5/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+   TS2353: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) TypeScript Error Fixer Consolidated > Boundary Validation - Should NOT Change > should NOT change complex type structures [164.99ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-oek7OI/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-oek7OI/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-oek7OI/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+   TS2353: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) TypeScript Error Fixer Consolidated > Error Handling > should handle files with syntax errors gracefully [159.02ms]
+🔧 Processing 1 TypeScript files for error fixing...
+Error fixing TS2339 in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-XnPwWS/complex.ts: 331 | (function (errors) {
+332 |     class BaseError extends Error {
+333 |         constructor(message, node) {
+334 |             const nodeLocation = node && getPrettyNodeLocation(node);
+335 |             const messageWithLocation = nodeLocation ? `${message}\n\n${nodeLocation}` : message;
+336 |             super(messageWithLocation);
+                  ^
+error: Manipulation error: A syntax error was inserted.
+
+[96m../../../../../../../var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-XnPwWS/complex.ts[0m:[93m5[0m:[93m22[0m - [91merror[0m[90m TS1005: [0m';' expected.
+
+[7m5[0m   return Array as any?.isArray(value as any) ? value : [value] as ConditionalType<T>;
+[7m [0m [91m                     ~~[0m
+
+Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+
+-- Details --
+Path: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-XnPwWS/complex.ts
+Text: "...nalType<T> = T extends string ? string[] : T[];\n\nfunction process<T>(value: T): ConditionalType<T> {\n  return Array as any?.isArray(value as any) ? value : [value] as ConditionalType<T>;\n}"
+Stack: Error: Error replacing tree: The children of the old and new trees were expected to have the same count (1:3).
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1494:23)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1432:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2389:21)
+    at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+    at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+    at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+    at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:209:13)
+ filePath: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-XnPwWS/complex.ts",
+  oldText: "\ntype ConditionalType<T> = T extends string ? string[] : T[];\n\nfunction process<T>(value: T): ConditionalType<T> {\n  return Array?.isArray(value as any) ? value : [value] as ConditionalType<T>;\n}",
+  newText: "\ntype ConditionalType<T> = T extends string ? string[] : T[];\n\nfunction process<T>(value: T): ConditionalType<T> {\n  return Array as any?.isArray(value as any) ? value : [value] as ConditionalType<T>;\n}",
+
+      at new BaseError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:336:13)
+      at new InvalidOperationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:388:13)
+      at new ManipulationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2376:9)
+      at throwError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2405:19)
+      at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2399:13)
+      at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+      at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+      at fixTS2339 (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:290:20)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:368:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/typescript-error-fixer-consolidated.ts:348:29)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:209:13)
+
+(pass) TypeScript Error Fixer Consolidated > Error Handling > should handle complex TypeScript syntax [204.74ms]
+235 | 
+236 |       console.log = originalLog;
+237 | 
+238 |       // Check that metrics were logged
+239 |       const metricsLog = logs.find(log => log.includes("TypeScript Error Fix Results"));
+240 |       expect(metricsLog).toBeDefined();
+                               ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/typescript-error-fixer.test.ts:240:26)
+(fail) TypeScript Error Fixer Consolidated > Performance and Metrics > should provide accurate metrics [162.00ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-XnPwWS/complex.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-XnPwWS/complex.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-XnPwWS/complex.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2345: 1 fixes
+   TS18048: 1 fixes
+🔧 Processing 1 TypeScript files for error fixing...
+(pass) TypeScript Error Fixer Consolidated > Integration with AST Analysis > should handle nested function types [173.91ms]
+
+tests/consolidated-utilities/unused-elements-fixer.test.ts:
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-tElvkx/nested.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-tElvkx/nested.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/typescript-error-test-tElvkx/nested.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 TypeScript Error Fixing Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Error breakdown:
+   TS2322: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+40 |       writeFileSync(testFile, originalCode);
+41 | 
+42 |       fixer.processFiles(`${testDir}/**/*.ts`);
+43 | 
+44 |       const fixedCode = readFileSync(testFile, "utf-8");
+45 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "const used = \"hello\";\nconsole.log(used);"
+Received: "const used = \"hello\";\nconst unused = \"world\";\nconsole.log(used);"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:45:32)
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused variable declarations [2.58ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+60 |       writeFileSync(testFile, originalCode);
+61 | 
+62 |       fixer.processFiles(`${testDir}/**/*.ts`);
+63 | 
+64 |       const fixedCode = readFileSync(testFile, "utf-8");
+65 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "function test(used: string) {\n  return used.length;\n}"
+Received: "function test(used: string, unused: number) {\n  return used.length;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:65:32)
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused function parameters [2.79ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-RSmBsE/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-RSmBsE/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-RSmBsE/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+79 |       writeFileSync(testFile, originalCode);
+80 | 
+81 |       fixer.processFiles(`${testDir}/**/*.ts`);
+82 | 
+83 |       const fixedCode = readFileSync(testFile, "utf-8");
+84 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                    ^
+error: expect(received).toBe(expected)
+
+Expected: "import { used } from \"./module\";\nconsole.log(used);"
+Received: "import { used, unused } from \"./module\";\nimport { anotherUnused } from \"./other\";\nconsole.log(used);"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:84:32)
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused imports [1.83ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-ljzwfL/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-ljzwfL/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-ljzwfL/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-parameters: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove variables with underscore prefix (intentionally unused) [1.17ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove exports [1.79ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove type definitions [1.35ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-xCfcR8/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-xCfcR8/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-xCfcR8/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Boundary Validation - Should NOT Remove > should NOT remove variables used in closures [1.48ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+Error fixing unused-variables in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-MDbUXA/test.ts: 331 | (function (errors) {
+332 |     class BaseError extends Error {
+333 |         constructor(message, node) {
+334 |             const nodeLocation = node && getPrettyNodeLocation(node);
+335 |             const messageWithLocation = nodeLocation ? `${message}\n\n${nodeLocation}` : message;
+336 |             super(messageWithLocation);
+                  ^
+error: Manipulation error: A syntax error was inserted.
+
+[96m../../../../../../../var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-MDbUXA/test.ts[0m:[93m2[0m:[93m8[0m - [91merror[0m[90m TS1005: [0m',' expected.
+
+[7m2[0m const _{ used, unused } = getData();
+[7m [0m [91m       ~[0m
+
+Error replacing tree: The children of the old and new trees were expected to have the same count (1:2).
+
+-- Details --
+Path: /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-MDbUXA/test.ts
+Text: "\nconst _{ used, unused } = getData();\nconsole.log(used);"
+Stack: Error: Error replacing tree: The children of the old and new trees were expected to have the same count (1:2).
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1494:23)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at handleForValues (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1429:21)
+    at #handleChildren (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1498:25)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1488:18)
+    at handleNode (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:1645:19)
+    at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2389:21)
+    at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+    at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+    at fixUnusedVariables (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:150:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:351:35)
+    at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:331:29)
+    at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:169:13)
+ filePath: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-MDbUXA/test.ts",
+  oldText: "\nconst { used, unused } = getData();\nconsole.log(used);",
+  newText: "\nconst _{ used, unused } = getData();\nconsole.log(used);",
+
+      at new BaseError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:336:13)
+      at new InvalidOperationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/@ts-morph/common/dist/ts-morph-common.js:388:13)
+      at new ManipulationError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2376:9)
+      at throwError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2405:19)
+      at doManipulation (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2399:13)
+      at insertIntoParentTextRange (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:2423:5)
+      at replaceWithText (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/ts-morph/dist/ts-morph.js:3752:9)
+      at fixUnusedVariables (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:150:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:351:35)
+      at processFiles (/Users/edobry/.local/state/minsky/sessions/task#276/codemods/unused-elements-fixer-consolidated.ts:331:29)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:169:13)
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+167 |       writeFileSync(testFile, originalCode);
+168 | 
+169 |       fixer.processFiles(`${testDir}/**/*.ts`);
+170 | 
+171 |       const fixedCode = readFileSync(testFile, "utf-8");
+172 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "const { used } = getData();\nconsole.log(used);"
+Received: "const { used, unused } = getData();\nconsole.log(used);"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:172:32)
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle destructuring correctly [41.97ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+193 |       writeFileSync(testFile, originalCode);
+194 | 
+195 |       fixer.processFiles(`${testDir}/**/*.ts`);
+196 | 
+197 |       const fixedCode = readFileSync(testFile, "utf-8");
+198 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "const callback = (used: string) => {\n  return used.length;\n};\nconst func = function(used: string) {\n  return used.toUpperCase();\n};"
+Received: "const callback = (used: string, unused: number) => {\n  return used.length;\n};\nconst func = function(used: string, unused: number) {\n  return used.toUpperCase();\n};"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:198:32)
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle function expressions and arrow functions [3.22ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+226 |       writeFileSync(testFile, originalCode);
+227 | 
+228 |       fixer.processFiles(`${testDir}/**/*.ts`);
+229 | 
+230 |       const fixedCode = readFileSync(testFile, "utf-8");
+231 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "class TestClass {\n  private usedProperty = \"used\";\n  \n  public usedMethod() {\n    return this.usedProperty;\n  }\n}"
+Received: "class TestClass {\n  private usedProperty = \"used\";\n  private unusedProperty = \"unused\";\n  \n  public usedMethod() {\n    return this.usedProperty;\n  }\n  \n  private unusedMethod() {\n    return \"unused\";\n  }\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:231:32)
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle class properties and methods [1.36ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-0UDDta/test.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-0UDDta/test.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-0UDDta/test.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 4
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 2 fixes
+   unused-parameters: 2 fixes
+🧹 Processing 1 TypeScript files for unused element cleanup...
+(pass) Unused Elements Fixer Consolidated > Error Handling > should handle files with syntax errors gracefully [1.26ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+(pass) Unused Elements Fixer Consolidated > Error Handling > should handle empty files gracefully [0.90ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-94VekU/broken.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-94VekU/broken.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-94VekU/broken.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 1 fixes
+287 | 
+288 |       console.log = originalLog;
+289 | 
+290 |       // Check that metrics were logged
+291 |       const metricsLog = logs.find(log => log.includes("Unused Elements Fix Results"));
+292 |       expect(metricsLog).toBeDefined();
+                               ^
+error: expect(received).toBeDefined()
+
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:292:26)
+(fail) Unused Elements Fixer Consolidated > Performance and Metrics > should provide accurate metrics [1.80ms]
+🧹 Processing 1 TypeScript files for unused element cleanup...
+320 |       writeFileSync(testFile, originalCode);
+321 | 
+322 |       fixer.processFiles(`${testDir}/**/*.ts`);
+323 | 
+324 |       const fixedCode = readFileSync(testFile, "utf-8");
+325 |       expect(fixedCode.trim()).toBe(expectedCode.trim());
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: "interface Config {\n  value: string;\n}\n\nfunction test<T>(used: T): T {\n  return used;\n}"
+Received: "interface Config {\n  value: string;\n}\n\nfunction test<T>(used: T, unused: Config): T {\n  return used;\n}"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/consolidated-utilities/unused-elements-fixer.test.ts:325:32)
+(fail) Unused Elements Fixer Consolidated > Integration with AST Analysis > should properly handle TypeScript-specific syntax [1.91ms]
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-1PuIJH/metrics.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-1PuIJH/metrics.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-1PuIJH/metrics.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 2
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-variables: 2 fixes
+
+tests/adapters/shared.rules.adapter.test.ts:
+Error processing /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-P4hOTf/typescript-syntax.ts: ENOENT: no such file or directory, open '/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-P4hOTf/typescript-syntax.ts'
+    path: "/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/unused-elements-test-P4hOTf/typescript-syntax.ts",
+ syscall: "open",
+   errno: -2,
+    code: "ENOENT"
+
+
+
+🎯 Unused Elements Cleanup Results:
+   Files processed: 0/1
+   Total fixes applied: 1
+   Success rate: 0.0%
+
+📊 Element type breakdown:
+   unused-parameters: 1 fixes
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../../adapters/shared/commands/rules.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/shared.rules.adapter.test.ts'
+-------------------------------
+
+
+tests/adapters/shared.git.adapter.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../../adapters/shared/commands/git.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/shared.git.adapter.test.ts'
+-------------------------------
+
+
+tests/adapters/shared.tasks.adapter.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../../src/adapters/shared/commands/tasks.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/shared.tasks.adapter.test.ts'
+-------------------------------
+
+
+tests/adapters/shared.session.adapter.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../../domain/session.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/shared.session.adapter.test.ts'
+-------------------------------
+
+
+adapters/shared/commands/session-conflict-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+47 |     (sharedCommandRegistry as unknown)?.commands = new Map();
+          ^
+error: Invalid assignment target
+    at /Users/edobry/.local/state/minsky/sessions/task#276/adapters/shared/commands/session-conflict-integration.test.ts:47:6
+-------------------------------
+
+
+adapters/cli/tests/git-merge-pr.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../domain/git' from '/Users/edobry/.local/state/minsky/sessions/task#276/adapters/cli/tests/git-merge-pr.test.ts'
+-------------------------------
+
+
+src/utils/test-utils/assertions.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../assertions' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/test-utils/assertions.test.ts'
+-------------------------------
+
+
+src/utils/test-utils/enhanced-utils.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../mocking.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/test-utils/enhanced-utils.test.ts'
+-------------------------------
+
+
+src/utils/test-utils/compatibility.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../mocking' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/test-utils/compatibility.test.ts'
+-------------------------------
+
+
+src/utils/test-utils/mocking.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../assertions' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/utils/test-utils/mocking.test.ts'
+-------------------------------
+
+
+src/adapters/shared/command-registry.test.ts:
+(pass) SharedCommandRegistry > Command Registration > should register a command without type casting [1.30ms]
+(pass) SharedCommandRegistry > Command Registration > should preserve type information in registered commands [0.15ms]
+(pass) SharedCommandRegistry > Command Registration > should throw error when registering duplicate command without allowOverwrite [0.44ms]
+(pass) SharedCommandRegistry > Command Registration > should allow overwrite when allowOverwrite is true [0.09ms]
+(pass) SharedCommandRegistry > Command Retrieval > should retrieve commands by ID with correct types [0.10ms]
+(pass) SharedCommandRegistry > Command Retrieval > should return undefined for non-existent commands [0.04ms]
+(pass) SharedCommandRegistry > Command Retrieval > should retrieve commands by category [0.06ms]
+(pass) SharedCommandRegistry > Command Retrieval > should retrieve all commands [0.14ms]
+(pass) SharedCommandRegistry > Type Safety Validation > should maintain parameter type information through execution [0.13ms]
+(pass) SharedCommandRegistry > Registry Management > should report correct command count [0.27ms]
+(pass) SharedCommandRegistry > Registry Management > should check command existence [0.06ms]
+(pass) SharedCommandRegistry > Registry Management > should clear all commands [0.04ms]
+
+src/domain/configuration/backend-detector.test.ts:
+(pass) DefaultBackendDetector > detectBackend > should detect markdown backend when process/tasks.md exists [0.47ms]
+(pass) DefaultBackendDetector > detectBackend > should detect json-file backend when .minsky/tasks.json exists [0.27ms]
+(pass) DefaultBackendDetector > detectBackend > should prioritize markdown over json-file when both exist [0.49ms]
+(pass) DefaultBackendDetector > detectBackend > should fallback to json-file when no specific files exist
+(pass) DefaultBackendDetector > detectBackend > should respect custom rule order [0.22ms]
+(pass) DefaultBackendDetector > tasksMdExists > should return true when process/tasks.md exists [0.19ms]
+(pass) DefaultBackendDetector > tasksMdExists > should return false when process/tasks.md does not exist
+(pass) DefaultBackendDetector > tasksMdExists > should return false when process directory does not exist
+(pass) DefaultBackendDetector > jsonFileExists > should return true when .minsky/tasks.json exists [0.16ms]
+(pass) DefaultBackendDetector > jsonFileExists > should return false when .minsky/tasks.json does not exist [0.02ms]
+(pass) DefaultBackendDetector > jsonFileExists > should return false when .minsky directory does not exist [0.02ms]
+(pass) DefaultBackendDetector > githubRemoteExists > should return false (disabled for auto-detection) [0.02ms]
+(pass) DefaultBackendDetector > integration with default rules > should match the behavior described in the original issue [0.18ms]
+
+src/domain/configuration/sessiondb-config.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../config-loader' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/configuration/sessiondb-config.test.ts'
+-------------------------------
+
+
+src/domain/configuration/configuration-service.test.ts:
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate a valid repository config
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate empty config [0.11ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate missing GitHub repo [0.02ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate invalid backend
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate SessionDB configuration [0.21ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate invalid SessionDB backend [0.02ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate empty paths [0.02ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate PostgreSQL connection string [0.10ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate invalid PostgreSQL connection string [0.03ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate AI configuration [0.10ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate invalid AI provider [0.02ms]
+(pass) DefaultConfigurationService > validateRepositoryConfig > should validate invalid AI temperature [0.02ms]
+(pass) DefaultConfigurationService > validateGlobalUserConfig > should validate a valid global user config [0.04ms]
+(pass) DefaultConfigurationService > validateGlobalUserConfig > should validate empty config
+(pass) DefaultConfigurationService > validateGlobalUserConfig > should validate SessionDB configuration in global config [0.03ms]
+(pass) DefaultConfigurationService > validateGlobalUserConfig > should validate AI configuration in global config [0.02ms]
+(pass) DefaultConfigurationService > validateGlobalUserConfig > should validate PostgreSQL configuration in global config [0.02ms]
+(pass) DefaultConfigurationService > validateGlobalUserConfig > should validate invalid credential source [0.01ms]
+
+src/domain/tasks/utils.test.ts:
+(pass) normalizeTaskId > should normalize "#064" to "#064" (with # and leading zero) [0.08ms]
+(pass) normalizeTaskId > should normalize "#64" to "#64" (with #, no leading zero) [0.01ms]
+(pass) normalizeTaskId > should normalize "064" to "#064" (no #, with leading zero)
+(pass) normalizeTaskId > should normalize "64" to "#64" (no #, no leading zero)
+(pass) normalizeTaskId > should normalize "task#064" to "#064" (with task# and leading zero)
+(pass) normalizeTaskId > should normalize "task#64" to "#64" (with task#, no leading zero)
+(pass) normalizeTaskId > should normalize "TASK#64" to "#64" (with TASK# (uppercase), no leading zero)
+(pass) normalizeTaskId > should normalize "  #64  " to "#64" (with whitespace)
+(pass) normalizeTaskId > should normalize "task#0" to "#0" (task ID zero)
+(pass) normalizeTaskId > should normalize "0" to "#0" (task ID zero numeric) [0.02ms]
+(pass) normalizeTaskId > should return null for invalid input "abc" (non-numeric)
+(pass) normalizeTaskId > should return null for invalid input "#abc" (# with non-numeric)
+(pass) normalizeTaskId > should return null for invalid input "task#abc" (task# with non-numeric)
+(pass) normalizeTaskId > should return null for invalid input "64a" (numeric followed by alpha)
+(pass) normalizeTaskId > should return null for invalid input "a64" (alpha followed by numeric)
+(pass) normalizeTaskId > should return null for invalid input "#" (only #)
+(pass) normalizeTaskId > should return null for invalid input "task#" (only task#)
+(pass) normalizeTaskId > should return null for invalid input "" (empty string)
+(pass) normalizeTaskId > should return null for invalid input "   " (whitespace only)
+(pass) normalizeTaskId > should return null for invalid input "null" (null input)
+(pass) normalizeTaskId > should return null for invalid input "undefined" (undefined input)
+(pass) normalizeTaskId > should return null for invalid input "123" (number input type)
+
+src/domain/tasks/taskService-jsonFile-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../taskService' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskService-jsonFile-integration.test.ts'
+-------------------------------
+
+
+src/domain/tasks/jsonFileTaskBackend.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../jsonFileTaskBackend' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/jsonFileTaskBackend.test.ts'
+-------------------------------
+
+
+src/domain/tasks/special-workspace-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../taskService' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/special-workspace-integration.test.ts'
+-------------------------------
+
+
+src/domain/tasks/real-world-workflow.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../jsonFileTaskBackend' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/real-world-workflow.test.ts'
+-------------------------------
+
+
+src/domain/tasks/taskService.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../taskService.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskService.test.ts'
+-------------------------------
+
+
+src/domain/tasks/task-backend-router.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../task-backend-router' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/task-backend-router.test.ts'
+-------------------------------
+
+
+src/domain/tasks/taskFunctions.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../taskFunctions.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskFunctions.test.ts'
+-------------------------------
+
+
+src/domain/tasks/configuration-integration.test.ts:
+{"error":"undefined is not an object (evaluating 'config.github.credentials')","level":"warn","message":"Failed to resolve configuration, using default backend","timestamp":"2025-07-14T03:40:46.415Z","workspacePath":"/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/config-test-1752464446406"}
+(pass) Configuration Integration > createConfiguredTaskService should use configuration to resolve backend [54.00ms]
+{"error":"undefined is not an object (evaluating 'config.github.credentials')","level":"warn","message":"Failed to resolve configuration, using default backend","timestamp":"2025-07-14T03:40:46.462Z","workspacePath":"/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/non-existent-1752464446461"}
+(pass) Configuration Integration > createConfiguredTaskService should fall back to default when configuration fails [0.89ms]
+(pass) Configuration Integration > createConfiguredTaskService should respect explicit backend parameter [2.14ms]
+
+src/domain/tasks/githubIssuesTaskBackend.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../githubIssuesTaskBackend' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/githubIssuesTaskBackend.test.ts'
+-------------------------------
+
+
+src/domain/tasks/taskConstants.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../taskConstants.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskConstants.test.ts'
+-------------------------------
+
+
+src/domain/tasks/taskCommands.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../taskCommands' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.test.ts'
+-------------------------------
+
+
+src/domain/workspace/session-path-resolver.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../session/session-path-resolver' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/workspace/session-path-resolver.test.ts'
+-------------------------------
+
+
+src/domain/storage/database-integrity-checker.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../database-integrity-checker' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/database-integrity-checker.test.ts'
+-------------------------------
+
+
+src/domain/storage/json-file-storage.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../json-file-storage' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/storage/json-file-storage.test.ts'
+-------------------------------
+
+
+src/domain/__tests__/tasks.test.ts:
+70 |   try {
+71 |     // Validate params with Zod schema
+72 |     const validParams = (taskListParamsSchema as unknown).parse(params as unknown);
+73 | 
+74 |     // Get the main workspace path (always resolves to main workspace, not session)
+75 |     const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
+                                                       ^
+TypeError: deps.resolveMainWorkspacePath is not a function. (In 'deps.resolveMainWorkspacePath()', 'deps.resolveMainWorkspacePath' is undefined)
+      at listTasksFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:75:51)
+      at listTasksFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:59:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:71:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:64:53)
+(fail) interface-agnostic task functions > listTasksFromParams > should list tasks with valid parameters [0.42ms]
+70 |   try {
+71 |     // Validate params with Zod schema
+72 |     const validParams = (taskListParamsSchema as unknown).parse(params as unknown);
+73 | 
+74 |     // Get the main workspace path (always resolves to main workspace, not session)
+75 |     const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
+                                                       ^
+TypeError: deps.resolveMainWorkspacePath is not a function. (In 'deps.resolveMainWorkspacePath()', 'deps.resolveMainWorkspacePath' is undefined)
+      at listTasksFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:75:51)
+      at listTasksFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:59:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:95:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:85:60)
+(fail) interface-agnostic task functions > listTasksFromParams > should filter out DONE tasks when all is false [0.06ms]
+167 |     }
+168 | 
+169 |     return task;
+170 |   } catch (error) {
+171 |     if (error instanceof z.ZodError) {
+172 |       throw new ValidationError("Invalid parameters for getting task", (error as any).format(), error as any);
+                  ^
+ValidationError: Invalid parameters for getting task
+ errors: {
+  _errors: [],
+  taskId: [Object ...],
+},
+
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:172:13)
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:114:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:109:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:103:53)
+
+24 | export class ZodError extends Error {
+25 |     get errors() {
+26 |         return this.issues;
+27 |     }
+28 |     constructor(issues) {
+29 |         super();
+             ^
+ZodError: [
+  {
+    "code": "custom",
+    "message": "Task ID must be in format #TEST_VALUE or TEST_VALUE",
+    "path": [
+      "taskId"
+    ]
+  }
+]
+    issues: [
+  [Object ...]
+],
+  addIssue: [Function],
+ addIssues: [Function],
+
+      at new ZodError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/ZodError.js:29:9)
+      at error (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:51:31)
+      at parse (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:126:15)
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:141:58)
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:114:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:109:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:103:53)
+(fail) interface-agnostic task functions > getTaskFromParams > should get a task with valid parameters [1.14ms]
+120 | 
+121 |       try {
+122 |         await getTaskFromParams(params, mockDeps);
+123 |         expect(true).toBe(false); // Should not reach here
+124 |       } catch {
+125 |         expectToBeInstanceOf(e, ResourceNotFoundError);
+                                   ^
+ReferenceError: e is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:125:30)
+(fail) interface-agnostic task functions > getTaskFromParams > should throw ResourceNotFoundError when task is not found
+167 |     }
+168 | 
+169 |     return task;
+170 |   } catch (error) {
+171 |     if (error instanceof z.ZodError) {
+172 |       throw new ValidationError("Invalid parameters for getting task", (error as any).format(), error as any);
+                  ^
+ValidationError: Invalid parameters for getting task
+ errors: {
+  _errors: [],
+  taskId: [Object ...],
+},
+
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:172:13)
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:114:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:135:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:129:91)
+
+24 | export class ZodError extends Error {
+25 |     get errors() {
+26 |         return this.issues;
+27 |     }
+28 |     constructor(issues) {
+29 |         super();
+             ^
+ZodError: [
+  {
+    "code": "custom",
+    "message": "Task ID must be in format #TEST_VALUE or TEST_VALUE",
+    "path": [
+      "taskId"
+    ]
+  }
+]
+    issues: [
+  [Object ...]
+],
+  addIssue: [Function],
+ addIssues: [Function],
+
+      at new ZodError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/ZodError.js:29:9)
+      at error (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:51:31)
+      at parse (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:126:15)
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:141:58)
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:114:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:135:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:129:91)
+(fail) interface-agnostic task functions > getTaskFromParams > should normalize non-canonical task IDs (e.g., 'TEST_VALUE' -> '#TEST_VALUE') [0.01ms]
+145 |       session: (validParams as unknown).session,
+146 |       repo: validParams.repo,
+147 |     });
+148 | 
+149 |     // Then get the workspace path (main repo or session's main workspace)
+150 |     const workspacePath = await (deps as unknown).resolveMainWorkspacePath();
+                                                        ^
+TypeError: deps.resolveMainWorkspacePath is not a function. (In 'deps.resolveMainWorkspacePath()', 'deps.resolveMainWorkspacePath' is undefined)
+      at getTaskFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:150:51)
+(fail) interface-agnostic task functions > getTaskFromParams > should handle task IDs without leading zeros
+238 |     }
+239 | 
+240 |     return (task as unknown).status;
+241 |   } catch (error) {
+242 |     if (error instanceof z.ZodError) {
+243 |       throw new ValidationError(
+                  ^
+ValidationError: Invalid parameters for getting task status
+ errors: {
+  _errors: [],
+  taskId: [Object ...],
+},
+
+      at getTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:243:13)
+      at getTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:185:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:171:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:165:58)
+
+24 | export class ZodError extends Error {
+25 |     get errors() {
+26 |         return this.issues;
+27 |     }
+28 |     constructor(issues) {
+29 |         super();
+             ^
+ZodError: [
+  {
+    "code": "custom",
+    "message": "Task ID must be in format #TEST_VALUE or TEST_VALUE",
+    "path": [
+      "taskId"
+    ]
+  }
+]
+    issues: [
+  [Object ...]
+],
+  addIssue: [Function],
+ addIssues: [Function],
+
+      at new ZodError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/ZodError.js:29:9)
+      at error (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:51:31)
+      at parse (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:126:15)
+      at getTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:212:64)
+      at getTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:185:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:171:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:165:58)
+(fail) interface-agnostic task functions > getTaskStatusFromParams > should get task status with valid parameters [0.26ms]
+182 | 
+183 |       try {
+184 |         await getTaskStatusFromParams(params, mockDeps);
+185 |         expect(true).toBe(false); // Should not reach here
+186 |       } catch {
+187 |         expectToBeInstanceOf(e, ResourceNotFoundError);
+                                   ^
+ReferenceError: e is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:187:30)
+(fail) interface-agnostic task functions > getTaskStatusFromParams > should throw ResourceNotFoundError when task status is not found [0.13ms]
+312 | 
+313 |     // Set the task status
+314 |     await (taskService as unknown).setTaskStatus((validParams as unknown).taskId, (validParams as unknown).status);
+315 |   } catch (error) {
+316 |     if (error instanceof z.ZodError) {
+317 |       throw new ValidationError(
+                  ^
+ValidationError: Invalid parameters for setting task status
+ errors: {
+  _errors: [],
+  taskId: [Object ...],
+},
+
+      at setTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:317:13)
+      at setTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:259:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:203:13)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:193:58)
+
+24 | export class ZodError extends Error {
+25 |     get errors() {
+26 |         return this.issues;
+27 |     }
+28 |     constructor(issues) {
+29 |         super();
+             ^
+ZodError: [
+  {
+    "code": "custom",
+    "message": "Task ID must be in format #TEST_VALUE or TEST_VALUE",
+    "path": [
+      "taskId"
+    ]
+  }
+]
+    issues: [
+  [Object ...]
+],
+  addIssue: [Function],
+ addIssues: [Function],
+
+      at new ZodError (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/ZodError.js:29:9)
+      at error (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:51:31)
+      at parse (/Users/edobry/.local/state/minsky/sessions/task#276/node_modules/zod/dist/esm/v3/types.js:126:15)
+      at setTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:286:64)
+      at setTaskStatusFromParams (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/tasks/taskCommands.ts:259:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:203:13)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:193:58)
+(fail) interface-agnostic task functions > setTaskStatusFromParams > should set task status with valid parameters [0.09ms]
+217 | 
+218 |       try {
+219 |         await setTaskStatusFromParams(params, mockDeps);
+220 |         expect(true).toBe(false); // Should not reach here
+221 |       } catch {
+222 |         expectToBeInstanceOf(e, ValidationError);
+                                   ^
+ReferenceError: e is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/__tests__/tasks.test.ts:222:30)
+(fail) interface-agnostic task functions > setTaskStatusFromParams > should throw ValidationError when status is invalid
+
+src/domain/git/conflict-detection.test.ts:
+(pass) ConflictDetectionService > analyzeBranchDivergence > should detect when session is ahead of base [0.48ms]
+(pass) ConflictDetectionService > analyzeBranchDivergence > should detect when session changes are already in base [0.07ms]
+(pass) ConflictDetectionService > analyzeBranchDivergence > should detect when session is behind base [0.05ms]
+115 | 
+116 |       const result = await ConflictDetectionService.analyzeBranchDivergence(
+117 |         testRepoPath, sessionBranch, baseBranch
+118 |       );
+119 | 
+120 |       expect(result.divergenceType).toBe("diverged");
+                                          ^
+error: expect(received).toBe(expected)
+
+Expected: "diverged"
+Received: "none"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:120:37)
+(fail) ConflictDetectionService > analyzeBranchDivergence > should detect when branches have diverged [0.15ms]
+136 |       const result = await ConflictDetectionService.predictConflicts(
+137 |         testRepoPath, sessionBranch, baseBranch
+138 |       );
+139 | 
+140 |       expect(result.hasConflicts).toBe(false);
+141 |       expect(result.conflictType).toBe(ConflictType.ALREADY_MERGED);
+                                        ^
+error: expect(received).toBe(expected)
+
+Expected: "already_merged"
+Received: "none"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:141:35)
+(fail) ConflictDetectionService > predictConflicts > should return no conflicts when already merged [0.34ms]
+(pass) ConflictDetectionService > predictConflicts > should detect delete/modify conflicts [0.53ms]
+(pass) ConflictDetectionService > predictConflicts > should detect content conflicts [0.13ms]
+(pass) ConflictDetectionService > predictConflicts > should return no conflicts when merge succeeds [0.14ms]
+257 |       const result = await ConflictDetectionService.mergeWithConflictPrevention(
+258 |         testRepoPath, sessionBranch, baseBranch, { dryRun: true }
+259 |       );
+260 | 
+261 |       expect(result.merged).toBe(false);
+262 |       expect(result.conflicts).toBe(true);
+                                     ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:262:32)
+(fail) ConflictDetectionService > mergeWithConflictPrevention > should perform dry run without actual merge [0.25ms]
+(pass) ConflictDetectionService > mergeWithConflictPrevention > should perform actual merge when no conflicts predicted [0.11ms]
+300 |         .mockResolvedValueOnce({ stdout: "tree1", stderr: "" }) // 4. session tree
+301 |         .mockResolvedValueOnce({ stdout: "tree2", stderr: "" }) // 5. base tree (different)
+302 |         // simulateMerge calls:
+303 |         .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 6. create temp branch
+304 |         .mockResolvedValueOnce({ stdout: "", stderr: "" }) // 7. checkout temp branch
+305 |         .mockRejectedValueOnce(new Error("CONFLICT")) // 8. merge fails
+                                     ^
+error: CONFLICT
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:305:32)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:293:61)
+(fail) ConflictDetectionService > mergeWithConflictPrevention > should auto-resolve delete conflicts when enabled [0.12ms]
+363 |       );
+364 | 
+365 |       // Verify the update was performed correctly (fast-forward scenario)
+366 |       expect(result.updated).toBe(true);
+367 |       expect(result.skipped).toBe(false);
+368 |       expect(result.reason).toContain("Fast-forward update completed");
+                                  ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "Fast-forward update completed"
+Received: "Merge update completed"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:368:29)
+(fail) ConflictDetectionService > smartSessionUpdate > should compare against origin/baseBranch instead of local baseBranch [0.34ms]
+381 |         testRepoPath, sessionBranch, baseBranch, { skipIfAlreadyMerged: true }
+382 |       );
+383 | 
+384 |       expect(result.updated).toBe(false);
+385 |       expect(result.skipped).toBe(true);
+386 |       expect(result.reason).toContain("already in base branch");
+                                  ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "already in base branch"
+Received: "No update needed - session is current or ahead"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:386:29)
+(fail) ConflictDetectionService > smartSessionUpdate > should skip update when session changes already in base [0.06ms]
+401 | 
+402 |       const result = await ConflictDetectionService.smartSessionUpdate(
+403 |         testRepoPath, sessionBranch, baseBranch
+404 |       );
+405 | 
+406 |       expect(result.updated).toBe(true);
+                                   ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:406:30)
+(fail) ConflictDetectionService > smartSessionUpdate > should perform fast-forward when session is behind [0.08ms]
+(pass) ConflictDetectionService > smartSessionUpdate > should skip when session is ahead and no update needed [0.06ms]
+426 |     });
+427 |   });
+428 | 
+429 |   describe("error handling", () => {
+430 |     it("should handle git command failures gracefully", async () => {
+431 |       mockExecAsync.mockRejectedValueOnce(new Error("Git command failed"));
+                                                ^
+error: Git command failed
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:431:43)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:430:57)
+(fail) ConflictDetectionService > error handling > should handle git command failures gracefully [0.06ms]
+
+# Unhandled error between tests
+-------------------------------
+430 |     it("should handle git command failures gracefully", async () => {
+431 |       mockExecAsync.mockRejectedValueOnce(new Error("Git command failed"));
+432 | 
+433 |       await expect(
+434 |         ConflictDetectionService.analyzeBranchDivergence(testRepoPath, sessionBranch, baseBranch)
+435 |       ).rejects.toThrow("Git command failed");
+                      ^
+error: 
+
+Expected promise that rejects
+Received promise that resolved: Promise { <resolved> }
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:435:17)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:430:57)
+-------------------------------
+
+464 |         testRepoPath, sessionBranch, baseBranch
+465 |       );
+466 | 
+467 |       // Should return successful result (no conflicts)
+468 |       expect(result.hasConflicts).toBe(false);
+469 |       expect(result.conflictType).toBe(ConflictType.NONE);
+                                        ^
+error: expect(received).toBe(expected)
+
+Expected: "none"
+Received: "already_merged"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/git/conflict-detection.test.ts:469:35)
+(fail) ConflictDetectionService > error handling > should handle merge simulation cleanup failures gracefully [0.10ms]
+
+src/domain/git/conflict-detection.integration.test.ts:
+(pass) ConflictDetectionService Integration > should handle basic service instantiation and static methods [0.60ms]
+(pass) ConflictDetectionService Integration > should have correct enum values defined [0.14ms]
+(pass) ConflictDetectionService Integration > should provide proper interface structure for ConflictPrediction [0.03ms]
+(pass) ConflictDetectionService Integration > should provide proper interface structure for BranchDivergenceAnalysis [0.02ms]
+(pass) ConflictDetectionService Integration > should provide proper interface structure for enhanced results [0.02ms]
+(skip) ConflictDetectionService Integration > should detect conflicts in real git repository
+
+src/domain/session/session-context-resolver.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session-context-resolver.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-context-resolver.test.ts'
+-------------------------------
+
+
+src/domain/session/session-adapter.test.ts:
+(pass) SessionAdapter > should initialize with empty sessions
+83 | 
+84 |     await adapter.addSession(testSession);
+85 |     const retrievedSession = await adapter.getSession("test-session");
+86 | 
+87 |     expect(retrievedSession !== null).toBe(true);
+88 |     expect(retrievedSession?._session).toBe("test-session");
+                                            ^
+error: expect(received).toBe(expected)
+
+Expected: "test-session"
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-adapter.test.ts:88:40)
+(fail) SessionAdapter > should add and retrieve a session [0.32ms]
+102 | 
+103 |     await adapter.addSession(testSession);
+104 |     const retrievedSession = await adapter.getSessionByTaskId("TEST_VALUE");
+105 | 
+106 |     expect(retrievedSession !== null).toBe(true);
+107 |     expect(retrievedSession?._session).toBe("test-session");
+                                             ^
+error: expect(received).toBe(expected)
+
+Expected: "test-session"
+Received: undefined
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-adapter.test.ts:107:40)
+(fail) SessionAdapter > should retrieve a session by task ID [0.05ms]
+(pass) SessionAdapter > should update a session [0.10ms]
+(pass) SessionAdapter > should delete a session
+(pass) SessionAdapter > should return false when deleting a non-existent session
+163 |     };
+164 | 
+165 |     await adapter.addSession(testSession);
+166 |     const repoPath = await adapter.getRepoPath(testSession);
+167 | 
+168 |     expect(repoPath).toContain("test-repo/sessions/test-session");
+                           ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "test-repo/sessions/test-session"
+Received: "/sessions/test-session"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-adapter.test.ts:168:22)
+(fail) SessionAdapter > should get repository path for a session
+181 | 
+182 |     await adapter.addSession(testSession);
+183 |     const workdir = await adapter.getSessionWorkdir("test-session");
+184 | 
+185 |     expect(workdir !== null).toBe(true);
+186 |     expect(workdir).toContain("test-repo/sessions/test-session");
+                          ^
+error: expect(received).toContain(expected)
+
+Expected to contain: "test-repo/sessions/test-session"
+Received: "/sessions/test-session"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-adapter.test.ts:186:21)
+(fail) SessionAdapter > should get working directory for a session [0.14ms]
+
+src/domain/session/session-approve-task-status-commit.test.ts:
+(pass) Session Approve Task Status Commit > should commit task status update after successful merge [1.86ms]
+(pass) Session Approve Task Status Commit > should handle case where no task status update is needed [0.16ms]
+(pass) Session Approve Task Status Commit > should skip task status update when task is already DONE [0.44ms]
+(pass) Session Approve Task Status Commit > should exit early when task is DONE and PR branch doesn't exist (bug reproduction) [0.12ms]
+
+src/domain/session/session-auto-detection-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../session.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-auto-detection-integration.test.ts'
+-------------------------------
+
+
+src/domain/session/session-db.test.ts:
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should initialize state with default values [0.05ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should initialize state with custom baseDir [0.02ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should handle undefined options parameter without throwing runtime error [0.02ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should handle null options parameter without throwing runtime error [0.03ms]
+(pass) SessionDB Functional Implementation > initializeSessionDbState > should handle options with undefined baseDir property [0.02ms]
+(pass) SessionDB Functional Implementation > listSessionsFn > should return all sessions [0.05ms]
+(pass) SessionDB Functional Implementation > getSessionFn > should return the session by name [0.03ms]
+(pass) SessionDB Functional Implementation > getSessionFn > should return null if session not found [0.02ms]
+(pass) SessionDB Functional Implementation > getSessionByTaskIdFn > should return the session by task ID [0.03ms]
+(pass) SessionDB Functional Implementation > getSessionByTaskIdFn > should return the session when task ID includes #
+(pass) SessionDB Functional Implementation > getSessionByTaskIdFn > should return null if no session exists for the task ID
+(pass) SessionDB Functional Implementation > addSessionFn > should add a new session to the state [0.01ms]
+(pass) SessionDB Functional Implementation > updateSessionFn > should update an existing session [0.03ms]
+(pass) SessionDB Functional Implementation > updateSessionFn > should not modify state if session not found [0.02ms]
+(pass) SessionDB Functional Implementation > updateSessionFn > should ignore session property in updates [0.02ms]
+(pass) SessionDB Functional Implementation > deleteSessionFn > should delete an existing session [0.02ms]
+(pass) SessionDB Functional Implementation > deleteSessionFn > should not modify state if session not found
+(pass) SessionDB Functional Implementation > getRepoPathFn > should return the repository path for a session record [0.01ms]
+228 | 
+229 |     it("should handle session records with repoPath already set", () => {
+230 |       const state = createTestState();
+231 |       const session = { ...getSessionFn(state, "test-session-1")!, repoPath: "/custom/path" };
+232 |       const repoPath = getRepoPathFn(state, session);
+233 |       expect(repoPath).toBe("/custom/path");
+                             ^
+error: expect(received).toBe(expected)
+
+Expected: "/custom/path"
+Received: "/test/base/dir/sessions/test-session-1"
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-db.test.ts:233:24)
+(fail) SessionDB Functional Implementation > getRepoPathFn > should handle session records with repoPath already set [0.06ms]
+(pass) SessionDB Functional Implementation > getRepoPathFn > should throw error for invalid input [0.12ms]
+(pass) SessionDB Functional Implementation > getSessionWorkdirFn > should return the working directory for a session [0.02ms]
+(pass) SessionDB Functional Implementation > getSessionWorkdirFn > should return null if session not found
+
+src/domain/session/session-db-io.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+115 |       await writeSessionsToFile(testState.sessions, { dbPath: testDbPath });
+                  ^
+error: "await" can only be used inside an "async" function
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-db-io.test.ts:115:13
+
+132 |         await writeSessionsToFile(testState.sessions, undefined as unknown);
+                    ^
+error: "await" can only be used inside an "async" function
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-db-io.test.ts:132:15
+
+144 |         await writeSessionsToFile(testState.sessions, null as unknown);
+                    ^
+error: "await" can only be used inside an "async" function
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-db-io.test.ts:144:15
+
+157 |         await writeSessionsToFile(testState.sessions, options);
+                    ^
+error: "await" can only be used inside an "async" function
+    at /Users/edobry/.local/state/minsky/sessions/task#276/src/domain/session/session-db-io.test.ts:157:15
+-------------------------------
+
+
+tests/adapters/mcp/rules.adapter.test.ts:
+45 |     }
+46 | 
+47 |     expect(registrationSucceeded).toBe(true);
+48 | 
+49 |     // Verify that the server's addTool method was called
+50 |     expect(mockServer.addTool.mock.calls.length).toBeGreaterThan(0);
+                                                      ^
+error: expect(received).toBeGreaterThan(expected)
+
+Expected: > 0
+Received: 0
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/mcp/rules.adapter.test.ts:50:50)
+(fail) MCP Rules Adapter > registerRulesTools should register multiple commands without errors [0.14ms]
+(pass) MCP Rules Adapter > commandMapper should be properly instantiated with server
+
+tests/adapters/mcp/session-edit-tools.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session-edit-tools' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/mcp/session-edit-tools.test.ts'
+-------------------------------
+
+
+tests/adapters/mcp/session-workspace.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../session-workspace' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/mcp/session-workspace.test.ts'
+-------------------------------
+
+
+tests/adapters/cli/rules.test.ts:
+(pass) Rules CLI Core Functionality > readContentFromFileIfExists function > returns input string when path doesn't exist
+(pass) Rules CLI Core Functionality > parseGlobs function > handles comma-separated glob patterns [0.13ms]
+(pass) Rules CLI Core Functionality > parseGlobs function > handles JSON array glob patterns [0.07ms]
+(pass) Rules CLI Core Functionality > parseGlobs function > returns undefined for undefined input [0.02ms]
+(pass) Rules CLI Core Functionality > parseGlobs function > returns undefined for empty string
+
+tests/adapters/cli/cli-rules-integration.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../utils/rules-helpers.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/cli/cli-rules-integration.test.ts'
+-------------------------------
+
+
+tests/adapters/cli/integration-example.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../adapters/cli/integration-example.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/cli/integration-example.test.ts'
+-------------------------------
+
+
+tests/adapters/cli/tasks.test.ts:
+(pass) Tasks CLI Commands > placeholder test to prevent test failures [0.02ms]
+
+tests/adapters/cli/rules-helpers.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../utils/rules-helpers.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/cli/rules-helpers.test.ts'
+-------------------------------
+
+
+tests/adapters/cli/session.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../domain/session.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/cli/session.test.ts'
+-------------------------------
+
+
+tests/adapters/cli/integration-simplified.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../adapters/shared/command-registry.js' from '/Users/edobry/.local/state/minsky/sessions/task#276/tests/adapters/cli/integration-simplified.test.ts'
+-------------------------------
+
+
+tests/domain/commands/tasks-extended.commands.test.ts:
+
+tests/domain/commands/workspace.commands.test.ts:
+(pass) Workspace Domain Methods > isSessionWorkspace (isSessionRepository) > returns true for a path in a session repository [0.07ms]
+(pass) Workspace Domain Methods > isSessionWorkspace (isSessionRepository) > returns false for a path not in a session repository [0.05ms]
+(pass) Workspace Domain Methods > isSessionWorkspace (isSessionRepository) > returns false when an error occurs during check [0.02ms]
+(pass) Workspace Domain Methods > isSessionWorkspace (isSessionRepository) > verifies isSessionRepository is an alias for isSessionWorkspace [0.05ms]
+117 |       try {
+118 |         // Act
+119 |         const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
+120 | 
+121 |         // Assert
+122 |         expect(result).toEqual({
+                             ^
+error: expect(received).toEqual(expected)
+
+  {
++   gitRoot: "/Users/test/.local/state/minsky/sessions/session-name",
++   session: "session-name",
+-   _session: "session-name",
+    upstreamRepository: "https://github.com/org/repo.git",
+  }
+
+- Expected  - 1
++ Received  + 2
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:122:24)
+(fail) Workspace Domain Methods > getSessionFromWorkspace (getSessionFromRepo) > gets session information for a valid session repository [0.66ms]
+(pass) Workspace Domain Methods > getSessionFromWorkspace (getSessionFromRepo) > returns null for a non-session repository [0.04ms]
+(pass) Workspace Domain Methods > getSessionFromWorkspace (getSessionFromRepo) > returns null when session record is not found [0.05ms]
+(pass) Workspace Domain Methods > getSessionFromWorkspace (getSessionFromRepo) > verifies getSessionFromRepo is an alias for getSessionFromWorkspace [0.08ms]
+(pass) Workspace Domain Methods > getCurrentSession > returns session name when in a session directory [0.06ms]
+(pass) Workspace Domain Methods > getCurrentSession > returns null when not in a session directory [0.06ms]
+247 |       expect(result).toBeNull();
+248 |     });
+249 | 
+250 |     test("getCurrentSession returns null when repo path does not exist", async () => {
+251 |       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+252 |       mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
+            ^
+ReferenceError: mockExecAsync is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:252:7)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:250:74)
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when repo path does not exist [0.06ms]
+256 |       expect(result).toBeNull();
+257 |     });
+258 | 
+259 |     test("getCurrentSession returns null when repoUrl is not found", async () => {
+260 |       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+261 |       mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
+            ^
+ReferenceError: mockExecAsync is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:261:7)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:259:70)
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when repoUrl is not found [0.06ms]
+275 |       expect(result).toBeNull();
+276 |     });
+277 | 
+278 |     test("getCurrentSession returns null when session data doesn't match file structure", async () => {
+279 |       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+280 |       mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
+            ^
+ReferenceError: mockExecAsync is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:280:7)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:278:91)
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when session data doesn't match file structure [0.04ms]
+295 |       expect(result).toBeNull();
+296 |     });
+297 | 
+298 |     test("getCurrentSession returns null when session doesn't exist", async () => {
+299 |       const repoPath = "/Users/test/.local/state/minsky/sessions/unknown-session";
+300 |       mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
+            ^
+ReferenceError: mockExecAsync is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:300:7)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:298:71)
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when session doesn't exist [0.04ms]
+308 |       expect(result).toBeNull();
+309 |     });
+310 | 
+311 |     test("getCurrentSession returns session info when valid", async () => {
+312 |       const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+313 |       mockExecAsync.mockResolvedValue({ stdout: repoPath, stderr: "" });
+            ^
+ReferenceError: mockExecAsync is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:313:7)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:311:63)
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns session info when valid [0.09ms]
+(pass) Workspace Domain Methods > resolveWorkspacePath > returns explicitly provided workspace path [0.06ms]
+(pass) Workspace Domain Methods > resolveWorkspacePath > throws error for invalid workspace path [0.04ms]
+(pass) Workspace Domain Methods > resolveWorkspacePath > uses sessionRepo if provided (backwards compatibility) [0.02ms]
+190 |   deps: TestDependencies = {}
+191 | ): Promise<string> {
+192 |   const { access = fs.access } = deps;
+193 | 
+194 |   // For task operations, always use the main workspace.
+195 |   if ((options as unknown)!.forTaskOperations) {
+             ^
+TypeError: undefined is not an object (evaluating 'options.forTaskOperations')
+      at resolveWorkspacePath (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/workspace.ts:195:8)
+      at resolveWorkspacePath (/Users/edobry/.local/state/minsky/sessions/task#276/src/domain/workspace.ts:189:3)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:393:28)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:389:70)
+(fail) Workspace Domain Methods > resolveWorkspacePath > falls back to current directory when no options provided [0.12ms]
+(pass) Workspace Domain Methods > resolveWorkspacePath > uses provided sessionWorkspace path
+410 | 
+411 |     test("getSessionFromWorkspace returns session for deeply nested session paths", async () => {
+412 |       const sessionPath = "/Users/test/.local/state/minsky/sessions/session-name";
+413 |       const testPath = `${sessionPath}/some/nested/path`;
+414 | 
+415 |       mockExecAsync.mockResolvedValue({ stdout: sessionPath, stderr: "" });
+            ^
+ReferenceError: mockExecAsync is not defined
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:415:7)
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:411:85)
+(fail) Workspace Domain Methods > resolveWorkspacePath > getSessionFromWorkspace returns session for deeply nested session paths [0.05ms]
+437 |   });
+438 | 
+439 |   describe("isSessionWorkspace returns true for session workspace", () => {
+440 |     test("returns true for session workspace", () => {
+441 |       const sessionRepoPath = "/Users/test/.local/state/minsky/sessions/some-session";
+442 |       expect(isSessionWorkspace(sessionRepoPath)).toBe(true);
+                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:442:51)
+(fail) Workspace Domain Methods > isSessionWorkspace returns true for session workspace > returns true for session workspace [0.03ms]
+442 |       expect(isSessionWorkspace(sessionRepoPath)).toBe(true);
+443 |     });
+444 | 
+445 |     test("returns false for non-session workspace", () => {
+446 |       const regularRepoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+447 |       expect(isSessionWorkspace(regularRepoPath)).toBe(true);
+                                                        ^
+error: expect(received).toBe(expected)
+
+Expected: true
+Received: false
+
+      at <anonymous> (/Users/edobry/.local/state/minsky/sessions/task#276/tests/domain/commands/workspace.commands.test.ts:447:51)
+(fail) Workspace Domain Methods > isSessionWorkspace returns true for session workspace > returns false for non-session workspace [0.02ms]
+
+tests/domain/commands/session.commands.test.ts:
+(pass) Session Domain Methods > getSessionFromParams > gets session by name
+(pass) Session Domain Methods > getSessionFromParams > gets session by task ID [0.04ms]
+(pass) Session Domain Methods > getSessionFromParams > returns null when no session is found [0.04ms]
+(pass) Session Domain Methods > listSessionsFromParams > lists all sessions [0.04ms]
+(pass) Session Domain Methods > deleteSessionFromParams > deletes existing session
+(pass) Session Domain Methods > deleteSessionFromParams > throws error when session not found [0.03ms]
+(pass) Session Domain Methods > deleteSessionFromParams > throws error when name is not provided [0.02ms]
+(pass) Session Domain Methods > startSessionFromParams > starts a new session with name parameter
+(pass) Session Domain Methods > startSessionFromParams > starts a new session with task parameter
+(pass) Session Domain Methods > startSessionFromParams > throws error when required parameters are missing
+(pass) Session Domain Methods > updateSessionFromParams > updates a session with new properties [0.03ms]
+(pass) Session Domain Methods > updateSessionFromParams > returns null when session not found [0.02ms]
+(pass) Session Domain Methods > updateSessionFromParams > throws error when no name is provided [0.02ms]
+(pass) Session Domain Methods > getSessionDirFromParams > gets the directory path for an existing session
+(pass) Session Domain Methods > getSessionDirFromParams > resolves directory path for a session with task ID [0.07ms]
+(pass) Session Domain Methods > getSessionDirFromParams > throws error when session not found
+(pass) Session Domain Methods > inspectSessionFromParams > gets the current session details when in a session workspace [0.02ms]
+(pass) Session Domain Methods > inspectSessionFromParams > throws error when not in a session workspace
+
+tests/domain/commands/tasks.commands.test.ts:
+(pass) Tasks Domain Methods > getTaskFromParams > gets task by ID [0.12ms]
+(pass) Tasks Domain Methods > getTaskFromParams > throws error when task not found
+(pass) Tasks Domain Methods > getTaskFromParams > gets task with custom repo path [0.03ms]
+(pass) Tasks Domain Methods > listTasksFromParams > lists all tasks when no filter is provided
+(pass) Tasks Domain Methods > listTasksFromParams > filters tasks by status [0.05ms]
+(pass) Tasks Domain Methods > listTasksFromParams > handles custom repo path [0.01ms]
+(pass) Tasks Domain Methods > getTaskStatusFromParams > gets task status by ID [0.02ms]
+(pass) Tasks Domain Methods > getTaskStatusFromParams > throws error when task not found [0.02ms]
+(pass) Tasks Domain Methods > getTaskStatusFromParams > handles custom repo path
+(pass) Tasks Domain Methods > setTaskStatusFromParams > sets task status
+(pass) Tasks Domain Methods > setTaskStatusFromParams > throws error when setting invalid status
+(pass) Tasks Domain Methods > setTaskStatusFromParams > handles custom repo path
+
+tests/domain/commands/git.commands.test.ts:
+(skip) Git Integration Tests > execInRepository executes git commands in the repository
+(skip) Git Integration Tests > getSessionWorkdir returns the correct workdir path
+(skip) Git Integration Tests > getStatus returns correct file status
+(skip) Git Integration Tests > commit creates a commit with the provided message
+(skip) Git Integration Tests > stageAll adds all files to staging
+(skip) Git Integration Tests > getCommitsOnBranch gets formatted commits
+
+tests/domain/commands/rules.commands.test.ts:
+(pass) Rules Domain Methods > listRules > lists all rules when no options provided
+(pass) Rules Domain Methods > listRules > filters rules by format when format option provided [0.02ms]
+(pass) Rules Domain Methods > getRule > gets rule by ID [0.10ms]
+(pass) Rules Domain Methods > getRule > gets rule with specific format option [0.01ms]
+(pass) Rules Domain Methods > getRule > throws error when rule not found
+(pass) Rules Domain Methods > searchRules > searches rules by query [0.03ms]
+(pass) Rules Domain Methods > searchRules > returns empty array when no matches [0.04ms]
+(pass) Rules Domain Methods > createRule > creates a new rule with content and metadata
+(pass) Rules Domain Methods > createRule > throws error when rule already exists and overwrite is false
+(pass) Rules Domain Methods > createRule > overwrites existing rule when overwrite is true
+(pass) Rules Domain Methods > updateRule > updates rule content
+(pass) Rules Domain Methods > updateRule > updates rule metadata
+(pass) Rules Domain Methods > updateRule > updates both content and metadata
+(pass) Rules Domain Methods > updateRule > throws error when rule not found
+(pass) Rules Domain Methods > updateRule > returns unchanged rule when no options provided
+
+adapters/shared/commands/tests/tasks-status-selector.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../../domain/tasks/taskConstants' from '/Users/edobry/.local/state/minsky/sessions/task#276/adapters/shared/commands/tests/tasks-status-selector.test.ts'
+-------------------------------
+
+
+adapters/shared/commands/tests/sessiondb.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../sessiondb' from '/Users/edobry/.local/state/minsky/sessions/task#276/adapters/shared/commands/tests/sessiondb.test.ts'
+-------------------------------
+
+
+adapters/cli/utils/tests/shared-options.test.ts:
+
+# Unhandled error between tests
+-------------------------------
+error: Cannot find module '../../../../utils/test-utils/compatibility/mock-function' from '/Users/edobry/.local/state/minsky/sessions/task#276/adapters/cli/utils/tests/shared-options.test.ts'
+-------------------------------
+
+
+7 tests skipped:
+(skip) ConflictDetectionService Integration > should detect conflicts in real git repository
+(skip) Git Integration Tests > execInRepository executes git commands in the repository
+(skip) Git Integration Tests > getSessionWorkdir returns the correct workdir path
+(skip) Git Integration Tests > getStatus returns correct file status
+(skip) Git Integration Tests > commit creates a commit with the provided message
+(skip) Git Integration Tests > stageAll adds all files to staging
+(skip) Git Integration Tests > getCommitsOnBranch gets formatted commits
+
+
+154 tests failed:
+(fail) Codemod violates scope analysis - creates variable redeclarations [1.15ms]
+(fail) Codemod has no context awareness - affects strings and comments [0.05ms]
+(fail) Framework-based codemod SAFETY FEATURES: AST-based with error handling [0.20ms]
+(fail) Framework-based codemod FRAMEWORK DEPENDENCY RISK: high coupling to utilities [0.06ms]
+(fail) Framework-based codemod EVOLUTION: from individual to framework approach [0.05ms]
+(fail) fix-underscore-prefix: Critical failure - destructuring context blindness [0.06ms]
+(fail) fix-underscore-prefix: Critical failure - ESLint dependency breaks robustness [0.05ms]
+(fail) Simple explicit any fix handles generic constraints correctly [0.10ms]
+(fail) Codemod fails with destructuring parameters [0.10ms]
+(fail) Codemod is non-functional due to regex issues [0.29ms]
+(fail) Codemod fails on various string patterns [0.09ms]
+(fail) Regex pattern analysis reveals the issue [0.07ms]
+(fail) Boundary validation confirms codemod should be removed or fixed [0.11ms]
+(fail) Codemod violates scope analysis - creates variable redeclarations [0.09ms]
+(fail) Codemod has no context awareness - affects strings and comments [0.05ms]
+(fail) fix-result-underscore-mismatch: Critical failure - scope blindness across functions [0.12ms]
+(fail) fix-result-underscore-mismatch: Critical failure - creates naming conflicts [0.04ms]
+(fail) fix-result-underscore-mismatch: Critical failure - matches in comments and strings [0.06ms]
+(fail) fix-result-underscore-mismatch: Critical failure - no verification of actual usage [0.04ms]
+(fail) Simple underscore fix removes ONLY underscores when clean variable is used [0.48ms]
+(fail) Simple underscore fix handles function parameters correctly [0.34ms]
+(fail) Simple underscore fix handles destructuring patterns [0.25ms]
+(fail) Simple underscore fix preserves variables that are truly unused [0.05ms]
+(fail) sessionPrFromParams bodyPath file reading functionality > should work with relative paths correctly [0.15ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Positive Constraints: Should Fix > should fix declaration vs usage mismatches [0.17ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Positive Constraints: Should Fix > should fix complex usage patterns [0.03ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Negative Constraints: Should NOT Modify > should not modify code without underscore issues [0.07ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Negative Constraints: Should NOT Modify > should not modify intentional underscore prefixes [0.04ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Negative Constraints: Should NOT Modify > should not break syntax or create invalid code [0.06ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Boundary Violation Detection > should detect overly broad regex patterns [0.06ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Boundary Violation Detection > should not create infinite replacement loops [0.05ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Performance and Safety > should handle large files efficiently [0.38ms]
+(fail) Boundary Validation: fix-underscore-prefix.ts > Performance and Safety > should report accurate change counts [0.05ms]
+(fail) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should fix parameter definitions with underscores when usage has no underscore [11.14ms]
+(fail) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should fix variable declarations with underscores when usage has no underscore [3.70ms]
+(fail) Variable Naming Fixer Consolidated > Underscore Prefix Mismatches > should handle destructuring with underscore mismatches [3.37ms]
+(fail) Variable Naming Fixer Consolidated > Complex Scenarios > should handle mixed scenarios correctly [3.62ms]
+(fail) Variable Naming Fixer Consolidated > Performance and Metrics > should provide accurate metrics [2.27ms]
+(fail) Variable Naming Fixer Consolidated > Integration with AST Analysis > should properly parse TypeScript files with complex syntax [3.04ms]
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should add missing type annotations [350.16ms]
+(fail) TypeScript Error Fixer Consolidated > Type Annotations > should fix implicit any types [201.26ms]
+(fail) TypeScript Error Fixer Consolidated > Performance and Metrics > should provide accurate metrics [162.00ms]
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused variable declarations [2.58ms]
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused function parameters [2.79ms]
+(fail) Unused Elements Fixer Consolidated > Unused Variables > should remove unused imports [1.83ms]
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle destructuring correctly [41.97ms]
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle function expressions and arrow functions [3.22ms]
+(fail) Unused Elements Fixer Consolidated > Complex Scenarios > should handle class properties and methods [1.36ms]
+(fail) Unused Elements Fixer Consolidated > Performance and Metrics > should provide accurate metrics [1.80ms]
+(fail) Unused Elements Fixer Consolidated > Integration with AST Analysis > should properly handle TypeScript-specific syntax [1.91ms]
+(fail) interface-agnostic task functions > listTasksFromParams > should list tasks with valid parameters [0.42ms]
+(fail) interface-agnostic task functions > listTasksFromParams > should filter out DONE tasks when all is false [0.06ms]
+(fail) interface-agnostic task functions > getTaskFromParams > should get a task with valid parameters [1.14ms]
+(fail) interface-agnostic task functions > getTaskFromParams > should throw ResourceNotFoundError when task is not found
+(fail) interface-agnostic task functions > getTaskFromParams > should normalize non-canonical task IDs (e.g., 'TEST_VALUE' -> '#TEST_VALUE') [0.01ms]
+(fail) interface-agnostic task functions > getTaskFromParams > should handle task IDs without leading zeros
+(fail) interface-agnostic task functions > getTaskStatusFromParams > should get task status with valid parameters [0.26ms]
+(fail) interface-agnostic task functions > getTaskStatusFromParams > should throw ResourceNotFoundError when task status is not found [0.13ms]
+(fail) interface-agnostic task functions > setTaskStatusFromParams > should set task status with valid parameters [0.09ms]
+(fail) interface-agnostic task functions > setTaskStatusFromParams > should throw ValidationError when status is invalid
+(fail) ConflictDetectionService > analyzeBranchDivergence > should detect when branches have diverged [0.15ms]
+(fail) ConflictDetectionService > predictConflicts > should return no conflicts when already merged [0.34ms]
+(fail) ConflictDetectionService > mergeWithConflictPrevention > should perform dry run without actual merge [0.25ms]
+(fail) ConflictDetectionService > mergeWithConflictPrevention > should auto-resolve delete conflicts when enabled [0.12ms]
+(fail) ConflictDetectionService > smartSessionUpdate > should compare against origin/baseBranch instead of local baseBranch [0.34ms]
+(fail) ConflictDetectionService > smartSessionUpdate > should skip update when session changes already in base [0.06ms]
+(fail) ConflictDetectionService > smartSessionUpdate > should perform fast-forward when session is behind [0.08ms]
+(fail) ConflictDetectionService > error handling > should handle git command failures gracefully [0.06ms]
+(fail) ConflictDetectionService > error handling > should handle merge simulation cleanup failures gracefully [0.10ms]
+(fail) SessionAdapter > should add and retrieve a session [0.32ms]
+(fail) SessionAdapter > should retrieve a session by task ID [0.05ms]
+(fail) SessionAdapter > should get repository path for a session
+(fail) SessionAdapter > should get working directory for a session [0.14ms]
+(fail) SessionDB Functional Implementation > getRepoPathFn > should handle session records with repoPath already set [0.06ms]
+(fail) MCP Rules Adapter > registerRulesTools should register multiple commands without errors [0.14ms]
+(fail) Workspace Domain Methods > getSessionFromWorkspace (getSessionFromRepo) > gets session information for a valid session repository [0.66ms]
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when repo path does not exist [0.06ms]
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when repoUrl is not found [0.06ms]
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when session data doesn't match file structure [0.04ms]
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns null when session doesn't exist [0.04ms]
+(fail) Workspace Domain Methods > getCurrentSession > getCurrentSession returns session info when valid [0.09ms]
+(fail) Workspace Domain Methods > resolveWorkspacePath > falls back to current directory when no options provided [0.12ms]
+(fail) Workspace Domain Methods > resolveWorkspacePath > getSessionFromWorkspace returns session for deeply nested session paths [0.05ms]
+(fail) Workspace Domain Methods > isSessionWorkspace returns true for session workspace > returns true for session workspace [0.03ms]
+(fail) Workspace Domain Methods > isSessionWorkspace returns true for session workspace > returns false for non-session workspace [0.02ms]
+
+ 346 pass
+ 7 skip
+ 154 fail
+ 70 errors
+ 959 expect() calls
+Ran 507 tests across 118 files. [3.27s]

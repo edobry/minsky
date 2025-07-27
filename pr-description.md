@@ -1,62 +1,120 @@
-# fix(session): decouple session approve from session workspace state
+## Summary
 
-Fixes #149
+This PR implements two new MCP tools for efficient file operations within session workspaces: `session_move_file` and `session_rename_file`. These tools address the inefficiency of requiring two separate operations (write + delete) for moving/renaming files by providing atomic operations that are safer and more efficient.
 
-## Problem
+## Problem Statement
 
-The `session approve` command was failing when there were uncommitted changes in the session workspace because it tried to run git operations in the session workspace directory instead of the main repository.
+Currently, moving or renaming files in a session workspace requires two separate operations:
 
-**Error encountered:**
+1. Writing the file content to the new location using `session_write_file`
+2. Deleting the original file using `session_delete_file`
 
-```
-Command execution failed {"error":"Command failed: git checkout main\nerror: Your local changes to the following files would be overwritten by checkout:\n\tprocess/tasks.md\nPlease commit your changes or stash them before you switch branches.\nAborting\n"}
-```
-
-## Root Cause
-
-The `approveSessionFromParams` function in `src/domain/session.ts` was using `sessionWorkdir` (session workspace path) for all git operations instead of operating on the main repository (`originalRepoPath`).
+This two-step process is inefficient and error-prone:
+- Creates unnecessary I/O operations
+- If either operation fails, the system could be left in an inconsistent state
+- More verbose and complex for tool users
 
 ## Solution
 
-- **Decouple from session workspace**: Replace `sessionWorkdir` with `originalRepoPath` for all git operations in the approval flow
-- **Add session auto-detection**: When only repo path is provided, automatically detect the current session
-- **Fix dependency injection**: Properly use injected `sessionDB` in tests instead of creating new instances
-- **Update tests**: Modify tests to reflect the correct behavior and verify all functionality
+### New MCP Tools Implemented
 
-## Key Changes
+#### 1. `session_move_file`
+Moves a file from one location to another within the session workspace.
 
-### Core Fix (`src/domain/session.ts`)
+**Parameters:**
+- `sessionName`: Session identifier (name or task ID)
+- `sourcePath`: Current file path within the session workspace
+- `targetPath`: New file path within the session workspace
+- `createDirs` (optional, default: true): Create parent directories if they don't exist
+- `overwrite` (optional, default: false): Overwrite target if it exists
 
-- Line 1071: Changed `sessionWorkdir` to `originalRepoPath` for all git operations
-- Lines 1041-1051: Added auto-detection logic for sessions when only repo path provided
-- Line 1022: Fixed dependency injection to use provided `sessionDB`
-- Line 1095: Improved error logging with proper CLI output
+#### 2. `session_rename_file`
+Convenience wrapper around move_file for renaming files in the same directory.
 
-### Test Updates (`src/domain/__tests__/session-approve.test.ts`)
+**Parameters:**
+- `sessionName`: Session identifier (name or task ID)
+- `path`: Current file path within the session workspace
+- `newName`: New filename (not full path)
+- `overwrite` (optional, default: false): Overwrite target if it exists
 
-- Updated first test to not expect `getSessionWorkdir` call (no longer needed)
-- Fixed second test to properly mock session detection for "current-session"
-- Ensured all 5 session approval tests pass
+## Changes
 
-## Impact
+### Added
+- `session_move_file` MCP tool with atomic file operations
+- `session_rename_file` MCP tool as convenience wrapper
+- Comprehensive unit tests covering success and error scenarios (7 tests)
+- Integration with semantic error handling from Task #309
+- Proper workspace boundary enforcement and path validation
 
-✅ **Session workspace state is now completely irrelevant during approval**
-✅ **`session approve` works regardless of uncommitted changes, branch state, or conflicts in session workspace**
-✅ **All existing functionality preserved** (task status updates, PR cleanup)
-✅ **No regression in approval safety checks**
-✅ **Comprehensive test coverage** (5/5 session approve tests pass)
+### Modified
+- `src/adapters/mcp/session-files.ts`: Added new MCP tools and imported `rename` from fs/promises
+- Added comprehensive error handling for common scenarios:
+  - Source file doesn't exist
+  - Target already exists (with overwrite option)
+  - Target directory doesn't exist (with createDirs option)
+  - Permission issues
+  - Workspace boundary violations
+
+### Fixed
+- ESLint rule syntax error in `no-unsafe-git-exec.js` that was blocking commits
+
+## Benefits
+
+- **Efficiency**: Single atomic operation instead of two separate operations
+- **Correctness**: Prevents inconsistent states if one operation fails
+- **Usability**: More intuitive and simpler API for tool users
+- **Performance**: File system move operations are typically more efficient than copy+delete
+
+## Example Usage
+
+**Before (inefficient 2-step process):**
+```typescript
+// Write file to new location
+await session_write_file({
+  session: "task309",
+  path: "process/tasks/309/pr-review-senior-engineer.md",
+  content: fileContent,
+  createDirs: true,
+});
+
+// Delete file from old location
+await session_delete_file({
+  session: "task309",
+  path: "process/review/task-309-pr-review-senior-engineer.md",
+});
+```
+
+**After (efficient atomic operation):**
+```typescript
+// Single atomic move operation
+await session_move_file({
+  session: "task309",
+  sourcePath: "process/review/task-309-pr-review-senior-engineer.md",
+  targetPath: "process/tasks/309/pr-review-senior-engineer.md",
+  createDirs: true,
+});
+```
 
 ## Testing
 
-- All automated tests pass
-- Specific session approve functionality verified with comprehensive test suite
-- Manual verification of fix working with various session workspace states
+- ✅ 7 comprehensive unit tests covering success scenarios, error cases, and parameter validation
+- ✅ Integration test demonstrating both tools working correctly
+- ✅ All tests passing
+- ✅ Proper error handling validation
+- ✅ Schema validation testing
 
-## Verification
+## Related Work
 
-The fix addresses the core issue while maintaining all existing functionality:
+- Task #309: Semantic error handling for file operations
+- Existing session file operation tools in `src/adapters/mcp/session-files.ts`
 
-1. **Before**: `session approve` failed with uncommitted changes in session workspace
-2. **After**: `session approve` operates entirely on main repository, ignoring session workspace state
-3. **Safety**: All existing validation and error handling preserved
-4. **Compatibility**: No breaking changes to the approval API or workflow
+## Checklist
+
+- [x] `session_move_file` tool implemented and registered with MCP
+- [x] `session_rename_file` tool implemented and registered with MCP
+- [x] Tools enforce workspace boundaries like other session file operations
+- [x] Proper error handling for common scenarios
+- [x] Integration with semantic error handling from Task #309
+- [x] Unit tests for both tools
+- [x] Integration tests with actual file operations
+- [x] Documentation in code comments

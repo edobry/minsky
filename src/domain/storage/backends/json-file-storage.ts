@@ -1,35 +1,40 @@
 /**
  * JsonFileStorage Backend
- * 
+ *
  * This module implements the DatabaseStorage interface for JSON file storage,
  * wrapping the existing session-db-io.ts functionality.
  */
 
-import { join, dirname } from "path";
-import { existsSync, mkdirSync } from "fs";
-import type { DatabaseStorage, DatabaseReadResult, DatabaseWriteResult, DatabaseQueryOptions } from "../database-storage";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { dirname, join } from "path";
+import type {
+  DatabaseStorage,
+  DatabaseReadResult,
+  DatabaseWriteResult,
+  DatabaseQueryOptions,
+} from "../database-storage";
 import type { SessionRecord, SessionDbState } from "../../session/session-db";
-import { readSessionDbFile, writeSessionDbFile, type SessionDbFileOptions } from "../../session/session-db-io";
+import {
+  readSessionDbFile,
+  writeSessionsToFile,
+  type SessionDbFileOptions,
+} from "../../session/session-db-io";
 import { initializeSessionDbState } from "../../session/session-db";
 import { log } from "../../../utils/logger";
+import { getErrorMessage } from "../../../errors/index";
+import { getMinskyStateDir, getDefaultJsonDbPath } from "../../../utils/paths";
 
 /**
  * JSON File Storage implementation for session records
  */
 export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
-  private readonly dbPath: string;
-  private readonly baseDir: string;
+  private dbPath: string;
+  private baseDir: string;
 
   constructor(dbPath?: string, baseDir?: string) {
-    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    
-    if (dbPath) {
-      this.dbPath = dbPath;
-      this.baseDir = baseDir || join(dbPath, "..", "..", "git");
-    } else {
-      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = baseDir || join(xdgStateHome, "minsky", "git");
-    }
+    const defaultStateDir = getMinskyStateDir();
+    this.baseDir = baseDir || defaultStateDir;
+    this.dbPath = dbPath || getDefaultJsonDbPath();
   }
 
   private getFileOptions(): SessionDbFileOptions {
@@ -41,14 +46,18 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async readState(): Promise<DatabaseReadResult<SessionDbState>> {
     try {
-      const state = readSessionDbFile(this.getFileOptions());
+      const sessions = readSessionDbFile(this.getFileOptions());
+      const state: SessionDbState = {
+        sessions,
+        baseDir: this.baseDir,
+      };
       return {
         success: true,
         data: state,
       };
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error reading session database: ${err.message}`);
+      const err = error instanceof Error ? error : new Error(String(error as any));
+      log.error(`Error reading session database: ${(err as any).message}`);
       return {
         success: false,
         error: err,
@@ -58,14 +67,14 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
     try {
-      const success = writeSessionDbFile(state, this.getFileOptions());
+      await writeSessionsToFile(state.sessions, this.getFileOptions());
       return {
-        success,
-        bytesWritten: success ? JSON.stringify(state.sessions).length : 0,
+        success: true,
+        bytesWritten: JSON.stringify(state.sessions).length,
       };
     } catch (error) {
-      const err = error instanceof Error ? error : new Error(String(error));
-      log.error(`Error writing session database: ${err.message}`);
+      const err = error instanceof Error ? error : new Error(String(error as any));
+      log.error(`Error writing session database: ${(err as any).message}`);
       return {
         success: false,
         error: err,
@@ -73,13 +82,13 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     }
   }
 
-  async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
+  async getEntity(id: string, options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     const result = await this.readState();
     if (!result.success || !result.data) {
       return null;
     }
 
-    return result.data.sessions.find(session => session.session === id) || null;
+    return result.data!.sessions.find((session) => session.session === id) || null;
   }
 
   async getEntities(options?: DatabaseQueryOptions): Promise<SessionRecord[]> {
@@ -94,13 +103,18 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     if (options) {
       if (options.taskId) {
         const normalizedTaskId = options.taskId.replace(/^#/, "");
-        sessions = sessions.filter(s => s.taskId.replace(/^#/, "") === normalizedTaskId);
+        sessions = sessions.filter((s) => {
+          if (!s.taskId) {
+            return false;
+          }
+          return s.taskId.replace(/^#/, "") === normalizedTaskId;
+        });
       }
       if (options.repoName) {
-        sessions = sessions.filter(s => s.repoName === options.repoName);
+        sessions = sessions.filter((s) => s.repoName === options.repoName);
       }
       if (options.branch) {
-        sessions = sessions.filter(s => s.branch === options.branch);
+        sessions = sessions.filter((s) => s.branch === options.branch);
       }
     }
 
@@ -120,7 +134,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     const writeResult = await this.writeState(newState);
     if (!writeResult.success) {
-      throw new Error(`Failed to create entity: ${writeResult.error?.message}`);
+      throw new Error(`Failed to create entity: ${writeResult.error?.message || "Unknown error"}`);
     }
 
     return entity;
@@ -132,7 +146,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return null;
     }
 
-    const sessionIndex = result.data.sessions.findIndex(s => s.session === id);
+    const sessionIndex = result.data!.sessions.findIndex((s) => s.session === id);
     if (sessionIndex === -1) {
       return null;
     }
@@ -141,12 +155,15 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
     const safeUpdates: Partial<Omit<SessionRecord, "session">> = {};
     Object.entries(updates).forEach(([key, value]) => {
       if (key !== "session") {
-        (safeUpdates as any)[key] = value;
+        safeUpdates[key] = value;
       }
     });
-    
-    const updatedSession: SessionRecord = { ...result.data.sessions[sessionIndex], ...safeUpdates };
-    
+
+    const updatedSession: SessionRecord = {
+      ...result.data.sessions[sessionIndex]!,
+      ...safeUpdates,
+    } as SessionRecord;
+
     const newSessions = [...result.data.sessions];
     newSessions[sessionIndex] = updatedSession;
 
@@ -157,7 +174,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     const writeResult = await this.writeState(newState);
     if (!writeResult.success) {
-      throw new Error(`Failed to update entity: ${writeResult.error?.message}`);
+      throw new Error(`Failed to update entity: ${writeResult.error?.message || "Unknown error"}`);
     }
 
     return updatedSession;
@@ -169,7 +186,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
       return false;
     }
 
-    const sessionIndex = result.data.sessions.findIndex(s => s.session === id);
+    const sessionIndex = result.data!.sessions.findIndex((s) => s.session === id);
     if (sessionIndex === -1) {
       return false;
     }
@@ -212,8 +229,8 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return true;
     } catch (error) {
-      log.error(`Error initializing JSON file storage: ${error instanceof Error ? error.message : String(error)}`);
+      log.error(`Error initializing JSON file storage: ${getErrorMessage(error as any)}`);
       return false;
     }
   }
-} 
+}

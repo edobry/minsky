@@ -1,13 +1,23 @@
 #!/usr/bin/env bun
 
+// CRITICAL: Import and setup config FIRST before any other imports that might use configuration
+// This ensures the custom configuration system is initialized before any code tries to access it
+import { setupConfiguration } from "./config-setup";
+
+// Wait for configuration to be initialized before proceeding with other imports
+await setupConfiguration();
+
 import { Command } from "commander";
-import { log } from "./utils/logger.js";
-import { registerAllSharedCommands } from "./adapters/shared/commands/index.js";
-import { createMCPCommand } from "./commands/mcp/index.js";
+import { log } from "./utils/logger";
+import { exit } from "./utils/process";
+import { registerAllSharedCommands } from "./adapters/shared/commands/index";
+import { createMCPCommand } from "./commands/mcp/index";
 import {
   setupCommonCommandCustomizations,
   registerAllCommands,
-} from "./adapters/cli/cli-command-factory.js";
+} from "./adapters/cli/cli-command-factory";
+import { validateProcess } from "./schemas/runtime";
+import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
 
 /**
  * Root CLI command
@@ -47,18 +57,21 @@ export async function createCli(): Promise<Command> {
  */
 async function main(): Promise<void> {
   await createCli();
-  await cli.parseAsync(process.argv);
+  await cli.parseAsync();
+
+  // Still need explicit exit until all resource leaks are fixed
+  // The improvements to workspace manager help, but there are other sources
+  exit(0);
 }
 
-// Only run the CLI if this file is executed directly (not imported as a module)
-if (import.meta.url === `file://${process.argv[1]}`) {
-  main().catch((err) => {
-    log.systemDebug(`Error caught in main: ${err}`);
-    log.systemDebug(`Error stack: ${err.stack}`);
-    log.error(`Unhandled error in CLI: ${err.message}`);
-    if (err.stack) log.debug(err.stack);
-    process.exit(1);
-  });
-}
+// Run the CLI
+main().catch((err) => {
+  const validatedError = validateError(err);
+  log.systemDebug(`Error caught in main: ${err}`);
+  log.systemDebug(`Error stack: ${validatedError.stack || "No stack available"}`);
+  log.error(`Unhandled error in CLI: ${validatedError.message}`);
+  if (validatedError.stack) log.debug(validatedError.stack);
+  exit(1);
+});
 
 export default cli;

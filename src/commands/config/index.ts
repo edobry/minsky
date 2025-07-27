@@ -1,6 +1,6 @@
 /**
  * minsky config command
- * 
+ *
  * Main configuration command that provides access to all config subcommands
  */
 
@@ -26,4 +26,4 @@ Examples:
   configCmd.addCommand(createConfigShowCommand());
 
   return configCmd;
-} 
+}

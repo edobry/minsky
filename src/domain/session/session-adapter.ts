@@ -17,7 +17,8 @@ import {
   getRepoPathFn,
   getSessionWorkdirFn,
 } from "./session-db"; // Value imports
-import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
+import { readSessionDbFile, writeSessionsToFile } from "./session-db-io";
+import { getMinskyStateDir, getDefaultJsonDbPath } from "../../utils/paths";
 
 /**
  * Interface for session provider
@@ -32,37 +33,37 @@ export interface LocalSessionProviderInterface {
   /**
    * Get a specific session by name
    */
-  getSession(__session: string): Promise<SessionRecord | null>;
+  getSession(session: string): Promise<SessionRecord | null>;
 
   /**
    * Get a specific session by task ID
    */
-  getSessionByTaskId(__taskId: string): Promise<SessionRecord | null>;
+  getSessionByTaskId(_taskId: string): Promise<SessionRecord | null>;
 
   /**
    * Add a new session to the database
    */
-  addSession(__record: SessionRecord): Promise<void>;
+  addSession(_record: SessionRecord): Promise<void>;
 
   /**
    * Update an existing session
    */
-  updateSession(__session: string, _updates: Partial<Omit<"session">>): Promise<void>;
+  updateSession(session: string, _updates: Partial<Omit<SessionRecord, "session">>): Promise<void>;
 
   /**
    * Delete a session by name
    */
-  deleteSession(__session: string): Promise<boolean>;
+  deleteSession(session: string): Promise<boolean>;
 
   /**
    * Get the repository path for a session
    */
-  getRepoPath(__record: SessionRecord): Promise<string>;
+  getRepoPath(_record: SessionRecord): Promise<string>;
 
   /**
    * Get the working directory for a session
    */
-  getSessionWorkdir(__sessionName: string): Promise<string | null>;
+  getSessionWorkdir(_sessionName: string): Promise<string | undefined>;
 }
 
 /**
@@ -75,15 +76,13 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   private state: SessionDbState;
 
   constructor(dbPath?: string) {
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-
     if (dbPath) {
       this.dbPath = dbPath;
       // For custom dbPath, set baseDir based on a parallel directory structure
-      this.baseDir = join(dbPath, "..", "..", "git");
+      this.baseDir = join(dbPath, "..", "..");
     } else {
-      this.dbPath = join(xdgStateHome, "minsky", "session-db.json");
-      this.baseDir = join(xdgStateHome, "minsky", "git");
+      this.dbPath = getDefaultJsonDbPath();
+      this.baseDir = getMinskyStateDir();
     }
 
     // Initialize state (will be populated on first read)
@@ -94,8 +93,12 @@ export class SessionAdapter implements LocalSessionProviderInterface {
    * Read database from disk
    */
   private async readDb(): Promise<SessionRecord[]> {
-    this.state = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
-    return this.state.sessions;
+    const dbState = readSessionDbFile({ dbPath: this.dbPath, baseDir: this.baseDir });
+    this.state = {
+      sessions: dbState.sessions,
+      baseDir: this.baseDir,
+    };
+    return dbState.sessions;
   }
 
   /**
@@ -108,7 +111,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
       sessions,
     };
     // Then write to disk
-    writeSessionDbFile(this.state, { dbPath: this.dbPath });
+    await writeSessionsToFile(sessions, { dbPath: this.dbPath });
   }
 
   /**
@@ -129,7 +132,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get a session by task ID
    */
-  async getSessionByTaskId(__taskId: string): Promise<SessionRecord | null> {
+  async getSessionByTaskId(_taskId: string): Promise<SessionRecord | null> {
     await this.readDb();
     return getSessionByTaskIdFn(this.state, _taskId);
   }
@@ -137,7 +140,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Add a new session
    */
-  async addSession(__record: SessionRecord): Promise<void> {
+  async addSession(_record: SessionRecord): Promise<void> {
     await this.readDb();
     const newState = addSessionFn(this.state, _record);
     await this.writeDb(newState.sessions);
@@ -146,19 +149,22 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Update an existing session
    */
-  async updateSession(__session: string, _updates: Partial<Omit<"session">>): Promise<void> {
+  async updateSession(
+    session: string,
+    _updates: Partial<Omit<SessionRecord, "session">>
+  ): Promise<void> {
     await this.readDb();
-    const newState = updateSessionFn(this.state, _session, _updates);
+    const newState = updateSessionFn(this.state, session, _updates);
     await this.writeDb(newState.sessions);
   }
 
   /**
    * Delete a session
    */
-  async deleteSession(__session: string): Promise<boolean> {
+  async deleteSession(session: string): Promise<boolean> {
     await this.readDb();
     const originalLength = this.state.sessions.length;
-    const newState = deleteSessionFn(this.state, _session);
+    const newState = deleteSessionFn(this.state, session);
 
     // If no change occurred (session not found)
     if (newState.sessions.length === originalLength) {
@@ -172,7 +178,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get the repository path for a session
    */
-  async getRepoPath(__record: SessionRecord): Promise<string> {
+  async getRepoPath(_record: SessionRecord): Promise<string> {
     await this.readDb();
     return getRepoPathFn(this.state, _record);
   }
@@ -180,7 +186,7 @@ export class SessionAdapter implements LocalSessionProviderInterface {
   /**
    * Get the working directory for a session
    */
-  async getSessionWorkdir(__sessionName: string): Promise<string | null> {
+  async getSessionWorkdir(_sessionName: string): Promise<string | undefined> {
     await this.readDb();
     return getSessionWorkdirFn(this.state, _sessionName);
   }

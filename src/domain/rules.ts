@@ -3,21 +3,33 @@ import { HTTP_OK } from "../utils/constants";
 import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync } from "fs";
-import { log } from "../utils/logger";const COMMIT_HASH_SHORT_LENGTH = 7;
+import { log } from "../utils/logger";
+import { getErrorMessage } from "../errors/index";
+const COMMIT_HASH_SHORT_LENGTH = 7;
 
 // Added logger import
 import * as jsYaml from "js-yaml";
 
-const matter = (grayMatterNamespace as any).default || grayMatterNamespace;
+const matter = grayMatterNamespace.default || grayMatterNamespace;
 
 // Create a custom stringify function that doesn't add unnecessary quotes
-function customMatterStringify(__content: string, _data: any): string {
+function customMatterStringify(content: string, data: any): string {
   // Use js-yaml's dump function directly with options to control quoting behavior
-  const yamlStr = jsYaml.dump(_data, {
+  let yamlStr = jsYaml.dump(data, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: "\"", // Use double quotes when necessary
+    quotingType: '"', // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
+  });
+
+  // Post-process to ensure descriptions with special characters use double quotes
+  // Replace single-quoted descriptions with double-quoted ones
+  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
+    // Check if description contains special characters that warrant quoting
+    if (description.includes(":") || description.includes("!") || description.includes("?")) {
+      return `description: "${description}"`;
+    }
+    return match;
   });
 
   return `---\n${yamlStr}---\n${content}`;
@@ -42,7 +54,7 @@ export interface RuleMeta {
   globs?: string[];
   alwaysApply?: boolean;
   tags?: string[];
-  [key: string]: unknown; // Allow for additional custom fields
+  [key: string]: any; // Allow for additional custom fields
 }
 
 export type RuleFormat = "cursor" | "generic";
@@ -72,14 +84,14 @@ export interface SearchRuleOptions {
 export class RuleService {
   private workspacePath: string;
 
-  constructor(__workspacePath: string) {
+  constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
     // Log workspace path on initialization for debugging
-    log.debug("RuleService initialized", { _workspacePath });
+    log.debug("RuleService initialized", { workspacePath });
   }
 
-  private getRuleDirPath(_format: RuleFormat): string {
-    const dirPath = join(this._workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+  private getRuleDirPath(format: RuleFormat): string {
+    const dirPath = join(this.workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
     return dirPath;
   }
 
@@ -118,8 +130,8 @@ export class RuleService {
           } catch (error) {
             log.error("Error processing rule file", {
               file,
-              originalError: error instanceof Error ? error.message : String(error),
-              stack: error instanceof Error ? error.stack : undefined,
+              originalError: getErrorMessage(error as any),
+              stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
             });
           }
         }
@@ -128,8 +140,8 @@ export class RuleService {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
             format,
-            originalError: error instanceof Error ? error.message : String(error),
-            stack: error instanceof Error ? error.stack : undefined,
+            originalError: getErrorMessage(error as any),
+            stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
           });
         }
       }
@@ -146,14 +158,14 @@ export class RuleService {
     const bareId = id.replace(/\.mdc$/, "");
 
     if (options.debug) {
-      log.debug("Getting rule", { _id: bareId, requestedFormat: options.format });
+      log.debug("Getting rule", { id: bareId, requestedFormat: options.format });
     }
 
     // If a specific format is requested, try that first
     if (options.format) {
       const requestedFormat = options.format;
       const dirPath = this.getRuleDirPath(requestedFormat);
-      const filePath = join(_dirPath, `${bareId}.mdc`);
+      const filePath = join(dirPath, `${bareId}.mdc`);
 
       if (options.debug) {
         log.debug("Checking requested format", { format: requestedFormat, filePath });
@@ -168,12 +180,12 @@ export class RuleService {
         }
 
         // File exists in requested format, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = String(await fs.readFile(filePath, "utf-8")) as string;
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
           // Some rule files may have formatting issues in their frontmatter that cause gray-matter to throw
-          const { data, _content: ruleContent } = matter(_content);
+          const { data, content: ruleContent } = matter(content);
 
           if (options.debug) {
             log.debug("Successfully parsed frontmatter", {
@@ -200,17 +212,21 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter", {
               filePath,
-              error: matterError instanceof Error ? matterError.message : String(matterError),
-              content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
+              error: getErrorMessage(error as any),
+              content: ((content as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
           // If there's an issue with the frontmatter, try to handle it gracefully
           // Just extract content after the second '---' or use the whole content if no frontmatter markers
           let extractedContent = content;
-          const frontmatterEndIndex = content.indexOf("---", 3);
+          const frontmatterEndIndex = content.toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = content.substring(frontmatterEndIndex + 3).trim();
+            extractedContent = content
+              .toString()
+              .substring(frontmatterEndIndex + 3)
+              .toString()
+              .trim();
           }
 
           // Return a basic rule object with just the content, missing the metadata from frontmatter
@@ -227,7 +243,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in requested format", {
             filePath,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error as any),
           });
         }
         // Instead of failing immediately, try other formats below
@@ -242,7 +258,7 @@ export class RuleService {
       if (options.format === format) continue;
 
       const dirPath = this.getRuleDirPath(format);
-      const filePath = join(_dirPath, `${bareId}.mdc`);
+      const filePath = join(dirPath, `${bareId}.mdc`);
 
       if (options.debug) {
         log.debug("Checking alternative format", { format, filePath });
@@ -257,11 +273,11 @@ export class RuleService {
         }
 
         // File exists, read and parse it
-        const _content = await fs.readFile(_filePath, "utf-COMMIT_HASH_SHORT_LENGTH");
+        const content = String(await fs.readFile(filePath, "utf-8")) as string;
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
-          const { data, _content: ruleContent } = matter(_content);
+          const { data, content: ruleContent } = matter(content);
 
           if (options.debug) {
             log.debug("Successfully parsed frontmatter in alternative format", {
@@ -309,16 +325,20 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
-              error: matterError instanceof Error ? matterError.message : String(matterError),
-              content: content.substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
+              error: getErrorMessage(error as any),
+              content: ((content as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
 
           // Same frontmatter error handling as above for consistency
           let extractedContent = content;
-          const frontmatterEndIndex = content.indexOf("---", 3);
+          const frontmatterEndIndex = content.toString().indexOf("---", 3);
           if (content.startsWith("---") && frontmatterEndIndex > 0) {
-            extractedContent = content.substring(frontmatterEndIndex + 3).trim();
+            extractedContent = content
+              .toString()
+              .substring(frontmatterEndIndex + 3)
+              .toString()
+              .trim();
           }
 
           return {
@@ -333,7 +353,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in alternative format", {
             filePath,
-            error: error instanceof Error ? error.message : String(error),
+            error: getErrorMessage(error as any),
           });
         }
         continue;
@@ -342,7 +362,7 @@ export class RuleService {
 
     // If we reach here, the rule was not found in any format
     if (options.debug) {
-      log.error("Rule not found in any format", { _id: bareId, requestedFormat: options.format });
+      log.error("Rule not found in any format", { id: bareId, requestedFormat: options.format });
     }
 
     if (options.format) {
@@ -357,17 +377,18 @@ export class RuleService {
   /**
    * Create a new rule
    */
-  async createRule(id: string,
+  async createRule(
+    id: string,
     content: string,
     meta: RuleMeta,
     options: CreateRuleOptions = {}
   ): Promise<Rule> {
     const format = options.format || "cursor";
     const dirPath = this.getRuleDirPath(format);
-    const filePath = join(_dirPath, `${id}.mdc`);
+    const filePath = join(dirPath, `${id}.mdc`);
 
     // Ensure directory exists
-    await fs.mkdir(_dirPath, { recursive: true });
+    await fs.mkdir(dirPath, { recursive: true });
 
     // Check if rule already exists
     if (existsSync(filePath) && !options.overwrite) {
@@ -383,10 +404,10 @@ export class RuleService {
     });
 
     // Use custom stringify function instead of matterStringify
-    const fileContent = customMatterStringify(__content, cleanMeta);
+    const fileContent = customMatterStringify(content, cleanMeta);
 
     // Write the file
-    await fs.writeFile(_filePath, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(filePath, fileContent, "utf-8");
 
     log.debug("Rule created/updated", {
       _path: filePath,
@@ -408,11 +429,12 @@ export class RuleService {
   /**
    * Update an existing rule
    */
-  async updateRule(id: string,
+  async updateRule(
+    id: string,
     options: UpdateRuleOptions,
     ruleOptions: RuleOptions = {}
   ): Promise<Rule> {
-    const rule = await this.getRule(_id, ruleOptions);
+    const rule = await this.getRule(id, ruleOptions);
 
     // No changes needed
     if (!options.content && !options.meta) {
@@ -435,7 +457,7 @@ export class RuleService {
     // Populate metaForFrontmatter with defined values from mergedMeta
     for (const key in mergedMeta) {
       if (
-        Object.prototype.hasOwnProperty.call(_mergedMeta, key) &&
+        Object.prototype.hasOwnProperty.call(mergedMeta, key) &&
         mergedMeta[key as keyof RuleMeta] !== undefined
       ) {
         metaForFrontmatter[key as keyof RuleMeta] = mergedMeta[key as keyof RuleMeta];
@@ -446,20 +468,20 @@ export class RuleService {
     const updatedContent = options.content || rule.content;
 
     // Use custom stringify function instead of matterStringify
-    const fileContent = customMatterStringify(_updatedContent, metaForFrontmatter);
+    const fileContent = customMatterStringify(updatedContent, metaForFrontmatter);
 
     // Write the file
-    await fs.writeFile(rule.path, fileContent, "utf-COMMIT_HASH_SHORT_LENGTH");
+    await fs.writeFile(rule.path, fileContent, "utf-8");
 
     log.debug("Rule updated", {
       _path: rule.path,
       id,
       format: rule.format,
-      contentChanged: !!options._content,
+      contentChanged: !!options.content,
       metaChanged: !!options.meta,
     });
 
-    return this.getRule(_id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
+    return this.getRule(id, { format: rule.format, debug: ruleOptions.debug }); // Re-fetch to get updated rule
   }
 
   /**
@@ -482,7 +504,7 @@ export class RuleService {
     // Filter by search term
     return rules.filter((rule) => {
       // Search in content
-      if (rule.content.toLowerCase().includes(searchTerm)) {
+      if (rule.content.toLowerCase().toString().includes(searchTerm)) {
         return true;
       }
 

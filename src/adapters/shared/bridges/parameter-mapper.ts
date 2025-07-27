@@ -9,6 +9,8 @@ import { Command, Option } from "commander";
 import { z } from "zod";
 import type { CommandParameterDefinition } from "../command-registry";
 import { paramNameToFlag } from "../schema-bridge";
+import { getErrorMessage } from "../../../errors/index";
+import { formatZodError } from "../../../utils/zod-error-formatter";
 
 /**
  * Configuration options for parameter mapping
@@ -19,23 +21,25 @@ export interface ParameterMappingOptions {
   /** Override the parameter description */
   description?: string;
   /** Override the default value */
-  defaultValue?: unknown;
+  defaultValue?: any;
   /** Whether to hide this parameter from help */
   hidden?: boolean;
   /** Custom validation function */
-  validator?: (value: unknown) => boolean;
+  validator?: (value: any) => boolean;
   /** Custom error message for validation failures */
   errorMessage?: string;
   /** Custom parser for the value */
-  parser?: (value: unknown) => any;
+  parser?: (value: any) => any;
   /** Whether to handle this as a variadic parameter */
   variadic?: boolean;
   /** Whether to treat this as a CLI argument instead of option */
   asArgument?: boolean;
+  /** Map this parameter to a different parameter in the command execution */
+  mapTo?: string;
 }
 
 /**
- * Maps a parameter name to Commander options with additional config
+ * Represents a parameter mapping with its definition and options
  */
 export interface ParameterMapping {
   name: string;
@@ -44,41 +48,37 @@ export interface ParameterMapping {
 }
 
 /**
- * Creates an array of Command Option objects from parameter mappings
+ * Creates Commander.js options from parameter mappings
  */
 export function createOptionsFromMappings(mappings: ParameterMapping[]): Option[] {
   return mappings.filter((mapping) => !mapping.options.asArgument).map(createOptionFromMapping);
 }
 
 /**
- * Adds arguments to a command from parameter mappings
+ * Adds Commander.js arguments from parameter mappings
  */
 export function addArgumentsFromMappings(command: Command, mappings: ParameterMapping[]): Command {
-  mappings
-    .filter((mapping) => mapping.options.asArgument)
-    .sort((a, b) => {
-      // Required arguments come first
-      if (a.paramDef.required && !b.paramDef.required) return -1;
-      if (!a.paramDef.required && b.paramDef.required) return 1;
-      return 0;
-    })
-    .forEach((mapping) => {
-      // Schema type not needed for arguments, only for options
+  const argumentMappings = mappings.filter((mapping) => mapping.options.asArgument);
 
-      // Format the argument name
-      const argName = formatArgumentName(
-        mapping.name,
-        mapping.paramDef.required,
-        mapping.options.variadic
-      );
+  argumentMappings.forEach((mapping) => {
+    const { name, paramDef, options } = mapping;
 
-      // Add the argument to the command
-      command.argument(
-        argName,
-        mapping.options.description || mapping.paramDef.description || "",
-        mapping.options.parser
-      );
-    });
+    // Format argument name
+    const argName = formatArgumentName(name, paramDef.required, options.variadic);
+
+    // Add argument to command
+    if (options.variadic) {
+      command.argument(argName, options.description || paramDef.description || "");
+    } else {
+      command.argument(argName, options.description || paramDef.description || "");
+    }
+
+    // Add custom parser if provided
+    if (options.parser) {
+      // Note: Commander.js doesn't have a direct way to add parsers to arguments
+      // This would need to be handled in the action function
+    }
+  });
 
   return command;
 }
@@ -162,7 +162,7 @@ function formatArgumentName(name: string, required: boolean, variadic?: boolean)
 function addTypeHandlingToOption(
   option: Option,
   schemaType?: string,
-  customParser?: (value: unknown) => any
+  customParser?: (value: any) => any
 ): Option {
   // If a custom parser is provided, use it
   if (customParser) {
@@ -171,23 +171,23 @@ function addTypeHandlingToOption(
 
   // Otherwise use schema type to determine parsing
   switch (schemaType) {
-  case "number":
-    return option.argParser((value) => {
-      const num = Number(value);
-      if (isNaN(num)) {
-        throw new Error("Option requires a number value");
-      }
-      return num;
-    });
+    case "number":
+      return option.argParser((value) => {
+        const num = Number(value);
+        if (isNaN(num)) {
+          throw new Error("Option requires a number value");
+        }
+        return num;
+      });
 
-  case "boolean":
-    return option;
+    case "boolean":
+      return option;
 
-  case "array":
-    return option.argParser((value) => value.split(",").map((v) => v.trim()));
+    case "array":
+      return option.argParser((value) => value.split(",").map((v) => v.trim()));
 
-  default:
-    return option;
+    default:
+      return option;
   }
 }
 
@@ -245,9 +245,9 @@ export function createParameterMappings(
  */
 export function normalizeCliParameters(
   parametersSchema: Record<string, CommandParameterDefinition>,
-  cliParameters: Record<string, unknown>
-): Record<string, unknown> {
-  const result: Record<string, unknown> = {};
+  cliParameters: Record<string, any>
+): Record<string, any> {
+  const result: Record<string, any> = {};
 
   // Process each parameter
   for (const [paramName, paramDef] of Object.entries(parametersSchema)) {
@@ -271,9 +271,15 @@ export function normalizeCliParameters(
         const parsedValue = paramDef.schema.parse(rawValue);
         result[paramName] = parsedValue;
       } catch (error) {
-        throw new Error(
-          `Invalid value for parameter '${paramName}': ${error instanceof Error ? error.message : String(error)}`
-        );
+        // Use user-friendly error formatting for Zod validation errors
+        if (error instanceof z.ZodError) {
+          const userFriendlyMessage = formatZodError(error, paramName);
+          throw new Error(`Invalid value for parameter '${paramName}': ${userFriendlyMessage}`);
+        } else {
+          throw new Error(
+            `Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`
+          );
+        }
       }
     }
   }

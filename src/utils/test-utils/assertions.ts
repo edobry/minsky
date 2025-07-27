@@ -14,7 +14,7 @@ import { expect } from "bun:test";
  */
 export function expectToMatch(value: string, pattern: RegExp): void {
   const result = value.match(pattern);
-  expect(result).toBeTruthy();
+  expect(result)!.toBeTruthy();
 }
 
 /**
@@ -57,13 +57,13 @@ export function expectToHaveBeenCalled(mockFn: { mock?: { calls: unknown[][] } }
  * @param expectedArgs The expected arguments
  */
 export function expectToHaveBeenCalledWith(
-  _mockFn: { mock?: { calls: unknown[][] } },
+  mockFn: { mock?: { calls: unknown[][] } },
   ...expectedArgs: unknown[]
 ): void {
   expect(mockFn.mock?.calls.length).toBeGreaterThan(0);
 
   const found = mockFn.mock?.calls.some((call) => {
-    if (call.length !== expectedArgs.length) return false;
+    if (call?.length !== expectedArgs?.length) return false;
     return call.every((arg, index) => {
       try {
         expect(arg).toEqual(expectedArgs[index]);
@@ -85,7 +85,7 @@ export function expectToHaveBeenCalledWith(
  * @returns The argument at the specified position
  */
 export function getMockCallArg(
-  _mockFn: { mock?: { calls: unknown[][] } },
+  mockFn: { mock?: { calls: unknown[][] } },
   callIndex = 0,
   argIndex = 0
 ): unknown {
@@ -120,11 +120,7 @@ export function expectToHaveProperty(object: unknown, propertyPath: string, valu
  * @param expected The expected value
  * @param precision The number of decimal places to check (default: 2)
  */
-export function expectToBeCloseTo(
-  _received: number,
-  expected: number,
-  precision: number = 2
-): void {
+export function expectToBeCloseTo(received: number, expected: number, precision: number = 2): void {
   const factor = Math.pow(10, precision);
   const receivedRounded = Math.round(received * factor);
   const expectedRounded = Math.round(expected * factor);
@@ -156,8 +152,8 @@ export function expectToContainEqual(received: unknown[], expected: any): void {
  * @returns A wrapped test function with enhanced assertions
  */
 export function withEnhancedAssertions<T extends (...args: unknown[]) => any>(testFn: T): T {
-  return function (this: unknown, ...args: unknown[]) {
+  return function (_this: unknown, ...args: unknown[]) {
     // Could potentially extend expect with custom matchers here in the future
     return testFn.apply(this, args);
-  } as any;
+  };
 }

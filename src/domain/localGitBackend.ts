@@ -9,7 +9,7 @@ import { promisify } from "util";
 import { existsSync } from "fs";
 import { join, dirname } from "path";
 import { mkdir } from "fs/promises";
-import { RepositoryBackendType } from "./repository.js";
+import { RepositoryBackendType } from "./repository";
 import type {
   RepositoryBackend,
   RepositoryConfig,
@@ -17,15 +17,15 @@ import type {
   ValidationResult,
   CloneResult,
   BranchResult,
-} from "./repository.js";
+} from "./repository";
 import {
   RepositoryMetadataCache,
   generateRepoKey,
   RepositoryError,
-} from "../utils/repository-utils.js";
-import { normalizeRepoName } from "./repo-utils.js";
-import { SessionDB } from "./session.js";
+} from "../utils/repository-utils";
+import { normalizeRepoName } from "./repo-utils";
 import { log } from "../utils/logger";
+import { execGitWithTimeout } from "../utils/git-exec";
 
 const execAsync = promisify(exec);
 
@@ -35,7 +35,6 @@ const execAsync = promisify(exec);
 export class LocalGitBackend implements RepositoryBackend {
   private readonly config: RepositoryConfig;
   private readonly baseDir: string;
-  private readonly sessionDb: SessionDB;
   private localPath: string = "";
   private cache: RepositoryMetadataCache;
 
@@ -44,14 +43,14 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param config Repository configuration
    */
-  constructor(__config: RepositoryConfig) {
+  constructor(config: RepositoryConfig) {
     this.config = {
       ...config,
       type: RepositoryBackendType.LOCAL,
     };
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
-    this.sessionDb = new SessionDB();
+    const _xdgStateHome =
+      process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.baseDir = join(_xdgStateHome, "minsky", "sessions");
     this.cache = RepositoryMetadataCache.getInstance();
   }
 
@@ -63,12 +62,15 @@ export class LocalGitBackend implements RepositoryBackend {
    * @returns The command output
    */
   private async execGit(args: string[], cwd?: string): Promise<string> {
-    const cmd = `git ${args.join(" ")}`;
+    const operation = `local-backend-${args[0] || "unknown"}`;
+    const gitCommand = args.join(" ");
     try {
-      const { stdout, stderr } = await execAsync(_cmd, { cwd: cwd || this.localPath });
+      const { stdout, stderr } = await execGitWithTimeout(operation, gitCommand, {
+        workdir: cwd || this.localPath,
+      });
       if (stderr) {
         log.debug("Git _command produced stderr", {
-          _command: cmd,
+          _command: `git ${gitCommand}`,
           stderr,
           cwd: cwd || this.localPath,
         });
@@ -76,7 +78,7 @@ export class LocalGitBackend implements RepositoryBackend {
       return stdout.trim();
     } catch (error) {
       throw new RepositoryError(
-        `Git _command failed: ${cmd}`,
+        `Git _command failed: git ${gitCommand}`,
         error instanceof Error ? error : undefined
       );
     }
@@ -89,8 +91,8 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns The repository path
    */
-  private getSessionWorkdir(_repoName: string, _session: string): string {
-    return join(this.baseDir, repoName, "sessions", _session);
+  private getSessionWorkdir(session: string): string {
+    return join(this.baseDir, "sessions", session);
   }
 
   /**
@@ -99,7 +101,7 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result
    */
-  async clone(__session: string): Promise<CloneResult> {
+  async clone(session: string): Promise<CloneResult> {
     if (!this.config.path) {
       throw new RepositoryError("Local repository path is required for LOCAL backend");
     }
@@ -109,19 +111,19 @@ export class LocalGitBackend implements RepositoryBackend {
       const repoName = normalizeRepoName(this.config.path);
 
       // Create the destination directory
-      const _workdir = this.getSessionWorkdir(_repoName, _session);
-      await mkdir(dirname(_workdir), { recursive: true });
+      const workdir = this.getSessionWorkdir(session);
+      await mkdir(dirname(workdir), { recursive: true });
 
       // Clone the repository
-      await this.execGit(["clone", this.config.path, workdir]);
+      await this.execGit(["clone", this.config.path, workdir] as any[]);
 
       // Set the local path
       this.localPath = workdir;
 
       // Return the clone result
       return {
-        _workdir,
-        _session,
+        workdir,
+        session: session,
       };
     } catch (error) {
       throw new RepositoryError(
@@ -144,21 +146,26 @@ export class LocalGitBackend implements RepositoryBackend {
     const cacheKey = generateRepoKey(this.localPath, "status");
 
     return this.cache.get(
-      _cacheKey,
+      cacheKey,
       async () => {
         try {
-          const statusOutput = await this.execGit(["status", "--porcelain"]);
-          const branchOutput = await this.execGit(["_branch", "--show-current"]);
+          const statusOutput = await this.execGit(["status", "--porcelain"] as any[]);
+          const branchOutput = await this.execGit(["_branch", "--show-current"] as any[]);
           let trackingOutput = "";
 
           try {
-            trackingOutput = await this.execGit(["rev-parse", "--abbrev-ref", "@{upstream}"]);
+            trackingOutput = await this.execGit([
+              "rev-parse",
+              "--abbrev-ref",
+              "@{upstream}",
+            ] as any[]);
           } catch (error) {
             // No upstream branch is set, this is not an error
             trackingOutput = "";
           }
 
           return {
+            workdir: this.localPath!,
             clean: statusOutput === "",
             changes: statusOutput.split("\n").filter((line) => line !== ""),
             branch: branchOutput,
@@ -205,8 +212,10 @@ export class LocalGitBackend implements RepositoryBackend {
 
     // Check if it's a Git repository
     try {
-      await execAsync(`git -C ${this.config.path} rev-parse --git-dir`);
-    } catch (_error) {
+      await execGitWithTimeout("validate-git-dir", "rev-parse --git-dir", {
+        workdir: this.config.path,
+      });
+    } catch (error) {
       issues.push(`Not a valid Git repository: ${this.config.path}`);
       return { valid: false, issues };
     }
@@ -219,7 +228,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to push (defaults to current _branch)
    */
-  async push(_branch?: string): Promise<void> {
+  async push(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -227,7 +236,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const branchToPush = branch || "HEAD";
 
     try {
-      await this.execGit(["push", "origin", branchToPush]);
+      await this.execGit(["push", "origin", branchToPush] as any[]);
 
       // Invalidate status cache after pushing
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
@@ -244,7 +253,7 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch to pull (defaults to current _branch)
    */
-  async pull(_branch?: string): Promise<void> {
+  async pull(branch?: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
@@ -252,7 +261,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const branchToPull = branch || "HEAD";
 
     try {
-      await this.execGit(["pull", "origin", branchToPull]);
+      await this.execGit(["pull", "origin", branchToPull] as any[]);
 
       // Invalidate status cache after pulling
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
@@ -271,20 +280,20 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param name Branch name to create
    * @returns Branch result
    */
-  async branch(__session: string, name: string): Promise<BranchResult> {
+  async branch(_session: string, name: string): Promise<BranchResult> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
 
     try {
-      await this.execGit(["checkout", "-b", name]);
+      await this.execGit(["checkout", "-b", name] as any[]);
 
       // Invalidate status cache after branch creation
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));
 
       return {
-        workdir: this.localPath,
-        _branch: name,
+        workdir: this.localPath!,
+        branch: name,
       };
     } catch (error) {
       throw new RepositoryError(
@@ -299,13 +308,13 @@ export class LocalGitBackend implements RepositoryBackend {
    *
    * @param branch Branch name to checkout
    */
-  async checkout(__branch: string): Promise<void> {
+  async checkout(branch: string): Promise<void> {
     if (!this.localPath) {
       throw new RepositoryError("Repository has not been cloned yet");
     }
 
     try {
-      await this.execGit(["checkout", branch]);
+      await this.execGit(["checkout", branch] as any[]);
 
       // Invalidate status cache after checkout
       this.cache.invalidateByPrefix(generateRepoKey(this.localPath, "status"));

@@ -1,6 +1,7 @@
 import { resolve, relative, join, normalize } from "path";
 import { log } from "../../utils/logger";
 import { InvalidPathError } from "../workspace/workspace-backend";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Error thrown when a session is not found or invalid
@@ -30,10 +31,10 @@ export class SessionPathResolver {
   validateAndResolvePath(sessionDir: string, userPath: string): string {
     // Normalize the session directory path
     const normalizedSessionDir = resolve(sessionDir);
-    
+
     // Handle different path formats
     let targetPath: string;
-    
+
     if (userPath.startsWith("/")) {
       // Absolute path - could be dangerous, check if it's within session
       targetPath = resolve(userPath);
@@ -41,13 +42,13 @@ export class SessionPathResolver {
       // Relative path - resolve relative to session directory
       targetPath = resolve(normalizedSessionDir, userPath);
     }
-    
+
     // Normalize the target path to handle any "../" segments
     targetPath = normalize(targetPath);
-    
+
     // Check if the resolved path is within the session workspace
     const relativeToBoundary = relative(normalizedSessionDir, targetPath);
-    
+
     // If the relative path starts with "..", it's outside the session
     if (relativeToBoundary.startsWith("..") || relativeToBoundary === "..") {
       throw new InvalidPathError(
@@ -56,14 +57,15 @@ export class SessionPathResolver {
         userPath
       );
     }
-    
-    log.debug("Validated session path", {
-      sessionDir: normalizedSessionDir,
-      userPath,
-      resolvedPath: targetPath,
-      relativeToBoundary,
-    });
-    
+
+    // Temporarily disable logging to investigate infinite loop issue
+    // log.debug("Validated session path", {
+    //   sessionDir: normalizedSessionDir,
+    //   userPath,
+    //   resolvedPath: targetPath,
+    //   relativeToBoundary,
+    // });
+
     return targetPath;
   }
 
@@ -78,15 +80,16 @@ export class SessionPathResolver {
       const normalizedSessionDir = resolve(sessionDir);
       const normalizedResolvedPath = resolve(resolvedPath);
       const relativePath = relative(normalizedSessionDir, normalizedResolvedPath);
-      
+
       // Path is within session if it doesn't start with ".."
       return !relativePath.startsWith("..") && relativePath !== "..";
     } catch (error) {
-      log.warn("Error checking path boundaries", {
-        sessionDir,
-        resolvedPath,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      // Temporarily disable logging to investigate infinite loop issue
+      // log.warn("Error checking path boundaries", {
+      //   sessionDir,
+      //   resolvedPath,
+      //   error: getErrorMessage(error as any),
+      // });
       return false;
     }
   }
@@ -102,20 +105,21 @@ export class SessionPathResolver {
       const normalizedSessionDir = resolve(sessionDir);
       const normalizedAbsolutePath = resolve(absolutePath);
       const relativePath = relative(normalizedSessionDir, normalizedAbsolutePath);
-      
+
       // Return null if path is outside session boundaries
       if (relativePath.startsWith("..") || relativePath === "..") {
         return null;
       }
-      
+
       // Return "." for the session root
       return relativePath || ".";
     } catch (error) {
-      log.warn("Error converting absolute to relative path", {
-        sessionDir,
-        absolutePath,
-        error: error instanceof Error ? error.message : String(error),
-      });
+      // Temporarily disable logging to investigate infinite loop issue
+      // log.warn("Error converting absolute to relative path", {
+      //   sessionDir,
+      //   absolutePath,
+      //   error: getErrorMessage(error as any),
+      // });
       return null;
     }
   }
@@ -129,7 +133,7 @@ export class SessionPathResolver {
   normalizeRelativePath(basePath: string, relativePath: string): string {
     const resolved = resolve(basePath, relativePath);
     const normalizedRelative = relative(basePath, resolved);
-    
+
     // Ensure we don't allow paths that go outside the base
     if (normalizedRelative.startsWith("..")) {
       throw new InvalidPathError(
@@ -138,7 +142,7 @@ export class SessionPathResolver {
         relativePath
       );
     }
-    
+
     return normalizedRelative;
   }
 
@@ -152,27 +156,27 @@ export class SessionPathResolver {
   validateMultiplePaths(sessionDir: string, userPaths: string[]): string[] {
     const validatedPaths: string[] = [];
     const errors: string[] = [];
-    
+
     for (const userPath of userPaths) {
       try {
         const validatedPath = this.validateAndResolvePath(sessionDir, userPath);
         validatedPaths.push(validatedPath);
       } catch (error) {
         if (error instanceof InvalidPathError) {
-          errors.push(`${userPath}: ${error.message}`);
+          errors.push(`${userPath}: ${(error as any).message}`);
         } else {
           errors.push(`${userPath}: Unexpected error during validation`);
         }
       }
     }
-    
-    if (errors.length > 0) {
+
+    if (errors?.length > 0) {
       throw new InvalidPathError(
         `Multiple path validation errors:\n${errors.join("\n")}`,
         sessionDir
       );
     }
-    
+
     return validatedPaths;
   }
 
@@ -199,4 +203,4 @@ export class SessionPathResolver {
     const relativePath = relative(sessionDir, absolutePath);
     return relativePath || ".";
   }
-} 
+}

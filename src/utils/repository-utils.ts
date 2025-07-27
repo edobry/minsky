@@ -1,4 +1,4 @@
-import { MINUTE_IN_SECONDS } from "../utils/constants";
+import { MINUTE_IN_SECONDS } from "./constants";
 
 const DEFAULT_TIMEOUT_MS = 5000;
 
@@ -21,12 +21,12 @@ interface CacheEntry<T> {
  */
 export class RepositoryMetadataCache {
   private static instance: RepositoryMetadataCache;
-  private cache: Map<string, CacheEntry<unknown>> = new Map();
+  private cache: Map<string, CacheEntry<any>> = new Map();
 
   /**
-   * Default TTL for cache entries in milliseconds (DEFAULT_RETRY_COUNT minutes).
+   * Default TTL for cache entries in milliseconds (5 minutes).
    */
-  private readonly DEFAULT_TTL = DEFAULT_RETRY_COUNT * MINUTE_IN_SECONDS * DEFAULT_TIMEOUT_MS;
+  private readonly DEFAULT_TTL = 5 * MINUTE_IN_SECONDS * DEFAULT_TIMEOUT_MS;
 
   /**
    * Private constructor to enforce singleton pattern.
@@ -62,8 +62,8 @@ export class RepositoryMetadataCache {
     }
 
     // Otherwise fetch the data and update the cache
-    const _data = await fetcher();
-    this.cache.set(_key, { data, timestamp: now });
+    const data = await fetcher();
+    this.cache.set(key, { data, timestamp: now });
     return data;
   }
 
@@ -73,8 +73,8 @@ export class RepositoryMetadataCache {
    * @param key Cache key
    * @param data Data to cache
    */
-  set<T>(key: string, _data: T): void {
-    this.cache.set(_key, { data, timestamp: Date.now() });
+  set<T>(key: string, data: T): void {
+    this.cache.set(key, { data, timestamp: Date.now() });
   }
 
   /**
@@ -82,7 +82,7 @@ export class RepositoryMetadataCache {
    *
    * @param key Cache key to invalidate
    */
-  invalidate(_key: string): void {
+  invalidate(key: string): void {
     this.cache.delete(key);
   }
 
@@ -92,9 +92,9 @@ export class RepositoryMetadataCache {
    *
    * @param prefix Cache key prefix to match
    */
-  invalidateByPrefix(__prefix: string): void {
+  invalidateByPrefix(prefix: string): void {
     for (const key of Array.from(this.cache.keys())) {
-      if (key.startsWith(_prefix)) {
+      if (key.startsWith(prefix)) {
         this.cache.delete(key);
       }
     }
@@ -119,7 +119,7 @@ export class RepositoryMetadataCache {
 export function generateRepoKey(
   repoPath: string,
   operation: string,
-  params?: Record<string, unknown>
+  params?: Record<string, any>
 ): string {
   let key = `repo:${repoPath}:${operation}`;
 
@@ -141,7 +141,7 @@ export class RepositoryError extends Error {
    * @param cause Underlying cause of the error
    */
   constructor(
-    _message: string,
+    message: string,
     public readonly cause?: Error
   ) {
     super(message);

@@ -1,12 +1,13 @@
 import { join } from "path";
-import { HTTP_OK } from "../utils/constants";
+import { HTTP_OK } from "../../utils/constants";
 import { mkdir } from "fs/promises";
 import { promisify } from "util";
 import { exec } from "child_process";
-import { SessionDB } from "../session.js";
-import { normalizeRepositoryURI } from "../repository-uri.js";
-import { GitService } from "../git.js";
-import type { RepositoryStatus, ValidationResult } from "../repository.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { normalizeRepositoryURI } from "../repository-uri";
+import { GitService } from "../git";
+import { execGitWithTimeout } from "../../utils/git-exec";
+import type { RepositoryStatus, ValidationResult } from "../repository";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -14,7 +15,7 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
-} from "./index.js";
+} from "./index";
 
 const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;
@@ -36,11 +37,11 @@ const execAsync = promisify(exec);
  */
 export class GitHubBackend implements RepositoryBackend {
   private readonly baseDir: string;
-  private readonly repoUrl: string;
-  private readonly repoName: string;
+  private readonly repoUrl!: string;
+  private readonly repoName!: string;
   private readonly owner?: string;
   private readonly repo?: string;
-  private sessionDb: SessionDB;
+  private sessionDb: SessionProviderInterface;
   private gitService: GitService;
 
   /**
@@ -49,11 +50,11 @@ export class GitHubBackend implements RepositoryBackend {
    */
   constructor(config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(xdgStateHome, "minsky", "git");
+    this.baseDir = join(xdgStateHome, "minsky");
 
     // Extract GitHub-specific options
-    this.owner = config.github?.owner;
-    this.repo = config.github?.repo;
+    this.owner = config.github.owner;
+    this.repo = config.github.repo;
 
     // Set the repo URL using the provided URL or construct from owner/repo if available
     // Note: We don't embed tokens in the URL, letting Git use the system's credentials
@@ -66,7 +67,7 @@ export class GitHubBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = new SessionDB();
+    this.sessionDb = createSessionProvider();
     this.gitService = new GitService(this.baseDir);
   }
 
@@ -122,11 +123,22 @@ export class GitHubBackend implements RepositoryBackend {
         session,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
 
       // Provide more informative error messages for common GitHub issues
       if (normalizedError.message.includes("Authentication failed")) {
-        throw new Error("GitHub authentication failed. Check your Git credentials.");
+        throw new Error(`
+🔐 GitHub Authentication Failed
+
+Unable to authenticate with GitHub repository: ${this.owner}/${this.repo}
+
+💡 Quick fixes:
+   • Verify you have access to ${this.owner}/${this.repo}
+   • Check your GitHub credentials (SSH key or personal access token)
+   • Ensure the repository exists and is accessible
+
+Repository: https://github.com/${this.owner}/${this.repo}
+`);
       } else if (normalizedError.message.includes("not found")) {
         throw new Error(
           `GitHub repository not found: ${this.owner}/${this.repo}. Check the owner and repo names.`
@@ -153,14 +165,14 @@ export class GitHubBackend implements RepositoryBackend {
 
     try {
       // Create branch using direct Git command since GitService doesn't have createBranch
-      await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+      await execGitWithTimeout("github-create-branch", `checkout -b ${branch}`, { workdir });
 
       return {
         workdir,
         branch,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       throw new Error(`Failed to create branch in GitHub repository: ${normalizedError.message}`);
     }
   }
@@ -210,7 +222,9 @@ export class GitHubBackend implements RepositoryBackend {
       }
 
       // Get remote information
-      const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote -v`);
+      const { stdout: remoteOutput } = await execGitWithTimeout("github-remote-list", "remote -v", {
+        workdir,
+      });
       const remotes = remoteOutput
         .trim()
         .split("\n")
@@ -253,7 +267,7 @@ export class GitHubBackend implements RepositoryBackend {
         gitHubRepo: this.repo,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       throw new Error(`Failed to get GitHub repository status: ${normalizedError.message}`);
     }
   }
@@ -351,7 +365,7 @@ export class GitHubBackend implements RepositoryBackend {
         message: "GitHub repository validated successfully",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         valid: false,
         success: false,
@@ -396,7 +410,7 @@ export class GitHubBackend implements RepositoryBackend {
           : "No changes to push or push failed",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         message: `Failed to push to repository: ${normalizedError.message}`,
@@ -435,7 +449,7 @@ export class GitHubBackend implements RepositoryBackend {
           : "Already up-to-date. No changes pulled.",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
         message: `Failed to pull from repository: ${normalizedError.message}`,
@@ -464,9 +478,9 @@ export class GitHubBackend implements RepositoryBackend {
 
       // Use GitService method if available, otherwise use direct command
       // This depends on GitService having a checkout method
-      await execAsync(`git -C ${workdir} checkout ${branch}`);
+      await execGitWithTimeout("github-checkout-branch", `checkout ${branch}`, { workdir });
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       throw new Error(`Failed to checkout branch: ${normalizedError.message}`);
     }
   }

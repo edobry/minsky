@@ -7,6 +7,7 @@ export * from "./init";
 
 // Export Git-related functions
 export {
+  GitService,
   createPullRequestFromParams,
   preparePrFromParams,
   mergePrFromParams,
@@ -14,31 +15,34 @@ export {
   branchFromParams,
   pushFromParams,
   commitChangesFromParams,
-} from "./git.js";
+  mergeFromParams,
+  checkoutFromParams,
+  rebaseFromParams,
+} from "./git";
 
 // Export legacy SessionDB and related functions
 export {
   SessionDB,
   type SessionProviderInterface,
   type Session,
-  getSessionFromParams,
-  listSessionsFromParams,
-  startSessionFromParams,
-  updateSessionFromParams,
-  deleteSessionFromParams,
-  getSessionDirFromParams,
-  approveSessionFromParams,
-  sessionPrFromParams,
+  sessionGet,
+  sessionList,
+  sessionStart,
+  sessionUpdate,
+  sessionDelete,
+  sessionDir,
+  sessionApprove,
+  sessionPr,
   createSessionProvider,
-  inspectSessionFromParams,
-  sessionReviewFromParams,
+  sessionInspect,
+  sessionReview,
   type SessionReviewParams,
   type SessionReviewResult,
-} from "./session.js";
+} from "./session";
 
 // Export the functional session module
 export {
   createSessionProvider as createFunctionalSessionProvider,
   type SessionDbState,
   type SessionDbFileOptions,
-} from "./session/index.js";
+} from "./session/index";

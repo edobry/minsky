@@ -8,12 +8,12 @@ import {
   taskIdSchema,
   repoPathSchema,
   flagSchema,
-} from "./common.js";
+} from "./common";
 
 /**
  * Schema for a session record
  */
-export const sessionRecordSchema = z.object({
+export const _sessionRecordSchema = z.object({
   session: sessionNameSchema.describe("Unique name of the session"),
   repoUrl: z.string().describe("URL of the repository"),
   repoName: z.string().describe("Normalized name of the repository"),
@@ -66,16 +66,30 @@ export const sessionStartParamsSchema = z
     name: sessionNameSchema.optional().describe("Name for the new session"),
     repo: repoPathSchema.optional().describe("Repository to start the session in"),
     task: taskIdSchema.optional().describe("Task ID to associate with the session"),
+    description: z.string().min(1).optional().describe("Description for auto-created task"),
     branch: z.string().optional().describe("Branch name to create"),
     quiet: flagSchema("Suppress output except for the session directory path"),
     noStatusUpdate: flagSchema("Skip updating task status when starting a session with a task"),
     skipInstall: flagSchema("Skip automatic dependency installation"),
     packageManager: z
-      .enum(["bun", "npm", "yarn", "pnpm"])
+      .enum(["bun", "npm", "yarn", "pnpm"] as const)
       .optional()
       .describe("Override the detected package manager"),
   })
-  .merge(commonCommandOptionsSchema);
+  .merge(commonCommandOptionsSchema)
+  .refine(
+    (data) => {
+      // Phase 2: Task association is required
+      if (!data.task && !data.description) {
+        return false;
+      }
+      // Either name or task or description must be provided
+      return data.name || data.task || data.description;
+    },
+    {
+      message: "Task association is required. Please provide --task <id> or --description <text>",
+    }
+  );
 
 /**
  * Type for session start parameters
@@ -131,6 +145,12 @@ export const sessionUpdateParamsSchema = z
     noStash: flagSchema("Skip stashing local changes"),
     noPush: flagSchema("Skip pushing changes to remote after update"),
     force: flagSchema("Force update even if the session workspace is dirty"),
+    skipConflictCheck: flagSchema("Skip proactive conflict detection before update"),
+    autoResolveDeleteConflicts: flagSchema(
+      "Automatically resolve delete/modify conflicts by accepting deletions"
+    ),
+    dryRun: flagSchema("Check for conflicts without performing actual update"),
+    skipIfAlreadyMerged: flagSchema("Skip update if session changes are already in base branch"),
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined, {
@@ -150,6 +170,11 @@ export const sessionApproveParamsSchema = z
     name: sessionNameSchema.optional().describe("Name of the session to approve"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
     repo: repoPathSchema.optional().describe("Repository path"),
+    noStash: z
+      .boolean()
+      .optional()
+      .default(false)
+      .describe("Skip automatic stashing of uncommitted changes"),
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.name !== undefined || data.task !== undefined || data.repo !== undefined, {
@@ -168,16 +193,21 @@ export const sessionPrParamsSchema = z
   .object({
     name: sessionNameSchema.optional().describe("Name of the session"),
     task: taskIdSchema.optional().describe("Task ID associated with the session"),
-    title: z.string().min(1).describe("PR title (required)"),
+    title: z.string().min(1).optional().describe("PR title (optional for existing PRs)"),
     body: z.string().optional().describe("PR body text"),
     bodyPath: z.string().optional().describe("Path to file containing PR body text"),
     baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
+    skipUpdate: flagSchema("Skip session update before creating PR"),
+    autoResolveDeleteConflicts: flagSchema(
+      "Automatically resolve delete/modify conflicts by accepting deletions"
+    ),
+    skipConflictCheck: flagSchema("Skip proactive conflict detection during update"),
   })
   .merge(commonCommandOptionsSchema)
-  .refine((data) => data.body || data.bodyPath, {
-    message: "Either 'body' or 'bodyPath' must be provided",
+  .refine((data) => !(data.body && data.bodyPath), {
+    message: "Cannot provide both 'body' and 'bodyPath' - use one or the other",
     path: ["body"],
   });
 

@@ -70,11 +70,11 @@ Store personal SessionDB preferences and credentials in `~/.config/minsky/config
 ```yaml
 # ~/.config/minsky/config.yaml
 version: 1
-credentials:
-  github:
+github:
+  credentials:
     token: "ghp_xxxxxxxxxxxxxxxxxxxx"
-  postgres:
-    connection_string: "postgresql://user:password@localhost:5432/minsky"
+postgres:
+  connection_string: "postgresql://user:password@localhost:5432/minsky"
 sessiondb:
   backend: "sqlite"
   sqlite:
@@ -151,8 +151,8 @@ export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
     ```yaml
     # ~/.config/minsky/config.yaml
     version: 1
-    credentials:
-      github:
+    github:
+      credentials:
         token: "ghp_xxxxxxxxxxxxxxxxxxxx"
     sessiondb:
       backend: "sqlite"

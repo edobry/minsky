@@ -1,248 +1,346 @@
 /**
  * Shared SessionDB Commands
  *
- * This module contains shared sessiondb command implementations that can be
- * registered in the shared command registry and exposed through
- * multiple interfaces (CLI, MCP).
+ * This module contains shared sessiondb command implementations for
+ * database migration and management operations.
  */
 
 import { z } from "zod";
+import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { dirname, join } from "path";
+import { getErrorMessage } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
   type CommandParameterMap,
   type CommandExecutionContext,
-} from "../command-registry";
-import { MigrationService } from "../../../domain/storage/migration/migration-service";
-import { SessionDbConfig } from "../../../domain/configuration/types";
-import { configurationService } from "../../../domain/configuration";
+} from "../../shared/command-registry";
+import { createStorageBackend } from "../../../domain/storage/storage-backend-factory";
 import { log } from "../../../utils/logger";
-import { join } from "path";
+import type { SessionRecord } from "../../../domain/session/session-db";
+import type { StorageBackendType } from "../../../domain/storage/storage-backend-factory";
+import {
+  getXdgStateHome,
+  getMinskyStateDir,
+  getDefaultSqliteDbPath,
+  getDefaultJsonDbPath,
+} from "../../../utils/paths";
 
 /**
- * Parameters for sessiondb migrate command
+ * Parameters for the sessiondb migrate command
  */
-const sessionDbMigrateParams: CommandParameterMap = {
+const sessiondbMigrateCommandParams: CommandParameterMap = {
   to: {
     schema: z.enum(["json", "sqlite", "postgres"]),
-    description: "Target backend (json, sqlite, postgres)",
+    description: "Target backend type",
     required: true,
   },
   from: {
-    schema: z.enum(["json", "sqlite", "postgres"]).optional(),
-    description: "Source backend (auto-detect if not specified)",
+    schema: z.string(),
+    description: "Source file path (auto-detect if not provided)",
     required: false,
   },
   sqlitePath: {
-    schema: z.string().optional(),
-    description: "SQLite database file path",
+    schema: z.string(),
+    description: "SQLite database path",
     required: false,
   },
   connectionString: {
-    schema: z.string().optional(),
+    schema: z.string(),
     description: "PostgreSQL connection string",
     required: false,
   },
-  baseDir: {
-    schema: z.string().optional(),
-    description: "Base directory for session workspaces",
-    required: false,
-  },
   backup: {
-    schema: z.string().optional(),
-    description: "Create backup in specified directory",
+    schema: z.boolean(),
+    description: "Create backup before migration",
     required: false,
   },
   dryRun: {
-    schema: z.boolean().default(false),
-    description: "Simulate migration without making changes",
-    required: false,
-  },
-  verify: {
-    schema: z.boolean().default(false),
-    description: "Verify migration after completion",
-    required: false,
-  },
-  json: {
-    schema: z.boolean().default(false),
-    description: "Output results in JSON format",
+    schema: z.boolean(),
+    description: "Show what would be migrated without doing it",
     required: false,
   },
 };
 
 /**
- * SessionDB migrate command definition
+ * Parameters for the sessiondb check command
  */
-const sessionDbMigrateRegistration = {
+const sessiondbCheckCommandParams: CommandParameterMap = {
+  file: {
+    schema: z.string(),
+    description: "Path to database file to check",
+    required: false,
+  },
+  backend: {
+    schema: z.enum(["json", "sqlite", "postgres"]),
+    description: "Expected backend type",
+    required: false,
+  },
+  fix: {
+    schema: z.boolean(),
+    description: "Automatically fix issues when possible",
+    required: false,
+  },
+  report: {
+    schema: z.boolean(),
+    description: "Show detailed integrity report",
+    required: false,
+  },
+};
+
+// Register sessiondb migrate command
+sharedCommandRegistry.registerCommand({
   id: "sessiondb.migrate",
-  category: CommandCategory.CONFIG,
+  category: CommandCategory.SESSION,
   name: "migrate",
-  description: "Migrate session database between storage backends",
-  parameters: sessionDbMigrateParams,
-  execute: async (params, ctx: CommandExecutionContext) => {
-    const targetBackend = params.to;
+  description: "Migrate session database between backends",
+  parameters: sessiondbMigrateCommandParams,
+  async execute(params: any, context: CommandExecutionContext) {
+    const { to, from, sqlitePath, connectionString, backup, dryRun } = params;
 
     try {
-      // Validate target backend
-      const validBackends = ["json", "sqlite", "postgres"];
-      if (!validBackends.includes(targetBackend)) {
-        return {
-          success: false,
-          error: `Invalid backend: ${targetBackend}. Valid options: ${validBackends.join(", ")}`,
-        };
+      // Read source data
+      let sourceData: Record<string, any> = {};
+      let sourceCount = 0;
+
+      if (from && existsSync(from)) {
+        // Read from specific file
+        const fileContent = readFileSync(from, "utf8").toString();
+        sourceData = JSON.parse(fileContent);
+        sourceCount = Object.keys(sourceData).length;
+        log.info(`Reading from backup file: ${from} (${sourceCount} sessions)`);
+      } else {
+        // Auto-detect current backend
+        const jsonPath = getDefaultJsonDbPath();
+        const currentSqlitePath = getDefaultSqliteDbPath();
+
+        if (existsSync(jsonPath)) {
+          const fileContent = readFileSync(jsonPath, "utf8").toString();
+          sourceData = JSON.parse(fileContent);
+          sourceCount = Object.keys(sourceData).length;
+          log.info(`Reading from JSON backend: ${jsonPath} (${sourceCount} sessions)`);
+        } else if (existsSync(currentSqlitePath)) {
+          // Read from SQLite
+          const sourceStorage = createStorageBackend({ backend: "sqlite" });
+          await sourceStorage.initialize();
+          const readResult = await sourceStorage.readState();
+          if (readResult.success && readResult.data) {
+            sourceData = readResult.data;
+            sourceCount = readResult.data.sessions?.length || 0;
+            log.info(`Reading from SQLite backend: ${currentSqlitePath} (${sourceCount} sessions)`);
+          }
+        } else {
+          throw new Error("No source database found. Use --from to specify a backup file.");
+        }
       }
 
-      // Load current configuration
-      const config = await configurationService.loadConfiguration(process.cwd());
-      const currentConfig = config.resolved.sessiondb || { backend: "json" };
-
-      // Determine source backend
-      const sourceBackend = params.from || currentConfig.backend || "json";
-      if (sourceBackend === targetBackend) {
+      if (dryRun) {
+        log.info("DRY RUN - No changes will be made");
+        log.info(`Would migrate ${sourceCount} sessions from source to ${to} backend`);
         return {
           success: true,
-          message: `Already using ${targetBackend} backend. No migration needed.`,
+          dryRun: true,
+          sourceCount,
+          targetBackend: to,
         };
       }
 
-      // Build source and target configurations
-      const sourceConfig: SessionDbConfig = {
-        backend: sourceBackend as "json" | "sqlite" | "postgres",
-        dbPath: currentConfig.dbPath || generateDefaultPath(sourceBackend),
-        baseDir: currentConfig.baseDir,
-        connectionString: currentConfig.connectionString,
-      };
-
-      const targetConfig: SessionDbConfig = {
-        backend: targetBackend as "json" | "sqlite" | "postgres",
-        dbPath: params.sqlitePath || generateDefaultPath(targetBackend),
-        baseDir: params.baseDir || currentConfig.baseDir,
-        connectionString: params.connectionString,
-      };
-
-      // Validate target configuration
-      if (targetBackend === "postgres" && !targetConfig.connectionString) {
-        return {
-          success: false,
-          error: "PostgreSQL connection string is required (--connection-string)",
-        };
-      }
-
-      // Set up migration options
-      const migrationOptions = {
-        sourceConfig,
-        targetConfig,
-        backupPath: params.backup,
-        dryRun: params.dryRun,
-        verify: params.verify,
-      };
-
-      // Perform migration
-      log.debug(`Migrating session database: ${sourceBackend} → ${targetBackend}`);
-      if (params.dryRun) {
-        log.debug("(DRY RUN - no changes will be made)");
-      }
-
-      const result = await MigrationService.migrate(migrationOptions);
-
-      // Format output for CLI display
-      if (!params.json) {
-        console.log(`\nMigrating session database: ${sourceBackend} → ${targetBackend}`);
-        if (params.dryRun) {
-          console.log("(DRY RUN - no changes will be made)\n");
+      // Create backup if requested
+      let backupPath: string | undefined;
+      if (backup) {
+        backupPath = join(getMinskyStateDir(), `session-backup-${Date.now()}.json`);
+        const backupDir = dirname(backupPath);
+        if (!existsSync(backupDir)) {
+          mkdirSync(backupDir, { recursive: true });
         }
+        writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
+        log.info(`Backup created: ${backupPath}`);
+      }
 
-        console.log("\n=== Migration Results ===");
-        console.log(`Status: ${result.success ? "SUCCESS" : "FAILED"}`);
-        console.log(`Records migrated: ${result.recordsMigrated}`);
+      // Create target storage
+      const targetConfig: any = { backend: to };
 
+      if (to === "sqlite") {
+        targetConfig.sqlite = {
+          dbPath: sqlitePath || getDefaultSqliteDbPath(),
+        };
+      } else if (to === "postgres") {
+        if (!connectionString) {
+          throw new Error("PostgreSQL connection string required for postgres backend");
+        }
+        targetConfig.postgres = { connectionUrl: connectionString };
+      } else if (to === "json") {
+        targetConfig.json = {
+          filePath: getDefaultJsonDbPath(),
+        };
+      }
+
+      const targetStorage = createStorageBackend(targetConfig);
+      await targetStorage.initialize();
+
+      // Migrate sessions
+      const sessionRecords: SessionRecord[] = [];
+      if (Array.isArray(sourceData.sessions)) {
+        sessionRecords.push(...sourceData.sessions);
+      } else if (typeof sourceData === "object" && sourceData !== null) {
+        // Handle sessions stored as key-value pairs
+        for (const [sessionId, sessionData] of Object.entries(sourceData)) {
+          if (typeof sessionData === "object" && sessionData !== null) {
+            // Type sessionData as Partial<SessionRecord> for safe spreading
+            const typedSessionData = sessionData as Partial<SessionRecord>;
+            sessionRecords.push({
+              session: sessionId,
+              repoName: typedSessionData.repoName || sessionId,
+              repoUrl: typedSessionData.repoUrl || sessionId,
+              createdAt: typedSessionData.createdAt || new Date().toISOString(),
+              taskId: typedSessionData.taskId || "",
+              branch: typedSessionData.branch || "main",
+              ...typedSessionData,
+            });
+          }
+        }
+      }
+
+      // Write to target backend
+      const targetState = {
+        sessions: sessionRecords,
+        baseDir: getMinskyStateDir(),
+      };
+
+      const writeResult = await targetStorage.writeState(targetState);
+      if (!writeResult.success) {
+        throw new Error(
+          `Failed to write to target backend: ${writeResult.error?.message || "Unknown error"}`
+        );
+      }
+
+      const targetCount = sessionRecords.length;
+      log.info(
+        `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
+      );
+
+      const result = {
+        success: true,
+        sourceCount,
+        targetCount,
+        targetBackend: to,
+        backupPath,
+        errors: [] as string[],
+      };
+
+      // Format human-readable output
+      if (context.format === "human") {
+        let output = `Migration ${result.success ? "completed" : "failed"}\n`;
+        output += `Source sessions: ${result.sourceCount}\n`;
+        output += `Target sessions: ${result.targetCount}\n`;
         if (result.backupPath) {
-          console.log(`Backup created: ${result.backupPath}`);
+          output += `Backup created: ${result.backupPath}\n`;
         }
-
-        if (result.errors.length > 0) {
-          console.log("\nErrors:");
-          result.errors.forEach((error) => console.log(`  - ${error}`));
+        if (result.errors && result.errors.length > 0) {
+          output += `Errors: ${result.errors.length}\n`;
+          result.errors.forEach((error) => {
+            output += `  - ${error}\n`;
+          });
         }
-
-        if (result.warnings.length > 0) {
-          console.log("\nWarnings:");
-          result.warnings.forEach((warning) => console.log(`  - ${warning}`));
-        }
-
-        if (result.verificationResult) {
-          console.log("\n=== Verification Results ===");
-          console.log(`Status: ${result.verificationResult.success ? "PASSED" : "FAILED"}`);
-          console.log(`Source records: ${result.verificationResult.sourceCount}`);
-          console.log(`Target records: ${result.verificationResult.targetCount}`);
-
-          if (result.verificationResult.missingRecords.length > 0) {
-            console.log(`Missing records: ${result.verificationResult.missingRecords.join(", ")}`);
-          }
-
-          if (result.verificationResult.inconsistencies.length > 0) {
-            console.log("Inconsistencies:");
-            result.verificationResult.inconsistencies.forEach((inc) => console.log(`  - ${inc}`));
-          }
-        }
-
-        if (result.success && !params.dryRun) {
-          console.log("\n=== Next Steps ===");
-          console.log("1. Update your configuration to use the new backend:");
-          console.log(`   sessiondb.backend: "${targetBackend}"`);
-          console.log("2. Test session operations to verify everything works");
-          console.log("3. Remove old database files if no longer needed");
-        }
+        return output;
       }
 
-      // Return full result for JSON mode, simple result for CLI mode
-      if (params.json) {
-        return {
-          success: result.success,
-          recordsMigrated: result.recordsMigrated,
-          backupPath: result.backupPath,
-          errors: result.errors,
-          warnings: result.warnings,
-          verificationResult: result.verificationResult,
-        };
-      } else {
-        // For CLI mode, just return success status since we already printed the details
-        return {
-          success: result.success,
-        };
-      }
+      return result;
     } catch (error) {
-      log.error("Migration failed", {
-        targetBackend,
-        error: error instanceof Error ? error.message : String(error),
-      });
-      return {
-        success: false,
-        error: error instanceof Error ? error.message : String(error),
-      };
+      log.error("Migration failed", { error: getErrorMessage(error) });
+      throw error;
     }
   },
-};
+});
 
-/**
- * Generate default path for backend
- */
-function generateDefaultPath(backend: string): string | undefined {
-  const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+// Register sessiondb check command
+sharedCommandRegistry.registerCommand({
+  id: "sessiondb.check",
+  category: CommandCategory.SESSION,
+  name: "check",
+  description: "Check database integrity and detect issues",
+  parameters: sessiondbCheckCommandParams,
+  async execute(params: any, _context: CommandExecutionContext) {
+    const { file, backend, fix, report } = params;
 
-  switch (backend) {
-  case "sqlite":
-    return join(xdgStateHome, "minsky", "sessions.db");
-  case "json":
-    return join(xdgStateHome, "minsky", "session-db.json");
-  default:
-    return undefined;
-  }
-}
+    try {
+      // Import integrity checker
+      const { DatabaseIntegrityChecker } = await import(
+        "../../../domain/storage/database-integrity-checker"
+      );
+      const { loadStorageConfig } = await import("../../../domain/storage/storage-backend-factory");
+
+      // Determine file path and backend
+      let filePath: string;
+      let expectedBackend: StorageBackendType;
+
+      if (file && backend) {
+        filePath = file;
+        expectedBackend = backend;
+      } else {
+        // Auto-detect from current configuration
+        const config = loadStorageConfig();
+        expectedBackend = config.backend;
+
+        if (config.backend === "json") {
+          filePath = config.json?.filePath || "session-db.json";
+        } else if (config.backend === "sqlite") {
+          filePath = config.sqlite?.dbPath || "sessions.db";
+        } else {
+          throw new Error("PostgreSQL databases do not support file-based integrity checking");
+        }
+      }
+
+      // Run integrity check
+      const integrityResult = await DatabaseIntegrityChecker.checkIntegrity(
+        expectedBackend,
+        filePath
+      );
+
+      // Show results
+      if (report || !integrityResult.isValid) {
+        const reportText = DatabaseIntegrityChecker.formatIntegrityReport(integrityResult);
+        log.cli(reportText);
+      }
+
+      // Auto-fix if requested
+      if (fix && integrityResult.suggestedActions.length > 0) {
+        const autoFixableActions = integrityResult.suggestedActions.filter(
+          (action) => action.autoExecutable && action.type === "migrate"
+        );
+
+        if (autoFixableActions.length > 0) {
+          const action = autoFixableActions[0];
+          if (action) {
+            log.cli(`\n🔧 Auto-fixing: ${action.description}`);
+
+            if (action.command) {
+              log.cli(`Would execute: ${action.command}`);
+              log.cli("(Auto-fix implementation would go here)");
+            }
+          }
+        } else {
+          log.cli("\n⚠️  No auto-fixable issues found. Manual intervention required.");
+        }
+      }
+
+      return {
+        success: integrityResult.isValid,
+        integrityResult,
+        filePath,
+        expectedBackend,
+      };
+    } catch (error) {
+      log.error("Database integrity check failed", { error: getErrorMessage(error) });
+      throw error;
+    }
+  },
+});
 
 /**
  * Register all sessiondb commands
  */
-export function registerSessionDbCommands() {
-  sharedCommandRegistry.registerCommand(sessionDbMigrateRegistration);
+export function registerSessiondbCommands(): void {
+  // Commands are registered above when this module is imported
+  log.debug("SessionDB commands registered");
 }

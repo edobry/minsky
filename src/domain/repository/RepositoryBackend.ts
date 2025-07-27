@@ -10,7 +10,7 @@ export interface RepoStatus {
   behind: number;
   dirty: boolean;
   remotes: string[];
-  [key: string]: unknown;
+  [key: string]: any;
 }
 
 export interface RepositoryBackend {

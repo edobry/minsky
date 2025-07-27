@@ -2,20 +2,21 @@
  * MCP adapter for session-aware file editing operations
  * Provides session-scoped edit_file and search_replace tools that match Cursor's interface
  */
-import type { CommandMapper } from "../../mcp/command-mapper.js";
+import type { CommandMapper } from "../../mcp/command-mapper";
 import { z } from "zod";
 import { readFile, writeFile, stat } from "fs/promises";
 import { dirname } from "path";
-import { SessionPathResolver } from "./session-files.js";
-import { log } from "../../utils/logger.js";
+import { SessionPathResolver } from "./session-files";
+import { log } from "../../utils/logger";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Interface for edit file operation
  */
 interface EditFileArgs {
-  session: string;
+  sessionName: string;
   path: string;
   instructions: string;
   content: string;
@@ -26,7 +27,7 @@ interface EditFileArgs {
  * Interface for search replace operation
  */
 interface SearchReplaceArgs {
-  session: string;
+  sessionName: string;
   path: string;
   search: string;
   replace: string;
@@ -39,11 +40,11 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
   const pathResolver = new SessionPathResolver();
 
   // Session edit file tool
-  commandMapper.addTool(
-    "session_edit_file",
-    "Edit a file within a session workspace using a diff-like format",
-    z.object({
-      session: z.string().describe("Session identifier (name or task ID)"),
+  commandMapper.addCommand({
+    name: "session.edit_file",
+    description: "Edit a file within a session workspace using a diff-like format",
+    parameters: z.object({
+      sessionName: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       instructions: z.string().describe("Instructions describing the edit to make"),
       content: z.string().describe("The edit content with '// ... existing code ...' markers"),
@@ -53,9 +54,9 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         .default(true)
         .describe("Create parent directories if they don't exist"),
     }),
-    async (args: EditFileArgs): Promise<Record<string, unknown>> => {
+    handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Check if file exists
         let fileExists = false;
@@ -64,7 +65,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         try {
           await stat(resolvedPath);
           fileExists = true;
-          originalContent = (await readFile(resolvedPath, "utf8")) as string;
+          originalContent = (await readFile(resolvedPath, "utf8")).toString();
         } catch (error) {
           // File doesn't exist - that's ok for new files
           fileExists = false;
@@ -97,7 +98,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         await writeFile(resolvedPath, finalContent, "utf8");
 
         log.debug("Session file edit successful", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           fileExisted: fileExists,
@@ -107,15 +108,15 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         return {
           success: true,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
           edited: true,
           created: !fileExists,
           bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -124,31 +125,31 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
         };
       }
-    }
-  );
+    },
+  });
 
   // Session search replace tool
-  commandMapper.addTool(
-    "session_search_replace",
-    "Replace a single occurrence of text in a file within a session workspace",
-    z.object({
-      session: z.string().describe("Session identifier (name or task ID)"),
+  commandMapper.addCommand({
+    name: "session.search_replace",
+    description: "Replace a single occurrence of text in a file within a session workspace",
+    parameters: z.object({
+      sessionName: z.string().describe("Session identifier (name or task ID)"),
       path: z.string().describe("Path to the file within the session workspace"),
       search: z.string().describe("Text to search for (must be unique in the file)"),
       replace: z.string().describe("Text to replace with"),
     }),
-    async (args: SearchReplaceArgs): Promise<Record<string, unknown>> => {
+    handler: async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.session, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Validate file exists
         await pathResolver.validatePathExists(resolvedPath);
 
         // Read file content
-        const content = (await readFile(resolvedPath, "utf8")) as string;
+        const content = (await readFile(resolvedPath, "utf8")).toString();
 
         // Count occurrences
         const occurrences = countOccurrences(content, args.search);
@@ -170,7 +171,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         await writeFile(resolvedPath, newContent, "utf8");
 
         log.debug("Session search replace successful", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           searchLength: args.search.length,
@@ -180,15 +181,15 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         return {
           success: true,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
           replaced: true,
           searchText: args.search,
           replaceText: args.replace,
         };
       } catch (error) {
-        const errorMessage = error instanceof Error ? error.message : String(error);
+        const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {
-          session: args.session,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -197,11 +198,11 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.session,
+          session: args.sessionName,
         };
       }
-    }
-  );
+    },
+  });
 
   log.debug("Session edit tools registered successfully");
 }
@@ -300,7 +301,7 @@ function countOccurrences(content: string, search: string): number {
   let count = 0;
   let position = 0;
 
-  while ((position = content.indexOf(search, position)) !== -1) {
+  while ((position = content.toString().indexOf(search, position)) !== -1) {
     count++;
     position += search.length;
   }

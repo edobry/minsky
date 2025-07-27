@@ -30,16 +30,16 @@ export const TEST_TIMESTAMPS = {
  * Creates a temporary directory for test file operations
  * Provides isolation between tests and automatic cleanup
  */
-export const createTempTestDir: (prefix?: string) => string | null = createRobustTempDir;
+export const createTempTestDir: (prefix?: string) => string | undefined = createRobustTempDir;
 
 /**
  * Sets up console spies for capturing and testing output
  * Returns the created spies for use in assertions
  */
 export function setupConsoleSpy() {
-  const consoleLogSpy = spyOn(_console, "log").mockImplementation(() => {});
-  const consoleErrorSpy = spyOn(_console, "error").mockImplementation(() => {});
-  const processExitSpy = spyOn(_process, "exit").mockImplementation(() => {
+  const consoleLogSpy = spyOn(console, "log").mockImplementation(() => {});
+  const consoleErrorSpy = spyOn(console, "error").mockImplementation(() => {});
+  const processExitSpy = spyOn(process, "exit" as any).mockImplementation(() => {
     throw new Error("process.exit called");
   });
 
@@ -57,7 +57,7 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
   // Create a complete mock DateConstructor
   const MockDate = function () {
     return new originalDate(fixedDate);
-  } as unknown as DateConstructor;
+  } as any as DateConstructor;
 
   // Copy all the static methods from the original Date
   MockDate.now = () => fixedDateTime;
@@ -77,7 +77,8 @@ export function mockDateFunctions(fixedDate = TEST_TIMESTAMPS.FIXED_DATE) {
  * Setup standard test environment with temp directory and console capture
  * Handles cleanup automatically via afterEach
  */
-export function setupTestEnvironment(options: {
+export function setupTestEnvironment(
+  options: {
     mockDate?: boolean;
     createTempDir?: boolean;
   } = {}
@@ -118,7 +119,7 @@ export function setupTestEnvironment(options: {
 
     // Clean up temp directory if created
     if (typeof tempDir === "string" && fs.existsSync(tempDir)) {
-      fs.rmSync(_tempDir, { recursive: true, force: true });
+      fs.rmSync(tempDir, { recursive: true, force: true });
     }
   });
 

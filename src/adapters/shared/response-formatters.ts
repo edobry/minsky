@@ -5,7 +5,7 @@
  * consistently across different interfaces (CLI, MCP).
  */
 
-import type { CommandExecutionContext } from "./command-registry.js";
+import type { CommandExecutionContext } from "./command-registry";
 import chalk from "chalk";
 
 /**
@@ -21,7 +21,7 @@ export enum OutputFormat {
 /**
  * Base interface for response formatters
  */
-export interface ResponseFormatter<T = unknown> {
+export interface ResponseFormatter<T = any> {
   /**
    * Format a response for output
    *
@@ -29,7 +29,7 @@ export interface ResponseFormatter<T = unknown> {
    * @param context Command execution context
    * @returns Formatted response
    */
-  format(__data: T, _context: CommandExecutionContext): string | object;
+  format(data: T, context: CommandExecutionContext): string | object;
 }
 
 /**
@@ -38,14 +38,14 @@ export interface ResponseFormatter<T = unknown> {
  * @param data Response data
  * @returns JSON formatted string
  */
-export function formatAsJson(__data: unknown): string {
-  return JSON.stringify(_data, null, 2);
+export function formatAsJson(data: any): string {
+  return JSON.stringify(data, undefined, 2);
 }
 
 /**
  * Base class for response formatters that support multiple output formats
  */
-export abstract class BaseResponseFormatter<T = unknown> implements ResponseFormatter<T> {
+export abstract class BaseResponseFormatter<T = any> implements ResponseFormatter<T> {
   /**
    * Format a response based on the requested format
    *
@@ -55,7 +55,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    */
   format(data: T, context: CommandExecutionContext): string | object {
     // Determine the output format
-    const format = context.format?.toLowerCase() as OutputFormat;
+    const format = context.format.toLowerCase() as OutputFormat;
 
     // Format the response based on the requested format
     if (format === OutputFormat.JSON) {
@@ -73,7 +73,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @param context Command execution context
    * @returns Text formatted string
    */
-  abstract formatText(__data: T, _context: CommandExecutionContext): string;
+  abstract formatText(data: T, context: CommandExecutionContext): string;
 
   /**
    * Format the response as JSON
@@ -83,7 +83,7 @@ export abstract class BaseResponseFormatter<T = unknown> implements ResponseForm
    * @returns JSON-serializable object
    */
   formatJson(data: T, context: CommandExecutionContext): object {
-    return data as unknown as object;
+    return data;
   }
 }
 
@@ -126,12 +126,12 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @param context Command execution context
    * @returns Formatted error message
    */
-  formatText(_error: Error, _context: CommandExecutionContext): string {
-    let output = `${chalk.red("✗")} Error: ${error.message}`;
+  formatText(error: Error, context: CommandExecutionContext): string {
+    let output = `${chalk.red("✗")} Error: ${(error as any).message}`;
 
     // Add stack trace in debug mode
-    if (context.debug && error.stack) {
-      output += `\n\n${error.stack}`;
+    if ((context as any).debug && (error as any).stack) {
+      output += `\n\n${(error as any).stack}`;
     }
 
     return output;
@@ -144,15 +144,15 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @param context Command execution context
    * @returns JSON object with error details
    */
-  formatJson(_error: Error, _context: CommandExecutionContext): object {
-    const _result: Record<string, unknown> = {
+  formatJson(error: Error, context: CommandExecutionContext): object {
+    const result = {
       success: false,
-      error: error.message,
-    };
+      error: (error as any).message as any,
+    } as any;
 
     // Add stack trace in debug mode
-    if (context.debug && error.stack) {
-      result.stack = error.stack;
+    if ((context as any).debug && (error as any).stack) {
+      (result as any).stack = (error as any).stack as any;
     }
 
     return result;
@@ -162,9 +162,9 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
 /**
  * Format a list of items
  */
-export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
+export class ListFormatter<T = any> extends BaseResponseFormatter<T[]> {
   constructor(
-    private itemFormatter?: (_item: unknown) => string,
+    private itemFormatter?: (item: any) => string,
     private title?: string
   ) {
     super();
@@ -176,7 +176,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
    * @param items List of items
    * @returns Formatted list
    */
-  formatText(_items: T[]): string {
+  formatText(items: T[]): string {
     if (items.length === 0) {
       return "No items found.";
     }
@@ -185,7 +185,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
 
     // Add title if provided
     if (this.title) {
-      output += `${chalk.bold(this._title)}\n\n`;
+      output += `${chalk.bold(this.title)}\n\n`;
     }
 
     // Format each item
@@ -208,7 +208,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
    * @param items List of items
    * @returns JSON object with items array
    */
-  formatJson(_items: T[]): object {
+  formatJson(items: T[]): object {
     return {
       items,
       count: items.length,
@@ -219,7 +219,7 @@ export class ListFormatter<T = unknown> extends BaseResponseFormatter<T[]> {
 /**
  * Format a table of data
  */
-export class TableFormatter<T extends Record<string, unknown>> extends BaseResponseFormatter<T[]> {
+export class TableFormatter<T extends Record<string, any>> extends BaseResponseFormatter<T[]> {
   constructor(
     private columns: Array<keyof T>,
     private headers: Record<keyof T, string>,
@@ -234,7 +234,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
    * @param rows Table data rows
    * @returns Formatted table
    */
-  formatText(_rows: T[]): string {
+  formatText(rows: T[]): string {
     if (rows.length === 0) {
       return "No data found.";
     }
@@ -243,7 +243,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
 
     // Add title if provided
     if (this.title) {
-      output += `${chalk.bold(this._title)}\n\n`;
+      output += `${chalk.bold(this.title)}\n\n`;
     }
 
     // Calculate column widths
@@ -302,7 +302,7 @@ export class TableFormatter<T extends Record<string, unknown>> extends BaseRespo
    * @param rows Table data rows
    * @returns JSON object with rows array
    */
-  formatJson(_rows: T[]): object {
+  formatJson(rows: T[]): object {
     return {
       rows,
       count: rows.length,
@@ -336,10 +336,10 @@ export function createErrorFormatter(): ErrorFormatter {
  * @returns A new list formatter
  */
 export function createListFormatter<T>(
-  itemFormatter?: (_item: unknown) => string,
+  itemFormatter?: (item: any) => string,
   title?: string
 ): ListFormatter<T> {
-  return new ListFormatter<T>(itemFormatter, _title);
+  return new ListFormatter<T>(itemFormatter, title);
 }
 
 /**
@@ -350,10 +350,10 @@ export function createListFormatter<T>(
  * @param title Optional title for the table
  * @returns A new table formatter
  */
-export function createTableFormatter<T extends Record<string, unknown>>(
+export function createTableFormatter<T extends Record<string, any>>(
   columns: Array<keyof T>,
   headers: Record<keyof T, string>,
   title?: string
 ): TableFormatter<T> {
-  return new TableFormatter<T>(columns, headers, _title);
+  return new TableFormatter<T>(columns, headers, title);
 }

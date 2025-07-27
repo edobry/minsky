@@ -1,6 +1,6 @@
 /**
  * Enhanced Error Handling for SessionDB Storage Backends
- * 
+ *
  * Provides comprehensive error classification, recovery suggestions,
  * and monitoring hooks for all storage backend operations.
  */
@@ -9,7 +9,7 @@ import { log } from "../../../utils/logger";
 
 export enum StorageErrorType {
   CONNECTION = "CONNECTION",
-  PERMISSION = "PERMISSION", 
+  PERMISSION = "PERMISSION",
   CORRUPTION = "CORRUPTION",
   RESOURCE = "RESOURCE",
   VALIDATION = "VALIDATION",
@@ -18,10 +18,10 @@ export enum StorageErrorType {
 }
 
 export enum StorageErrorSeverity {
-  CRITICAL = "CRITICAL",   // Data loss possible, immediate attention required
-  HIGH = "HIGH",          // Operation failed, but recoverable
-  MEDIUM = "MEDIUM",      // Operation failed, retry recommended
-  LOW = "LOW",           // Warning, operation may have degraded performance
+  CRITICAL = "CRITICAL", // Data loss possible, immediate attention required
+  HIGH = "HIGH", // Operation failed, but recoverable
+  MEDIUM = "MEDIUM", // Operation failed, retry recommended
+  LOW = "LOW", // Warning, operation may have degraded performance
 }
 
 export interface StorageErrorContext {
@@ -41,7 +41,7 @@ export interface RecoveryAction {
 }
 
 export class StorageError extends Error {
-  public readonly type: StorageErrorType;
+  public readonly type!: StorageErrorType;
   public readonly severity: StorageErrorSeverity;
   public readonly context: StorageErrorContext;
   public readonly recoveryActions: RecoveryAction[];
@@ -89,7 +89,7 @@ export class StorageError extends Error {
       recoveryActions: this.recoveryActions,
       retryable: this.retryable,
       stack: this.stack,
-      originalError: this.originalError?.message,
+      originalError: this.originalError.message,
     };
   }
 }
@@ -98,12 +98,9 @@ export class StorageErrorClassifier {
   /**
    * Classify an error and create appropriate StorageError
    */
-  static classifyError(
-    error: Error,
-    context: StorageErrorContext
-  ): StorageError {
+  static classifyError(error: Error, context: StorageErrorContext): StorageError {
     const classification = this.analyzeError(error, context);
-    
+
     return new StorageError(
       classification.message,
       classification.type,
@@ -143,17 +140,17 @@ export class StorageErrorClassifier {
 
     // Generic error fallback
     return {
-      message: `Unclassified storage error: ${error.message}`,
+      message: `Unclassified storage error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [
         {
-          type: "RETRY",
+          type: "RETRY" as const,
           description: "Retry the operation",
           autoExecutable: true,
         },
         {
-          type: "MANUAL",
+          type: "MANUAL" as const,
           description: "Check logs and contact support",
           autoExecutable: false,
         },
@@ -170,7 +167,7 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Initialize session database",
             autoExecutable: true,
             command: "minsky sessiondb init --backend json",
@@ -188,7 +185,7 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Fix file permissions",
             autoExecutable: false,
             command: "chmod 644 ~/.local/state/minsky/session-db.json",
@@ -205,14 +202,14 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.CRITICAL,
         recoveryActions: [
           {
-            type: "FALLBACK",
+            type: "FALLBACK" as const,
             description: "Restore from backup",
             autoExecutable: true,
             command: "minsky sessiondb restore --backup <latest>",
             estimatedTime: "2-5 minutes",
           },
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Attempt JSON repair",
             autoExecutable: true,
             command: "minsky sessiondb repair --auto",
@@ -230,7 +227,7 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Free up disk space",
             autoExecutable: false,
             command: "minsky session clean --older-than 30d",
@@ -240,7 +237,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `JSON backend error: ${error.message}`,
+      message: `JSON backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -256,13 +253,13 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.MEDIUM,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Wait and retry operation",
             autoExecutable: true,
             estimatedTime: "5-30 seconds",
           },
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Kill blocking processes",
             autoExecutable: false,
             command: "lsof ~/.local/state/minsky/sessions.db",
@@ -279,14 +276,14 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.CRITICAL,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Attempt database recovery",
             autoExecutable: true,
             command: "minsky sessiondb repair --backend sqlite --auto-recover",
             estimatedTime: "2-10 minutes",
           },
           {
-            type: "FALLBACK",
+            type: "FALLBACK" as const,
             description: "Restore from backup",
             autoExecutable: true,
             command: "minsky sessiondb restore --backup <latest> --to sqlite",
@@ -303,7 +300,7 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Fix database file permissions",
             autoExecutable: false,
             command: "chmod 644 ~/.local/state/minsky/sessions.db",
@@ -320,7 +317,7 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Initialize database schema",
             autoExecutable: true,
             command: "minsky sessiondb init --backend sqlite --force",
@@ -330,7 +327,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `SQLite backend error: ${error.message}`,
+      message: `SQLite backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -338,7 +335,7 @@ export class StorageErrorClassifier {
   }
 
   private static classifyPostgresError(error: Error, errorMessage: string) {
-    const pgError = error as any; // PostgreSQL errors have specific properties
+    const pgError = error; // PostgreSQL errors have specific properties
 
     // Connection refused
     if (errorMessage.includes("econnrefused") || errorMessage.includes("connection refused")) {
@@ -348,13 +345,13 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Retry connection",
             autoExecutable: true,
             estimatedTime: "10-30 seconds",
           },
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Check PostgreSQL server status",
             autoExecutable: false,
             command: "pg_isready -h hostname -p 5432",
@@ -371,7 +368,7 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Verify database credentials",
             autoExecutable: false,
             command: "minsky config get sessiondb.connectionString",
@@ -381,14 +378,17 @@ export class StorageErrorClassifier {
     }
 
     // Database does not exist
-    if (pgError.code === "3D000" || errorMessage.includes("database") && errorMessage.includes("does not exist")) {
+    if (
+      pgError.code === "3D000" ||
+      (errorMessage.includes("database") && errorMessage.includes("does not exist"))
+    ) {
       return {
         message: "PostgreSQL database does not exist",
         type: StorageErrorType.RESOURCE,
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Create database",
             autoExecutable: false,
             command: "createdb minsky_sessions",
@@ -398,14 +398,17 @@ export class StorageErrorClassifier {
     }
 
     // Table does not exist
-    if (pgError.code === "42P01" || errorMessage.includes("relation") && errorMessage.includes("does not exist")) {
+    if (
+      pgError.code === "42P01" ||
+      (errorMessage.includes("relation") && errorMessage.includes("does not exist"))
+    ) {
       return {
         message: "PostgreSQL schema not initialized",
         type: StorageErrorType.RESOURCE,
         severity: StorageErrorSeverity.HIGH,
         recoveryActions: [
           {
-            type: "REPAIR",
+            type: "REPAIR" as const,
             description: "Initialize database schema",
             autoExecutable: true,
             command: "minsky sessiondb init --backend postgres --force",
@@ -422,13 +425,13 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.MEDIUM,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Wait for connections to close and retry",
             autoExecutable: true,
             estimatedTime: "1-5 minutes",
           },
           {
-            type: "MANUAL",
+            type: "MANUAL" as const,
             description: "Increase connection limits",
             autoExecutable: false,
           },
@@ -444,7 +447,7 @@ export class StorageErrorClassifier {
         severity: StorageErrorSeverity.MEDIUM,
         recoveryActions: [
           {
-            type: "RETRY",
+            type: "RETRY" as const,
             description: "Retry with longer timeout",
             autoExecutable: true,
           },
@@ -453,7 +456,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `PostgreSQL backend error: ${error.message}`,
+      message: `PostgreSQL backend error: ${(error as any).message}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -478,7 +481,7 @@ export class StorageErrorRecovery {
 
     for (let attempt = 1; attempt <= maxRetries; attempt++) {
       try {
-        log.info("Attempting storage operation recovery", {
+        log.debug("Attempting storage operation recovery", {
           attempt,
           maxRetries,
           errorType: storageError.type,
@@ -490,21 +493,20 @@ export class StorageErrorRecovery {
         }
 
         const result = await operation();
-        
-        log.info("Storage operation recovery successful", {
+
+        log.debug("Storage operation recovery successful", {
           attempt,
           errorType: storageError.type,
         });
 
         return { success: true, result };
-
       } catch (error) {
         if (attempt === maxRetries) {
           const finalError = StorageErrorClassifier.classifyError(
             error as Error,
             storageError.context
           );
-          
+
           log.error("Storage operation recovery failed after all attempts", {
             attempts: maxRetries,
             finalError: finalError.message,
@@ -525,32 +527,32 @@ export class StorageErrorRecovery {
 
   private static getMaxRetries(errorType: StorageErrorType): number {
     switch (errorType) {
-    case StorageErrorType.CONNECTION:
-      return 3;
-    case StorageErrorType.TIMEOUT:
-      return 2;
-    case StorageErrorType.RESOURCE:
-      return 2;
-    default:
-      return 1;
+      case StorageErrorType.CONNECTION:
+        return 3;
+      case StorageErrorType.TIMEOUT:
+        return 2;
+      case StorageErrorType.RESOURCE:
+        return 2;
+      default:
+        return 1;
     }
   }
 
   private static getRetryDelay(errorType: StorageErrorType): number {
     switch (errorType) {
-    case StorageErrorType.CONNECTION:
-      return 1000; // 1 second
-    case StorageErrorType.TIMEOUT:
-      return 2000; // 2 seconds
-    case StorageErrorType.RESOURCE:
-      return 500;  // 0.5 seconds
-    default:
-      return 1000;
+      case StorageErrorType.CONNECTION:
+        return 1000; // 1 second
+      case StorageErrorType.TIMEOUT:
+        return 2000; // 2 seconds
+      case StorageErrorType.RESOURCE:
+        return 500; // 0.5 seconds
+      default:
+        return 1000;
     }
   }
 
   private static delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 }
 
@@ -562,9 +564,9 @@ export class StorageErrorMonitor {
    * Record error occurrence for monitoring
    */
   static recordError(error: StorageError): void {
-    const key = `${error.context.backend}-${error.type}`;
-    const currentCount = this.errorCounts.get(key) || 0;
-    
+    const key = `${(error.context as any).backend}-${(error as any).type}`;
+    const currentCount = (this.errorCounts as any).get(key) || 0;
+
     this.errorCounts.set(key, currentCount + 1);
     this.lastErrors.set(key, error);
 
@@ -587,7 +589,7 @@ export class StorageErrorMonitor {
    */
   static getErrorStats(): Record<string, { count: number; lastError: StorageError }> {
     const stats: Record<string, { count: number; lastError: StorageError }> = {};
-    
+
     for (const [key, count] of this.errorCounts.entries()) {
       const lastError = this.lastErrors.get(key);
       if (lastError) {
@@ -622,8 +624,8 @@ export class StorageErrorMonitor {
       log.error("Critical storage error detected", {
         errorKey: key,
         message: lastError.message,
-        recoveryActions: lastError.recoveryActions,
+        recoveryActions: lastError?.recoveryActions,
       });
     }
   }
-} 
+}

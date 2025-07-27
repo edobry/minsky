@@ -14,8 +14,9 @@ import {
   ConfigurationError,
   GitOperationError,
   ensureError,
-} from "../../../errors/index.js";
-import { log, isStructuredMode } from "../../../utils/logger.js";
+} from "../../../errors/index";
+import { log, isStructuredMode } from "../../../utils/logger";
+import { exit } from "../../../utils/process";
 /**
  * Determines if debug mode is enabled based on environment variables
  */
@@ -33,8 +34,8 @@ export const isDebugMode = (): boolean =>
  *
  * @param error Any error caught during command execution
  */
-export function handleCliError(error: unknown): never {
-  const normalizedError = ensureError(error);
+export function handleCliError(error: any): never {
+  const normalizedError = ensureError(error as any);
 
   // In human mode, use programLogger for all user-facing errors
   // In structured mode, use both loggers as configured
@@ -45,33 +46,34 @@ export function handleCliError(error: unknown): never {
     log.cliError(`Validation error: ${normalizedError.message}`);
 
     // Show validation details in debug mode
-    if (isDebugMode() && error.errors) {
-      log.cliError("\nValidation details:", error.errors);
+    if (isDebugMode() && (error as any).errors) {
+      log.cliError("\nValidation details:");
+      log.cliError(JSON.stringify((error as any).errors, undefined, 2));
     }
   } else if (error instanceof ResourceNotFoundError) {
-    log.cliError(`Not found: ${normalizedError.message}`);
-    if (error.resourceType && error.resourceId) {
-      log.cliError(`Resource: ${error.resourceType}, ID: ${error.resourceId}`);
+    log.cliError(`Not found: ${(normalizedError as any).message}`);
+    if ((error as any).resourceType && (error as any).resourceId) {
+      log.cliError(`Resource: ${(error as any).resourceType}, ID: ${(error as any).resourceId}`);
     }
   } else if (error instanceof ServiceUnavailableError) {
-    log.cliError(`Service unavailable: ${normalizedError.message}`);
-    if (error.serviceName) {
-      log.cliError(`Service: ${error.serviceName}`);
+    log.cliError(`Service unavailable: ${(normalizedError as any).message}`);
+    if ((error as any).serviceName) {
+      log.cliError(`Service: ${(error as any).serviceName}`);
     }
   } else if (error instanceof FileSystemError) {
-    log.cliError(`File system error: ${normalizedError.message}`);
-    if (error.path) {
-      log.cliError(`Path: ${error.path}`);
+    log.cliError(`File system error: ${(normalizedError as any).message}`);
+    if ((error as any).path) {
+      log.cliError(`Path: ${(error as any).path}`);
     }
   } else if (error instanceof ConfigurationError) {
-    log.cliError(`Configuration error: ${normalizedError.message}`);
-    if (error.configKey) {
-      log.cliError(`Key: ${error.configKey}`);
+    log.cliError(`Configuration error: ${(normalizedError as any).message}`);
+    if ((error as any).configKey) {
+      log.cliError(`Key: ${(error as any).configKey}`);
     }
   } else if (error instanceof GitOperationError) {
-    log.cliError(`Git operation failed: ${normalizedError.message}`);
-    if (error._command) {
-      log.cliError(`Command: ${error._command}`);
+    log.cliError(`Git operation failed: ${(normalizedError as any).message}`);
+    if ((error as any).command) {
+      log.cliError(`Command: ${(error as any).command}`);
     }
   } else if (error instanceof MinskyError) {
     log.cliError(`Error: ${normalizedError.message}`);
@@ -89,11 +91,11 @@ export function handleCliError(error: unknown): never {
     // Log cause chain if available
     if (normalizedError instanceof MinskyError && normalizedError.cause) {
       log.cliError("\nCaused by:");
-      const _cause = normalizedError.cause;
+      const cause = normalizedError.cause;
       if (cause instanceof Error) {
         log.cliError(cause.stack || cause.message);
       } else {
-        log.cliError(String(_cause));
+        log.cliError(String(cause));
       }
     }
   }
@@ -113,7 +115,7 @@ export function handleCliError(error: unknown): never {
     }
   }
 
-  process.exit(1);
+  exit(1);
 }
 
 /**
@@ -124,21 +126,21 @@ export function handleCliError(error: unknown): never {
  */
 export function outputResult<T>(
   result: T,
-  options: { json?: boolean; formatter?: (_result: unknown) => void }
+  options: { json?: boolean; formatter?: (result: any) => void }
 ): void {
   if (options.json) {
     // For JSON output, use agent logger to ensure it goes to stdout
     // This ensures machine-readable output is separated from human-readable messages
     if (isStructuredMode()) {
       // In structured mode, log to agent logger
-      log.agent("Command result", { _result });
+      log.agent({ message: "Command result", result });
     } else {
       // In human mode or when json is explicitly requested, write directly to stdout
-      log.cli(JSON.stringify(__result, null, 2));
+      log.cli(JSON.stringify(result, undefined, 2));
     }
   } else if (options.formatter) {
-    options.formatter(_result);
+    options.formatter(result);
   } else {
-    log.cli(String(_result));
+    log.cli(String(result));
   }
 }

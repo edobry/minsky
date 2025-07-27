@@ -4,89 +4,61 @@
  * This module bridges the shared command registry with the Minsky Control Plane (MCP),
  * allowing shared commands to be executed via MCP requests.
  */
-import { type ZodIssue } from "zod";
+import { sharedCommandRegistry, type CommandExecutionContext } from "../command-registry";
 import {
-  sharedCommandRegistry,
-  type CommandExecutionContext,
-} from "../command-registry.js";
-import { ensureError } from "../../../errors/index.js";
-// Assuming MCP requests come in a specific format, e.g., FastMCP
-// For this example, let's define a placeholder for MCP request and response types.
+  validateMcpCommandRequest,
+  validateCommandDefinition,
+  validateCommandRegistry,
+  validateParameterDefinition,
+  validateZodParseResult,
+  type McpCommandRequest,
+  type McpCommandResponse,
+  type ParameterDefinition,
+  type ZodParseResult,
+} from "../../../schemas/runtime";
+import { validateError } from "../../../schemas/error";
+import { ensureError } from "../../../errors/index";
 
 /**
- * Represents a generic MCP command request.
- */
-export interface McpCommandRequest {
-  commandId: string;
-  parameters: Record<string, unknown>;
-  // MCP-specific _context, like user auth, request ID, etc.
-  mcpContext?: Record<string, unknown>;
-  // Global options like debug or format might also be part of the MCP request payload
-  debug?: boolean;
-  format?: string;
-}
-
-/**
- * Represents a generic MCP command response.
- */
-export interface McpCommandResponse {
-  success: boolean;
-  result?: unknown;
-  error?: {
-    message: string;
-    type?: string;
-    details?: unknown;
-    stack?: string; // if debug is enabled
-  };
-}
-
-/**
- * MCP-specific execution context.
+ * MCP-specific execution context
  */
 export interface McpExecutionContext extends CommandExecutionContext {
   interface: "mcp";
-  mcpSpecificData?: Record<string, unknown>; // Placeholder for any MCP-specific data
+  mcpSpecificData?: Record<string, any>;
 }
 
 /**
- * Validates and executes a command received from the MCP.
- *
- * @param request The MCP command request.
- * @returns A promise that resolves to an MCP command response.
+ * Execute a shared command via MCP protocol
  */
-export async function executeMcpCommand(__request: McpCommandRequest): Promise<McpCommandResponse> {
-  const commandDef = sharedCommandRegistry.getCommand(request.commandId);
-
-  if (!commandDef) {
-    const errorResponse = {
-      success: false,
-      error: {
-        message: `Command with ID '${request.commandId}' not found.`,
-        type: "COMMAND_NOT_FOUND",
-      },
-    };
-    // MCP error handler might log this or handle it differently before returning
-    // For now, directly return for simplicity
-    return errorResponse;
-  }
-
+export async function executeMcpCommand(request: McpCommandRequest): Promise<McpCommandResponse> {
   try {
-    // Prepare execution context for the shared command
-    const _context: McpExecutionContext = {
-      interface: "mcp",
-      debug: !!request.debug,
-      format: request.format,
-      mcpSpecificData: request.mcpContext, // Pass along any MCP specific _context
-    };
+    // Validate the request
+    const validatedRequest = validateMcpCommandRequest(request);
 
-    // Validate incoming parameters against the command's Zod schemas
-    // This part is crucial and assumes commandDef.parameters is a Zod schema map
-    const parsedParams: Record<string, unknown> = {};
+    // Validate the command registry
+    const registry = validateCommandRegistry(sharedCommandRegistry);
+    const commandDef = registry.getCommand(validatedRequest.commandId);
+
+    if (!commandDef) {
+      return {
+        success: false,
+        error: {
+          message: `Command not found: ${validatedRequest.commandId}`,
+          type: "COMMAND_NOT_FOUND",
+        },
+      };
+    }
+
+    // Validate the command definition
+    const validatedCommandDef = validateCommandDefinition(commandDef);
+
+    // Parameter validation and parsing
+    const parsedParams: Record<string, any> = {};
     const validationErrors: Record<string, string[]> = {};
 
-    for (const paramName in commandDef.parameters) {
-      const paramDef = commandDef.parameters[paramName];
-      const rawValue = request.parameters[paramName];
+    for (const paramName in validatedCommandDef.parameters) {
+      const paramDef = validateParameterDefinition(validatedCommandDef.parameters[paramName]);
+      const rawValue = validatedRequest.parameters[paramName];
 
       if (rawValue === undefined && paramDef.required && paramDef.defaultValue === undefined) {
         if (!validationErrors[paramName]) validationErrors[paramName] = [];
@@ -101,21 +73,28 @@ export async function executeMcpCommand(__request: McpCommandRequest): Promise<M
       }
 
       const parseResult = paramDef.schema.safeParse(valueToParse);
-      if (parseResult.success) {
-        parsedParams[paramName] = parseResult.data;
+      const validatedParseResult = validateZodParseResult(parseResult);
+
+      if (validatedParseResult.success) {
+        parsedParams[paramName] = validatedParseResult.data;
       } else {
         if (!validationErrors[paramName]) {
-          validationErrors[paramName] = []; // Initialize if not already an array
+          validationErrors[paramName] = [];
         }
-        // Ensure parseResult.error and parseResult.error.errors exist before iterating
-        if (parseResult.error && parseResult.error.errors) {
-          // Ensure array exists before pushing to it within the callback
-          const errors = validationErrors[paramName];
-          parseResult.error.errors.forEach((_validationIssue: unknown) => {
-            errors.push(validationIssue.message);
+
+        // Process validation errors
+        const errorObj = validatedParseResult.error;
+        if (errorObj && errorObj.errors) {
+          errorObj.errors.forEach((validationIssue) => {
+            if (!validationErrors[paramName]) {
+              validationErrors[paramName] = [];
+            }
+            validationErrors[paramName].push(validationIssue.message);
           });
         } else {
-          // Fallback generic error if Zod's error structure is unexpected
+          if (!validationErrors[paramName]) {
+            validationErrors[paramName] = [];
+          }
           validationErrors[paramName].push("Invalid value, and Zod error details are unavailable.");
         }
       }
@@ -132,57 +111,48 @@ export async function executeMcpCommand(__request: McpCommandRequest): Promise<M
       };
     }
 
-    // Execute the command with validated parameters
-    const _result = await commandDef.execute(parsedParams as any, _context); // Cast as any due to generic complexity
-
-    // Format response for MCP
-    // In a real scenario, a shared response formatter might be used based on context.format
-    return {
-      success: true,
-      _result: result,
-    };
-  } catch (error: unknown) {
-    const ensuredError = ensureError(error);
-
-    const formattedMcpErrorResponse = {
-      message: ensuredError.message || "An unexpected error occurred during MCP command execution.",
-      type:
-        ensuredError.constructor &&
-        ensuredError.constructor.name !== "Error" &&
-        ensuredError.constructor.name !== "Object"
-          ? ensuredError.constructor.name
-          : "MCP_EXECUTION_ERROR",
-      stack: request.debug ? ensuredError.stack : undefined,
-      details: (ensuredError as any)?.details || (ensuredError as any)?.cause || undefined,
+    // Execute the command
+    const context: McpExecutionContext = {
+      interface: "mcp",
+      mcpSpecificData: validatedRequest.mcpContext,
     };
 
-    // Optional: Log the error server-side using a dedicated MCP error logger if available
-    // const mcpErrorLogger = getErrorHandler("mcp");
-    // mcpErrorLogger.logDetailedError(_ensuredError, request); // Example method
+    // Use the handler function if available, otherwise throw error
+    if (validatedCommandDef.handler) {
+      const result = await validatedCommandDef.handler(parsedParams, context);
+      return {
+        success: true,
+        result,
+      };
+    } else {
+      return {
+        success: false,
+        error: {
+          message: "Command handler not available",
+          type: "EXECUTION_ERROR",
+        },
+      };
+    }
+  } catch (error) {
+    const validatedError = validateError(error);
+
+    // Create a safe reference to the validated request for error handling
+    let debugMode = false;
+    try {
+      const validatedRequest = validateMcpCommandRequest(request);
+      debugMode = validatedRequest.debug || false;
+    } catch {
+      // Ignore validation errors in error handling
+    }
 
     return {
       success: false,
-      error: formattedMcpErrorResponse,
+      error: {
+        message: validatedError.message,
+        type: "EXECUTION_ERROR",
+        details: validatedError.stack,
+        stack: debugMode ? validatedError.stack : undefined,
+      },
     };
   }
 }
-
-// Example of how this might be registered or used with an MCP server (e.g., FastMCP)
-// This is highly dependent on the MCP framework being used.
-/*
-export function registerMcpCommands(__mcpServer: FastMcpServer) {
-  const commands = sharedCommandRegistry.getAllCommands();
-  commands.forEach(commandDef => {
-    mcpServer.addCommandHandler(commandDef.id, async (_payload: unknown) => {
-      const request: McpCommandRequest = {
-        commandId: commandDef.id,
-        _parameters: payload.params || {},
-        mcpContext: payload.context || {},
-        debug: !!payload.debug,
-        format: payload.format as string || "json",
-      };
-      return executeMcpCommand(request);
-    });
-  });
-}
-*/

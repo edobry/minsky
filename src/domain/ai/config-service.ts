@@ -14,39 +14,52 @@ import {
   ValidationWarning,
 } from "./types";
 import { ConfigurationService } from "../configuration/types";
-import { log } from "../shared-logging";
+import { log } from "../../utils/logger";
 
 export class DefaultAIConfigurationService implements AIConfigurationService {
   constructor(private configService: ConfigurationService) {}
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
-      const result = await this.configService.loadConfiguration(process.cwd());
-      const config = result.resolved;
+      // Use the unified configuration system (no more bespoke credential resolution)
+      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+      const config = (result as any).resolved;
 
-      // Get provider-specific config from both repo and user levels
-      const repoConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
-      const userConfig = config.ai?.providers?.[provider as keyof typeof config.ai.providers];
+      // Get provider-specific config from the unified configuration
+      const providerConfig = config.ai?.providers?.[provider];
 
-      if (!repoConfig && !userConfig) {
+      // If no provider config exists, return null
+      if (!providerConfig) {
         return null;
       }
 
-      // Merge configurations with user config taking precedence for personal settings
+      // Extract API key from unified config (automatically populated by environment variable mapping)
+      const apiKey = providerConfig.api_key;
+
+      // If no API key is available, we can't use this provider
+      if (!apiKey) {
+        return null;
+      }
+
+      // Create provider config from unified configuration
       return {
-        provider: provider as any,
-        apiKey: await this.resolveAPIKey(provider),
-        baseURL: userConfig?.base_url || repoConfig?.base_url,
-        defaultModel: userConfig?.default_model || repoConfig?.default_model,
+        provider: provider,
+        apiKey,
+        baseURL: providerConfig.base_url,
+        defaultModel: providerConfig.default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
+        enabled: providerConfig.enabled ?? true,
+        models: providerConfig.models || [],
+        maxTokens: providerConfig.max_tokens,
+        temperature: providerConfig.temperature,
       };
     } catch (error) {
-      log.error(`Failed to get provider config for ${provider}`, { error });
+      log.debug(`Failed to get provider config for ${provider}`, { error });
       return null;
     }
   }
 
-  async setProviderConfig(provider: string, config: AIProviderConfig): Promise<void> {
+  async setProviderConfig(_provider: string, _config: AIProviderConfig): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     // This would be a future enhancement to modify YAML config files
     throw new Error("Setting provider config is not yet implemented");
@@ -54,78 +67,28 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getDefaultProvider(): Promise<string> {
     try {
-      const result = await this.configService.loadConfiguration(process.cwd());
-      return result.resolved.ai?.default_provider || "openai";
+      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+      return (result.resolved.ai as any).default_provider || "openai";
     } catch (error) {
       log.error("Failed to get default provider", { error });
       return "openai";
     }
   }
 
-  async setDefaultProvider(provider: string): Promise<void> {
+  async setDefaultProvider(_provider: string): Promise<void> {
     // Note: For now, we don't implement writing config back to files
     throw new Error("Setting default provider is not yet implemented");
   }
 
   async validateProviderKey(provider: string, apiKey: string): Promise<boolean> {
     try {
-      // Make a minimal API call to validate the key
-      const testConfig: AIProviderConfig = {
-        provider: provider as any,
-        apiKey,
-        supportedCapabilities: [],
-      };
-
-      // Use a simple completion to test the API key
-      // This would typically call the actual AI service
-      // For now, just validate the key format
-
+      // For now, just validate the API key format
+      // In a real implementation, this would make a test API call
       return this.validateAPIKeyFormat(provider, apiKey);
     } catch (error) {
-      log.debug(`API key validation failed for ${provider}`, { error });
+      log.debug(`Failed to validate API key for ${provider}`, { error });
       return false;
     }
-  }
-
-  private async resolveAPIKey(provider: string): Promise<string | undefined> {
-    // Try environment variables first
-    const envKey = this.getEnvironmentAPIKey(provider);
-    if (envKey) {
-      return envKey;
-    }
-
-    // Try config files
-    try {
-      const result = await this.configService.loadConfiguration(process.cwd());
-      const credentialConfig =
-        result.resolved.credentials?.ai?.[provider as keyof typeof result.resolved.credentials.ai];
-
-      if (credentialConfig?.source === "file" && credentialConfig.api_key_file) {
-        // Would read from file in real implementation
-        return undefined;
-      }
-
-      if (credentialConfig?.api_key) {
-        return credentialConfig.api_key;
-      }
-    } catch (error) {
-      log.debug(`Failed to resolve API key for ${provider}`, { error });
-    }
-
-    return undefined;
-  }
-
-  private getEnvironmentAPIKey(provider: string): string | undefined {
-    const envVarMap: Record<string, string> = {
-      openai: "OPENAI_API_KEY",
-      anthropic: "ANTHROPIC_API_KEY",
-      google: "GOOGLE_AI_API_KEY",
-      cohere: "COHERE_API_KEY",
-      mistral: "MISTRAL_API_KEY",
-    };
-
-    const envVar = envVarMap[provider];
-    return envVar ? process.env[envVar] : undefined;
   }
 
   private validateAPIKeyFormat(provider: string, apiKey: string): boolean {
@@ -134,17 +97,12 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       openai: /^sk-[a-zA-Z0-9]{20,}$/,
       anthropic: /^sk-ant-api03-[a-zA-Z0-9_-]{95}$/,
       google: /^AIza[0-9A-Za-z_-]{35}$/,
-      cohere: /^[a-zA-Z0-9]{40}$/,
-      mistral: /^[a-zA-Z0-9]{32}$/,
+      cohere: /^[a-zA-Z0-9_-]+$/,
+      mistral: /^[a-zA-Z0-9_-]+$/,
     };
 
     const pattern = formatMap[provider];
-    if (!pattern) {
-      // Unknown provider, assume valid
-      return apiKey.length > 10;
-    }
-
-    return pattern.test(apiKey);
+    return pattern ? pattern.test(apiKey) : true; // Allow unknown providers
   }
 
   private async getProviderCapabilities(provider: string) {

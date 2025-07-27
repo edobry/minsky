@@ -1,0 +1,296 @@
+[
+  {
+    "file": "src/domain/repository-uri.ts",
+    "line": 0,
+    "before": "targetType as unknown as UriFormat",
+    "after": "targetType as unknown",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/session.ts",
+    "line": 0,
+    "before": "error as unknown",
+    "after": "error",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/schemas/tasks.ts",
+    "line": 0,
+    "before": "data.descriptionPath as unknown",
+    "after": "data.descriptionPath",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/response-formatters.ts",
+    "line": 0,
+    "before": "data as unknown as object",
+    "after": "data as unknown",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/response-formatters.ts",
+    "line": 0,
+    "before": "this.columns\n        .map((col) => {\n          const value = String(row[col] || \"\");\n          return value.padEnd(columnWidths[col]);\n        })\n        .join(\" | \") as unknown",
+    "after": "this.columns\n        .map((col) => {\n          const value = String(row[col] || \"\");\n          return value.padEnd(columnWidths[col]);\n        })\n        .join(\" | \")",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/ai/config-service.ts",
+    "line": 0,
+    "before": "{\n        provider: provider as unknown,\n        apiKey,\n        baseURL: providerConfig.base_url,\n        defaultModel: providerConfig.default_model,\n        supportedCapabilities: await this.getProviderCapabilities(provider),\n        enabled: providerConfig.enabled ?? true,\n        models: providerConfig.models || [],\n        maxTokens: providerConfig.max_tokens,\n        temperature: providerConfig.temperature,\n      } as AIProviderConfig",
+    "after": "{\n        provider: provider as unknown,\n        apiKey,\n        baseURL: providerConfig.base_url,\n        defaultModel: providerConfig.default_model,\n        supportedCapabilities: await this.getProviderCapabilities(provider),\n        enabled: providerConfig.enabled ?? true,\n        models: providerConfig.models || [],\n        maxTokens: providerConfig.max_tokens,\n        temperature: providerConfig.temperature,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/storage/database-integrity-checker.ts",
+    "line": 0,
+    "before": "db.prepare(\"PRAGMA integrity_check\").get() as unknown",
+    "after": "db.prepare(\"PRAGMA integrity_check\").get()",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/storage/database-integrity-checker.ts",
+    "line": 0,
+    "before": "db.prepare(\"SELECT COUNT(*) as count FROM sessions\").get() as unknown",
+    "after": "db.prepare(\"SELECT COUNT(*) as count FROM sessions\").get()",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+    "line": 0,
+    "before": "JSON.stringify(issues) as unknown",
+    "after": "JSON.stringify(issues)",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+    "line": 0,
+    "before": "await this.octokit.rest.issues.listForRepo({\n        owner: this.owner,\n        repo: this.repo,\n        labels: Object.values(this.statusLabels).join(\",\") as unknown,\n        state: \"all\",\n      }) as unknown",
+    "after": "await this.octokit.rest.issues.listForRepo({\n        owner: this.owner,\n        repo: this.repo,\n        labels: Object.values(this.statusLabels).join(\",\") as unknown,\n        state: \"all\",\n      })",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/tasks/githubIssuesTaskBackend.ts",
+    "line": 0,
+    "before": "metadata.githubIssue as unknown",
+    "after": "metadata.githubIssue",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/assertions.ts",
+    "line": 0,
+    "before": "function (this: unknown, ...args: unknown[]) {\n    // Could potentially extend expect with custom matchers here in the future\n    return testFn.apply(this, args);\n  } as unknown",
+    "after": "function (this: unknown, ...args: unknown[]) {\n    // Could potentially extend expect with custom matchers here in the future\n    return testFn.apply(this, args);\n  }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/index.ts",
+    "line": 0,
+    "before": "((...args: any[]) => mockFn(...args)) as unknown",
+    "after": "((...args: any[]) => mockFn(...args))",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/mocking.ts",
+    "line": 0,
+    "before": "createMock(implementation) as unknown as MockFunction<ReturnType<T>, Parameters<T>> & T",
+    "after": "createMock(implementation) as unknown",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/cli/core/cli-command-factory-core.ts",
+    "line": 0,
+    "before": "\"production\" as unknown",
+    "after": "\"production\"",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "await commitChangesFromParams({\n        message: params!.message,\n        all: params!.all,\n        amend: params!.amend,\n        noStage: params!.noStage,\n        repo: params!.repo,\n        session: params!.session,\n      }) as unknown",
+    "after": "await commitChangesFromParams({\n        message: params!.message,\n        all: params!.all,\n        amend: params!.amend,\n        noStage: params!.noStage,\n        repo: params!.repo,\n        session: params!.session,\n      })",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "{\n        success: true,\n        commitHash: result!.commitHash,\n        message: result!.message,\n      } as unknown",
+    "after": "{\n        success: true,\n        commitHash: result!.commitHash,\n        message: result!.message,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "await pushFromParams({\n        repo: params!.repo,\n        session: params!.session,\n        remote: params!.remote,\n        force: params!.force,\n        debug: params!.debug,\n      }) as unknown",
+    "after": "await pushFromParams({\n        repo: params!.repo,\n        session: params!.session,\n        remote: params!.remote,\n        force: params!.force,\n        debug: params!.debug,\n      })",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "{\n        success: result!.pushed,\n        workdir: result!.workdir,\n      } as unknown",
+    "after": "{\n        success: result!.pushed,\n        workdir: result!.workdir,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "await cloneFromParams({\n        url: params!.url,\n        workdir: params!.destination || \".\",\n        session: params!.session,\n        branch: params!.branch,\n      }) as unknown",
+    "after": "await cloneFromParams({\n        url: params!.url,\n        workdir: params!.destination || \".\",\n        session: params!.session,\n        branch: params!.branch,\n      })",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "{\n        success: true,\n        workdir: result!.workdir,\n        session: result!.session,\n      } as unknown",
+    "after": "{\n        success: true,\n        workdir: result!.workdir,\n        session: result!.session,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "await branchFromParams({\n        session: params!.session,\n        name: params!.name,\n      }) as unknown",
+    "after": "await branchFromParams({\n        session: params!.session,\n        name: params!.name,\n      })",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "{\n        success: true,\n        workdir: result!.workdir,\n        branch: result!.branch,\n      } as unknown",
+    "after": "{\n        success: true,\n        workdir: result!.workdir,\n        branch: result!.branch,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "await createPullRequestFromParams({\n        session: params!.session,\n        repo: params!.repo,\n        branch: params!.branch,\n        taskId: params!.task,\n        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      }) as unknown",
+    "after": "await createPullRequestFromParams({\n        session: params!.session,\n        repo: params!.repo,\n        branch: params!.branch,\n        taskId: params!.task,\n        debug: params!.debug,\n        noStatusUpdate: params!.noStatusUpdate,\n      })",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/git.ts",
+    "line": 0,
+    "before": "{\n        success: true,\n        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      } as unknown",
+    "after": "{\n        success: true,\n        markdown: result!.markdown,\n        statusUpdateResult: result!.statusUpdateResult,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/session.ts",
+    "line": 0,
+    "before": "(await approveSessionFromParams({\n          session: params!.name,\n          task: params!.task,\n          repo: params!.repo,\n          json: params!.json,\n        })) as unknown",
+    "after": "(await approveSessionFromParams({\n          session: params!.name,\n          task: params!.task,\n          repo: params!.repo,\n          json: params!.json,\n        }))",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/session.ts",
+    "line": 0,
+    "before": "(await sessionPrFromParams({\n          title: params!.title,\n          body: params!.body,\n          bodyPath: params!.bodyPath,\n          session: params!.name,\n          task: params!.task,\n          repo: params!.repo,\n          noStatusUpdate: params!.noStatusUpdate,\n          debug: params!.debug,\n          skipUpdate: params!.skipUpdate,\n          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        })) as unknown",
+    "after": "(await sessionPrFromParams({\n          title: params!.title,\n          body: params!.body,\n          bodyPath: params!.bodyPath,\n          session: params!.name,\n          task: params!.task,\n          repo: params!.repo,\n          noStatusUpdate: params!.noStatusUpdate,\n          debug: params!.debug,\n          skipUpdate: params!.skipUpdate,\n          autoResolveDeleteConflicts: params!.autoResolveDeleteConflicts,\n          skipConflictCheck: params!.skipConflictCheck,\n        }))",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/tasks.ts",
+    "line": 0,
+    "before": "await deleteTaskFromParams({\n      taskId: params.taskId,\n      force: params.force ?? false,\n      backend: params.backend,\n      repo: params.repo,\n      workspace: params.workspace,\n      session: params.session,\n    }) as unknown",
+    "after": "await deleteTaskFromParams({\n      taskId: params.taskId,\n      force: params.force ?? false,\n      backend: params.backend,\n      repo: params.repo,\n      workspace: params.workspace,\n      session: params.session,\n    })",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/adapters/shared/commands/tasks.ts",
+    "line": 0,
+    "before": "result as unknown as { success: boolean; taskId: string; task?: any }",
+    "after": "result as unknown",
+    "pattern": "Simple Property Access"
+  },
+  {
+    "file": "src/adapters/shared/commands/tasks.ts",
+    "line": 0,
+    "before": "result as unknown as { taskId: string }",
+    "after": "result as unknown",
+    "pattern": "Simple Property Access"
+  },
+  {
+    "file": "src/adapters/shared/commands/tasks.ts",
+    "line": 0,
+    "before": "result as unknown as { taskId: string }",
+    "after": "result as unknown",
+    "pattern": "Simple Property Access"
+  },
+  {
+    "file": "src/adapters/shared/commands/tasks.ts",
+    "line": 0,
+    "before": "{\n        success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,\n        taskId: (result as unknown as { taskId: string }).taskId,\n        task: (result as unknown as { task?: any }).task,\n        message: message,\n      } as unknown",
+    "after": "{\n        success: (result as unknown as { success: boolean; taskId: string; task?: any }).success,\n        taskId: (result as unknown as { taskId: string }).taskId,\n        task: (result as unknown as { task?: any }).task,\n        message: message,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/storage/backends/postgres-storage.ts",
+    "line": 0,
+    "before": "result.rowCount > 0 as unknown",
+    "after": "result.rowCount > 0",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/storage/backends/postgres-storage.ts",
+    "line": 0,
+    "before": "result.length > 0 as unknown",
+    "after": "result.length > 0",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/storage/backends/sqlite-storage.ts",
+    "line": 0,
+    "before": "{\n        sessions,\n        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as unknown,\n      } as TState",
+    "after": "{\n        sessions,\n        baseDir: process.env.XDG_STATE_HOME ? `${process.env.XDG_STATE_HOME}/minsky` : `${process.env.HOME}/.local/state/minsky` as unknown,\n      }",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/storage/backends/sqlite-storage.ts",
+    "line": 0,
+    "before": "query.where(and(...conditions)) as unknown",
+    "after": "query.where(and(...conditions))",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/domain/storage/backends/sqlite-storage.ts",
+    "line": 0,
+    "before": "result.length > 0 as unknown",
+    "after": "result.length > 0",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/compatibility/mock-function.ts",
+    "line": 0,
+    "before": "mockFn.mockImplementation(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown",
+    "after": "mockFn.mockImplementation(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    )",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/compatibility/mock-function.ts",
+    "line": 0,
+    "before": "mockFn.mockImplementationOnce(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    ) as unknown",
+    "after": "mockFn.mockImplementationOnce(\n      () => Promise.resolve(value) as unknown as ReturnType<T>\n    )",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/compatibility/mock-function.ts",
+    "line": 0,
+    "before": "mockFn.mockImplementation(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown",
+    "after": "mockFn.mockImplementation(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    )",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/compatibility/mock-function.ts",
+    "line": 0,
+    "before": "mockFn.mockImplementationOnce(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    ) as unknown",
+    "after": "mockFn.mockImplementationOnce(\n      () => Promise.reject(value) as unknown as ReturnType<T>\n    )",
+    "pattern": "Variable Assignment"
+  },
+  {
+    "file": "src/utils/test-utils/compatibility/mock-function.ts",
+    "line": 0,
+    "before": "{ ...module } as unknown",
+    "after": "{ ...module }",
+    "pattern": "Variable Assignment"
+  }
+]

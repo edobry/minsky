@@ -16,9 +16,9 @@
 
 - [x] Add `git commit` Command to Stage and Commit Changes [#009](process/tasks/009-add-git-commit-command-to-stage-and-commit-changes.md)
 
-- [x] Enhance `git pr` Command to Create GitHub PRs and Update Task Status [#010](process/tasks/010-enhance-git-pr-command-to-create-github-prs-and-update-task-status.md)
+- [x] ~~Enhance `git pr` Command to Create GitHub PRs and Update Task Status~~ (Command removed - functionality moved to `session pr`) [#010](process/tasks/010--enhance-git-pr-command-to-create-github-prs-and-update-task-status-command-removed-functionality-moved-to-session-pr-.md)
 
-- [x] Fix `git pr` Command and Add Proper Tests [#011](process/tasks/011-fix-git-pr-command-and-add-proper-tests.md)
+- [x] ~~Fix `git pr` Command and Add Proper Tests~~ (Command removed - functionality moved to `session pr`) [#011](process/tasks/011--fix-git-pr-command-and-add-proper-tests-command-removed-functionality-moved-to-session-pr-.md)
 
 - [x] Add `session update` Command [#012](process/tasks/012-add-session-update-command.md)
 
@@ -34,7 +34,7 @@
 
 - [x] Implement Test Suite Improvements [#019](process/tasks/019-implement-test-suite-improvements.md)
 
-- [x] Add `--task` option to `git pr` command [#020](process/tasks/020-add-task-option-to-git-pr-command.md)
+- [x] ~~Add `--task` option to `git pr` command~~ (Command removed - functionality moved to `session pr`) [#020](process/tasks/020--add-task-option-to-git-pr-command-command-removed-functionality-moved-to-session-pr-.md)
 
 - [x] Refactor Large Methods in GitService [#021](process/tasks/021-refactor-large-methods-in-gitservice.md)
 
@@ -100,7 +100,7 @@
 
 - [x] Prevent Session Creation Within Existing Sessions [#053](process/tasks/053-prevent-session-creation-within-existing-sessions.md)
 
-- [ ] Restore Full Test Suite for `init` Command [#054](process/tasks/054-restore-full-test-suite-for-init-command.md)
+- [ ] Configure Husky Hooks for Session Repositories [#054](process/tasks/054-configure-husky-hooks-for-session-repositories.md)
 
 - [x] Document and Fix Rule Sync Bug in Minsky CLI [#055](process/tasks/055-document-and-fix-rule-sync-bug-in-minsky-cli.md)
 
@@ -114,7 +114,7 @@
 
 - [ ] Implement Automatic Test Linting [#060](process/tasks/060-implement-automatic-test-linting.md)
 
-- [ ] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
+- [x] Implement Test Fixture Factory Pattern [#061](process/tasks/061-implement-test-fixture-factory-pattern.md)
 
 - [x] Improve bun:test TypeScript Declarations [#062](process/tasks/062-improve-bun-test-typescript-declarations.md)
 
@@ -173,8 +173,6 @@
 - [x] Align CLI Commands with Revised Concepts [#089](process/tasks/089-align-cli-commands-with-revised-concepts.md)
 
 - [ ] Prepare for Future Non-Filesystem Workspaces [#090](process/tasks/090-prepare-for-future-non-filesystem-workspaces.md)
-
-- [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
 - [x] Enhance SessionDB with Multiple Backend Support [#091](process/tasks/091-enhance-sessiondb-with-multiple-backend-support.md)
 
@@ -238,8 +236,6 @@
 
 - [x] Improve Error Handling for MCP Server Port Conflicts [#122](process/tasks/122-improve-error-handling-for-mcp-server-port-conflicts.md)
 
-- [x] Enhance `tasks get` Command to Support Multiple Task IDs [#123](process/tasks/123-enhance-tasks-get-command-to-support-multiple-task-ids.md)
-
 - [x] Add Repository Path Parameter to MCP Server [#124](process/tasks/124-add-repository-path-parameter-to-mcp-server.md)
 
 - [x] Implement CLI Bridge for Shared Command Registry [#125](process/tasks/125-implement-cli-bridge-for-shared-command-registry.md)
@@ -264,14 +260,13 @@
 
 - [x] Task: Fix `minsky tasks create` Verbose Content Extraction Bug [#135](process/tasks/135-task-fix-minsky-tasks-create-verbose-content-extraction-bug.md)
 
-- [+] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
+- [x] Fix All Linter Warnings [#136](process/tasks/136-fix-all-linter-warnings.md)
 
 - [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-task-implement-todoist-backend-integration.md)
 
 - [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
-- [x] Implement Session-Scoped MCP Server for Workspace Isolation [#049](process/tasks/049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
-- [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#139](process/tasks/139-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
+- [x] Add Session Context Autodetection [#139](process/tasks/139-add-session-context-autodetection.md)
 
 - [x] Fix dependency installation error in session startup [#140](process/tasks/140-fix-dependency-installation-error-in-session-startup.md)
 
@@ -305,12 +300,280 @@
 
 - [+] Remove .js Extensions from TypeScript Imports [#156](process/tasks/156-remove-js-extensions-from-typescript-imports.md)
 
-- [+] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
+- [x] Review and Modernize Project Documentation Architecture [#157](process/tasks/157-review-and-modernize-project-documentation-architecture.md)
 
-- [ ] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
+- [x] Implement Session-Aware Versions of Cursor Built-in Tools [#158](process/tasks/158-implement-session-aware-versions-of-cursor-built-in-tools.md)
 
 - [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
 
-- [ ] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
+- [+] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
 
 - [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
+
+- [ ] Research and Design Comprehensive AI Evals Framework for Rules, Context Construction, and Agent Operations [#162](process/tasks/162-research-and-design-comprehensive-ai-evals-framework-for-rules-context-construction-and-agent-operations.md)
+
+- [x] Add --title and --description Options to tasks create Command [#163](process/tasks/163-add-title-and-description-options-to-tasks-create-command.md)
+
+- [x] Add Bun Binary Builds and GitHub Actions Release Workflow [#164](process/tasks/164-add-bun-binary-builds-and-github-actions-release-workflow.md)
+
+- [x] Fix Session Lookup Bug Where Sessions Exist on Disk But Not in Database [#165](process/tasks/165-fix-session-lookup-bug-where-sessions-exist-on-disk-but-not-in-database.md)
+
+- [x] Remove @types/commander and Fix Revealed TypeScript Errors [#166](process/tasks/166-remove-types-commander-and-fix-revealed-typescript-errors.md)
+
+- [x] Fix Task Creation CLI Bug - "status is not defined" Error [#167](process/tasks/167-fix-task-creation-cli-bug-status-is-not-defined-error.md)
+
+- [x] Evaluate and Deduplicate Error Messages [#169](process/tasks/169-evaluate-and-deduplicate-error-messages.md)
+
+- [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
+
+- [+] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
+
+- [!] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
+
+- [x] Implement Cross-Cutting Session Auto-Detection [#173](process/tasks/173-implement-cross-cutting-session-auto-detection.md)
+
+- [x] Review Session PR Workflow Architecture [#174](process/tasks/174-review-session-pr-workflow-architecture.md)
+
+- [ ] Add AI-powered task management subcommands [#175](process/tasks/175-add-ai-powered-task-management-subcommands.md)
+
+- [ ] Review and improve session update command design and merge conflict handling [#177](process/tasks/177-review-and-improve-session-update-command-design-and-merge-conflict-handling.md)
+
+- [x] Establish Codemod Best Practices and Standards [#178](process/tasks/178-establish-codemod-best-practices-and-standards.md)
+
+- [ ] Investigate Embeddings/RAG for Search-Related MCP Tools [#179](process/tasks/179-investigate-embeddings-rag-for-search-related-mcp-tools.md)
+
+- [x] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
+
+- [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
+
+- [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
+
+- [ ] Restore Full Test Suite for `init` Command [#185](process/tasks/185-restore-full-test-suite-for-init-command.md)
+
+- [x] Task: Integrate JsonFileTaskBackend with CLI Commands [#187](process/tasks/187-task-integrate-jsonfiletaskbackend-with-cli-commands.md)
+
+- [ ] Import Existing GitHub Issues Under Minsky Management [#188](process/tasks/188-import-existing-github-issues-under-minsky-management.md)
+
+- [x] Restore Init Command Interactivity [#189](process/tasks/189-restore-init-command-interactivity.md)
+
+- [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
+
+- [x] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
+
+- [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
+
+- [x] Eliminate MCP Command Duplication by Implementing Proper Bridge Integration [#201](process/tasks/201-eliminate-mcp-command-duplication-by-implementing-proper-bridge-integration.md)
+
+- [ ] Rule Suggestion Evaluation and Optimization [#202](process/tasks/202-rule-suggestion-evaluation-and-optimization.md)
+
+- [x] Improve Session PR Command Output and Body Generation [#203](process/tasks/203-improve-session-pr-command-output-and-body-generation.md)
+
+- [x] Add CLOSED task status for irrelevant tasks [#207](process/tasks/207-add-closed-task-status-for-irrelevant-tasks.md)
+
+- [x] Improve user-friendly output formatting for tasks delete command [#208](process/tasks/208-improve-user-friendly-output-formatting-for-tasks-delete-command.md)
+
+- [x] Investigate and Evaluate Configuration System Architecture [#209](process/tasks/209-investigate-and-evaluate-configuration-system-architecture.md)
+
+- [x] Fix CLI output suppression in session workspaces [#210](process/tasks/210-fix-cli-output-suppression-in-session-workspaces.md)
+
+- [!] Fix session pr path resolution issues [#212](process/tasks/212-fix-session-pr-path-resolution-issues.md)
+
+- [x] Investigate normalizeRepoName function and repo name formatting inconsistencies [#214](process/tasks/214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
+
+- [ ] Implement Core Agent Loop for Independent Minsky Operation [#216](process/tasks/216-implement-core-agent-loop-for-independent-minsky-operation.md)
+
+- [x] Execute session migration to simplified path structure [#217](process/tasks/217-execute-session-migration-to-simplified-path-structure.md)
+
+- [x] Remove redundant repoPath field from session records [#218](process/tasks/218-remove-redundant-repopath-field-from-session-records.md)
+
+- [x] Add specific linting rules for underscore prefixes in variable declarations [#219](process/tasks/219-add-specific-linting-rules-for-underscore-prefixes-in-variable-declarations.md)
+
+- [x] Improve Test Isolation and Reliability [#220](process/tasks/220-improve-test-isolation-and-reliability.md)
+
+- [x] Better Merge Conflict Prevention [#221](process/tasks/221-better-merge-conflict-prevention.md)
+
+- [x] Enhanced Error Messages and Debugging [#223](process/tasks/223-enhanced-error-messages-and-debugging.md)
+
+- [+] Restructure configuration to colocate credentials with their components [#224](process/tasks/224-restructure-configuration-to-colocate-credentials-with-their-components.md)
+
+- [x] Remove temporary SessionDB compatibility layer and update all imports [#225](process/tasks/225-remove-temporary-sessiondb-compatibility-layer-and-update-all-imports.md)
+
+- [ ] Implement AI-Powered Session Review Workflow [#226](process/tasks/226-implement-ai-powered-session-review-workflow.md)
+
+- [x] Extend conflict detection to comprehensive git workflow protection [#227](process/tasks/227-extend-conflict-detection-to-comprehensive-git-workflow-protection.md)
+
+- [x] Exclude CLOSED tasks from default tasks list output [#228](process/tasks/228-exclude-closed-tasks-from-default-tasks-list-output.md)
+
+- [x] Evaluate mandatory task-session association requirement [#229](process/tasks/229-evaluate-mandatory-task-session-association-requirement.md)
+
+- [x] Investigate session workspace disk usage and optimize node_modules storage [#230](process/tasks/230-investigate-session-workspace-disk-usage-and-optimize-node-modules-storage.md)
+
+- [x] Implement session PR refresh functionality [#231](process/tasks/231-implement-session-pr-refresh-functionality.md)
+
+- [ ] Improve session PR conflict resolution workflow with auto-resolution and better UX [#232](process/tasks/232-improve-session-pr-conflict-resolution-workflow-with-auto-resolution-and-better-ux.md)
+
+- [ ] Setup semantic-release with conventional commits for automated GitHub releases and binary builds [#233](process/tasks/233-setup-semantic-release-with-conventional-commits-for-automated-github-releases-and-binary-builds.md)
+
+- [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
+
+- [x] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
+
+- [x] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
+
+- [ ] Implement Hierarchical Task System with Subtasks and Dependencies [#237](process/tasks/237-implement-hierarchical-task-system-with-subtasks-and-dependencies.md)
+
+- [ ] Phase 1: Implement Basic Subtask Support with Parent-Child Relationships [#238](process/tasks/238-phase-1-implement-basic-subtask-support-with-parent-child-relationships.md)
+
+- [ ] Phase 2: Implement Task Dependencies and Basic Task Graphs [#239](process/tasks/239-phase-2-implement-task-dependencies-and-basic-task-graphs.md)
+
+- [ ] Phase 3: Enhanced Planning/Execution Separation with Checkpointing [#240](process/tasks/240-phase-3-enhanced-planning-execution-separation-with-checkpointing.md)
+
+- [ ] Advanced Visualization and Database Migration [#243](process/tasks/243-advanced-visualization-and-database-migration.md)
+
+- [x] Implement comprehensive test isolation framework to eliminate suite interference [#244](process/tasks/244-implement-comprehensive-test-isolation-framework-to-eliminate-suite-interference.md)
+
+- [x] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
+
+- [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
+
+- [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)
+
+- [ ] Add Mobile/Voice Interface for Minsky Operations [#251](process/tasks/251-add-mobile-voice-interface-for-minsky-operations.md)
+
+- [ ] Design and implement task management UI system [#252](process/tasks/252-design-and-implement-task-management-ui-system.md)
+
+- [ ] Implement Task Similarity Search Using Embeddings [#253](process/tasks/253-implement-task-similarity-search-using-embeddings.md)
+
+- [ ] Implement Commit History Similarity Search Using Embeddings [#254](process/tasks/254-implement-commit-history-similarity-search-using-embeddings.md)
+
+- [x] Fix session dependency installation error [#255](process/tasks/255-fix-session-dependency-installation-error.md)
+
+- [ ] Implement Context-Aware Tool Management System [#256](process/tasks/256-implement-context-aware-tool-management-system.md)
+
+- [ ] Design multi-agent cybernetic supervision system for AI-to-AI task oversight [#258](process/tasks/258-design-multi-agent-cybernetic-supervision-system-for-ai-to-ai-task-oversight.md)
+
+- [x] Add `minsky tasks delete` Command [#205](process/tasks/205-add-minsky-tasks-delete-command.md)
+
+- [ ] Implement AI-Powered PR Content Generation for Session and Git Commands [#273](process/tasks/273-implement-ai-powered-pr-content-generation-for-session-and-git-commands.md)
+
+- [x] Improve CLI error messages for user-friendly output [#259](process/tasks/259-improve-cli-error-messages-for-user-friendly-output.md)
+
+- [ ] Implement prompt templates for AI interaction [#260](process/tasks/260-implement-prompt-templates-for-ai-interaction.md)
+
+- [+] Add AI Agent Command Structure Export [#261](process/tasks/261-add-ai-agent-command-structure-export.md)
+
+- [ ] Explore consolidating ESLint rules with codemods [#262](process/tasks/262-explore-consolidating-eslint-rules-with-codemods.md)
+
+- [ ] Investigate PaaS Deployment Options for Minsky Sessions [#263](process/tasks/263-investigate-paas-deployment-options-for-minsky-sessions.md)
+
+- [ ] Explore Adding Standard API Interface Alongside MCP Using Shared Command Registry [#264](process/tasks/264-explore-adding-standard-api-interface-alongside-mcp-using-shared-command-registry.md)
+
+- [x] Refactor configuration system parameter naming and improve developer ergonomics [#265](process/tasks/265-refactor-configuration-system-parameter-naming-and-improve-developer-ergonomics.md)
+
+- [x] Investigate Enhanced Storage Backend Factory Redundancy [#266](process/tasks/266-investigate-enhanced-storage-backend-factory-redundancy.md)
+
+- [x] Integrate logger with configuration system to eliminate process.env access [#267](process/tasks/267-integrate-logger-with-configuration-system-to-eliminate-process-env-access.md)
+
+- [ ] Complete AST-Only Codemod Framework Development [#268](process/tasks/268-complete-ast-only-codemod-framework-development.md)
+
+- [x] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
+
+- [ ] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md)
+
+- [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
+
+- [x] Restructure and improve test architecture for clarity and maintainability [#270](process/tasks/270-restructure-and-improve-test-architecture-for-clarity-and-maintainability.md)
+
+- [x] Find and Fix All Unsafe Type Casts (as any) in Codebase [#271](process/tasks/271-find-and-fix-all-unsafe-type-casts-as-any-in-codebase.md)
+
+- [x] Fix Command Registry Type Erasure Architecture [#274](process/tasks/274-fix-command-registry-type-erasure-architecture.md)
+
+- [x] Store PR Existence in Session Records for Optimized Session Approval [#275](process/tasks/275-store-pr-existence-in-session-records-for-optimized-session-approval.md)
+
+- [x] Optimize test suite quality and pass rate post-isolation [#276](process/tasks/276-optimize-test-suite-quality-and-pass-rate-post-isolation.md)
+
+- [ ] Implement Stacked PR Workflow for Session Dependencies [#277](process/tasks/277-implement-stacked-pr-workflow-for-session-dependencies.md)
+
+- [ ] Implement multi-layered agent memory system for persistent learning and knowledge accumulation [#279](process/tasks/279-implement-multi-layered-agent-memory-system-for-persistent-learning-and-knowledge-accumulation.md)
+
+- [x] Cleanup excessive 'as unknown' assertions to improve TypeScript effectiveness [#280](process/tasks/280-cleanup-excessive-as-unknown-assertions-to-improve-typescript-effectiveness.md)
+
+- [x] Fix systematic verification failures in AI responses [#281](process/tasks/281-fix-systematic-verification-failures-in-ai-responses.md)
+
+- [x] Port MCP Server from FastMCP to Official MCP SDK [#282](process/tasks/282-port-mcp-server-from-fastmcp-to-official-mcp-sdk.md)
+
+- [x] Separate Task ID Storage from Display Format [#283](process/tasks/283-separate-task-id-storage-from-display-format.md)
+
+- [ ] Integrate Task Graph System with Workflow Orchestration [#284](process/tasks/284-integrate-task-graph-system-with-workflow-orchestration.md)
+
+- [x] Fix session PR title duplication bug [#285](process/tasks/285-fix-session-pr-title-duplication-bug.md)
+
+- [x] Fix MCP Server and CLI Issues Post Task 282 [#286](process/tasks/286-fix-mcp-server-and-cli-issues-post-task-282.md)
+
+- [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
+
+- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+
+- [x] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
+
+- [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
+
+- [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [#291](process/tasks/291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
+
+- [x] Implement automatic git stash handling for merge conflicts in session approve [#292](process/tasks/292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)
+
+- [ ] Add session chat interface context UI elements [#293](process/tasks/293-add-session-chat-interface-context-ui-elements.md)
+
+- [x] Audit codebase for git command timeout issues and create ESLint rule [#294](process/tasks/294-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+
+- [x] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
+
+- [x] Implement Custom Type-Safe Configuration System [#295](process/tasks/295-implement-custom-type-safe-configuration-system.md)
+
+- [x] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+
+- [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [#302](process/tasks/302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
+
+- [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
+
+- [x] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
+
+- [x] Systematic Jest Pattern Migration & ESLint Rule Re-enablement [#305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md)
+
+- [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
+
+- [x] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
+
+- [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
+
+- [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+
+- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+
+- [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
+
+- [x] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
+
+- [x] Implement External Task Database for Metadata Storage [#315](process/tasks/315-implement-external-task-database-for-metadata-storage.md)
+
+- [x] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
+
+- [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
+
+- [ ] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
+
+- [x] Fix Special Workspace and Main Workspace Synchronization for Task Operations (renamed from 310) [#319](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations-renamed-from-310-.md)
+
+- [ ] Fix all linter errors in codebase [#320](process/tasks/320-fix-all-linter-errors-in-codebase.md)
+
+- [ ] AI-Powered Project Analysis for Enhanced Init Command [#321](process/tasks/321-ai-powered-project-analysis-for-enhanced-init-command.md)
+
+- [+] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
+
+- [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
+
+- [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
+
+- [ ] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
+
+- [ ] Explore embedding Outerbase DB explorer for database inspection [#326](process/tasks/326-explore-embedding-outerbase-db-explorer-for-database-inspection.md)

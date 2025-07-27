@@ -2,8 +2,9 @@ import { join } from "path";
 import { mkdir } from "fs/promises";
 import { exec } from "child_process";
 import { promisify } from "util";
-import { SessionDB } from "../session.js";
-import { normalizeRepositoryURI } from "../repository-uri.js";
+import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { normalizeRepositoryURI } from "../repository-uri";
+import { execGitWithTimeout, gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -11,7 +12,7 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
-} from "./index.js";
+} from "./index";
 
 // Define a global for process to avoid linting errors
 declare const process: {
@@ -30,21 +31,21 @@ const execAsync = promisify(exec);
  */
 export class LocalGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
-  private readonly repoUrl: string;
-  private readonly repoName: string;
-  private sessionDb: SessionDB;
+  private readonly repoUrl!: string;
+  private readonly repoName!: string;
+  private sessionDb: SessionProviderInterface;
   private config: RepositoryBackendConfig;
 
   /**
    * Create a new LocalGitBackend instance
    * @param config Backend configuration
    */
-  constructor(__config: RepositoryBackendConfig) {
-    const xdgStateHome = process.env.XDGSTATE_HOME || join(process.env.HOME || "", ".local/state");
-    this.baseDir = join(_xdgStateHome, "minsky", "git");
+  constructor(config: RepositoryBackendConfig) {
+    const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
+    this.baseDir = join(xdgStateHome, "minsky");
     this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = new SessionDB();
+    this.sessionDb = createSessionProvider();
     this.config = config;
   }
 
@@ -68,9 +69,9 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the session working directory
    */
-  private getSessionWorkdir(__session: string): string {
+  private getSessionWorkdir(session: string): string {
     // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, this.repoName, "sessions", _session);
+    return join(this.baseDir, this.repoName, "sessions", session);
   }
 
   /**
@@ -78,22 +79,22 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Clone result with workdir and session
    */
-  async clone(__session: string): Promise<CloneResult> {
+  async clone(session: string): Promise<CloneResult> {
     await this.ensureBaseDir();
 
     // Create the repo/sessions directory structure
     const sessionsDir = join(this.baseDir, this.repoName, "sessions");
-    await mkdir(_sessionsDir, { recursive: true });
+    await mkdir(sessionsDir, { recursive: true });
 
     // Get the workdir with sessions subdirectory
-    const _workdir = this.getSessionWorkdir(_session);
+    const workdir = this.getSessionWorkdir(session);
 
     // Clone the repository
-    await execAsync(`git clone ${this.repoUrl} ${workdir}`);
+    await gitCloneWithTimeout(this.repoUrl, workdir);
 
     return {
-      _workdir,
-      _session,
+      workdir,
+      session,
     };
   }
 
@@ -103,16 +104,16 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param branch Branch name
    * @returns Branch result with workdir and branch
    */
-  async branch(__session: string, _branch: string): Promise<BranchResult> {
+  async branch(session: string, branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
-    const _workdir = this.getSessionWorkdir(_session);
+    const workdir = this.getSessionWorkdir(session);
 
     // Create the branch in the specified session's repo
-    await execAsync(`git -C ${workdir} checkout -b ${branch}`);
+    await execGitWithTimeout("local-create-branch", `checkout -b ${branch}`, { workdir });
 
     return {
-      _workdir,
-      _branch,
+      workdir,
+      branch,
     };
   }
 
@@ -121,12 +122,12 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Object with repository status information
    */
-  async getStatus(__session: string): Promise<RepoStatus> {
-    const _workdir = this.getSessionWorkdir(_session);
+  async getStatus(session: string): Promise<RepoStatus> {
+    const workdir = this.getSessionWorkdir(session);
     const { stdout: branchOutput } = await execAsync(
       `git -C ${workdir} rev-parse --abbrev-ref HEAD`
     );
-    const _branch = branchOutput.trim();
+    const branch = branchOutput.trim();
 
     // Get ahead/behind counts
     let ahead = 0;
@@ -140,32 +141,38 @@ export class LocalGitBackend implements RepositoryBackend {
         behind = parseInt(counts[0] || "0", 10);
         ahead = parseInt(counts[1] || "0", 10);
       }
-    } catch (_error) {
+    } catch (error) {
       // If no upstream branch is set, this will fail - that's okay
     }
 
-    const { stdout: statusOutput } = await execAsync(`git -C ${workdir} status --porcelain`);
+    const { stdout: statusOutput } = await execGitWithTimeout(
+      "local-status-check",
+      "status --porcelain",
+      { workdir }
+    );
     const dirty = statusOutput.trim().length > 0;
     const modifiedFiles = statusOutput
       .trim()
       .split("\n")
       .filter(Boolean)
-      .map((line: unknown) => ({
+      .map((line: string) => ({
         status: line.substring(0, 2).trim(),
         file: line.substring(3),
       }));
 
     // Get remote information
-    const { stdout: remoteOutput } = await execAsync(`git -C ${workdir} remote`);
+    const { stdout: remoteOutput } = await execGitWithTimeout("local-remote-list", "remote", {
+      workdir,
+    });
     const remotes = remoteOutput.trim().split("\n").filter(Boolean);
 
     return {
-      _branch,
+      branch,
       ahead,
       behind,
       dirty,
       remotes,
-      _workdir,
+      workdir,
       modifiedFiles,
       clean: modifiedFiles.length === 0,
       changes: modifiedFiles.map((file) => `M ${file.file}`),
@@ -177,8 +184,8 @@ export class LocalGitBackend implements RepositoryBackend {
    * @param session Session identifier
    * @returns Full path to the repository
    */
-  async getPath(__session: string): Promise<string> {
-    return this.getSessionWorkdir(_session);
+  async getPath(session: string): Promise<string> {
+    return this.getSessionWorkdir(session);
   }
 
   /**
@@ -200,7 +207,7 @@ export class LocalGitBackend implements RepositoryBackend {
       // For remote repositories, we can't easily validate them without cloning
       // For now, we'll just assume they're valid
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return { success: false, message: `Invalid git repository: ${normalizedError.message}` };
     }
     return { success: true, message: "Repository is valid" };

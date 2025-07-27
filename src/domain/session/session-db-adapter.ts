@@ -1,168 +1,232 @@
 /**
  * SessionDbAdapter
  *
- * This adapter implements the SessionProviderInterface using the new
- * configuration-based storage backend system. It provides seamless
- * integration with JSON, SQLite, and PostgreSQL storage backends.
+ * This adapter implements the SessionProviderInterface using the
+ * configuration-based storage backend system with integrity checking.
+ * It provides seamless integration with JSON, SQLite, and PostgreSQL storage backends.
  */
 
 import type { SessionProviderInterface, SessionRecord } from "../session";
-import { createStorageBackend, type StorageConfig } from "../storage/storage-backend-factory";
+
+// Re-export the interface for use in extracted modules
+export type { SessionProviderInterface };
+import {
+  createStorageBackendWithIntegrity,
+  type StorageConfig,
+  type StorageResult,
+} from "../storage/storage-backend-factory";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
+import {
+  normalizeTaskIdForStorage,
+  formatTaskIdForDisplay,
+  isValidTaskIdInput,
+} from "../tasks/task-id-utils";
 import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
-import { configurationService } from "../configuration";
+import { getErrorMessage } from "../../errors/index";
+
+import { getConfiguration } from "../configuration/index";
 import { homedir } from "os";
 import { join } from "path";
 
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
-  private readonly workingDir: string;
+  private storageWarnings: string[] = [];
 
-  constructor(workingDir?: string) {
-    this.workingDir = workingDir || process.cwd();
+  constructor() {
+    // No longer taking workingDir parameter - use global configuration instead
   }
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Load configuration to determine storage backend
-      const configResult = await configurationService.loadConfiguration(this.workingDir);
-      const sessionDbConfig = configResult.resolved.sessiondb;
+      // Use node-config to get sessiondb configuration, with fallback to defaults
+      let sessionDbConfig: any;
 
-      // Convert SessionDbConfig to StorageConfig
-      const storageConfig: Partial<StorageConfig> = {
-        backend: sessionDbConfig.backend as "json" | "sqlite" | "postgres",
-      };
-
-      if (sessionDbConfig.backend === "sqlite" && sessionDbConfig.dbPath) {
-        storageConfig.sqlite = { dbPath: this.expandPath(sessionDbConfig.dbPath) };
-      } else if (sessionDbConfig.backend === "postgres" && sessionDbConfig.connectionString) {
-        storageConfig.postgres = { connectionUrl: sessionDbConfig.connectionString };
-      } else if (sessionDbConfig.backend === "json" && sessionDbConfig.dbPath) {
-        storageConfig.json = { filePath: this.expandPath(sessionDbConfig.dbPath) };
+      try {
+        // Get configuration using the custom configuration system
+        const config = getConfiguration();
+        if (config.sessiondb) {
+          sessionDbConfig = config.sessiondb;
+        } else {
+          log.debug("Session database configuration not found in config, using defaults");
+          sessionDbConfig = null;
+        }
+      } catch (error) {
+        // Fallback to defaults when config is not available (e.g., running from outside project directory)
+        log.debug("Configuration not available, using default session storage settings", {
+          error: getErrorMessage(error as any),
+        });
+        sessionDbConfig = null;
       }
 
-      this.storage = createStorageBackend(storageConfig);
-      await this.storage.initialize();
+      // Additional check: if sessionDbConfig is null/undefined, use defaults
+      if (!sessionDbConfig || typeof sessionDbConfig !== "object") {
+        sessionDbConfig = {};
+      }
+
+      // Build storage configuration
+      const storageConfig: Partial<StorageConfig> = {
+        backend: sessionDbConfig.backend || "json",
+        enableIntegrityCheck: sessionDbConfig.enableIntegrityCheck ?? true,
+        autoMigrate: sessionDbConfig.autoMigrate ?? false,
+        promptOnIntegrityIssues: sessionDbConfig.promptOnIntegrityIssues ?? false,
+      };
+
+      // Add backend-specific configuration
+      if (storageConfig.backend === "sqlite") {
+        storageConfig.sqlite = {
+          dbPath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined,
+        };
+      } else if (storageConfig.backend === "postgres") {
+        storageConfig.postgres = {
+          connectionUrl: sessionDbConfig.connectionString,
+        };
+      } else if (storageConfig.backend === "json") {
+        storageConfig.json = {
+          filePath: sessionDbConfig.filePath
+            ? this.expandPath(sessionDbConfig.filePath)
+            : undefined,
+        };
+      }
+
+      // Create storage backend with integrity checking
+      try {
+        const result: StorageResult = await createStorageBackendWithIntegrity(storageConfig);
+        this.storage = result.storage;
+        this.storageWarnings = result.warnings || [];
+
+        // Log integrity check results
+        if (result.integrityResult) {
+          if (result.integrityResult.isValid) {
+            log.debug("Database integrity check passed", {
+              backend: storageConfig.backend,
+              issues: result.integrityResult.issues.length,
+              warnings: result.integrityResult.warnings.length,
+            });
+          } else {
+            log.warn("Database integrity issues detected but continuing", {
+              backend: storageConfig.backend,
+              issues: result.integrityResult.issues.length,
+              warnings: result.integrityResult.warnings.length,
+            });
+          }
+        }
+
+        // Log warnings
+        if (this.storageWarnings.length > 0) {
+          log.warn("Storage backend created with warnings", {
+            warnings: this.storageWarnings,
+          });
+        }
+
+        // Log auto-migration
+        if (result.autoMigrationPerformed) {
+          log.info("Database auto-migration was performed during initialization");
+        }
+      } catch (error) {
+        log.error("Failed to create storage backend with integrity checking", {
+          error: getErrorMessage(error as any),
+          backend: storageConfig.backend,
+        });
+        throw error;
+      }
     }
+
     return this.storage;
   }
 
-  /**
-   * Expand tilde and environment variables in file paths
-   */
   private expandPath(filePath: string): string {
-    if (filePath.startsWith("~/")) {
-      return join(homedir(), filePath.slice(2));
-    }
-    if (filePath.startsWith("$HOME/")) {
-      return join(homedir(), filePath.slice(6));
+    // Handle tilde expansion for home directory
+    if (filePath.startsWith("~")) {
+      return join(homedir(), filePath.slice(1));
     }
     return filePath;
   }
 
   async listSessions(): Promise<SessionRecord[]> {
-    try {
-      const storage = await this.getStorage();
-      return await storage.getEntities();
-    } catch (error) {
-      log.error(
-        `Error listing sessions: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return [];
-    }
+    const storage = await this.getStorage();
+    return await storage.getEntities();
   }
 
   async getSession(session: string): Promise<SessionRecord | null> {
-    try {
-      const storage = await this.getStorage();
-      return await storage.getEntity(session);
-    } catch (error) {
-      log.error(`Error getting session: ${error instanceof Error ? error.message : String(error)}`);
-      return null;
-    }
+    const storage = await this.getStorage();
+    return await storage.getEntity(session);
   }
 
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
-    try {
-      const storage = await this.getStorage();
-      // Normalize taskId for consistent searching
-      const normalizedTaskId = taskId.replace(/^#/, "");
-      const sessions = await storage.getEntities({ taskId: normalizedTaskId });
-      const session = sessions.length > 0 ? sessions[0] : null;
-      return session || null;
-    } catch (error) {
-      log.error(
-        `Error getting session by task ID: ${error instanceof Error ? error.message : String(error)}`
-      );
+    const storage = await this.getStorage();
+    const sessions = await storage.getEntities();
+
+    // Log sessions and task IDs for debugging
+    log.debug("Searching for session by task ID", {
+      taskId,
+      availableSessions: sessions.map((s) => ({ session: s.session, taskId: s.taskId })),
+    });
+
+    // TASK 283: Normalize input task ID to storage format for comparison
+    const normalizedTaskId = normalizeTaskIdForStorage(taskId);
+    if (!normalizedTaskId) {
+      log.debug("Invalid task ID format", { taskId });
       return null;
     }
+
+    log.debug("Normalized task ID for lookup", { original: taskId, normalized: normalizedTaskId });
+
+    // Find session where stored task ID matches normalized input
+    const matchingSession =
+      sessions.find((s) => {
+        if (!s.taskId) return false;
+        // Normalize the stored task ID for comparison
+        const storedNormalized = normalizeTaskIdForStorage(s.taskId);
+        log.debug("Comparing task IDs", {
+          session: s.session,
+          sessionTaskId: s.taskId,
+          storedNormalized,
+          lookingFor: normalizedTaskId,
+          matches: storedNormalized === normalizedTaskId,
+        });
+        return storedNormalized === normalizedTaskId;
+      }) || null;
+
+    if (matchingSession) {
+      log.debug("Found matching session", {
+        session: matchingSession.session,
+        taskId: matchingSession.taskId,
+      });
+    } else {
+      log.debug("No matching session found", {
+        taskId,
+        normalizedTaskId,
+      });
+    }
+
+    return matchingSession;
   }
 
   async addSession(record: SessionRecord): Promise<void> {
-    try {
-      const storage = await this.getStorage();
-      await storage.createEntity(record);
-    } catch (error) {
-      log.error(`Error adding session: ${error instanceof Error ? error.message : String(error)}`);
-      throw error;
-    }
+    const storage = await this.getStorage();
+    await storage.createEntity(record);
   }
 
   async updateSession(
     session: string,
     updates: Partial<Omit<SessionRecord, "session">>
   ): Promise<void> {
-    try {
-      const storage = await this.getStorage();
-      const result = await storage.updateEntity(session, updates);
-      if (!result) {
-        throw new Error(`Session '${session}' not found`);
-      }
-    } catch (error) {
-      log.error(
-        `Error updating session: ${error instanceof Error ? error.message : String(error)}`
-      );
-      throw error;
+    const storage = await this.getStorage();
+    const result = await storage.updateEntity(session, updates);
+    if (!result) {
+      throw new Error(`Session '${session}' not found`);
     }
   }
 
   async deleteSession(session: string): Promise<boolean> {
-    try {
-      const storage = await this.getStorage();
-      return await storage.deleteEntity(session);
-    } catch (error) {
-      log.error(
-        `Error deleting session: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return false;
-    }
+    const storage = await this.getStorage();
+    return await storage.deleteEntity(session);
   }
 
   async getRepoPath(record: SessionRecord | any): Promise<string> {
-    if (!record) {
-      throw new Error("Session record is required");
-    }
-
-    // Handle different record types (SessionRecord, SessionResult, etc.)
-    if (record.sessionRecord) {
-      return this.getRepoPath(record.sessionRecord);
-    }
-
-    if (record.cloneResult && record.cloneResult.workdir) {
-      return record.cloneResult.workdir;
-    }
-
-    if (record.workdir) {
-      return record.workdir;
-    }
-
-    if (record.repoPath) {
-      return record.repoPath;
-    }
-
-    // Use the functional implementation to compute the path
+    // This method maintains backward compatibility while using the updated storage
     const state = await this.getState();
     return getRepoPathFn(state, record);
   }
@@ -172,39 +236,42 @@ export class SessionDbAdapter implements SessionProviderInterface {
     if (!session) {
       throw new Error(`Session '${sessionName}' not found`);
     }
-    return this.getRepoPath(session);
+
+    const state = await this.getState();
+    return getRepoPathFn(state, session as any);
   }
 
-  /**
-   * Get the current storage state for functional operations
-   */
   private async getState(): Promise<SessionDbState> {
-    try {
-      const storage = await this.getStorage();
-      const result = await storage.readState();
-
-      if (result.success && result.data) {
-        return result.data;
-      }
-
-      // Return initialized state if read fails
-      return initializeSessionDbState();
-    } catch (error) {
-      log.warn(
-        `Error reading storage state, using defaults: ${error instanceof Error ? error.message : String(error)}`
-      );
-      return initializeSessionDbState();
-    }
+    // Initialize default state when needed
+    return initializeSessionDbState();
   }
 
-  /**
-   * Get storage backend information for debugging
-   */
-  async getStorageInfo(): Promise<{ backend: string; location: string }> {
+  async getStorageInfo(): Promise<{
+    backend: string;
+    location: string;
+    integrityEnabled: boolean;
+    warnings: string[];
+  }> {
     const storage = await this.getStorage();
+    const location = storage.getStorageLocation();
+
     return {
       backend: storage.constructor.name,
-      location: storage.getStorageLocation(),
+      location: location,
+      integrityEnabled: true, // Always enabled in merged factory
+      warnings: this.storageWarnings,
     };
   }
+}
+
+/**
+ * Creates a default SessionProvider implementation
+ * This factory function provides a consistent way to get a session provider with optional customization
+ */
+export function createSessionProvider(_options?: {
+  dbPath?: string;
+  useNewBackend?: boolean;
+}): SessionProviderInterface {
+  // Always use the new configuration-based backend
+  return new SessionDbAdapter();
 }

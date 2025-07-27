@@ -34,7 +34,7 @@ const aiCompleteParams: CommandParameterMap = {
   },
   provider: {
     schema: z.string(),
-    description: "AI provider to use", 
+    description: "AI provider to use",
     required: false,
   },
   temperature: {
@@ -108,17 +108,21 @@ export function registerAiCommands(): void {
           // Handle non-streaming response
           const response = await completionService.complete(request);
           log.cli(response.content);
-          
+
           // Show usage info
           if (response.usage) {
-            log.cli(`Usage: ${response.usage.totalTokens} tokens (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`);
+            log.cli(
+              `Usage: ${response.usage.totalTokens} tokens (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+            );
             if (response.usage.cost) {
               log.cli(`Cost: $${response.usage.cost.toFixed(4)}`);
             }
           }
         }
       } catch (error) {
-        log.cliError(`AI completion failed: ${error instanceof Error ? error.message : String(error)}`);
+        log.cliError(
+          `AI completion failed: ${error instanceof Error ? error.message : String(error)}`
+        );
         exit(1);
       }
     },
@@ -126,7 +130,7 @@ export function registerAiCommands(): void {
 
   // Register AI chat command (simplified - no interactive chat for now)
   sharedCommandRegistry.registerCommand({
-    id: "ai:chat", 
+    id: "ai:chat",
     category: CommandCategory.CORE,
     name: "AI Chat",
     description: "Start an interactive AI chat session",
@@ -153,7 +157,9 @@ export function registerAiCommands(): void {
         log.cliError("Interactive chat is not yet implemented. Use 'minsky ai complete' instead.");
         exit(1);
       } catch (error) {
-        log.cliError(`Chat session failed: ${error instanceof Error ? error.message : String(error)}`);
+        log.cliError(
+          `Chat session failed: ${error instanceof Error ? error.message : String(error)}`
+        );
         exit(1);
       }
     },
@@ -199,30 +205,34 @@ export function registerAiCommands(): void {
           // Table format
           log.cli("AVAILABLE AI MODELS");
           log.cli("=".repeat(50));
-          
+
           for (const model of models) {
             log.cli(`\nModel: ${model.name}`);
             log.cli(`  ID: ${model.id}`);
             log.cli(`  Provider: ${model.provider}`);
             log.cli(`  Context Window: ${model.contextWindow.toLocaleString()} tokens`);
             log.cli(`  Max Output: ${model.maxOutputTokens.toLocaleString()} tokens`);
-            
+
             if (model.costPer1kTokens) {
-              log.cli(`  Cost: $${model.costPer1kTokens.input}/1k input, $${model.costPer1kTokens.output}/1k output`);
+              log.cli(
+                `  Cost: $${model.costPer1kTokens.input}/1k input, $${model.costPer1kTokens.output}/1k output`
+              );
             }
-            
+
             if (model.description) {
               log.cli(`  Description: ${model.description}`);
             }
 
             if (model.capabilities.length > 0) {
-              const caps = model.capabilities.map(c => c.name).join(", ");
+              const caps = model.capabilities.map((c) => c.name).join(", ");
               log.cli(`  Capabilities: ${caps}`);
             }
           }
         }
       } catch (error) {
-        log.cliError(`Failed to list models: ${error instanceof Error ? error.message : String(error)}`);
+        log.cliError(
+          `Failed to list models: ${error instanceof Error ? error.message : String(error)}`
+        );
         exit(1);
       }
     },
@@ -259,12 +269,13 @@ export function registerAiCommands(): void {
 
         if (result.valid) {
           log.cli("✓ AI configuration is valid!");
-          
+
           // Test each provider if no specific provider requested
           const providersToTest = provider ? [provider] : Object.keys(aiConfig.providers || {});
-          
+
           for (const providerName of providersToTest) {
-            const providerConfig = aiConfig.providers?.[providerName as keyof typeof aiConfig.providers];
+            const providerConfig =
+              aiConfig.providers?.[providerName as keyof typeof aiConfig.providers];
             if (providerConfig && (providerConfig as any).api_key) {
               try {
                 log.cli(`Testing ${providerName}...`);
@@ -275,7 +286,9 @@ export function registerAiCommands(): void {
                 });
                 log.cli(`✓ ${providerName} connection successful`);
               } catch (error) {
-                log.cliError(`✗ ${providerName} connection failed: ${error instanceof Error ? error.message : String(error)}`);
+                log.cliError(
+                  `✗ ${providerName} connection failed: ${error instanceof Error ? error.message : String(error)}`
+                );
               }
             } else {
               log.cliWarn(`⚠ ${providerName} not configured (missing API key)`);
@@ -286,16 +299,18 @@ export function registerAiCommands(): void {
           for (const error of result.errors) {
             log.cliError(`  - ${error.field}: ${error.message}`);
           }
-          
+
           for (const warning of result.warnings) {
             log.cliWarn(`  - ${warning.field}: ${warning.message}`);
           }
           exit(1);
         }
       } catch (error) {
-        log.cliError(`Validation failed: ${error instanceof Error ? error.message : String(error)}`);
+        log.cliError(
+          `Validation failed: ${error instanceof Error ? error.message : String(error)}`
+        );
         exit(1);
       }
     },
   });
-} 
+}

@@ -1,6 +1,6 @@
 /**
  * SessionDB Health Monitoring Service
- * 
+ *
  * Provides health checks, performance monitoring, and diagnostics
  * for all SessionDB storage backends.
  */
@@ -8,7 +8,9 @@
 import { log } from "../../../utils/logger";
 import { StorageBackendFactory } from "../storage-backend-factory";
 import { SessionDbConfig } from "../../configuration/types";
-import { configurationService } from "../../configuration";
+
+import { getConfiguration } from "../../configuration/index";
+import { getErrorMessage } from "../../../errors";
 
 export interface HealthStatus {
   healthy: boolean;
@@ -53,32 +55,32 @@ export class SessionDbHealthMonitor {
   /**
    * Perform comprehensive health check
    */
-  static async performHealthCheck(config?: SessionDbConfig): Promise<SystemHealth> {
+  static async performHealthCheck(sessionDbConfig?: SessionDbConfig): Promise<SystemHealth> {
     const startTime = Date.now();
-    
+
     try {
       // Load configuration if not provided
-      if (!config) {
-        const loadedConfig = await configurationService.loadConfiguration(process.cwd());
-        config = loadedConfig.resolved.sessiondb;
+      if (!sessionDbConfig) {
+        const config = getConfiguration();
+        sessionDbConfig = config.sessiondb;
       }
 
       // Check backend health
-      const backendHealth = await this.checkBackendHealth(config);
-      
+      const backendHealth = await this.checkBackendHealth(sessionDbConfig);
+
       // Analyze performance metrics
       const performance = this.analyzePerformance();
-      
+
       // Check storage-specific metrics
-      const storage = await this.checkStorageMetrics(config);
-      
+      const storage = await this.checkStorageMetrics(sessionDbConfig);
+
       // Generate recommendations
       const recommendations = this.generateRecommendations(backendHealth, performance, storage);
 
       // Determine overall health
       const overall = this.determineOverallHealth(backendHealth, performance);
 
-      log.info("Health check completed", {
+      log.debug("Health check completed", {
         duration: Date.now() - startTime,
         overall,
         backend: backendHealth.backend,
@@ -92,21 +94,20 @@ export class SessionDbHealthMonitor {
         storage,
         recommendations,
       };
-
     } catch (error) {
       log.error("Health check failed", {
-        error: error instanceof Error ? error.message : String(error),
-        duration: Date.now() - startTime,
+        error: getErrorMessage(error as any),
+        duration: (Date as any).now() - startTime,
       });
 
       return {
         overall: "unhealthy",
         backend: {
           healthy: false,
-          backend: config?.backend || "unknown",
+          backend: sessionDbConfig.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
-          errors: [`Health check failed: ${error instanceof Error ? error.message : String(error)}`],
+          errors: [`Health check failed: ${getErrorMessage(error as any)}`],
         },
         performance: {
           averageResponseTime: 0,
@@ -137,29 +138,28 @@ export class SessionDbHealthMonitor {
     try {
       // Create storage backend with timeout
       const storage = StorageBackendFactory.createFromConfig(config);
-      
+
       // Test basic operations with timeout
       const testPromise = this.testBasicOperations(storage);
-      const timeoutPromise = new Promise((_, reject) => 
+      const timeoutPromise = new Promise((_, reject) =>
         setTimeout(() => reject(new Error("Health check timeout")), this.HEALTH_CHECK_TIMEOUT)
       );
 
-      await Promise.race([testPromise, timeoutPromise]);
+      await Promise.race([testPromise, timeoutPromise] as any[]);
 
       status.healthy = true;
       status.responseTime = Date.now() - startTime;
 
       // Backend-specific health checks
       await this.performBackendSpecificChecks(config, status);
-
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
-      status.errors?.push(error instanceof Error ? error.message : String(error));
+      (status.errors as any).push(getErrorMessage(error as any));
 
       log.warn("Backend health check failed", {
         backend: config.backend,
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error as any),
         responseTime: status.responseTime,
       });
     }
@@ -194,15 +194,15 @@ export class SessionDbHealthMonitor {
     status: HealthStatus
   ): Promise<void> {
     switch (config.backend) {
-    case "json":
-      await this.checkJsonBackendHealth(config, status);
-      break;
-    case "sqlite":
-      await this.checkSqliteBackendHealth(config, status);
-      break;
-    case "postgres":
-      await this.checkPostgresBackendHealth(config, status);
-      break;
+      case "json":
+        await this.checkJsonBackendHealth(config, status);
+        break;
+      case "sqlite":
+        await this.checkSqliteBackendHealth(config, status);
+        break;
+      case "postgres":
+        await this.checkPostgresBackendHealth(config, status);
+        break;
     }
   }
 
@@ -218,15 +218,16 @@ export class SessionDbHealthMonitor {
 
     try {
       const dbPath = path.join(config.baseDir || "", "session-db.json");
-      
+
       if (fs.existsSync(dbPath)) {
         const stats = fs.statSync(dbPath);
-        status.details!.fileSize = stats.size;
+        (status.details! as any).fileSize = stats.size;
         status.details!.lastModified = stats.mtime.toISOString();
-        
+
         // Warn about large files
-        if (stats.size > 10_000_000) { // 10MB
-          status.warnings?.push("Large JSON file detected - consider migrating to SQLite");
+        if (stats.size > 10_000_000) {
+          // 10MB
+          status.warnings.push("Large JSON file detected - consider migrating to SQLite");
         }
       }
 
@@ -236,12 +237,11 @@ export class SessionDbHealthMonitor {
         fs.accessSync(baseDir, fs.constants.R_OK | fs.constants.W_OK);
         status.details!.directoryWritable = true;
       } catch (error) {
-        status.errors?.push("Directory not writable");
+        status.errors.push("Directory not writable");
         status.details!.directoryWritable = false;
       }
-
     } catch (error) {
-      status.warnings?.push(`JSON health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(`JSON health check warning: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -269,21 +269,19 @@ export class SessionDbHealthMonitor {
         // Check WAL mode
         const journalMode = db.pragma("journal_mode", { simple: true });
         status.details!.journalMode = journalMode;
-        
+
         if (journalMode !== "wal") {
-          status.warnings?.push("Consider enabling WAL mode for better performance");
+          status.warnings.push("Consider enabling WAL mode for better performance");
         }
 
         // Check for locks
         const busyTimeout = db.pragma("busy_timeout", { simple: true });
         status.details!.busyTimeout = busyTimeout;
-
       } finally {
         db.close();
       }
-
     } catch (error) {
-      status.warnings?.push(`SQLite health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -300,7 +298,7 @@ export class SessionDbHealthMonitor {
 
       try {
         const client = await pool.connect();
-        
+
         try {
           // Check server version
           const versionResult = await client.query("SELECT version()");
@@ -310,7 +308,9 @@ export class SessionDbHealthMonitor {
           const connectionsResult = await client.query(
             "SELECT count(*) as active_connections FROM pg_stat_activity WHERE state = 'active'"
           );
-          status.details!.activeConnections = parseInt(connectionsResult.rows[0].active_connections);
+          status.details!.activeConnections = parseInt(
+            connectionsResult.rows[0].active_connections
+          );
 
           // Check database size
           const sizeResult = await client.query(
@@ -324,21 +324,18 @@ export class SessionDbHealthMonitor {
           );
           const lockCount = parseInt(locksResult.rows[0].locks);
           status.details!.blockedQueries = lockCount;
-          
-          if (lockCount > 0) {
-            status.warnings?.push(`${lockCount} blocked queries detected`);
-          }
 
+          if (lockCount > 0) {
+            status.warnings.push(`${lockCount} blocked queries detected`);
+          }
         } finally {
           client.release();
         }
-
       } finally {
         await pool.end();
       }
-
     } catch (error) {
-      status.warnings?.push(`PostgreSQL health check warning: ${error instanceof Error ? error.message : String(error)}`);
+      status.warnings?.push(`PostgreSQL health check warning: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -349,9 +346,9 @@ export class SessionDbHealthMonitor {
     averageResponseTime: number;
     successRate: number;
     recentErrors: number;
-    } {
+  } {
     const recentMetrics = this.metrics.slice(-100); // Last 100 operations
-    
+
     if (recentMetrics.length === 0) {
       return {
         averageResponseTime: 0,
@@ -361,8 +358,8 @@ export class SessionDbHealthMonitor {
     }
 
     const totalDuration = recentMetrics.reduce((sum, metric) => sum + metric.duration, 0);
-    const successCount = recentMetrics.filter(metric => metric.success).length;
-    const recentErrors = recentMetrics.filter(metric => !metric.success).length;
+    const successCount = recentMetrics.filter((metric) => metric.success).length;
+    const recentErrors = recentMetrics.filter((metric) => !metric.success).length;
 
     return {
       averageResponseTime: totalDuration / recentMetrics.length,
@@ -385,7 +382,7 @@ export class SessionDbHealthMonitor {
       // Check disk usage
       const fs = require("fs");
       const path = require("path");
-      
+
       let checkPath: string;
       if (config.backend === "json") {
         checkPath = config.baseDir || "";
@@ -400,10 +397,9 @@ export class SessionDbHealthMonitor {
         // This is a simplified check - real disk usage would require platform-specific tools
         metrics.diskUsage = stats.size || 0;
       }
-
     } catch (error) {
       log.warn("Storage metrics check failed", {
-        error: error instanceof Error ? error.message : String(error),
+        error: getErrorMessage(error as any),
       });
     }
 
@@ -416,7 +412,7 @@ export class SessionDbHealthMonitor {
   private static generateRecommendations(
     backendHealth: HealthStatus,
     performance: { averageResponseTime: number; successRate: number; recentErrors: number },
-    storage: Record<string, any>
+    _storage: Record<string, any>
   ): string[] {
     const recommendations: string[] = [];
 
@@ -443,15 +439,15 @@ export class SessionDbHealthMonitor {
     }
 
     // Backend-specific recommendations
-    if (backendHealth.backend === "json" && backendHealth.details?.fileSize > 5_000_000) {
+    if (backendHealth.backend === "json" && backendHealth.details.fileSize > 5_000_000) {
       recommendations.push("Large JSON file - consider migrating to SQLite for better performance");
     }
 
-    if (backendHealth.backend === "sqlite" && backendHealth.details?.journalMode !== "wal") {
+    if (backendHealth.backend === "sqlite" && backendHealth.details.journalMode !== "wal") {
       recommendations.push("Enable WAL mode for better SQLite performance");
     }
 
-    if (backendHealth.backend === "postgres" && backendHealth.details?.activeConnections > 80) {
+    if (backendHealth.backend === "postgres" && backendHealth.details.activeConnections > 80) {
       recommendations.push("High connection count - consider connection pooling optimization");
     }
 
@@ -473,7 +469,11 @@ export class SessionDbHealthMonitor {
       return "unhealthy";
     }
 
-    if (performance.successRate < 0.98 || performance.averageResponseTime > 2000 || performance.recentErrors > 3) {
+    if (
+      performance.successRate < 0.98 ||
+      performance.averageResponseTime > 2000 ||
+      performance.recentErrors > 3
+    ) {
       return "degraded";
     }
 
@@ -485,7 +485,7 @@ export class SessionDbHealthMonitor {
    */
   static recordMetric(metric: PerformanceMetrics): void {
     this.metrics.push(metric);
-    
+
     // Keep only recent metrics
     if (this.metrics.length > this.MAX_METRICS) {
       this.metrics = this.metrics.slice(-this.MAX_METRICS);
@@ -531,21 +531,28 @@ export class SessionDbHealthMonitor {
     errorRate: number;
     avgResponseTime: number;
   }> {
-    const performance = this.analyzePerformance();
-    const totalOperations = this.metrics.length;
-    
-    // Simple uptime calculation (time since first metric)
-    const uptime = this.metrics.length > 0 
-      ? Date.now() - new Date(this.metrics[0].timestamp).getTime()
-      : 0;
+    const totalOps = this.metrics.length;
+    const errors = this.metrics.filter((m) => !m.success).length;
+    const avgResponse =
+      totalOps > 0 ? this.metrics.reduce((sum, m) => sum + m.duration, 0) / totalOps : 0;
+    const uptime =
+      this.metrics && this.metrics[0]
+        ? Date.now() - new Date(this.metrics[0].timestamp).getTime()
+        : 0;
 
     return {
-      status: performance.successRate < 0.9 ? "unhealthy" : 
-        performance.successRate < 0.98 ? "degraded" : "healthy",
+      status: this.determineOverallHealth(
+        { healthy: true, backend: "test", responseTime: 0, timestamp: new Date().toISOString() },
+        {
+          averageResponseTime: avgResponse,
+          successRate: 1 - errors / totalOps,
+          recentErrors: errors,
+        }
+      ),
       uptime,
-      totalOperations,
-      errorRate: 1 - performance.successRate,
-      avgResponseTime: performance.averageResponseTime,
+      totalOperations: totalOps,
+      errorRate: 1 - this.metrics.filter((m) => m.success).length / totalOps,
+      avgResponseTime: avgResponse,
     };
   }
-} 
+}
