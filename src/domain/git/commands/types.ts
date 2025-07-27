@@ -171,4 +171,4 @@ export interface GitDependencies {
   mkdir?: (path: string, options?: any) => Promise<void>;
   access?: (path: string) => Promise<void>;
   readdir?: (path: string) => Promise<string[]>;
-} 
+}

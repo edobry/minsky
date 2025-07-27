@@ -2,10 +2,10 @@
 
 /**
  * Task ID Format Migration Script
- * 
+ *
  * This script migrates existing task IDs from display format (#123) to storage format (123)
  * across all data storage locations in the Minsky system.
- * 
+ *
  * Usage:
  *   bun scripts/migrate-task-id-format.ts [--dry-run] [--backup]
  */
@@ -13,7 +13,10 @@
 import { existsSync, readFileSync, writeFileSync, copyFileSync } from "fs";
 import { resolve, join } from "path";
 import { log } from "../src/utils/logger";
-import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../src/domain/tasks/task-id-utils";
+import {
+  normalizeTaskIdForStorage,
+  formatTaskIdForDisplay,
+} from "../src/domain/tasks/task-id-utils";
 
 interface MigrationOptions {
   dryRun: boolean;
@@ -36,7 +39,7 @@ async function migrate(options: MigrationOptions): Promise<MigrationResult> {
     filesProcessed: 0,
     changesDetected: 0,
     changesMade: 0,
-    errors: []
+    errors: [],
   };
 
   log.info("Starting task ID format migration...");
@@ -47,15 +50,16 @@ async function migrate(options: MigrationOptions): Promise<MigrationResult> {
   try {
     // Migrate task files
     await migrateTaskFiles(result, options);
-    
+
     // Migrate session data
     await migrateSessionData(result, options);
-    
+
     // Migrate JSON files
     await migrateJsonFiles(result, options);
-
   } catch (error) {
-    result.errors.push(`Migration failed: ${error instanceof Error ? error.message : String(error)}`);
+    result.errors.push(
+      `Migration failed: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
 
   // Report results
@@ -63,10 +67,10 @@ async function migrate(options: MigrationOptions): Promise<MigrationResult> {
   log.info(`  Files processed: ${result.filesProcessed}`);
   log.info(`  Changes detected: ${result.changesDetected}`);
   log.info(`  Changes made: ${result.changesMade}`);
-  
+
   if (result.errors.length > 0) {
     log.error("Errors encountered:");
-    result.errors.forEach(error => log.error(`  - ${error}`));
+    result.errors.forEach((error) => log.error(`  - ${error}`));
   }
 
   return result;
@@ -77,14 +81,14 @@ async function migrate(options: MigrationOptions): Promise<MigrationResult> {
  */
 async function migrateTaskFiles(result: MigrationResult, options: MigrationOptions): Promise<void> {
   const tasksFilePath = resolve("process/tasks.md");
-  
+
   if (!existsSync(tasksFilePath)) {
     log.debug("No tasks.md file found, skipping task file migration");
     return;
   }
 
   result.filesProcessed++;
-  
+
   if (options.backup && !options.dryRun) {
     copyFileSync(tasksFilePath, `${tasksFilePath}.backup`);
     log.debug("Created backup of tasks.md");
@@ -102,53 +106,61 @@ async function migrateTaskFiles(result: MigrationResult, options: MigrationOptio
     } else {
       log.info("Would update tasks.md file");
     }
+  } else {
+    log.debug("No changes needed in tasks.md");
   }
 }
 
 /**
  * Migrate session data files
  */
-async function migrateSessionData(result: MigrationResult, options: MigrationOptions): Promise<void> {
+async function migrateSessionData(
+  result: MigrationResult,
+  options: MigrationOptions
+): Promise<void> {
   // Note: Session data migration would depend on the actual storage backend
   // For JSON file backend, this would scan JSON files
   // For SQLite/Postgres, this would run SQL updates
-  
-  log.debug("Session data migration: Implementation depends on backend configuration");
-  
+
   // Scan for common session data locations
   const sessionDataPaths = [
     ".minsky/sessions.json",
-    ".minsky/session-data.json", 
-    resolve(process.env.HOME || "~", ".local/state/minsky/sessions.json")
+    ".minsky/session-db.json",
+    resolve(process.env.HOME || "~", ".local/state/minsky/session-db.json"),
+    resolve(process.env.HOME || "~", ".local/state/minsky/sessions.json"),
   ];
 
   for (const sessionPath of sessionDataPaths) {
     if (existsSync(sessionPath)) {
       result.filesProcessed++;
-      
-      if (options.backup && !options.dryRun) {
-        copyFileSync(sessionPath, `${sessionPath}.backup`);
-        log.debug(`Created backup of ${sessionPath}`);
-      }
 
       try {
-        const content = readFileSync(sessionPath, "utf8");
-        const data = JSON.parse(content);
-        const updatedData = migrateTaskIdReferencesInObject(data, result, options);
+        if (options.backup && !options.dryRun) {
+          copyFileSync(sessionPath, `${sessionPath}.backup`);
+        }
 
-        if (JSON.stringify(data) !== JSON.stringify(updatedData)) {
+        const content = readFileSync(sessionPath, "utf8");
+        const updatedContent = migrateTaskIdReferencesInText(content, result, options);
+
+        if (content !== updatedContent) {
           result.changesDetected++;
           if (!options.dryRun) {
-            writeFileSync(sessionPath, JSON.stringify(updatedData, null, 2));
+            writeFileSync(sessionPath, updatedContent);
             result.changesMade++;
             log.info(`Updated session data: ${sessionPath}`);
           } else {
             log.info(`Would update session data: ${sessionPath}`);
           }
+        } else {
+          log.debug("No changes needed in session file");
         }
       } catch (error) {
-        result.errors.push(`Failed to process session data ${sessionPath}: ${error instanceof Error ? error.message : String(error)}`);
+        result.errors.push(
+          `Failed to process session data ${sessionPath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
+    } else {
+      log.debug(`Session file not found: ${sessionPath}`);
     }
   }
 }
@@ -159,13 +171,13 @@ async function migrateSessionData(result: MigrationResult, options: MigrationOpt
 async function migrateJsonFiles(result: MigrationResult, options: MigrationOptions): Promise<void> {
   const jsonPaths = [
     "package.json", // In case task IDs are referenced in scripts
-    ".minsky/config.json"
+    ".minsky/config.json",
   ];
 
   for (const jsonPath of jsonPaths) {
     if (existsSync(jsonPath)) {
       result.filesProcessed++;
-      
+
       try {
         const content = readFileSync(jsonPath, "utf8");
         const data = JSON.parse(content);
@@ -185,7 +197,9 @@ async function migrateJsonFiles(result: MigrationResult, options: MigrationOptio
           }
         }
       } catch (error) {
-        result.errors.push(`Failed to process JSON file ${jsonPath}: ${error instanceof Error ? error.message : String(error)}`);
+        result.errors.push(
+          `Failed to process JSON file ${jsonPath}: ${error instanceof Error ? error.message : String(error)}`
+        );
       }
     }
   }
@@ -194,14 +208,18 @@ async function migrateJsonFiles(result: MigrationResult, options: MigrationOptio
 /**
  * Migrate task ID references in text content
  */
-function migrateTaskIdReferencesInText(content: string, result: MigrationResult, options: MigrationOptions): string {
+function migrateTaskIdReferencesInText(
+  content: string,
+  result: MigrationResult,
+  options: MigrationOptions
+): string {
   // Pattern to match task IDs that need storage format conversion
   // This looks for task IDs that are likely stored data (not display references)
   const taskIdStoragePattern = /("taskId":\s*")(#\d+)(")/g;
   const sessionTaskIdPattern = /("task":\s*")(#\d+)(")/g;
-  
+
   let updatedContent = content;
-  
+
   // Convert taskId fields in JSON-like structures
   updatedContent = updatedContent.replace(taskIdStoragePattern, (match, prefix, taskId, suffix) => {
     const normalized = normalizeTaskIdForStorage(taskId);
@@ -214,7 +232,7 @@ function migrateTaskIdReferencesInText(content: string, result: MigrationResult,
     return match;
   });
 
-  // Convert task fields in JSON-like structures  
+  // Convert task fields in JSON-like structures
   updatedContent = updatedContent.replace(sessionTaskIdPattern, (match, prefix, taskId, suffix) => {
     const normalized = normalizeTaskIdForStorage(taskId);
     if (normalized && normalized !== taskId) {
@@ -232,13 +250,17 @@ function migrateTaskIdReferencesInText(content: string, result: MigrationResult,
 /**
  * Migrate task ID references in object structures
  */
-function migrateTaskIdReferencesInObject(obj: any, result: MigrationResult, options: MigrationOptions): any {
+function migrateTaskIdReferencesInObject(
+  obj: any,
+  result: MigrationResult,
+  options: MigrationOptions
+): any {
   if (obj === null || typeof obj !== "object") {
     return obj;
   }
 
   if (Array.isArray(obj)) {
-    return obj.map(item => migrateTaskIdReferencesInObject(item, result, options));
+    return obj.map((item) => migrateTaskIdReferencesInObject(item, result, options));
   }
 
   const updatedObj = { ...obj };
@@ -266,11 +288,11 @@ function migrateTaskIdReferencesInObject(obj: any, result: MigrationResult, opti
  */
 function parseArgs(): MigrationOptions {
   const args = process.argv.slice(2);
-  
+
   return {
     dryRun: args.includes("--dry-run"),
     backup: args.includes("--backup"),
-    verbose: args.includes("--verbose") || args.includes("-v")
+    verbose: args.includes("--verbose") || args.includes("-v"),
   };
 }
 
@@ -279,14 +301,14 @@ function parseArgs(): MigrationOptions {
  */
 async function main() {
   const options = parseArgs();
-  
+
   if (options.verbose) {
     log.info("Migration options:", options);
   }
 
   try {
     const result = await migrate(options);
-    
+
     if (result.errors.length > 0) {
       process.exit(1);
     } else {
@@ -302,4 +324,4 @@ async function main() {
 // Run the migration if this script is executed directly
 if (import.meta.main) {
   main();
-} 
+}

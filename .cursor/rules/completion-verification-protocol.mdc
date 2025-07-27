@@ -1,0 +1,83 @@
+# Completion Verification Protocol
+
+## Rule Name: completion-verification-protocol
+
+## Description
+
+**NEVER declare a task complete or successful without verifying all quantifiable success criteria are met.**
+
+This rule was created after Task #305 where completion was prematurely declared while 217 Jest patterns remained (ESLint still detecting violations).
+
+## Critical Failure Pattern Identified
+
+**Pattern**: Declaring "successfully completed" or "working" when measurable metrics show work remaining.
+
+**Example Violation**: 
+- Claiming "ESLint rule re-enabled" when ESLint still reports 217 violations
+- Saying "migration completed" when grep shows 189 patterns remaining
+- Declaring "verified working" without running the actual verification command
+
+## Mandatory Verification Protocol
+
+**BEFORE declaring ANY task complete:**
+
+1. ✅ **Run quantifiable verification**: Execute the specific commands that measure success
+2. ✅ **Check ALL success criteria**: Verify every requirement in task specification  
+3. ✅ **Show actual numbers**: Report the specific metric (0 violations, 0 patterns, etc.)
+4. ✅ **Test functionality**: Verify changes don't break existing functionality
+
+## Required Verification Commands
+
+For Jest migration tasks:
+```bash
+# MUST show 0 for completion
+bun lint 2>&1 | grep "custom/no-jest-patterns" | wc -l
+grep -r "\.mockResolvedValue\|\.mockReturnValue" --include="*.ts" src/ | wc -l
+```
+
+For any rule re-enablement:
+```bash
+# MUST show 0 violations for the specific rule
+bun lint 2>&1 | grep "[rule-name]" | wc -l
+```
+
+## Status Language Requirements
+
+❌ **FORBIDDEN without verification**:
+- "Successfully completed"
+- "Working correctly" 
+- "Migration completed"
+- "Rule re-enabled"
+
+✅ **REQUIRED for partial progress**:
+- "Partial progress: X→Y patterns remaining"
+- "In progress: N violations remain"
+- "Approaching completion: M issues left"
+
+✅ **ONLY after verification shows 0**:
+- "Verified complete: 0 violations detected"
+- "Confirmed working: all tests pass"
+
+## Task-Specific Success Criteria
+
+**Jest Migration Task (#305)**:
+- ✅ ESLint `custom/no-jest-patterns` reports 0 violations
+- ✅ grep for Jest patterns returns 0 matches
+- ✅ Test suite passes without Jest-related errors
+- ✅ All transformations use proper Bun syntax
+
+## Enforcement Mechanism
+
+**Before ANY completion claim:**
+1. Execute verification commands
+2. Show actual output/numbers
+3. Only proceed if ALL metrics show success criteria met
+4. If ANY metric fails → continue work, update status accurately
+
+## Critical Reminder
+
+**This systematic error severely undermines trust and effectiveness.** Quantifiable verification is not optional - it is mandatory before any success declaration.
+description:
+globs:
+alwaysApply: false
+---

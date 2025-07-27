@@ -1,9 +1,6 @@
 import type { SessionDeleteParams } from "../../schemas/session";
 import { createSessionProvider } from "../../session";
-import {
-  SessionProviderInterface,
-  SessionDependencies
-} from "../types";
+import { SessionProviderInterface, SessionDependencies } from "../types";
 
 /**
  * Deletes a session based on parameters
@@ -24,3 +21,6 @@ export async function sessionDelete(
 
   return deps.sessionDB.deleteSession(name);
 }
+
+// Export alias for compatibility with subcommands
+export { sessionDelete as deleteSession };

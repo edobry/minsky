@@ -1,33 +1,34 @@
 /**
  * Mock implementation of winston for tests
  */
+const { mock } = require("bun:test");
 
 const format = {
-  combine: jest.fn(() => ({})),
-  timestamp: jest.fn(() => ({})),
-  errors: jest.fn(() => ({})),
-  json: jest.fn(() => ({})),
-  colorize: jest.fn(() => ({})),
-  printf: jest.fn(() => ({})),
+  combine: mock(() => ({})),
+  timestamp: mock(() => ({})),
+  errors: mock(() => ({})),
+  json: mock(() => ({})),
+  colorize: mock(() => ({})),
+  printf: mock(() => ({})),
 };
 
 const transports = {
-  Console: jest.fn(function () {
+  Console: mock(function () {
     return {};
   }),
-  File: jest.fn(function () {
+  File: mock(function () {
     return {};
   }),
 };
 
 const mockLogger = {
-  info: jest.fn(),
-  error: jest.fn(),
-  debug: jest.fn(),
-  warn: jest.fn(),
+  info: mock(),
+  error: mock(),
+  debug: mock(),
+  warn: mock(),
 };
 
-const createLogger = jest.fn(() => mockLogger);
+const createLogger = mock(() => mockLogger);
 
 module.exports = {
   format,

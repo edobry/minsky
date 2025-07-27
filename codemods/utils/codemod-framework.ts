@@ -5,10 +5,10 @@ import { globSync } from "glob";
 
 /**
  * Codemod Framework Utilities
- * 
+ *
  * This framework provides standardized utilities for developing codemods
  * following the AST-first principles established in Task #178.
- * 
+ *
  * Key Features:
  * - Standardized project setup
  * - Common issue tracking patterns
@@ -57,9 +57,9 @@ export abstract class CodemodBase {
     processingTime: 0,
     successRate: 0,
     errors: [],
-    fileChanges: new Map()
+    fileChanges: new Map(),
   };
-  
+
   protected options: CodemodOptions;
 
   constructor(options: CodemodOptions = {}) {
@@ -69,7 +69,7 @@ export abstract class CodemodBase {
       excludePatterns: ["**/*.d.ts", "**/*.test.ts", "**/node_modules/**"],
       dryRun: false,
       verbose: false,
-      ...options
+      ...options,
     };
 
     this.project = new Project({
@@ -83,26 +83,25 @@ export abstract class CodemodBase {
    */
   async execute(): Promise<void> {
     const startTime = Date.now();
-    
+
     try {
       this.log("🚀 Starting codemod execution...");
-      
+
       // Phase 1: Setup
       this.addSourceFiles();
-      
+
       // Phase 2: Analysis
       this.findIssues();
-      
+
       // Phase 3: Transformation
       if (!this.options.dryRun) {
         this.fixIssues();
         this.saveChanges();
       }
-      
+
       // Phase 4: Reporting
       this.metrics.processingTime = Date.now() - startTime;
       this.generateReport();
-      
     } catch (error) {
       this.metrics.errors.push(`Fatal error: ${error}`);
       throw error;
@@ -114,13 +113,13 @@ export abstract class CodemodBase {
    */
   protected addSourceFiles(): void {
     this.log("📁 Adding source files...");
-    
-    const files = this.options.includePatterns!.flatMap(pattern => 
+
+    const files = this.options.includePatterns!.flatMap((pattern) =>
       globSync(pattern, { ignore: this.options.excludePatterns })
     );
-    
+
     this.log(`Found ${files.length} files to process`);
-    
+
     try {
       this.project.addSourceFilesAtPaths(files);
       this.log(`✅ Added ${files.length} source files`);
@@ -145,11 +144,11 @@ export abstract class CodemodBase {
    */
   protected saveChanges(): void {
     this.log("💾 Saving changes...");
-    
+
     const sourceFiles = this.project.getSourceFiles();
     let savedCount = 0;
-    
-    sourceFiles.forEach(sourceFile => {
+
+    sourceFiles.forEach((sourceFile) => {
       try {
         if (!sourceFile.isSaved()) {
           sourceFile.saveSync();
@@ -159,7 +158,7 @@ export abstract class CodemodBase {
         this.metrics.errors.push(`Failed to save ${sourceFile.getFilePath()}: ${error}`);
       }
     });
-    
+
     this.log(`✅ Saved ${savedCount} modified files`);
   }
 
@@ -174,21 +173,21 @@ export abstract class CodemodBase {
     this.log(`Issues Fixed: ${this.metrics.issuesFixed}`);
     this.log(`Success Rate: ${this.metrics.successRate.toFixed(1)}%`);
     this.log(`Processing Time: ${this.metrics.processingTime}ms`);
-    
+
     if (this.metrics.errors.length > 0) {
       this.log("\n❌ Errors Encountered:");
       this.metrics.errors.forEach((error, index) => {
         this.log(`${index + 1}. ${error}`);
       });
     }
-    
+
     // Group issues by type
     const issuesByType = this.groupIssuesByType();
     this.log("\n📈 Issues by Type:");
     Object.entries(issuesByType).forEach(([type, count]) => {
       this.log(`${type}: ${count}`);
     });
-    
+
     // File change summary
     if (this.metrics.fileChanges.size > 0) {
       this.log("\n📝 File Changes:");
@@ -204,10 +203,12 @@ export abstract class CodemodBase {
   /**
    * Helper method to add an issue
    */
-  protected addIssue(issue: Omit<CodemodIssue, "severity"> & { severity?: CodemodIssue["severity"] }): void {
+  protected addIssue(
+    issue: Omit<CodemodIssue, "severity"> & { severity?: CodemodIssue["severity"] }
+  ): void {
     this.issues.push({
       severity: "warning",
-      ...issue
+      ...issue,
     });
     this.metrics.issuesFound++;
   }
@@ -230,7 +231,7 @@ export abstract class CodemodBase {
     const lineAndColumn = sourceFile.getLineAndColumnAtPos(pos);
     return {
       line: lineAndColumn.line,
-      column: lineAndColumn.column
+      column: lineAndColumn.column,
     };
   }
 
@@ -255,19 +256,153 @@ export abstract class CodemodBase {
    * Group issues by type for reporting
    */
   private groupIssuesByType(): Record<string, number> {
-    return this.issues.reduce((acc, issue) => {
-      acc[issue.type] = (acc[issue.type] || 0) + 1;
-      return acc;
-    }, {} as Record<string, number>);
+    return this.issues.reduce(
+      (acc, issue) => {
+        acc[issue.type] = (acc[issue.type] || 0) + 1;
+        return acc;
+      },
+      {} as Record<string, number>
+    );
   }
 
   /**
    * Calculate success rate
    */
   protected calculateSuccessRate(): void {
-    this.metrics.successRate = this.metrics.issuesFound > 0 
-      ? (this.metrics.issuesFixed / this.metrics.issuesFound) * 100 
-      : 100;
+    this.metrics.successRate =
+      this.metrics.issuesFound > 0
+        ? (this.metrics.issuesFixed / this.metrics.issuesFound) * 100
+        : 100;
+  }
+}
+
+/**
+ * Simplified codemod base class for quick AST transformations
+ * This class provides a simpler API for implementing codemods
+ */
+export abstract class SimplifiedCodemodBase extends CodemodBase {
+  private fileIssueMap: Map<string, boolean> = new Map();
+  private readonly name: string;
+  private readonly description: string;
+  private readonly explanation: string;
+
+  constructor(name: string, metadata: { description: string; explanation: string }) {
+    super();
+    this.name = name;
+    this.description = metadata.description;
+    this.explanation = metadata.explanation;
+  }
+
+  /**
+   * Main execution method that processes files specified in the command line
+   */
+  public async run(paths: string[]): Promise<void> {
+    console.log(`🚀 Running ${this.name} codemod`);
+    console.log(`📝 ${this.description}`);
+    
+    const startTime = Date.now();
+    
+    // Use provided paths or default patterns
+    const filePaths = paths.length > 0 ? paths : this.options.includePatterns!;
+    this.project.addSourceFilesAtPaths(filePaths);
+    
+    const sourceFiles = this.project.getSourceFiles();
+    console.log(`📁 Found ${sourceFiles.length} source files to analyze`);
+    
+    let analyzedCount = 0;
+    let transformedCount = 0;
+    
+    for (const sourceFile of sourceFiles) {
+      try {
+        // Skip files not matching our patterns
+        const filePath = sourceFile.getFilePath();
+        if (this.shouldSkipFile(filePath)) {
+          continue;
+        }
+        
+        analyzedCount++;
+        
+        // Analyze file to see if it needs transformation
+        const needsTransformation = await this.analyzeFile(sourceFile);
+        if (needsTransformation) {
+          await this.transformFile(sourceFile);
+          transformedCount++;
+          
+          if (!this.options.dryRun) {
+            sourceFile.saveSync();
+          }
+        }
+      } catch (error) {
+        this.metrics.errors.push(`Error processing ${sourceFile.getFilePath()}: ${error}`);
+        console.error(`❌ Error processing ${sourceFile.getFilePath()}: ${error}`);
+      }
+    }
+    
+    const duration = Date.now() - startTime;
+    
+    console.log(`✅ Codemod completed in ${duration}ms`);
+    console.log(`📊 Files analyzed: ${analyzedCount}`);
+    console.log(`🔧 Files transformed: ${transformedCount}`);
+    
+    if (this.metrics.errors.length > 0) {
+      console.log(`❌ Errors: ${this.metrics.errors.length}`);
+    }
+  }
+
+  /**
+   * Implementation of required findIssues method from parent class
+   */
+  protected findIssues(): void {
+    // Implementation handled by analyzeFile in this simplified base class
+  }
+
+  /**
+   * Implementation of required fixIssues method from parent class
+   */
+  protected fixIssues(): void {
+    // Implementation handled by transformFile in this simplified base class
+  }
+
+  /**
+   * Check if a file should be skipped
+   */
+  protected shouldSkipFile(filePath: string): boolean {
+    // Skip files that match exclude patterns
+    return this.options.excludePatterns!.some(pattern => {
+      const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+      return regex.test(filePath);
+    });
+  }
+
+  /**
+   * Abstract method to determine if a file needs transformation
+   */
+  protected abstract analyzeFile(sourceFile: any): Promise<boolean>;
+
+  /**
+   * Abstract method to transform a file
+   */
+  protected abstract transformFile(sourceFile: any): Promise<void>;
+
+  /**
+   * Helper to log success messages
+   */
+  protected logSuccess(message: string): void {
+    console.log(`✅ ${message}`);
+  }
+
+  /**
+   * Helper to log warning messages
+   */
+  protected logWarning(message: string): void {
+    console.log(`⚠️ ${message}`);
+  }
+
+  /**
+   * Helper to log error messages
+   */
+  protected logError(message: string): void {
+    console.log(`❌ ${message}`);
   }
 }
 
@@ -309,8 +444,9 @@ export class ASTUtils {
    * Find all identifiers with a specific name
    */
   static findIdentifiersByName(sourceFile: Node, name: string): any[] {
-    return sourceFile.getDescendantsOfKind(SyntaxKind.Identifier)
-      .filter(id => id.getText() === name);
+    return sourceFile
+      .getDescendantsOfKind(SyntaxKind.Identifier)
+      .filter((id) => id.getText() === name);
   }
 
   /**
@@ -348,10 +484,11 @@ export class ASTUtils {
    */
   static findUsages(sourceFile: Node, variableName: string): any[] {
     const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
-    return identifiers.filter(id => 
-      id.getText() === variableName && 
-      !ASTUtils.isInContext(id, SyntaxKind.VariableDeclaration) &&
-      !ASTUtils.isInContext(id, SyntaxKind.Parameter)
+    return identifiers.filter(
+      (id) =>
+        id.getText() === variableName &&
+        !ASTUtils.isInContext(id, SyntaxKind.VariableDeclaration) &&
+        !ASTUtils.isInContext(id, SyntaxKind.Parameter)
     );
   }
 }
@@ -374,7 +511,7 @@ export class CommonPredicates {
   static isUnused(decl: any): boolean {
     const name = decl.getName();
     if (typeof name !== "string") return false;
-    
+
     const sourceFile = decl.getSourceFile();
     const usages = ASTUtils.findUsages(sourceFile, name);
     return usages.length === 0;
@@ -440,4 +577,4 @@ export class PerformanceMonitor {
       console.log(`⏱️  ${label}: ${duration}ms`);
     }
   }
-} 
+}

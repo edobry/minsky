@@ -1,8 +1,3 @@
----
-description: 
-globs: 
-alwaysApply: true
----
 # Implementation Verification Protocol
 
 ## Rule
@@ -18,6 +13,60 @@ $ command [usage]  # Must show actual output/results
 
 ## Status Language
 
-❌ Without testing: "Successfully implemented"  
-✅ Without testing: "Code written, needs testing"  
+❌ Without testing: "Successfully implemented"
+✅ Without testing: "Code written, needs testing"
 ✅ With testing: "Verified working" + proof shown
+
+## Existing Work Assessment
+
+**Before recreating or rebuilding existing work, check current state and quality.**
+
+For ambiguous commands like "recreate X" or "redo Y":
+1. **Assess existing X/Y quality first**
+2. **Default to minimal necessary action** (refresh/update)
+3. **Only rebuild if existing work is inadequate**
+
+Examples:
+- "recreate the PR" + good existing PR → refresh branch only
+- "recreate the config" + working config → update specific sections
+- "redo the tests" + passing tests → add missing coverage only
+
+**Principle**: Don't waste effort redoing good work unless explicitly needed.
+
+## ⚠️ CRITICAL: Never Trust Claims Without Verification
+
+**NEWLY ADDED AFTER TASK #171 FAILURE**
+
+### The Core Problem
+
+**Never accept completion claims from documentation, task specs, or previous messages without verification.**
+
+The Task #171 failure demonstrated a critical cognitive error:
+- Task spec claimed "75% reduction achieved" → Accepted as truth
+- Documentation showed "session.ts reduced to 464 lines" → Never verified
+- Previous messages celebrated "completion" → Assumed accurate
+
+**Reality**: session.ts was 2,218 lines (worse than original), with 56 files still over 400 lines.
+
+### Mandatory Verification Protocol
+
+**Before accepting ANY claim about implementation state:**
+
+1. **Question the source**:
+   - Is this claim from documentation or actual measurement?
+   - When was this claim last verified?
+   - What evidence supports this claim?
+
+2. **Verify with direct observation**:
+   - Don't trust "implemented" → Run the code
+   - Don't trust "reduced to X lines" → Measure it
+   - Don't trust "tests pass" → Run them
+   - Don't trust "integrated successfully" → Check the imports
+
+3. **Evidence-based language**:
+   - ❌ "According to the task spec, this is complete"
+   - ❌ "The documentation says this works"
+   - ✅ "I verified that [specific measurement]"
+   - ✅ "Testing shows [actual result]"
+
+**This applies to ALL claims: task specs, documentation, previous messages, or any assertion about current state.**

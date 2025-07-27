@@ -3,11 +3,7 @@ import { join, dirname } from "path";
 import { existsSync } from "fs";
 import { homedir } from "os";
 import { execAsync } from "../../utils/exec";
-import {
-  execGitWithTimeout,
-  gitFetchWithTimeout,
-  gitPushWithTimeout,
-} from "../../utils/git-exec";
+import { execGitWithTimeout, gitFetchWithTimeout, gitPushWithTimeout } from "../../utils/git-exec";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
@@ -48,9 +44,15 @@ export class SpecialWorkspaceManager {
   private readonly workspacePath: string;
   private readonly lockPath: string;
   private readonly lockTimeoutMs: number;
+  private currentLockTimer: NodeJS.Timeout | null = null;
 
-  constructor(private readonly repoUrl: string, options: SpecialWorkspaceOptions) {
-    this.lockTimeoutMs = options!?.lockTimeoutMs ?? 5 * 60 * 1000; // 5 minutes
+  constructor(
+    private readonly repoUrl: string,
+    options: SpecialWorkspaceOptions
+  ) {
+    // Reduce lock timeout for CLI operations to prevent hanging
+    // 5 minutes is way too long for CLI commands that should complete quickly
+    this.lockTimeoutMs = options!?.lockTimeoutMs ?? 30 * 1000; // 30 seconds instead of 5 minutes
 
     // Determine workspace paths
     const baseDir = options!?.baseDir ?? join(homedir(), ".local", "state", "minsky");
@@ -71,12 +73,38 @@ export class SpecialWorkspaceManager {
    */
   async initialize(): Promise<void> {
     await this.withLock("initialize", async () => {
-      if (!existsSync(this!.workspacePath)) {
+      if (!existsSync(this.workspacePath)) {
         await this.createOptimizedWorkspace();
       } else {
         await this.validateWorkspace();
       }
     });
+  }
+
+  /**
+   * Initialize for read-only operations - skips locking for better performance
+   * Only checks if workspace exists and creates it if needed, but doesn't validate/repair
+   */
+  async initializeReadOnly(): Promise<void> {
+    if (!existsSync(this.workspacePath)) {
+      // For read operations, if workspace doesn't exist, we can't read anything
+      // Fall back to creating it (this is the only case where we might need to write)
+      log.debug("Workspace doesn't exist for read operation, creating it");
+      await this.withLock("initialize-read-fallback", async () => {
+        if (!existsSync(this.workspacePath)) {
+          await this.createOptimizedWorkspace();
+        }
+      });
+    } else {
+      // Workspace exists, just do a quick health check without locking
+      const isHealthy = await this.isHealthy();
+      if (!isHealthy) {
+        log.warn(
+          "Workspace appears unhealthy for read operation, but skipping repair to avoid hanging"
+        );
+        // For read operations, we'll try to use it anyway rather than hang on repair
+      }
+    }
   }
 
   /**
@@ -90,15 +118,13 @@ export class SpecialWorkspaceManager {
         // Fetch latest changes (shallow)
         await gitFetchWithTimeout("origin", "main", {
           workdir: this!.workspacePath,
-          timeout: 30000
+          timeout: 30000,
         });
 
         // Reset to latest upstream
-        await execGitWithTimeout(
-          "reset to upstream",
-          "reset --hard origin/main",
-          { workdir: this!.workspacePath }
-        );
+        await execGitWithTimeout("reset to upstream", "reset --hard origin/main", {
+          workdir: this!.workspacePath,
+        });
 
         log.debug("Special workspace updated to latest upstream", {
           workspacePath: this!.workspacePath,
@@ -121,7 +147,7 @@ export class SpecialWorkspaceManager {
       try {
         // Stage all process/ changes
         await execGitWithTimeout("stage process changes", "add process/", {
-          workdir: this!.workspacePath
+          workdir: this!.workspacePath,
         });
 
         // Check if there are any changes to commit
@@ -137,12 +163,10 @@ export class SpecialWorkspaceManager {
         }
 
         // Commit changes
-        const escapedMessage = message.replace(/"/g, "\\\"");
-        await execGitWithTimeout(
-          "commit changes",
-          `commit -m "${escapedMessage}"`,
-          { workdir: this!.workspacePath }
-        );
+        const escapedMessage = message.replace(/"/g, '\\"');
+        await execGitWithTimeout("commit changes", `commit -m "${escapedMessage}"`, {
+          workdir: this!.workspacePath,
+        });
 
         // Push to upstream
         await gitPushWithTimeout(this!.workspacePath);
@@ -169,7 +193,7 @@ export class SpecialWorkspaceManager {
     await this.withLock("rollback", async () => {
       try {
         await execGitWithTimeout("rollback last commit", "reset --hard HEAD~1", {
-          workdir: this!.workspacePath
+          workdir: this!.workspacePath,
         });
 
         log.debug("Successfully rolled back last commit", {
@@ -224,7 +248,9 @@ export class SpecialWorkspaceManager {
       }
 
       // Check if it's a valid git repository
-      await execAsync("git rev-parse --git-dir", { cwd: this!.workspacePath });
+      await execGitWithTimeout("rev-parse", "rev-parse --git-dir", {
+        workdir: this!.workspacePath,
+      });
 
       // Check if process/ directory exists
       const processDir = join(this!.workspacePath, "process");
@@ -261,7 +287,7 @@ export class SpecialWorkspaceManager {
 
       // Configure sparse checkout to only include process/ directory
       await execGitWithTimeout("configure sparse checkout", "config core.sparseCheckout true", {
-        workdir: this!.workspacePath
+        workdir: this!.workspacePath,
       });
       await fs.writeFile(
         join(this!.workspacePath, ".git", "info", "sparse-checkout"),
@@ -271,7 +297,7 @@ export class SpecialWorkspaceManager {
 
       // Checkout with sparse checkout applied
       await execGitWithTimeout("checkout main branch", "checkout main", {
-        workdir: this!.workspacePath
+        workdir: this!.workspacePath,
       });
 
       log.debug("Successfully created optimized workspace", {
@@ -340,7 +366,7 @@ export class SpecialWorkspaceManager {
             await fs.unlink(this.lockPath);
           } else {
             // Lock is still valid, wait and retry
-            await new Promise((resolve) => setTimeout(resolve, 100));
+            await this.waitWithCleanup(100);
             continue;
           }
         }
@@ -357,7 +383,7 @@ export class SpecialWorkspaceManager {
       } catch (error: any) {
         if ((error as any)?.code === "EEXIST") {
           // Lock file was created by another process, wait and retry
-          await new Promise((resolve) => setTimeout(resolve, 100));
+          await this.waitWithCleanup(100);
           continue;
         }
         throw error;
@@ -368,10 +394,34 @@ export class SpecialWorkspaceManager {
   }
 
   /**
+   * Wait with proper timer cleanup tracking
+   */
+  private async waitWithCleanup(ms: number): Promise<void> {
+    return new Promise((resolve) => {
+      // Clear any existing timer
+      if (this.currentLockTimer) {
+        clearTimeout(this.currentLockTimer);
+      }
+
+      // Set new timer and track it
+      this.currentLockTimer = setTimeout(() => {
+        this.currentLockTimer = null;
+        resolve();
+      }, ms);
+    });
+  }
+
+  /**
    * Release the file-based lock
    */
   private async releaseLock(): Promise<void> {
     try {
+      // Clear any pending timers
+      if (this.currentLockTimer) {
+        clearTimeout(this.currentLockTimer);
+        this.currentLockTimer = null;
+      }
+
       if (existsSync(this.lockPath)) {
         await fs.unlink(this.lockPath);
       }

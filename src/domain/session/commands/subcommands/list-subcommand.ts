@@ -27,7 +27,11 @@ export const sessionListCommandParams: CommandParameterMap = {
  * Execute the session list command
  */
 export async function executeSessionListCommand(
-  parameters: { [K in keyof typeof sessionListCommandParams]: z.infer<typeof sessionListCommandParams[K]["schema"]> },
+  parameters: {
+    [K in keyof typeof sessionListCommandParams]: z.infer<
+      (typeof sessionListCommandParams)[K]["schema"]
+    >;
+  },
   context: CommandExecutionContext
 ): Promise<any[]> {
   const { repo, json } = parameters;
@@ -42,4 +46,4 @@ export async function executeSessionListCommand(
   }
 
   return result;
-} 
+}

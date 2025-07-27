@@ -48,14 +48,14 @@ export function createMockLogger() {
  */
 export function mockLoggerModule() {
   const mockLog = createMockLogger();
-  
+
   mock.module("../../utils/logger", () => ({
     log: mockLog,
     isStructuredMode: mockLog.isStructuredMode,
     isHumanMode: mockLog.isHumanMode,
     createConfigurableLogger: mock(() => mockLog),
   }));
-  
+
   return mockLog;
 }
 
@@ -77,7 +77,7 @@ export function clearLoggerMocks(mockLog: ReturnType<typeof createMockLogger>) {
   mockLog.setLevel.mockClear();
   mockLog.isStructuredMode.mockClear();
   mockLog.isHumanMode.mockClear();
-  
+
   // Clear internal logger mocks
   mockLog._internal.programLogger.debug.mockClear();
   mockLog._internal.programLogger.info.mockClear();
@@ -87,4 +87,4 @@ export function clearLoggerMocks(mockLog: ReturnType<typeof createMockLogger>) {
   mockLog._internal.agentLogger.info.mockClear();
   mockLog._internal.agentLogger.warn.mockClear();
   mockLog._internal.agentLogger.error.mockClear();
-} 
+}

@@ -306,7 +306,7 @@
 
 - [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
 
-- [ ] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
+- [+] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
 
 - [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
 
@@ -416,7 +416,7 @@
 
 - [ ] Implement Dagger CI Pipeline with Hybrid Development Workflow [#234](process/tasks/234-implement-dagger-ci-pipeline-with-hybrid-development-workflow.md)
 
-- [ ] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
+- [x] Add metadata support to tasks (subtasks, priority, dependencies) [#235](process/tasks/235-add-metadata-support-to-tasks-subtasks-priority-dependencies-.md)
 
 - [x] Fix test failures and infinite loops revealed during Task #166 verification [#236](process/tasks/236-fix-test-failures-and-infinite-loops-revealed-during-task-166-verification.md)
 
@@ -512,9 +512,9 @@
 
 - [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
 
-- [ ] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
-- [ ] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
+- [x] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
 - [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
@@ -524,16 +524,56 @@
 
 - [ ] Add session chat interface context UI elements [#293](process/tasks/293-add-session-chat-interface-context-ui-elements.md)
 
-- [ ] Audit codebase for git command timeout issues and create ESLint rule [#294](process/tasks/294-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+- [x] Audit codebase for git command timeout issues and create ESLint rule [#294](process/tasks/294-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
 
-- [+] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
-
-- [+] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
+- [x] Implement ESLint Jest Pattern Prevention [#300](process/tasks/300-implement-eslint-jest-pattern-prevention.md)
 
 - [x] Implement Custom Type-Safe Configuration System [#295](process/tasks/295-implement-custom-type-safe-configuration-system.md)
 
-- [ ] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
+- [x] Audit codebase for git command timeout issues and create ESLint rule [#301](process/tasks/301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
 
 - [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [#302](process/tasks/302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
 
 - [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [#303](process/tasks/303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
+
+- [x] Fix special workspace auto-commit sync issue [#304](process/tasks/304-fix-special-workspace-auto-commit-sync-issue.md)
+
+- [x] Systematic Jest Pattern Migration & ESLint Rule Re-enablement [#305](process/tasks/305-systematic-jest-pattern-migration-eslint-rule-re-enablement.md)
+
+- [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
+
+- [x] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
+
+- [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
+
+- [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+
+- [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
+
+- [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
+
+- [x] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
+
+- [x] Implement External Task Database for Metadata Storage [#315](process/tasks/315-implement-external-task-database-for-metadata-storage.md)
+
+- [x] Enable max-lines ESLint rule with two-phase approach (400 warning, 1500 error) [#316](process/tasks/316-enable-max-lines-eslint-rule-with-two-phase-approach-400-warning-1500-error-.md)
+
+- [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
+
+- [ ] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
+
+- [x] Fix Special Workspace and Main Workspace Synchronization for Task Operations (renamed from 310) [#319](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations-renamed-from-310-.md)
+
+- [ ] Fix all linter errors in codebase [#320](process/tasks/320-fix-all-linter-errors-in-codebase.md)
+
+- [ ] AI-Powered Project Analysis for Enhanced Init Command [#321](process/tasks/321-ai-powered-project-analysis-for-enhanced-init-command.md)
+
+- [+] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
+
+- [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
+
+- [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
+
+- [ ] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
+
+- [ ] Explore embedding Outerbase DB explorer for database inspection [#326](process/tasks/326-explore-embedding-outerbase-db-explorer-for-database-inspection.md)

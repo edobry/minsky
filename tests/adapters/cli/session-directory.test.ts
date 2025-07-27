@@ -1,6 +1,6 @@
 /**
  * Session Directory Command Tests
- * 
+ *
  * Tests for session directory command functionality
  */
 
@@ -24,14 +24,16 @@ describe("session dir command", () => {
   test("should return correct session directory for task ID", async () => {
     // Arrange: Mock correct behavior
     const correctSession = testData.mockSessions[1]; // task#160 session
-    testData.mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(correctSession));
-    testData.mockSessionDB.getSession.mockReturnValue(Promise.resolve(correctSession));
-    
+    testData.mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(correctSession));
+    testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
+
     // Add the missing getRepoPath method to the mock
     if (!testData.mockSessionDB.getRepoPath) {
       testData.mockSessionDB.getRepoPath = createMock();
     }
-    testData.mockSessionDB.getRepoPath.mockReturnValue(Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160"));
+    testData.mockSessionDB.getRepoPath = mock(() =>
+      Promise.resolve("/Users/edobry/.local/state/minsky/sessions/task#160")
+    );
 
     // Act
     const result = await getSessionDirFromParams(
@@ -53,8 +55,8 @@ describe("session dir command", () => {
   test("should normalize task IDs correctly (with and without # prefix)", async () => {
     // Arrange
     const correctSession = testData.mockSessions[1];
-    testData.mockSessionDB.getSessionByTaskId.mockReturnValue(Promise.resolve(correctSession));
-    testData.mockSessionDB.getSession.mockReturnValue(Promise.resolve(correctSession));
+    testData.mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(correctSession));
+    testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
 
     // Act: Test with task ID without # prefix
     await getSessionDirFromParams({ task: "160" }, { sessionDB: testData.mockSessionDB });
@@ -91,11 +93,11 @@ describe("session dir command", () => {
     };
 
     // CORRECT BEHAVIOR: getEntities filters sessions by taskId
-    mockStorage.getEntities.mockImplementation(async (options?: any) => {
+    mockStorage.getEntities = mock(async (options?: any) => {
       if (!options?.taskId) {
         return testData.mockSessions;
       }
-      
+
       // Implement the same filtering logic as SQLite storage
       const normalizedTaskId = options.taskId.replace(/^#/, "");
       return testData.mockSessions.filter((s) => {
@@ -138,4 +140,4 @@ describe("session dir command", () => {
     expect(correctSessions).toHaveLength(3);
     expect(correctSessions.map((s) => s.session)).toEqual(["task160", "task#160", "task-160-v2"]);
   });
-}); 
+});

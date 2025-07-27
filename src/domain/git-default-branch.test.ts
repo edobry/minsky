@@ -1,7 +1,7 @@
 /**
  * Tests for default branch detection in GitService
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "./git";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 
@@ -23,10 +23,10 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should detect default branch from origin HEAD ref", async () => {
-    const execMock = GitService.prototype.execInRepository as any;
-
     // Mock to return a specific branch name
-    execMock.mockImplementation(() => Promise.resolve("origin/develop\n"));
+    let execMock = spyOn(GitService.prototype, "execInRepository").mockImplementation(() =>
+      Promise.resolve("origin/develop\n")
+    );
 
     const gitService = new GitService();
     const defaultBranch = await gitService.fetchDefaultBranch("/test/repo");
@@ -41,10 +41,10 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should properly remove origin prefix from branch name", async () => {
-    const execMock = GitService.prototype.execInRepository as any;
-
-    // Mock to return a branch with extra whitespace
-    execMock.mockImplementation(() => Promise.resolve("  origin/custom-main  \n"));
+    // Properly mock the prototype method with correct signature
+    GitService.prototype.execInRepository = mock((workdir: string, command: string) =>
+      Promise.resolve("  origin/custom-main  \n")
+    ) as any;
 
     const gitService = new GitService();
     const defaultBranch = await gitService.fetchDefaultBranch("/test/repo");
@@ -54,10 +54,10 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should fall back to 'main' when command fails", async () => {
-    const execMock = GitService.prototype.execInRepository as any;
-
-    // Mock to throw an error
-    execMock.mockImplementation(() => Promise.reject(new Error("Git command failed")));
+    // Properly mock the prototype method to throw an error with correct signature
+    GitService.prototype.execInRepository = mock((workdir: string, command: string) =>
+      Promise.reject(new Error("Command failed"))
+    ) as any;
 
     const gitService = new GitService();
     const defaultBranch = await gitService.fetchDefaultBranch("/test/repo");

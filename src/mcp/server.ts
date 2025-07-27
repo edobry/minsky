@@ -2,7 +2,7 @@ import { Server } from "@modelcontextprotocol/sdk/server/index.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import {
   StreamableHTTPServerTransport,
-  StreamableHTTPServerTransportOptions
+  StreamableHTTPServerTransportOptions,
 } from "@modelcontextprotocol/sdk/server/streamableHttp.js";
 import {
   ListToolsRequestSchema,
@@ -183,7 +183,7 @@ export class MinskyMCPServer {
       log.error("Error handling HTTP request", { error: getErrorMessage(error) });
       res.status(500).json({
         error: "Internal server error",
-        message: getErrorMessage(error)
+        message: getErrorMessage(error),
       });
     }
   }
@@ -241,7 +241,7 @@ export class MinskyMCPServer {
   private setupRequestHandlers(): void {
     // List tools
     this.server.setRequestHandler(ListToolsRequestSchema, async () => ({
-      tools: Array.from(this.tools.values()).map(tool => ({
+      tools: Array.from(this.tools.values()).map((tool) => ({
         name: tool.name,
         description: tool.description,
         inputSchema: tool.inputSchema || {},
@@ -257,18 +257,23 @@ export class MinskyMCPServer {
 
       try {
         const result = await tool.handler(request.params.arguments || {});
-        return {
-          content: [
-            {
-              type: "text" as const,
-              text: typeof result === "string" ? result : JSON.stringify(result),
-            },
-          ],
-        };
+
+        // Handle inconsistent return formats from shared commands
+        if (Array.isArray(result)) {
+          // Raw arrays (like tasks.list) need minimal wrapping for MCP compatibility
+          return {
+            success: true,
+            data: result,
+            count: result.length,
+          };
+        } else {
+          // Objects (like session.list with success wrapper) return as-is
+          return result;
+        }
       } catch (error) {
         log.error("Tool execution failed", {
           tool: request.params.name,
-          error: getErrorMessage(error)
+          error: getErrorMessage(error),
         });
         throw new Error(`Tool execution failed: ${getErrorMessage(error)}`);
       }
@@ -276,7 +281,7 @@ export class MinskyMCPServer {
 
     // List resources
     this.server.setRequestHandler(ListResourcesRequestSchema, async () => ({
-      resources: Array.from(this.resources.values()).map(resource => ({
+      resources: Array.from(this.resources.values()).map((resource) => ({
         uri: resource.uri,
         name: resource.name,
         description: resource.description,
@@ -304,7 +309,7 @@ export class MinskyMCPServer {
       } catch (error) {
         log.error("Resource read failed", {
           uri: request.params.uri,
-          error: getErrorMessage(error)
+          error: getErrorMessage(error),
         });
         throw new Error(`Resource read failed: ${getErrorMessage(error)}`);
       }
@@ -312,7 +317,7 @@ export class MinskyMCPServer {
 
     // List prompts
     this.server.setRequestHandler(ListPromptsRequestSchema, async () => ({
-      prompts: Array.from(this.prompts.values()).map(prompt => ({
+      prompts: Array.from(this.prompts.values()).map((prompt) => ({
         name: prompt.name,
         description: prompt.description,
       })),
@@ -342,7 +347,7 @@ export class MinskyMCPServer {
       } catch (error) {
         log.error("Prompt generation failed", {
           prompt: request.params.name,
-          error: getErrorMessage(error)
+          error: getErrorMessage(error),
         });
         throw new Error(`Prompt generation failed: ${getErrorMessage(error)}`);
       }
@@ -417,7 +422,7 @@ export class MinskyMCPServer {
           } catch (error) {
             log.warn("Error closing HTTP transport", {
               sessionId,
-              error: getErrorMessage(error)
+              error: getErrorMessage(error),
             });
           }
         }
@@ -451,5 +456,26 @@ export class MinskyMCPServer {
    */
   getProjectContext(): ProjectContext {
     return this.projectContext;
+  }
+
+  /**
+   * Get the registered tools
+   */
+  getTools(): Map<string, ToolDefinition> {
+    return this.tools;
+  }
+
+  /**
+   * Get the registered resources
+   */
+  getResources(): Map<string, ResourceDefinition> {
+    return this.resources;
+  }
+
+  /**
+   * Get the registered prompts
+   */
+  getPrompts(): Map<string, PromptDefinition> {
+    return this.prompts;
   }
 }

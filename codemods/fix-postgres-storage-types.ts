@@ -19,36 +19,39 @@ try {
 
   // Fix 1: Handle unknown type assertions in log.error calls
   const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
-  
+
   for (const callExpr of callExpressions) {
     const expression = callExpr.getExpression();
-    
+
     // Find log.error calls
     if (expression.getKind() === SyntaxKind.PropertyAccessExpression) {
       const propAccess = expression.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
       if (propAccess.getExpression().getText() === "log" && propAccess.getName() === "error") {
         const args = callExpr.getArguments();
-        
+
         // Look for arguments that are just 'error' (which is unknown)
         for (let i = 0; i < args.length; i++) {
           const arg = args[i];
-          
+
           if (arg.getText() === "error") {
             // Cast error to Error type
             arg.replaceWithText("error as Error");
             changes++;
             console.log(`✓ Fixed log.error unknown type: error → error as Error`);
           }
-          
+
           // Handle object literals with error property
           if (arg.getKind() === SyntaxKind.ObjectLiteralExpression) {
             const objLiteral = arg.asKindOrThrow(SyntaxKind.ObjectLiteralExpression);
             const properties = objLiteral.getProperties();
-            
+
             for (const prop of properties) {
               if (prop.getKind() === SyntaxKind.PropertyAssignment) {
                 const propAssignment = prop.asKindOrThrow(SyntaxKind.PropertyAssignment);
-                if (propAssignment.getName() === "error" && propAssignment.getInitializer()?.getText() === "error") {
+                if (
+                  propAssignment.getName() === "error" &&
+                  propAssignment.getInitializer()?.getText() === "error"
+                ) {
                   propAssignment.getInitializer()?.replaceWithText("error as Error");
                   changes++;
                   console.log(`✓ Fixed object property error type: error → error as Error`);
@@ -62,8 +65,10 @@ try {
   }
 
   // Fix 2: Handle rowCount property access issues
-  const propertyAccessExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.PropertyAccessExpression);
-  
+  const propertyAccessExpressions = sourceFile.getDescendantsOfKind(
+    SyntaxKind.PropertyAccessExpression
+  );
+
   for (const propAccess of propertyAccessExpressions) {
     if (propAccess.getName() === "rowCount") {
       const parent = propAccess.getParent();
@@ -82,12 +87,12 @@ try {
 
   // Fix 3: Handle undefined object issues - add null checks
   const binaryExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.BinaryExpression);
-  
+
   for (const binExpr of binaryExpressions) {
     if (binExpr.getOperatorToken().getText() === "&&") {
       const left = binExpr.getLeft().getText();
       const right = binExpr.getRight().getText();
-      
+
       // Look for patterns like result.rowCount > 0 and add null check
       if (right.includes("rowCount > 0")) {
         const newText = `${left} && result.affectedRows !== null && result.affectedRows > 0`;
@@ -102,7 +107,7 @@ try {
   // Look for problematic function calls and add type assertions
   for (const callExpr of callExpressions) {
     const args = callExpr.getArguments();
-    
+
     // Look for function calls with potentially undefined arguments
     for (const arg of args) {
       if (arg.getText().includes("insertData") && arg.getKind() === SyntaxKind.Identifier) {
@@ -116,7 +121,9 @@ try {
             const currentText = arg.getText();
             arg.replaceWithText(`${currentText} as any`);
             changes++;
-            console.log(`✓ Added type assertion for SQL call: ${currentText} → ${currentText} as any`);
+            console.log(
+              `✓ Added type assertion for SQL call: ${currentText} → ${currentText} as any`
+            );
           }
         }
       }
@@ -125,10 +132,10 @@ try {
 
   // Fix 5: Handle object possibly undefined issues
   const conditionalExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.ConditionalExpression);
-  
+
   for (const condExpr of conditionalExpressions) {
     const condition = condExpr.getCondition().getText();
-    
+
     // Look for patterns checking object existence
     if (condition.includes("existing")) {
       const parent = condExpr.getParent();
@@ -156,10 +163,9 @@ try {
   } else {
     console.log(`ℹ️  No changes needed for ${filePath}`);
   }
-
 } catch (error) {
   console.error(`❌ Error processing ${filePath}:`, error);
   process.exit(1);
 }
 
-console.log("\n🎉 Postgres storage type fixes completed!"); 
+console.log("\n🎉 Postgres storage type fixes completed!");

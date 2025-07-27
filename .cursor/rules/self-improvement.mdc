@@ -385,3 +385,90 @@ Before any variable name change:
 - [ ] Confirmed approach follows zero-tolerance enforcement?
 
 **CRITICAL**: Any variable naming violation requires immediate rule system updates.
+
+## ⚠️ Critical Investigation and Initiative Protocol
+
+**Addresses failures to take initiative in understanding user requirements**
+
+### Documented Investigation Failure Pattern
+
+**Pattern**: Making assumptions about requirements instead of taking initiative to investigate
+- **Error**: Starting work based on incomplete information (e.g., task title only)
+- **User Signal**: "you should always take more initiative to understand exactly what i meant and not make assumptions"
+- **Root Cause**: Assumption Error - failed to investigate thoroughly before proceeding
+- **Correct Approach**: Take initiative to find complete requirements, investigate architectural context, understand user meaning
+
+### Enhanced Error Detection for Investigation Failures
+
+When user signals investigation failure with phrases like:
+- "take more initiative to understand exactly what i meant"
+- "not make assumptions"
+- "figure it the fuck out yourself"
+- "you have documentation, code, task specs etc"
+
+**Immediate Response Protocol:**
+1. **STOP ALL ASSUMPTION-BASED WORK** immediately
+2. **INVESTIGATE THOROUGHLY** using all available tools and documentation
+3. **FIND COMPLETE CONTEXT** before proceeding with any implementation
+4. **ASK CLARIFYING QUESTIONS** only after exhausting investigation options
+
+### Mandatory Investigation Verification
+
+Before starting any work based on user requests:
+- [ ] Located and read ALL relevant specifications/documentation?
+- [ ] Investigated architectural context and dependencies?
+- [ ] Used search tools to understand user references (e.g., "special workspace")?
+- [ ] Confirmed complete understanding rather than making assumptions?
+
+**CRITICAL**: Any assumption-based work requires immediate investigation protocol and rule updates.
+
+### Examples
+
+// AVOID
+```
+User: "312 @Start Task"
+Assistant: [starts work based only on database title without finding task specification]
+```
+
+// PREFER
+```
+User: "312 @Start Task"
+Assistant: [searches for task specification, finds it in special workspace, investigates architectural context, understands complete requirements before starting]
+```
+
+### Examples of Rule Update Requirements
+
+**Violation Pattern**: Taking corrective action without updating rules
+**User Signal**: "you must update/create a rule PRIOR TO TAKING CORRECTIVE ACTION"
+**Required Response**:
+1. Stop all corrective work immediately
+2. Update self-improvement.mdc with this requirement
+3. Then proceed with original corrective action
+
+**Violation Pattern**: Declaring completion without verification
+**User Signal**: "are you sure we're done?"
+**Required Response**:
+1. Stop completion claims immediately
+2. Update implementation-verification-protocol.mdc with mandatory verification steps
+3. Then run actual verification commands
+
+**Violation Pattern**: Incomplete architecture implementation
+**User Signal**: "did you forget about the other [components]?"
+**Required Response**:
+1. Stop current implementation immediately
+2. Update relevant rule with complete architecture requirements
+3. Then implement ALL required components, not just subset
+
+**Violation Pattern**: Creating separate status documents instead of updating task specs
+**User Signal**: "why did you make an actual_status doc..... wtf..... we always @Update Task Spec"
+**Required Response**:
+1. Stop creating separate status files immediately
+2. Update task specification file directly with current status
+3. Remove any incorrectly created status documents
+
+**Violation Pattern**: Incomplete implementation when user gives specific instructions
+**User Signal**: "the issue is that you stopped before you were done"
+**Required Response**:
+1. Stop making excuses immediately
+2. Update relevant rule with complete implementation requirements
+3. Then finish the implementation as specifically requested by user

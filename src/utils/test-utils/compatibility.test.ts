@@ -16,7 +16,7 @@ setupTestMocks();
 compat.setupTestCompat();
 
 // Use a typed expect to make TypeScript happy with the enhanced matchers
- 
+
 const expect = bunExpect;
 
 describe("Mock Function Compatibility", () => {
@@ -30,7 +30,7 @@ describe("Mock Function Compatibility", () => {
     // Verify tracking works
     expect(mockFn.mock.calls.length).toBe(1);
     // Use type assertion to silence TypeScript
-     
+
     const args = mockFn.mock.calls[0]!;
     expect(args[0]).toBe("test");
     expect(args[1]).toBe(123);
@@ -67,10 +67,10 @@ describe("Mock Function Compatibility", () => {
 
   test("mockImplementation changes function implementation", () => {
     // Create a mock function
-    const mockFn = compat.createCompatMock();
+    let mockFn = compat.createCompatMock();
 
     // Implement the function
-    mockFn.mockImplementation(() => "mocked");
+    mockFn = mock(() => "mocked");
 
     // Verify implementation is used
     expect(mockFn()).toBe("mocked");
@@ -78,10 +78,10 @@ describe("Mock Function Compatibility", () => {
 
   test("mockReturnValue sets a return value", () => {
     // Create a mock function
-    const mockFn = compat.createCompatMock();
+    let mockFn = compat.createCompatMock();
 
     // Set a return value
-    mockFn.mockReturnValue("value");
+    mockFn = mock(() => "value");
 
     // Verify return value is used
     expect(mockFn()).toBe("value");
@@ -101,7 +101,7 @@ describe("Mock Function Compatibility", () => {
 
   test("mockReturnValueOnce sets a one-time return value", () => {
     // Create a mock function
-    const mockFn = compat.createCompatMock();
+    let mockFn = compat.createCompatMock();
 
     // Set a one-time return value
     mockFn.mockReturnValueOnce("once");
@@ -113,18 +113,18 @@ describe("Mock Function Compatibility", () => {
 
   test("supports promise-related utilities", async () => {
     // Create a mock function
-    const mockFn = compat.createCompatMock();
+    let mockFn = compat.createCompatMock();
 
     // Set resolved value
-    mockFn.mockResolvedValue("resolved");
+    mockFn = mock(() => Promise.resolve("resolved"));
 
     // Verify resolved value by directly calling the function
     const result = await mockFn();
     expect(result).toBe("resolved");
 
     // Create another mock for rejection testing
-    const mockFn2 = compat.createCompatMock();
-    mockFn2.mockRejectedValue(new Error("rejected"));
+    let mockFn2 = compat.createCompatMock();
+    mockFn2 = mock(() => Promise.reject(new Error("rejected")));
 
     // Verify rejection with try/catch
     let error: Error | null = null;
@@ -217,8 +217,8 @@ describe("Module Mocking Compatibility", () => {
   test("mockModule works with factory", () => {
     // Mock a module with a factory
     const mockExports = {
-      foo: compat.createCompatMock().mockReturnValue("mocked foo"),
-      bar: compat.createCompatMock().mockReturnValue("mocked bar"),
+      foo: (compat.createCompatMock() = mock(() => "mocked foo")),
+      bar: (compat.createCompatMock() = mock(() => "mocked bar")),
     };
 
     compat.mockModule("some/module/path", () => mockExports);
@@ -233,7 +233,7 @@ describe("Module Mocking Compatibility", () => {
   test("jest.mock provides Jest-like syntax", () => {
     // Mock a module using jest.mock
     compat.jest.mock("another/module/path", () => ({
-      baz: compat.createCompatMock().mockReturnValue("mocked baz"),
+      baz: (compat.createCompatMock() = mock(() => "mocked baz")),
     }));
 
     // The module should be mocked

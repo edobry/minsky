@@ -12,7 +12,11 @@ import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import { createMockSessionProvider, createMockGitService, createMockTaskService } from "../utils/test-utils/index";
+import {
+  createMockSessionProvider,
+  createMockGitService,
+  createMockTaskService,
+} from "../utils/test-utils/index";
 
 describe("Session Start Consistency Tests", () => {
   let mockSessionDB: SessionProviderInterface;
@@ -20,7 +24,7 @@ describe("Session Start Consistency Tests", () => {
   let mockTaskService: TaskServiceInterface;
   let mockWorkspaceUtils: WorkspaceUtilsInterface;
   let mockResolveRepoPath: any;
-  
+
   // Create individual spies for call tracking
   let gitCloneSpy: any;
   let gitBranchWithoutSessionSpy: any;
@@ -59,10 +63,14 @@ describe("Session Start Consistency Tests", () => {
     mockResolveRepoPath = mock(() => Promise.resolve("local/minsky"));
 
     // Create individual spies for call tracking
-    gitCloneSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task160", session: "task160" }));
-    gitBranchWithoutSessionSpy = mock(() => Promise.resolve({ workdir: "/test/sessions/task160", branch: "task160" }));
+    gitCloneSpy = mock(() =>
+      Promise.resolve({ workdir: "/test/sessions/task160", session: "task160" })
+    );
+    gitBranchWithoutSessionSpy = mock(() =>
+      Promise.resolve({ workdir: "/test/sessions/task160", branch: "task160" })
+    );
     sessionAddSpy = mock(() => Promise.resolve());
-    
+
     // Replace service methods with spies for call tracking
     mockGitService.clone = gitCloneSpy;
     mockGitService.branchWithoutSession = gitBranchWithoutSessionSpy;
@@ -105,7 +113,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git clone fails", async () => {
       // Arrange
       const gitError = new Error("destination path already exists and is not an empty directory");
-      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
+      gitCloneSpy = mock(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -133,7 +141,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git branch creation fails", async () => {
       // Arrange
       const branchError = new Error("failed to create branch");
-      gitBranchWithoutSessionSpy.mockImplementation(() => Promise.reject(branchError));
+      gitBranchWithoutSessionSpy = mock(() => Promise.reject(branchError));
 
       const params = {
         task: "160",
@@ -162,7 +170,7 @@ describe("Session Start Consistency Tests", () => {
       // Arrange
       const gitError = new Error("git operation failed");
 
-      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
+      gitCloneSpy = mock(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -191,14 +199,16 @@ describe("Session Start Consistency Tests", () => {
   describe("Error handling edge cases", () => {
     it("should prevent session creation when session already exists", async () => {
       // Arrange
-      const sessionGetSpy = mock(() => Promise.resolve({
-        session: "task#160",
-        repoUrl: "local/minsky",
-        repoName: "local-minsky",
-        createdAt: new Date().toISOString(),
-        taskId: "#160",
-        branch: "task#160",
-      }));
+      const sessionGetSpy = mock(() =>
+        Promise.resolve({
+          session: "task#160",
+          repoUrl: "local/minsky",
+          repoName: "local-minsky",
+          createdAt: new Date().toISOString(),
+          taskId: "#160",
+          branch: "task#160",
+        })
+      );
       mockSessionDB.getSession = sessionGetSpy;
 
       const params = {
@@ -227,16 +237,18 @@ describe("Session Start Consistency Tests", () => {
 
     it("should prevent session creation when another session exists for same task", async () => {
       // Arrange
-      const listSessionsSpy = mock(() => Promise.resolve([
-        {
-          session: "different-session",
-          taskId: "#160",
-          repoUrl: "local/minsky",
-          repoName: "local-minsky",
-          createdAt: new Date().toISOString(),
-          branch: "different-session",
-        },
-      ]));
+      const listSessionsSpy = mock(() =>
+        Promise.resolve([
+          {
+            session: "different-session",
+            taskId: "#160",
+            repoUrl: "local/minsky",
+            repoName: "local-minsky",
+            createdAt: new Date().toISOString(),
+            branch: "different-session",
+          },
+        ])
+      );
       mockSessionDB.listSessions = listSessionsSpy;
 
       const params = {
@@ -299,7 +311,7 @@ describe("Session Start Consistency Tests", () => {
       const gitError = new Error(
         "fatal: destination path 'task#160' already exists and is not an empty directory"
       );
-      gitCloneSpy.mockImplementation(() => Promise.reject(gitError));
+      gitCloneSpy = mock(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -351,7 +363,7 @@ describe("Session Start Consistency Tests", () => {
 
       // Assert - verify session was properly added to database
       expect(addSessionSpy).toHaveBeenCalledTimes(1);
-      
+
       // Verify return value includes session information
       expect(result).toMatchObject({
         session: "task#160",

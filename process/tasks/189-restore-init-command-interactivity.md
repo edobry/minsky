@@ -7,6 +7,7 @@ The `minsky init` command previously had interactive prompts for backend selecti
 ## Problem Statement
 
 The init command currently:
+
 - Uses silent defaults when parameters are not provided
 - Does not prompt for backend selection
 - Does not prompt for GitHub owner/repo when github-issues backend is used
@@ -15,12 +16,14 @@ The init command currently:
 ## Requirements
 
 ### Investigation Phase
+
 - [ ] Search git history to identify when interactive prompts were removed
 - [ ] Identify the cause of removal (refactoring, migration to shared commands, etc.)
 - [ ] Locate the original interactive implementation code
 - [ ] Document what changed and why
 
 ### Restoration Phase
+
 - [ ] Add interactive prompts for backend selection when `--backend` not provided
 - [ ] Add GitHub owner/repo prompts when `github-issues` backend is selected
 - [ ] Add rule format preference prompt when `--rule-format` not provided
@@ -30,16 +33,20 @@ The init command currently:
 - [ ] Maintain backward compatibility with explicit flags
 
 ### Interactive Flow Design
+
 1. **Backend Selection**: When no `--backend` flag provided, prompt with options:
+
    - `json-file` (recommended for new projects)
    - `markdown` (for existing tasks.md workflows)
    - `github-issues` (for GitHub integration)
 
 2. **GitHub Configuration**: When `github-issues` selected, prompt for:
+
    - GitHub repository owner
    - GitHub repository name
 
 3. **Rule Format**: When no `--rule-format` provided, prompt for:
+
    - `cursor` (default)
    - `generic` (for non-Cursor editors)
 
@@ -50,11 +57,13 @@ The init command currently:
 ## Technical Implementation
 
 ### Code Locations to Update
+
 - `src/adapters/shared/commands/init.ts` - Add interactive prompts
 - `src/domain/init.ts` - Update to handle interactive parameters
 - Follow patterns from `src/adapters/shared/commands/tasks.ts` (status set command)
 
 ### Dependencies
+
 - Ensure `@clack/prompts` is available and working
 - Test interactive prompts in different terminal environments
 
@@ -82,4 +91,4 @@ The init command currently:
 
 ## Notes
 
-This task aims to restore user-friendly interactive initialization while maintaining all existing functionality and backward compatibility. 
+This task aims to restore user-friendly interactive initialization while maintaining all existing functionality and backward compatibility.

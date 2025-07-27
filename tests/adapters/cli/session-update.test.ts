@@ -1,6 +1,6 @@
 /**
  * Session Update Command Tests
- * 
+ *
  * Tests for session update command functionality
  */
 
@@ -19,7 +19,7 @@ describe("session update command", () => {
 
   beforeEach(() => {
     testData = createSessionTestData();
-    
+
     mockGitService = {
       getSessionWorkdir: (repoName: string, sessionName: string) =>
         join(testData.tempDir, repoName, "sessions", sessionName),
@@ -46,7 +46,8 @@ describe("session update command", () => {
 
   test("TASK #168 FIX: should auto-detect session name from current directory when not provided", async () => {
     // Arrange: Use a session that exists in our mock data
-    const sessionName = "task#170"; // Use existing session from mock data
+    const taskId = "170";
+    const sessionName = `task#${taskId}`; // Use template literal to construct session name
     const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
 
     // Mock getCurrentSession to return the session name for auto-detection
@@ -68,7 +69,7 @@ describe("session update command", () => {
         skipIfAlreadyMerged: false,
         branch: undefined,
         repo: undefined,
-        task: undefined,
+        task: taskId, // Use the task ID variable
         workspace: undefined,
       },
       {
@@ -323,4 +324,4 @@ describe("session update command", () => {
     // Assert: Force flag should allow update to succeed
     expect(result.session).toBe(sessionName);
   });
-}); 
+});

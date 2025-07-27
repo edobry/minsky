@@ -1,20 +1,22 @@
 /**
  * Advanced Resolution Strategies
- * 
+ *
  * Provides advanced conflict resolution strategy generation extracted from ConflictDetectionService
  * for better maintainability and focused responsibility.
  */
 import { log } from "../../utils/logger";
-import type {
-  AdvancedResolutionStrategy,
-  ConflictFile,
-} from "./conflict-detection";
+import type { AdvancedResolutionStrategy, ConflictFile } from "./conflict-detection";
 
 export interface AdvancedResolutionDependencies {
-  identifyFormattingOnlyConflicts: (repoPath: string, conflictFiles: ConflictFile[]) => Promise<ConflictFile[]>;
+  identifyFormattingOnlyConflicts: (
+    repoPath: string,
+    conflictFiles: ConflictFile[]
+  ) => Promise<ConflictFile[]>;
   createPackageJsonStrategy: (packageJsonFiles: ConflictFile[]) => AdvancedResolutionStrategy;
   createLockFileStrategy: (lockFiles: ConflictFile[]) => AdvancedResolutionStrategy;
-  createFormattingOnlyStrategy: (formattingOnlyConflicts: ConflictFile[]) => AdvancedResolutionStrategy;
+  createFormattingOnlyStrategy: (
+    formattingOnlyConflicts: ConflictFile[]
+  ) => AdvancedResolutionStrategy;
   createDocumentationStrategy: (documentationFiles: ConflictFile[]) => AdvancedResolutionStrategy;
   createConfigFileStrategy: (configFiles: ConflictFile[]) => AdvancedResolutionStrategy;
   createGeneralStrategy: (remainingFiles: ConflictFile[]) => AdvancedResolutionStrategy;
@@ -39,9 +41,7 @@ export async function generateAdvancedResolutionStrategiesImpl(
     }
 
     // Group files by type for specialized handling
-    const packageJsonFiles = conflictFiles.filter((file) =>
-      file.path.endsWith("package.json")
-    );
+    const packageJsonFiles = conflictFiles.filter((file) => file.path.endsWith("package.json"));
     const lockFiles = conflictFiles.filter(
       (file) =>
         file.path.endsWith("package-lock.json") ||
@@ -78,9 +78,7 @@ export async function generateAdvancedResolutionStrategiesImpl(
 
     // 3. Handle formatting-only conflicts
     if (formattingOnlyConflicts.length > 0) {
-      strategies.push(
-        deps.createFormattingOnlyStrategy(formattingOnlyConflicts)
-      );
+      strategies.push(deps.createFormattingOnlyStrategy(formattingOnlyConflicts));
     }
 
     // 4. Handle documentation conflicts
@@ -94,17 +92,17 @@ export async function generateAdvancedResolutionStrategiesImpl(
     }
 
     // 6. Add a general strategy for remaining files
-    const handledPaths = new Set([
-      ...packageJsonFiles,
-      ...lockFiles,
-      ...formattingOnlyConflicts,
-      ...documentationFiles,
-      ...configFiles,
-    ].map((file) => file.path));
-
-    const remainingFiles = conflictFiles.filter(
-      (file) => !handledPaths.has(file.path)
+    const handledPaths = new Set(
+      [
+        ...packageJsonFiles,
+        ...lockFiles,
+        ...formattingOnlyConflicts,
+        ...documentationFiles,
+        ...configFiles,
+      ].map((file) => file.path)
     );
+
+    const remainingFiles = conflictFiles.filter((file) => !handledPaths.has(file.path));
 
     if (remainingFiles.length > 0) {
       strategies.push(deps.createGeneralStrategy(remainingFiles));
@@ -119,4 +117,4 @@ export async function generateAdvancedResolutionStrategiesImpl(
     });
     return [];
   }
-} 
+}
