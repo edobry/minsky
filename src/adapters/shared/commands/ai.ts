@@ -14,7 +14,7 @@ import {
 } from "../command-registry";
 import { DefaultAICompletionService } from "../../../domain/ai/completion-service";
 import { log } from "../../../utils/logger";
-import { configurationService } from "../../../domain/configuration";
+import { getConfiguration } from "../../../domain/configuration";
 import { exit } from "../../../utils/process";
 import type { ResolvedConfig } from "../../../domain/configuration/types";
 
@@ -76,8 +76,8 @@ export function registerAiCommands(): void {
         const { prompt, model, provider, temperature, maxTokens, stream, system } = params;
 
         // Get AI configuration directly from the unified config system
-        const configResult = await configurationService.loadConfiguration(process.cwd());
-        const aiConfig = (configResult.resolved as ResolvedConfig).ai;
+        const config = getConfiguration();
+        const aiConfig = config.ai;
 
         if (!aiConfig?.providers) {
           log.cliError("No AI providers configured. Please configure at least one provider.");
@@ -98,24 +98,23 @@ export function registerAiCommands(): void {
         };
 
         if (request.stream) {
-          // Handle streaming response - accumulate content
-          let fullContent = "";
+          // Handle streaming response
           for await (const response of completionService.stream(request)) {
-            fullContent += response.content;
+            await Bun.write(Bun.stdout, response.content);
           }
-          log.cli(fullContent);
+          await Bun.write(Bun.stdout, "\n");
         } else {
           // Handle non-streaming response
           const response = await completionService.complete(request);
-          log.cli(response.content);
+          await Bun.write(Bun.stdout, `${response.content}\n`);
 
           // Show usage info
           if (response.usage) {
-            log.cli(
+            log.info(
               `Usage: ${response.usage.totalTokens} tokens (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
             );
             if (response.usage.cost) {
-              log.cli(`Cost: $${response.usage.cost.toFixed(4)}`);
+              log.info(`Cost: $${response.usage.cost.toFixed(4)}`);
             }
           }
         }
@@ -128,7 +127,7 @@ export function registerAiCommands(): void {
     },
   });
 
-  // Register AI chat command (simplified - no interactive chat for now)
+  // Register AI chat command
   sharedCommandRegistry.registerCommand({
     id: "ai:chat",
     category: CommandCategory.CORE,
@@ -153,6 +152,19 @@ export function registerAiCommands(): void {
     },
     execute: async (params, context) => {
       try {
+        const { model, provider, system } = params;
+
+        // Get AI configuration directly
+        const config = getConfiguration();
+        const aiConfig = config.ai;
+
+        if (!aiConfig?.providers) {
+          log.cliError("No AI providers configured. Please configure at least one provider.");
+          exit(1);
+        }
+
+        const completionService = new DefaultAICompletionService(aiConfig);
+
         // For now, chat is not implemented due to readline complexity in Bun
         log.cliError("Interactive chat is not yet implemented. Use 'minsky ai complete' instead.");
         exit(1);
@@ -188,8 +200,8 @@ export function registerAiCommands(): void {
         const { provider, format } = params;
 
         // Get AI configuration directly
-        const configResult = await configurationService.loadConfiguration(process.cwd());
-        const aiConfig = configResult.resolved.ai;
+        const config = getConfiguration();
+        const aiConfig = config.ai;
 
         if (!aiConfig?.providers) {
           log.cliError("No AI providers configured. Please configure at least one provider.");
@@ -197,7 +209,7 @@ export function registerAiCommands(): void {
         }
 
         const completionService = new DefaultAICompletionService(aiConfig);
-        const models = await completionService.getAvailableModels(provider);
+        const models = await completionService.getAvailableModels(provider as string | undefined);
 
         if (format === "json") {
           log.cli(JSON.stringify(models, null, 2));
@@ -256,8 +268,8 @@ export function registerAiCommands(): void {
         const { provider } = params;
 
         // Get AI configuration directly
-        const configResult = await configurationService.loadConfiguration(process.cwd());
-        const aiConfig = configResult.resolved.ai;
+        const config = getConfiguration();
+        const aiConfig = config.ai;
 
         if (!aiConfig?.providers) {
           log.cliError("No AI providers configured. Please configure at least one provider.");
@@ -268,15 +280,14 @@ export function registerAiCommands(): void {
         const result = await completionService.validateConfiguration();
 
         if (result.valid) {
-          log.cli("✓ AI configuration is valid!");
+          log.cliSuccess("AI configuration is valid!");
 
           // Test each provider if no specific provider requested
           const providersToTest = provider ? [provider] : Object.keys(aiConfig.providers || {});
 
           for (const providerName of providersToTest) {
-            const providerConfig =
-              aiConfig.providers?.[providerName as keyof typeof aiConfig.providers];
-            if (providerConfig && (providerConfig as any).api_key) {
+            const providerConfig = aiConfig.providers?.[providerName];
+            if (providerConfig?.api_key) {
               try {
                 log.cli(`Testing ${providerName}...`);
                 await completionService.complete({
@@ -284,14 +295,14 @@ export function registerAiCommands(): void {
                   provider: providerName,
                   maxTokens: 5,
                 });
-                log.cli(`✓ ${providerName} connection successful`);
+                log.cliSuccess(`✓ ${providerName} connection successful`);
               } catch (error) {
                 log.cliError(
                   `✗ ${providerName} connection failed: ${error instanceof Error ? error.message : String(error)}`
                 );
               }
             } else {
-              log.cliWarn(`⚠ ${providerName} not configured (missing API key)`);
+              log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
             }
           }
         } else {
@@ -301,7 +312,7 @@ export function registerAiCommands(): void {
           }
 
           for (const warning of result.warnings) {
-            log.cliWarn(`  - ${warning.field}: ${warning.message}`);
+            log.cliWarning(`  - ${warning.field}: ${warning.message}`);
           }
           exit(1);
         }
