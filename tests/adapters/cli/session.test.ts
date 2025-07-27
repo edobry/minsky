@@ -129,7 +129,7 @@ describe("Session CLI Commands", () => {
       expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
       expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
       expect(session?.session).toBe("task#160"); // Fixed: correct session returned
-      expect(session?.taskId).toBe("#160"); // Fixed: correct taskId
+      expect(session?.taskId).toBe("160"); // Fixed: correct taskId in storage format
     });
 
     test("EDGE CASE: multiple sessions with same task ID but different formats", () => {
