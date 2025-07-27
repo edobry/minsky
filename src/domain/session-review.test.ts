@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
@@ -19,7 +19,7 @@ describe("sessionReviewFromParams", () => {
     getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
-        taskId: "#TEST_VALUE",
+        taskId: "123",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
@@ -95,7 +95,7 @@ describe("sessionReviewFromParams", () => {
 
     // Verify result structure
     expect(result.session).toBe("testSession");
-    expect(result.taskId).toBe("#TEST_VALUE");
+    expect(result.taskId).toBe("123");
   });
 
   test("reviews session by task ID", async () => {
@@ -103,7 +103,7 @@ describe("sessionReviewFromParams", () => {
     let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock((taskId: unknown) =>
       Promise.resolve({
-        session: "task#TEST_VALUE",
+        session: "task123",
         taskId: taskId as string,
         repoName: "test-repo",
         repoUrl: "https://github.com/test/test-repo",
@@ -116,7 +116,7 @@ describe("sessionReviewFromParams", () => {
     getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
-        taskId: "#TEST_VALUE",
+        taskId: "123",
         repoName: "test-repo",
         repoUrl: "https://github.com/test/test-repo",
         branch: "feature/test",
@@ -133,7 +133,7 @@ describe("sessionReviewFromParams", () => {
     execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
-        return Promise.resolve("refs/heads/pr/task#TEST_VALUE");
+        return Promise.resolve("refs/heads/pr/task123");
       }
       if (cmd.includes("log -1")) {
         return Promise.resolve("PR Title\n\nPR Description body");
@@ -181,15 +181,15 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test by task ID
-    const result = await sessionReviewFromParams({ task: "#TEST_VALUE" }, deps);
+    const result = await sessionReviewFromParams({ task: "#123" }, deps);
 
     // Verify calls with individual spies
-    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("#TEST_VALUE");
-    expect(getSessionWorkdirSpy).toHaveBeenCalledWith("task#TEST_VALUE");
+    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("123");
+    expect(getSessionWorkdirSpy).toHaveBeenCalledWith("task123");
     expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
 
     // Verify result
-    expect(result.taskId).toBe("#TEST_VALUE");
+    expect(result.taskId).toBe("123");
   });
 
   test("throws ValidationError when no session detected", async () => {
