@@ -9,6 +9,7 @@ import { createSessionProvider, type SessionProviderInterface } from "../../doma
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import {
+  SessionFileReadSchema,
   SessionFileOperationSchema,
   SessionFileWriteSchema,
   SessionDirectoryListSchema,
@@ -16,7 +17,13 @@ import {
   SessionFileDeleteSchema,
   SessionDirectoryCreateSchema,
   SessionGrepSearchSchema,
-} from "./shared-schemas";
+} from "./schemas/common-parameters";
+import {
+  createFileReadResponse,
+  createErrorResponse,
+  createFileOperationResponse,
+  createDirectoryListResponse,
+} from "./schemas/common-responses";
 
 /**
  * Session path resolver class for enforcing workspace boundaries
@@ -87,6 +94,68 @@ export class SessionPathResolver {
 }
 
 /**
+ * Utility function to process file content with line range support
+ */
+function processFileContentWithLineRange(
+  content: string,
+  options: {
+    startLine?: number;
+    endLine?: number;
+    shouldReadEntireFile?: boolean;
+    filePath: string;
+  }
+): {
+  content: string;
+  totalLines: number;
+  linesShown: string;
+  summary?: string;
+} {
+  const lines = content.split("\n");
+  const totalLines = lines.length;
+
+  // If should read entire file, return everything
+  if (options.shouldReadEntireFile) {
+    return {
+      content,
+      totalLines,
+      linesShown: `1-${totalLines}`,
+    };
+  }
+
+  // Determine actual start and end lines
+  const actualStartLine = Math.max(1, options.startLine || 1);
+  const actualEndLine = Math.min(totalLines, options.endLine || totalLines);
+
+  // Extract the selected lines (convert to 0-based indexing)
+  const selectedLines = lines.slice(actualStartLine - 1, actualEndLine);
+  const resultContent = selectedLines.join("\n");
+
+  let summary: string | undefined;
+  if (actualStartLine > 1 || actualEndLine < totalLines) {
+    const before =
+      actualStartLine > 1 ? `Lines 1-${actualStartLine - 1}: [Earlier content...]` : "";
+    const after =
+      actualEndLine < totalLines
+        ? `Lines ${actualEndLine + 1}-${totalLines}: [Later content...]`
+        : "";
+    const parts = [before, after].filter(Boolean);
+    if (parts.length > 0) {
+      summary = `Outline of the rest of the file:\n${parts.join("\n")}`;
+    }
+  }
+
+  return {
+    content: resultContent,
+    totalLines,
+    linesShown:
+      actualStartLine === actualEndLine
+        ? `${actualStartLine}`
+        : `${actualStartLine}-${actualEndLine}`,
+    summary,
+  };
+}
+
+/**
  * Create a new session path resolver instance
  */
 function createPathResolver(): SessionPathResolver {
@@ -103,31 +172,56 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.read_file",
     description: "Read a file within a session workspace with optional line range support",
-    parameters: SessionFileOperationSchema,
+    parameters: SessionFileReadSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
         await pathResolver.validatePathExists(resolvedPath);
 
-        const content = await readFile(resolvedPath, "utf8");
+        const rawContent = await readFile(resolvedPath, "utf8");
+
+        // Process content with line range support
+        const processed = processFileContentWithLineRange(rawContent, {
+          startLine: args.start_line_one_indexed,
+          endLine: args.end_line_one_indexed_inclusive,
+          shouldReadEntireFile: args.should_read_entire_file,
+          filePath: args.path,
+        });
+
+        const relativeResolvedPath = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        );
 
         log.debug("Session file read successful", {
           session: args.sessionName,
           path: args.path,
           resolvedPath,
-          contentLength: content.length,
+          contentLength: rawContent.length,
+          linesShown: processed.linesShown,
+          totalLines: processed.totalLines,
         });
 
-        return {
-          success: true,
-          content,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-        };
+        return createFileReadResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relativeResolvedPath,
+          },
+          {
+            content: processed.content,
+            totalLines: processed.totalLines,
+            linesRead:
+              args.start_line_one_indexed && args.end_line_one_indexed_inclusive
+                ? {
+                    start: args.start_line_one_indexed,
+                    end: args.end_line_one_indexed_inclusive,
+                  }
+                : undefined,
+            linesShown: processed.linesShown,
+            omittedContent: processed.summary ? { summary: processed.summary } : undefined,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
@@ -136,12 +230,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -163,6 +255,11 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
         await writeFile(resolvedPath, args.content, "utf8");
 
+        const relativeResolvedPath = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        );
+
         log.debug("Session file write successful", {
           session: args.sessionName,
           path: args.path,
@@ -171,16 +268,17 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           createdDirs: args.createDirs,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          bytesWritten: args.content.length,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relativeResolvedPath,
+          },
+          {
+            bytesWritten: args.content.length,
+            created: true, // File is being written
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
@@ -189,12 +287,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -227,6 +323,11 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           }
         }
 
+        const relativeResolvedPath = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        );
+
         log.debug("Session directory list successful", {
           session: args.sessionName,
           path: args.path,
@@ -235,18 +336,18 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           directoryCount: directories.length,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          files: files.sort(),
-          directories: directories.sort(),
-          totalEntries: files.length + directories.length,
-        };
+        return createDirectoryListResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relativeResolvedPath,
+          },
+          {
+            files: files.sort(),
+            directories: directories.sort(),
+            totalEntries: files.length + directories.length,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session directory list failed", {
@@ -255,12 +356,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });

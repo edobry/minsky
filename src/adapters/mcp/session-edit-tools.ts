@@ -15,7 +15,8 @@ import {
   SessionSearchReplaceSchema,
   type SessionFileEdit,
   type SessionSearchReplace,
-} from "./shared-schemas";
+} from "./schemas/common-parameters";
+import { createFileOperationResponse, createErrorResponse } from "./schemas/common-responses";
 
 /**
  * Interface for edit file operation - now using shared type
@@ -89,14 +90,17 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           contentLength: finalContent.length,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          edited: true,
-          created: !fileExists,
-          bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+          },
+          {
+            edited: true,
+            created: !fileExists,
+            bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
@@ -105,12 +109,10 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -157,14 +159,18 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           replaceLength: args.replace.length,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          replaced: true,
-          searchText: args.search,
-          replaceText: args.replace,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+          },
+          {
+            edited: true,
+            replaced: true,
+            searchText: args.search,
+            replaceText: args.replace,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {
@@ -173,12 +179,10 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });

@@ -264,7 +264,7 @@
 
 - [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-task-implement-todoist-backend-integration.md)
 
-- [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
+- [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Add Session Context Autodetection [#139](process/tasks/139-add-session-context-autodetection.md)
 
@@ -306,7 +306,7 @@
 
 - [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
 
-- [+] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
+- [ ] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
 
 - [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
 
@@ -326,7 +326,7 @@
 
 - [x] Comprehensive Session Database Architecture Fix [#176](process/tasks/176-comprehensive-session-database-architecture-fix.md)
 
-- [+] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
+- [x] Analyze and Modularize Long Files [#171](process/tasks/171-analyze-and-modularize-long-files.md)
 
 - [!] Fix Boolean Flag Parsing Issue [#172](process/tasks/172-fix-boolean-flag-parsing-issue.md)
 
@@ -512,9 +512,9 @@
 
 - [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [#287](process/tasks/287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
 
-- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+- [ ] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
-- [x] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
+- [+] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
 - [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
@@ -542,15 +542,15 @@
 
 - [x] Migrate codebase from TaskBackendRouter to workspace-resolving backends [#306](process/tasks/306-migrate-codebase-from-taskbackendrouter-to-workspace-resolving-backends.md)
 
-- [x] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
+- [+] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
 
 - [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
-- [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+- [ ] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
 - [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
-- [x] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
+- [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
 - [x] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
 
@@ -560,24 +560,12 @@
 
 - [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
 
-- [ ] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
+- [ ] Refactor CLI output formatters to use command-specific customizations instead of centralized bridge logic [#318](process/tasks/318-refactor-cli-output-formatters-to-use-command-specific-customizations-instead-of-centralized-bridge-logic.md)
 
-- [x] Fix Special Workspace and Main Workspace Synchronization for Task Operations (renamed from 310) [#319](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations-renamed-from-310-.md)
+- [x] Test workspace sync fix [#319](process/tasks/319-test-workspace-sync-fix.md)
 
 - [ ] Fix all linter errors in codebase [#320](process/tasks/320-fix-all-linter-errors-in-codebase.md)
 
 - [ ] AI-Powered Project Analysis for Enhanced Init Command [#321](process/tasks/321-ai-powered-project-analysis-for-enhanced-init-command.md)
 
-- [+] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
-
-- [ ] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
-
-- [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
-
-- [x] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
-
-- [ ] Explore embedding Outerbase DB explorer for database inspection [#326](process/tasks/326-explore-embedding-outerbase-db-explorer-for-database-inspection.md)
-
-- [ ] Analyze and architect general message/prompt system supporting human and AI agents across contexts [#327](process/tasks/327-analyze-and-architect-general-message-prompt-system-supporting-human-and-ai-agents-across-contexts.md)
-
-- [ ] Extend type composition refactoring to other MCP command domains [#328](process/tasks/328-extend-type-composition-refactoring-to-other-mcp-command-domains.md)
+- [ ] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)

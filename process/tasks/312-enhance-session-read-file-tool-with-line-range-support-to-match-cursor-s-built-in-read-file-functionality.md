@@ -11,6 +11,7 @@ The current `session_read_file` tool only supports reading entire files, unlike 
 Through reverse engineering of Cursor's built-in `read_file` tool, we identified the following capabilities that need to be replicated:
 
 ### Cursor's Built-in `read_file` Parameters:
+
 - `target_file`: File path (relative or absolute)
 - `start_line_one_indexed`: Starting line number (1-indexed, inclusive)
 - `end_line_one_indexed_inclusive`: Ending line number (1-indexed, inclusive)
@@ -20,6 +21,7 @@ Through reverse engineering of Cursor's built-in `read_file` tool, we identified
 - `explanation`: Tool usage explanation
 
 ### Cursor's Built-in `read_file` Features:
+
 - ✅ **Line Range Support**: Can read specific sections with precise line numbers
 - ✅ **Selective Reading**: Supports offset/limit parameters (250 lines max, 200 lines minimum)
 - ✅ **Memory Efficient**: Handles large files by reading only requested sections
@@ -27,6 +29,7 @@ Through reverse engineering of Cursor's built-in `read_file` tool, we identified
 - ✅ **Flexible Reading**: Can read entire file when needed
 
 ### Current `session_read_file` Limitations:
+
 - ❌ **No Line Range Support**: Only accepts `session` and `path` parameters
 - ❌ **Always Reads Entire File**: Uses `readFile(resolvedPath, "utf8")` - loads complete content
 - ❌ **No Selective Reading**: Cannot specify which parts of a file to read
@@ -36,43 +39,64 @@ Through reverse engineering of Cursor's built-in `read_file` tool, we identified
 ## Requirements
 
 ### 1. Enhanced Parameter Schema ✅ COMPLETED
+
 Update `session_read_file` to support all Cursor parameters while maintaining session isolation:
 
 ```typescript
 parameters: z.object({
   session: z.string().describe("Session identifier (name or task ID)"),
   path: z.string().describe("Path to the file within the session workspace"),
-  start_line_one_indexed: z.number().optional().describe("Starting line number (1-indexed, inclusive)"),
-  end_line_one_indexed_inclusive: z.number().optional().describe("Ending line number (1-indexed, inclusive)"),
-  should_read_entire_file: z.boolean().optional().default(false).describe("Whether to read the entire file"),
-  explanation: z.string().optional().describe("One sentence explanation of why this tool is being used")
-})
+  start_line_one_indexed: z
+    .number()
+    .optional()
+    .describe("Starting line number (1-indexed, inclusive)"),
+  end_line_one_indexed_inclusive: z
+    .number()
+    .optional()
+    .describe("Ending line number (1-indexed, inclusive)"),
+  should_read_entire_file: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Whether to read the entire file"),
+  explanation: z
+    .string()
+    .optional()
+    .describe("One sentence explanation of why this tool is being used"),
+});
 ```
 
 ### 2. Line Range Reading Implementation ✅ COMPLETED
+
 - Implement efficient line-by-line reading without loading entire file into memory
 - Support 1-indexed line numbers to match Cursor's convention
 - Validate line ranges and provide clear error messages for invalid ranges
 - Handle edge cases (empty files, single-line files, out-of-bounds ranges)
 
 ### 3. Content Summarization ✅ COMPLETED
+
 When reading partial content, provide summaries similar to Cursor:
+
 - Show total line count of file
 - Indicate which lines were omitted before/after the selected range
 - Provide context about file structure if possible
 
 ### 4. Memory Efficiency ✅ COMPLETED
+
 - Read only requested lines, not entire file content
 - Stream file reading for large files
 - Optimize for common use cases (small ranges, file headers/footers)
 
 ### 5. Backward Compatibility ✅ COMPLETED
+
 - Maintain existing behavior when no line range parameters provided
 - Default to reading entire file if `should_read_entire_file` is true
 - Preserve all current response format fields
 
 ### 6. Response Format Enhancement ✅ COMPLETED
+
 Enhance response to include:
+
 ```typescript
 {
   success: true,
@@ -96,9 +120,11 @@ Enhance response to include:
 ## Implementation Notes
 
 ### File Location
+
 The main implementation is in `src/adapters/mcp/session-files.ts` lines 94-130.
 
 ### Testing Requirements
+
 - Test line range reading with various ranges
 - Test memory efficiency with large files
 - Test edge cases (empty files, single lines, invalid ranges)
@@ -106,6 +132,7 @@ The main implementation is in `src/adapters/mcp/session-files.ts` lines 94-130.
 - Verify session workspace isolation is maintained
 
 ### Performance Considerations
+
 - Use streaming file reading for large files
 - Avoid loading entire file when only reading small ranges
 - Optimize for common patterns (reading file headers, specific functions)
@@ -126,12 +153,14 @@ The main implementation is in `src/adapters/mcp/session-files.ts` lines 94-130.
 ## Impact
 
 This enhancement will:
+
 - **Restore Feature Parity**: Agents can work as efficiently in sessions as in main workspace
 - **Improve Performance**: Reduce memory usage when working with large files
 - **Enhance User Experience**: Provide same capabilities agents expect from Cursor
 - **Enable Advanced Workflows**: Support sophisticated file analysis and editing patterns
 
 ## Related Files
+
 - `src/adapters/mcp/session-files.ts` - Main implementation
 - `src/adapters/mcp/session-workspace.ts` - Duplicate implementation to update
 - `docs/session-workspace-tools.md` - Documentation to update
@@ -142,23 +171,27 @@ This enhancement will:
 ### ✅ COMPLETED (Session task-312)
 
 1. **Enhanced Parameter Schema**:
+
    - Added all required Cursor-compatible parameters to `session_read_file`
    - Maintained session isolation with proper validation
    - Added explanation parameter for tool usage documentation
 
 2. **Line Range Processing Function**:
+
    - Implemented `processFileContentWithLineRange()` utility function
    - Handles line range expansion for better context
    - Supports both targeted line reading and entire file reading
    - Includes intelligent context expansion for small ranges
 
 3. **Content Summarization**:
+
    - Added summary generation for truncated files
    - Provides "...content omitted..." indicators
    - Shows total lines and actual range displayed
    - Includes context about file structure
 
 4. **Enhanced Response Format**:
+
    - Added `totalLines` metadata
    - Added `linesShown` range indicator
    - Added dynamic content summaries
@@ -174,6 +207,7 @@ This enhancement will:
 **File Modified**: `src/adapters/mcp/session-files.ts`
 
 **Key Changes Made**:
+
 1. **Enhanced parameter schema** with all Cursor-compatible fields
 2. **Added utility function** `processFileContentWithLineRange()` for intelligent line processing
 3. **Enhanced response format** with line count metadata and range information
@@ -181,6 +215,7 @@ This enhancement will:
 5. **Content summarization** for truncated files showing omitted content
 
 **Testing Performed**:
+
 - Verified line range functionality works with `session_read_file`
 - Tested different line ranges and context expansion
 - Confirmed backward compatibility with existing usage
@@ -189,17 +224,20 @@ This enhancement will:
 ### ⚠️ REMAINING WORK
 
 1. **Comprehensive Testing**:
+
    - Need to create formal test suite for line range functionality
    - Test edge cases (empty files, out-of-bounds ranges, single lines)
    - Performance testing with large files
    - Verify memory efficiency gains
 
 2. **Documentation Updates**:
+
    - Update `docs/session-workspace-tools.md` with new capabilities
    - Document all new parameters and response format
    - Add usage examples for line range functionality
 
 3. **Error Handling Enhancement**:
+
    - Improve error messages for invalid line ranges
    - Add validation for edge cases
    - Enhance user feedback for boundary conditions
@@ -216,6 +254,7 @@ This enhancement will:
 The main enhancement was implemented in `src/adapters/mcp/session-files.ts` with the following key components:
 
 1. **Enhanced Parameter Schema**:
+
 ```typescript
 parameters: z.object({
   session: z.string().describe("Session identifier (name or task ID)"),
@@ -228,6 +267,7 @@ parameters: z.object({
 ```
 
 2. **Intelligent Line Processing**:
+
 ```typescript
 function processFileContentWithLineRange(
   content: string,
@@ -242,15 +282,16 @@ function processFileContentWithLineRange(
   totalLines: number;
   linesShown: string;
   summary?: string;
-}
+};
 ```
 
 3. **Enhanced Response Format**:
-The tool now returns comprehensive metadata including total line count, actual range displayed, and content summaries for better user experience.
+   The tool now returns comprehensive metadata including total line count, actual range displayed, and content summaries for better user experience.
 
 ### Testing Verification
 
 Verified functionality with real-world usage:
+
 - Line range requests (e.g., lines 1-30) work correctly
 - Context expansion provides better readability
 - Large files handle efficiently without memory issues
