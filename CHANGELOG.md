@@ -1,6 +1,9 @@
+# Changelog
+
 ## [Unreleased]
 
 ### Added
+- **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Commands with 3+ words (e.g., `core AI Models Refresh`) now work with proper hierarchical nesting instead of flat structure.
 
 - **Task #325: Implemented Special Workspace Deprecation Warnings**
 
