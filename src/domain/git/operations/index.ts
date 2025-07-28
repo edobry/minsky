@@ -13,6 +13,29 @@ export type {
   BaseGitOperationParams,
 } from "./base-git-operation";
 
+// Import factory functions for createAllGitOperations
+import {
+  createCloneOperation,
+  createBranchOperation,
+  createPushOperation,
+  createCommitOperation,
+} from "./basic-operations";
+import {
+  createCreatePullRequestOperation,
+  createPreparePrOperation,
+  createMergePrOperation,
+} from "./pr-operations";
+import {
+  createMergeOperation,
+  createCheckoutOperation,
+  createRebaseOperation,
+} from "./advanced-operations";
+import {
+  GitOperationRegistry,
+  gitOperationRegistry,
+  type GitOperationDependencies,
+} from "./base-git-operation";
+
 // PR operations
 export {
   CreatePullRequestOperation,
