@@ -21,7 +21,7 @@ function addFrontmatter(content: string, meta: RuleMetadata): string {
   let yamlStr = jsYaml.dump(meta, {
     lineWidth: -1, // Don't wrap lines
     noCompatMode: true, // Use YAML 1.2
-    quotingType: "\"", // Use double quotes when necessary
+    quotingType: '"', // Use double quotes when necessary
     forceQuotes: false, // Don't force quotes on all strings
   });
 
@@ -49,23 +49,23 @@ export type RuleFormat = "cursor" | "openai";
 export interface RuleTemplate {
   /** Unique identifier for the template */
   id: string;
-  
+
   /** Human-readable name */
   name: string;
-  
+
   /** Description of the template */
   description: string;
-  
+
   /** Tags for categorization */
   tags?: string[];
-  
+
   /**
    * Generate content for the rule
    * @param context Template context with configuration and helpers
    * @returns Generated content as a string
    */
   generateContent: (context: any) => string;
-  
+
   /**
    * Generate metadata for the rule (optional)
    * @param context Template context with configuration and helpers
@@ -80,13 +80,13 @@ export interface RuleTemplate {
 export interface GenerateRulesOptions {
   /** Configuration for rule generation */
   config: RuleGenerationConfig;
-  
+
   /** Templates to use (if not specified, uses all registered templates) */
   selectedRules?: string[];
-  
+
   /** Whether to overwrite existing files */
   overwrite?: boolean;
-  
+
   /** Whether to perform a dry run (don't write files) */
   dryRun?: boolean;
 }
@@ -97,7 +97,7 @@ export interface GenerateRulesOptions {
 export interface GenerateRulesResult {
   /** Whether the generation was successful */
   success: boolean;
-  
+
   /** Generated rules info */
   rules: Array<{
     id: string;
@@ -105,10 +105,10 @@ export interface GenerateRulesResult {
     content: string;
     meta: RuleMetadata | null;
   }>;
-  
+
   /** Any errors that occurred during generation */
   errors: string[];
-  
+
   /** Configuration used for generation */
   config?: RuleGenerationConfig;
 }
@@ -122,7 +122,7 @@ export class RuleTemplateService {
   private ruleService: RuleService;
   private templateRegistry: Map<string, RuleTemplate> = new Map();
   private workspacePath: string;
-  
+
   /**
    * Create a new RuleTemplateService
    * @param workspacePath Path to the workspace
@@ -130,11 +130,11 @@ export class RuleTemplateService {
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
     this.ruleService = new RuleService(workspacePath);
-    
+
     // Load default templates
     this.registerInitTemplates();
   }
-  
+
   /**
    * Register a template with the service
    * @param template Rule template to register
@@ -144,10 +144,10 @@ export class RuleTemplateService {
       // Silently replace existing template to avoid conflicts during testing
       console.debug(`Replacing existing template '${template.id}'`);
     }
-    
+
     this.templateRegistry.set(template.id, template);
   }
-  
+
   /**
    * Get all registered templates
    * @returns Array of rule templates
@@ -155,7 +155,7 @@ export class RuleTemplateService {
   getTemplates(): RuleTemplate[] {
     return Array.from(this.templateRegistry.values());
   }
-  
+
   /**
    * Get a template by ID
    * @param id Template ID
@@ -164,7 +164,7 @@ export class RuleTemplateService {
   getTemplate(id: string): RuleTemplate | undefined {
     return this.templateRegistry.get(id);
   }
-  
+
   /**
    * Generate rules based on configuration and selected templates
    * @param options Options for rule generation
@@ -173,10 +173,10 @@ export class RuleTemplateService {
   async generateRules(options: GenerateRulesOptions): Promise<GenerateRulesResult> {
     const { config, selectedRules, overwrite = false, dryRun = false } = options;
     const result: GenerateRulesResult = { success: true, rules: [], errors: [] };
-    
+
     // Create template context
     const context = createTemplateContext(config);
-    
+
     // Determine templates to use
     let templates: RuleTemplate[] = [];
     if (selectedRules && selectedRules.length > 0) {
@@ -193,13 +193,13 @@ export class RuleTemplateService {
       // Use all templates
       templates = this.getTemplates();
     }
-    
+
     // If there are errors at this point, return early
     if (result.errors.length > 0) {
       result.success = false;
       return result;
     }
-    
+
     // Generate rules
     for (const template of templates) {
       try {
@@ -210,18 +210,18 @@ export class RuleTemplateService {
         result.success = false;
       }
     }
-    
+
     // If there are errors, mark as unsuccessful
     if (result.errors.length > 0) {
       result.success = false;
     }
-    
+
     // Add config to result for testing/debugging
     result.config = config;
-    
+
     return result;
   }
-  
+
   /**
    * Generate a single rule from a template
    * @param template Rule template
@@ -244,11 +244,11 @@ export class RuleTemplateService {
     // Generate content and metadata
     const content = template.generateContent(context);
     const meta = template.generateMeta ? template.generateMeta(context) : null;
-    
+
     // Get output path
     const outputDir = this.getOutputDir(context.config);
     const rulePath = this.getRulePath(template.id, outputDir);
-    
+
     // Ensure directory exists (unless dry run)
     if (!dryRun) {
       const ruleDir = path.dirname(rulePath);
@@ -256,12 +256,12 @@ export class RuleTemplateService {
         fs.mkdirSync(ruleDir, { recursive: true });
       }
     }
-    
+
     // Check if file exists and respect overwrite option
     if (!dryRun && fs.existsSync(rulePath) && !overwrite) {
       throw new Error(`Rule file already exists at '${rulePath}' and overwrite is disabled`);
     }
-    
+
     // Write the file (unless dry run)
     if (!dryRun) {
       // If metadata is provided, add YAML frontmatter
@@ -269,26 +269,26 @@ export class RuleTemplateService {
       if (meta) {
         fileContent = addFrontmatter(content, meta);
       }
-      
+
       fs.writeFileSync(rulePath, fileContent);
     }
-    
+
     // Create the base rule object
     const rule: any = {
       id: template.id,
       path: rulePath,
       content,
-      meta
+      meta,
     };
-    
+
     // Flatten metadata properties onto the rule object if metadata exists
     if (meta) {
       Object.assign(rule, meta);
     }
-    
+
     return rule;
   }
-  
+
   /**
    * Get the output directory for rules
    * @param config Rule generation config
@@ -296,18 +296,18 @@ export class RuleTemplateService {
    */
   private getOutputDir(config: RuleGenerationConfig): string {
     // Use configured output directory if provided
-    const outputDir = config.outputDir || 
-      (config.ruleFormat === "cursor" ? ".cursor/rules" : ".ai/rules");
-    
+    const outputDir =
+      config.outputDir || (config.ruleFormat === "cursor" ? ".cursor/rules" : ".ai/rules");
+
     // If output dir is absolute, use it as-is
     if (path.isAbsolute(outputDir)) {
       return outputDir;
     }
-    
+
     // Otherwise, resolve relative to workspace path
     return path.resolve(this.workspacePath, outputDir);
   }
-  
+
   /**
    * Get the path for a rule file
    * @param id Rule ID
@@ -317,14 +317,15 @@ export class RuleTemplateService {
   private getRulePath(id: string, outputDir: string): string {
     return path.join(outputDir, `${id}.mdc`);
   }
-  
+
   /**
    * Generate CLI-first rules
    * @param options Options for rule generation (overrides interface to "cli")
    * @returns Result of rule generation
    */
   async generateCliRules(
-    options: Omit<GenerateRulesOptions, "config"> & Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir">>
+    options: Omit<GenerateRulesOptions, "config"> &
+      Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir">>
   ): Promise<GenerateRulesResult> {
     return this.generateRules({
       ...options,
@@ -334,18 +335,19 @@ export class RuleTemplateService {
         mcpTransport: "stdio",
         preferMcp: false,
         ruleFormat: options.ruleFormat || "cursor",
-        outputDir: options.outputDir || ".cursor/rules"
-      }
+        outputDir: options.outputDir || ".cursor/rules",
+      },
     });
   }
-  
+
   /**
    * Generate MCP-only rules
    * @param options Options for rule generation (overrides interface to "mcp")
    * @returns Result of rule generation
    */
   async generateMcpRules(
-    options: Omit<GenerateRulesOptions, "config"> & Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir">>
+    options: Omit<GenerateRulesOptions, "config"> &
+      Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir">>
   ): Promise<GenerateRulesResult> {
     return this.generateRules({
       ...options,
@@ -355,18 +357,19 @@ export class RuleTemplateService {
         mcpTransport: "stdio",
         preferMcp: true,
         ruleFormat: options.ruleFormat || "cursor",
-        outputDir: options.outputDir || ".cursor/rules"
-      }
+        outputDir: options.outputDir || ".cursor/rules",
+      },
     });
   }
-  
+
   /**
    * Generate hybrid rules
    * @param options Options for rule generation (overrides interface to "hybrid")
    * @returns Result of rule generation
    */
   async generateHybridRules(
-    options: Omit<GenerateRulesOptions, "config"> & Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir" | "preferMcp">>
+    options: Omit<GenerateRulesOptions, "config"> &
+      Partial<Pick<RuleGenerationConfig, "ruleFormat" | "outputDir" | "preferMcp">>
   ): Promise<GenerateRulesResult> {
     return this.generateRules({
       ...options,
@@ -376,11 +379,11 @@ export class RuleTemplateService {
         mcpTransport: "stdio",
         preferMcp: options.preferMcp === undefined ? false : options.preferMcp,
         ruleFormat: options.ruleFormat || "cursor",
-        outputDir: options.outputDir || ".cursor/rules"
-      }
+        outputDir: options.outputDir || ".cursor/rules",
+      },
     });
   }
-  
+
   /**
    * Register default templates
    * These are the core templates used for standard rule generation
@@ -388,7 +391,7 @@ export class RuleTemplateService {
   async registerDefaultTemplates(): Promise<void> {
     this.registerInitTemplates(); // Init templates are a subset of default templates
   }
-  
+
   /**
    * Register the init templates synchronously
    * Used specifically by the init.ts file to avoid async/await overhead
@@ -397,14 +400,14 @@ export class RuleTemplateService {
     try {
       // Synchronous require to avoid circular dependencies
       const { DEFAULT_TEMPLATES } = require("./default-templates");
-      
+
       // Register each template
       for (const template of DEFAULT_TEMPLATES) {
         this.registerTemplate(template);
       }
     } catch (error) {
       console.error("Error registering init templates:", error);
-      
+
       // Register a minimal init template
       this.registerTemplate({
         id: "minsky-workflow",
@@ -413,7 +416,7 @@ export class RuleTemplateService {
         tags: ["workflow"],
         generateContent: (context) => {
           return "# Minsky Workflow\n\nThis is a fallback template due to an error loading templates.";
-        }
+        },
       });
     }
   }
@@ -442,4 +445,4 @@ export async function generateRulesWithConfig(
   const service = createRuleTemplateService(workspacePath);
   await service.registerDefaultTemplates();
   return service.generateRules({ ...options, config });
-} 
+}

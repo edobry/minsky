@@ -14,7 +14,7 @@ console.log("   ✓ Completed\n");
 console.log("2. All registered commands:");
 const allCommands = sharedCommandRegistry.getAllCommands();
 console.log(`   Total commands: ${allCommands.length}`);
-allCommands.forEach(cmd => {
+allCommands.forEach((cmd) => {
   console.log(`   - ${cmd.id} (${cmd.category}) - ${cmd.name}`);
 });
 console.log("");
@@ -23,7 +23,7 @@ console.log("");
 console.log("3. RULES category commands:");
 const rulesCommands = sharedCommandRegistry.getCommandsByCategory(CommandCategory.RULES);
 console.log(`   Rules commands count: ${rulesCommands.length}`);
-rulesCommands.forEach(cmd => {
+rulesCommands.forEach((cmd) => {
   console.log(`   - ${cmd.id} - ${cmd.name} - ${cmd.description}`);
 });
 console.log("");
@@ -44,10 +44,10 @@ console.log("");
 
 // Check each category
 console.log("5. Commands by category:");
-Object.values(CommandCategory).forEach(category => {
+Object.values(CommandCategory).forEach((category) => {
   const commands = sharedCommandRegistry.getCommandsByCategory(category);
   console.log(`   ${category}: ${commands.length} commands`);
-  commands.forEach(cmd => {
+  commands.forEach((cmd) => {
     console.log(`     - ${cmd.id}`);
   });
 });

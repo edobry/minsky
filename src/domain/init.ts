@@ -102,7 +102,12 @@ export async function initializeProject(
     await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
     // Generate rules using template system
-    await generateRulesWithTemplateSystem(rulesDirPath, ruleFormat, overwrite, mcp?.enabled ?? false);
+    await generateRulesWithTemplateSystem(
+      rulesDirPath,
+      ruleFormat,
+      overwrite,
+      mcp?.enabled ?? false
+    );
   }
 
   // Setup MCP if enabled
@@ -173,41 +178,41 @@ async function generateRulesWithTemplateSystem(
 ): Promise<void> {
   const workspacePath = path.dirname(path.dirname(rulesDirPath)); // Get workspace path from rules dir
   const service = createRuleTemplateService(workspacePath);
-  
+
   // Register the init templates
   service.registerInitTemplates();
-  
+
   // Configure rule generation based on init parameters
   const config = {
-    interface: mcpEnabled ? "hybrid" as const : "cli" as const,
+    interface: mcpEnabled ? ("hybrid" as const) : ("cli" as const),
     mcpEnabled,
     mcpTransport: "stdio" as const,
     preferMcp: false, // Default to CLI for familiarity
     ruleFormat,
-    outputDir: rulesDirPath
+    outputDir: rulesDirPath,
   };
-  
+
   // Generate the comprehensive core workflow rules
   const selectedRules = [
     "minsky-workflow",
-    "index", 
+    "index",
     "minsky-workflow-orchestrator",
     "task-implementation-workflow",
-    "minsky-session-management", 
+    "minsky-session-management",
     "task-status-protocol",
-    "pr-preparation-workflow"
+    "pr-preparation-workflow",
   ];
   if (mcpEnabled) {
     selectedRules.push("mcp-usage");
   }
-  
+
   const result = await service.generateRules({
     config,
     selectedRules,
     overwrite,
-    dryRun: false
+    dryRun: false,
   });
-  
+
   if (!result.success) {
     throw new Error(`Failed to generate rules: ${result.errors.join(", ")}`);
   }
@@ -224,27 +229,27 @@ async function generateMcpRuleWithTemplateSystem(
 ): Promise<void> {
   const workspacePath = path.dirname(path.dirname(rulesDirPath)); // Get workspace path from rules dir
   const service = createRuleTemplateService(workspacePath);
-  
+
   // Register the init templates
   service.registerInitTemplates();
-  
+
   // Configure rule generation for MCP
   const config = {
     interface: "mcp" as const,
     mcpEnabled: true,
-    mcpTransport: mcpOptions?.transport || "stdio" as const,
+    mcpTransport: mcpOptions?.transport || ("stdio" as const),
     preferMcp: true, // For MCP-specific rule
     ruleFormat,
-    outputDir: rulesDirPath
+    outputDir: rulesDirPath,
   };
-  
+
   const result = await service.generateRules({
     config,
     selectedRules: ["mcp-usage"],
     overwrite,
-    dryRun: false
+    dryRun: false,
   });
-  
+
   if (!result.success) {
     throw new Error(`Failed to generate MCP rule: ${result.errors.join(", ")}`);
   }

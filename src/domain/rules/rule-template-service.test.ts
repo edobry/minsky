@@ -7,7 +7,7 @@ import {
   createRuleTemplateService,
   generateRulesWithConfig,
   type RuleTemplate,
-  type GenerateRulesOptions
+  type GenerateRulesOptions,
 } from "./rule-template-service";
 import { registerAllSharedCommands } from "../../adapters/shared/commands";
 import { sharedCommandRegistry } from "../../adapters/shared/command-registry";
@@ -15,7 +15,7 @@ import {
   type RuleGenerationConfig,
   DEFAULT_CLI_CONFIG,
   DEFAULT_MCP_CONFIG,
-  DEFAULT_HYBRID_CONFIG
+  DEFAULT_HYBRID_CONFIG,
 } from "./template-system";
 
 // One-time setup for commands
@@ -28,21 +28,22 @@ describe("RuleTemplateService", () => {
   beforeEach(async () => {
     // Create unique temporary directory for each test
     testDir = await fs.mkdtemp(path.join(tmpdir(), "rule-template-test-"));
-    
+
     // Register commands once
     if (!commandsRegistered) {
       registerAllSharedCommands();
       commandsRegistered = true;
     }
-    
+
     service = new RuleTemplateService(testDir);
-    
+
     // Register a test template used by factory and file system tests
     service.registerTemplate({
       id: "test-template",
       name: "Test Rule",
       description: "Test rule for unit tests",
-      generateContent: (context) => `# Test Rule\n\n${context.helpers.command("tasks.list", "list all tasks")}`
+      generateContent: (context) =>
+        `# Test Rule\n\n${context.helpers.command("tasks.list", "list all tasks")}`,
     });
   });
 
@@ -57,11 +58,11 @@ describe("RuleTemplateService", () => {
         id: "test-rule",
         name: "Test Rule",
         description: "A test rule",
-        generateContent: () => "test content"
+        generateContent: () => "test content",
       };
 
       service.registerTemplate(template);
-      
+
       expect(service.getTemplate("test-rule")).toEqual(template);
       expect(service.getTemplates()).toHaveLength(10); // 8 default + 1 beforeEach + 1 registered
     });
@@ -75,14 +76,14 @@ describe("RuleTemplateService", () => {
         id: "rule1",
         name: "Rule 1",
         description: "First rule",
-        generateContent: () => "content 1"
+        generateContent: () => "content 1",
       };
 
       const template2: RuleTemplate = {
-        id: "rule2", 
+        id: "rule2",
         name: "Rule 2",
         description: "Second rule",
-        generateContent: () => "content 2"
+        generateContent: () => "content 2",
       };
 
       service.registerTemplate(template1);
@@ -90,8 +91,8 @@ describe("RuleTemplateService", () => {
 
       const templates = service.getTemplates();
       expect(templates).toHaveLength(11); // 8 default + 1 beforeEach + 2 registered
-      expect(templates.some(t => t.id === "rule1")).toBe(true);
-      expect(templates.some(t => t.id === "rule2")).toBe(true);
+      expect(templates.some((t) => t.id === "rule1")).toBe(true);
+      expect(templates.some((t) => t.id === "rule2")).toBe(true);
     });
   });
 
@@ -103,7 +104,7 @@ describe("RuleTemplateService", () => {
         description: "A CLI-focused rule",
         generateContent: (context) => {
           return `# CLI Rule\n\n${context.helpers.command("tasks.list", "list tasks")}`;
-        }
+        },
       };
 
       service.registerTemplate(template);
@@ -111,7 +112,7 @@ describe("RuleTemplateService", () => {
       const result = await service.generateRules({
         config: DEFAULT_CLI_CONFIG,
         selectedRules: ["cli-rule"],
-        dryRun: true
+        dryRun: true,
       });
 
       if (!result.success) {
@@ -126,11 +127,11 @@ describe("RuleTemplateService", () => {
     test("generates rule with MCP configuration", async () => {
       const template: RuleTemplate = {
         id: "mcp-rule",
-        name: "MCP Rule", 
+        name: "MCP Rule",
         description: "An MCP-focused rule",
         generateContent: (context) => {
           return `# MCP Rule\n\n${context.helpers.command("tasks.list", "list tasks")}`;
-        }
+        },
       };
 
       service.registerTemplate(template);
@@ -138,7 +139,7 @@ describe("RuleTemplateService", () => {
       const result = await service.generateRules({
         config: DEFAULT_MCP_CONFIG,
         selectedRules: ["mcp-rule"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(true);
@@ -153,7 +154,7 @@ describe("RuleTemplateService", () => {
         description: "A hybrid rule",
         generateContent: (context) => {
           return `# Hybrid Rule\n\n${context.helpers.command("tasks.list")}`;
-        }
+        },
       };
 
       service.registerTemplate(template);
@@ -162,7 +163,7 @@ describe("RuleTemplateService", () => {
       const result = await service.generateRules({
         config,
         selectedRules: ["hybrid-rule"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(true);
@@ -176,7 +177,7 @@ describe("RuleTemplateService", () => {
         description: "A hybrid rule",
         generateContent: (context) => {
           return `# Hybrid Rule\n\n${context.helpers.command("tasks.list")}`;
-        }
+        },
       };
 
       service.registerTemplate(template);
@@ -185,7 +186,7 @@ describe("RuleTemplateService", () => {
       const result = await service.generateRules({
         config,
         selectedRules: ["hybrid-rule"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(true);
@@ -199,14 +200,14 @@ describe("RuleTemplateService", () => {
         id: "rule1",
         name: "Rule 1",
         description: "First rule",
-        generateContent: () => "Content 1"
+        generateContent: () => "Content 1",
       };
 
       const template2: RuleTemplate = {
         id: "rule2",
-        name: "Rule 2", 
+        name: "Rule 2",
         description: "Second rule",
-        generateContent: () => "Content 2"
+        generateContent: () => "Content 2",
       };
 
       service.registerTemplate(template1);
@@ -215,13 +216,13 @@ describe("RuleTemplateService", () => {
       const result = await service.generateRules({
         config: DEFAULT_CLI_CONFIG,
         selectedRules: ["rule1", "rule2"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(2);
-      expect(result.rules.some(r => r.id === "rule1")).toBe(true);
-      expect(result.rules.some(r => r.id === "rule2")).toBe(true);
+      expect(result.rules.some((r) => r.id === "rule1")).toBe(true);
+      expect(result.rules.some((r) => r.id === "rule2")).toBe(true);
     });
 
     test("generates all rules when none specified", async () => {
@@ -229,14 +230,14 @@ describe("RuleTemplateService", () => {
         id: "additional-rule",
         name: "Additional Rule",
         description: "An additional rule",
-        generateContent: () => "Additional content"
+        generateContent: () => "Additional content",
       };
 
       service.registerTemplate(template);
 
       const result = await service.generateRules({
         config: DEFAULT_CLI_CONFIG,
-        dryRun: true
+        dryRun: true,
       });
 
       if (!result.success) {
@@ -244,8 +245,8 @@ describe("RuleTemplateService", () => {
       }
       expect(result.success).toBe(true);
       expect(result.rules.length).toBeGreaterThan(3); // Should include 3 default templates + additional
-      expect(result.rules.some(r => r.id === "additional-rule")).toBe(true);
-      expect(result.rules.some(r => r.id === "minsky-workflow")).toBe(true);
+      expect(result.rules.some((r) => r.id === "additional-rule")).toBe(true);
+      expect(result.rules.some((r) => r.id === "minsky-workflow")).toBe(true);
     });
 
     test("handles generation errors gracefully", async () => {
@@ -255,7 +256,7 @@ describe("RuleTemplateService", () => {
         description: "A rule that will fail",
         generateContent: () => {
           throw new Error("Template generation failed");
-        }
+        },
       };
 
       service.registerTemplate(faultyTemplate);
@@ -263,7 +264,7 @@ describe("RuleTemplateService", () => {
       const result = await service.generateRules({
         config: DEFAULT_CLI_CONFIG,
         selectedRules: ["faulty-rule"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(false);
@@ -300,7 +301,7 @@ ${helpers.parameterDoc("tasks.list")}
 ${helpers.conditionalSection(context.config.interface === "cli", "This appears for CLI")}
 ${helpers.conditionalSection(context.config.interface === "mcp", "This appears for MCP")}
 `;
-        }
+        },
       };
 
       service.registerTemplate(template);
@@ -309,7 +310,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       const cliResult = await service.generateRules({
         config: DEFAULT_CLI_CONFIG,
         selectedRules: ["helper-test"],
-        dryRun: true
+        dryRun: true,
       });
 
       if (!cliResult.success) {
@@ -324,11 +325,11 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(cliContent).toContain("This appears for CLI");
       expect(cliContent).not.toContain("This appears for MCP");
 
-      // Test MCP configuration  
+      // Test MCP configuration
       const mcpResult = await service.generateRules({
         config: DEFAULT_MCP_CONFIG,
         selectedRules: ["helper-test"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(mcpResult.success).toBe(true);
@@ -352,8 +353,8 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
         generateMeta: (context) => ({
           globs: context.config.interface === "mcp" ? ["**/*.mcp.ts"] : ["**/*.cli.ts"],
           alwaysApply: context.config.interface === "cli",
-          tags: [context.config.interface, "custom"]
-        })
+          tags: [context.config.interface, "custom"],
+        }),
       };
 
       service.registerTemplate(template);
@@ -362,7 +363,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       const cliResult = await service.generateRules({
         config: DEFAULT_CLI_CONFIG,
         selectedRules: ["custom-meta"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(cliResult.success).toBe(true);
@@ -376,7 +377,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       const mcpResult = await service.generateRules({
         config: DEFAULT_MCP_CONFIG,
         selectedRules: ["custom-meta"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(mcpResult.success).toBe(true);
@@ -394,14 +395,14 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
         id: "preset-test",
         name: "Preset Test",
         description: "Tests configuration presets",
-        generateContent: (context) => context.helpers.command("tasks.list")
+        generateContent: (context) => context.helpers.command("tasks.list"),
       };
 
       service.registerTemplate(template);
 
       const result = await service.generateCliRules({
         selectedRules: ["preset-test"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(true);
@@ -412,16 +413,16 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
     test("generateMcpRules uses MCP configuration", async () => {
       const template: RuleTemplate = {
         id: "preset-test",
-        name: "Preset Test", 
+        name: "Preset Test",
         description: "Tests configuration presets",
-        generateContent: (context) => context.helpers.command("tasks.list")
+        generateContent: (context) => context.helpers.command("tasks.list"),
       };
 
       service.registerTemplate(template);
 
       const result = await service.generateMcpRules({
         selectedRules: ["preset-test"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(true);
@@ -433,15 +434,15 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       const template: RuleTemplate = {
         id: "preset-test",
         name: "Preset Test",
-        description: "Tests configuration presets", 
-        generateContent: (context) => context.helpers.command("tasks.list")
+        description: "Tests configuration presets",
+        generateContent: (context) => context.helpers.command("tasks.list"),
       };
 
       service.registerTemplate(template);
 
       const result = await service.generateHybridRules({
         selectedRules: ["preset-test"],
-        dryRun: true
+        dryRun: true,
       });
 
       expect(result.success).toBe(true);
@@ -461,7 +462,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
     test("generateRulesWithConfig generates rules correctly", async () => {
       const result = await generateRulesWithConfig(testDir, DEFAULT_CLI_CONFIG, {
         selectedRules: ["minsky-workflow"],
-        dryRun: true
+        dryRun: true,
       });
 
       if (!result.success) {
@@ -483,17 +484,20 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
         config: DEFAULT_CLI_CONFIG,
         selectedRules: ["test-template"],
         dryRun: false,
-        overwrite: true
+        overwrite: true,
       });
 
       if (!result.success) {
         console.error("File system integration test failed:", result.errors);
       }
       expect(result.success).toBe(true);
-      
+
       // Check that file was actually created
       const filePath = path.join(testDir, ".cursor", "rules", "test-template.mdc");
-      const fileExists = await fs.access(filePath).then(() => true).catch(() => false);
+      const fileExists = await fs
+        .access(filePath)
+        .then(() => true)
+        .catch(() => false);
       expect(fileExists).toBe(true);
 
       // Check file content
@@ -502,4 +506,4 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(content).toContain("minsky tasks list");
     });
   });
-}); 
+});

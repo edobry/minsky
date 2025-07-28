@@ -1,36 +1,39 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { registerRulesCommands } from "./rules";
+import { beforeEach, afterEach, describe, test, expect } from "bun:test";
+import { mock } from "bun:test";
 import { sharedCommandRegistry } from "../command-registry";
+import { registerRulesCommands } from "./rules";
 
-// Mock workspace resolution
+// Mock workspace resolver
 mock.module("../../../domain/workspace", () => ({
-  resolveWorkspacePath: mock().mockResolvedValue("/mock/workspace")
+  resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace")),
 }));
 
 // Mock rule template service
 mock.module("../../../domain/rules/rule-template-service", () => ({
-  createRuleTemplateService: mock().mockReturnValue({
-    registerDefaultTemplates: mock().mockResolvedValue(undefined),
-    generateRules: mock().mockResolvedValue({
-      success: true,
-      rules: [
-        {
-          id: "test-rule",
-          path: "/mock/workspace/.cursor/rules/test-rule.mdc",
-          content: "# Test Rule\n\nThis is a test rule.",
-          meta: { name: "Test Rule", description: "A test rule" }
-        }
-      ],
-      errors: []
-    })
-  })
+  createRuleTemplateService: mock(() => ({
+    registerDefaultTemplates: mock(() => Promise.resolve()),
+    generateRules: mock(() =>
+      Promise.resolve({
+        success: true,
+        rules: [
+          {
+            id: "test-rule",
+            path: "/mock/workspace/.cursor/rules/test-rule.mdc",
+            content: "# Test Rule\n\nThis is a test rule.",
+            meta: { name: "Test Rule", description: "A test rule" },
+          },
+        ],
+        errors: [],
+      })
+    ),
+  })),
 }));
 
 describe("Rules Commands", () => {
   beforeEach(() => {
     // Clear the registry before each test
     (sharedCommandRegistry as any).clear();
-    
+
     // Register commands
     registerRulesCommands();
   });
@@ -54,7 +57,7 @@ describe("Rules Commands", () => {
 
       if (command) {
         const result = await command.execute({}, { interface: "cli" });
-        
+
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
         expect(result.generated).toBe(1);
@@ -68,12 +71,15 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute({
-          interface: "mcp",
-          format: "cursor",
-          mcpTransport: "stdio"
-        }, { interface: "cli" });
-        
+        const result = await command.execute(
+          {
+            interface: "mcp",
+            format: "cursor",
+            mcpTransport: "stdio",
+          },
+          { interface: "cli" }
+        );
+
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
         expect(result.generated).toBe(1);
@@ -85,12 +91,15 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute({
-          interface: "hybrid",
-          preferMcp: true,
-          format: "openai"
-        }, { interface: "cli" });
-        
+        const result = await command.execute(
+          {
+            interface: "hybrid",
+            preferMcp: true,
+            format: "openai",
+          },
+          { interface: "cli" }
+        );
+
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
         expect(result.generated).toBe(1);
@@ -102,11 +111,14 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute({
-          rules: "minsky-workflow,index",
-          interface: "cli"
-        }, { interface: "cli" });
-        
+        const result = await command.execute(
+          {
+            rules: "minsky-workflow,index",
+            interface: "cli",
+          },
+          { interface: "cli" }
+        );
+
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
       }
@@ -117,11 +129,14 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute({
-          dryRun: true,
-          interface: "cli"
-        }, { interface: "cli" });
-        
+        const result = await command.execute(
+          {
+            dryRun: true,
+            interface: "cli",
+          },
+          { interface: "cli" }
+        );
+
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
       }
@@ -132,11 +147,14 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute({
-          outputDir: "/custom/output/dir",
-          interface: "cli"
-        }, { interface: "cli" });
-        
+        const result = await command.execute(
+          {
+            outputDir: "/custom/output/dir",
+            interface: "cli",
+          },
+          { interface: "cli" }
+        );
+
         expect(result.success).toBe(true);
         expect(result.rules).toHaveLength(1);
       }
@@ -147,7 +165,7 @@ describe("Rules Commands", () => {
       // since Bun's mocking works differently than Jest
       const command = sharedCommandRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
-      
+
       // Test passes if command exists - error handling will be tested
       // in integration tests or by checking the actual implementation
       if (command) {
@@ -183,4 +201,4 @@ describe("Rules Commands", () => {
       }
     });
   });
-}); 
+});

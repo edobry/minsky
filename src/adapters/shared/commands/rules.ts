@@ -124,12 +124,14 @@ const rulesGenerateCommandParams: CommandParameterMap = {
   },
   rules: {
     schema: z.string().optional(),
-    description: "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)",
+    description:
+      "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)",
     required: false,
   },
   outputDir: {
     schema: z.string().optional(),
-    description: "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)",
+    description:
+      "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)",
     required: false,
   },
   dryRun: {
@@ -438,14 +440,14 @@ export function registerRulesCommands(): void {
     parameters: rulesGenerateCommandParams,
     execute: async (params: any) => {
       log.debug("Executing rules.generate command", { params });
-        
+
       const typedParams = params as RulesGenerateParams;
 
       try {
         // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
         const ruleTemplateService = createRuleTemplateService(workspacePath);
-         
+
         // Register templates
         await ruleTemplateService.registerDefaultTemplates();
 
@@ -456,10 +458,14 @@ export function registerRulesCommands(): void {
           mcpTransport: (typedParams.mcpTransport || "stdio") as "stdio" | "http",
           preferMcp: typedParams.preferMcp || false,
           ruleFormat: (typedParams.format || "cursor") as "cursor" | "openai",
-          outputDir: typedParams.outputDir || (typedParams.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
+          outputDir:
+            typedParams.outputDir ||
+            (typedParams.format === "cursor" ? ".cursor/rules" : ".ai/rules"),
         };
 
-        const selectedRules = typedParams.rules ? typedParams.rules.split(",").map(t => t.trim()) : undefined;
+        const selectedRules = typedParams.rules
+          ? typedParams.rules.split(",").map((t) => t.trim())
+          : undefined;
         const dryRun = typedParams.dryRun || false;
         const overwrite = typedParams.overwrite || false;
 

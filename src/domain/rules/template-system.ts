@@ -8,7 +8,7 @@
 import {
   CommandGeneratorService,
   type InterfaceMode,
-  createCommandGeneratorService
+  createCommandGeneratorService,
 } from "./command-generator";
 import { CommandCategory } from "../../adapters/shared/command-registry";
 
@@ -85,9 +85,13 @@ export interface TemplateContext {
 /**
  * Creates template helpers based on configuration
  */
-function createTemplateHelpers(config: RuleGenerationConfig, commandGenerator: CommandGeneratorService): TemplateHelpers {
+function createTemplateHelpers(
+  config: RuleGenerationConfig,
+  commandGenerator: CommandGeneratorService
+): TemplateHelpers {
   // Flag for interface preference
-  const shouldUseMcp = config.interface === "mcp" || (config.interface === "hybrid" && config.preferMcp);
+  const shouldUseMcp =
+    config.interface === "mcp" || (config.interface === "hybrid" && config.preferMcp);
 
   return {
     command: (commandId: string, description?: string) => {
@@ -103,7 +107,7 @@ function createTemplateHelpers(config: RuleGenerationConfig, commandGenerator: C
     },
 
     codeBlock: (content: string, language: string = "bash") => {
-      return `\`\`\`${  language  }\n${  content  }\n\`\`\``;
+      return `\`\`\`${language}\n${content}\n\`\`\``;
     },
 
     conditionalSection: (condition: boolean, content: string, fallback?: string) => {
@@ -124,7 +128,7 @@ function createTemplateHelpers(config: RuleGenerationConfig, commandGenerator: C
       }
 
       return `1. **${description}**\n   ${syntax}`;
-    }
+    },
   };
 }
 
@@ -136,7 +140,7 @@ export function createTemplateContext(config: RuleGenerationConfig): TemplateCon
   const commandGenerator = createCommandGeneratorService({
     interfaceMode: config.interface,
     mcpEnabled: config.mcpEnabled,
-    preferMcp: config.preferMcp
+    preferMcp: config.preferMcp,
   });
 
   // Create helpers based on the command generator
@@ -145,7 +149,7 @@ export function createTemplateContext(config: RuleGenerationConfig): TemplateCon
   return {
     config,
     helpers,
-    commandGenerator
+    commandGenerator,
   };
 }
 
@@ -158,7 +162,7 @@ export const DEFAULT_CLI_CONFIG: RuleGenerationConfig = {
   mcpTransport: "stdio",
   preferMcp: false,
   ruleFormat: "cursor",
-  outputDir: ".cursor/rules"
+  outputDir: ".cursor/rules",
 };
 
 /**
@@ -170,7 +174,7 @@ export const DEFAULT_MCP_CONFIG: RuleGenerationConfig = {
   mcpTransport: "stdio",
   preferMcp: true,
   ruleFormat: "cursor",
-  outputDir: ".cursor/rules"
+  outputDir: ".cursor/rules",
 };
 
 /**
@@ -182,5 +186,5 @@ export const DEFAULT_HYBRID_CONFIG: RuleGenerationConfig = {
   mcpTransport: "stdio",
   preferMcp: false, // Default to CLI for familiarity
   ruleFormat: "cursor",
-  outputDir: ".cursor/rules"
-}; 
+  outputDir: ".cursor/rules",
+};
