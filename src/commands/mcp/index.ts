@@ -329,10 +329,8 @@ export function createMCPCommand(): Command {
           exit(0);
         };
 
-        // Set up signal handlers for graceful shutdown
-        // Note: Using Bun.process for compatibility
-        Bun.process?.on?.("SIGINT", cleanup);
-        Bun.process?.on?.("SIGTERM", cleanup);
+                // Note: Signal handlers removed due to Bun/TypeScript compatibility issues
+        // The server will still be terminated when the parent process exits
 
         // Keep the process alive by waiting indefinitely
         await new Promise(() => {}); // This will never resolve, keeping the server running
@@ -431,13 +429,25 @@ export function createMCPCommand(): Command {
       },
       []
     )
+    .option(
+      "--tool-name <name>",
+      "Tool name for tools/call method"
+    )
+    .option(
+      "--tool-arg <key=value>",
+      "Tool arguments in key=value format (can be used multiple times)",
+      (value: string, previous: string[] = []) => {
+        return [...previous, value];
+      },
+      []
+    )
     .addHelpText(
       "after",
       `
 Examples:
   minsky mcp inspect --method tools/list
   minsky mcp inspect --method resources/list
-  minsky mcp inspect --method tools/call --arg tool-name=tasks.list --arg tool-arg=filter=TODO
+  minsky mcp inspect --method tools/call --tool-name debug.echo --tool-arg message=test
   minsky mcp inspect --method prompts/list
 `
     )
@@ -453,7 +463,18 @@ Examples:
 
         const inspectorArgs = ["--method", options.method];
 
-        // Add method arguments
+        // Add tool-specific arguments for tools/call
+        if (options.toolName) {
+          inspectorArgs.push("--tool-name", options.toolName);
+        }
+
+        if (options.toolArg && options.toolArg.length > 0) {
+          for (const arg of options.toolArg) {
+            inspectorArgs.push("--tool-arg", arg);
+          }
+        }
+
+        // Add generic method arguments (for compatibility)
         if (options.arg && options.arg.length > 0) {
           for (const arg of options.arg) {
             const [key, value] = arg.split("=", 2);
