@@ -18,15 +18,15 @@ import { registerAiCommands } from "./ai";
 /**
  * Register all shared commands in the shared command registry
  */
-export function registerAllSharedCommands(): void {
+export async function registerAllSharedCommands(): Promise<void> {
   // Register git commands
   registerGitCommands();
 
   // Register tasks commands
   registerTasksCommands();
 
-  // Register session commands
-  registerSessionCommands();
+  // Register session commands (async)
+  await registerSessionCommands();
 
   // Register rules commands
   registerRulesCommands();
