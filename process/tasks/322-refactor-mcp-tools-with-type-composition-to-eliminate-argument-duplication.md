@@ -1,6 +1,7 @@
 # Task #322: Refactor MCP Tools with Type Composition to Eliminate Argument Duplication
 
 ## Overview
+
 The MCP tool implementations have significant duplication in argument types, response patterns, and validation logic across different tools. This creates maintenance overhead and violates DRY principles. Refactor using TypeScript interface composition and Zod schema composition to eliminate this duplication.
 
 ## Problem Analysis
@@ -8,22 +9,31 @@ The MCP tool implementations have significant duplication in argument types, res
 ### Current Duplication Patterns
 
 1. **Session Parameters** (17+ occurrences):
+
    ```ts
-   sessionName: z.string().describe("Session identifier (name or task ID)")
+   sessionName: z.string().describe("Session identifier (name or task ID)");
    ```
 
 2. **File Path Parameters** (15+ occurrences):
+
    ```ts
-   path: z.string().describe("Path to the file within the session workspace")
+   path: z.string().describe("Path to the file within the session workspace");
    ```
 
 3. **Common Options** (repeated across tools):
+
    ```ts
-   createDirs: z.boolean().optional().default(true).describe("Create parent directories if they don't exist")
-   explanation: z.string().optional().describe("One sentence explanation of why this tool is being used")
+   createDirs: z.boolean()
+     .optional()
+     .default(true)
+     .describe("Create parent directories if they don't exist");
+   explanation: z.string()
+     .optional()
+     .describe("One sentence explanation of why this tool is being used");
    ```
 
 4. **Error Response Patterns** (repeated in every tool):
+
    ```ts
    return {
      success: false,
@@ -34,6 +44,7 @@ The MCP tool implementations have significant duplication in argument types, res
    ```
 
 5. **Success Response Patterns** (similar structures across tools):
+
    ```ts
    return {
      success: true,
@@ -64,21 +75,47 @@ export const sessionNameParam = z.string().describe("Session identifier (name or
 
 // File system parameters
 export const filePathParam = z.string().describe("Path to the file within the session workspace");
-export const createDirsParam = z.boolean().optional().default(true).describe("Create parent directories if they don't exist");
-export const explanationParam = z.string().optional().describe("One sentence explanation of why this tool is being used");
+export const createDirsParam = z
+  .boolean()
+  .optional()
+  .default(true)
+  .describe("Create parent directories if they don't exist");
+export const explanationParam = z
+  .string()
+  .optional()
+  .describe("One sentence explanation of why this tool is being used");
 
 // Line range parameters (for file reading)
 export const lineRangeParams = z.object({
-  start_line_one_indexed: z.number().min(1).optional().describe("The one-indexed line number to start reading from (inclusive)"),
-  end_line_one_indexed_inclusive: z.number().min(1).optional().describe("The one-indexed line number to end reading at (inclusive)"),
-  should_read_entire_file: z.boolean().optional().default(false).describe("Whether to read the entire file"),
+  start_line_one_indexed: z
+    .number()
+    .min(1)
+    .optional()
+    .describe("The one-indexed line number to start reading from (inclusive)"),
+  end_line_one_indexed_inclusive: z
+    .number()
+    .min(1)
+    .optional()
+    .describe("The one-indexed line number to end reading at (inclusive)"),
+  should_read_entire_file: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Whether to read the entire file"),
 });
 
 // Search parameters
 export const searchParams = z.object({
   query: z.string().describe("Regex pattern to search for"),
-  case_sensitive: z.boolean().optional().default(false).describe("Whether the search should be case sensitive"),
-  include_pattern: z.string().optional().describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
+  case_sensitive: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Whether the search should be case sensitive"),
+  include_pattern: z
+    .string()
+    .optional()
+    .describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
   exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
 });
 
@@ -130,7 +167,10 @@ export interface SearchResponse extends SessionResponse {
 }
 
 // Response builders
-export function createErrorResponse(error: string, context: { path?: string; session?: string }): FileResponse {
+export function createErrorResponse(
+  error: string,
+  context: { path?: string; session?: string }
+): FileResponse {
   return {
     success: false,
     error,
@@ -181,13 +221,19 @@ commandMapper.addCommand({
   handler: async (args) => {
     try {
       // ... implementation
-      return createSuccessResponse({ path: args.path, session: args.sessionName }, {
-        content: processedContent,
-        totalLines: processed.totalLines,
-        // ... other specific data
-      });
+      return createSuccessResponse(
+        { path: args.path, session: args.sessionName },
+        {
+          content: processedContent,
+          totalLines: processed.totalLines,
+          // ... other specific data
+        }
+      );
     } catch (error) {
-      return createErrorResponse(getErrorMessage(error), { path: args.path, session: args.sessionName });
+      return createErrorResponse(getErrorMessage(error), {
+        path: args.path,
+        session: args.sessionName,
+      });
     }
   },
 });
@@ -219,20 +265,24 @@ export function createMcpErrorHandler(toolName: string) {
 ## Implementation Steps
 
 1. **Create Common Schema Files**
+
    - `src/adapters/mcp/schemas/common-parameters.ts`
    - `src/adapters/mcp/schemas/common-responses.ts`
    - `src/adapters/mcp/utils/error-handling.ts`
 
 2. **Refactor Session File Tools**
+
    - Update `session-files.ts` to use composed schemas
    - Update `session-edit-tools.ts` to use composed schemas
    - Update `session-workspace.ts` to use composed schemas
 
 3. **Refactor Other MCP Tools**
+
    - Apply composition patterns to other tool categories
    - Update any remaining hardcoded parameter patterns
 
 4. **Create Documentation**
+
    - Document the composition patterns for future tool development
    - Add examples of how to extend base schemas for new tools
 

@@ -205,7 +205,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
       },
       "tasks.get": {
         parameters: {
-          id: {
+          taskId: {
             asArgument: true,
           },
         },

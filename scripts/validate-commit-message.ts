@@ -23,7 +23,7 @@ const FORBIDDEN_MESSAGES = [
 ];
 
 const CONVENTIONAL_COMMIT_PATTERN =
-  /^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert)(\(.+\))?: .{1,50}/;
+  /^(feat|fix|docs|style|refactor|test|chore|perf|ci|build|revert|merge)(\(.+\))?: .{1,50}/;
 
 function getCurrentBranch(): string {
   try {
@@ -78,6 +78,7 @@ function validateCommitMessage(message: string): { valid: boolean; error?: strin
 Examples:
   feat(auth): add user authentication
   fix(#123): resolve login validation issue
+  merge(#276): integrate main branch changes
   docs: update README with new features`,
     };
   }

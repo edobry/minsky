@@ -28,6 +28,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 ### ✅ Phase 1: Investigation and Architecture (COMPLETED)
 
 1. **Current State Analysis** ✅
+
    - ✅ Analyzed all current rules for CLI command patterns
    - ✅ Created mapping of CLI commands to MCP tool equivalents via CommandGeneratorService
    - ✅ Documented rule generation logic currently in init domain
@@ -42,6 +43,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 ### ✅ Phase 2: Rules Domain Enhancement (COMPLETED)
 
 1. **Extract Init Logic** ✅
+
    - ✅ Moved rule generation logic to rules domain
    - ✅ Created `RuleTemplateService` class in `src/domain/rules/rule-template-service.ts`
    - ✅ Implemented template registry and management
@@ -56,6 +58,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 ### ⚠️ Phase 3: Template Conversion (PARTIALLY COMPLETED)
 
 1. **Core Rule Templates** ⚠️ **INCOMPLETE**
+
    - ✅ Created MINSKY_WORKFLOW_TEMPLATE with dynamic CLI/MCP syntax
    - ✅ Created INDEX_TEMPLATE for rules navigation
    - ✅ Created MCP_USAGE_TEMPLATE for MCP integration guidance
@@ -79,6 +82,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 ### ✅ Phase 4: Rules Generation Command (COMPLETED)
 
 1. **Core Command Implementation** ✅
+
    - ✅ Implemented `minsky rules generate` command with full options:
      - `--interface` (cli/mcp/hybrid)
      - `--rules` (rule selection)
@@ -106,6 +110,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 **CRITICAL FIX IMPLEMENTED**: Corrected MCP tool invocation format to match AI agent requirements
 
 1. **XML Format Implementation** ✅
+
    - ✅ Fixed `generateMcpSyntax` to use proper XML format:
      ```xml
      <function_calls>
@@ -136,6 +141,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 **MAJOR GAP**: 60+ existing rule files contain hardcoded CLI commands that need conversion
 
 1. **Core Workflow Rules Conversion** ❌
+
    - ❌ Convert `minsky-workflow-orchestrator.mdc` to template
    - ❌ Convert `task-implementation-workflow.mdc` to template
    - ❌ Convert `minsky-session-management.mdc` to template
@@ -144,6 +150,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
    - ❌ Convert `minsky-cli-usage.mdc` to template
 
 2. **Template Registry Expansion** ❌
+
    - ❌ Add templates for all major workflow rules
    - ❌ Update rule generation to use converted templates
    - ❌ Ensure template coverage matches existing functionality
@@ -157,6 +164,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 ### ❌ Phase 8: Integration and Validation (NOT STARTED)
 
 1. **End-to-End Testing** ❌
+
    - ❌ Test generated rules work in CLI mode
    - ❌ Test generated rules work in MCP mode
    - ❌ Test generated rules work in hybrid mode
@@ -170,6 +178,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 ## Current Achievement Assessment
 
 ### What We Successfully Built ✅
+
 - **Template Infrastructure**: Complete and robust
 - **Command Generation**: Dynamic CLI/MCP syntax from shared registry
 - **CLI Integration**: Fully functional `minsky rules generate` command
@@ -177,6 +186,7 @@ As the MCP ecosystem grows and rules become more sophisticated, we need a templa
 - **Testing**: Comprehensive test coverage for infrastructure
 
 ### What We Haven't Achieved ❌
+
 - **Main Goal**: Static rules are still static - they haven't been converted
 - **Rule Conversion**: 0 of 60+ existing rules have been templated
 - **Template Coverage**: Only 3 templates vs. ~15 needed for full workflow
