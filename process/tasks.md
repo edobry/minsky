@@ -585,3 +585,4 @@
 - [ ] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
 - [ ] Apply Type Composition Patterns to CLI Adapters [#330](process/tasks/330-apply-type-composition-patterns-to-cli-adapters.md)
+- [ ] Categorize and audit rule templates for redundancy analysis [#330](process/tasks/330-categorize-and-audit-rule-templates-for-redundancy-analysis.md)
