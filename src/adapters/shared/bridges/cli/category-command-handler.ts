@@ -151,8 +151,8 @@ export class CategoryCommandHandler {
       // Nested command - create/get the parent command and add as subcommand
       this.addNestedCommand(categoryCommand, commandDef, nameParts, commandGroups, context);
     } else {
-      // More complex nesting - handle it with warning
-      this.addComplexNestedCommand(categoryCommand, commandDef, context);
+      // More complex nesting - handle it with recursive nesting
+      this.addComplexNestedCommand(categoryCommand, commandDef, commandGroups, context);
     }
   }
 
@@ -189,10 +189,13 @@ export class CategoryCommandHandler {
     }
 
     // Get or create the parent command
-    let parentCommand = commandGroups.get(parentName);
+    const categoryName = categoryCommand.name() || "root";
+    const commandKey = `${categoryName}.${parentName}`;
+
+    let parentCommand = commandGroups.get(commandKey);
     if (!parentCommand) {
       const newParentCommand = new Command(parentName).description(`${parentName} commands`);
-      commandGroups.set(parentName, newParentCommand);
+      commandGroups.set(commandKey, newParentCommand);
       categoryCommand.addCommand(newParentCommand);
       parentCommand = newParentCommand;
     }
@@ -213,10 +216,11 @@ export class CategoryCommandHandler {
   private addComplexNestedCommand(
     categoryCommand: Command,
     commandDef: any,
+    commandGroups: Map<string, Command>,
     context?: { viaFactory?: boolean }
   ): void {
     const nameParts = commandDef.name.split(" ");
-    this.addNestedCommandRecursive(categoryCommand, commandDef, nameParts, new Map(), context);
+    this.addNestedCommandRecursive(categoryCommand, commandDef, nameParts, commandGroups, context);
   }
 
   /**
