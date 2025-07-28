@@ -19,57 +19,54 @@ export class AnthropicModelFetcher implements ModelFetcher {
   private readonly testEndpoint = "/messages";
 
   /**
-   * Fetch models by testing availability (Anthropic doesn't have a public models API)
-   * We validate each model individually to check current availability
+   * Fetch models from Anthropic's /v1/models API endpoint
    */
   async fetchModels(config: ModelFetchConfig): Promise<CachedProviderModel[]> {
     try {
-      log.debug("Fetching Anthropic models with live availability testing");
+      log.debug("Fetching Anthropic models from /v1/models API");
 
-      // Get static model definitions
-      const staticModels = this.getStaticModels();
+      const baseURL = config.baseURL || this.defaultBaseURL;
+      const url = `${baseURL}/v1/models`;
 
-      // Test each model for availability
-      const availableModels: CachedProviderModel[] = [];
-      const concurrentTests = 3; // Limit concurrent API calls
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout
 
-      for (let i = 0; i < staticModels.length; i += concurrentTests) {
-        const batch = staticModels.slice(i, i + concurrentTests);
-        const batchResults = await Promise.allSettled(
-          batch.map((model) => this.testModelAvailability(model, config))
-        );
-
-        batchResults.forEach((result, index) => {
-          const model = batch[index];
-          if (!model) return; // Skip if model is undefined
-
-          const updatedModel: CachedProviderModel = {
-            id: model.id,
-            provider: model.provider,
-            name: model.name,
-            description: model.description,
-            capabilities: model.capabilities,
-            contextWindow: model.contextWindow,
-            maxOutputTokens: model.maxOutputTokens,
-            costPer1kTokens: model.costPer1kTokens,
-            fetchedAt: new Date(),
-            status: result.status === "fulfilled" && result.value ? "available" : "unknown",
-            providerMetadata: {
-              ...model.providerMetadata,
-              ...(result.status === "rejected" && {
-                availabilityError: result.reason?.message,
-              }),
-            },
-          };
-
-          availableModels.push(updatedModel);
+      try {
+        const response = await fetch(url, {
+          method: "GET",
+          headers: {
+            "x-api-key": config.apiKey,
+            "anthropic-version": "2023-06-01",
+          },
+          signal: controller.signal,
         });
-      }
 
-      log.info(
-        `Tested ${staticModels.length} Anthropic models, ${availableModels.filter((m) => m.status === "available").length} confirmed available`
-      );
-      return availableModels;
+        clearTimeout(timeoutId);
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+        }
+
+        const data = await response.json();
+        const models = data.data || [];
+
+        const cachedModels: CachedProviderModel[] = models
+          .filter((model: any) => this.isSupportedModel(model.id))
+          .map((model: any) => this.convertToAnthropicCachedModel(model));
+
+        // Enhance with static model information
+        const enhancedModels = cachedModels.map((model) => ({
+          ...model,
+          ...this.getStaticModelInfo(model.id),
+          fetchedAt: new Date(),
+          status: "available" as const,
+        }));
+
+        log.info(`Fetched ${enhancedModels.length} Anthropic models from API`);
+        return enhancedModels;
+      } finally {
+        clearTimeout(timeoutId);
+      }
     } catch (error) {
       if (error instanceof ModelFetchError) {
         throw error;
@@ -349,5 +346,62 @@ export class AnthropicModelFetcher implements ModelFetcher {
       log.debug(`Model availability test failed for ${model.id}`, { error });
       return false;
     }
+  }
+
+  /**
+   * Check if a model ID is supported by our service
+   */
+  private isSupportedModel(modelId: string): boolean {
+    // Filter to Claude models only
+    return modelId.toLowerCase().includes("claude");
+  }
+
+  /**
+   * Convert Anthropic API model response to our CachedProviderModel format
+   */
+  private convertToAnthropicCachedModel(apiModel: any): CachedProviderModel {
+    return {
+      id: apiModel.id,
+      provider: this.provider,
+      name: apiModel.display_name || apiModel.id,
+      description: `Anthropic's ${apiModel.display_name || apiModel.id}`,
+      capabilities: [], // Will be enhanced with static info
+      contextWindow: 200000, // Default, will be enhanced with static info
+      maxOutputTokens: 8192, // Default, will be enhanced with static info
+      fetchedAt: new Date(),
+      status: "available",
+      providerMetadata: {
+        created_at: apiModel.created_at,
+        type: apiModel.type,
+      },
+    };
+  }
+
+  /**
+   * Get static model information to enhance API response
+   */
+  private getStaticModelInfo(modelId: string): Partial<CachedProviderModel> {
+    const staticModels = this.getStaticModels();
+    const staticModel = staticModels.find((model) => model.id === modelId);
+
+    if (staticModel) {
+      return {
+        capabilities: staticModel.capabilities,
+        contextWindow: staticModel.contextWindow,
+        maxOutputTokens: staticModel.maxOutputTokens,
+        costPer1kTokens: staticModel.costPer1kTokens,
+        description: staticModel.description,
+      };
+    }
+
+    // Return defaults for unknown models
+    return {
+      capabilities: [
+        { name: "reasoning", supported: true, maxTokens: 200000 },
+        { name: "tool-calling", supported: true },
+      ],
+      contextWindow: 200000,
+      maxOutputTokens: 8192,
+    };
   }
 }

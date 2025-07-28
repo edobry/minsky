@@ -124,10 +124,10 @@ const capabilityMap = {
   - Dynamic pricing and capability detection
   - Connection validation and timeout handling
 - **Anthropic Fetcher** (`src/domain/ai/model-cache/fetchers/anthropic-fetcher.ts`)
-  - Static model definitions with live availability testing
-  - Individual model availability validation via API calls
-  - Complete Claude model families (3.5 Sonnet, Haiku, Opus, etc.)
-  - Concurrent availability testing with batching
+  - **FIXED**: Now uses actual `/v1/models` API endpoint (not costly individual testing)
+  - Live API integration with Anthropic's models endpoint
+  - Enhanced with static model specifications for comprehensive data
+  - Efficient, cost-effective model discovery
 
 **CLI Integration** (`src/adapters/shared/commands/ai.ts`)
 - Enhanced AI commands with model cache management
@@ -153,7 +153,7 @@ const capabilityMap = {
 
 ✅ **Live Model Fetching**
 - OpenAI: Real-time API integration with comprehensive model detection
-- Anthropic: Static definitions with live availability validation
+- Anthropic: **CORRECTED** - Uses `/v1/models` API endpoint (no costly individual tests)
 - Error handling with graceful degradation
 
 ✅ **TTL-Based Caching**
