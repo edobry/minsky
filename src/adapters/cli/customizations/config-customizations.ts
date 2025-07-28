@@ -178,11 +178,11 @@ export function getConfigCustomizations(): {
  * @returns SessionDB category customization options
  */
 export function getSessiondbCustomizations(): {
-  category: string;
+  category: CommandCategory;
   options: CategoryCommandOptions;
 } {
   return {
-    category: "SESSIONDB" as any,
+    category: CommandCategory.SESSIONDB,
     options: {
       commandOptions: {
         "sessiondb.migrate": {

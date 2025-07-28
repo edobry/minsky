@@ -96,15 +96,67 @@ const capabilityMap = {
 
 ## Acceptance Criteria
 
-- [ ] Fetch and cache model data from major providers
-- [ ] CLI commands for model cache management
-- [ ] Clear separation between user configuration and model cache
-- [ ] TTL-based cache invalidation and automatic refresh
-- [ ] Error handling for API failures and stale cache scenarios
-- [ ] Documentation for adding new providers and cache behavior
-
-## Requirements
+- [x] Fetch and cache model data from major providers
+- [x] CLI commands for model cache management
+- [x] Clear separation between user configuration and model cache
+- [x] TTL-based cache invalidation and automatic refresh
+- [x] Error handling for API failures and stale cache scenarios
+- [x] Documentation for adding new providers and cache behavior
 
 ## Solution
 
+✅ **COMPLETED**: AI Provider Model Data Fetching System
+
+### 🏗️ **Architecture Implemented**
+
+```
+src/domain/ai/model-cache/
+├── types.ts              # TypeScript interfaces and types
+├── cache-service.ts      # DefaultModelCacheService implementation
+├── fetchers/
+│   ├── index.ts          # Fetcher exports
+│   ├── openai-fetcher.ts # OpenAI API integration
+│   └── anthropic-fetcher.ts # Anthropic API integration
+└── index.ts              # Module exports
+```
+
+### 🔧 **Features Delivered**
+
+1. **Live API Integration**
+   - ✅ OpenAI: `/v1/models` API with real-time model fetching
+   - ✅ Anthropic: `/v1/models` API with Claude model filtering
+   - ✅ Extensible fetcher pattern for adding new providers
+
+2. **Intelligent Caching System**
+   - ✅ TTL-based cache with 24-hour default expiration
+   - ✅ Concurrent provider fetching with Promise.allSettled()
+   - ✅ Automatic background refresh for stale cache
+   - ✅ Graceful fallback to hardcoded models on failure
+
+3. **CLI Commands**
+   - ✅ `minsky ai models refresh` - Refresh all provider caches
+   - ✅ `minsky ai models list [provider]` - List available models
+   - ✅ `minsky ai providers list` - Show configured providers
+   - ✅ `minsky ai cache clear` - Clear all cached data
+
+4. **Type Safety & Integration**
+   - ✅ Full TypeScript integration with proper enum types
+   - ✅ Uses existing `enumSchemas.aiProvider` from configuration system
+   - ✅ Integrated with `DefaultAICompletionService` for live model access
+   - ✅ API key pickup from global configuration (`~/.config/minsky/config.yaml`)
+
+### 🎯 **Production Ready**
+
+- **Tested**: All components verified working with live API calls
+- **Committed**: All code committed and pushed to `task323` branch
+- **Architecture**: Clean separation of concerns with dependency injection
+- **Error Handling**: Comprehensive error handling with fallback strategies
+- **Performance**: Efficient caching with background refresh
+
+**Ready for PR creation and production deployment! 🚀**
+
 ## Notes
+
+- **Cache vs Configuration**: Correctly implemented the user's architectural feedback that model data should be treated as cache (dynamic) rather than configuration (static user settings)
+- **API Corrections**: Initially implemented "live availability testing" for Anthropic but corrected to use their official `/v1/models` API endpoint for efficiency
+- **Type Improvements**: Leveraged existing `enumSchemas.aiProvider` type instead of hardcoded union types for better maintainability
