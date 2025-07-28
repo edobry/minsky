@@ -1,4 +1,10 @@
 version: 1
-backend: markdown
+
+# Task Backend Configuration - GitHub Issues backend auto-detects repository from git remote
+backend: "github-issues"
+    
+# SessionDB Configuration
 sessiondb:
-  backend: sqlite
+  backend: "json"
+  json:
+    baseDir: "~/.local/state/minsky"

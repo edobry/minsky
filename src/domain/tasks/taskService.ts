@@ -12,7 +12,7 @@ import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
-import { getGitHubBackendConfig } from "./githubBackendConfig";
+import { getGitHubBackendConfig, getGitHubBackendConfigFromRepo } from "./githubBackendConfig";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 
 /**
@@ -622,6 +622,48 @@ ${description}
 
         const { createWorkspaceResolvingJsonBackend } = await import("./json-backend");
         resolvedBackend = await createWorkspaceResolvingJsonBackend(backendConfig, isReadOperation);
+        break;
+      }
+
+      case "github-issues": {
+        if (!backendConfig) {
+          throw new Error("Backend configuration required for github-issues backend");
+        }
+
+        // GitHub Issues backend auto-detects repository info from git remote
+        let githubConfig: any = null;
+
+        // Get GitHub repository info from configuration (if explicitly configured)
+        try {
+          const githubRepoConfig = get("github");
+          if (githubRepoConfig && githubRepoConfig.organization && githubRepoConfig.repository) {
+            githubConfig = getGitHubBackendConfigFromRepo(
+              {
+                githubOwner: githubRepoConfig.organization,
+                githubRepo: githubRepoConfig.repository,
+              },
+              { logErrors: false }
+            );
+          }
+        } catch (error) {
+          // No explicit GitHub config, continue to auto-detection
+        }
+
+        // Auto-detect from workspace git remote (handles session workspace → main workspace → GitHub URL chain)
+        if (!githubConfig) {
+          githubConfig = getGitHubBackendConfig(backendConfig.workspacePath, { logErrors: true });
+        }
+
+        if (!githubConfig) {
+          throw new Error(
+            "GitHub Issues backend requires GitHub repository configuration. Configure in .minsky/config.yaml with github.organization and github.repository, or use 'minsky init --github-owner <owner> --github-repo <repo>'."
+          );
+        }
+
+        resolvedBackend = createGitHubIssuesTaskBackend({
+          ...backendConfig,
+          ...githubConfig,
+        });
         break;
       }
 

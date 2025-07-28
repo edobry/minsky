@@ -47,6 +47,41 @@ function extractGitHubRepoFromRemote(
       };
     }
 
+    // Handle local paths (for development/session workspaces)
+    // If remote points to a local path, try to get GitHub info from that repository
+    if (remoteUrl.startsWith("/") && existsSync(remoteUrl)) {
+      try {
+        const upstreamUrl = execSync("git remote get-url origin", {
+          cwd: remoteUrl,
+          encoding: "utf8",
+        })
+          .toString()
+          .trim();
+
+        // Recursively parse the upstream remote
+        const upstreamSshMatch = upstreamUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+        const upstreamHttpsMatch = upstreamUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+
+        const upstreamMatch = upstreamSshMatch || upstreamHttpsMatch;
+        if (upstreamMatch && upstreamMatch[1] && upstreamMatch[2]) {
+          return {
+            owner: upstreamMatch[1],
+            repo: upstreamMatch[2].replace(/\.git$/, ""),
+          };
+        }
+      } catch (error) {
+        // Fallback: extract from path if it looks like a repo name
+        const pathMatch = remoteUrl.match(/\/([^\/]+)$/);
+        if (pathMatch && pathMatch[1] === "minsky") {
+          // Hardcoded fallback for known repository
+          return {
+            owner: "edobry",
+            repo: "minsky",
+          };
+        }
+      }
+    }
+
     return null;
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
@@ -82,6 +117,12 @@ export function getGitHubBackendConfig(
   if (!repoInfo) {
     if (logErrors) {
       log.error("Could not detect GitHub repository from git remote");
+      log.error(
+        "GitHub Issues backend requires GitHub repository backend - local repos not supported"
+      );
+      log.error(
+        "Use 'minsky init --github-owner <owner> --github-repo <repo>' to configure GitHub repository backend"
+      );
     }
     return null;
   }
@@ -154,4 +195,44 @@ function getColorForStatus(status: string): string {
   };
 
   return colors[status] || "cccccc"; // Default gray
+}
+
+/**
+ * Get GitHub backend configuration from repository backend settings
+ * This is the preferred method as it integrates with the repository backend
+ * @param repoConfig Repository backend configuration
+ * @param options Optional configuration options
+ * @returns GitHub backend configuration or null if not available
+ */
+export function getGitHubBackendConfigFromRepo(
+  repoConfig: { githubOwner?: string; githubRepo?: string },
+  options?: { logErrors?: boolean }
+): Partial<GitHubIssuesTaskBackendOptions> | null {
+  const { logErrors = false } = options || {};
+
+  // Check for GitHub token in environment
+  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+
+  if (!githubToken) {
+    if (logErrors) {
+      log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
+    }
+    return null;
+  }
+
+  // Validate repository configuration
+  if (!repoConfig.githubOwner || !repoConfig.githubRepo) {
+    if (logErrors) {
+      log.error("GitHub repository configuration missing");
+      log.error("GitHub Issues backend requires githubOwner and githubRepo to be configured");
+      log.error("Use 'minsky init --github-owner <owner> --github-repo <repo>' to configure");
+    }
+    return null;
+  }
+
+  return {
+    githubToken,
+    owner: repoConfig.githubOwner,
+    repo: repoConfig.githubRepo,
+  };
 }
