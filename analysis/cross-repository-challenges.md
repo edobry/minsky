@@ -151,7 +151,7 @@ git add . && git commit -m "Update task status" && git push
 
 **Task Creation**:
 ```sql
-INSERT INTO tasks (title, repo_scope) VALUES
+INSERT INTO tasks (title, repo_scope) VALUES 
   ('Implement discount codes', 'all'),
   ('Web UI for discount codes', 'web-storefront'),
   ('Mobile UI for discount codes', 'mobile-app'),
@@ -220,47 +220,10 @@ For `n` repositories and `m` tasks per repo:
 | Find dependencies | O(n*m) | O(log m) |
 | Calculate progress | O(n*m) | O(1) |
 
-## Open Source Fork Workflow Challenge
-
-A significant gap in the database-first approach is handling the **open source contribution workflow**:
-
-### The Problem
-1. External contributor forks repository
-2. Wants to create tasks for their feature work
-3. Has no access to project's central database
-4. How do they participate in task management?
-
-### Potential Solutions
-
-**Option A: Read-Only + PR Integration**
-- Contributors view tasks via public API/web interface
-- Task creation happens in PR descriptions/comments
-- Maintainers import worthy tasks to main system
-- Simple but limited
-
-**Option B: Federated Databases**
-- Each fork maintains its own task database
-- Task references work across forks via URLs/IDs
-- Complex but enables full workflow
-- Requires sophisticated sync mechanisms
-
-**Option C: Hybrid OSS Mode**
-- Open source projects use lightweight in-tree backends
-- Corporate/team projects use full database backends
-- Different tools for different use cases
-- Increases implementation complexity
-
-### Current Gap
-This represents a genuine architectural challenge that the database-first approach doesn't cleanly solve. Most established project management tools (GitHub Issues, Linear) handle this through centralized platforms, not distributed task management.
-
-For Minsky's initial scope (primarily team/corporate development), this may be acceptable, but it limits applicability to pure open source workflows.
-
 ## The Verdict
 
-Cross-repository task management is the nail in the coffin for in-tree backends. What might work for a single-repository project becomes absolutely unmanageable when tasks span multiple repositories.
+Cross-repository task management is the nail in the coffin for in-tree backends. What might work for a single-repository project becomes absolutely unmanageable when tasks span multiple repositories. 
 
 The in-tree approach forces us to solve distributed systems problems (consistency, synchronization, discovery) for every basic operation. It transforms simple task management into a complex distributed database problem, and does so with poor performance and usability.
 
-While the database-first approach has gaps around open source fork workflows, for Minsky to achieve its vision of AI-powered task graphs with user intervention capabilities in team/corporate environments, in-tree backends must be abandoned in favor of a centralized database approach that can efficiently handle cross-repository relationships.
-
-The open source workflow challenge could be addressed in future versions through federated approaches or integration with existing platforms like GitHub Issues.
+For Minsky to achieve its vision of AI-powered task graphs with user intervention capabilities, in-tree backends must be abandoned in favor of a centralized database approach that can efficiently handle cross-repository relationships.
