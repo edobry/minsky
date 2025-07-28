@@ -1521,3 +1521,8 @@ export const DEFAULT_TEMPLATES: RuleTemplate[] = [
   TASK_STATUS_PROTOCOL_TEMPLATE,
   PR_PREPARATION_WORKFLOW_TEMPLATE,
 ];
+
+/**
+ * Template for the main Minsky workflow orchestrator rule
+ * Converts hardcoded CLI commands to conditional CLI/MCP syntax based on interface preference
+ */
