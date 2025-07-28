@@ -6,31 +6,12 @@ import { existsSync } from "fs";
 import { execSync } from "child_process";
 import { log } from "./logger";
 import { getErrorMessage } from "../errors/index";
+import type { PackageManagerDependencies } from "../../utils/package-manager";
 
 /**
  * Supported package manager types
  */
 export type PackageManager = "bun" | "npm" | "yarn" | "pnpm" | undefined;
-
-/**
- * Dependencies interface for package manager operations
- * Enables dependency injection for testing without real FS operations
- */
-export interface PackageManagerDependencies {
-  fs: {
-    existsSync: (path: string) => boolean;
-  };
-  process: {
-    execSync: (
-      command: string,
-      options?: { cwd?: string; stdio?: string | string[] }
-    ) => Buffer | null;
-  };
-  logger?: {
-    debug: (message: string) => void;
-    error: (message: string) => void;
-  };
-}
 
 /**
  * Default dependencies using real filesystem and process operations
