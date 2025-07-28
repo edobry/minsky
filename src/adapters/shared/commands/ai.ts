@@ -68,7 +68,7 @@ export function registerAiCommands(): void {
   sharedCommandRegistry.registerCommand({
     id: "ai:complete",
     category: CommandCategory.CORE,
-    name: "AI Complete",
+    name: "complete",
     description: "Generate AI completion for a prompt",
     parameters: aiCompleteParams,
     execute: async (params, context) => {
@@ -131,7 +131,7 @@ export function registerAiCommands(): void {
   sharedCommandRegistry.registerCommand({
     id: "ai:chat",
     category: CommandCategory.CORE,
-    name: "AI Chat",
+    name: "chat",
     description: "Start an interactive AI chat session",
     parameters: {
       model: {
@@ -181,7 +181,7 @@ export function registerAiCommands(): void {
   sharedCommandRegistry.registerCommand({
     id: "ai:models",
     category: CommandCategory.CORE,
-    name: "AI Models",
+    name: "models",
     description: "List available AI models",
     parameters: {
       provider: {

@@ -2,6 +2,18 @@
 
 ### Added
 
+
+- **Task #289: Implemented Template-Based Rules Generation System**
+
+  - Built production-ready template system for dynamic rule generation based on project configuration
+  - Implemented 8 core workflow templates including all major Minsky workflows  
+  - Added conditional CLI/MCP command generation: produces `minsky tasks list` for CLI mode, `<function_calls><invoke name="mcp_minsky-server_tasks_list">` for MCP mode
+  - Created fully functional `minsky rules generate` command with interface modes (cli/mcp/hybrid)
+  - Converted all core workflow rules to use dynamic template system (minsky-workflow-orchestrator, task-implementation-workflow, minsky-session-management, task-status-protocol, pr-preparation-workflow)
+  - Added comprehensive user documentation with examples for all interface modes
+  - Verified end-to-end functionality: template generation produces correct syntax for both human users and AI agents
+  - Achieved core objective: replaced static rule generation with configuration-driven, conditional CLI/MCP template system
+
 - **Task #325: Implemented Special Workspace Deprecation Warnings**
 
   - Added deprecation warnings to in-tree task backends (markdown-backend.ts and json-backend.ts)
@@ -38,6 +50,7 @@
   - All existing MCP tool functionality preserved with enhanced validation
 =======
 - **Session CLI Command Registration Fix**
+
   - Fixed session command registration issue where only 'migrate' and 'check' commands were visible
   - Resolved `ModularSessionCommandsManager` not properly populating command registry
   - Fixed `BaseSessionCommand.getCommandCategory()` returning lowercase 'session' instead of `CommandCategory.SESSION`
