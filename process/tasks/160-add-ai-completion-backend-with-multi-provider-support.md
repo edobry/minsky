@@ -16,11 +16,13 @@ Implement a general AI backend that supports multiple model providers (OpenAI, A
 The task spec previously claimed "Phase 1 Complete" but investigation reveals:
 
 **✅ Actually Implemented:**
+
 - Configuration system with AI provider support
 - TypeScript interfaces and schemas (`src/domain/ai/types.ts`, `src/domain/ai/config-service.ts`)
 - Environment variable mappings for provider API keys
 
 **❌ NOT Implemented (claimed as "complete"):**
+
 - `src/domain/ai/completion-service.ts` - **DOES NOT EXIST**
 - Vercel AI SDK integration - **NOT IMPLEMENTED**
 - `minsky ai` CLI command - **NOT IMPLEMENTED**
@@ -35,12 +37,14 @@ The task spec previously claimed "Phase 1 Complete" but investigation reveals:
 After researching alternatives (LiteLLM, direct SDKs, LangChain, AI Gateways), **Vercel AI SDK remains the best choice** for Minsky:
 
 ### **Why Not LiteLLM?**
+
 - **High latency overhead**: Benchmarks show significant performance degradation
 - **Production concerns**: Bug-prone at scale, no enterprise support/SLAs
 - **Limited functionality**: Mainly API proxying, lacks advanced features
 - **Deployment complexity**: Difficult to operationalize in enterprise environments
 
 ### **Why Vercel AI SDK?**
+
 - **Performance**: Lower latency than LiteLLM proxy approaches
 - **Developer Experience**: Excellent TypeScript support, React integration
 - **Active Development**: Regular updates, good documentation
@@ -55,21 +59,25 @@ After researching alternatives (LiteLLM, direct SDKs, LangChain, AI Gateways), *
 **Primary Goal:** Build the missing core implementation
 
 1. **Install and Configure Vercel AI SDK**
+
    ```bash
    bun add ai @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google
    ```
 
 2. **Implement Core Service**
+
    - Create `src/domain/ai/completion-service.ts`
    - Integrate with existing configuration system
    - Basic provider abstraction (OpenAI, Anthropic, Google)
 
 3. **CLI Command Implementation**
+
    - Create `src/commands/ai/index.ts`
    - Implement `minsky ai chat` and `minsky ai complete` commands
    - Model listing and provider switching
 
 4. **Error Handling & Logging**
+
    - Integrate with Minsky's error system (`src/errors/`)
    - Provider-specific error mapping
    - Request/response logging
@@ -130,21 +138,25 @@ interface ProviderAdapter {
 ### **Immediate Next Steps**
 
 1. **Create Session for Task #160**
+
    ```bash
    minsky session start --task 160 --description "Implement AI completion backend"
    ```
 
 2. **Install Dependencies**
+
    ```bash
    bun add ai @ai-sdk/openai @ai-sdk/anthropic @ai-sdk/google
    ```
 
 3. **Implement Core Service**
+
    - Start with basic OpenAI provider
    - Add streaming support
    - Integrate with configuration system
 
 4. **Add CLI Command**
+
    - Basic `minsky ai chat` functionality
    - Provider selection and model listing
 
@@ -198,6 +210,7 @@ interface ProviderAdapter {
 **Blocking:** None identified
 
 **Next Actions:**
+
 1. Create session for task #160
 2. Install Vercel AI SDK and provider packages
 3. Implement basic `AICompletionService` with OpenAI provider

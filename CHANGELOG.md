@@ -3,6 +3,7 @@
 ### Enhanced
 
 - **Task #322: Refactored MCP Tools with Type Composition to Eliminate Argument Duplication**
+
   - Created shared Zod schema components for reusable parameter validation across MCP tools
   - Achieved 60%+ reduction in duplicate parameter definitions (17+ sessionName, 15+ path, 6+ line range duplications)
   - Introduced composed schemas: SessionFileReadSchema, SessionFileWriteSchema, SessionDirectoryListSchema, etc.
@@ -12,6 +13,7 @@
   - All existing MCP tool functionality preserved with enhanced validation
 
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
+
   - Warns when test files are found in `__tests__` directories
   - Suggests moving tests to be co-located with their modules (e.g., `module.test.ts` next to `module.ts`)
   - Follows Task #270's test architecture improvements promoting co-location over separate test directories
@@ -28,6 +30,7 @@
 ### Fixed
 
 - **Session Commands Consolidation**: Fixed architectural inconsistencies from incomplete Task #171 refactoring
+
   - **Session Approve**: Removed old/broken `approve-command.ts` that incorrectly used session workspace
   - **Import Fixes**: Added missing export aliases for `updateSession` and `deleteSession` in command files
   - **Architecture Clarity**: Established triple-layer pattern (core operations, compatibility wrappers, interface bridges)
@@ -35,6 +38,7 @@
   - **TypeScript Fixes**: Resolved multiple broken imports in subcommand files
 
 - **Session Approve Linter Output**: Improved error handling during automatic task status commits
+
   - Pre-commit hook linter errors now show clean summary instead of raw ESLint dump
   - Displays error/warning counts with helpful guidance on fixing issues
   - Command still fails appropriately when linting issues occur
@@ -1486,6 +1490,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found
 
 ### Added
+
 - MCP CLI commands for convenient server interaction
   - `minsky mcp tools` - List all available MCP tools
   - `minsky mcp call <tool>` - Execute tools with arguments using `--arg key=value` format
@@ -1494,6 +1499,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Commands wrap the MCP Inspector CLI mode for improved user experience
 
 ### Fixed
+
 - **MCP Tool Naming Consistency**: Standardized tool naming to use dots (MCP convention) instead of underscores
   - `session.read_file`, `session.write_file`, `session.edit_file`, etc.
   - Follows MCP namespacing best practices for better organization

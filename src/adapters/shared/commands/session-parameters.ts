@@ -253,7 +253,3 @@ export const sessionCommitCommandParams: CommandParameterMap = composeParams(
     },
   }
 );
-      defaultValue: false,
-    },
-  }
-);
