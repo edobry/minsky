@@ -78,7 +78,7 @@ export async function listTasksFromParams(
 
     // Create task service with read-only mode for better performance
     const taskService = await TaskService.createWithEnhancedBackend({
-      backend: backend as "markdown" | "json-file",
+      backend: backend as "markdown" | "json-file" | "github-issues",
       backendConfig: {
         name: backend,
         workspacePath,

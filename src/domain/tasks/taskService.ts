@@ -579,7 +579,7 @@ ${description}
    * This eliminates the need for external workspace resolution
    */
   static async createWithEnhancedBackend(options: {
-    backend: "markdown" | "json-file";
+    backend: "markdown" | "json-file" | "github-issues";
     backendConfig?: any;
     customBackends?: TaskBackend[];
     isReadOperation?: boolean;
