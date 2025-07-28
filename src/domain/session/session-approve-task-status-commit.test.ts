@@ -267,9 +267,9 @@ describe("Session Approve Task Status Commit", () => {
         gitCommands.push(command);
 
         // Early exit commands should be handled first
-        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task#125")) {
+        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task125")) {
           // PR branch doesn't exist - this should trigger early exit
-          throw new Error("Command failed: git show-ref --verify --quiet refs/heads/pr/task#125");
+          throw new Error("Command failed: git show-ref --verify --quiet refs/heads/pr/task125");
         }
         if (command.includes("git rev-parse HEAD")) {
           return Promise.resolve("ghi789commit");
@@ -351,10 +351,10 @@ describe("Session Approve Task Status Commit", () => {
     // Should trigger early exit since task is DONE and PR branch doesn't exist
     expect(result.isNewlyApproved).toBe(false); // Session was already approved
     expect(result.taskId).toBe("125"); // Task ID in storage format
-    expect(result.session).toBe("task#125");
+    expect(result.session).toBe("task125");
 
     // Should only call commands to check PR branch existence, then exit
-    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task#125");
+    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task125");
     expect(gitCommands).toContain("git rev-parse HEAD");
     expect(gitCommands).toContain("git config user.name");
 
@@ -382,9 +382,9 @@ describe("Session Approve Task Status Commit", () => {
         gitCommands.push(command);
 
         // Mock git operations
-        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task#266")) {
+        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task266")) {
           // PR branch doesn't exist - this should trigger early exit
-          throw new Error("Command failed: git show-ref --verify --quiet refs/heads/pr/task#266");
+          throw new Error("Command failed: git show-ref --verify --quiet refs/heads/pr/task266");
         }
         if (command.includes("git rev-parse HEAD")) {
           return Promise.resolve("c89cf17c");
@@ -451,10 +451,10 @@ describe("Session Approve Task Status Commit", () => {
     // Verify early exit behavior
     expect(result.isNewlyApproved).toBe(false); // Session was already approved
     expect(result.taskId).toBe("266"); // Task ID in storage format
-    expect(result.session).toBe("task#266");
+    expect(result.session).toBe("task266");
 
     // Should only call commands to check PR branch existence, then exit
-    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task#266");
+    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task266");
     expect(gitCommands).toContain("git rev-parse HEAD");
     expect(gitCommands).toContain("git config user.name");
 

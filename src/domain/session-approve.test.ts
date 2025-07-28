@@ -33,19 +33,19 @@ describe("Session Approve", () => {
         session: name, // Fixed: use 'session' instead of '_session'
         repoName: "test-repo",
         repoUrl: "/test/repo/path",
-        taskId: "#TEST_VALUE",
+        taskId: "265",
         createdAt: new Date().toISOString(),
       })
     );
 
     let getSessionByTaskIdSpy = createMock();
     getSessionByTaskIdSpy = mock((taskId) => {
-      if (taskId === "#TEST_VALUE") {
+      if (taskId === "265") {
         return Promise.resolve({
           session: "test-session", // Fixed: use 'session' instead of '_session'
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#TEST_VALUE",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         });
       }
@@ -94,6 +94,12 @@ describe("Session Approve", () => {
     const mockTaskService = createMockTaskService({
       setTaskStatus: setTaskStatusSpy,
       getBackendForTask: getBackendForTaskSpy,
+      getTask: () =>
+        Promise.resolve({
+          id: "265",
+          title: "Test Task",
+          status: "IN-PROGRESS",
+        }),
     });
 
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
@@ -124,24 +130,24 @@ describe("Session Approve", () => {
     expect(getSessionSpy).toHaveBeenCalledWith("test-session");
     // BUG FIX: No longer expect getSessionWorkdir to be called since we use originalRepoPath
     expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
-    expect(setTaskStatusSpy).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
+    expect(setTaskStatusSpy).toHaveBeenCalledWith("265", "DONE");
     expect(resultBySession.commitHash).toBe("abcdef123456");
     expect(resultBySession.session).toBe("test-session"); // Fixed: expect 'session' property
-    expect(resultBySession.taskId).toBe("#TEST_VALUE");
+    expect(resultBySession.taskId).toBe("265");
 
     // Test by task ID (reusing the same mocks, no .mockClear() needed with fresh spies)
     const resultByTask = await approveSessionFromParams(
       {
-        task: "#TEST_VALUE",
+        task: "265",
       },
       testDeps
     );
 
     // Verify task ID path
-    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("#TEST_VALUE");
+    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("265");
     expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
-    expect(setTaskStatusSpy).toHaveBeenCalledWith("#TEST_VALUE", "DONE");
-    expect(resultByTask.taskId).toBe("#TEST_VALUE");
+    expect(setTaskStatusSpy).toHaveBeenCalledWith("265", "DONE");
+    expect(resultByTask.taskId).toBe("265");
   });
 
   test("detects current session when repo path is provided", async () => {
@@ -330,7 +336,7 @@ describe("Session Approve", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#TEST_VALUE",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         }),
       getSessionByTaskId: () => Promise.resolve(null),
@@ -395,7 +401,7 @@ describe("Session Approve", () => {
         session: name, // Fixed: use 'session' instead of '_session'
         repoName: "test-repo",
         repoUrl: "/test/repo/path",
-        taskId: "#TEST_VALUE",
+        taskId: "265",
         createdAt: new Date().toISOString(),
       })
     );
@@ -505,7 +511,7 @@ describe("Session Approve", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#265",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         })
       );
@@ -529,7 +535,14 @@ describe("Session Approve", () => {
         if (command.includes("config user.name")) {
           return Promise.resolve("Test User");
         }
-        // Simulate successful branch operations
+        if (command.includes('git branch --format="%(refname:short)"')) {
+          // Return task branch so cleanup logic can find and attempt to delete it
+          return Promise.resolve("265\ntask#265\nmain\nother-branch");
+        }
+        // Simulate branch deletion failures
+        if (command.includes("branch -d")) {
+          throw new Error("branch deletion failed - branch not found or has unmerged changes");
+        }
         return Promise.resolve("");
       });
 
@@ -559,6 +572,12 @@ describe("Session Approve", () => {
       const mockTaskService = createMockTaskService({
         setTaskStatus: setTaskStatusSpy,
         getBackendForTask: getBackendForTaskSpy,
+        getTask: () =>
+          Promise.resolve({
+            id: "265",
+            title: "Test Task",
+            status: "IN-PROGRESS",
+          }),
       });
 
       // Create test dependencies
@@ -598,7 +617,7 @@ describe("Session Approve", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#265",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         })
       );
@@ -655,6 +674,12 @@ describe("Session Approve", () => {
       const mockTaskService = createMockTaskService({
         setTaskStatus: setTaskStatusSpy,
         getBackendForTask: getBackendForTaskSpy,
+        getTask: () =>
+          Promise.resolve({
+            id: "265",
+            title: "Test Task",
+            status: "IN-PROGRESS",
+          }),
       });
 
       // Create test dependencies
@@ -691,7 +716,7 @@ describe("Session Approve", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#265",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         })
       );
@@ -787,7 +812,7 @@ describe("Session Approve", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#265",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         })
       );
@@ -810,6 +835,10 @@ describe("Session Approve", () => {
         }
         if (command.includes("config user.name")) {
           return Promise.resolve("Test User");
+        }
+        if (command.includes('git branch --format="%(refname:short)"')) {
+          // Return task branch so cleanup logic can find and attempt to delete it
+          return Promise.resolve("task#265\nmain\nother-branch");
         }
         // Simulate that task branch doesn't exist but PR branch cleanup succeeds
         if (command.includes("branch -d task#265")) {
@@ -844,6 +873,12 @@ describe("Session Approve", () => {
       const mockTaskService = createMockTaskService({
         setTaskStatus: setTaskStatusSpy,
         getBackendForTask: getBackendForTaskSpy,
+        getTask: () =>
+          Promise.resolve({
+            id: "265",
+            title: "Test Task",
+            status: "IN-PROGRESS",
+          }),
       });
 
       // Create test dependencies
