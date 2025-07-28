@@ -2,7 +2,7 @@
 
 ## Context
 
-Implement a system to automatically fetch current model information from AI provider APIs and store it in the configuration system.
+Implement a system to automatically fetch current model information from AI provider APIs and cache it locally for use by the AI completion service.
 
 ## Background
 
@@ -24,6 +24,8 @@ const capabilityMap = {
 
 3. **No Live Updates**: No mechanism to fetch current model availability, pricing, or capabilities from provider APIs
 
+**Important**: The model data should be treated as **cache** (dynamic, refreshable data) rather than **configuration** (user settings). Configuration contains provider credentials and preferences, while cache contains the actual available models and their capabilities.
+
 ## Requirements
 
 1. **Provider API Integration**
@@ -32,10 +34,10 @@ const capabilityMap = {
    - Google Vertex AI: Models API
    - Add other providers as needed
 
-2. **Data Storage**
-   - Store fetched model data in structured format (JSON files)
-   - Update configuration schemas to reference live data
-   - Cache model data with TTL for performance
+2. **Data Caching**
+   - Store fetched model data in cache directory (separate from configuration)
+   - Implement TTL-based cache invalidation and refresh
+   - Cache model data independently from user configuration
 
 3. **CLI Commands**
    - `minsky ai models refresh` - Fetch latest model data
@@ -64,18 +66,20 @@ const capabilityMap = {
    }
    ```
 
-2. **Storage Structure**
+2. **Cache Structure**
    ```
-   ~/.config/minsky/
-   ├── provider-models/
+   ~/.cache/minsky/
+   ├── models/
    │   ├── openai-models.json
    │   ├── anthropic-models.json
-   │   └── google-models.json
+   │   ├── google-models.json
+   │   └── .cache-metadata.json  # TTL and refresh timestamps
    ```
 
 3. **CLI Integration**
    - Add `minsky ai` command with model management subcommands
-   - Integrate with existing configuration system
+   - Cache operates independently from user configuration
+   - Configuration defines providers/credentials, cache stores available models
 
 ## Benefits for Task #160
 
@@ -86,12 +90,12 @@ const capabilityMap = {
 
 ## Acceptance Criteria
 
-- [ ] Fetch and store model data from major providers
-- [ ] CLI commands for model management
-- [ ] Integration with configuration system
-- [ ] Caching with configurable TTL
-- [ ] Error handling for API failures
-- [ ] Documentation for adding new providers
+- [ ] Fetch and cache model data from major providers
+- [ ] CLI commands for model cache management
+- [ ] Clear separation between user configuration and model cache
+- [ ] TTL-based cache invalidation and automatic refresh
+- [ ] Error handling for API failures and stale cache scenarios
+- [ ] Documentation for adding new providers and cache behavior
 
 ## Requirements
 
