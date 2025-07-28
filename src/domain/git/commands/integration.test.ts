@@ -17,8 +17,8 @@
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { setupTestMocks, createMock } from "../../../../utils/test-utils/mocking";
-import { FileSystemTestCleanup } from "../../../../utils/test-utils/cleanup-patterns";
+import { setupTestMocks, createMock } from "../../../utils/test-utils/mocking";
+import { FileSystemTestCleanup } from "../../../utils/test-utils/cleanup-patterns";
 import {
   cloneFromParams,
   branchFromParams,
