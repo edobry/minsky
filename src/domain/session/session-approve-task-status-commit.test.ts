@@ -107,6 +107,12 @@ describe("Session Approve Task Status Commit", () => {
     });
 
     const mockTaskService = createMockTaskService({
+      getTask: () =>
+        Promise.resolve({
+          id: "#123",
+          title: "Test Task",
+          status: "IN-PROGRESS",
+        }),
       getTaskStatus: (taskId: string) => {
         // Task is NOT already DONE, so status update should happen
         return Promise.resolve("IN-PROGRESS");
@@ -212,6 +218,12 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     const mockTaskService = {
+      getTask: () =>
+        Promise.resolve({
+          id: "#124",
+          title: "Test Task",
+          status: "TODO",
+        }),
       getTaskStatus: (taskId: string) => {
         // Task is NOT already DONE, so status update should happen
         return Promise.resolve("TODO");
@@ -307,6 +319,12 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     const mockTaskService = {
+      getTask: () =>
+        Promise.resolve({
+          id: "#125",
+          title: "Test Task",
+          status: "DONE",
+        }),
       getTaskStatus: (taskId: string) => {
         // Task is already DONE
         return Promise.resolve("DONE");
@@ -399,6 +417,12 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     const mockTaskService = {
+      getTask: () =>
+        Promise.resolve({
+          id: "#266",
+          title: "Test Task",
+          status: "DONE",
+        }),
       getTaskStatus: (taskId: string) => {
         // Task is already DONE - this should trigger early exit check
         return Promise.resolve("DONE");
