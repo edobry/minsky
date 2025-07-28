@@ -27,68 +27,108 @@ This rule defines the complete workflow for working with tasks and sessions in M
 ## Core Workflow Steps
 
 ### 1. Task Management
-${helpers.conditionalSection(isCliMode || isHybridMode, `
+${helpers.conditionalSection(
+  isCliMode || isHybridMode,
+  `
 **List Available Tasks**
 \`\`\`bash
 ${helpers.command("tasks.list")}
 \`\`\`
-`, "")}
-${helpers.conditionalSection(isMcpMode || isHybridMode, `
+`,
+  ""
+)}
+${helpers.conditionalSection(
+  isMcpMode || isHybridMode,
+  `
 **List Available Tasks (MCP)**
 \`\`\`
 ${helpers.command("tasks.list")}
 \`\`\`
-`, "")}
+`,
+  ""
+)}
 
 **Get Task Details**
-${helpers.conditionalSection(isCliMode || isHybridMode, `
+${helpers.conditionalSection(
+  isCliMode || isHybridMode,
+  `
 \`\`\`bash
 ${helpers.command("tasks.get")}
 \`\`\`
-`, "")}
-${helpers.conditionalSection(isMcpMode || isHybridMode, `
+`,
+  ""
+)}
+${helpers.conditionalSection(
+  isMcpMode || isHybridMode,
+  `
 \`\`\`
 ${helpers.command("tasks.get")}
 \`\`\`
-`, "")}
+`,
+  ""
+)}
 
 **Check Task Status**
-${helpers.conditionalSection(isCliMode || isHybridMode, `
+${helpers.conditionalSection(
+  isCliMode || isHybridMode,
+  `
 \`\`\`bash
 ${helpers.command("tasks.status.get")}
 \`\`\`
-`, "")}
-${helpers.conditionalSection(isMcpMode || isHybridMode, `
+`,
+  ""
+)}
+${helpers.conditionalSection(
+  isMcpMode || isHybridMode,
+  `
 \`\`\`
 ${helpers.command("tasks.status.get")}
 \`\`\`
-`, "")}
+`,
+  ""
+)}
 
 ### 2. Session Management
 
 **Start New Session**
-${helpers.conditionalSection(isCliMode || isHybridMode, `
+${helpers.conditionalSection(
+  isCliMode || isHybridMode,
+  `
 \`\`\`bash
 ${helpers.command("session.start")}
 \`\`\`
-`, "")}
-${helpers.conditionalSection(isMcpMode || isHybridMode, `
+`,
+  ""
+)}
+${helpers.conditionalSection(
+  isMcpMode || isHybridMode,
+  `
 \`\`\`
 ${helpers.command("session.start")}
 \`\`\`
-`, "")}
+`,
+  ""
+)}
 
 **Get Session Directory**
-${helpers.conditionalSection(isCliMode || isHybridMode, `
+${helpers.conditionalSection(
+  isCliMode || isHybridMode,
+  `
 \`\`\`bash
 ${helpers.command("session.dir")}
 \`\`\`
-`, "")}
-${helpers.conditionalSection(isMcpMode || isHybridMode, `
+`,
+  ""
+)}
+${helpers.conditionalSection(
+  isMcpMode || isHybridMode,
+  `
 \`\`\`
 ${helpers.command("session.dir")}
 \`\`\`
-`, "")}
+`,
+  ""
+)}
 
 ### 3. Implementation Process
 
@@ -101,28 +141,44 @@ ${helpers.command("session.dir")}
 ### 4. Review & Completion
 
 **Create Pull Request**
-${helpers.conditionalSection(isCliMode || isHybridMode, `
+${helpers.conditionalSection(
+  isCliMode || isHybridMode,
+  `
 \`\`\`bash
 ${helpers.command("session.pr")}
 \`\`\`
-`, "")}
-${helpers.conditionalSection(isMcpMode || isHybridMode, `
+`,
+  ""
+)}
+${helpers.conditionalSection(
+  isMcpMode || isHybridMode,
+  `
 \`\`\`
 ${helpers.command("session.pr")}
 \`\`\`
-`, "")}
+`,
+  ""
+)}
 
 **Update Task Status**
-${helpers.conditionalSection(isCliMode || isHybridMode, `
+${helpers.conditionalSection(
+  isCliMode || isHybridMode,
+  `
 \`\`\`bash
 ${helpers.command("tasks.status.set")}
 \`\`\`
-`, "")}
-${helpers.conditionalSection(isMcpMode || isHybridMode, `
+`,
+  ""
+)}
+${helpers.conditionalSection(
+  isMcpMode || isHybridMode,
+  `
 \`\`\`
 ${helpers.command("tasks.status.set")}
 \`\`\`
-`, "")}
+`,
+  ""
+)}
 
 ## Best Practices
 
@@ -144,8 +200,8 @@ ${helpers.parameterDoc("session.pr")}
   generateMeta: (context) => ({
     name: "Minsky Workflow",
     description: "Core workflow orchestration guide for Minsky",
-    tags: ["workflow", "core", "required"]
-  })
+    tags: ["workflow", "core", "required"],
+  }),
 };
 
 /**
@@ -158,7 +214,7 @@ const INDEX_TEMPLATE: RuleTemplate = {
   tags: ["index", "navigation"],
   generateContent: (context) => {
     const { helpers } = context;
-    
+
     return `# Minsky Rules Index
 
 This document categorizes all available rules in the Minsky ecosystem, describes their purpose, and identifies which rules apply in different usage scenarios.
@@ -311,8 +367,8 @@ This index serves as a guide to help you understand which rules are relevant to 
   generateMeta: (context) => ({
     name: "Rules Index",
     description: "Index of all available rules in the workspace",
-    tags: ["index", "navigation", "overview"]
-  })
+    tags: ["index", "navigation", "overview"],
+  }),
 };
 
 /**
@@ -325,7 +381,7 @@ const MCP_USAGE_TEMPLATE: RuleTemplate = {
   tags: ["mcp", "protocol"],
   generateContent: (context) => {
     const { helpers, config } = context;
-    
+
     return `# MCP Usage
 
 This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent interaction.
@@ -370,13 +426,13 @@ This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent i
 ### Task Management Example
 \`\`\`
 ${helpers.command("tasks.list")}
-${helpers.codeBlock(`taskId: "#123"\\n${  helpers.command("tasks.get")}`, "bash")}
+${helpers.codeBlock(`taskId: "#123"\\n${helpers.command("tasks.get")}`, "bash")}
 \`\`\`
 
 ### Session Management Example  
 \`\`\`
-${helpers.codeBlock(`task: "#123"\\n${  helpers.command("session.start")}`, "bash")}
-${helpers.codeBlock(`name: "task#123"\\n${  helpers.command("session.dir")}`, "bash")}
+${helpers.codeBlock(`task: "#123"\\n${helpers.command("session.start")}`, "bash")}
+${helpers.codeBlock(`name: "task#123"\\n${helpers.command("session.dir")}`, "bash")}
 \`\`\`
 
 ## Parameter Documentation
@@ -392,23 +448,24 @@ See README-MCP.md for detailed protocol specifications.`;
   generateMeta: (context) => ({
     name: "MCP Usage",
     description: "Guidelines for using the Minsky Control Protocol",
-    tags: ["mcp", "protocol", "ai"]
-  })
+    tags: ["mcp", "protocol", "ai"],
+  }),
 };
 
-// Remove duplicate - DEFAULT_TEMPLATES is defined at the end of file 
+// Remove duplicate - DEFAULT_TEMPLATES is defined at the end of file
 
 /**
- * Template for Minsky Workflow Orchestrator 
+ * Template for Minsky Workflow Orchestrator
  */
 const MINSKY_WORKFLOW_ORCHESTRATOR_TEMPLATE: RuleTemplate = {
   id: "minsky-workflow-orchestrator",
-  name: "Minsky Workflow Orchestrator", 
-  description: "REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging",
+  name: "Minsky Workflow Orchestrator",
+  description:
+    "REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging",
   tags: ["workflow", "orchestrator", "core"],
   generateContent: (context) => {
     const { helpers } = context;
-    
+
     return `# Minsky Workflow System
 
 This rule provides an overview of the Minsky workflow system and serves as an entry point to the more detailed workflow rules. The Minsky workflow has been divided into focused rules to make it easier to understand and follow.
@@ -551,22 +608,23 @@ The Minsky workflow is supported by these additional rules:
   },
   generateMeta: (context) => ({
     name: "Minsky Workflow Orchestrator",
-    description: "REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging",
-    alwaysApply: false
-  })
+    description:
+      "REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging",
+    alwaysApply: false,
+  }),
 };
 
 /**
  * Template for Task Implementation Workflow
  */
 const TASK_IMPLEMENTATION_WORKFLOW_TEMPLATE: RuleTemplate = {
-  id: "task-implementation-workflow", 
+  id: "task-implementation-workflow",
   name: "Task Implementation Workflow",
   description: "Comprehensive workflow for implementing tasks from creation to completion",
   tags: ["task", "implementation", "workflow"],
   generateContent: (context) => {
     const { helpers } = context;
-    
+
     return `# Task Implementation Workflow
 
 This rule provides a comprehensive workflow for implementing tasks from start to completion, including all required status updates and checkpoints.
@@ -729,8 +787,8 @@ Use this checklist to ensure proper workflow adherence:
   generateMeta: (context) => ({
     name: "Task Implementation Workflow",
     description: "Comprehensive workflow for implementing tasks from creation to completion",
-    tags: ["task", "implementation", "workflow", "status"]
-  })
+    tags: ["task", "implementation", "workflow", "status"],
+  }),
 };
 
 /**
@@ -743,7 +801,7 @@ const MINSKY_SESSION_MANAGEMENT_TEMPLATE: RuleTemplate = {
   tags: ["session", "management", "workflow"],
   generateContent: (context) => {
     const { helpers } = context;
-    
+
     return `# Minsky Session Management
 
 This rule provides comprehensive guidance for creating, managing, and working with Minsky sessions.
@@ -970,10 +1028,10 @@ This rule integrates with:
 - **task-status-protocol**: For status updates during session operations`;
   },
   generateMeta: (context) => ({
-    name: "Minsky Session Management", 
+    name: "Minsky Session Management",
     description: "Complete guide for creating, managing, and working with Minsky sessions",
-    tags: ["session", "management", "git", "workspace"]
-  })
+    tags: ["session", "management", "git", "workspace"],
+  }),
 };
 
 /**
@@ -982,11 +1040,12 @@ This rule integrates with:
 const TASK_STATUS_PROTOCOL_TEMPLATE: RuleTemplate = {
   id: "task-status-protocol",
   name: "Task Status Protocol",
-  description: "Procedures for checking and updating task status throughout the implementation lifecycle",
+  description:
+    "Procedures for checking and updating task status throughout the implementation lifecycle",
   tags: ["task", "status", "protocol"],
   generateContent: (context) => {
     const { helpers } = context;
-    
+
     return `# Task Status Protocol
 
 This rule defines the procedures for checking and updating task status throughout the implementation lifecycle.
@@ -1184,9 +1243,10 @@ Before considering status management complete:
   },
   generateMeta: (context) => ({
     name: "Task Status Protocol",
-    description: "Procedures for checking and updating task status throughout the implementation lifecycle", 
-    tags: ["task", "status", "protocol", "workflow"]
-  })
+    description:
+      "Procedures for checking and updating task status throughout the implementation lifecycle",
+    tags: ["task", "status", "protocol", "workflow"],
+  }),
 };
 
 /**
@@ -1194,12 +1254,12 @@ Before considering status management complete:
  */
 const PR_PREPARATION_WORKFLOW_TEMPLATE: RuleTemplate = {
   id: "pr-preparation-workflow",
-  name: "PR Preparation Workflow", 
+  name: "PR Preparation Workflow",
   description: "Complete workflow for preparing, creating, and managing pull requests",
   tags: ["pr", "pullrequest", "workflow"],
   generateContent: (context) => {
     const { helpers } = context;
-    
+
     return `# PR Preparation Workflow
 
 This rule provides a complete workflow for preparing, creating, and managing pull requests in the Minsky system.
@@ -1444,8 +1504,8 @@ Before creating PR:
   generateMeta: (context) => ({
     name: "PR Preparation Workflow",
     description: "Complete workflow for preparing, creating, and managing pull requests",
-    tags: ["pr", "pullrequest", "git", "workflow"]
-  })
+    tags: ["pr", "pullrequest", "git", "workflow"],
+  }),
 };
 
 /**
@@ -1459,5 +1519,5 @@ export const DEFAULT_TEMPLATES: RuleTemplate[] = [
   TASK_IMPLEMENTATION_WORKFLOW_TEMPLATE,
   MINSKY_SESSION_MANAGEMENT_TEMPLATE,
   TASK_STATUS_PROTOCOL_TEMPLATE,
-  PR_PREPARATION_WORKFLOW_TEMPLATE
+  PR_PREPARATION_WORKFLOW_TEMPLATE,
 ];

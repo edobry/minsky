@@ -6,7 +6,12 @@
  * across different interfaces.
  */
 
-import { sharedCommandRegistry, CommandCategory, type SharedCommand, type CommandParameterMap } from "../../adapters/shared/command-registry";
+import {
+  sharedCommandRegistry,
+  CommandCategory,
+  type SharedCommand,
+  type CommandParameterMap,
+} from "../../adapters/shared/command-registry";
 
 /**
  * Interface mode for command generation
@@ -54,17 +59,17 @@ export interface CommandGenerationConfig {
  */
 function generateCliSyntax(commandId: string, parameters: CommandParameter[]): string {
   const baseCommand = `minsky ${commandId.replace(".", " ")}`;
-  
+
   // Add required arguments
   const requiredArgs = parameters
-    .filter(param => param.required)
-    .map(param => `<${param.name}>`)
+    .filter((param) => param.required)
+    .map((param) => `<${param.name}>`)
     .join(" ");
 
   // Add optional arguments
   const optionalArgs = parameters
-    .filter(param => !param.required)
-    .map(param => {
+    .filter((param) => !param.required)
+    .map((param) => {
       if (typeof param.defaultValue === "boolean") {
         return `[--${param.name}]`;
       }
@@ -81,20 +86,22 @@ function generateCliSyntax(commandId: string, parameters: CommandParameter[]): s
  */
 function generateMcpSyntax(commandId: string, parameters: CommandParameter[]): string {
   const mcpCommandName = `mcp_minsky-server_${commandId.replace(/\./g, "_")}`;
-  
+
   if (parameters.length === 0) {
     return `<function_calls>
 <invoke name="${mcpCommandName}">
 </invoke>
 </function_calls>`;
   }
-  
-  const parameterLines = parameters.map(param => {
+
+  const parameterLines = parameters.map((param) => {
     const name = param.mcpName || param.name;
-    const valueHint = param.required ? `required ${param.name} value` : `optional ${param.name} value`;
+    const valueHint = param.required
+      ? `required ${param.name} value`
+      : `optional ${param.name} value`;
     return `<parameter name="${name}">${valueHint}</parameter>`;
   });
-  
+
   return `<function_calls>
 <invoke name="${mcpCommandName}">
 ${parameterLines.join("\n")}
@@ -116,7 +123,7 @@ function getCommandParameters(command: SharedCommand): CommandParameter[] {
     required: paramDef.required,
     defaultValue: paramDef.defaultValue,
     cliOption: `--${name}`,
-    mcpName: name
+    mcpName: name,
   }));
 }
 
@@ -128,16 +135,16 @@ export function getCommandRepresentation(commandId: string): CommandRepresentati
   if (!command) {
     return null;
   }
-  
+
   const parameters = getCommandParameters(command);
-  
+
   return {
     id: commandId,
     category: command.category,
     description: command.description,
     cliSyntax: generateCliSyntax(commandId, parameters),
     mcpSyntax: generateMcpSyntax(commandId, parameters),
-    parameters
+    parameters,
   };
 }
 
@@ -145,23 +152,23 @@ export function getCommandRepresentation(commandId: string): CommandRepresentati
  * Gets the appropriate command syntax based on the interface mode
  */
 export function getCommandSyntax(
-  commandId: string, 
+  commandId: string,
   config: CommandGenerationConfig
 ): string | null {
   const representation = getCommandRepresentation(commandId);
   if (!representation) {
     return null;
   }
-  
+
   switch (config.interfaceMode) {
-  case "cli":
-    return representation.cliSyntax;
-  case "mcp":
-    return representation.mcpSyntax;
-  case "hybrid":
-    return config.preferMcp ? representation.mcpSyntax : representation.cliSyntax;
-  default:
-    return representation.cliSyntax;
+    case "cli":
+      return representation.cliSyntax;
+    case "mcp":
+      return representation.mcpSyntax;
+    case "hybrid":
+      return config.preferMcp ? representation.mcpSyntax : representation.cliSyntax;
+    default:
+      return representation.cliSyntax;
   }
 }
 
@@ -170,7 +177,7 @@ export function getCommandSyntax(
  */
 export function getCommandsByCategory(category: CommandCategory): CommandRepresentation[] {
   const commands = sharedCommandRegistry.getCommandsByCategory(category);
-  return commands.map(cmd => {
+  return commands.map((cmd) => {
     const parameters = getCommandParameters(cmd);
     return {
       id: cmd.id,
@@ -178,7 +185,7 @@ export function getCommandsByCategory(category: CommandCategory): CommandReprese
       description: cmd.description,
       cliSyntax: generateCliSyntax(cmd.id, parameters),
       mcpSyntax: generateMcpSyntax(cmd.id, parameters),
-      parameters
+      parameters,
     };
   });
 }
@@ -191,16 +198,15 @@ export function getParameterDocumentation(commandId: string): string {
   if (!representation || representation.parameters.length === 0) {
     return "No parameters available for this command.";
   }
-  
-  const paramDocs = representation.parameters.map(param => {
+
+  const paramDocs = representation.parameters.map((param) => {
     const requiredText = param.required ? "Required" : "Optional";
-    const defaultText = param.defaultValue !== undefined 
-      ? `Default: \`${param.defaultValue}\`` 
-      : "";
-    
+    const defaultText =
+      param.defaultValue !== undefined ? `Default: \`${param.defaultValue}\`` : "";
+
     return `- \`${param.name}\`: ${param.description || "No description"} (${requiredText}${defaultText ? `, ${defaultText}` : ""})`;
   });
-  
+
   return paramDocs.join("\n");
 }
 
@@ -209,18 +215,18 @@ export function getParameterDocumentation(commandId: string): string {
  */
 export class CommandGeneratorService {
   private config: CommandGenerationConfig;
-  
+
   constructor(config: CommandGenerationConfig) {
     this.config = config;
   }
-  
+
   /**
    * Gets the appropriate command syntax for the current configuration
    */
   getCommandSyntax(commandId: string): string | null {
     return getCommandSyntax(commandId, this.config);
   }
-  
+
   /**
    * Gets commands in a category for the current configuration
    */
@@ -230,27 +236,27 @@ export class CommandGeneratorService {
     syntax: string;
   }> {
     const commands = getCommandsByCategory(category);
-    return commands.map(cmd => ({
+    return commands.map((cmd) => ({
       id: cmd.id,
       description: cmd.description,
-      syntax: this.getCommandSyntax(cmd.id) || ""
+      syntax: this.getCommandSyntax(cmd.id) || "",
     }));
   }
-  
+
   /**
    * Gets parameter documentation for a command
    */
   getParameterDocumentation(commandId: string): string {
     return getParameterDocumentation(commandId);
   }
-  
+
   /**
    * Updates the current configuration
    */
   updateConfig(config: Partial<CommandGenerationConfig>): void {
     this.config = {
       ...this.config,
-      ...config
+      ...config,
     };
   }
 }
@@ -258,6 +264,8 @@ export class CommandGeneratorService {
 /**
  * Creates a command generator service with the specified configuration
  */
-export function createCommandGeneratorService(config: CommandGenerationConfig): CommandGeneratorService {
+export function createCommandGeneratorService(
+  config: CommandGenerationConfig
+): CommandGeneratorService {
   return new CommandGeneratorService(config);
 }
