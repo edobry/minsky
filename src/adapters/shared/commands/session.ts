@@ -25,8 +25,8 @@ import {
  * This wrapper delegates all functionality to the new modular architecture
  * while preserving the original API surface.
  */
-export function registerSessionCommands(deps?: SessionCommandDependencies): void {
-  modularRegisterSessionCommands(deps);
+export async function registerSessionCommands(deps?: SessionCommandDependencies): Promise<void> {
+  await modularRegisterSessionCommands(deps);
 }
 
 // Export modular components for migration path
