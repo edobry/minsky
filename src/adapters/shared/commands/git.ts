@@ -32,248 +32,174 @@ import {
   GIT_BRANCH_DESCRIPTION,
   NO_STATUS_UPDATE_DESCRIPTION,
 } from "../../../utils/option-descriptions";
+import { CommonParameters, GitParameters, composeParams } from "../common-parameters";
 
 /**
  * Parameters for the commit command
  */
-const commitCommandParams: CommandParameterMap = {
-  message: {
-    schema: z.string().min(1),
-    description: "Commit message",
-    required: true,
+const commitCommandParams: CommandParameterMap = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
   },
-  all: {
-    schema: z.boolean(),
-    description: "Stage all changes including deletions",
-    required: false,
-    defaultValue: false,
-  },
-  amend: {
-    schema: z.boolean(),
-    description: "Amend the previous commit",
-    required: false,
-    defaultValue: false,
-  },
-  noStage: {
-    schema: z.boolean(),
-    description: "Skip staging changes",
-    required: false,
-    defaultValue: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: REPO_DESCRIPTION,
-    required: false,
-  },
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-};
+  {
+    message: {
+      schema: z.string().min(1),
+      description: "Commit message",
+      required: true,
+    },
+    all: {
+      schema: z.boolean(),
+      description: "Stage all changes including deletions",
+      required: false,
+      defaultValue: false,
+    },
+    amend: {
+      schema: z.boolean(),
+      description: "Amend the previous commit",
+      required: false,
+      defaultValue: false,
+    },
+    noStage: {
+      schema: z.boolean(),
+      description: "Skip staging changes",
+      required: false,
+      defaultValue: false,
+    },
+  }
+);
 
 /**
  * Parameters for the push command
  */
-const pushCommandParams: CommandParameterMap = {
-  repo: {
-    schema: z.string(),
-    description: REPO_DESCRIPTION,
-    required: false,
+const pushCommandParams: CommandParameterMap = composeParams(
+  {
+    repo: CommonParameters.repo,
+    session: CommonParameters.session,
+    force: CommonParameters.force,
+    debug: CommonParameters.debug,
   },
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-  remote: {
-    schema: z.string(),
-    description: GIT_REMOTE_DESCRIPTION,
-    required: false,
-    defaultValue: "origin",
-  },
-  force: {
-    schema: z.boolean(),
-    description: GIT_FORCE_DESCRIPTION,
-    required: false,
-    defaultValue: false,
-  },
-  debug: {
-    schema: z.boolean(),
-    description: DEBUG_DESCRIPTION,
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    remote: GitParameters.remote,
+  }
+);
 
 /**
  * Parameters for the clone command
  */
-const cloneCommandParams: CommandParameterMap = {
-  url: {
-    schema: z.string().url(),
-    description: "URL of the Git repository to clone",
-    required: true,
+const cloneCommandParams: CommandParameterMap = composeParams(
+  {
+    session: CommonParameters.session,
+    branch: GitParameters.branch,
   },
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-  destination: {
-    schema: z.string(),
-    description: "Target directory for the clone",
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: GIT_BRANCH_DESCRIPTION,
-    required: false,
-  },
-};
+  {
+    url: {
+      schema: z.string().url(),
+      description: "URL of the Git repository to clone",
+      required: true,
+    },
+    destination: {
+      schema: z.string(),
+      description: "Target directory for the clone",
+      required: false,
+    },
+  }
+);
 
 /**
  * Parameters for the branch command
  */
-const branchCommandParams: CommandParameterMap = {
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: true,
+const branchCommandParams: CommandParameterMap = composeParams(
+  {
+    preview: GitParameters.preview,
+    autoResolve: GitParameters.autoResolve,
   },
-  name: {
-    schema: z.string(),
-    description: "Name of the branch to create",
-    required: true,
-  },
-  preview: {
-    schema: z.boolean(),
-    description: "Preview potential conflicts before creating the branch",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolve: {
-    schema: z.boolean(),
-    description: "Enable advanced auto-resolution for detected conflicts",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    session: {
+      schema: z.string(),
+      description: SESSION_DESCRIPTION,
+      required: true,
+    },
+    name: {
+      schema: z.string(),
+      description: "Name of the branch to create",
+      required: true,
+    },
+  }
+);
 
 /**
  * Parameters for the merge command
  */
-const mergeCommandParams: CommandParameterMap = {
-  branch: {
-    schema: z.string().min(1),
-    description: "Branch to merge",
-    required: true,
+const mergeCommandParams: CommandParameterMap = composeParams(
+  {
+    session: CommonParameters.session,
+    repo: CommonParameters.repo,
+    preview: GitParameters.preview,
+    autoResolve: GitParameters.autoResolve,
   },
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: REPO_DESCRIPTION,
-    required: false,
-  },
-  preview: {
-    schema: z.boolean(),
-    description: "Preview potential conflicts before merging",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolve: {
-    schema: z.boolean(),
-    description: "Enable advanced auto-resolution for detected conflicts",
-    required: false,
-    defaultValue: false,
-  },
-  conflictStrategy: {
-    schema: z.enum(["automatic", "guided", "manual"]),
-    description: "Choose conflict resolution strategy",
-    required: false,
-  },
-};
+  {
+    branch: {
+      schema: z.string().min(1),
+      description: "Branch to merge",
+      required: true,
+    },
+    conflictStrategy: {
+      schema: z.enum(["automatic", "guided", "manual"]),
+      description: "Choose conflict resolution strategy",
+      required: false,
+    },
+  }
+);
 
 /**
  * NEW: Parameters for the checkout command
  */
-const checkoutCommandParams: CommandParameterMap = {
-  branch: {
-    schema: z.string(),
-    description: "Branch to checkout",
-    required: true,
+const checkoutCommandParams: CommandParameterMap = composeParams(
+  {
+    session: CommonParameters.session,
+    repo: CommonParameters.repo,
+    force: CommonParameters.force,
+    preview: GitParameters.preview,
   },
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: REPO_DESCRIPTION,
-    required: false,
-  },
-  preview: {
-    schema: z.boolean(),
-    description: "Preview potential conflicts and uncommitted changes before checkout",
-    required: false,
-    defaultValue: false,
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Force checkout even with uncommitted changes",
-    required: false,
-    defaultValue: false,
-  },
-  autoStash: {
-    schema: z.boolean(),
-    description: "Automatically stash uncommitted changes before checkout",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    branch: {
+      schema: z.string(),
+      description: "Branch to checkout",
+      required: true,
+    },
+    autoStash: {
+      schema: z.boolean(),
+      description: "Automatically stash uncommitted changes before checkout",
+      required: false,
+      defaultValue: false,
+    },
+  }
+);
 
 /**
  * NEW: Parameters for the rebase command
  */
-const rebaseCommandParams: CommandParameterMap = {
-  baseBranch: {
-    schema: z.string(),
-    description: "Base branch to rebase onto",
-    required: true,
+const rebaseCommandParams: CommandParameterMap = composeParams(
+  {
+    session: CommonParameters.session,
+    repo: CommonParameters.repo,
+    preview: GitParameters.preview,
+    autoResolve: GitParameters.autoResolve,
   },
-  session: {
-    schema: z.string(),
-    description: SESSION_DESCRIPTION,
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: REPO_DESCRIPTION,
-    required: false,
-  },
-  preview: {
-    schema: z.boolean(),
-    description: "Preview potential conflicts before rebasing",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolve: {
-    schema: z.boolean(),
-    description: "Enable advanced auto-resolution for detected conflicts",
-    required: false,
-    defaultValue: false,
-  },
-  conflictStrategy: {
-    schema: z.enum(["automatic", "guided", "manual"]),
-    description: "Choose conflict resolution strategy",
-    required: false,
-  },
-};
+  {
+    baseBranch: {
+      schema: z.string(),
+      description: "Base branch to rebase onto",
+      required: true,
+    },
+    conflictStrategy: {
+      schema: z.enum(["automatic", "guided", "manual"]),
+      description: "Choose conflict resolution strategy",
+      required: false,
+    },
+  }
+);
 
 /**
  * Register the git commands in the shared command registry
