@@ -2,6 +2,13 @@
 
 ### Added
 
+- **Task #325: Implemented Special Workspace Deprecation Warnings**
+  - Added deprecation warnings to in-tree task backends (markdown-backend.ts and json-backend.ts)
+  - Users now see migration guidance when using deprecated special workspace approach
+  - References ADR-003 deprecation strategy with clear benefits of GitHub Issues backend
+  - Cleaned up obsolete task 160 session workspaces (task#160 and task160-ai-backend)
+  - Completed final implementation phase of architectural resolution
+
 - Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
   - Extends current "user interventions" to support both human and AI agents
   - Enables persistent conversation history with rolling summaries
@@ -18,7 +25,7 @@
 ### Enhanced
 
 <<<<<<< HEAD
-- **Task #325: Completed Task Backend Architecture Analysis** 
+- **Task #325: Completed Task Backend Architecture Analysis**
   - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
   - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
   - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
