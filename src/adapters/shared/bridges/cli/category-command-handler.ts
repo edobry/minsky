@@ -208,19 +208,66 @@ export class CategoryCommandHandler {
   }
 
   /**
-   * Add a complex nested command (more than 2 levels)
+   * Add a complex nested command (more than 2 levels) using recursive nesting
    */
   private addComplexNestedCommand(
     categoryCommand: Command,
     commandDef: any,
     context?: { viaFactory?: boolean }
   ): void {
-    // More complex nesting - handle it recursively or warn
-    log.warn(`Complex command nesting not yet supported: ${commandDef.name}`);
-    const subcommand = this.deps.commandGenerator.generateCommand(commandDef.id, context);
-    if (subcommand) {
-      categoryCommand.addCommand(subcommand);
+    const nameParts = commandDef.name.split(" ");
+    this.addNestedCommandRecursive(categoryCommand, commandDef, nameParts, new Map(), context);
+  }
+
+  /**
+   * Recursively add nested commands with arbitrary depth
+   */
+  private addNestedCommandRecursive(
+    parentCommand: Command,
+    commandDef: any,
+    nameParts: string[],
+    commandGroups: Map<string, Command>,
+    context?: { viaFactory?: boolean }
+  ): void {
+    if (nameParts.length === 0) {
+      log.warn(`Empty command name structure: ${commandDef.name}`);
+      return;
     }
+
+    if (nameParts.length === 1) {
+      // Base case: create the final command
+      const finalCommand = this.deps.commandGenerator.generateCommand(commandDef.id, context);
+      if (finalCommand && nameParts[0]) {
+        finalCommand.name(nameParts[0]);
+        parentCommand.addCommand(finalCommand);
+      }
+      return;
+    }
+
+    // Recursive case: create intermediate command and continue
+    const currentName = nameParts[0];
+    const remainingParts = nameParts.slice(1);
+
+    // Create a unique key for this command at this level
+    const parentName = parentCommand.name();
+    const commandKey = `${parentName || "root"}.${currentName}`;
+
+    // Get or create the intermediate command
+    let intermediateCommand = commandGroups.get(commandKey);
+    if (!intermediateCommand) {
+      intermediateCommand = new Command(currentName).description(`${currentName} commands`);
+      commandGroups.set(commandKey, intermediateCommand);
+      parentCommand.addCommand(intermediateCommand);
+    }
+
+    // Recursively handle the remaining parts
+    this.addNestedCommandRecursive(
+      intermediateCommand,
+      commandDef,
+      remainingParts,
+      commandGroups,
+      context
+    );
   }
 
   /**
