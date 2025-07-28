@@ -3,5 +3,34 @@ import { promisify } from "util";
 
 const promisifiedExec = promisify(exec);
 
-export const execAsync = promisifiedExec;
-export const _execAsync = promisifiedExec; // Alias for backward compatibility
+/**
+ * Execute a command with proper cleanup to prevent hanging
+ * Ensures child processes and their stdio streams are properly closed
+ */
+export async function execAsync(command: string, options: any = {}) {
+  // Add explicit cleanup options to prevent hanging
+  const execOptions = {
+    ...options,
+    // Kill child process if parent exits
+    killSignal: "SIGTERM",
+    // Set maximum buffer sizes to prevent memory issues
+    maxBuffer: 1024 * 1024 * 10, // 10MB
+  };
+
+  try {
+    const result = await promisifiedExec(command, execOptions);
+    return result;
+  } catch (error) {
+    // Ensure any spawned processes are cleaned up on error
+    if ((error as any).child) {
+      try {
+        (error as any).child.kill("SIGTERM");
+      } catch (killError) {
+        // Ignore kill errors
+      }
+    }
+    throw error;
+  }
+}
+
+export { execAsync as _execAsync }; // Alias for backward compatibility

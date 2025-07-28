@@ -1,5 +1,7 @@
 # Implement Basic Task Parent-Child Relationships
 
+> **⚠️ SPEC UPDATE REQUIRED**: This spec was written before Task #325 architectural decision. Following the GitHub Issues interim strategy, this spec needs updating to use GitHub Issues for relationships instead of complex backend metadata. See `analysis/updated-ai-task-management-spec.md` for the new approach.
+
 ## Problem Statement
 
 Enable arbitrary depth task decomposition by implementing simple parent-child relationships between tasks. This provides immediate value for test decomposition and complex task management without adding complexity.

@@ -277,6 +277,136 @@ export abstract class CodemodBase {
 }
 
 /**
+ * Simplified codemod base class for quick AST transformations
+ * This class provides a simpler API for implementing codemods
+ */
+export abstract class SimplifiedCodemodBase extends CodemodBase {
+  private fileIssueMap: Map<string, boolean> = new Map();
+  private readonly name: string;
+  private readonly description: string;
+  private readonly explanation: string;
+
+  constructor(name: string, metadata: { description: string; explanation: string }) {
+    super();
+    this.name = name;
+    this.description = metadata.description;
+    this.explanation = metadata.explanation;
+  }
+
+  /**
+   * Main execution method that processes files specified in the command line
+   */
+  public async run(paths: string[]): Promise<void> {
+    console.log(`🚀 Running ${this.name} codemod`);
+    console.log(`📝 ${this.description}`);
+
+    const startTime = Date.now();
+
+    // Use provided paths or default patterns
+    const filePaths = paths.length > 0 ? paths : this.options.includePatterns!;
+    this.project.addSourceFilesAtPaths(filePaths);
+
+    const sourceFiles = this.project.getSourceFiles();
+    console.log(`📁 Found ${sourceFiles.length} source files to analyze`);
+
+    let analyzedCount = 0;
+    let transformedCount = 0;
+
+    for (const sourceFile of sourceFiles) {
+      try {
+        // Skip files not matching our patterns
+        const filePath = sourceFile.getFilePath();
+        if (this.shouldSkipFile(filePath)) {
+          continue;
+        }
+
+        analyzedCount++;
+
+        // Analyze file to see if it needs transformation
+        const needsTransformation = await this.analyzeFile(sourceFile);
+        if (needsTransformation) {
+          await this.transformFile(sourceFile);
+          transformedCount++;
+
+          if (!this.options.dryRun) {
+            sourceFile.saveSync();
+          }
+        }
+      } catch (error) {
+        this.metrics.errors.push(`Error processing ${sourceFile.getFilePath()}: ${error}`);
+        console.error(`❌ Error processing ${sourceFile.getFilePath()}: ${error}`);
+      }
+    }
+
+    const duration = Date.now() - startTime;
+
+    console.log(`✅ Codemod completed in ${duration}ms`);
+    console.log(`📊 Files analyzed: ${analyzedCount}`);
+    console.log(`🔧 Files transformed: ${transformedCount}`);
+
+    if (this.metrics.errors.length > 0) {
+      console.log(`❌ Errors: ${this.metrics.errors.length}`);
+    }
+  }
+
+  /**
+   * Implementation of required findIssues method from parent class
+   */
+  protected findIssues(): void {
+    // Implementation handled by analyzeFile in this simplified base class
+  }
+
+  /**
+   * Implementation of required fixIssues method from parent class
+   */
+  protected fixIssues(): void {
+    // Implementation handled by transformFile in this simplified base class
+  }
+
+  /**
+   * Check if a file should be skipped
+   */
+  protected shouldSkipFile(filePath: string): boolean {
+    // Skip files that match exclude patterns
+    return this.options.excludePatterns!.some((pattern) => {
+      const regex = new RegExp(pattern.replace(/\*/g, ".*"));
+      return regex.test(filePath);
+    });
+  }
+
+  /**
+   * Abstract method to determine if a file needs transformation
+   */
+  protected abstract analyzeFile(sourceFile: any): Promise<boolean>;
+
+  /**
+   * Abstract method to transform a file
+   */
+  protected abstract transformFile(sourceFile: any): Promise<void>;
+
+  /**
+   * Helper to log success messages
+   */
+  protected logSuccess(message: string): void {
+    console.log(`✅ ${message}`);
+  }
+
+  /**
+   * Helper to log warning messages
+   */
+  protected logWarning(message: string): void {
+    console.log(`⚠️ ${message}`);
+  }
+
+  /**
+   * Helper to log error messages
+   */
+  protected logError(message: string): void {
+    console.log(`❌ ${message}`);
+  }
+}
+
+/**
  * Utility functions for common AST operations
  */
 export class ASTUtils {

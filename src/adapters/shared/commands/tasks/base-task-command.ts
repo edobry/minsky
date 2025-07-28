@@ -103,14 +103,54 @@ export abstract class BaseTaskCommand {
   }
 
   /**
-   * Format result based on JSON flag
+   * Format command results for output
    */
   protected formatResult(result: any, json: boolean = false): any {
     if (json) {
       // Return structured data for programmatic use
       return result;
     } else {
-      // Return simple message for user-friendly output
+      // Handle special case for task lists - display actual tasks
+      if (typeof result === "object" && result.tasks && Array.isArray(result.tasks)) {
+        // Import formatTaskIdForDisplay locally to avoid circular dependencies
+        const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+
+        if (result.tasks.length === 0) {
+          return "No tasks found.";
+        }
+
+        // Format each task for display
+        const taskList = result.tasks
+          .map((task: any) => {
+            const displayId = formatTaskIdForDisplay(task.id);
+            return `${displayId}: ${task.title} [${task.status}]`;
+          })
+          .join("\n");
+
+        return taskList;
+      }
+
+      // Handle individual task details
+      if (typeof result === "object" && result.task && !Array.isArray(result.task)) {
+        const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
+        const task = result.task;
+        const displayId = formatTaskIdForDisplay(task.id);
+
+        let output = `${displayId}: ${task.title}\n`;
+        output += `Status: ${task.status}\n`;
+
+        if (task.description && task.description.trim()) {
+          output += `Description: ${task.description.trim()}\n`;
+        }
+
+        if (task.specPath) {
+          output += `Spec: ${task.specPath}\n`;
+        }
+
+        return output.trim();
+      }
+
+      // Return simple message for other results
       if (typeof result === "object" && result.message) {
         return result.message;
       }

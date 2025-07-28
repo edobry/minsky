@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { getErrorMessage, ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import { type CommandExecutionContext } from "../../command-registry";
+import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
 
 /**
  * Common dependencies for session commands
@@ -69,7 +69,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    * Get the command category
    */
   getCommandCategory(): string {
-    return "session";
+    return CommandCategory.SESSION;
   }
 
   /**

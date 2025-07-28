@@ -6,8 +6,8 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { approveSessionImpl } from "../session-approve-operations";
-import { ResourceNotFoundError } from "../../../errors/index";
+import { approveSessionImpl } from "./session-approve-operations";
+import { ResourceNotFoundError } from "../../errors/index";
 
 describe("Session Approval Error Handling Fix", () => {
   test("should validate task existence BEFORE checking for session", async () => {

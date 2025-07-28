@@ -60,7 +60,7 @@ module.exports = {
             const command = firstArg.value;
 
             // Check if it's a git command with unsafe network operations
-            const gitMatch = command.match(/git\s+(-C\s+\S+\s+)?(\w+)/);
+            const gitMatch = command.match(/git\s+(-C\s+\S+\s+)?([\w-]+)/);
             if (gitMatch) {
               const gitCommand = gitMatch[2];
 
@@ -84,24 +84,43 @@ module.exports = {
 
           // Check template literals with git commands
           if (firstArg && firstArg.type === "TemplateLiteral") {
-            const templateValue = getTemplateLiteralValue(firstArg);
-            if (templateValue && templateValue.includes("git ")) {
-              for (const unsafeCmd of UNSAFE_GIT_COMMANDS) {
-                if (
-                  templateValue.includes(`git ${unsafeCmd}`) ||
-                  (templateValue.includes("git -C") && templateValue.includes(unsafeCmd))
-                ) {
-                  const suggestion = getSafeAlternative(unsafeCmd);
+            // Check all template parts for git commands
+            const hasGitCommand = firstArg.quasis.some(
+              (quasi) => quasi.value.cooked && quasi.value.cooked.includes("git ")
+            );
 
-                  context.report({
-                    node,
-                    messageId: "unsafeGitNetworkOp",
-                    data: {
-                      command: unsafeCmd,
-                      suggestion,
-                    },
-                  });
+            if (hasGitCommand) {
+              // Find which specific unsafe command is in the template
+              let foundCommand = null;
+
+              // Get all text parts from the template
+              const allTextParts = firstArg.quasis.map((q) => q.value.cooked || "").join(" ");
+
+              for (const unsafeCmd of UNSAFE_GIT_COMMANDS) {
+                // Check if the command appears anywhere in the template
+                if (
+                  allTextParts.includes(` ${unsafeCmd} `) ||
+                  allTextParts.includes(`git ${unsafeCmd}`) ||
+                  allTextParts.match(new RegExp(`\\b${unsafeCmd}\\b`))
+                ) {
+                  foundCommand = unsafeCmd;
+                  break;
                 }
+              }
+
+              if (foundCommand) {
+                const suggestion = getSafeAlternative(foundCommand);
+
+                context.report({
+                  node,
+                  messageId: "unsafeGitNetworkOp",
+                  data: {
+                    command: foundCommand,
+                    suggestion,
+                  },
+                  // Template literals with variables can't be auto-fixed
+                  fix: null,
+                });
               }
             }
           }
@@ -145,8 +164,7 @@ function getSafeAlternative(gitCommand) {
 }
 
 function generateAutoFix(fixer, node, gitCommand, originalCommand) {
-  const safeFunction = getSafeAlternative(gitCommand);
-
+  // All unsafe git commands should use execGitWithTimeout
   // Extract git arguments for conversion
   const gitMatch = originalCommand.match(/git\s+(-C\s+(\S+)\s+)?(.+)/);
   if (!gitMatch) return null;
@@ -154,18 +172,24 @@ function generateAutoFix(fixer, node, gitCommand, originalCommand) {
   const workdir = gitMatch[2];
   const args = gitMatch[3];
 
-  if (safeFunction === "execGitWithTimeout") {
-    // For execGitWithTimeout: execGitWithTimeout("operation", "command", { workdir })
-    const operation = gitCommand;
-    const command = args;
-    const options = workdir ? `{ workdir: "${workdir}" }` : "{}";
+  // For execGitWithTimeout: execGitWithTimeout("operation", "command", { workdir })
+  const operation = gitCommand;
+  const command = args;
+  const options = workdir ? `{ workdir: "${workdir}" }` : "{}";
 
-    return fixer.replaceText(node, `execGitWithTimeout("${operation}", "${command}", ${options})`);
+  // Check if we need to preserve the await
+  const parent = node.parent;
+  const isAwaited = parent && parent.type === "AwaitExpression";
+
+  // Build the replacement text
+  const replacementText = `execGitWithTimeout("${operation}", "${command}", ${options})`;
+
+  if (isAwaited) {
+    // Replace the entire await expression with our new await expression
+    return fixer.replaceText(parent, `await ${replacementText}`);
   } else {
-    // For specific timeout functions: gitPushWithTimeout("origin", "branch", { workdir })
-    const options = workdir ? `{ workdir: "${workdir}" }` : "{}";
-
-    return fixer.replaceText(node, `${safeFunction}("origin", undefined, ${options})`);
+    // Just replace the call expression
+    return fixer.replaceText(node, replacementText);
   }
 }
 

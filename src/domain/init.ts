@@ -398,7 +398,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
         mcpServers: {
           "minsky-server": {
             _command: "minsky",
-            _args: ["mcp", "start", "--stdio"],
+            _args: ["mcp", "start"],
           },
         },
       },
@@ -445,7 +445,7 @@ function getMCPConfigContent(mcpOptions?: InitializeProjectOptions["mcp"]): stri
       mcpServers: {
         "minsky-server": {
           _command: "minsky",
-          _args: ["mcp", "start", "--stdio"],
+          _args: ["mcp", "start"],
         },
       },
     },

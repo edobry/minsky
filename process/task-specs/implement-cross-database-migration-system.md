@@ -1,5 +1,7 @@
 # Task: Implement Cross-Database Migration System
 
+> **⚠️ SPEC DEPRIORITIZED**: Following Task #325 architectural decision to use GitHub Issues interim strategy, this cross-database migration system is no longer a priority. Migration planning is deferred until implementing AI features that require advanced backends. This spec remains for future reference when migration becomes needed.
+
 ## Overview
 
 Build a comprehensive database migration system that enables seamless migration between different storage backends (SQLite, PostgreSQL, JSON) with validation, rollback capabilities, and performance optimization.

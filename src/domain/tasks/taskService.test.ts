@@ -326,7 +326,11 @@ describe("TaskService", () => {
 
         // Verify the file actually exists at the proper location
         const fullSpecPath = path.join(tempWorkspace, task.specPath || "");
-        await expect(fs.access(fullSpecPath)).resolves.toBeUndefined();
+        const accessResult = await fs
+          .access(fullSpecPath)
+          .then(() => null)
+          .catch((err) => err);
+        expect(accessResult).toBeNull(); // File access succeeded
 
         // Verify the file content
         const fileContent = await fs.readFile(fullSpecPath, "utf-8");
