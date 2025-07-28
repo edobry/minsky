@@ -1,6 +1,44 @@
+# TASK STATUS UPDATE (Post-Main Merge)
+
+## Current State Summary
+
+🔄 **IN PROGRESS** - Template infrastructure complete, but CLI integration broken after main merge and major rule conversion work remains.
+
+**✅ ACHIEVEMENTS**:
+- Template system infrastructure fully implemented and functional
+- Unit tests pass for template system components
+- Template service and command generator working correctly
+
+**❌ CRITICAL ISSUES**:
+- CLI integration regression: `minsky rules generate` command missing from help after main merge
+- Only 3 demo templates exist vs 60+ rules that need conversion
+- Core workflow rules still contain hardcoded CLI commands
+
+**🎯 IMMEDIATE PRIORITIES**:
+1. **Fix CLI Integration Regression** (HIGH) - Restore missing `generate` command 
+2. **Rule Conversion Phase 1** (HIGH) - Convert core workflow rules to templates
+3. **Complete Rule Migration** (MEDIUM) - Convert remaining rule files
+
+---
+
 # Implement Template-Based Rules Generation System
 
 ## Status
+
+🔄 **IN PROGRESS** - Template infrastructure complete, but CLI integration broken after main merge and major rule conversion work remains.
+
+**Current Achievement**: ✅ Template system infrastructure is fully implemented and functional
+**Critical Blocker**: ❌ CLI integration regression - `minsky rules generate` command missing from help
+**Major Gap**: ❌ Only 3 demo templates exist, 60+ rules still contain hardcoded CLI commands
+
+---
+
+**IMMEDIATE PRIORITIES**:
+1. **Fix CLI Integration Regression** (HIGH) - Restore missing `generate` command 
+2. **Rule Conversion Phase 1** (HIGH) - Convert 6-8 core workflow rules to templates
+3. **Complete Rule Migration** (MEDIUM) - Convert remaining 50+ rule files
+
+---
 
 IN-PROGRESS
 
