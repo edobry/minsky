@@ -13,7 +13,12 @@ import {
   ValidationError,
   ValidationWarning,
 } from "./types";
+import { enumSchemas } from "../configuration/schemas/base";
+import { z } from "zod";
 import { log } from "../../utils/logger";
+
+// Properly typed AI provider using existing enum
+type AIProvider = z.infer<typeof enumSchemas.aiProvider>;
 
 export class DefaultAIConfigurationService implements AIConfigurationService {
   constructor(private configService: any) {} // Accept any config service for flexibility
@@ -42,7 +47,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
       // Create provider config from unified configuration (support both camelCase and snake_case)
       return {
-        provider: provider as "openai" | "anthropic" | "google" | "cohere" | "mistral",
+        provider: provider as AIProvider,
         apiKey,
         baseURL: providerConfig.baseUrl || providerConfig.base_url,
         defaultModel: providerConfig.model || providerConfig.default_model,
