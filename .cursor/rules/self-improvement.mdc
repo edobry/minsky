@@ -435,3 +435,40 @@ Assistant: [starts work based only on database title without finding task specif
 User: "312 @Start Task"
 Assistant: [searches for task specification, finds it in special workspace, investigates architectural context, understands complete requirements before starting]
 ```
+
+### Examples of Rule Update Requirements
+
+**Violation Pattern**: Taking corrective action without updating rules
+**User Signal**: "you must update/create a rule PRIOR TO TAKING CORRECTIVE ACTION"
+**Required Response**:
+1. Stop all corrective work immediately
+2. Update self-improvement.mdc with this requirement
+3. Then proceed with original corrective action
+
+**Violation Pattern**: Declaring completion without verification
+**User Signal**: "are you sure we're done?"
+**Required Response**:
+1. Stop completion claims immediately
+2. Update implementation-verification-protocol.mdc with mandatory verification steps
+3. Then run actual verification commands
+
+**Violation Pattern**: Incomplete architecture implementation
+**User Signal**: "did you forget about the other [components]?"
+**Required Response**:
+1. Stop current implementation immediately
+2. Update relevant rule with complete architecture requirements
+3. Then implement ALL required components, not just subset
+
+**Violation Pattern**: Creating separate status documents instead of updating task specs
+**User Signal**: "why did you make an actual_status doc..... wtf..... we always @Update Task Spec"
+**Required Response**:
+1. Stop creating separate status files immediately
+2. Update task specification file directly with current status
+3. Remove any incorrectly created status documents
+
+**Violation Pattern**: Incomplete implementation when user gives specific instructions
+**User Signal**: "the issue is that you stopped before you were done"
+**Required Response**:
+1. Stop making excuses immediately
+2. Update relevant rule with complete implementation requirements
+3. Then finish the implementation as specifically requested by user

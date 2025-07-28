@@ -59,6 +59,7 @@ Reads the contents of a file within the session workspace with optional line ran
 ```
 
 **Line Range Features:**
+
 - **Memory Efficient**: Reads only requested lines for large files
 - **Context Expansion**: Small ranges automatically expand to provide better context
 - **Content Summarization**: Shows what content was omitted before/after the selected range
@@ -66,33 +67,36 @@ Reads the contents of a file within the session workspace with optional line ran
 
 **Line Range Examples:**
 
-*Read specific lines:*
+_Read specific lines:_
+
 ```javascript
 const result = await session_read_file({
   session: "task#049",
   path: "src/utils/helper.ts",
   start_line_one_indexed: 25,
-  end_line_one_indexed_inclusive: 35
+  end_line_one_indexed_inclusive: 35,
 });
 ```
 
-*Read single line with context:*
+_Read single line with context:_
+
 ```javascript
 const result = await session_read_file({
-  session: "task#049", 
+  session: "task#049",
   path: "src/component.tsx",
   start_line_one_indexed: 42,
-  end_line_one_indexed_inclusive: 42
+  end_line_one_indexed_inclusive: 42,
 });
 // Automatically expands to show surrounding context
 ```
 
-*Read entire file (explicit):*
+_Read entire file (explicit):_
+
 ```javascript
 const result = await session_read_file({
   session: "task#049",
   path: "package.json",
-  should_read_entire_file: true
+  should_read_entire_file: true,
 });
 ```
 
@@ -262,6 +266,7 @@ if (result.success) {
 ```
 
 ### Reading Specific File Sections
+
 ```javascript
 // Read only the imports section of a TypeScript file
 const result = await session_read_file({
@@ -269,16 +274,19 @@ const result = await session_read_file({
   path: "src/components/Button.tsx",
   start_line_one_indexed: 1,
   end_line_one_indexed_inclusive: 15,
-  explanation: "Reading imports to understand dependencies"
+  explanation: "Reading imports to understand dependencies",
 });
 
 if (result.success) {
-  console.log(`Read lines ${result.linesRead.start}-${result.linesRead.end} of ${result.totalLines} total lines`);
+  console.log(
+    `Read lines ${result.linesRead.start}-${result.linesRead.end} of ${result.totalLines} total lines`
+  );
   console.log(result.content);
 }
 ```
 
 ### Reading Around a Specific Function
+
 ```javascript
 // Read a specific function with automatic context expansion
 const result = await session_read_file({
@@ -286,7 +294,7 @@ const result = await session_read_file({
   path: "src/utils/validation.ts",
   start_line_one_indexed: 45,
   end_line_one_indexed_inclusive: 45,
-  explanation: "Examining the validateEmail function"
+  explanation: "Examining the validateEmail function",
 });
 
 // Single line requests automatically expand to show surrounding context

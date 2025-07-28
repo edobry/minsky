@@ -12,8 +12,8 @@ import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
-
-// Dynamic import for GitHub backend to avoid hard dependency
+import { getGitHubBackendConfig } from "./githubBackendConfig";
+import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 
 /**
  * Options for the TaskService
@@ -88,10 +88,13 @@ export class TaskService {
         const githubBackend = this.tryCreateGitHubBackend(workspacePath);
         if (githubBackend) {
           this.backends.push(githubBackend);
+          log.debug("GitHub backend added successfully");
+        } else {
+          log.debug("GitHub backend not available - config not found");
         }
       } catch (error) {
-        // Silently ignore GitHub backend if not available
-        log.debug("GitHub backend not available", { error: String(error as any) });
+        // Log GitHub backend errors for debugging
+        log.warn("GitHub backend creation failed", { error: String(error as any) });
       }
     }
 
@@ -518,18 +521,12 @@ export class TaskService {
   }
 
   /**
-   * Try to create GitHub backend using dynamic imports
+   * Try to create GitHub backend
    * @param workspacePath Workspace path
    * @returns GitHub TaskBackend instance or null if not available
    */
-  private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
+  private tryCreateGitHubBackend(workspacePath: string): TaskBackend | null {
     try {
-      // Dynamic import to avoid hard dependency on GitHub modules
-      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
-        import("./githubBackendConfig"),
-        import("./githubIssuesTaskBackend"),
-      ]);
-
       const config = getGitHubBackendConfig(workspacePath);
       if (!config) {
         return null;

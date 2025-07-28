@@ -8,7 +8,7 @@ const rule = require("./no-unsafe-git-network-operations");
 const { RuleTester } = require("eslint");
 
 const ruleTester = new RuleTester({
-  parserOptions: {
+  languageOptions: {
     ecmaVersion: 2022,
     sourceType: "module",
   },

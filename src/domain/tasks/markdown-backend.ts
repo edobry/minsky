@@ -32,6 +32,22 @@ async function resolveWorkspacePath(
 
   // 2. Repository URL provided - use special workspace with timeout protection
   if (config.repoUrl) {
+    // ⚠️ DEPRECATION WARNING: Special workspace approach is deprecated
+    log.warn(`
+⚠️  DEPRECATION WARNING: In-tree task backends are deprecated
+
+    Migration recommended: 'minsky migrate to-github-issues'
+
+    Benefits of GitHub Issues:
+    • Rich task specifications with markdown
+    • Native GitHub workflow integration
+    • Better collaboration and discussion
+    • Foundation for future AI features
+
+    Support for in-tree backends will be removed in a future version.
+    See: https://github.com/your-org/minsky/blob/main/analysis/adrs/003-deprecate-in-tree-backends.md
+  `);
+
     try {
       const specialWorkspaceManager = createSpecialWorkspaceManager({
         repoUrl: config.repoUrl,
@@ -66,6 +82,22 @@ async function resolveWorkspacePath(
   // 3. ALWAYS use special workspace for task operations - NO FALLBACKS
   // Task operations MUST be consistent across CLI and MCP interfaces
   log.debug("Task operations require special workspace - waiting for initialization");
+
+  // ⚠️ DEPRECATION WARNING: Special workspace approach is deprecated
+  log.warn(`
+⚠️  DEPRECATION WARNING: In-tree task backends are deprecated
+
+    Migration recommended: 'minsky migrate to-github-issues'
+
+    Benefits of GitHub Issues:
+    • Rich task specifications with markdown
+    • Native GitHub workflow integration
+    • Better collaboration and discussion
+    • Foundation for future AI features
+
+    Support for in-tree backends will be removed in a future version.
+    See: https://github.com/your-org/minsky/blob/main/analysis/adrs/003-deprecate-in-tree-backends.md
+  `);
 
   const specialWorkspaceManager = createSpecialWorkspaceManager({
     repoUrl: "https://github.com/local/minsky-tasks.git", // Default repo for tasks
