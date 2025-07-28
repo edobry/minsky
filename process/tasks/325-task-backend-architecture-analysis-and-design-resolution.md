@@ -1,12 +1,27 @@
 # Task Backend Architecture Analysis and Design Resolution
 
+## Status: ✅ COMPLETED
+
+**ARCHITECTURAL DECISION MADE**: Deprecate special workspace approach and migrate to GitHub Issues interim strategy.
+
 ## Problem Statement
 
-The current task system architecture faces a fundamental tension between supporting in-tree task metadata backends (markdown/json) and managing the resulting workflow complexity. The special workspace mechanism designed to support in-tree backends has proven complex, brittle, and possibly more trouble than it's worth. 
+The current task system architecture faces a fundamental tension between supporting in-tree task metadata backends (markdown/json) and managing the resulting workflow complexity. The special workspace mechanism designed to support in-tree backends has proven complex, brittle, and possibly more trouble than it's worth.
 
 **CRITICAL INSIGHT**: Minsky is fundamentally an **AI-powered task management tool**, which requires hosted AI APIs and internet connectivity for core value delivery. This significantly changes the architectural constraints and priorities.
 
 This task involves a comprehensive analysis of the architectural tradeoffs and philosophical considerations to resolve the core design questions around task backend architecture in the context of AI-first workflows.
+
+## ✅ RESOLUTION COMPLETED
+
+**Final Decision**: [ADR-003: Deprecate In-Tree Backends](../analysis/adrs/003-deprecate-in-tree-backends.md)
+
+1. **Deprecate in-tree task backends** (markdown/JSON with special workspace)
+2. **Migrate to GitHub Issues** as interim backend strategy
+3. **Preserve existing code temporarily** for learning and safety
+4. **Defer complex backend decisions** until implementing AI features that require advanced capabilities
+
+See comprehensive analysis in [`../analysis/`](../analysis/) directory.
 
 ## Core Architectural Conflict
 
@@ -234,7 +249,7 @@ Clear guidance for users:
 
 ### AI-First Architecture Implications
 - Core features require vector storage and fast queries
-- Real-time collaboration needed for team AI workflows  
+- Real-time collaboration needed for team AI workflows
 - Internet connectivity assumed for AI API access
 - Offline work is secondary concern for AI-powered tool
 

@@ -358,7 +358,7 @@ export function createMCPCommand(): Command {
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
-        .action(async (options) => {
+    .action(async (options) => {
       try {
         log.cli("Listing available MCP tools...");
 
@@ -373,23 +373,23 @@ export function createMCPCommand(): Command {
           });
 
           // Send initialization and tools/list requests
-          const initRequest = JSON.stringify({
+          const initRequest = `${JSON.stringify({
             jsonrpc: "2.0",
             id: 1,
             method: "initialize",
             params: {
               protocolVersion: "2025-01-07",
               capabilities: {},
-              clientInfo: { name: "minsky-cli", version: "1.0.0" }
-            }
-          }) + "\n";
+              clientInfo: { name: "minsky-cli", version: "1.0.0" },
+            },
+          })}\n`;
 
-          const toolsRequest = JSON.stringify({
+          const toolsRequest = `${JSON.stringify({
             jsonrpc: "2.0",
             id: 2,
             method: "tools/list",
-            params: {}
-          }) + "\n";
+            params: {},
+          })}\n`;
 
           child.stdin.write(initRequest);
           child.stdin.write(toolsRequest);
@@ -403,8 +403,8 @@ export function createMCPCommand(): Command {
           child.on("close", (code) => {
             try {
               // Find the tools/list response in the output
-              const lines = output.split("\n").filter(line => line.trim());
-              const toolsResponse = lines.find(line => {
+              const lines = output.split("\n").filter((line) => line.trim());
+              const toolsResponse = lines.find((line) => {
                 try {
                   const parsed = JSON.parse(line);
                   return parsed.id === 2 && parsed.result && parsed.result.tools;
@@ -429,7 +429,6 @@ export function createMCPCommand(): Command {
             reject(error);
           });
         });
-
       } catch (error) {
         log.cliError(`Failed to list tools: ${getErrorMessage(error)}`);
         exit(1);
