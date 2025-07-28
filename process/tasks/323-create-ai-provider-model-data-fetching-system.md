@@ -90,12 +90,12 @@ const capabilityMap = {
 
 ## Acceptance Criteria
 
-- [ ] Fetch and cache model data from major providers
-- [ ] CLI commands for model cache management
-- [ ] Clear separation between user configuration and model cache
-- [ ] TTL-based cache invalidation and automatic refresh
-- [ ] Error handling for API failures and stale cache scenarios
-- [ ] Documentation for adding new providers and cache behavior
+- [x] Fetch and cache model data from major providers
+- [x] CLI commands for model cache management
+- [x] Clear separation between user configuration and model cache
+- [x] TTL-based cache invalidation and automatic refresh
+- [x] Error handling for API failures and stale cache scenarios
+- [x] Documentation for adding new providers and cache behavior
 
 ## Requirements
 
