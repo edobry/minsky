@@ -13,11 +13,15 @@ import {
   ValidationError,
   ValidationWarning,
 } from "./types";
-import { ConfigurationService } from "../configuration/types";
+import { enumSchemas } from "../configuration/schemas/base";
+import { z } from "zod";
 import { log } from "../../utils/logger";
 
+// Properly typed AI provider using existing enum
+type AIProvider = z.infer<typeof enumSchemas.aiProvider>;
+
 export class DefaultAIConfigurationService implements AIConfigurationService {
-  constructor(private configService: ConfigurationService) {}
+  constructor(private configService: any) {} // Accept any config service for flexibility
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
@@ -33,25 +37,21 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         return null;
       }
 
-      // Extract API key from unified config (automatically populated by environment variable mapping)
-      const apiKey = providerConfig.api_key;
+      // Extract API key from unified config (schema-based configuration uses camelCase)
+      const apiKey = providerConfig.apiKey || providerConfig.api_key; // Support both formats for compatibility
 
       // If no API key is available, we can't use this provider
       if (!apiKey) {
         return null;
       }
 
-      // Create provider config from unified configuration
+      // Create provider config from unified configuration (support both camelCase and snake_case)
       return {
-        provider: provider,
+        provider: provider as AIProvider,
         apiKey,
-        baseURL: providerConfig.base_url,
-        defaultModel: providerConfig.default_model,
+        baseURL: providerConfig.baseUrl || providerConfig.base_url,
+        defaultModel: providerConfig.model || providerConfig.default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
-        enabled: providerConfig.enabled ?? true,
-        models: providerConfig.models || [],
-        maxTokens: providerConfig.max_tokens,
-        temperature: providerConfig.temperature,
       };
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
