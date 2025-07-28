@@ -1,17 +1,14 @@
 import { describe, test, expect, beforeEach } from "bun:test";
-import {
-  detectPackageManager,
-  getInstallCommand,
-  installDependencies,
-  type PackageManagerDependencies,
-} from "./package-manager";
+import { detectPackageManager, getInstallCommand, installDependencies } from "./package-manager";
+import type { PackageManagerDependencies } from "../../utils/package-manager";
+import { createPartialMock } from "../../utils/test-utils/mocking";
 
 describe("Package Manager Utilities with Dependency Injection", () => {
   let mockDeps: PackageManagerDependencies;
 
   beforeEach(() => {
-    // Create fresh mock dependencies for each test
-    mockDeps = {
+    // Use established createPartialMock pattern instead of manual mock creation
+    mockDeps = createPartialMock<PackageManagerDependencies>({
       fs: {
         existsSync: () => false, // Default: no files exist
       },
@@ -22,58 +19,73 @@ describe("Package Manager Utilities with Dependency Injection", () => {
         debug: () => {},
         error: () => {},
       },
-    };
+    });
   });
 
   describe("detectPackageManager", () => {
     test("detects bun from bun.lock", () => {
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("bun.lock");
-      };
+      // Override specific method using established pattern
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("bun.lock"),
+        },
+      });
 
       const result = detectPackageManager("/fake/repo", mockDeps);
       expect(result).toBe("bun");
     });
 
     test("detects yarn from yarn.lock", () => {
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("yarn.lock");
-      };
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("yarn.lock"),
+        },
+      });
 
       const result = detectPackageManager("/fake/repo", mockDeps);
       expect(result).toBe("yarn");
     });
 
     test("detects pnpm from pnpm-lock.yaml", () => {
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("pnpm-lock.yaml");
-      };
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("pnpm-lock.yaml"),
+        },
+      });
 
       const result = detectPackageManager("/fake/repo", mockDeps);
       expect(result).toBe("pnpm");
     });
 
     test("detects npm from package-lock.json", () => {
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("package-lock.json");
-      };
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("package-lock.json"),
+        },
+      });
 
       const result = detectPackageManager("/fake/repo", mockDeps);
       expect(result).toBe("npm");
     });
 
     test("defaults to npm if only package.json exists", () => {
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("package.json");
-      };
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("package.json"),
+        },
+      });
 
       const result = detectPackageManager("/fake/repo", mockDeps);
       expect(result).toBe("npm");
     });
 
     test("returns undefined if no package files exist", () => {
-      mockDeps.fs.existsSync = () => false;
-
+      // Uses default mock that returns false for all files
       const result = detectPackageManager("/fake/repo", mockDeps);
       expect(result).toBeUndefined();
     });
@@ -108,18 +120,21 @@ describe("Package Manager Utilities with Dependency Injection", () => {
 
   describe("installDependencies", () => {
     test("successfully installs dependencies", async () => {
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("package.json");
-      };
-      mockDeps.process.execSync = () => Buffer.from("Success");
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("package.json"),
+        },
+        process: {
+          execSync: () => Buffer.from("Success"),
+        },
+      });
 
       const result = await installDependencies("/fake/repo", {}, mockDeps);
       expect(result.success).toBe(true);
     });
 
     test("uses provided package manager if specified", async () => {
-      mockDeps.process.execSync = () => Buffer.from("Success");
-
       const result = await installDependencies(
         "/fake/repo",
         {
@@ -133,8 +148,7 @@ describe("Package Manager Utilities with Dependency Injection", () => {
     });
 
     test("handles no package manager detected", async () => {
-      mockDeps.fs.existsSync = () => false;
-
+      // Uses default mock that returns false for all files
       const result = await installDependencies("/fake/repo", {}, mockDeps);
 
       expect(result.success).toBe(false);
@@ -155,13 +169,17 @@ describe("Package Manager Utilities with Dependency Injection", () => {
     });
 
     test("handles installation errors", async () => {
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("package.json");
-      };
-
-      mockDeps.process.execSync = () => {
-        throw new Error("Installation failed");
-      };
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("package.json"),
+        },
+        process: {
+          execSync: () => {
+            throw new Error("Installation failed");
+          },
+        },
+      });
 
       const result = await installDependencies("/fake/repo", {}, mockDeps);
 
@@ -172,14 +190,18 @@ describe("Package Manager Utilities with Dependency Injection", () => {
     test("respects quiet option for stdio", async () => {
       let executedOptions: any = null;
 
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("package.json");
-      };
-
-      mockDeps.process.execSync = (command: string, options: any) => {
-        executedOptions = options;
-        return Buffer.from("Success");
-      };
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("package.json"),
+        },
+        process: {
+          execSync: (command: string, options: any) => {
+            executedOptions = options;
+            return Buffer.from("Success");
+          },
+        },
+      });
 
       await installDependencies("/fake/repo", { quiet: true }, mockDeps);
 
@@ -189,14 +211,18 @@ describe("Package Manager Utilities with Dependency Injection", () => {
     test("uses inherit stdio when not quiet", async () => {
       let executedOptions: any = null;
 
-      mockDeps.fs.existsSync = (filepath: string) => {
-        return filepath.includes("package.json");
-      };
-
-      mockDeps.process.execSync = (command: string, options: any) => {
-        executedOptions = options;
-        return Buffer.from("Success");
-      };
+      mockDeps = createPartialMock<PackageManagerDependencies>({
+        ...mockDeps,
+        fs: {
+          existsSync: (filepath: string) => filepath.includes("package.json"),
+        },
+        process: {
+          execSync: (command: string, options: any) => {
+            executedOptions = options;
+            return Buffer.from("Success");
+          },
+        },
+      });
 
       await installDependencies("/fake/repo", { quiet: false }, mockDeps);
 
