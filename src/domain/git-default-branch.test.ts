@@ -41,10 +41,10 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should properly remove origin prefix from branch name", async () => {
-    let execMock = GitService.prototype.execInRepository as any;
-
-    // Mock to return a branch with extra whitespace
-    execMock = mock(() => Promise.resolve("  origin/custom-main  \n"));
+    // Properly mock the prototype method with correct signature
+    GitService.prototype.execInRepository = mock((workdir: string, command: string) =>
+      Promise.resolve("  origin/custom-main  \n")
+    ) as any;
 
     const gitService = new GitService();
     const defaultBranch = await gitService.fetchDefaultBranch("/test/repo");
@@ -54,10 +54,10 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should fall back to 'main' when command fails", async () => {
-    let execMock = GitService.prototype.execInRepository as any;
-
-    // Mock to throw an error
-    execMock = mock(() => Promise.reject(new Error("Git command failed")));
+    // Properly mock the prototype method to throw an error with correct signature
+    GitService.prototype.execInRepository = mock((workdir: string, command: string) =>
+      Promise.reject(new Error("Command failed"))
+    ) as any;
 
     const gitService = new GitService();
     const defaultBranch = await gitService.fetchDefaultBranch("/test/repo");
