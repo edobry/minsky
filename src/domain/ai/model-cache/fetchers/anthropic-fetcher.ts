@@ -19,27 +19,57 @@ export class AnthropicModelFetcher implements ModelFetcher {
   private readonly testEndpoint = "/messages";
 
   /**
-   * Fetch models from static definitions (Anthropic doesn't have a public models API)
+   * Fetch models by testing availability (Anthropic doesn't have a public models API)
+   * We validate each model individually to check current availability
    */
   async fetchModels(config: ModelFetchConfig): Promise<CachedProviderModel[]> {
     try {
-      log.debug("Fetching Anthropic models from static definitions");
+      log.debug("Fetching Anthropic models with live availability testing");
 
-      // Validate API connectivity first
-      const isConnected = await this.validateConnection(config);
-      if (!isConnected) {
-        throw new ModelFetchError(
-          "Failed to validate Anthropic API connectivity",
-          this.provider,
-          "CONNECTION_FAILED"
+      // Get static model definitions
+      const staticModels = this.getStaticModels();
+
+      // Test each model for availability
+      const availableModels: CachedProviderModel[] = [];
+      const concurrentTests = 3; // Limit concurrent API calls
+
+      for (let i = 0; i < staticModels.length; i += concurrentTests) {
+        const batch = staticModels.slice(i, i + concurrentTests);
+        const batchResults = await Promise.allSettled(
+          batch.map((model) => this.testModelAvailability(model, config))
         );
+
+        batchResults.forEach((result, index) => {
+          const model = batch[index];
+          if (!model) return; // Skip if model is undefined
+
+          const updatedModel: CachedProviderModel = {
+            id: model.id,
+            provider: model.provider,
+            name: model.name,
+            description: model.description,
+            capabilities: model.capabilities,
+            contextWindow: model.contextWindow,
+            maxOutputTokens: model.maxOutputTokens,
+            costPer1kTokens: model.costPer1kTokens,
+            fetchedAt: new Date(),
+            status: result.status === "fulfilled" && result.value ? "available" : "unknown",
+            providerMetadata: {
+              ...model.providerMetadata,
+              ...(result.status === "rejected" && {
+                availabilityError: result.reason?.message,
+              }),
+            },
+          };
+
+          availableModels.push(updatedModel);
+        });
       }
 
-      // Return static model definitions
-      const models = this.getStaticModels();
-
-      log.info(`Loaded ${models.length} static Anthropic models`);
-      return models;
+      log.info(
+        `Tested ${staticModels.length} Anthropic models, ${availableModels.filter((m) => m.status === "available").length} confirmed available`
+      );
+      return availableModels;
     } catch (error) {
       if (error instanceof ModelFetchError) {
         throw error;
@@ -270,5 +300,54 @@ export class AnthropicModelFetcher implements ModelFetcher {
       { name: "image-input", supported: false },
       { name: "prompt-caching", supported: false },
     ];
+  }
+
+  /**
+   * Test if a specific model is currently available by making a minimal API call
+   */
+  private async testModelAvailability(
+    model: CachedProviderModel,
+    config: ModelFetchConfig
+  ): Promise<boolean> {
+    try {
+      const baseURL = config.baseURL || this.defaultBaseURL;
+      const url = `${baseURL}${this.testEndpoint}`;
+
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 second timeout
+
+      try {
+        const response = await fetch(url, {
+          method: "POST",
+          headers: {
+            "x-api-key": config.apiKey,
+            "Content-Type": "application/json",
+            "anthropic-version": "2023-06-01",
+          },
+          body: JSON.stringify({
+            model: model.id,
+            max_tokens: 1,
+            messages: [
+              {
+                role: "user",
+                content: "test",
+              },
+            ],
+          }),
+          signal: controller.signal,
+        });
+
+        clearTimeout(timeoutId);
+
+        // 200 = success, 400 = bad request (but model exists)
+        // 404 or other errors likely mean model doesn't exist
+        return response.status === 200 || response.status === 400;
+      } finally {
+        clearTimeout(timeoutId);
+      }
+    } catch (error) {
+      log.debug(`Model availability test failed for ${model.id}`, { error });
+      return false;
+    }
   }
 }
