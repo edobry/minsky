@@ -15,6 +15,7 @@ Enhance the `minsky init` command with AI-powered analysis of project documentat
 ## Background
 
 **Initial Implementation Status:** A basic version of the project configuration system has been implemented in task #307 for the session lint command. This includes:
+
 - Basic `ProjectConfiguration` interface with workflow commands
 - `ProjectConfigReader` that loads from `minsky.json` or `package.json` scripts
 - Configuration priority: `minsky.json` > `package.json` > defaults
@@ -35,12 +36,14 @@ This creates a more intelligent, context-aware initialization process that adapt
 ### 1. AI-Powered Documentation Analysis
 
 **Document Discovery & Parsing**:
+
 - Scan for common documentation files: `README.md`, `README.rst`, `CONTRIBUTING.md`, `DEVELOPMENT.md`, `docs/`
 - Parse project configuration files: `package.json`, `pyproject.toml`, `Cargo.toml`, `go.mod`, `pom.xml`, etc.
 - Analyze containerization files: `Dockerfile`, `docker-compose.yml`, `kubernetes/`, `.devcontainer/`
 - Extract deployment configurations: CI/CD files, deployment scripts, infrastructure configs
 
 **AI Analysis Capabilities**:
+
 - **Language/Platform Detection**: Primary and secondary languages, frameworks, platforms
 - **Dependency Management**: Package managers, dependency files, installation commands
 - **Development Workflow**: Build commands, test commands, development server setup
@@ -115,7 +118,7 @@ interface ProjectConfiguration {
 
   // Deployment
   deployment: {
-    targets: ('local' | 'docker' | 'kubernetes' | 'cloud' | 'serverless')[];
+    targets: ("local" | "docker" | "kubernetes" | "cloud" | "serverless")[];
     cicd?: {
       provider: string; // github-actions, gitlab-ci, etc.
       configFiles: string[];
@@ -172,18 +175,21 @@ interface ProjectConfiguration {
 ### 3. Enhanced Init Command Integration
 
 **AI Analysis Phase**:
+
 1. **Document Discovery**: Scan project for relevant files
 2. **Content Analysis**: Use AI backend to extract project information
 3. **Configuration Generation**: Create initial project configuration
 4. **Confidence Assessment**: Determine confidence levels for each detected feature
 
 **Interactive Validation Phase**:
+
 1. **Present Findings**: Show AI-generated configuration to user
 2. **Highlight Uncertainties**: Mark low-confidence items for user review
 3. **Smart Prompting**: Ask targeted questions for missing information
 4. **User Overrides**: Allow manual corrections and additions
 
 **Configuration Persistence**:
+
 1. **Schema Integration**: Store in existing Minsky configuration system
 2. **Version Tracking**: Track analysis version and confidence levels
 3. **Update Mechanism**: Support re-analysis and configuration updates
@@ -191,18 +197,21 @@ interface ProjectConfiguration {
 ### 4. Integration with Existing Systems
 
 **AI Completion Backend Integration** (Task #160):
+
 - Leverage multi-provider AI backend for document analysis
 - Use appropriate models for different analysis types (code understanding, documentation parsing)
 - Implement prompt engineering for consistent project analysis
 - Handle rate limiting and error scenarios gracefully
 
 **Future Containerized Session Architecture Integration**:
+
 - Design configuration to support containerized sessions when available
 - Plan for automatic container configuration based on project requirements
 - Support dev container and multi-stage build analysis
 - Prepare for Docker/Kubernetes deployment detection
 
 **Existing Init Command Enhancement**:
+
 - Extend current init prompts with AI-generated suggestions
 - Maintain backward compatibility with manual configuration
 - Integrate with existing configuration file generation
@@ -213,12 +222,14 @@ interface ProjectConfiguration {
 ### Phase 1: Foundation
 
 **Core Analysis Engine**:
+
 - [ ] Document discovery and parsing utilities
 - [ ] Basic AI integration for README analysis
 - [ ] Initial project configuration schema
 - [ ] Simple language/platform detection
 
 **Integration Points**:
+
 - [ ] Extend existing init command with analysis flag
 - [ ] Integrate with AI completion service
 - [ ] Basic configuration storage and retrieval
@@ -226,12 +237,14 @@ interface ProjectConfiguration {
 ### Phase 2: Enhanced Analysis
 
 **Advanced Detection**:
+
 - [ ] Container configuration analysis (Dockerfile, docker-compose)
 - [ ] CI/CD pipeline detection and parsing
 - [ ] Development workflow extraction
 - [ ] Dependency management analysis
 
 **User Experience**:
+
 - [ ] Interactive validation and correction interface
 - [ ] Confidence scoring and uncertainty highlighting
 - [ ] Smart prompting for missing information
@@ -240,12 +253,14 @@ interface ProjectConfiguration {
 ### Phase 3: Integration & Polish
 
 **System Integration**:
+
 - [ ] Advanced AI prompting for complex project structures
 - [ ] Support for monorepos and complex project layouts
 - [ ] Performance optimization and caching
 - [ ] Integration with containerized session architecture (when available)
 
 **Documentation & Testing**:
+
 - [ ] Comprehensive test suite with diverse project types
 - [ ] Documentation for configuration schema and usage
 - [ ] Migration guide for existing projects
@@ -392,6 +407,7 @@ interface MinskyConfig {
 **Dependencies:** Task #160 (AI Completion Backend)
 
 **Next Steps:**
+
 1. Begin project configuration schema design
 2. Implement basic document discovery and parsing
 3. Develop AI analysis prompts for common project types

@@ -25,6 +25,7 @@ Minsky faces a critical architectural decision regarding how to store and manage
 2. **Database backends**: Use traditional databases (SQLite, PostgreSQL) for task storage
 
 The current implementation uses a "special workspace" mechanism to support in-tree backends, which has proven to be:
+
 - Complex to implement and maintain
 - Brittle in distributed team scenarios
 - Essentially a naive implementation of a distributed database
