@@ -16,6 +16,22 @@
   - Maintains backward compatibility with existing usage
   - Provides feature parity with Cursor's built-in read_file tool for session workspaces
 
+- **Session CLI Command Registration Fix**
+  - Fixed session command registration issue where only 'migrate' and 'check' commands were visible
+  - Resolved `ModularSessionCommandsManager` not properly populating command registry
+  - Fixed `BaseSessionCommand.getCommandCategory()` returning lowercase 'session' instead of `CommandCategory.SESSION`
+  - All session commands now properly available: list, get, start, dir, delete, update, approve, pr, inspect
+  - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
+
+- **Command Domain Category System Fixes**
+  - Added `SESSIONDB` category to `CommandCategory` enum for database operations
+  - Fixed tasks commands using hardcoded `"TASKS"` strings instead of `CommandCategory.TASKS` enum
+  - Moved sessiondb commands (migrate, check) from SESSION to SESSIONDB category for proper separation
+  - Updated command validation schemas to include SESSIONDB category
+  - Fixed config customizations to use proper `CommandCategory.SESSIONDB` enum
+  - Ensured all command domains have proper category separation and enum usage
+  - All 9 command categories now working correctly: CORE, GIT, TASKS, SESSION, SESSIONDB, RULES, INIT, CONFIG, DEBUG
+
 ### Fixed
 
 - **Session Commands Consolidation**: Fixed architectural inconsistencies from incomplete Task #171 refactoring
