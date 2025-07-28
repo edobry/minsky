@@ -1,5 +1,7 @@
 # Implement Task Hierarchy System (Parent-Child Relationships)
 
+> **⚠️ SPEC UPDATE REQUIRED**: This spec was written before Task #325 architectural decision. Following the GitHub Issues interim strategy, this spec needs updating to use GitHub Issues for hierarchies instead of complex backend metadata. See `analysis/updated-ai-task-management-spec.md` for the new approach.
+
 ## Problem Statement
 
 To enable arbitrary depth task decomposition and test decomposition workflows, we need to implement a parent-child relationship system for tasks. This will allow breaking down complex tasks into manageable subtasks at any depth level.

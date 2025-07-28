@@ -329,7 +329,11 @@ export function createMCPCommand(): Command {
           exit(0);
         };
 
-        // TODO: Add signal handlers for graceful shutdown once typing issues are resolved
+        // Note: Signal handlers removed due to Bun/TypeScript compatibility issues
+        // The server will still be terminated when the parent process exits
+
+        // Keep the process alive by waiting indefinitely
+        await new Promise(() => {}); // This will never resolve, keeping the server running
       } catch (error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {
@@ -357,8 +361,73 @@ export function createMCPCommand(): Command {
     .action(async (options) => {
       try {
         log.cli("Listing available MCP tools...");
-        await runInspectorCli(["--method", "tools/list"], {
-          repo: options.repo,
+
+        // Use direct JSON-RPC communication to avoid inspector CLI buffering issues
+        const { spawn } = await import("child_process");
+
+        await new Promise<void>((resolve, reject) => {
+          const child = spawn("minsky", ["mcp", "start"], {
+            stdio: ["pipe", "pipe", "pipe"],
+            cwd: options.repo || process.cwd(),
+            env: { ...process.env },
+          });
+
+          // Send initialization and tools/list requests
+          const initRequest = `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 1,
+            method: "initialize",
+            params: {
+              protocolVersion: "2025-01-07",
+              capabilities: {},
+              clientInfo: { name: "minsky-cli", version: "1.0.0" },
+            },
+          })}\n`;
+
+          const toolsRequest = `${JSON.stringify({
+            jsonrpc: "2.0",
+            id: 2,
+            method: "tools/list",
+            params: {},
+          })}\n`;
+
+          child.stdin.write(initRequest);
+          child.stdin.write(toolsRequest);
+          child.stdin.end();
+
+          let output = "";
+          child.stdout.on("data", (data) => {
+            output += data.toString();
+          });
+
+          child.on("close", (code) => {
+            try {
+              // Find the tools/list response in the output
+              const lines = output.split("\n").filter((line) => line.trim());
+              const toolsResponse = lines.find((line) => {
+                try {
+                  const parsed = JSON.parse(line);
+                  return parsed.id === 2 && parsed.result && parsed.result.tools;
+                } catch {
+                  return false;
+                }
+              });
+
+              if (toolsResponse) {
+                const parsed = JSON.parse(toolsResponse);
+                console.log(JSON.stringify(parsed.result, null, 2));
+                resolve();
+              } else {
+                reject(new Error("No tools response found in server output"));
+              }
+            } catch (error) {
+              reject(error);
+            }
+          });
+
+          child.on("error", (error) => {
+            reject(error);
+          });
         });
       } catch (error) {
         log.cliError(`Failed to list tools: ${getErrorMessage(error)}`);
@@ -425,13 +494,22 @@ export function createMCPCommand(): Command {
       },
       []
     )
+    .option("--tool-name <name>", "Tool name for tools/call method")
+    .option(
+      "--tool-arg <key=value>",
+      "Tool arguments in key=value format (can be used multiple times)",
+      (value: string, previous: string[] = []) => {
+        return [...previous, value];
+      },
+      []
+    )
     .addHelpText(
       "after",
       `
 Examples:
   minsky mcp inspect --method tools/list
   minsky mcp inspect --method resources/list
-  minsky mcp inspect --method tools/call --arg tool-name=tasks.list --arg tool-arg=filter=TODO
+  minsky mcp inspect --method tools/call --tool-name debug.echo --tool-arg message=test
   minsky mcp inspect --method prompts/list
 `
     )
@@ -447,7 +525,18 @@ Examples:
 
         const inspectorArgs = ["--method", options.method];
 
-        // Add method arguments
+        // Add tool-specific arguments for tools/call
+        if (options.toolName) {
+          inspectorArgs.push("--tool-name", options.toolName);
+        }
+
+        if (options.toolArg && options.toolArg.length > 0) {
+          for (const arg of options.toolArg) {
+            inspectorArgs.push("--tool-arg", arg);
+          }
+        }
+
+        // Add generic method arguments (for compatibility)
         if (options.arg && options.arg.length > 0) {
           for (const arg of options.arg) {
             const [key, value] = arg.split("=", 2);

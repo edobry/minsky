@@ -15,7 +15,8 @@ This document resolves that tension decisively in favor of pragmatism.
 
 **Principle**: Every architectural decision must be justified by solving an actual user problem.
 
-**Application**: 
+**Application**:
+
 - In-tree backends solve no real user problem
 - They create problems: performance, complexity, limitations
 - Database backends solve real problems: speed, features, collaboration
@@ -27,6 +28,7 @@ This document resolves that tension decisively in favor of pragmatism.
 **Principle**: Added complexity requires proportional user value.
 
 **Application**:
+
 - Special workspace: 445+ lines of complex code
 - User value: Negative (confusion, slowness)
 - Complexity/value ratio: Infinitely bad
@@ -38,6 +40,7 @@ This document resolves that tension decisively in favor of pragmatism.
 **Principle**: Architectural philosophy should enhance user experience, not constrain it.
 
 **Application**:
+
 - "Everything in git" philosophy prevents key features
 - Users want AI decomposition and task graphs
 - Philosophy blocks user value
@@ -49,6 +52,7 @@ This document resolves that tension decisively in favor of pragmatism.
 **Principle**: Prefer proven, boring solutions over clever, novel ones.
 
 **Application**:
+
 - Databases: 50+ years of optimization for this exact use case
 - Git-as-database: Novel, clever, and broken
 - Boring always wins at scale
@@ -155,7 +159,7 @@ By abandoning the romantic notion of "everything in git" and embracing the pragm
 The special workspace was not a solution—it was a symptom. A symptom of trying to force the wrong tool to do the wrong job. By choosing databases, we choose:
 
 - **Simplicity** over complexity
-- **Performance** over purity  
+- **Performance** over purity
 - **Features** over philosophy
 - **Users** over ideology
 

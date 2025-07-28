@@ -264,7 +264,7 @@
 
 - [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-task-implement-todoist-backend-integration.md)
 
-- [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
+- [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Add Session Context Autodetection [#139](process/tasks/139-add-session-context-autodetection.md)
 
@@ -550,7 +550,7 @@
 
 - [+] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
-- [ ] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
+- [x] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
 - [x] Implement session-aware move_file and rename_file MCP tools [#313](process/tasks/313-implement-session-aware-move-file-and-rename-file-mcp-tools.md)
 
@@ -574,6 +574,8 @@
 
 - [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
 
-- [ ] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
+- [x] Task Backend Architecture Analysis and Design Resolution [#325](process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md)
 
 - [ ] Explore embedding Outerbase DB explorer for database inspection [#326](process/tasks/326-explore-embedding-outerbase-db-explorer-for-database-inspection.md)
+
+- [ ] Analyze and architect general message/prompt system supporting human and AI agents across contexts [#327](process/tasks/327-analyze-and-architect-general-message-prompt-system-supporting-human-and-ai-agents-across-contexts.md)

@@ -1,8 +1,27 @@
 # Task Backend Architecture Analysis and Design Resolution
 
+## Status: ✅ COMPLETED
+
+**ARCHITECTURAL DECISION MADE**: Deprecate special workspace approach and migrate to GitHub Issues interim strategy.
+
 ## Problem Statement
 
-The current task system architecture faces a fundamental tension between supporting in-tree task metadata backends (markdown/json) and managing the resulting workflow complexity. The special workspace mechanism designed to support in-tree backends has proven complex, brittle, and possibly more trouble than it's worth. This task involves a comprehensive analysis of the architectural tradeoffs and philosophical considerations to resolve the core design questions around task backend architecture.
+The current task system architecture faces a fundamental tension between supporting in-tree task metadata backends (markdown/json) and managing the resulting workflow complexity. The special workspace mechanism designed to support in-tree backends has proven complex, brittle, and possibly more trouble than it's worth.
+
+**CRITICAL INSIGHT**: Minsky is fundamentally an **AI-powered task management tool**, which requires hosted AI APIs and internet connectivity for core value delivery. This significantly changes the architectural constraints and priorities.
+
+This task involves a comprehensive analysis of the architectural tradeoffs and philosophical considerations to resolve the core design questions around task backend architecture in the context of AI-first workflows.
+
+## ✅ RESOLUTION COMPLETED
+
+**Final Decision**: [ADR-003: Deprecate In-Tree Backends](../analysis/adrs/003-deprecate-in-tree-backends.md)
+
+1. **Deprecate in-tree task backends** (markdown/JSON with special workspace)
+2. **Migrate to GitHub Issues** as interim backend strategy
+3. **Preserve existing code temporarily** for learning and safety
+4. **Defer complex backend decisions** until implementing AI features that require advanced capabilities
+
+See comprehensive analysis in [`../analysis/`](../analysis/) directory.
 
 ## Core Architectural Conflict
 
@@ -12,376 +31,291 @@ Supporting in-tree task metadata backends (markdown/json files stored in the rep
 
 1. **Synchronization Complexity**: Task management operations must happen on `main` for in-tree backends, requiring careful coordination
 2. **Special Workspace Overhead**: The current approach requires maintaining a separate workspace and complex synchronization logic
-3. **Distributed Team Challenges**: In team environments without a centralized "main workspace," the complexity multiplies
-4. **Database Reimplementation**: The current approach essentially reimplements transactional database features on top of git
+3. **AI Feature Limitations**: In-tree backends prevent efficient vector storage, real-time collaboration, and advanced AI features
+4. **Performance Bottlenecks**: Git operations are too slow for AI-powered workflows requiring rapid iterations
+
+### AI-First Architectural Requirements
+
+Minsky's core value proposition requires:
+
+- **Vector Storage**: For semantic task search and AI embeddings
+- **Real-time Operations**: For collaborative AI task decomposition
+- **Fast Queries**: For complex task relationship analysis
+- **Concurrent Access**: For team collaboration on AI-generated content
+- **Internet Connectivity**: For hosted AI API access (OpenAI, Anthropic, etc.)
 
 ### Philosophical vs Practical Considerations
 
 The in-tree approach offers philosophical elegance:
+
 - **Dependency-free**: No external infrastructure required
 - **Git-native**: Task state follows git history naturally
-- **Branch-aligned**: Task metadata lives on its associated session/branch
 - **Self-contained**: Everything needed is in the repository
 
-However, practical needs suggest database backends:
-- **Single pane of glass**: View entire task graph without traversing sessions
-- **Real-time updates**: See latest task status across all branches
-- **Team coordination**: Centralized task state for distributed teams
-- **Performance**: Efficient querying and updates at scale
+However, AI-first requirements demand database capabilities:
 
-## Key Architectural Questions
+- **Vector operations**: Semantic search and embeddings
+- **Real-time updates**: Collaborative AI workflows
+- **Performance**: Sub-second operations for AI features
+- **Team coordination**: Shared AI insights and recommendations
 
-### 1. Task State Location Philosophy
+## Key Architectural Questions (Revised)
 
-**Branch-local vs Centralized State**
-- Should task metadata live exclusively on its associated session/branch?
-- Or does the need for cross-branch visibility require centralized storage?
-- Can we achieve both through clever architecture?
+### 1. Backend Strategy for AI-First Architecture
 
-### 2. Task Status Derivation
+**SQLite-First vs Hosted-First**
 
-**Explicit vs Implicit Status**
-- Is explicit task status (TODO, IN-PROGRESS, etc.) necessary?
-- Can status be derived from git state alone?
-  - Session exists → IN-PROGRESS
-  - PR open → IN-REVIEW
-  - PR merged → DONE
-  - Branch deleted → CLOSED
-- What about BLOCKED, BACKLOG, and other statuses?
+- Should we default to SQLite for onboarding simplicity?
+- When should users upgrade to hosted databases (PostgreSQL/Supabase)?
+- How do we provide smooth migration paths?
 
-### 3. Task Graph and User Interaction Model
+### 2. AI Feature Requirements
 
-**Session-centric vs Task-centric Workflows**
-- How do users interact with the task graph when nodes span multiple sessions?
-- How do AI-generated subtasks relate to user prompts and interventions?
-- Can users pre-empt/intervene at any subnode without session complexity?
+**Local vs Hosted AI Capabilities**
 
-### 4. Synchronization Architecture
+- Which AI features work with SQLite backends?
+- What requires hosted database capabilities?
+- How do we handle offline scenarios (when AI APIs unavailable)?
 
-**Git-based vs Database-based Coordination**
-- Is git sufficient for coordinating task operations?
-- At what point does git-based coordination become "reimplementing a database"?
-- Should we embrace existing solutions (like Dolt) instead?
+### 3. Progressive Enhancement Strategy
 
-### 5. Distributed Database Reality Check
+**Onboarding vs Feature Completeness**
 
-**The Complexity of Distributed State Management**
-- In-tree task backends essentially constitute a naive distributed database approach
-- Distributed databases are notoriously complex problems that software engineers rarely use in workflows
-- The most successful distributed systems (blockchains) require massive synchronization overhead that's overkill for task management
-- Do we have an actual decentralization requirement, or are we solving a problem that doesn't exist?
-- Is the philosophical elegance of git-native storage worth the distributed database complexity?
+- How do we minimize setup friction while enabling full AI capabilities?
+- What's the optimal upgrade path from SQLite to PostgreSQL?
+- Should we build sync engines or focus on migration tools?
 
-### 6. Cross-Repository Task Management
+### 4. Team Collaboration Requirements
 
-**Multi-Repository Workflow Challenges**
-- Many tasks span multiple repositories (e.g., web app features touching both frontend and backend repos)
-- In-tree storage creates fundamental problems:
-  - **Decomposition complexity**: Breaking tasks into per-repo subtasks adds significant overhead
-  - **Parent task location**: Where does the parent task live when children span repos?
-  - **Coordination overhead**: Synchronizing task state across multiple repository boundaries
-  - **Fragmented view**: No single place to see the complete task hierarchy
-- Does the cross-repository reality effectively eliminate the viability of in-tree backends?
-- How do other project management tools handle this (they use centralized databases)
+**Solo vs Team Workflows**
 
-## Research Areas
+- How do team AI workflows differ from solo AI workflows?
+- When do users need real-time collaboration features?
+- How do we handle the transition from solo to team usage?
 
-### 1. In-tree Backend Deep Dive
+### 5. Migration and Sync Architecture
 
-#### Current Implementation Analysis
-- Document the special workspace workflow in detail
-- Identify all sources of complexity and brittleness
-- Analyze failure modes and edge cases
-- Quantify maintenance burden
+**Upgrade Path Complexity**
 
-#### Alternative In-tree Approaches
-- **Pure branch-local**: Task metadata only on session branches
-- **Main-branch aggregation**: Automated aggregation from branches
-- **Git-native status**: Derive all status from git operations
-- **Hybrid approaches**: Combine multiple strategies
+- Should we support bidirectional sync between SQLite and PostgreSQL?
+- Is simple migration sufficient, or do users need hybrid modes?
+- How do we handle schema evolution across backend types?
 
-### 2. Database Backend Analysis
+## Research Areas (Updated)
 
-#### Implementation Approaches
-- **Local SQLite**: Simple, file-based, version-controllable
-- **Shared PostgreSQL**: Team-friendly, scalable, feature-rich
-- **Embedded databases**: Middle ground solutions
-- **Existing solutions**: Dolt, git-backed databases
+### 1. AI-First Backend Requirements
 
-#### Migration Strategies
-- How to transition from in-tree to database backends
-- Supporting both simultaneously
-- Data consistency during transition
-- Preserving git history
+#### Vector Storage and Search
 
-### 3. Limited-Scope Hybrid Approach Analysis
+- SQLite vector extension capabilities vs PostgreSQL pgvector
+- Semantic search performance requirements
+- Embedding storage and retrieval patterns
 
-#### Constrained In-Tree Backend Usage
-- **Target scenario**: Very small, early-stage, single-repository projects only
-- **Explicit warnings**: Clear documentation that in-tree backends are not suitable for:
-  - Multi-repository workflows
-  - Team environments
-  - Complex task hierarchies
-  - Cross-repository task dependencies
-- **Migration path**: Built-in tooling to migrate from in-tree to database backends as projects grow
+#### Real-time Collaboration
 
-#### Fundamental Viability Questions for Constrained Approach
-- **Single-engineer limitations**: Even on a single machine with a single engineer:
-  - Does the task graph vision require cross-repository visibility?
-  - Can AI-powered task decomposition work effectively with fragmented in-tree storage?
-  - Does the "single pane of glass" requirement make in-tree backends incompatible even in simple scenarios?
-- **Growth trajectory problems**:
-  - At what point does a project outgrow in-tree backends?
-  - How do we detect when migration is necessary?
-  - What happens to existing task relationships during migration?
-- **Feature compatibility**: Which Minsky features are fundamentally incompatible with in-tree storage, even in constrained scenarios?
+- WebSocket requirements for AI-powered workflows
+- Conflict resolution for AI-generated content
+- Team coordination patterns for task decomposition
 
-### 4. Workflow Impact Analysis
+### 2. SQLite to PostgreSQL Migration
 
-#### User Workflows
-- **Individual developers**: Simple, dependency-free setup
-- **Small teams**: Minimal infrastructure, easy coordination
-- **Large teams**: Scalable, performant, feature-rich
-- **Open source projects**: Fork-friendly, contribution-friendly
+#### Upgrade Path Design
 
-#### Task Management Operations
-- Creating tasks
-- Updating status
-- Viewing task graphs
-- AI decomposition and intervention
-- Cross-session task relationships
+- Manual migration command implementation
+- Data integrity validation strategies
+- Schema compatibility between backends
+- Rollback and recovery procedures
 
-### 5. Philosophical Framework
+#### Sync Engine Feasibility
 
-#### Core Design Principles
-- What are Minsky's fundamental values?
-- How do we balance elegance with practicality?
-- What tradeoffs are we willing to make?
-- What is our primary user persona?
+- Bidirectional sync complexity analysis
+- Conflict resolution strategies
+- Change tracking and log-based replication
+- Performance implications of hybrid architecture
 
-#### Architectural Coherence
-- How does task backend choice affect overall system design?
-- What are the ripple effects of each approach?
-- How do we maintain conceptual integrity?
+### 3. Progressive Enhancement Strategy
 
-### 6. Distributed Database Analysis
+#### Onboarding Optimization
 
-#### Complexity Assessment
-- Analyze the distributed database implications of in-tree backends
-- Research distributed systems complexity in software engineering workflows
-- Compare with established distributed database solutions (blockchain, consensus systems)
-- Evaluate whether the problem requires distributed solutions at all
+- Zero-config SQLite setup
+- AI API key configuration flow
+- First-time user experience design
+- Feature discovery and upgrade prompts
 
-#### Alternative Distributed Approaches
-- Research existing git-based distributed database solutions
-- Analyze operational complexity of distributed task management
-- Compare with centralized approaches used by established project management tools
+#### Feature Matrix Documentation
 
-### 7. Cross-Repository Task Management
+- Which features work with each backend
+- Performance characteristics comparison
+- Team vs solo feature requirements
+- Clear upgrade decision criteria
 
-#### Multi-Repository Workflow Analysis
-- Document common cross-repository task patterns in software development
-- Analyze how existing project management tools handle multi-repository tasks
-- Research enterprise workflow patterns for large-scale software projects
-- Evaluate decomposition strategies and their overhead
+### 4. Hosted Database Integration
 
-#### Repository Boundary Challenges
-- Map technical challenges of cross-repository task coordination
-- Analyze parent-child task relationships across repository boundaries
-- Research synchronization patterns for distributed task hierarchies
-- Evaluate user experience implications of fragmented task views
+#### Service Provider Analysis
 
-## Deliverables
+- Supabase vs alternatives for AI workflows
+- Vector database specialized services
+- Cost and performance characteristics
+- Team management and authentication
 
-### 1. Comprehensive Tradeoff Analysis
+#### Cloud SQLite Services
+
+- Turso, Cloudflare D1, LiteFS evaluation
+- Edge deployment capabilities
+- Upgrade paths to traditional PostgreSQL
+- Pricing and scaling characteristics
+
+## Deliverables (Updated)
+
+### 1. AI-First Architecture Analysis
 
 A detailed document analyzing:
-- **In-tree backends**: Benefits, costs, complexity, limitations
-- **Database backends**: Benefits, costs, migration path, features
-- **Hybrid approaches**: Feasibility, complexity, benefits
-- **Limited-scope hybrid**: Viability of in-tree backends for tiny projects only, with explicit warnings and migration paths
-- **Feature compatibility matrix**: Which Minsky features work with which backend approaches
-- **Recommendation**: Clear architectural direction with rationale
+
+- **SQLite Capabilities**: What AI features work with local SQLite
+- **PostgreSQL Requirements**: When hosted databases become necessary
+- **Migration Strategies**: Simple vs complex upgrade paths
+- **Performance Analysis**: Speed requirements for AI workflows
+- **Recommendation**: Clear backend strategy for AI-first tool
 
 ### 2. Architectural Decision Records (ADRs)
 
 Formal ADRs for key decisions:
-- Task backend strategy (in-tree vs database vs hybrid)
-- Task status model (explicit vs derived)
-- Synchronization approach (git vs database vs other)
-- Migration strategy (if applicable)
 
-### 3. Workflow Design Document
+- Backend strategy (SQLite-first with PostgreSQL upgrade)
+- AI feature requirements and backend compatibility
+- Migration vs sync approach decision
+- Team collaboration architecture
 
-Detailed workflows for each approach:
-- Task creation and management flows
-- Status update mechanisms
-- Cross-session operations
-- Team coordination patterns
-- AI integration points
+### 3. Progressive Enhancement Design
+
+Detailed user journeys for:
+
+- Solo developer onboarding (SQLite + AI APIs)
+- Team collaboration upgrade (PostgreSQL migration)
+- AI feature enablement across backends
+- Conflict resolution and data consistency
 
 ### 4. Implementation Roadmap
 
-Phased approach to implementing chosen architecture:
-- Phase 1: Minimal viable changes
-- Phase 2: Core functionality
-- Phase 3: Advanced features
-- Phase 4: Migration tools (if needed)
+Phased approach to implementation:
 
-### 5. Philosophical Resolution
+- **Phase 1**: SQLite backend with AI feature support
+- **Phase 2**: PostgreSQL migration tooling
+- **Phase 3**: Advanced team collaboration features
+- **Phase 4**: Optional sync engine (if user demand exists)
 
-A clear statement addressing:
-- Resolved architectural uncertainties
-- Accepted tradeoffs and their rationale
-- Design principles for future decisions
-- Vision for task system evolution
+### 5. Backend Decision Framework
 
-## Investigation Methodology
+Clear guidance for users:
 
-### 1. Current System Analysis
-- [ ] Document special workspace workflow comprehensively
-- [ ] Identify all pain points and complexity sources
-- [ ] Measure actual vs perceived complexity
-- [ ] Gather user feedback on current system
+- When to use SQLite vs PostgreSQL
+- How to evaluate upgrade timing
+- Cost-benefit analysis of different approaches
+- Team size and workflow considerations
 
-### 2. Alternative Architecture Prototyping
-- [ ] Design (but don't implement) alternative architectures
-- [ ] Create detailed sequence diagrams for each approach
-- [ ] Identify edge cases and failure modes
-- [ ] Estimate implementation complexity
+## Success Criteria (Updated)
 
-### 3. Use Case Analysis
-- [ ] Map all current and planned use cases
-- [ ] Evaluate each architecture against use cases
-- [ ] Identify gaps and limitations
-- [ ] Prioritize use cases by importance
+### 1. Onboarding Simplicity
 
-### 4. Limited-Scope Hybrid Feasibility Study
-- [ ] Define precise constraints for in-tree backend usage (project size, complexity, repository count)
-- [ ] Map Minsky features against backend compatibility (which features break with in-tree storage)
-- [ ] Design migration detection and tooling for projects outgrowing in-tree backends
-- [ ] Analyze user experience of constrained in-tree approach vs full database approach
-- [ ] Evaluate whether task graph goals are achievable even in single-repository scenarios with in-tree storage
+- [ ] Zero-config startup with SQLite
+- [ ] AI features work immediately after API key setup
+- [ ] Clear upgrade path when team features needed
+- [ ] No forced migrations or service dependencies
 
-### 5. Stakeholder Consultation
-- [ ] Document user personas and their needs
-- [ ] Gather input on priority features
-- [ ] Understand tolerance for complexity
-- [ ] Identify deal-breakers for each persona
+### 2. AI Feature Enablement
 
-## Success Criteria
+- [ ] Vector storage and semantic search in SQLite
+- [ ] Real-time collaboration in PostgreSQL
+- [ ] Performance meets AI workflow requirements
+- [ ] Team AI features work seamlessly
 
-### 1. Clarity Achievement
-- [ ] All architectural uncertainties resolved
-- [ ] Clear decision on in-tree vs database backends
-- [ ] Documented rationale for all major decisions
-- [ ] Consensus on architectural direction
+### 3. Migration Excellence
 
-### 2. Practical Validation
-- [ ] Chosen architecture supports all identified use cases
-- [ ] Complexity is justified by delivered value
-- [ ] Migration path is clear and achievable
-- [ ] Team alignment on approach
+- [ ] Smooth SQLite to PostgreSQL upgrade
+- [ ] Data integrity preserved during migration
+- [ ] Rollback capabilities if needed
+- [ ] Clear communication of what changes
 
-### 3. Philosophical Coherence
-- [ ] Architecture aligns with Minsky's core values
-- [ ] Tradeoffs are explicitly acknowledged
-- [ ] Design principles are clearly stated
-- [ ] Future extensibility is preserved
+### 4. Performance Standards
 
-## Constraints
+- [ ] SQLite operations: <100ms for AI workflows
+- [ ] PostgreSQL operations: <50ms for team features
+- [ ] Migration time: <30 seconds for typical datasets
+- [ ] No data loss during any transitions
+
+## Constraints (Updated)
 
 ### Non-negotiable Requirements
-- Must support both individual and team workflows
-- Must preserve existing task data
-- Must integrate with AI-powered features
-- Must maintain git as source of truth for code
+
+- Must support AI-powered features as core value
+- Must preserve data integrity during backend transitions
+- Must work with major AI API providers (OpenAI, Anthropic)
+- Must enable team collaboration for PostgreSQL backends
 
 ### Scope Boundaries
-- **No code changes** in this task
-- Focus on architecture and design decisions
-- Deliverables are documents and decisions
-- Implementation is separate future work
 
-## Open Questions to Resolve
+- **Primary focus**: AI-first architecture design
+- **Secondary focus**: Smooth upgrade paths
+- **Out of scope**: Offline-first optimization (AI requires internet)
+- **Future consideration**: Advanced sync engines (if demand exists)
 
-1. **Is the special workspace complexity justified by in-tree benefits?**
-2. **Can we achieve "single pane of glass" without a database?**
-3. **Should task status be explicit or derived from git state?**
-4. **How important is dependency-free operation for our users?**
-5. **What percentage of users need team/distributed features?**
-6. **Is there a viable hybrid approach that gets the best of both worlds?**
-7. **Should we embrace existing solutions (Dolt) rather than building our own?**
-8. **How do we handle task metadata versioning across branches?**
-9. **What is the minimum viable task backend for MVP?**
-10. **How do we support gradual migration between backends?**
-11. **Are we solving a distributed database problem that doesn't actually require a distributed solution?**
-12. **Does the complexity of distributed state management outweigh the philosophical benefits of git-native storage?**
-13. **How do we handle cross-repository tasks without creating unmanageable complexity?**
-14. **Where should parent tasks live when subtasks span multiple repositories?**
-15. **Do cross-repository workflows make in-tree backends fundamentally unviable?**
-16. **How do established project management tools solve the multi-repository problem (and why do they use centralized databases)?**
-17. **Is a limited-scope hybrid approach viable (in-tree for tiny projects only, with explicit warnings)?**
-18. **Even for single engineers on single machines, do task graph goals make in-tree backends incompatible?**
-19. **At what project size/complexity does migration from in-tree to database become necessary?**
-20. **Which core Minsky features are fundamentally incompatible with in-tree storage, even in constrained scenarios?**
-21. **How do we detect when a project has outgrown in-tree backends and guide migration?**
+## Open Questions to Resolve (Updated)
+
+1. **Should SQLite be the default for onboarding simplicity?**
+2. **Which AI features truly require PostgreSQL vs work fine with SQLite?**
+3. **Is simple migration sufficient, or do users need bidirectional sync?**
+4. **How do we handle team onboarding - direct to PostgreSQL or SQLite first?**
+5. **What's the cost-benefit of building sync engines vs focusing on migration?**
+6. **How do we optimize for AI workflow performance across backends?**
+7. **Should we recommend specific hosted services (Supabase) or stay generic?**
+8. **How do we handle schema evolution as AI features expand?**
+9. **What's the upgrade trigger - user choice or automatic recommendations?**
+10. **How do we balance simplicity with full feature availability?**
 
 ## Related Context
 
-### Existing Task Specs
-- Task #235: Add metadata support to tasks (subtasks, priority, dependencies)
-- Task #239: Phase 2: Implement Task Dependencies and Basic Task Graphs
-- Add AI-powered task decomposition and analysis spec
+### AI-First Architecture Implications
+
+- Core features require vector storage and fast queries
+- Real-time collaboration needed for team AI workflows
+- Internet connectivity assumed for AI API access
+- Offline work is secondary concern for AI-powered tool
 
 ### Current Implementation
+
 - Special workspace workflow for in-tree backends
 - Session-to-task mapping via git branches
-- Task status management on main branch
+- Task status management complexity
 
-### Future Considerations
-- AI-generated subtask graphs
-- User intervention at arbitrary graph nodes
-- Distributed team workflows
-- Performance at scale
+### Future AI Features
+
+- AI-powered task decomposition
+- Semantic task relationship discovery
+- Real-time collaborative task refinement
+- Vector-based task search and insights
 
 ## Timeline
 
 **Estimated Duration**: 2-3 weeks of focused analysis and design
 
-### Week 1: Research and Analysis
-- Current system deep dive
-- Alternative architecture design
-- Use case documentation
+### Week 1: AI Requirements and SQLite Analysis
 
-### Week 2: Evaluation and Comparison
-- Tradeoff analysis
-- Stakeholder consultation
-- Decision making
+- AI feature requirements deep dive
+- SQLite capabilities for AI workflows
+- Performance benchmarking
 
-### Week 3: Documentation and Planning
-- Formal ADRs
+### Week 2: Migration Strategy and PostgreSQL Integration
+
+- Migration tooling design
+- PostgreSQL feature analysis
+- Team collaboration requirements
+
+### Week 3: Decision Making and Documentation
+
+- Formal ADRs and recommendations
 - Implementation roadmap
-- Communication of decisions
-
-## Risk Factors
-
-### Analysis Risks
-- **Analysis Paralysis**: Getting stuck in theoretical considerations
-- **Scope Creep**: Expanding beyond backend architecture
-- **Bias**: Favoring elegance over practicality (or vice versa)
-
-### Decision Risks
-- **Irreversibility**: Choosing an architecture that's hard to change
-- **User Rejection**: Picking an approach users won't adopt
-- **Technical Debt**: Creating more problems than we solve
-
-### Mitigation Strategies
-- Time-box analysis phases
-- Seek external input early
-- Prototype key workflows
-- Plan for gradual migration
+- User decision framework
 
 ## Conclusion
 
-This task represents a critical architectural decision point for Minsky. The outcome will significantly impact the system's complexity, usability, and future evolution. By thoroughly analyzing the tradeoffs and resolving the philosophical tensions, we can chart a clear path forward that balances elegance with practicality.
+This task represents a critical architectural decision point for Minsky, now understood as an AI-first tool. The outcome will significantly impact the system's ability to deliver AI-powered value while maintaining excellent user experience. By thoroughly analyzing the AI requirements and designing smooth upgrade paths, we can chart a clear path forward that balances onboarding simplicity with advanced AI capabilities.

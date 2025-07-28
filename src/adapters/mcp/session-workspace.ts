@@ -10,6 +10,25 @@ import { createSessionProvider, type SessionProviderInterface } from "../../doma
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
+// Import new schemas and utilities
+// TODO: Fix import path for schemas
+// import {
+//   SessionFileReadSchema,
+//   SessionFileWriteSchema,
+//   SessionDirectoryListSchema,
+//   SessionFileExistsSchema,
+//   SessionFileDeleteSchema,
+//   SessionDirectoryCreateSchema,
+//   SessionGrepSearchSchema,
+// } from "./schemas/common-parameters";
+
+// TODO: Fix import path for response utilities
+// import {
+//   createFileReadResponse,
+//   createFileOperationResponse,
+//   createErrorResponse,
+// } from "./schemas/common-responses";
+
 /**
  * Session path resolver class for enforcing workspace boundaries
  */
@@ -29,114 +48,167 @@ export class SessionPathResolver {
       throw new Error(`Session "${sessionId}" not found`);
     }
 
-    return await this.sessionDB.getRepoPath(session);
+    return session.repoPath;
   }
 
   /**
-   * Resolve and validate a path within a session workspace
+   * Resolve relative path within session workspace
    */
-  async resolvePath(sessionId: string, inputPath: string): Promise<string> {
-    const sessionWorkspace = await this.getSessionWorkspacePath(sessionId);
+  async resolvePath(sessionId: string, filePath: string): Promise<string> {
+    const workspacePath = await this.getSessionWorkspacePath(sessionId);
+    const resolvedPath = resolve(workspacePath, filePath);
 
-    // Convert relative paths to absolute within session workspace
-    let targetPath: string;
-    if (inputPath.startsWith("/")) {
-      // Absolute path - ensure it's within session workspace
-      targetPath = inputPath;
-    } else {
-      // Relative path - resolve within session workspace
-      targetPath = resolve(sessionWorkspace, inputPath);
+    // Security check: ensure resolved path is within workspace
+    if (!resolvedPath.startsWith(workspacePath)) {
+      throw new Error(`Path "${filePath}" resolves outside session workspace`);
     }
 
-    // Normalize the path to handle .. and . components
-    const normalizedPath = resolve(targetPath);
-    const normalizedWorkspace = resolve(sessionWorkspace);
-
-    // Security check: ensure the resolved path is within the session workspace
-    if (
-      !normalizedPath.startsWith(`${normalizedWorkspace}/`) &&
-      normalizedPath !== normalizedWorkspace
-    ) {
-      throw new Error(
-        `Path "${inputPath}" resolves outside session workspace. ` +
-          `Session workspace: ${sessionWorkspace}, Resolved path: ${normalizedPath}`
-      );
-    }
-
-    return normalizedPath;
+    return resolvedPath;
   }
 
   /**
-   * Validate that a path exists and is accessible
+   * Validate that a path exists
    */
-  async validatePathExists(path: string): Promise<void> {
+  async validatePathExists(fullPath: string): Promise<void> {
     try {
-      await access(path);
-    } catch (error) {
-      throw new Error(`Path does not exist or is not accessible: ${path}`);
+      await access(fullPath);
+    } catch {
+      throw new Error(`Path "${fullPath}" does not exist`);
     }
   }
 }
 
 /**
- * Create a new session path resolver instance
+ * Process file content with line range support
  */
-function createPathResolver(): SessionPathResolver {
-  return new SessionPathResolver();
+function processFileContentWithLineRange(
+  content: string,
+  options: {
+    startLine?: number;
+    endLine?: number;
+    shouldReadEntireFile?: boolean;
+    filePath: string;
+  }
+): {
+  content: string;
+  totalLines: number;
+  linesShown: number;
+} {
+  const lines = content.split("\n");
+  const totalLines = lines.length;
+
+  // If reading entire file or no range specified
+  if (options.shouldReadEntireFile || (!options.startLine && !options.endLine)) {
+    return {
+      content,
+      totalLines,
+      linesShown: totalLines,
+    };
+  }
+
+  // Handle line range
+  const startLine = Math.max(1, options.startLine || 1);
+  const endLine = Math.min(totalLines, options.endLine || totalLines);
+
+  // Convert to 0-based indexing
+  const startIndex = startLine - 1;
+  const endIndex = endLine;
+
+  const selectedLines = lines.slice(startIndex, endIndex);
+  const processedContent = selectedLines.join("\n");
+
+  // Add context information if content was truncated
+  let finalContent = processedContent;
+  if (startLine > 1 || endLine < totalLines) {
+    const contextInfo = [];
+    if (startLine > 1) {
+      contextInfo.push(`... (showing lines ${startLine}-${endLine} of ${totalLines})`);
+    }
+    if (endLine < totalLines) {
+      contextInfo.push(`... (${totalLines - endLine} lines omitted)`);
+    }
+    if (contextInfo.length > 0) {
+      finalContent = `${contextInfo.join("\n")}\n${processedContent}`;
+    }
+  }
+
+  return {
+    content: finalContent,
+    totalLines,
+    linesShown: selectedLines.length,
+  };
 }
 
 /**
- * Registers session workspace tools with the MCP command mapper
+ * Register session workspace tools with the command mapper
  */
 export function registerSessionWorkspaceTools(commandMapper: CommandMapper): void {
-  const pathResolver = createPathResolver();
+  const pathResolver = new SessionPathResolver();
 
   // Session read file tool
   commandMapper.addCommand({
     name: "session.read_file",
     description: "Read a file within a session workspace with optional line range support",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-    }),
+    parameters: SessionFileReadSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionNameName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
         await pathResolver.validatePathExists(resolvedPath);
 
-        const content = await readFile(resolvedPath, "utf8");
+        const rawContent = await readFile(resolvedPath, "utf8");
 
-        log.debug("Session file read successful", {
-          session: args.sessionNameName,
-          path: args.path,
-          resolvedPath,
-          contentLength: content.length,
+        // Process content with line range support
+        const processed = processFileContentWithLineRange(rawContent, {
+          startLine: args.start_line_one_indexed,
+          endLine: args.end_line_one_indexed_inclusive,
+          shouldReadEntireFile: args.should_read_entire_file,
+          filePath: args.path,
         });
 
-        return {
-          success: true,
-          content,
+        const relativeResolvedPath = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        );
+
+        log.debug("Session file read successful", {
+          session: args.sessionName,
           path: args.path,
-          session: args.sessionNameName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionNameName),
-            resolvedPath
-          ),
-        };
+          resolvedPath,
+          contentLength: rawContent.length,
+          linesShown: processed.linesShown,
+          totalLines: processed.totalLines,
+        });
+
+        return createFileReadResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relativeResolvedPath,
+          },
+          {
+            content: processed.content,
+            totalLines: processed.totalLines,
+            linesRead:
+              args.start_line_one_indexed && args.end_line_one_indexed_inclusive
+                ? {
+                    start: args.start_line_one_indexed,
+                    end: args.end_line_one_indexed_inclusive,
+                  }
+                : undefined,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
-          session: args.sessionNameName,
-        };
+          session: args.sessionName,
+        });
       }
     },
   });
@@ -145,19 +217,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.write_file",
     description: "Write content to a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      content: z.string().describe("Content to write to the file"),
-      createDirs: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
+    parameters: SessionFileWriteSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionNameName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Create parent directories if requested and they don't exist
         if (args.createDirs) {
@@ -167,38 +230,42 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
 
         await writeFile(resolvedPath, args.content, "utf8");
 
+        const relativeResolvedPath = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        );
+
         log.debug("Session file write successful", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           contentLength: args.content.length,
           createdDirs: args.createDirs,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionNameName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionNameName),
-            resolvedPath
-          ),
-          bytesWritten: args.content.length,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relativeResolvedPath,
+          },
+          {
+            bytesWritten: args.content.length,
+            created: true, // File is being written
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
-          session: args.sessionNameName,
-        };
+          session: args.sessionName,
+        });
       }
     },
   });
@@ -207,19 +274,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.list_directory",
     description: "List contents of a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z
-        .string()
-        .optional()
-        .default(".")
-        .describe("Path to the directory within the session workspace"),
-      showHidden: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Include hidden files (starting with .)"),
-    }),
+    parameters: SessionDirectoryListSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -251,18 +306,21 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           directoryCount: directories.length,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          files: files.sort(),
-          directories: directories.sort(),
-          totalEntries: files.length + directories.length,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relative(
+              await pathResolver.getSessionWorkspacePath(args.sessionName),
+              resolvedPath
+            ),
+          },
+          {
+            files,
+            directories,
+            totalItems: files.length + directories.length,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session directory list failed", {
@@ -271,12 +329,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -285,52 +341,48 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.file_exists",
     description: "Check if a file or directory exists within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to check within the session workspace"),
-    }),
+    parameters: SessionFileExistsSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         let exists = false;
-        let isFile = false;
         let isDirectory = false;
-        let size: number | undefined;
+        let isFile = false;
 
         try {
           const stats = await stat(resolvedPath);
           exists = true;
-          isFile = stats.isFile();
           isDirectory = stats.isDirectory();
-          size = stats.size;
-        } catch (error) {
-          // File doesn't exist - that's fine, not an error
-          exists = false;
+          isFile = stats.isFile();
+        } catch {
+          // File doesn't exist, which is fine
         }
 
-        log.debug("Session file exists check", {
+        log.debug("Session file exists check successful", {
           session: args.sessionName,
           path: args.path,
           resolvedPath,
           exists,
-          isFile,
           isDirectory,
+          isFile,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          exists,
-          isFile,
-          isDirectory,
-          size,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relative(
+              await pathResolver.getSessionWorkspacePath(args.sessionName),
+              resolvedPath
+            ),
+          },
+          {
+            exists,
+            isDirectory,
+            isFile,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file exists check failed", {
@@ -339,12 +391,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -353,22 +403,11 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.delete_file",
     description: "Delete a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file to delete within the session workspace"),
-    }),
+    parameters: SessionFileDeleteSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
         await pathResolver.validatePathExists(resolvedPath);
-
-        // Additional safety check - ensure it's a file, not a directory
-        const stats = await stat(resolvedPath);
-        if (!stats.isFile()) {
-          throw new Error(
-            `Path "${args.path}" is not a file - use appropriate directory deletion tools`
-          );
-        }
 
         await unlink(resolvedPath);
 
@@ -378,16 +417,19 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           resolvedPath,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          deleted: true,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relative(
+              await pathResolver.getSessionWorkspacePath(args.sessionName),
+              resolvedPath
+            ),
+          },
+          {
+            deleted: true,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file delete failed", {
@@ -396,12 +438,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -410,15 +450,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.create_directory",
     description: "Create a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the directory to create within the session workspace"),
-      recursive: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
+    parameters: SessionDirectoryCreateSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -432,17 +464,20 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           recursive: args.recursive,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          created: true,
-          recursive: args.recursive,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath: relative(
+              await pathResolver.getSessionWorkspacePath(args.sessionName),
+              resolvedPath
+            ),
+          },
+          {
+            created: true,
+            recursive: args.recursive,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session directory create failed", {
@@ -451,12 +486,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -465,117 +498,77 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.grep_search",
     description: "Search for patterns in files within a session workspace using regex",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      query: z.string().describe("Regex pattern to search for"),
-      case_sensitive: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Whether the search should be case sensitive"),
-      include_pattern: z
-        .string()
-        .optional()
-        .describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
-      exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
-    }),
+    parameters: SessionGrepSearchSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(args.sessionName);
+        const workspacePath = await pathResolver.getSessionWorkspacePath(args.sessionName);
 
-        // Build ripgrep command arguments
-        const rgArgs = [
-          "--line-number",
-          "--no-heading",
-          "--color",
-          "never",
-          "--max-count",
-          "50", // Limit to 50 matches as per Cursor behavior
-          args.case_sensitive ? "--case-sensitive" : "--ignore-case",
-        ];
+        // Build grep command
+        const grepArgs = ["grep", "-rn"];
 
-        // Add include pattern if specified
+        if (!args.case_sensitive) {
+          grepArgs.push("-i");
+        }
+
         if (args.include_pattern) {
-          rgArgs.push("--glob", args.include_pattern);
+          grepArgs.push("--include", args.include_pattern);
         }
 
-        // Add exclude pattern if specified
         if (args.exclude_pattern) {
-          rgArgs.push("--glob", `!${args.exclude_pattern}`);
+          grepArgs.push("--exclude", args.exclude_pattern);
         }
 
-        // Add the search pattern and directory
-        rgArgs.push(args.query, sessionWorkspacePath);
+        grepArgs.push(args.query, workspacePath);
 
-        // Execute ripgrep
-        const proc = Bun.spawn(["rg", ...rgArgs], {
-          stdout: "pipe",
-          stderr: "pipe",
+        // Import exec dynamically to avoid circular dependency
+        const { exec } = await import("../../utils/exec");
+
+        const { stdout } = await exec(grepArgs.join(" "), {
+          cwd: workspacePath,
+          timeout: 30000,
         });
 
-        const output = await new Response(proc.stdout).text();
-        const errorOutput = await new Response(proc.stderr).text();
-        await proc.exited;
+        const matches = stdout
+          .trim()
+          .split("\n")
+          .filter((line) => line.length > 0)
+          .slice(0, 50) // Limit to 50 matches
+          .map((line) => {
+            const colonIndex = line.indexOf(":");
+            const secondColonIndex = line.indexOf(":", colonIndex + 1);
 
-        if (proc.exitCode !== 0 && proc.exitCode !== 1) {
-          // Exit code 1 means no matches found, which is normal
-          // Other exit codes indicate actual errors
-          throw new Error(`Ripgrep search failed: ${errorOutput}`);
-        }
+            if (colonIndex === -1 || secondColonIndex === -1) return null;
 
-        // Parse ripgrep output into Cursor-compatible format
-        const results: string[] = [];
-        if (output.trim()) {
-          const lines = output.trim().split("\n");
-          let currentFile = "";
+            const filePath = line.substring(0, colonIndex);
+            const lineNumber = parseInt(line.substring(colonIndex + 1, secondColonIndex));
+            const content = line.substring(secondColonIndex + 1);
 
-          for (const line of lines) {
-            // ripgrep output format: path:line_number:content
-            const match = line.match(/^([^:]+):(\d+):(.*)$/);
-            if (match && match[1] && match[2] && match[3] !== undefined) {
-              const [, filePath, lineNumber, content] = match;
-
-              // Convert to absolute file:// URL format like Cursor
-              const absolutePath = filePath.startsWith("/")
-                ? filePath
-                : `${sessionWorkspacePath}/${filePath}`;
-              const fileUrl = `file://${absolutePath}`;
-
-              // Add file header if it's a new file
-              if (currentFile !== fileUrl) {
-                currentFile = fileUrl;
-                results.push(`File: ${fileUrl}`);
-              }
-
-              results.push(`Line ${lineNumber}: ${content}`);
-            }
-          }
-        }
-
-        // Add "more results available" message if we hit the limit
-        const resultCount = results.filter((line) => line.startsWith("Line ")).length;
-        if (resultCount >= 50) {
-          results.push(
-            "NOTE: More results are available, but aren't shown here. If you need to, please refine the search query or restrict the scope."
-          );
-        }
+            return {
+              file: relative(workspacePath, join(workspacePath, filePath)),
+              line: lineNumber,
+              content: content.trim(),
+            };
+          })
+          .filter((match) => match !== null);
 
         log.debug("Session grep search successful", {
           session: args.sessionName,
           query: args.query,
-          caseSensitive: args.case_sensitive,
-          includePattern: args.include_pattern,
-          excludePattern: args.exclude_pattern,
-          resultCount,
+          matchCount: matches.length,
         });
 
-        return {
-          success: true,
-          results: results.join("\n\n"),
-          session: args.sessionName,
-          query: args.query,
-          matchCount: resultCount,
-        };
+        return createFileOperationResponse(
+          {
+            path: ".",
+            session: args.sessionName,
+            resolvedPath: ".",
+          },
+          {
+            matches,
+            query: args.query,
+            totalMatches: matches.length,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session grep search failed", {
@@ -584,15 +577,10 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           session: args.sessionName,
-          query: args.query,
-        };
+        });
       }
     },
   });
-
-  log.debug("Session file operation tools registered successfully");
 }

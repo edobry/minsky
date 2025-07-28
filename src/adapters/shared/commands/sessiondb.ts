@@ -91,7 +91,7 @@ const sessiondbCheckCommandParams: CommandParameterMap = {
 // Register sessiondb migrate command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.migrate",
-  category: CommandCategory.SESSION,
+  category: CommandCategory.SESSIONDB,
   name: "migrate",
   description: "Migrate session database between backends",
   parameters: sessiondbMigrateCommandParams,
@@ -256,7 +256,7 @@ sharedCommandRegistry.registerCommand({
 // Register sessiondb check command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.check",
-  category: CommandCategory.SESSION,
+  category: CommandCategory.SESSIONDB,
   name: "check",
   description: "Check database integrity and detect issues",
   parameters: sessiondbCheckCommandParams,
