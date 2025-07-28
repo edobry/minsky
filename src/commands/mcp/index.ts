@@ -329,7 +329,13 @@ export function createMCPCommand(): Command {
           exit(0);
         };
 
-        // TODO: Add signal handlers for graceful shutdown once typing issues are resolved
+        // Set up signal handlers for graceful shutdown
+        // Note: Using Bun.process for compatibility
+        Bun.process?.on?.("SIGINT", cleanup);
+        Bun.process?.on?.("SIGTERM", cleanup);
+
+        // Keep the process alive by waiting indefinitely
+        await new Promise(() => {}); // This will never resolve, keeping the server running
       } catch (error) {
         // Log detailed error info for debugging
         log.error("Failed to start MCP server", {

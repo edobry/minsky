@@ -18,30 +18,31 @@
 ### Enhanced
 
 - **Task #325: Completed Task Backend Architecture Analysis**
-  - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
-  - **Key Findings**:
-    - Special workspace represents 445+ lines of complexity providing negative user value
-    - In-tree backends are essentially a poorly-implemented distributed database
-    - Performance analysis shows 100-1000x improvement with database backends
-    - Cross-repository workflows are fundamentally incompatible with in-tree storage
-    - No user persona actually benefits from in-tree backends
-  - **Delivered Comprehensive Analysis**:
-    - Current implementation complexity documentation
-    - Distributed systems perspective revealing anti-patterns
-    - Cross-repository challenge analysis
-    - Detailed architectural tradeoffs (databases win 9-1)
-    - Limited-scope hybrid approach evaluation (not viable)
-    - Philosophical resolution prioritizing pragmatism over purity
+  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
+  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
+  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
+  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
+  - **AI-First Architecture Insights**:
+    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
+    - Users already accept external dependencies (AI APIs, billing, internet)
+    - Offline concerns secondary for AI-powered workflows
+    - GitHub Issues provide excellent foundation for AI content analysis
+  - **Comprehensive Analysis Delivered**:
+    - AI-first architecture reanalysis changing all priorities
+    - SQLite-to-PostgreSQL upgrade path design (for future reference)
+    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
+    - Offline/onboarding analysis with AI context
+    - GitHub Issues interim strategy with future backend flexibility
   - **Created Formal ADRs**:
-    - ADR-001: Database-First Architecture (SQLite default, PostgreSQL for teams)
-    - ADR-002: Explicit Task Status Model with git-derived insights
-    - ADR-003: Gradual Migration Strategy with 6-month deprecation
-  - **Implementation Roadmap**:
-    - Phase 1: SQLite implementation (immediate)
-    - Phase 2: PostgreSQL support (3 months)
-    - Phase 3: In-tree deprecation (6 months)
-    - Phase 4: Legacy code removal (12 months)
-  - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
+    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
+    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
+    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
+  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
+  - **Three-Phase Strategy**:
+    - Phase 1: GitHub Issues migration and basic AI features (immediate)
+    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
+    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
+  - **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
