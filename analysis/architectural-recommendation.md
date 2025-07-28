@@ -1,250 +1,255 @@
-# Architectural Recommendation: Embrace Database-First Design
+# Architectural Recommendation: AI-First SQLite-to-PostgreSQL Strategy
 
 ## Executive Decision
 
-**Abandon in-tree backends completely. Adopt a database-first architecture with SQLite as the default backend and PostgreSQL for team scenarios.**
+**Adopt SQLite-first architecture with seamless upgrade to PostgreSQL for team features, optimized for AI-powered workflows.**
 
-## Rationale Summary
+## The AI-First Game Changer
 
-### 1. In-Tree Backends Are a Failed Experiment
+**Key Insight**: Minsky is fundamentally an AI-powered task management tool, which changes everything:
 
-The analysis reveals that in-tree backends:
-- **Don't deliver on their promise**: Special workspace breaks "in-tree" concept
-- **Create massive complexity**: 445+ lines of synchronization code
-- **Perform terribly**: 100-1000x slower than databases
-- **Break with multiple repos**: Fundamental architecture limitation
-- **Prevent key features**: AI decomposition and task graphs impossible
+- 🤖 **Core value requires AI APIs** (OpenAI, Anthropic, etc.)
+- 🌐 **Users need internet** for primary features
+- ⚡ **Performance matters** for AI workflows
+- 👥 **Team collaboration** on AI-generated content is critical
+- 📱 **Offline optimization is secondary** (AI requires connectivity)
 
-### 2. We're Building a Database Poorly
+This realization eliminates many concerns about external dependencies while highlighting the need for database capabilities.
 
-The special workspace mechanism is essentially a naive distributed database implementation using git as a consistency protocol. This is:
-- **Solving the wrong problem**: Task management doesn't need distribution
-- **Reinventing wheels**: Databases solved these problems decades ago
-- **Creating operational burden**: Every user becomes a DBA
-- **Architecturally incoherent**: Distributed system requiring centralization
+## Recommended Architecture Strategy
 
-### 3. Database Backends Enable Minsky's Vision
+### Phase 1: SQLite Default (Immediate Experience)
 
-The core Minsky value propositions require database capabilities:
-- **AI Task Decomposition**: Needs atomic multi-task transactions
-- **Visual Task Graphs**: Requires efficient graph queries
-- **Real-time Collaboration**: Demands push notifications
-- **Cross-repo Features**: Must span repository boundaries
-- **User Intervention**: Needs immediate, consistent updates
+```bash
+# Zero-friction onboarding
+git clone project
+minsky init
+# → Creates .minsky/tasks.db
+# → Ready for AI features immediately
 
-## Recommended Architecture
-
-### Phase 1: SQLite as Default (Immediate)
-
-**Implementation**:
-```typescript
-// Default initialization
-minsky init  // Creates .minsky/tasks.db SQLite database
-
-// Configuration
-{
-  "taskBackend": {
-    "type": "sqlite",
-    "path": ".minsky/tasks.db"  // Committed to repo for small teams
-  }
-}
+minsky config set ai.provider openai  
+minsky config set ai.apiKey sk-...
+minsky tasks decompose "Build authentication system"
+# → AI decomposition works perfectly with SQLite
 ```
 
 **Benefits**:
-- Zero external dependencies
-- Blazing fast performance
-- Single file simplicity
-- Natural upgrade path
-- Supports all Minsky features
+- ✅ Zero setup friction
+- ✅ No account dependencies  
+- ✅ AI features work immediately
+- ✅ Fast local operations
+- ✅ Perfect for solo developers and experimentation
 
-### Phase 2: PostgreSQL for Teams (3 months)
+### Phase 2: Team Upgrade (When Collaboration Needed)
 
-**Implementation**:
+```bash
+# When team features needed
+minsky upgrade to-postgres --provider supabase
+
+# Automated migration
+✓ Exporting SQLite data...
+✓ Creating PostgreSQL schema...  
+✓ Migrating 127 tasks...
+✓ Migrating AI embeddings...
+✓ Enabling real-time features...
+✓ Migration complete!
+```
+
+**Unlocks**:
+- ✅ Real-time collaboration
+- ✅ Advanced vector search (pgvector)
+- ✅ Team AI workflows
+- ✅ Professional backup/scaling
+- ✅ Concurrent access patterns
+
+## AI Feature Compatibility Matrix
+
+| Feature | SQLite | PostgreSQL | Notes |
+|---------|--------|------------|-------|
+| **AI Task Decomposition** | ✅ | ✅ | Works great locally |
+| **Semantic Search** | 🟡 | ✅ | Limited vectors vs pgvector |
+| **AI Complexity Scoring** | ✅ | ✅ | Pure AI API feature |
+| **Real-time AI Collab** | ❌ | ✅ | Requires websockets/pub-sub |
+| **Vector Embeddings** | 🟡 | ✅ | JSON storage vs native vectors |
+| **Team AI Insights** | ❌ | ✅ | Requires shared database |
+| **Cross-repo AI Analysis** | ✅ | ✅ | Both support complex queries |
+
+## Migration Strategy: Simple and Reliable
+
+### Approach: Manual Migration (Not Sync)
+
+**Why not bidirectional sync?**
+- 🔴 **Massive complexity** - conflict resolution, schema sync, operational overhead
+- 🔴 **Over-engineering** - most users upgrade once and stay on PostgreSQL
+- 🔴 **Maintenance burden** - ongoing sync logic and edge cases
+
+**Why simple migration works better:**
+- ✅ **One-time operation** - clean transition to better backend
+- ✅ **Clear semantics** - no ambiguity about data location
+- ✅ **Reliable** - well-understood export/import pattern
+- ✅ **Fast to implement** - focus on user value
+
+### Migration Implementation
+
 ```typescript
-// Team initialization
-minsky init --team --db-url postgresql://...
-
-// Or upgrade existing
-minsky migrate sqlite-to-postgres
+// Clean, straightforward migration
+async function migrateToPostgreSQL(pgConfig: PostgreSQLConfig) {
+  // 1. Export SQLite data
+  const tasks = await sqlite.query('SELECT * FROM tasks');
+  const relationships = await sqlite.query('SELECT * FROM task_relationships');
+  const embeddings = await sqlite.query('SELECT * FROM embeddings');
+  
+  // 2. Create PostgreSQL schema
+  await pg.query(SCHEMA_SQL);
+  
+  // 3. Import data with referential integrity
+  await pg.transaction(async (tx) => {
+    await tx.insert('tasks', tasks);
+    await tx.insert('task_relationships', relationships);
+    await tx.insert('embeddings', embeddings);
+  });
+  
+  // 4. Validate migration
+  const counts = await validateMigration(sqlite, pg);
+  
+  // 5. Update config
+  await updateConfig({ backend: 'postgresql', ...pgConfig });
+  
+  // 6. Backup old SQLite
+  await backupSQLite('.minsky/pre-migration-backup.db');
+}
 ```
 
-**Features**:
-- Real-time subscriptions
-- Multi-user concurrency
-- Advanced querying
-- Audit trails
-- Role-based access
+## Progressive Enhancement Framework
 
-### Phase 3: Deprecate In-Tree (6 months)
+### Decision Tree for Users
 
-**Steps**:
-1. Mark in-tree backends as deprecated
-2. Add migration tooling for existing users
-3. Remove special workspace code
-4. Delete in-tree backend implementations
-
-**Communication**:
 ```
-DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
-- Performance and feature limitations make them unsuitable
-- Run 'minsky migrate' to convert to SQLite
-- See migration guide: docs/migrate-from-intree.md
+Are you working solo and experimenting?
+├─ YES → SQLite (perfect for you)
+└─ NO → Continue
+
+Do you need real-time team collaboration?
+├─ YES → PostgreSQL (upgrade recommended)
+└─ NO → SQLite fine for now
+
+Do you have >1000 tasks or complex AI workflows?
+├─ YES → PostgreSQL (performance benefits)
+└─ NO → SQLite sufficient
+
+Are you ready to manage a hosted database?
+├─ YES → PostgreSQL (full features)
+└─ NO → SQLite until ready
 ```
+
+### Upgrade Triggers and Prompts
+
+```bash
+# Smart upgrade suggestions
+minsky tasks list
+# → "You have 500+ tasks. Consider upgrading to PostgreSQL for better performance."
+
+minsky ai decompose
+# → "Upgrade to PostgreSQL to enable real-time team collaboration on AI features."
+
+minsky team invite
+# → "Team features require PostgreSQL. Run 'minsky upgrade to-postgres' to enable."
+```
+
+## Hosting Recommendations
+
+### For SQLite Phase
+- **Storage**: Local `.minsky/tasks.db` file
+- **Backup**: Export commands (`minsky export --format sql`)
+- **Sync**: Optional git export for version control
+- **AI APIs**: Direct integration (OpenAI, Anthropic)
+
+### For PostgreSQL Phase
+- **Recommended**: Supabase (best PostgreSQL + real-time + vector support)
+- **Alternatives**: Neon, PlanetScale, Railway
+- **Enterprise**: Self-hosted PostgreSQL + Redis
+- **Performance**: Connection pooling and read replicas
 
 ## Implementation Roadmap
 
-### Immediate Actions (Week 1-2)
+### Phase 1: SQLite Foundation (Month 1)
+- [ ] SQLite backend with full AI feature support
+- [ ] Vector embedding storage (JSON format)
+- [ ] AI task decomposition workflows
+- [ ] Export/backup functionality
 
-1. **Document Decision**
-   - [ ] Publish ADR for database-first architecture
-   - [ ] Create migration guide for existing users
-   - [ ] Update README with new approach
+### Phase 2: PostgreSQL Integration (Month 2)
+- [ ] PostgreSQL backend implementation
+- [ ] Migration command and validation
+- [ ] Real-time collaboration features
+- [ ] Advanced vector search (pgvector)
 
-2. **SQLite Implementation**
-   - [ ] Create SQLite backend with full feature support
-   - [ ] Add database migration framework
-   - [ ] Implement task CRUD operations
-   - [ ] Add relationship support
+### Phase 3: User Experience Polish (Month 3)
+- [ ] Smart upgrade prompts and guidance
+- [ ] Performance optimization
+- [ ] Error recovery and rollback
+- [ ] Documentation and tutorials
 
-3. **CLI Updates**
-   - [ ] Update `minsky init` to create SQLite by default
-   - [ ] Add `--backend` flag for backend selection
-   - [ ] Remove special workspace initialization
+### Phase 4: Advanced Features (Month 4+)
+- [ ] Advanced AI workflows
+- [ ] Team permission systems
+- [ ] Analytics and insights
+- [ ] Enterprise features
 
-### Short Term (Month 1)
+## Why This Strategy Wins
 
-1. **Feature Parity**
-   - [ ] Port all task operations to SQLite
-   - [ ] Add indexing for performance
-   - [ ] Implement full-text search
-   - [ ] Add transaction support
+### 1. **Removes Onboarding Friction**
+- New users get instant value
+- No account setup required
+- AI features work immediately
+- Familiar file-based storage
 
-2. **Migration Tools**
-   - [ ] In-tree to SQLite converter
-   - [ ] Backup/restore utilities
-   - [ ] Data validation tools
+### 2. **Enables AI Innovation**
+- Fast iteration on AI features
+- Local experimentation encouraged
+- Performance adequate for AI workflows
+- Vector storage capabilities
 
-3. **Testing**
-   - [ ] Performance benchmarks
-   - [ ] Migration test suite
-   - [ ] Multi-platform testing
+### 3. **Grows With Users**
+- Clear upgrade path when ready
+- Team features when needed
+- Professional scaling available
+- No forced migrations
 
-### Medium Term (Month 2-3)
-
-1. **PostgreSQL Backend**
-   - [ ] Implement PostgreSQL adapter
-   - [ ] Add connection pooling
-   - [ ] Real-time subscriptions
-   - [ ] Team features
-
-2. **Advanced Features**
-   - [ ] AI task decomposition
-   - [ ] Visual task graphs
-   - [ ] Cross-repo relationships
-   - [ ] Webhook support
-
-3. **Deprecation Process**
-   - [ ] Mark in-tree as deprecated
-   - [ ] Add deprecation warnings
-   - [ ] Update documentation
-
-### Long Term (Month 4-6)
-
-1. **Remove Legacy Code**
-   - [ ] Delete special workspace manager
-   - [ ] Remove in-tree backends
-   - [ ] Clean up git sync code
-   - [ ] Simplify architecture
-
-2. **Advanced Features**
-   - [ ] GraphQL API
-   - [ ] Plugin system
-   - [ ] External integrations
-   - [ ] Analytics dashboard
-
-## Migration Strategy
-
-### For Existing In-Tree Users
-
-1. **Automated Detection**
-   ```bash
-   $ minsky tasks list
-   WARNING: In-tree backend detected
-   Run 'minsky migrate' to upgrade to SQLite for:
-   - 100x faster performance
-   - AI-powered features
-   - Cross-repo support
-   ```
-
-2. **One-Command Migration**
-   ```bash
-   $ minsky migrate
-   Analyzing in-tree tasks...
-   Found 127 tasks across 3 repositories
-   Creating SQLite database...
-   Migrating tasks... ████████████████ 100%
-   Migration complete! 
-   
-   Old: 3.2s to list tasks
-   New: 0.003s to list tasks (1000x faster!)
-   ```
-
-3. **Gradual Rollout**
-   - v1.5: SQLite default, in-tree deprecated
-   - v1.6: Migration warnings increase
-   - v1.7: In-tree requires --legacy flag
-   - v2.0: In-tree backends removed
+### 4. **Balances Complexity**
+- Simple default (SQLite)
+- Advanced option (PostgreSQL)
+- Clean migration (not sync)
+- Focus on user value
 
 ## Success Metrics
 
-### Performance Targets
-- Task list: <10ms (from 3-5 seconds)
-- Task creation: <20ms (from 5-10 seconds)
-- Status update: <5ms (from 3-4 seconds)
-- Complex queries: <100ms (from impossible)
+### Onboarding Success
+- Time from `git clone` to first AI task decomposition: <5 minutes
+- Setup steps required: 2 (clone + AI API key)
+- User confusion points: Minimize to AI configuration only
 
-### User Experience Goals
-- Zero setup friction for SQLite
-- Clear upgrade path to PostgreSQL
-- No more "special workspace" confusion
-- Instant operations for better flow
+### Migration Success  
+- Migration time for 1000 tasks: <30 seconds
+- Data integrity: 100% preservation
+- Upgrade completion rate: >80% when prompted
+- Rollback capability: Full data recovery
 
-### Feature Enablement
-- ✅ AI task decomposition
-- ✅ Visual task graphs  
-- ✅ Cross-repo features
-- ✅ Real-time collaboration
-- ✅ Third-party integrations
-
-## Risk Mitigation
-
-### Potential Concerns
-
-1. **"But we promised no dependencies!"**
-   - SQLite is not a dependency, it's embedded
-   - Git is already a dependency
-   - Special workspace was a hidden dependency
-
-2. **"What about version control for tasks?"**
-   - Tasks aren't code, different versioning needs
-   - Database audit trails are superior
-   - Git history still available for database file
-
-3. **"This is a breaking change!"**
-   - Automated migration provided
-   - Massive performance improvement
-   - Enables promised features
+### Performance Standards
+- SQLite AI operations: <200ms
+- PostgreSQL AI operations: <100ms  
+- Real-time collaboration latency: <500ms
+- Vector search queries: <50ms
 
 ## Conclusion
 
-The analysis overwhelmingly supports abandoning in-tree backends:
+The SQLite-first strategy perfectly balances the competing needs of:
 
-1. **Technical**: Databases are the right tool for the job
-2. **Performance**: 100-1000x improvement
-3. **Features**: Enables Minsky's vision
-4. **Simplicity**: Removes special workspace complexity
-5. **Scalability**: Proven to billions of records
+- **Simplicity**: Zero-config onboarding removes friction
+- **Power**: Full AI features work with SQLite  
+- **Growth**: Clear upgrade to PostgreSQL for teams
+- **Performance**: Database-optimized for AI workflows
 
-By choosing database-first architecture, Minsky can deliver on its promise of AI-powered task management without the burden of a half-baked distributed database implementation.
+By starting with SQLite and providing smooth PostgreSQL migration, we give users the best of both worlds: immediate value and professional scaling when ready.
 
-**The path forward is clear: Embrace SQLite, enable features, delight users.**
+**This approach respects user agency while optimizing for AI-first workflows.**
