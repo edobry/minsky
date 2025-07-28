@@ -106,10 +106,8 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
       if (mcpHost) {
         serverCommand.push("--host", mcpHost);
       }
-    } else {
-      // Default to stdio
-      serverCommand.push("--stdio");
     }
+    // Note: stdio is the default transport, no flag needed
 
     // Configure environment variables for the inspector
     // Inspector needs its own proxy port that doesn't conflict with MCP server

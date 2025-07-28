@@ -579,5 +579,8 @@
 - [ ] Explore embedding Outerbase DB explorer for database inspection [#326](process/tasks/326-explore-embedding-outerbase-db-explorer-for-database-inspection.md)
 
 - [ ] Analyze and architect general message/prompt system supporting human and AI agents across contexts [#327](process/tasks/327-analyze-and-architect-general-message-prompt-system-supporting-human-and-ai-agents-across-contexts.md)
+<<<<<<< HEAD
 
 - [ ] Extend type composition refactoring to other MCP command domains [#328](process/tasks/328-extend-type-composition-refactoring-to-other-mcp-command-domains.md)
+=======
+>>>>>>> main

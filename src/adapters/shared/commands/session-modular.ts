@@ -4,11 +4,11 @@
  * Lightweight orchestration layer that coordinates the extracted session command components.
  * This provides the registration function using the new modular architecture.
  */
+import { SessionCommandRegistry } from "./session/base-session-command";
 import {
   createAllSessionCommands,
   setupSessionCommandRegistry,
   type SessionCommandDependencies,
-  type SessionCommandRegistry,
 } from "./session";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -28,16 +28,35 @@ const defaultSessionCommandDependencies: SessionCommandDependencies = {
 export class ModularSessionCommandsManager {
   private commands: ReturnType<typeof createAllSessionCommands>;
   private commandRegistry: SessionCommandRegistry;
+  private initialized = false;
+  private deps: SessionCommandDependencies;
 
   constructor(deps: SessionCommandDependencies = defaultSessionCommandDependencies) {
-    this.commands = createAllSessionCommands(deps);
-    this.commandRegistry = setupSessionCommandRegistry(deps);
+    // Store dependencies but don't initialize yet to avoid circular dependency
+    this.deps = deps;
+    this.commands = {} as any;
+    this.commandRegistry = new SessionCommandRegistry();
+  }
+
+  /**
+   * Initialize commands and registry (called lazily to avoid circular dependencies)
+   */
+  private ensureInitialized(): void {
+    if (this.initialized) return;
+
+    // Set up the command registry with all session commands
+    this.commandRegistry = setupSessionCommandRegistry(this.deps);
+    this.commands = createAllSessionCommands(this.deps);
+    this.initialized = true;
   }
 
   /**
    * Register all session commands in the shared command registry
    */
   registerSessionCommands(): void {
+    // Ensure commands are initialized before registering
+    this.ensureInitialized();
+
     // Get all commands from the registry
     const allCommands = this.commandRegistry.getAllCommands();
 

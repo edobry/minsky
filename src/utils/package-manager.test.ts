@@ -21,14 +21,14 @@ describe("Package Manager Utilities", () => {
 
   beforeEach(() => {
     // Reset mocks before each test
-    existsSyncMock.mockReset();
-    execSyncMock.mockReset();
+    existsSyncMock = spyOn(fs, "existsSync");
+    execSyncMock = spyOn(childProcess, "execSync");
   });
 
   afterEach(() => {
-    // Reset mocks after each test
-    existsSyncMock.mockReset();
-    execSyncMock.mockReset();
+    // Clear mock calls after each test
+    existsSyncMock.mockClear();
+    execSyncMock.mockClear();
   });
 
   describe("detectPackageManager", () => {
@@ -38,7 +38,10 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
+      const result = detectPackageManager("/fake/repo", {
+        fs: { existsSync: existsSyncMock },
+        process: { execSync: execSyncMock },
+      });
       expect(result).toBe("bun");
     });
 
@@ -48,7 +51,10 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
+      const result = detectPackageManager("/fake/repo", {
+        fs: { existsSync: existsSyncMock },
+        process: { execSync: execSyncMock },
+      });
       expect(result).toBe("yarn");
     });
 
@@ -58,7 +64,10 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
+      const result = detectPackageManager("/fake/repo", {
+        fs: { existsSync: existsSyncMock },
+        process: { execSync: execSyncMock },
+      });
       expect(result).toBe("pnpm");
     });
 
@@ -68,7 +77,10 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
+      const result = detectPackageManager("/fake/repo", {
+        fs: { existsSync: existsSyncMock },
+        process: { execSync: execSyncMock },
+      });
       expect(result).toBe("npm");
     });
 
@@ -78,14 +90,20 @@ describe("Package Manager Utilities", () => {
         return false;
       });
 
-      const result = detectPackageManager("/fake/repo");
+      const result = detectPackageManager("/fake/repo", {
+        fs: { existsSync: existsSyncMock },
+        process: { execSync: execSyncMock },
+      });
       expect(result).toBe("npm");
     });
 
     test("returns undefined if no package files exist", () => {
       existsSyncMock = mock(() => false);
 
-      const result = detectPackageManager("/fake/repo");
+      const result = detectPackageManager("/fake/repo", {
+        fs: { existsSync: existsSyncMock },
+        process: { execSync: execSyncMock },
+      });
       expect(result).toBeUndefined();
     });
   });
@@ -121,7 +139,14 @@ describe("Package Manager Utilities", () => {
 
       execSyncMock = mock(() => Buffer.from("Success"));
 
-      const result = await installDependencies("/fake/repo");
+      const result = await installDependencies(
+        "/fake/repo",
+        {},
+        {
+          fs: { existsSync: existsSyncMock },
+          process: { execSync: execSyncMock },
+        }
+      );
       expect(result.success).toBe(true);
       expect(execSyncMock).toHaveBeenCalledWith("npm install", {
         cwd: "/fake/repo",
@@ -132,9 +157,16 @@ describe("Package Manager Utilities", () => {
     test("uses provided package manager if specified", async () => {
       execSyncMock = mock(() => Buffer.from("Success"));
 
-      const result = await installDependencies("/fake/repo", {
-        packageManager: "bun",
-      });
+      const result = await installDependencies(
+        "/fake/repo",
+        {
+          packageManager: "bun",
+        },
+        {
+          fs: { existsSync: existsSyncMock },
+          process: { execSync: execSyncMock },
+        }
+      );
 
       expect(result.success).toBe(true);
       expect(execSyncMock).toHaveBeenCalledWith("bun install", {
@@ -146,7 +178,14 @@ describe("Package Manager Utilities", () => {
     test("handles no package manager detected", async () => {
       existsSyncMock = mock(() => false);
 
-      const result = await installDependencies("/fake/repo");
+      const result = await installDependencies(
+        "/fake/repo",
+        {},
+        {
+          fs: { existsSync: existsSyncMock },
+          process: { execSync: execSyncMock },
+        }
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBe("No package manager detected for this project");
@@ -154,9 +193,16 @@ describe("Package Manager Utilities", () => {
     });
 
     test("handles unsupported package manager", async () => {
-      const result = await installDependencies("/fake/repo", {
-        packageManager: undefined,
-      });
+      const result = await installDependencies(
+        "/fake/repo",
+        {
+          packageManager: undefined,
+        },
+        {
+          fs: { existsSync: existsSyncMock },
+          process: { execSync: execSyncMock },
+        }
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBe("No package manager detected for this project");
@@ -173,7 +219,14 @@ describe("Package Manager Utilities", () => {
         throw new Error("Installation failed");
       });
 
-      const result = await installDependencies("/fake/repo");
+      const result = await installDependencies(
+        "/fake/repo",
+        {},
+        {
+          fs: { existsSync: existsSyncMock },
+          process: { execSync: execSyncMock },
+        }
+      );
 
       expect(result.success).toBe(false);
       expect(result.error).toBe("Installation failed");
@@ -187,7 +240,14 @@ describe("Package Manager Utilities", () => {
 
       execSyncMock = mock(() => Buffer.from("Success"));
 
-      await installDependencies("/fake/repo", { quiet: true });
+      await installDependencies(
+        "/fake/repo",
+        { quiet: true },
+        {
+          fs: { existsSync: existsSyncMock },
+          process: { execSync: execSyncMock },
+        }
+      );
 
       expect(execSyncMock).toHaveBeenCalledWith("npm install", {
         cwd: "/fake/repo",

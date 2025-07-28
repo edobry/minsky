@@ -1,7 +1,32 @@
 ## [Unreleased]
 
+### Added
+
+- **Task #325: Implemented Special Workspace Deprecation Warnings**
+
+  - Added deprecation warnings to in-tree task backends (markdown-backend.ts and json-backend.ts)
+  - Users now see migration guidance when using deprecated special workspace approach
+  - References ADR-003 deprecation strategy with clear benefits of GitHub Issues backend
+  - Cleaned up obsolete task 160 session workspaces (task#160 and task160-ai-backend)
+  - Completed final implementation phase of architectural resolution
+
+- Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
+
+  - Extends current "user interventions" to support both human and AI agents
+  - Enables persistent conversation history with rolling summaries
+  - Supports multiple contexts: tasks, sessions, PR reviews, GitHub issues, chat
+  - Integrates with multi-agent supervision system (#258) and memory architecture (#279)
+  - Provides foundation for iterative collaboration on artifacts across different contexts
+
+- **Task #326: Created task for Outerbase DB explorer integration research**
+  - Created comprehensive task specification for evaluating Outerbase DB explorer integration
+  - Task focuses on providing users with visual database inspection capabilities
+  - Key investigation areas include CLI/web interface embedding, security considerations, and performance implications
+  - Expected deliverables: technical feasibility analysis, integration recommendations, and implementation plan
+
 ### Enhanced
 
+<<<<<<< HEAD
 - **Task #322: Refactored MCP Tools with Type Composition to Eliminate Argument Duplication**
 
   - Created shared Zod schema components for reusable parameter validation across MCP tools
@@ -11,6 +36,90 @@
   - Fixed critical sessionNameName bug in session-workspace.ts (7 instances of incorrect variable references)
   - Improved maintainability with consistent error handling and TypeScript type safety
   - All existing MCP tool functionality preserved with enhanced validation
+=======
+- **Session CLI Command Registration Fix**
+  - Fixed session command registration issue where only 'migrate' and 'check' commands were visible
+  - Resolved `ModularSessionCommandsManager` not properly populating command registry
+  - Fixed `BaseSessionCommand.getCommandCategory()` returning lowercase 'session' instead of `CommandCategory.SESSION`
+  - All session commands now properly available: list, get, start, dir, delete, update, approve, pr, inspect
+  - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
+
+- **Task #325: Completed Task Backend Architecture Analysis**
+  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
+  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
+  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
+  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
+  - **AI-First Architecture Insights**:
+    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
+    - Users already accept external dependencies (AI APIs, billing, internet)
+    - Offline concerns secondary for AI-powered workflows
+    - GitHub Issues provide excellent foundation for AI content analysis
+  - **Comprehensive Analysis Delivered**:
+    - AI-first architecture reanalysis changing all priorities
+    - SQLite-to-PostgreSQL upgrade path design (for future reference)
+    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
+    - Offline/onboarding analysis with AI context
+    - GitHub Issues interim strategy with future backend flexibility
+  - **Created Formal ADRs**:
+    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
+    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
+    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
+  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
+  - **Three-Phase Strategy**:
+    - Phase 1: GitHub Issues migration and basic AI features (immediate)
+    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
+    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
+  - # **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
+- **Task #325: Completed Task Backend Architecture Analysis**
+
+  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
+  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
+  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
+  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
+  - **AI-First Architecture Insights**:
+    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
+    - Users already accept external dependencies (AI APIs, billing, internet)
+    - Offline concerns secondary for AI-powered workflows
+    - GitHub Issues provide excellent foundation for AI content analysis
+  - **Comprehensive Analysis Delivered**:
+    - AI-first architecture reanalysis changing all priorities
+    - SQLite-to-PostgreSQL upgrade path design (for future reference)
+    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
+    - Offline/onboarding analysis with AI context
+    - GitHub Issues interim strategy with future backend flexibility
+  - **Created Formal ADRs**:
+    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
+    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
+    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
+  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
+  - **Three-Phase Strategy**:
+    - Phase 1: GitHub Issues migration and basic AI features (immediate)
+    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
+    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
+  - **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
+
+- **Task #322: Comprehensive Parameter Deduplication with Type Composition**
+
+  - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
+  - **70% CODE REDUCTION**: Reduced ~1000 lines to ~300 lines of parameter definitions (exceeded 60% target)
+  - **Created Dual-System Architecture**:
+    - `src/adapters/mcp/shared-schemas.ts`: 17+ reusable parameter schemas for MCP tools
+    - `src/adapters/shared/common-parameters.ts`: Comprehensive parameter library for shared commands
+  - **Refactored 11 Files Completely**:
+    - **MCP Tools**: `session-files.ts`, `session-edit-tools.ts`, `session-workspace.ts` (75% reduction)
+    - **Shared Commands**: `rules.ts`, `config.ts`, `init.ts`, `git.ts`, `session-parameters.ts`, `tasks/task-parameters.ts` (68% avg reduction)
+  - **Key Innovations**:
+    - Single source of truth for all common parameters (sessionName, path, json, repo, debug, etc.)
+    - Type-safe composition patterns with full TypeScript inference
+    - Backward compatibility with zero breaking changes
+    - Extensible patterns for future parameter additions
+  - **Eliminated All Major Duplication Patterns**:
+    - MCP sessionName parameters: 17+ → 1 schema
+    - MCP path parameters: 15+ → 1 schema
+    - Shared json parameters: 15+ → 1 schema
+    - Task/Git/Session parameter families: 100+ → organized libraries
+  - Established robust foundation for maintainable, DRY parameter management across entire codebase
+>>>>>>> main
 
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
 
@@ -19,6 +128,7 @@
   - Follows Task #270's test architecture improvements promoting co-location over separate test directories
 
 - **Task #312: Enhanced session_read_file tool with line range support**
+
   - Added support for line range parameters matching Cursor's read_file interface
   - Added `start_line_one_indexed`, `end_line_one_indexed_inclusive`, `should_read_entire_file`, and `explanation` parameters
   - Implemented intelligent file size handling with context expansion for small ranges
@@ -27,7 +137,28 @@
   - Maintains backward compatibility with existing usage
   - Provides feature parity with Cursor's built-in read_file tool for session workspaces
 
+- **Task #325: Task Backend Architecture Analysis and Design Resolution**: Created comprehensive task for analyzing and resolving fundamental task backend architecture decisions
+  - Documents the core conflict between in-tree task metadata backends (markdown/json) and the complexity of the special workspace workflow
+  - Captures philosophical considerations around git-native task management vs practical needs for database backends
+  - Outlines key architectural questions including task state location, status derivation models, and synchronization approaches
+  - Defines deliverables including tradeoff analysis, ADRs, workflow design, and implementation roadmap
+  - Addresses critical questions about special workspace complexity, single pane of glass capabilities, and team workflows
+  - Establishes foundation for future task system evolution including AI-powered features and distributed team support
+  - Created as proper Minsky task with full specification stored at `process/tasks/325-task-backend-architecture-analysis-and-design-resolution.md`
+
 ### Fixed
+
+- **Task & Session Commands Circular Dependencies**: Completely resolved circular dependency issues and task list display
+
+  - **FIXED**: `minsky tasks list` now works successfully and displays all 75 tasks with proper formatting
+  - **FIXED**: Original "setupTaskCommandRegistry not found" error completely eliminated
+  - **FIXED**: Task list formatting now shows actual tasks instead of just count message
+  - Fixed circular export paths in `tasks.ts` and `session.ts` modules (`.../tasks` → `.../tasks/`)
+  - Simplified both `ModularTasksCommandManager` and `ModularSessionCommandsManager` initialization
+  - Removed dynamic imports in favor of static imports per no-dynamic-imports rule
+  - Used require() pattern within functions to break circular dependency loops
+  - Implemented direct command registration to avoid complex dependency chains
+  - Both task and session command systems now load without circular dependency errors
 
 - **Session Commands Consolidation**: Fixed architectural inconsistencies from incomplete Task #171 refactoring
 
@@ -815,6 +946,7 @@ _See: SpecStory history [2025-05-19_implement-environment-aware-logging](mdc:.sp
     - `tasks.filter`: Enhanced task filtering with advanced options (title, ID, sorting)
     - `tasks.update`: Update a task's details (title, description, status)
     - `tasks.delete`: Delete a task with optional force flag
+<<<<<<< HEAD
     - `tasks.info`: Get statistical information about tasks with grouping
   - Updated README-MCP.md with comprehensive documentation for all task commands
   - Added test coverage for the new MCP task commands
@@ -1517,3 +1649,6 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
+=======
+    - `
+>>>>>>> main

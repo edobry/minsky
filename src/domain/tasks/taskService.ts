@@ -12,8 +12,8 @@ import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
-
-// Dynamic import for GitHub backend to avoid hard dependency
+import { getGitHubBackendConfig } from "./githubBackendConfig";
+import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 
 /**
  * Options for the TaskService
@@ -88,10 +88,13 @@ export class TaskService {
         const githubBackend = this.tryCreateGitHubBackend(workspacePath);
         if (githubBackend) {
           this.backends.push(githubBackend);
+          log.debug("GitHub backend added successfully");
+        } else {
+          log.debug("GitHub backend not available - config not found");
         }
       } catch (error) {
-        // Silently ignore GitHub backend if not available
-        log.debug("GitHub backend not available", { error: String(error as any) });
+        // Log GitHub backend errors for debugging
+        log.warn("GitHub backend creation failed", { error: String(error as any) });
       }
     }
 
@@ -518,18 +521,12 @@ export class TaskService {
   }
 
   /**
-   * Try to create GitHub backend using dynamic imports
+   * Try to create GitHub backend
    * @param workspacePath Workspace path
    * @returns GitHub TaskBackend instance or null if not available
    */
-  private async tryCreateGitHubBackend(workspacePath: string): Promise<TaskBackend | null> {
+  private tryCreateGitHubBackend(workspacePath: string): TaskBackend | null {
     try {
-      // Dynamic import to avoid hard dependency on GitHub modules
-      const [{ getGitHubBackendConfig }, { createGitHubIssuesTaskBackend }] = await Promise.all([
-        import("./githubBackendConfig"),
-        import("./githubIssuesTaskBackend"),
-      ]);
-
       const config = getGitHubBackendConfig(workspacePath);
       if (!config) {
         return null;
@@ -585,13 +582,15 @@ ${description}
     backend: "markdown" | "json-file";
     backendConfig?: any;
     customBackends?: TaskBackend[];
+    isReadOperation?: boolean;
   }): Promise<TaskService> {
-    const { backend, backendConfig, customBackends } = options;
+    const { backend, backendConfig, customBackends, isReadOperation = false } = options;
 
     log.debug("Creating TaskService with enhanced backend", {
       backend,
       hasConfig: !!backendConfig,
       hasCustomBackends: !!customBackends,
+      isReadOperation,
     });
 
     // If custom backends provided, use traditional pattern
@@ -612,7 +611,7 @@ ${description}
         }
 
         const { createMarkdownBackend } = await import("./markdown-backend");
-        resolvedBackend = await createMarkdownBackend(backendConfig);
+        resolvedBackend = await createMarkdownBackend(backendConfig, isReadOperation);
         break;
       }
 
@@ -621,8 +620,8 @@ ${description}
           throw new Error("Backend configuration required for json-file backend");
         }
 
-        const { createJsonBackendWithConfig } = await import("./jsonFileTaskBackend");
-        resolvedBackend = await createJsonBackendWithConfig(backendConfig);
+        const { createWorkspaceResolvingJsonBackend } = await import("./json-backend");
+        resolvedBackend = await createWorkspaceResolvingJsonBackend(backendConfig, isReadOperation);
         break;
       }
 
@@ -760,14 +759,26 @@ export async function createConfiguredTaskService(
   }
 
   try {
-    // Use node-config to get the resolved backend
-    const resolvedBackend = get("backend") || "json-file";
+    // Only try configuration resolution if we have an initialized configuration system
+    let resolvedBackend = "json-file"; // safe fallback
 
-    log.debug("Resolved backend from configuration", {
-      workspacePath,
-      backend: resolvedBackend,
-      configSource: "node-config",
-    });
+    try {
+      // Use configuration system to get the resolved backend
+      resolvedBackend = get("backend") || "json-file";
+
+      log.debug("Resolved backend from configuration", {
+        workspacePath,
+        backend: resolvedBackend,
+        configSource: "custom-config",
+      });
+    } catch (configError) {
+      // Configuration system not initialized or failed - use fallback
+      log.debug("Configuration system not available, using fallback backend", {
+        workspacePath,
+        backend: resolvedBackend,
+        error: getErrorMessage(configError as any),
+      });
+    }
 
     return createTaskService({
       ...otherOptions,
@@ -775,7 +786,7 @@ export async function createConfiguredTaskService(
       backend: resolvedBackend,
     });
   } catch (error) {
-    // If configuration resolution fails, fall back to default backend
+    // If any error occurs, fall back to default backend
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,
       error: getErrorMessage(error as any),

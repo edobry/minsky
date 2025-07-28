@@ -18,7 +18,8 @@ import { log } from "../../utils/logger";
  * Resolve workspace path and database file path using configuration
  */
 async function resolveWorkspacePath(
-  config: WorkspaceResolvingJsonConfig
+  config: JsonConfig,
+  isReadOperation: boolean = false
 ): Promise<WorkspaceResolutionResult & { dbFilePath: string }> {
   // 1. Explicit workspace path override
   if (config.workspacePath) {
@@ -33,12 +34,32 @@ async function resolveWorkspacePath(
 
   // 2. Repository URL provided - use special workspace
   if (config.repoUrl) {
+    // ⚠️ DEPRECATION WARNING: Special workspace approach is deprecated
+    log.warn(`
+⚠️  DEPRECATION WARNING: In-tree task backends are deprecated
+
+    Migration recommended: 'minsky migrate to-github-issues'
+
+    Benefits of GitHub Issues:
+    • Rich task specifications with markdown
+    • Native GitHub workflow integration
+    • Better collaboration and discussion
+    • Foundation for future AI features
+
+    Support for in-tree backends will be removed in a future version.
+    See: https://github.com/your-org/minsky/blob/main/analysis/adrs/003-deprecate-in-tree-backends.md
+  `);
+
     const specialWorkspaceManager = createSpecialWorkspaceManager({
       repoUrl: config.repoUrl,
     });
 
-    // Initialize the workspace if it doesn't exist
-    await specialWorkspaceManager.initialize();
+    // Use read-only initialization for read operations to avoid locking
+    if (isReadOperation) {
+      await specialWorkspaceManager.initializeReadOnly();
+    } else {
+      await specialWorkspaceManager.initialize();
+    }
 
     const workspacePath = specialWorkspaceManager.getWorkspacePath();
     const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
@@ -53,14 +74,35 @@ async function resolveWorkspacePath(
 
   // 3. ALWAYS use special workspace for task operations - NO FALLBACKS
   // Task operations MUST be consistent across CLI and MCP interfaces
+
+  // ⚠️ DEPRECATION WARNING: Special workspace approach is deprecated
+  log.warn(`
+⚠️  DEPRECATION WARNING: In-tree task backends are deprecated
+
+    Migration recommended: 'minsky migrate to-github-issues'
+
+    Benefits of GitHub Issues:
+    • Rich task specifications with markdown
+    • Native GitHub workflow integration
+    • Better collaboration and discussion
+    • Foundation for future AI features
+
+    Support for in-tree backends will be removed in a future version.
+    See: https://github.com/your-org/minsky/blob/main/analysis/adrs/003-deprecate-in-tree-backends.md
+  `);
+
   const specialWorkspaceManager = createSpecialWorkspaceManager({
     repoUrl: "https://github.com/local/minsky-tasks.git", // Default repo for tasks
     workspaceName: "task-operations",
     lockTimeoutMs: 30000, // Wait up to 30 seconds for lock
   });
 
-  // NO try/catch - let it fail if special workspace can't be initialized
-  await specialWorkspaceManager.initialize();
+  // Use read-only initialization for read operations to avoid locking
+  if (isReadOperation) {
+    await specialWorkspaceManager.initializeReadOnly();
+  } else {
+    await specialWorkspaceManager.initialize();
+  }
   const workspacePath = specialWorkspaceManager.getWorkspacePath();
   const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
 
@@ -107,10 +149,11 @@ export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
  * This factory function handles async workspace resolution before backend creation
  */
 export async function createWorkspaceResolvingJsonBackend(
-  config: WorkspaceResolvingJsonConfig
+  config: JsonConfig,
+  isReadOperation: boolean = false
 ): Promise<TaskBackend> {
   // Resolve workspace path and database file path first
-  const resolutionResult = await resolveWorkspacePath(config);
+  const resolutionResult = await resolveWorkspacePath(config, isReadOperation);
 
   log.debug("JSON workspace resolution completed", {
     method: resolutionResult.method,
