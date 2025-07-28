@@ -1,7 +1,23 @@
 ## [Unreleased]
 
+### Added
+
+- Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
+  - Extends current "user interventions" to support both human and AI agents
+  - Enables persistent conversation history with rolling summaries
+  - Supports multiple contexts: tasks, sessions, PR reviews, GitHub issues, chat
+  - Integrates with multi-agent supervision system (#258) and memory architecture (#279)
+  - Provides foundation for iterative collaboration on artifacts across different contexts
+
+- **Task #326: Created task for Outerbase DB explorer integration research**
+  - Created comprehensive task specification for evaluating Outerbase DB explorer integration
+  - Task focuses on providing users with visual database inspection capabilities
+  - Key investigation areas include CLI/web interface embedding, security considerations, and performance implications
+  - Expected deliverables: technical feasibility analysis, integration recommendations, and implementation plan
+
 ### Enhanced
 
+<<<<<<< HEAD
 - **Task #325: Completed Task Backend Architecture Analysis** 
   - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
   - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
@@ -28,6 +44,33 @@
     - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
     - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
   - **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
+=======
+- **Task #325: Completed Task Backend Architecture Analysis**
+  - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
+  - **Key Findings**:
+    - Special workspace represents 445+ lines of complexity providing negative user value
+    - In-tree backends are essentially a poorly-implemented distributed database
+    - Performance analysis shows 100-1000x improvement with database backends
+    - Cross-repository workflows are fundamentally incompatible with in-tree storage
+    - No user persona actually benefits from in-tree backends
+  - **Delivered Comprehensive Analysis**:
+    - Current implementation complexity documentation
+    - Distributed systems perspective revealing anti-patterns
+    - Cross-repository challenge analysis
+    - Detailed architectural tradeoffs (databases win 9-1)
+    - Limited-scope hybrid approach evaluation (not viable)
+    - Philosophical resolution prioritizing pragmatism over purity
+  - **Created Formal ADRs**:
+    - ADR-001: Database-First Architecture (SQLite default, PostgreSQL for teams)
+    - ADR-002: Explicit Task Status Model with git-derived insights
+    - ADR-003: Gradual Migration Strategy with 6-month deprecation
+  - **Implementation Roadmap**:
+    - Phase 1: SQLite implementation (immediate)
+    - Phase 2: PostgreSQL support (3 months)
+    - Phase 3: In-tree deprecation (6 months)
+    - Phase 4: Legacy code removal (12 months)
+  - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
+>>>>>>> origin/main
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
