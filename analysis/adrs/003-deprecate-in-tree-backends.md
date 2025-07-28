@@ -1,6 +1,7 @@
 # ADR-003: Deprecate In-Tree Task Backends
 
 ## Status
+
 Approved
 
 ## Context
@@ -13,6 +14,7 @@ The current Minsky implementation supports in-tree task backends (markdown and J
 4. **Cross-repository workflows** are fundamentally incompatible with in-tree approaches
 
 However, we want to preserve the existing implementation temporarily to:
+
 - Learn from the migration process
 - Understand any edge cases or requirements we missed
 - Provide fallback if GitHub Issues approach encounters unexpected issues
@@ -24,7 +26,7 @@ However, we want to preserve the existing implementation temporarily to:
 ### Specific Actions:
 
 1. **Mark as Deprecated**: Add deprecation warnings to in-tree backend usage
-2. **Provide Migration Tools**: Create automated migration from in-tree to GitHub Issues  
+2. **Provide Migration Tools**: Create automated migration from in-tree to GitHub Issues
 3. **Preserve Code**: Keep existing implementation for reference and learning
 4. **Update Documentation**: Clear guidance on migration path
 5. **Set Removal Timeline**: Plan code removal after successful migration period
@@ -32,24 +34,30 @@ However, we want to preserve the existing implementation temporarily to:
 ## Rationale
 
 ### 1. Architectural Clarity
+
 The comprehensive analysis revealed that in-tree backends:
+
 - **Block AI features**: No vector storage, real-time collaboration, or complex queries
 - **Add complexity**: Special workspace coordination for marginal benefits
 - **Limit scalability**: Poor performance and cross-repository issues
 - **Confuse users**: Complex mental model vs familiar GitHub Issues
 
 ### 2. GitHub Issues Superiority
+
 For task specifications and management:
+
 - **Rich content**: Full markdown with images, code blocks, discussions
 - **Familiar workflow**: Developers already understand GitHub Issues
 - **Native integration**: Works with PRs, code review, project management
 - **Proven infrastructure**: Reliable, scalable, feature-complete
 
 ### 3. AI Architecture Requirements
+
 Future AI features require:
+
 - **Vector storage**: For semantic search and embeddings
 - **Real-time updates**: For collaborative AI workflows
-- **Complex queries**: For task relationship analysis  
+- **Complex queries**: For task relationship analysis
 - **Performance**: Sub-second operations for AI interactions
 
 In-tree backends cannot provide these capabilities efficiently.
@@ -57,9 +65,10 @@ In-tree backends cannot provide these capabilities efficiently.
 ## Implementation Plan
 
 ### Phase 1: Deprecation Warnings
+
 ```typescript
 // Add deprecation warnings
-if (config.backend.type === 'markdown' || config.backend.type === 'json') {
+if (config.backend.type === "markdown" || config.backend.type === "json") {
   console.warn(`
 ⚠️  DEPRECATION WARNING: In-tree task backends are deprecated
     
@@ -77,6 +86,7 @@ if (config.backend.type === 'markdown' || config.backend.type === 'json') {
 ```
 
 ### Phase 2: Migration Tools
+
 ```bash
 # Automated migration command
 minsky migrate to-github-issues --from-backend markdown --repo owner/repo
@@ -90,13 +100,14 @@ minsky migrate to-github-issues --from-backend markdown --repo owner/repo
 ```
 
 ### Phase 3: Code Preservation Strategy
+
 ```
 // Keep existing code in deprecated/ directory
 src/
   deprecated/
     tasks/
       markdownTaskBackend.ts
-      jsonFileTaskBackend.ts  
+      jsonFileTaskBackend.ts
       special-workspace-manager.ts
   current/
     tasks/
@@ -104,6 +115,7 @@ src/
 ```
 
 ### Phase 4: Documentation Updates
+
 - Update README to recommend GitHub Issues backend
 - Create migration guide with step-by-step instructions
 - Document benefits of GitHub Issues approach
@@ -112,23 +124,27 @@ src/
 ## Timeline
 
 ### Immediate (Week 1-2)
+
 - [ ] Add deprecation warnings to in-tree backends
 - [ ] Create migration tools and documentation
 - [ ] Test migration process with sample repositories
 
 ### Short Term (Month 1-3)
+
 - [ ] Encourage user migration through warnings and docs
 - [ ] Gather feedback on migration process
 - [ ] Refine migration tools based on user experience
 - [ ] Monitor GitHub Issues backend stability
 
 ### Medium Term (Month 3-6)
+
 - [ ] Assess migration completion rates
 - [ ] Evaluate any remaining in-tree use cases
 - [ ] Plan final removal timeline
 - [ ] Prepare for code deletion
 
 ### Long Term (Month 6-12)
+
 - [ ] Remove in-tree backend code if migration successful
 - [ ] Clean up special workspace implementation
 - [ ] Simplify codebase architecture
@@ -137,19 +153,23 @@ src/
 ## Preservation Strategy
 
 ### Why Keep the Code Initially
+
 1. **Learning Opportunity**: Understand edge cases during migration
 2. **Safety Net**: Rollback option if GitHub Issues approach fails
 3. **Reference Implementation**: Inform future backend design decisions
 4. **Migration Validation**: Compare functionality to ensure nothing lost
 
 ### What to Preserve
+
 - **Core Implementations**: Markdown and JSON backends
 - **Special Workspace**: Complete implementation for reference
 - **Test Suites**: Understanding of expected behavior
 - **Documentation**: Architectural decisions and lessons learned
 
 ### Removal Criteria
+
 Code will be removed when:
+
 - [ ] 95%+ of users successfully migrated to GitHub Issues
 - [ ] No critical edge cases discovered that require in-tree approach
 - [ ] GitHub Issues backend proven stable and feature-complete
@@ -158,6 +178,7 @@ Code will be removed when:
 ## Migration Support
 
 ### User Communication
+
 ```
 Subject: Minsky In-Tree Backends Deprecation
 
@@ -173,6 +194,7 @@ Help: [MIGRATION_GUIDE_URL]
 ```
 
 ### Migration Assistance
+
 - Automated migration tools with validation
 - Step-by-step migration guide with screenshots
 - Community support channels for migration questions
@@ -181,12 +203,14 @@ Help: [MIGRATION_GUIDE_URL]
 ## Success Criteria
 
 ### Migration Success
+
 - [ ] 95%+ user migration rate from in-tree to GitHub Issues
 - [ ] Zero data loss during migration process
 - [ ] User satisfaction with GitHub Issues approach
 - [ ] Successful deprecation without major issues
 
 ### Code Cleanup Success
+
 - [ ] In-tree backend code successfully removed
 - [ ] Codebase complexity reduced significantly
 - [ ] Architecture simplified and more maintainable
@@ -195,12 +219,14 @@ Help: [MIGRATION_GUIDE_URL]
 ## Risks and Mitigation
 
 ### Risks
+
 - **User resistance**: Some users may prefer in-tree approach
 - **Migration issues**: Data loss or corruption during migration
 - **GitHub dependency**: Increased reliance on external service
 - **Feature gaps**: GitHub Issues may lack some in-tree capabilities
 
 ### Mitigation
+
 - **Clear communication**: Explain benefits and provide migration support
 - **Robust migration tools**: Thorough testing and validation
 - **Fallback preservation**: Keep code temporarily for safety

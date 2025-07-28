@@ -299,19 +299,19 @@ export abstract class SimplifiedCodemodBase extends CodemodBase {
   public async run(paths: string[]): Promise<void> {
     console.log(`🚀 Running ${this.name} codemod`);
     console.log(`📝 ${this.description}`);
-    
+
     const startTime = Date.now();
-    
+
     // Use provided paths or default patterns
     const filePaths = paths.length > 0 ? paths : this.options.includePatterns!;
     this.project.addSourceFilesAtPaths(filePaths);
-    
+
     const sourceFiles = this.project.getSourceFiles();
     console.log(`📁 Found ${sourceFiles.length} source files to analyze`);
-    
+
     let analyzedCount = 0;
     let transformedCount = 0;
-    
+
     for (const sourceFile of sourceFiles) {
       try {
         // Skip files not matching our patterns
@@ -319,15 +319,15 @@ export abstract class SimplifiedCodemodBase extends CodemodBase {
         if (this.shouldSkipFile(filePath)) {
           continue;
         }
-        
+
         analyzedCount++;
-        
+
         // Analyze file to see if it needs transformation
         const needsTransformation = await this.analyzeFile(sourceFile);
         if (needsTransformation) {
           await this.transformFile(sourceFile);
           transformedCount++;
-          
+
           if (!this.options.dryRun) {
             sourceFile.saveSync();
           }
@@ -337,13 +337,13 @@ export abstract class SimplifiedCodemodBase extends CodemodBase {
         console.error(`❌ Error processing ${sourceFile.getFilePath()}: ${error}`);
       }
     }
-    
+
     const duration = Date.now() - startTime;
-    
+
     console.log(`✅ Codemod completed in ${duration}ms`);
     console.log(`📊 Files analyzed: ${analyzedCount}`);
     console.log(`🔧 Files transformed: ${transformedCount}`);
-    
+
     if (this.metrics.errors.length > 0) {
       console.log(`❌ Errors: ${this.metrics.errors.length}`);
     }
@@ -368,8 +368,8 @@ export abstract class SimplifiedCodemodBase extends CodemodBase {
    */
   protected shouldSkipFile(filePath: string): boolean {
     // Skip files that match exclude patterns
-    return this.options.excludePatterns!.some(pattern => {
-      const regex = new RegExp(pattern.replace(/\*/g, '.*'));
+    return this.options.excludePatterns!.some((pattern) => {
+      const regex = new RegExp(pattern.replace(/\*/g, ".*"));
       return regex.test(filePath);
     });
   }

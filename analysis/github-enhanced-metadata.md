@@ -3,12 +3,14 @@
 ## The Challenge
 
 GitHub Issues provide:
+
 - Rich task specifications (markdown, images, discussions)
 - Comments and collaboration
 - Labels and basic metadata
 - Native developer workflow integration
 
 But lack:
+
 - Complex task relationships (parent/child, dependencies)
 - Custom fields and structured metadata
 - AI-generated insights and embeddings
@@ -37,29 +39,32 @@ CREATE TABLE task_metadata (
 ```
 
 **Workflow:**
+
 ```typescript
 // Minsky creates GitHub issue
 const issue = await github.issues.create({
   title: "Implement user auth",
-  body: "## Specification\n\n..."
+  body: "## Specification\n\n...",
 });
 
 // Store enhanced metadata separately
-await db.insert('task_metadata', {
+await db.insert("task_metadata", {
   github_issue_id: issue.number,
   parent_task_id: 123,
   ai_complexity_score: 0.7,
-  dependencies: [124, 125]
+  dependencies: [124, 125],
 });
 ```
 
 **Pros:**
+
 - Full SQL capabilities
 - Fast queries
 - Real-time features
 - AI vector storage
 
 **Cons:**
+
 - External dependency
 - Two-system synchronization
 - Backup complexity
@@ -81,6 +86,7 @@ your-project/
 ```
 
 **Example metadata file:**
+
 ```json
 // .minsky/metadata/issue-123.json
 {
@@ -97,12 +103,14 @@ your-project/
 ```
 
 **Pros:**
+
 - Git backup included
 - Version history
 - Clone includes metadata
 - No external dependencies
 
 **Cons:**
+
 - File coordination issues (back to special workspace)
 - Poor query performance
 - No real-time updates
@@ -116,21 +124,23 @@ Store metadata in private GitHub Gists:
 // Create/update gist for task metadata
 const gist = await github.gists.create({
   files: {
-    'task-metadata.json': {
-      content: JSON.stringify(allTaskMetadata)
-    }
+    "task-metadata.json": {
+      content: JSON.stringify(allTaskMetadata),
+    },
   },
-  public: false
+  public: false,
 });
 ```
 
 **Pros:**
+
 - Stays within GitHub ecosystem
 - Git versioning via gist
 - API access
 - No external services
 
 **Cons:**
+
 - Single file for all metadata (scaling issues)
 - Not really designed for this use case
 - Limited query capabilities
@@ -145,19 +155,21 @@ await github.projects.updateItem({
   project_id: projectId,
   item_id: issueNodeId,
   field_values: {
-    "Complexity": 7,
+    Complexity: 7,
     "Parent Task": parentIssueId,
-    "AI Confidence": 0.85
-  }
+    "AI Confidence": 0.85,
+  },
 });
 ```
 
 **Pros:**
+
 - Native GitHub feature
 - Single source of truth
 - GitHub UI integration
 
 **Cons:**
+
 - Limited field types
 - Beta/evolving feature
 - Tied to GitHub Projects (not all teams use)
@@ -186,11 +198,13 @@ User authentication system needs...
 ```
 
 **Pros:**
+
 - Everything in one place
 - No external storage
 - Version history via issue edits
 
 **Cons:**
+
 - Hacky approach
 - Large metadata bloats issues
 - Parsing complexity
@@ -210,16 +224,19 @@ your-project/
 ```
 
 **Sync strategy:**
+
 - SQLite for operations
 - Export to SQL/JSON for git commits
 - Auto-import on clone/pull
 
 **Pros:**
+
 - Fast SQL queries
 - Git backup via exports
 - Self-contained
 
 **Cons:**
+
 - Binary files in git
 - Merge conflicts on database
 - Back to coordination issues
@@ -255,11 +272,13 @@ const query = `
 ```
 
 **Pros:**
+
 - Maximize GitHub native features
 - Local performance
 - Single source of truth
 
 **Cons:**
+
 - Complex caching logic
 - API rate limits
 - Limited by GitHub's data model
@@ -269,6 +288,7 @@ const query = `
 Based on the analysis, I recommend a **hybrid approach**:
 
 ### Phase 1: GitHub Native + Simple Enhancement
+
 ```typescript
 // Store basic metadata in GitHub Issues + Labels + Projects
 // Add simple JSON metadata file per issue in git repo
@@ -279,6 +299,7 @@ Based on the analysis, I recommend a **hybrid approach**:
 ```
 
 ### Phase 2: Add Hosted Database for Advanced Features
+
 ```typescript
 // When users need AI features, migrate metadata to hosted DB
 // Keep GitHub Issues as source of truth for specs
@@ -286,6 +307,7 @@ Based on the analysis, I recommend a **hybrid approach**:
 ```
 
 ### Phase 3: Full Integration
+
 ```typescript
 // Bidirectional sync between GitHub and database
 // Users choose their preference:

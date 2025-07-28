@@ -28,17 +28,35 @@ const defaultSessionCommandDependencies: SessionCommandDependencies = {
 export class ModularSessionCommandsManager {
   private commands: ReturnType<typeof createAllSessionCommands>;
   private commandRegistry: SessionCommandRegistry;
+  private initialized = false;
+  private deps: SessionCommandDependencies;
 
   constructor(deps: SessionCommandDependencies = defaultSessionCommandDependencies) {
-    // Simplified initialization to avoid circular dependencies
-    this.commands = {} as any; // Temporary empty object
+    // Store dependencies but don't initialize yet to avoid circular dependency
+    this.deps = deps;
+    this.commands = {} as any;
     this.commandRegistry = new SessionCommandRegistry();
+  }
+
+  /**
+   * Initialize commands and registry (called lazily to avoid circular dependencies)
+   */
+  private ensureInitialized(): void {
+    if (this.initialized) return;
+
+    // Set up the command registry with all session commands
+    this.commandRegistry = setupSessionCommandRegistry(this.deps);
+    this.commands = createAllSessionCommands(this.deps);
+    this.initialized = true;
   }
 
   /**
    * Register all session commands in the shared command registry
    */
   registerSessionCommands(): void {
+    // Ensure commands are initialized before registering
+    this.ensureInitialized();
+
     // Get all commands from the registry
     const allCommands = this.commandRegistry.getAllCommands();
 

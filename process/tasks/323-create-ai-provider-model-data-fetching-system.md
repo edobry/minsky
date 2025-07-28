@@ -19,7 +19,7 @@ const capabilityMap = {
     // ... hard-coded values
   ],
   // ...
-}
+};
 ```
 
 3. **No Live Updates**: No mechanism to fetch current model availability, pricing, or capabilities from provider APIs
@@ -29,22 +29,26 @@ const capabilityMap = {
 ## Requirements
 
 1. **Provider API Integration**
+
    - OpenAI Models API: `GET /v1/models`
    - Anthropic: Static model list (no public API)
    - Google Vertex AI: Models API
    - Add other providers as needed
 
 2. **Data Caching**
+
    - Store fetched model data in cache directory (separate from configuration)
    - Implement TTL-based cache invalidation and refresh
    - Cache model data independently from user configuration
 
 3. **CLI Commands**
+
    - `minsky ai models refresh` - Fetch latest model data
    - `minsky ai models list [provider]` - Show available models
    - `minsky ai providers list` - Show configured providers
 
 4. **Model Information Storage**
+
    - Model IDs and names
    - Context windows and max output tokens
    - Pricing information (input/output costs)
@@ -59,6 +63,7 @@ const capabilityMap = {
 ## Implementation Approach
 
 1. **Create Provider Model Fetchers**
+
    ```typescript
    interface ModelFetcher {
      fetchModels(): Promise<ProviderModel[]>;
@@ -67,6 +72,7 @@ const capabilityMap = {
    ```
 
 2. **Cache Structure**
+
    ```
    ~/.cache/minsky/
    ├── models/

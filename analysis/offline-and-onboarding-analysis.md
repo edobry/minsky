@@ -5,6 +5,7 @@
 Our analysis identified problems with in-tree backends, but suggested solutions (GitHub Issues + hosted DB) that create new UX problems:
 
 ### Critical Requirements We Can't Ignore:
+
 1. **Offline Work**: Developers work on planes, have poor internet, need reliability
 2. **Zero-Friction Onboarding**: "Just clone and it works" is genuinely valuable
 3. **No Account Dependencies**: Requiring external service signup is friction
@@ -12,11 +13,13 @@ Our analysis identified problems with in-tree backends, but suggested solutions 
 ### How Our Suggestions Fail These Requirements:
 
 **GitHub Issues Approach:**
+
 - ❌ **Offline**: Can't create/update issues without internet
 - ❌ **Onboarding**: Requires GitHub account, issue permissions setup
 - ❌ **Self-contained**: External dependency on GitHub
 
 **Hosted Database Approach:**
+
 - ❌ **Offline**: Can't sync without internet (though local operations work)
 - ❌ **Onboarding**: Requires database setup, credentials, account creation
 - ❌ **Self-contained**: External dependency on service
@@ -36,6 +39,7 @@ minsky tasks list  # Works immediately, creates .minsky/tasks.db
 **Backup Strategy**: 🤔 Manual or automated options
 
 #### Backup/Sync Options for SQLite:
+
 ```bash
 # Manual backup
 minsky backup create  # Creates timestamped backup file
@@ -59,16 +63,19 @@ minsky tasks list
 ```
 
 **Implementation Ideas:**
+
 - **Free tier**: Auto-provision SQLite on our hosted service
 - **Sync mechanism**: Users get unique sync URL
 - **Local cache**: Still works offline, syncs when online
 
-**Pros**: 
+**Pros**:
+
 - Zero setup for users
 - Automatic backup included
 - Team sharing possible
 
 **Cons**:
+
 - We become a service provider
 - Privacy concerns (data on our servers)
 - Dependency on our infrastructure
@@ -85,17 +92,20 @@ minsky init
 ```
 
 **Technology Options:**
+
 - **Docker Compose**: PostgreSQL + Redis locally
 - **Supabase Local**: Full local Supabase stack
 - **PocketBase**: Single binary with database + auth + realtime
 
 **Pros**:
+
 - Professional database features
 - Offline work
 - No external dependencies
 - Team can share same container config
 
 **Cons**:
+
 - Requires Docker/container runtime
 - More complex than SQLite
 - Resource usage
@@ -108,7 +118,7 @@ Start simple, upgrade gracefully:
 // Phase 1: SQLite (default)
 minsky init  // Creates local SQLite
 
-// Phase 2: Cloud sync (optional)  
+// Phase 2: Cloud sync (optional)
 minsky sync enable --provider supabase
 
 // Phase 3: Team database (when needed)
@@ -116,6 +126,7 @@ minsky upgrade team --db-url postgres://...
 ```
 
 **Benefits**:
+
 - Users choose their complexity level
 - Clear upgrade path
 - Preserves offline + onboarding
@@ -124,25 +135,27 @@ minsky upgrade team --db-url postgres://...
 ## Offline Work Requirements Deep Dive
 
 ### What "Offline" Means:
+
 1. **Create tasks** without internet
-2. **Update task status** without internet  
+2. **Update task status** without internet
 3. **Query/search tasks** without internet
 4. **Sync when internet returns**
 
 ### How Each Approach Handles Offline:
 
-| Approach | Create | Update | Query | Sync |
-|----------|--------|--------|-------|------|
-| **SQLite** | ✅ | ✅ | ✅ | Manual/Auto |
-| **GitHub Issues** | ❌ | ❌ | ❌ | N/A |
-| **Hosted DB** | 🟡* | 🟡* | ✅ | Auto |
-| **Local Container** | ✅ | ✅ | ✅ | Manual/Auto |
+| Approach            | Create | Update | Query | Sync        |
+| ------------------- | ------ | ------ | ----- | ----------- |
+| **SQLite**          | ✅     | ✅     | ✅    | Manual/Auto |
+| **GitHub Issues**   | ❌     | ❌     | ❌    | N/A         |
+| **Hosted DB**       | 🟡\*   | 🟡\*   | ✅    | Auto        |
+| **Local Container** | ✅     | ✅     | ✅    | Manual/Auto |
 
-*With local cache/queue
+\*With local cache/queue
 
 ## Recommended Architecture: Tiered Approach
 
 ### Tier 1: SQLite Default (Solo Developers)
+
 ```bash
 # Zero-config experience
 git clone project
@@ -155,6 +168,7 @@ minsky tasks create "My first task"  # Just works
 - **Onboarding**: Zero friction
 
 ### Tier 2: Cloud Sync (Growing Teams)
+
 ```bash
 # When backup/sharing needed
 minsky sync setup --provider github-gist  # Or supabase, etc.
@@ -166,6 +180,7 @@ minsky sync setup --provider github-gist  # Or supabase, etc.
 - **Sharing**: Via sync service
 
 ### Tier 3: Team Database (Collaboration)
+
 ```bash
 # When real-time features needed
 minsky upgrade team --db-url postgres://team-db
@@ -181,6 +196,7 @@ minsky upgrade team --db-url postgres://team-db
 For SQLite default, multiple backup strategies:
 
 ### 1. Git Integration (Revisited)
+
 ```bash
 # Export for git backup
 minsky export --format sql > .minsky/backup.sql
@@ -191,6 +207,7 @@ git commit -m "Backup task database"
 **Key insight**: Export to human-readable format, not binary SQLite
 
 ### 2. Cloud Sync Services
+
 ```bash
 # Setup one-time
 minsky sync setup --provider github-gist
@@ -200,6 +217,7 @@ minsky config set sync.auto true
 ```
 
 ### 3. Manual Backup
+
 ```bash
 # Create timestamped backup
 minsky backup create  # → tasks-2024-01-15.db
@@ -218,7 +236,7 @@ Are you working solo?
 └─ NO → Continue
 
 Do you need real-time collaboration?
-├─ YES → Team database  
+├─ YES → Team database
 └─ NO → SQLite + cloud sync
 
 Do you travel/work offline frequently?
@@ -231,7 +249,7 @@ Do you travel/work offline frequently?
 **Recommended approach: SQLite-first with clear upgrade paths**
 
 1. **Default**: SQLite for perfect offline + onboarding experience
-2. **Backup**: Multiple strategies (git export, cloud sync, manual)  
+2. **Backup**: Multiple strategies (git export, cloud sync, manual)
 3. **Team features**: Clear upgrade to hosted database when needed
 4. **Progressive**: Users choose their complexity level
 

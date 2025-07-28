@@ -10,6 +10,7 @@ Currently, moving or renaming files in a session workspace requires two separate
 2. Deleting the original file using `session_delete_file`
 
 This two-step process is inefficient and error-prone:
+
 - Creates unnecessary I/O operations
 - If either operation fails, the system could be left in an inconsistent state
 - More verbose and complex for tool users
@@ -19,9 +20,11 @@ This two-step process is inefficient and error-prone:
 ### New MCP Tools Implemented
 
 #### 1. `session_move_file`
+
 Moves a file from one location to another within the session workspace.
 
 **Parameters:**
+
 - `sessionName`: Session identifier (name or task ID)
 - `sourcePath`: Current file path within the session workspace
 - `targetPath`: New file path within the session workspace
@@ -29,9 +32,11 @@ Moves a file from one location to another within the session workspace.
 - `overwrite` (optional, default: false): Overwrite target if it exists
 
 #### 2. `session_rename_file`
+
 Convenience wrapper around move_file for renaming files in the same directory.
 
 **Parameters:**
+
 - `sessionName`: Session identifier (name or task ID)
 - `path`: Current file path within the session workspace
 - `newName`: New filename (not full path)
@@ -40,6 +45,7 @@ Convenience wrapper around move_file for renaming files in the same directory.
 ## Changes
 
 ### Added
+
 - `session_move_file` MCP tool with atomic file operations
 - `session_rename_file` MCP tool as convenience wrapper
 - Comprehensive unit tests covering success and error scenarios (7 tests)
@@ -47,6 +53,7 @@ Convenience wrapper around move_file for renaming files in the same directory.
 - Proper workspace boundary enforcement and path validation
 
 ### Modified
+
 - `src/adapters/mcp/session-files.ts`: Added new MCP tools and imported `rename` from fs/promises
 - Added comprehensive error handling for common scenarios:
   - Source file doesn't exist
@@ -56,6 +63,7 @@ Convenience wrapper around move_file for renaming files in the same directory.
   - Workspace boundary violations
 
 ### Fixed
+
 - ESLint rule syntax error in `no-unsafe-git-exec.js` that was blocking commits
 
 ## Benefits
@@ -68,6 +76,7 @@ Convenience wrapper around move_file for renaming files in the same directory.
 ## Example Usage
 
 **Before (inefficient 2-step process):**
+
 ```typescript
 // Write file to new location
 await session_write_file({
@@ -85,6 +94,7 @@ await session_delete_file({
 ```
 
 **After (efficient atomic operation):**
+
 ```typescript
 // Single atomic move operation
 await session_move_file({

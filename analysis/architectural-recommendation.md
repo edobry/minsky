@@ -27,15 +27,16 @@ minsky init
 # → Creates .minsky/tasks.db
 # → Ready for AI features immediately
 
-minsky config set ai.provider openai  
+minsky config set ai.provider openai
 minsky config set ai.apiKey sk-...
 minsky tasks decompose "Build authentication system"
 # → AI decomposition works perfectly with SQLite
 ```
 
 **Benefits**:
+
 - ✅ Zero setup friction
-- ✅ No account dependencies  
+- ✅ No account dependencies
 - ✅ AI features work immediately
 - ✅ Fast local operations
 - ✅ Perfect for solo developers and experimentation
@@ -48,7 +49,7 @@ minsky upgrade to-postgres --provider supabase
 
 # Automated migration
 ✓ Exporting SQLite data...
-✓ Creating PostgreSQL schema...  
+✓ Creating PostgreSQL schema...
 ✓ Migrating 127 tasks...
 ✓ Migrating AI embeddings...
 ✓ Enabling real-time features...
@@ -56,6 +57,7 @@ minsky upgrade to-postgres --provider supabase
 ```
 
 **Unlocks**:
+
 - ✅ Real-time collaboration
 - ✅ Advanced vector search (pgvector)
 - ✅ Team AI workflows
@@ -64,26 +66,28 @@ minsky upgrade to-postgres --provider supabase
 
 ## AI Feature Compatibility Matrix
 
-| Feature | SQLite | PostgreSQL | Notes |
-|---------|--------|------------|-------|
-| **AI Task Decomposition** | ✅ | ✅ | Works great locally |
-| **Semantic Search** | 🟡 | ✅ | Limited vectors vs pgvector |
-| **AI Complexity Scoring** | ✅ | ✅ | Pure AI API feature |
-| **Real-time AI Collab** | ❌ | ✅ | Requires websockets/pub-sub |
-| **Vector Embeddings** | 🟡 | ✅ | JSON storage vs native vectors |
-| **Team AI Insights** | ❌ | ✅ | Requires shared database |
-| **Cross-repo AI Analysis** | ✅ | ✅ | Both support complex queries |
+| Feature                    | SQLite | PostgreSQL | Notes                          |
+| -------------------------- | ------ | ---------- | ------------------------------ |
+| **AI Task Decomposition**  | ✅     | ✅         | Works great locally            |
+| **Semantic Search**        | 🟡     | ✅         | Limited vectors vs pgvector    |
+| **AI Complexity Scoring**  | ✅     | ✅         | Pure AI API feature            |
+| **Real-time AI Collab**    | ❌     | ✅         | Requires websockets/pub-sub    |
+| **Vector Embeddings**      | 🟡     | ✅         | JSON storage vs native vectors |
+| **Team AI Insights**       | ❌     | ✅         | Requires shared database       |
+| **Cross-repo AI Analysis** | ✅     | ✅         | Both support complex queries   |
 
 ## Migration Strategy: Simple and Reliable
 
 ### Approach: Manual Migration (Not Sync)
 
 **Why not bidirectional sync?**
+
 - 🔴 **Massive complexity** - conflict resolution, schema sync, operational overhead
 - 🔴 **Over-engineering** - most users upgrade once and stay on PostgreSQL
 - 🔴 **Maintenance burden** - ongoing sync logic and edge cases
 
 **Why simple migration works better:**
+
 - ✅ **One-time operation** - clean transition to better backend
 - ✅ **Clear semantics** - no ambiguity about data location
 - ✅ **Reliable** - well-understood export/import pattern
@@ -95,28 +99,28 @@ minsky upgrade to-postgres --provider supabase
 // Clean, straightforward migration
 async function migrateToPostgreSQL(pgConfig: PostgreSQLConfig) {
   // 1. Export SQLite data
-  const tasks = await sqlite.query('SELECT * FROM tasks');
-  const relationships = await sqlite.query('SELECT * FROM task_relationships');
-  const embeddings = await sqlite.query('SELECT * FROM embeddings');
-  
+  const tasks = await sqlite.query("SELECT * FROM tasks");
+  const relationships = await sqlite.query("SELECT * FROM task_relationships");
+  const embeddings = await sqlite.query("SELECT * FROM embeddings");
+
   // 2. Create PostgreSQL schema
   await pg.query(SCHEMA_SQL);
-  
+
   // 3. Import data with referential integrity
   await pg.transaction(async (tx) => {
-    await tx.insert('tasks', tasks);
-    await tx.insert('task_relationships', relationships);
-    await tx.insert('embeddings', embeddings);
+    await tx.insert("tasks", tasks);
+    await tx.insert("task_relationships", relationships);
+    await tx.insert("embeddings", embeddings);
   });
-  
+
   // 4. Validate migration
   const counts = await validateMigration(sqlite, pg);
-  
+
   // 5. Update config
-  await updateConfig({ backend: 'postgresql', ...pgConfig });
-  
+  await updateConfig({ backend: "postgresql", ...pgConfig });
+
   // 6. Backup old SQLite
-  await backupSQLite('.minsky/pre-migration-backup.db');
+  await backupSQLite(".minsky/pre-migration-backup.db");
 }
 ```
 
@@ -159,12 +163,14 @@ minsky team invite
 ## Hosting Recommendations
 
 ### For SQLite Phase
+
 - **Storage**: Local `.minsky/tasks.db` file
 - **Backup**: Export commands (`minsky export --format sql`)
 - **Sync**: Optional git export for version control
 - **AI APIs**: Direct integration (OpenAI, Anthropic)
 
 ### For PostgreSQL Phase
+
 - **Recommended**: Supabase (best PostgreSQL + real-time + vector support)
 - **Alternatives**: Neon, PlanetScale, Railway
 - **Enterprise**: Self-hosted PostgreSQL + Redis
@@ -173,24 +179,28 @@ minsky team invite
 ## Implementation Roadmap
 
 ### Phase 1: SQLite Foundation (Month 1)
+
 - [ ] SQLite backend with full AI feature support
 - [ ] Vector embedding storage (JSON format)
 - [ ] AI task decomposition workflows
 - [ ] Export/backup functionality
 
 ### Phase 2: PostgreSQL Integration (Month 2)
+
 - [ ] PostgreSQL backend implementation
 - [ ] Migration command and validation
 - [ ] Real-time collaboration features
 - [ ] Advanced vector search (pgvector)
 
 ### Phase 3: User Experience Polish (Month 3)
+
 - [ ] Smart upgrade prompts and guidance
 - [ ] Performance optimization
 - [ ] Error recovery and rollback
 - [ ] Documentation and tutorials
 
 ### Phase 4: Advanced Features (Month 4+)
+
 - [ ] Advanced AI workflows
 - [ ] Team permission systems
 - [ ] Analytics and insights
@@ -199,24 +209,28 @@ minsky team invite
 ## Why This Strategy Wins
 
 ### 1. **Removes Onboarding Friction**
+
 - New users get instant value
 - No account setup required
 - AI features work immediately
 - Familiar file-based storage
 
 ### 2. **Enables AI Innovation**
+
 - Fast iteration on AI features
 - Local experimentation encouraged
 - Performance adequate for AI workflows
 - Vector storage capabilities
 
 ### 3. **Grows With Users**
+
 - Clear upgrade path when ready
 - Team features when needed
 - Professional scaling available
 - No forced migrations
 
 ### 4. **Balances Complexity**
+
 - Simple default (SQLite)
 - Advanced option (PostgreSQL)
 - Clean migration (not sync)
@@ -225,19 +239,22 @@ minsky team invite
 ## Success Metrics
 
 ### Onboarding Success
+
 - Time from `git clone` to first AI task decomposition: <5 minutes
 - Setup steps required: 2 (clone + AI API key)
 - User confusion points: Minimize to AI configuration only
 
-### Migration Success  
+### Migration Success
+
 - Migration time for 1000 tasks: <30 seconds
 - Data integrity: 100% preservation
 - Upgrade completion rate: >80% when prompted
 - Rollback capability: Full data recovery
 
 ### Performance Standards
+
 - SQLite AI operations: <200ms
-- PostgreSQL AI operations: <100ms  
+- PostgreSQL AI operations: <100ms
 - Real-time collaboration latency: <500ms
 - Vector search queries: <50ms
 
@@ -246,7 +263,7 @@ minsky team invite
 The SQLite-first strategy perfectly balances the competing needs of:
 
 - **Simplicity**: Zero-config onboarding removes friction
-- **Power**: Full AI features work with SQLite  
+- **Power**: Full AI features work with SQLite
 - **Growth**: Clear upgrade to PostgreSQL for teams
 - **Performance**: Database-optimized for AI workflows
 

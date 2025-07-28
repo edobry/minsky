@@ -32,7 +32,7 @@ This enhances GitHub's native issue management with intelligent automation capab
 1. **GitHub Issues Backend**: Requires implementation of GitHub Issues as primary task backend
 2. **AI Backend Infrastructure**: Requires Task #160 (AI completion backend with multi-provider support)
 
-**⚠️ UPDATED DEPENDENCY STRATEGY**: 
+**⚠️ UPDATED DEPENDENCY STRATEGY**:
 
 - **REMOVED**: ~~Task #235 (metadata research)~~ - Deferred to future advanced backend implementation
 - **REMOVED**: ~~Task hierarchy implementation (Tasks #246 or #247)~~ - Using GitHub Issues native capabilities instead
@@ -150,7 +150,7 @@ This enhances GitHub's native issue management with intelligent automation capab
    - Specialized command for test decomposition using GitHub Issues
    - Creates comprehensive test task hierarchies as GitHub Issues:
      - Unit tests → individual test case issues
-     - Integration tests → component interaction test issues  
+     - Integration tests → component interaction test issues
      - E2E tests → user flow test issues
    - Follows testing best practices and patterns
 
@@ -169,10 +169,10 @@ This enhances GitHub's native issue management with intelligent automation capab
    interface GitHubTaskDecompositionService {
      // Analyze GitHub Issue and suggest breakdown
      async decomposeTask(issueNumber: number): Promise<DecompositionSuggestion>;
-     
+
      // Create subtasks as GitHub Issues with proper references
      async createSubtasks(parentIssue: number, subtasks: SubtaskSpec[]): Promise<void>;
-     
+
      // Analyze task hierarchy using GitHub API
      async analyzeHierarchy(rootIssue: number): Promise<HierarchyAnalysis>;
    }
@@ -184,15 +184,15 @@ This enhances GitHub's native issue management with intelligent automation capab
    // Use GitHub's native capabilities for relationships
    interface GitHubTaskRelationships {
      // Parent-child via issue references and labels
-     parentTask?: number;        // Referenced in issue body
-     childTasks: number[];       // Found via label queries
-     
-     // Dependencies via issue references  
-     blockedBy: number[];        // "Blocked by #123"
-     blocks: number[];           // "Blocks #456"
-     
+     parentTask?: number; // Referenced in issue body
+     childTasks: number[]; // Found via label queries
+
+     // Dependencies via issue references
+     blockedBy: number[]; // "Blocked by #123"
+     blocks: number[]; // "Blocks #456"
+
      // Related tasks via labels and references
-     relatedTasks: number[];     // Cross-referenced issues
+     relatedTasks: number[]; // Cross-referenced issues
    }
    ```
 
@@ -296,16 +296,19 @@ minsky tasks analyze 150 --suggest-improvements
 ## Future Enhancements (When Advanced Backend Needed)
 
 1. **Advanced Task Relationships**:
+
    - Complex dependency management beyond GitHub references
    - Task graph visualization and analysis
    - Vector embeddings for semantic task search
 
 2. **Real-time Collaboration**:
+
    - Live collaboration on AI-generated content
    - Real-time updates and notifications
    - Conflict resolution for concurrent task editing
 
 3. **Advanced AI Features**:
+
    - Learning from completed task hierarchies
    - Personalized recommendations based on user patterns
    - Integration with external project management tools
@@ -327,6 +330,7 @@ minsky tasks analyze 150 --suggest-improvements
 ### Migration Path
 
 When advanced features are needed:
+
 1. **Assessment**: Evaluate GitHub Issues limitations for specific AI features
 2. **Backend Selection**: Choose appropriate specialized backend (Linear, database, etc.)
 3. **Migration Tools**: Automated transfer from GitHub Issues to new backend
