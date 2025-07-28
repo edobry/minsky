@@ -102,7 +102,7 @@ export class ModularTasksCommandManager {
       sharedCommandRegistry.registerCommand({
         id: "tasks.status.get",
         category: CommandCategory.TASKS,
-        name: "status.get",
+        name: "status get",
         description: "Get the status of a task",
         parameters: statusGetCommand.parameters,
         execute: async (params: any, context: any) => {
@@ -114,7 +114,7 @@ export class ModularTasksCommandManager {
       sharedCommandRegistry.registerCommand({
         id: "tasks.status.set",
         category: CommandCategory.TASKS,
-        name: "status.set",
+        name: "status set",
         description: "Set the status of a task",
         parameters: statusSetCommand.parameters,
         execute: async (params: any, context: any) => {
