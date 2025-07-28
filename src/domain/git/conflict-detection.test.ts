@@ -288,10 +288,8 @@ describe("ConflictDetectionService", () => {
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
-        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })) = // delete temp branch
-        mock(() => Promise.resolve({ stdout: "", stderr: "" }))({ stdout: "", stderr: "" }) = mock(
-          () => Promise.resolve({ stdout: "def456", stderr: "" })
-        ); // after hash
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })) // delete temp branch
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "def456", stderr: "" })); // after hash
 
       const result = await ConflictDetectionService.mergeWithConflictPrevention(
         testRepoPath,
@@ -353,8 +351,8 @@ describe("ConflictDetectionService", () => {
         .mockImplementationOnce(() => Promise.resolve({ stdout: "abc123", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "tree1", stderr: "" }))
-        .mockImplementationOnce(() => Promise.resolve({ stdout: "tree2", stderr: "" })) = // cat-file base tree (different)
-        mock(() => Promise.resolve({ stdout: "", stderr: "" })); // merge --ff-only origin/main
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "tree2", stderr: "" })) // cat-file base tree (different)
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })); // merge --ff-only origin/main
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath,
@@ -383,8 +381,8 @@ describe("ConflictDetectionService", () => {
       // Setup: session is up-to-date with base (divergence = none)
       mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t0", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "abc123", stderr: "" }))
-        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })) = // 3. no session commits
-        mock(() => Promise.resolve({ stdout: "tree1", stderr: "" })); // 5. base tree (same = already merged)
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })) // 3. no session commits
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "tree1", stderr: "" })); // 5. base tree (same = already merged)
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath,
@@ -408,9 +406,9 @@ describe("ConflictDetectionService", () => {
         .mockImplementationOnce(() => Promise.resolve({ stdout: "abc123", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "tree1", stderr: "" }))
-        .mockImplementationOnce(() => Promise.resolve({ stdout: "tree2", stderr: "" })) = // 5. base tree (different)
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "tree2", stderr: "" })) // 5. base tree (different)
         // fast-forward update calls:
-        mock(() => Promise.resolve({ stdout: "", stderr: "" })); // 7. fast-forward merge
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })); // 7. fast-forward merge
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath,
@@ -426,8 +424,8 @@ describe("ConflictDetectionService", () => {
     test("should skip when session is ahead and no update needed", async () => {
       mockExecAsync = mock(() => Promise.resolve({ stdout: "0\t2", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "abc123", stderr: "" }))
-        .mockImplementationOnce(() => Promise.resolve({ stdout: "commit1\ncommit2", stderr: "" })) = // session commits
-        mock(() => Promise.resolve({ stdout: "tree2", stderr: "" })); // base tree
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "commit1\ncommit2", stderr: "" })) // session commits
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "tree2", stderr: "" })); // base tree
 
       const result = await ConflictDetectionService.smartSessionUpdate(
         testRepoPath,
@@ -474,8 +472,8 @@ describe("ConflictDetectionService", () => {
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
         .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" }))
-        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })) = // reset
-        mock(() => Promise.resolve({ stdout: "", stderr: "" })); // delete temp branch succeeds
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })) // reset
+        .mockImplementationOnce(() => Promise.resolve({ stdout: "", stderr: "" })); // delete temp branch succeeds
 
       const result = await ConflictDetectionService.predictConflicts(
         testRepoPath,
