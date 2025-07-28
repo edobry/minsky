@@ -252,9 +252,9 @@ export function registerAiCommands(): void {
 
   // Register AI validate command
   sharedCommandRegistry.registerCommand({
-    id: "ai:validate",
+    id: "ai.validate",
     category: CommandCategory.CORE,
-    name: "AI Validate",
+    name: "validate",
     description: "Validate AI configuration and test connectivity",
     parameters: {
       provider: {
@@ -338,9 +338,9 @@ export function registerAiCommands(): void {
 
   // Register AI models refresh command
   sharedCommandRegistry.registerCommand({
-    id: "ai:models:refresh",
+    id: "ai.models.refresh",
     category: CommandCategory.CORE,
-    name: "AI Models Refresh",
+    name: "refresh",
     description: "Refresh cached model data from provider APIs",
     parameters: {
       provider: {
@@ -429,11 +429,11 @@ export function registerAiCommands(): void {
     },
   });
 
-  // Register AI models list command (enhanced version)
+  // Register AI models list command
   sharedCommandRegistry.registerCommand({
-    id: "ai:models:list",
+    id: "ai.models.list",
     category: CommandCategory.CORE,
-    name: "AI Models List",
+    name: "list",
     description: "List cached AI models with detailed information",
     parameters: {
       provider: {
@@ -532,9 +532,9 @@ export function registerAiCommands(): void {
 
   // Register AI providers list command
   sharedCommandRegistry.registerCommand({
-    id: "ai:providers:list",
+    id: "ai.providers.list",
     category: CommandCategory.CORE,
-    name: "AI Providers List",
+    name: "list",
     description: "List configured AI providers and their cache status",
     parameters: {
       format: {
@@ -619,9 +619,9 @@ export function registerAiCommands(): void {
 
   // Register AI cache clear command
   sharedCommandRegistry.registerCommand({
-    id: "ai:cache:clear",
+    id: "ai.cache.clear",
     category: CommandCategory.CORE,
-    name: "AI Cache Clear",
+    name: "clear",
     description: "Clear cached model data",
     parameters: {
       provider: {
