@@ -10,75 +10,66 @@ import {
 import { initializeProjectFromParams } from "../../../domain/init";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
+import { CommonParameters, composeParams } from "../common-parameters";
 // Removed unused initParamsSchema import
 
-const initParams: CommandParameterMap = {
-  repo: {
-    schema: z.string().optional(),
-    description: "Repository path to initialize",
-    required: false,
+const initParams: CommandParameterMap = composeParams(
+  {
+    // Use shared parameters where possible
+    repo: {
+      schema: z.string().optional(),
+      description: "Repository path to initialize",
+      required: false,
+    },
+    session: CommonParameters.session,
+    backend: CommonParameters.backend,
+    overwrite: CommonParameters.overwrite,
+    workspacePath: CommonParameters.workspace,
   },
-  session: {
-    schema: z.string().optional(),
-    description: "Session identifier",
-    required: false,
-  },
-  backend: {
-    schema: z.string().optional(),
-    description: "Task backend type (markdown, json-file, github-issues)",
-    required: false,
-  },
-  githubOwner: {
-    schema: z.string().optional(),
-    description: "GitHub repository owner (required for github-issues backend)",
-    required: false,
-  },
-  githubRepo: {
-    schema: z.string().optional(),
-    description: "GitHub repository name (required for github-issues backend)",
-    required: false,
-  },
-  ruleFormat: {
-    schema: z.string().optional(),
-    description: "Rule format (cursor or generic)",
-    required: false,
-  },
-  mcp: {
-    schema: z.union([z.string(), z.boolean()]).optional(),
-    description: "Enable/disable MCP configuration (default: true)",
-    required: false,
-  },
-  mcpTransport: {
-    schema: z.string().optional(),
-    description: "MCP transport type (stdio, sse, httpStream)",
-    required: false,
-  },
-  mcpPort: {
-    schema: z.string().optional(),
-    description: "Port for MCP network transports",
-    required: false,
-  },
-  mcpHost: {
-    schema: z.string().optional(),
-    description: "Host for MCP network transports",
-    required: false,
-  },
-  mcpOnly: {
-    schema: z.boolean().optional(),
-    description: "Only configure MCP, skip other initialization steps",
-    required: false,
-  },
-  overwrite: {
-    schema: z.boolean().optional(),
-    description: "Overwrite existing files",
-    required: false,
-  },
-  workspacePath: {
-    schema: z.string().optional(),
-    description: "Workspace path",
-    required: false,
-  },
-};
+  {
+    // Init-specific parameters
+    githubOwner: {
+      schema: z.string().optional(),
+      description: "GitHub repository owner (required for github-issues backend)",
+      required: false,
+    },
+    githubRepo: {
+      schema: z.string().optional(),
+      description: "GitHub repository name (required for github-issues backend)",
+      required: false,
+    },
+    ruleFormat: {
+      schema: z.string().optional(),
+      description: "Rule format (cursor or generic)",
+      required: false,
+    },
+    mcp: {
+      schema: z.union([z.string(), z.boolean()]).optional(),
+      description: "Enable/disable MCP configuration (default: true)",
+      required: false,
+    },
+    mcpTransport: {
+      schema: z.string().optional(),
+      description: "MCP transport type (stdio, sse, httpStream)",
+      required: false,
+    },
+    mcpPort: {
+      schema: z.string().optional(),
+      description: "Port for MCP network transports",
+      required: false,
+    },
+    mcpHost: {
+      schema: z.string().optional(),
+      description: "Host for MCP network transports",
+      required: false,
+    },
+    mcpOnly: {
+      schema: z.boolean().optional(),
+      description: "Only configure MCP, skip other initialization steps",
+      required: false,
+    },
+  }
+);
 
 export function registerInitCommands() {
   sharedCommandRegistry.registerCommand({

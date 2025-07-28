@@ -16,58 +16,31 @@ import {
 } from "../command-registry";
 import { has, get, getConfiguration } from "../../../domain/configuration/index";
 import { log } from "../../../utils/logger";
+import { CommonParameters, ConfigParameters, composeParams } from "../common-parameters";
+
+/**
+ * Shared parameters for config commands (eliminates duplication)
+ */
+const configCommandParams: CommandParameterMap = composeParams(
+  {
+    repo: CommonParameters.repo,
+    workspace: CommonParameters.workspace,
+    json: CommonParameters.json,
+  },
+  {
+    sources: ConfigParameters.sources,
+  }
+);
 
 /**
  * Parameters for config list command
  */
-const configListParams: CommandParameterMap = {
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  workspace: {
-    schema: z.string(),
-    description: "Workspace path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean().default(false),
-    description: "Output in JSON format",
-    required: false,
-  },
-  sources: {
-    schema: z.boolean().default(false),
-    description: "Show configuration sources and precedence",
-    required: false,
-  },
-};
+const configListParams: CommandParameterMap = configCommandParams;
 
 /**
  * Parameters for config show command
  */
-const configShowParams: CommandParameterMap = {
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  workspace: {
-    schema: z.string(),
-    description: "Workspace path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean().default(false),
-    description: "Output in JSON format",
-    required: false,
-  },
-  sources: {
-    schema: z.boolean().default(false),
-    description: "Show configuration sources and precedence",
-    required: false,
-  },
-};
+const configShowParams: CommandParameterMap = configCommandParams;
 
 /**
  * Config list command definition
