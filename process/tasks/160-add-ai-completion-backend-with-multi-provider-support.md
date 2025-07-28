@@ -14,21 +14,25 @@ Implement a general AI backend that supports multiple model providers (OpenAI, A
 **✅ IMPLEMENTED in Session Workspace (task160):**
 
 ### Core Implementation
+
 - **`src/domain/ai/completion-service.ts`** - Multi-provider AI completion service using Vercel AI SDK
 - **`src/domain/ai/index.ts`** - Clean domain exports with service factories and utilities
 - **`src/commands/ai/index.ts`** - Full CLI interface with chat, complete, models, validate commands
 - **`src/adapters/shared/commands/ai/index.ts`** - Shared command system integration
 
 ### Comprehensive Testing
+
 - **`src/domain/ai/__tests__/completion-service.test.ts`** - Unit tests with >90% coverage
 - **`src/domain/ai/__tests__/integration.test.ts`** - Integration tests for configuration and services
 
 ### Provider Support
+
 - **OpenAI**: GPT-4o, GPT-4o Mini, o1-preview with reasoning capabilities
 - **Anthropic**: Claude 3.5 Sonnet, Claude 3.5 Haiku with prompt caching support
 - **Google**: Gemini 1.5 Pro, Gemini 1.5 Flash with massive context windows
 
 ### Advanced Features
+
 - **Streaming & Non-streaming** completions
 - **Tool calling** with function execution support
 - **Error handling** with custom AI error types (AICompletionError, AIProviderError)
@@ -37,6 +41,7 @@ Implement a general AI backend that supports multiple model providers (OpenAI, A
 - **Usage tracking** with cost calculation support
 
 **✅ Previously Implemented (existing):**
+
 - Configuration system with AI provider support
 - TypeScript interfaces and schemas (`src/domain/ai/types.ts`, `src/domain/ai/config-service.ts`)
 - Environment variable mappings for provider API keys
@@ -60,6 +65,7 @@ minsky ai validate --json
 ## **Architecture Highlights**
 
 ### **Production-Ready Design**
+
 - **Domain-driven architecture** with clear separation of concerns
 - **Provider abstraction** through Vercel AI SDK
 - **Type-safe interfaces** throughout with comprehensive error handling
@@ -67,6 +73,7 @@ minsky ai validate --json
 - **Extensible design** for easy provider additions
 
 ### **Integration Points**
+
 - **Configuration**: Extends existing `src/domain/configuration/` system
 - **CLI**: Integrates with `src/cli.ts` command structure via shared adapters
 - **Error Handling**: Uses `src/errors/` patterns with custom AI error types
@@ -76,12 +83,14 @@ minsky ai validate --json
 ## **Next Steps: Phase 2 Planning**
 
 ### **Enhanced Provider Support** (Future)
+
 - **OpenRouter**: Unified API access to 200+ models
 - **LiteLLM**: Proxy-based multi-provider access
 - **Ollama**: Local model execution for privacy/cost
 - **OpenAI-Compatible**: Together, Perplexity, Groq integration
 
 ### **Advanced Features** (Future)
+
 - **Dynamic model fetching** (integrates with Task #323)
 - **Multi-modal capabilities** (vision, audio, documents)
 - **Agent framework integration** for complex multi-step tasks
@@ -126,6 +135,7 @@ minsky ai validate --json
 ### **✅ Phase 1: Foundation (COMPLETE in Session)**
 
 All core functionality implemented in session workspace `task160`:
+
 - Multi-provider service with Vercel AI SDK integration ✅
 - Complete CLI interface with all subcommands ✅
 - Comprehensive error handling and logging ✅

@@ -18,12 +18,14 @@ Supporting in-tree task metadata backends (markdown/json files stored in the rep
 ### Philosophical vs Practical Considerations
 
 The in-tree approach offers philosophical elegance:
+
 - **Dependency-free**: No external infrastructure required
 - **Git-native**: Task state follows git history naturally
 - **Branch-aligned**: Task metadata lives on its associated session/branch
 - **Self-contained**: Everything needed is in the repository
 
 However, practical needs suggest database backends:
+
 - **Single pane of glass**: View entire task graph without traversing sessions
 - **Real-time updates**: See latest task status across all branches
 - **Team coordination**: Centralized task state for distributed teams
@@ -34,6 +36,7 @@ However, practical needs suggest database backends:
 ### 1. Task State Location Philosophy
 
 **Branch-local vs Centralized State**
+
 - Should task metadata live exclusively on its associated session/branch?
 - Or does the need for cross-branch visibility require centralized storage?
 - Can we achieve both through clever architecture?
@@ -41,6 +44,7 @@ However, practical needs suggest database backends:
 ### 2. Task Status Derivation
 
 **Explicit vs Implicit Status**
+
 - Is explicit task status (TODO, IN-PROGRESS, etc.) necessary?
 - Can status be derived from git state alone?
   - Session exists → IN-PROGRESS
@@ -52,6 +56,7 @@ However, practical needs suggest database backends:
 ### 3. Task Graph and User Interaction Model
 
 **Session-centric vs Task-centric Workflows**
+
 - How do users interact with the task graph when nodes span multiple sessions?
 - How do AI-generated subtasks relate to user prompts and interventions?
 - Can users pre-empt/intervene at any subnode without session complexity?
@@ -59,6 +64,7 @@ However, practical needs suggest database backends:
 ### 4. Synchronization Architecture
 
 **Git-based vs Database-based Coordination**
+
 - Is git sufficient for coordinating task operations?
 - At what point does git-based coordination become "reimplementing a database"?
 - Should we embrace existing solutions (like Dolt) instead?
@@ -66,6 +72,7 @@ However, practical needs suggest database backends:
 ### 5. Distributed Database Reality Check
 
 **The Complexity of Distributed State Management**
+
 - In-tree task backends essentially constitute a naive distributed database approach
 - Distributed databases are notoriously complex problems that software engineers rarely use in workflows
 - The most successful distributed systems (blockchains) require massive synchronization overhead that's overkill for task management
@@ -75,6 +82,7 @@ However, practical needs suggest database backends:
 ### 6. Cross-Repository Task Management
 
 **Multi-Repository Workflow Challenges**
+
 - Many tasks span multiple repositories (e.g., web app features touching both frontend and backend repos)
 - In-tree storage creates fundamental problems:
   - **Decomposition complexity**: Breaking tasks into per-repo subtasks adds significant overhead
@@ -89,12 +97,14 @@ However, practical needs suggest database backends:
 ### 1. In-tree Backend Deep Dive
 
 #### Current Implementation Analysis
+
 - Document the special workspace workflow in detail
 - Identify all sources of complexity and brittleness
 - Analyze failure modes and edge cases
 - Quantify maintenance burden
 
 #### Alternative In-tree Approaches
+
 - **Pure branch-local**: Task metadata only on session branches
 - **Main-branch aggregation**: Automated aggregation from branches
 - **Git-native status**: Derive all status from git operations
@@ -103,12 +113,14 @@ However, practical needs suggest database backends:
 ### 2. Database Backend Analysis
 
 #### Implementation Approaches
+
 - **Local SQLite**: Simple, file-based, version-controllable
 - **Shared PostgreSQL**: Team-friendly, scalable, feature-rich
 - **Embedded databases**: Middle ground solutions
 - **Existing solutions**: Dolt, git-backed databases
 
 #### Migration Strategies
+
 - How to transition from in-tree to database backends
 - Supporting both simultaneously
 - Data consistency during transition
@@ -117,6 +129,7 @@ However, practical needs suggest database backends:
 ### 3. Limited-Scope Hybrid Approach Analysis
 
 #### Constrained In-Tree Backend Usage
+
 - **Target scenario**: Very small, early-stage, single-repository projects only
 - **Explicit warnings**: Clear documentation that in-tree backends are not suitable for:
   - Multi-repository workflows
@@ -126,6 +139,7 @@ However, practical needs suggest database backends:
 - **Migration path**: Built-in tooling to migrate from in-tree to database backends as projects grow
 
 #### Fundamental Viability Questions for Constrained Approach
+
 - **Single-engineer limitations**: Even on a single machine with a single engineer:
   - Does the task graph vision require cross-repository visibility?
   - Can AI-powered task decomposition work effectively with fragmented in-tree storage?
@@ -139,12 +153,14 @@ However, practical needs suggest database backends:
 ### 4. Workflow Impact Analysis
 
 #### User Workflows
+
 - **Individual developers**: Simple, dependency-free setup
 - **Small teams**: Minimal infrastructure, easy coordination
 - **Large teams**: Scalable, performant, feature-rich
 - **Open source projects**: Fork-friendly, contribution-friendly
 
 #### Task Management Operations
+
 - Creating tasks
 - Updating status
 - Viewing task graphs
@@ -154,12 +170,14 @@ However, practical needs suggest database backends:
 ### 5. Philosophical Framework
 
 #### Core Design Principles
+
 - What are Minsky's fundamental values?
 - How do we balance elegance with practicality?
 - What tradeoffs are we willing to make?
 - What is our primary user persona?
 
 #### Architectural Coherence
+
 - How does task backend choice affect overall system design?
 - What are the ripple effects of each approach?
 - How do we maintain conceptual integrity?
@@ -167,12 +185,14 @@ However, practical needs suggest database backends:
 ### 6. Distributed Database Analysis
 
 #### Complexity Assessment
+
 - Analyze the distributed database implications of in-tree backends
 - Research distributed systems complexity in software engineering workflows
 - Compare with established distributed database solutions (blockchain, consensus systems)
 - Evaluate whether the problem requires distributed solutions at all
 
 #### Alternative Distributed Approaches
+
 - Research existing git-based distributed database solutions
 - Analyze operational complexity of distributed task management
 - Compare with centralized approaches used by established project management tools
@@ -180,12 +200,14 @@ However, practical needs suggest database backends:
 ### 7. Cross-Repository Task Management
 
 #### Multi-Repository Workflow Analysis
+
 - Document common cross-repository task patterns in software development
 - Analyze how existing project management tools handle multi-repository tasks
 - Research enterprise workflow patterns for large-scale software projects
 - Evaluate decomposition strategies and their overhead
 
 #### Repository Boundary Challenges
+
 - Map technical challenges of cross-repository task coordination
 - Analyze parent-child task relationships across repository boundaries
 - Research synchronization patterns for distributed task hierarchies
@@ -196,6 +218,7 @@ However, practical needs suggest database backends:
 ### 1. Comprehensive Tradeoff Analysis
 
 A detailed document analyzing:
+
 - **In-tree backends**: Benefits, costs, complexity, limitations
 - **Database backends**: Benefits, costs, migration path, features
 - **Hybrid approaches**: Feasibility, complexity, benefits
@@ -206,6 +229,7 @@ A detailed document analyzing:
 ### 2. Architectural Decision Records (ADRs)
 
 Formal ADRs for key decisions:
+
 - Task backend strategy (in-tree vs database vs hybrid)
 - Task status model (explicit vs derived)
 - Synchronization approach (git vs database vs other)
@@ -214,6 +238,7 @@ Formal ADRs for key decisions:
 ### 3. Workflow Design Document
 
 Detailed workflows for each approach:
+
 - Task creation and management flows
 - Status update mechanisms
 - Cross-session operations
@@ -223,6 +248,7 @@ Detailed workflows for each approach:
 ### 4. Implementation Roadmap
 
 Phased approach to implementing chosen architecture:
+
 - Phase 1: Minimal viable changes
 - Phase 2: Core functionality
 - Phase 3: Advanced features
@@ -231,6 +257,7 @@ Phased approach to implementing chosen architecture:
 ### 5. Philosophical Resolution
 
 A clear statement addressing:
+
 - Resolved architectural uncertainties
 - Accepted tradeoffs and their rationale
 - Design principles for future decisions
@@ -239,24 +266,28 @@ A clear statement addressing:
 ## Investigation Methodology
 
 ### 1. Current System Analysis
+
 - [ ] Document special workspace workflow comprehensively
 - [ ] Identify all pain points and complexity sources
 - [ ] Measure actual vs perceived complexity
 - [ ] Gather user feedback on current system
 
 ### 2. Alternative Architecture Prototyping
+
 - [ ] Design (but don't implement) alternative architectures
 - [ ] Create detailed sequence diagrams for each approach
 - [ ] Identify edge cases and failure modes
 - [ ] Estimate implementation complexity
 
 ### 3. Use Case Analysis
+
 - [ ] Map all current and planned use cases
 - [ ] Evaluate each architecture against use cases
 - [ ] Identify gaps and limitations
 - [ ] Prioritize use cases by importance
 
 ### 4. Limited-Scope Hybrid Feasibility Study
+
 - [ ] Define precise constraints for in-tree backend usage (project size, complexity, repository count)
 - [ ] Map Minsky features against backend compatibility (which features break with in-tree storage)
 - [ ] Design migration detection and tooling for projects outgrowing in-tree backends
@@ -264,6 +295,7 @@ A clear statement addressing:
 - [ ] Evaluate whether task graph goals are achievable even in single-repository scenarios with in-tree storage
 
 ### 5. Stakeholder Consultation
+
 - [ ] Document user personas and their needs
 - [ ] Gather input on priority features
 - [ ] Understand tolerance for complexity
@@ -272,18 +304,21 @@ A clear statement addressing:
 ## Success Criteria
 
 ### 1. Clarity Achievement
+
 - [ ] All architectural uncertainties resolved
 - [ ] Clear decision on in-tree vs database backends
 - [ ] Documented rationale for all major decisions
 - [ ] Consensus on architectural direction
 
 ### 2. Practical Validation
+
 - [ ] Chosen architecture supports all identified use cases
 - [ ] Complexity is justified by delivered value
 - [ ] Migration path is clear and achievable
 - [ ] Team alignment on approach
 
 ### 3. Philosophical Coherence
+
 - [ ] Architecture aligns with Minsky's core values
 - [ ] Tradeoffs are explicitly acknowledged
 - [ ] Design principles are clearly stated
@@ -292,12 +327,14 @@ A clear statement addressing:
 ## Constraints
 
 ### Non-negotiable Requirements
+
 - Must support both individual and team workflows
 - Must preserve existing task data
 - Must integrate with AI-powered features
 - Must maintain git as source of truth for code
 
 ### Scope Boundaries
+
 - **No code changes** in this task
 - Focus on architecture and design decisions
 - Deliverables are documents and decisions
@@ -330,16 +367,19 @@ A clear statement addressing:
 ## Related Context
 
 ### Existing Task Specs
+
 - Task #235: Add metadata support to tasks (subtasks, priority, dependencies)
 - Task #239: Phase 2: Implement Task Dependencies and Basic Task Graphs
 - Add AI-powered task decomposition and analysis spec
 
 ### Current Implementation
+
 - Special workspace workflow for in-tree backends
 - Session-to-task mapping via git branches
 - Task status management on main branch
 
 ### Future Considerations
+
 - AI-generated subtask graphs
 - User intervention at arbitrary graph nodes
 - Distributed team workflows
@@ -350,16 +390,19 @@ A clear statement addressing:
 **Estimated Duration**: 2-3 weeks of focused analysis and design
 
 ### Week 1: Research and Analysis
+
 - Current system deep dive
 - Alternative architecture design
 - Use case documentation
 
 ### Week 2: Evaluation and Comparison
+
 - Tradeoff analysis
 - Stakeholder consultation
 - Decision making
 
 ### Week 3: Documentation and Planning
+
 - Formal ADRs
 - Implementation roadmap
 - Communication of decisions
@@ -367,16 +410,19 @@ A clear statement addressing:
 ## Risk Factors
 
 ### Analysis Risks
+
 - **Analysis Paralysis**: Getting stuck in theoretical considerations
 - **Scope Creep**: Expanding beyond backend architecture
 - **Bias**: Favoring elegance over practicality (or vice versa)
 
 ### Decision Risks
+
 - **Irreversibility**: Choosing an architecture that's hard to change
 - **User Rejection**: Picking an approach users won't adopt
 - **Technical Debt**: Creating more problems than we solve
 
 ### Mitigation Strategies
+
 - Time-box analysis phases
 - Seek external input early
 - Prototype key workflows

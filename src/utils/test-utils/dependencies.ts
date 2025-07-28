@@ -481,6 +481,8 @@ export interface MockGitServiceOptions {
   push?: () => Promise<{ workdir: string; pushed: boolean }>;
   popStash?: () => Promise<{ workdir: string; stashed: boolean }>;
   getStatus?: () => Promise<{ modified: string[]; untracked: string[]; deleted: string[] }>;
+  getCurrentBranch?: () => Promise<string>;
+  hasUncommittedChanges?: () => Promise<boolean>;
 }
 
 /**
@@ -535,6 +537,10 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
 
     getStatus:
       options.getStatus || (() => Promise.resolve({ modified: [], untracked: [], deleted: [] })),
+
+    getCurrentBranch: options.getCurrentBranch || (() => Promise.resolve("main")),
+
+    hasUncommittedChanges: options.hasUncommittedChanges || (() => Promise.resolve(false)),
   });
 
   // Add additional utility methods that some tests expect
@@ -550,7 +556,7 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
  * Options for configuring TaskServiceInterface mock behavior
  */
 export interface MockTaskServiceOptions {
-  mockGetTask?: (taskId: string) => Promise<Task | null>;
+  getTask?: (taskId: string) => Promise<Task | null>;
   backends?: string[];
   currentBackend?: string;
   listTasks?: (options?: TaskListOptions) => Promise<Task[]>;
@@ -576,7 +582,7 @@ export interface MockTaskServiceOptions {
  */
 export function createMockTaskService(options: MockTaskServiceOptions = {}): TaskServiceInterface {
   const mockTaskService = createPartialMock<TaskServiceInterface>({
-    getTask: options.mockGetTask || (() => Promise.resolve(null)),
+    getTask: options.getTask || (() => Promise.resolve(null)),
 
     listTasks: options.listTasks || (() => Promise.resolve([])),
 
@@ -593,7 +599,9 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
           status: "TODO",
         })),
 
-    deleteTask: options.deleteTask || (() => Promise.resolve(false)),
+    deleteTask: options.deleteTask || (() => Promise.resolve(true)),
+
+    getWorkspacePath: options.getWorkspacePath || (() => "/test/workspace/path"),
 
     getBackendForTask: options.getBackendForTask || (() => Promise.resolve("markdown")),
 

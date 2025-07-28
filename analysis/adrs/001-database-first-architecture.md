@@ -1,6 +1,7 @@
 # ADR-001: Adopt Database-First Architecture for Task Backend
 
 ## Status
+
 Proposed
 
 ## Context
@@ -26,11 +27,13 @@ Analysis reveals that the in-tree approach essentially reimplements a distribute
 ### Specific Decisions:
 
 1. **Default Backend**: SQLite embedded database
+
    - Zero external dependencies
    - Single file storage
    - Full feature support
 
 2. **Team Backend**: PostgreSQL for advanced scenarios
+
    - Real-time collaboration
    - Advanced querying
    - Horizontal scaling
@@ -43,26 +46,31 @@ Analysis reveals that the in-tree approach essentially reimplements a distribute
 ## Rationale
 
 ### 1. Performance
+
 - Database operations are 100-1000x faster
 - Enables real-time user experience
 - Supports complex queries efficiently
 
 ### 2. Simplicity
+
 - Eliminates special workspace complexity
 - Standard database tools and patterns
 - Clear mental model for users
 
 ### 3. Features
+
 - Enables AI-powered task decomposition
 - Supports visual task graphs
 - Allows cross-repository relationships
 
 ### 4. Scalability
+
 - Proven to billions of records
 - Handles team collaboration
 - Supports enterprise scale
 
 ### 5. Maintenance
+
 - Reduces codebase complexity
 - Standard operational procedures
 - Mature ecosystem
@@ -70,6 +78,7 @@ Analysis reveals that the in-tree approach essentially reimplements a distribute
 ## Consequences
 
 ### Positive
+
 - ✅ Massive performance improvement
 - ✅ Enables advanced features
 - ✅ Simplifies architecture
@@ -78,11 +87,13 @@ Analysis reveals that the in-tree approach essentially reimplements a distribute
 - ✅ Clear upgrade path
 
 ### Negative
+
 - ❌ Breaking change for existing users
 - ❌ Migration effort required
 - ❌ Loss of "pure git" philosophy
 
 ### Neutral
+
 - 🔄 Different backup strategies needed
 - 🔄 New operational knowledge required
 - 🔄 Changed testing approach

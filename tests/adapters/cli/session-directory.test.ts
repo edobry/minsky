@@ -25,7 +25,7 @@ describe("session dir command", () => {
     // Arrange: Mock correct behavior with call tracking
     const correctSession = testData.mockSessions[1]; // task#160 session
     let getSessionByTaskIdCalls: any[] = [];
-    
+
     testData.mockSessionDB.getSessionByTaskId = mock((taskId: any) => {
       getSessionByTaskIdCalls.push(taskId);
       return Promise.resolve(correctSession);
@@ -62,7 +62,7 @@ describe("session dir command", () => {
     // Arrange with call tracking
     const correctSession = testData.mockSessions[1];
     let getSessionByTaskIdCalls: any[] = [];
-    
+
     testData.mockSessionDB.getSessionByTaskId = mock((taskId: any) => {
       getSessionByTaskIdCalls.push(taskId);
       return Promise.resolve(correctSession);
@@ -127,7 +127,7 @@ describe("session dir command", () => {
     expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
     expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
     expect(session?.session).toBe("task#160"); // Fixed: correct session returned
-    expect(session?.taskId).toBe("#160"); // Fixed: correct taskId
+    expect(session?.taskId).toBe("160"); // Fixed: correct taskId format (storage format without #)
   });
 
   test("EDGE CASE: multiple sessions with same task ID but different formats", () => {

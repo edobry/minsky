@@ -9,6 +9,7 @@
 ### 1. In-Tree Backends Are a Failed Experiment
 
 The analysis reveals that in-tree backends:
+
 - **Don't deliver on their promise**: Special workspace breaks "in-tree" concept
 - **Create massive complexity**: 445+ lines of synchronization code
 - **Perform terribly**: 100-1000x slower than databases
@@ -18,6 +19,7 @@ The analysis reveals that in-tree backends:
 ### 2. We're Building a Database Poorly
 
 The special workspace mechanism is essentially a naive distributed database implementation using git as a consistency protocol. This is:
+
 - **Solving the wrong problem**: Task management doesn't need distribution
 - **Reinventing wheels**: Databases solved these problems decades ago
 - **Creating operational burden**: Every user becomes a DBA
@@ -26,6 +28,7 @@ The special workspace mechanism is essentially a naive distributed database impl
 ### 3. Database Backends Enable Minsky's Vision
 
 The core Minsky value propositions require database capabilities:
+
 - **AI Task Decomposition**: Needs atomic multi-task transactions
 - **Visual Task Graphs**: Requires efficient graph queries
 - **Real-time Collaboration**: Demands push notifications
@@ -37,6 +40,7 @@ The core Minsky value propositions require database capabilities:
 ### Phase 1: SQLite as Default (Immediate)
 
 **Implementation**:
+
 ```typescript
 // Default initialization
 minsky init  // Creates .minsky/tasks.db SQLite database
@@ -51,6 +55,7 @@ minsky init  // Creates .minsky/tasks.db SQLite database
 ```
 
 **Benefits**:
+
 - Zero external dependencies
 - Blazing fast performance
 - Single file simplicity
@@ -60,6 +65,7 @@ minsky init  // Creates .minsky/tasks.db SQLite database
 ### Phase 2: PostgreSQL for Teams (3 months)
 
 **Implementation**:
+
 ```typescript
 // Team initialization
 minsky init --team --db-url postgresql://...
@@ -69,6 +75,7 @@ minsky migrate sqlite-to-postgres
 ```
 
 **Features**:
+
 - Real-time subscriptions
 - Multi-user concurrency
 - Advanced querying
@@ -78,12 +85,14 @@ minsky migrate sqlite-to-postgres
 ### Phase 3: Deprecate In-Tree (6 months)
 
 **Steps**:
+
 1. Mark in-tree backends as deprecated
 2. Add migration tooling for existing users
 3. Remove special workspace code
 4. Delete in-tree backend implementations
 
 **Communication**:
+
 ```
 DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 - Performance and feature limitations make them unsuitable
@@ -96,11 +105,13 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 ### Immediate Actions (Week 1-2)
 
 1. **Document Decision**
+
    - [ ] Publish ADR for database-first architecture
    - [ ] Create migration guide for existing users
    - [ ] Update README with new approach
 
 2. **SQLite Implementation**
+
    - [ ] Create SQLite backend with full feature support
    - [ ] Add database migration framework
    - [ ] Implement task CRUD operations
@@ -114,12 +125,14 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 ### Short Term (Month 1)
 
 1. **Feature Parity**
+
    - [ ] Port all task operations to SQLite
    - [ ] Add indexing for performance
    - [ ] Implement full-text search
    - [ ] Add transaction support
 
 2. **Migration Tools**
+
    - [ ] In-tree to SQLite converter
    - [ ] Backup/restore utilities
    - [ ] Data validation tools
@@ -132,12 +145,14 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 ### Medium Term (Month 2-3)
 
 1. **PostgreSQL Backend**
+
    - [ ] Implement PostgreSQL adapter
    - [ ] Add connection pooling
    - [ ] Real-time subscriptions
    - [ ] Team features
 
 2. **Advanced Features**
+
    - [ ] AI task decomposition
    - [ ] Visual task graphs
    - [ ] Cross-repo relationships
@@ -151,6 +166,7 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 ### Long Term (Month 4-6)
 
 1. **Remove Legacy Code**
+
    - [ ] Delete special workspace manager
    - [ ] Remove in-tree backends
    - [ ] Clean up git sync code
@@ -167,6 +183,7 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 ### For Existing In-Tree Users
 
 1. **Automated Detection**
+
    ```bash
    $ minsky tasks list
    WARNING: In-tree backend detected
@@ -177,14 +194,15 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
    ```
 
 2. **One-Command Migration**
+
    ```bash
    $ minsky migrate
    Analyzing in-tree tasks...
    Found 127 tasks across 3 repositories
    Creating SQLite database...
    Migrating tasks... ████████████████ 100%
-   Migration complete! 
-   
+   Migration complete!
+
    Old: 3.2s to list tasks
    New: 0.003s to list tasks (1000x faster!)
    ```
@@ -198,20 +216,23 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 ## Success Metrics
 
 ### Performance Targets
+
 - Task list: <10ms (from 3-5 seconds)
 - Task creation: <20ms (from 5-10 seconds)
 - Status update: <5ms (from 3-4 seconds)
 - Complex queries: <100ms (from impossible)
 
 ### User Experience Goals
+
 - Zero setup friction for SQLite
 - Clear upgrade path to PostgreSQL
 - No more "special workspace" confusion
 - Instant operations for better flow
 
 ### Feature Enablement
+
 - ✅ AI task decomposition
-- ✅ Visual task graphs  
+- ✅ Visual task graphs
 - ✅ Cross-repo features
 - ✅ Real-time collaboration
 - ✅ Third-party integrations
@@ -221,11 +242,13 @@ DEPRECATION NOTICE: In-tree task backends will be removed in v2.0
 ### Potential Concerns
 
 1. **"But we promised no dependencies!"**
+
    - SQLite is not a dependency, it's embedded
    - Git is already a dependency
    - Special workspace was a hidden dependency
 
 2. **"What about version control for tasks?"**
+
    - Tasks aren't code, different versioning needs
    - Database audit trails are superior
    - Git history still available for database file
