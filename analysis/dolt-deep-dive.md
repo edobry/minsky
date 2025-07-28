@@ -5,6 +5,7 @@
 ### Repository Structure Options
 
 #### Option 1: Separate Dolt Repo
+
 ```
 your-project/           # Git repo (code)
 your-project-tasks/     # Dolt repo (tasks)
@@ -14,6 +15,7 @@ your-project-tasks/     # Dolt repo (tasks)
 ```
 
 #### Option 2: Embedded Dolt in Git
+
 ```
 your-project/          # Git repo
   ├── src/            # Code
@@ -23,9 +25,10 @@ your-project/          # Git repo
 ```
 
 #### Option 3: Hybrid Approach
+
 ```
 your-project/          # Git repo
-  ├── src/           # Code  
+  ├── src/           # Code
   ├── tasks.sql      # Exported task data (committed)
   └── specs/         # Task specs (committed)
 
@@ -36,6 +39,7 @@ your-project-dolt/     # Dolt repo (not in git)
 ## What We Gain Over Git
 
 ### 1. **Structured Diff/Merge**
+
 ```sql
 -- Git shows file changes:
 - [ ] Task 1
@@ -46,11 +50,12 @@ UPDATE tasks SET status = 'DONE' WHERE id = 1;
 ```
 
 ### 2. **SQL Queries on History**
+
 ```sql
 -- Who completed the most tasks last month?
-SELECT assignee, COUNT(*) 
-FROM tasks 
-WHERE status = 'DONE' 
+SELECT assignee, COUNT(*)
+FROM tasks
+WHERE status = 'DONE'
   AND AS OF '2024-01-01' status != 'DONE'
 GROUP BY assignee;
 
@@ -59,6 +64,7 @@ SELECT * FROM task_dependencies AS OF '2024-01-01';
 ```
 
 ### 3. **Branching Database State**
+
 ```bash
 # Create feature branch in database
 dolt checkout -b feature/add-ai-tasks
@@ -72,6 +78,7 @@ dolt merge feature/add-ai-tasks
 ```
 
 ### 4. **Collaborative Database Development**
+
 ```bash
 # Alice adds tasks
 dolt add .
@@ -86,6 +93,7 @@ dolt pull origin main
 ## GitHub vs DoltHub
 
 ### DoltHub (Dolt's service)
+
 ```bash
 # Create hosted Dolt database
 dolt remote add origin dolthub.com/team/project-tasks
@@ -98,12 +106,14 @@ dolt remote add origin dolthub.com/team/project-tasks
 ```
 
 **Advantages:**
+
 - Native Dolt support
 - SQL query interface in browser
 - Data diffs and PRs
 - Free hosting for public repos
 
 **Disadvantages:**
+
 - Another service to depend on
 - Less familiar than GitHub
 - Smaller ecosystem
@@ -111,6 +121,7 @@ dolt remote add origin dolthub.com/team/project-tasks
 ### GitHub Integration Options
 
 #### Option A: Export to GitHub
+
 ```bash
 # Daily export to git repo
 dolt dump | git commit -F -
@@ -118,14 +129,17 @@ dolt dump | git commit -F -
 ```
 
 #### Option B: Dolt Files in GitHub
+
 ```bash
 # Commit Dolt database files directly
 git add .dolt/
 git commit -m "Update task database"
 ```
+
 **Problem**: Binary files, huge commits, lose query interface
 
 #### Option C: Hybrid Workflow
+
 - **Live operations**: DoltHub for team collaboration
 - **Backup**: Automated exports to GitHub
 - **Specs**: Task specs in GitHub repo alongside code
@@ -133,6 +147,7 @@ git commit -m "Update task database"
 ## Practical Workflow Example
 
 ### Setup
+
 ```bash
 # Initialize Dolt database for tasks
 dolt init
@@ -154,6 +169,7 @@ dolt push origin main
 ```
 
 ### Team Development
+
 ```bash
 # Developer creates feature branch
 dolt checkout -b feature/auth-system
@@ -173,10 +189,11 @@ git commit -m "Add auth task specifications"
 ```
 
 ### Integration Points
+
 ```typescript
 // Minsky connects to both
-const doltDB = new DoltClient('dolthub.com/team/project-tasks');
-const gitSpecs = new GitClient('github.com/team/project');
+const doltDB = new DoltClient("dolthub.com/team/project-tasks");
+const gitSpecs = new GitClient("github.com/team/project");
 
 // Query tasks from Dolt
 const tasks = await doltDB.query('SELECT * FROM tasks WHERE status = "TODO"');
@@ -189,29 +206,32 @@ for (const task of tasks) {
 
 ## Comparison: Dolt vs Special Workspace
 
-| Aspect | Dolt | Special Workspace |
-|--------|------|-------------------|
-| **Coordination** | Native database branching | File locks + git |
-| **Queries** | SQL on any version | File parsing only |
-| **History** | Semantic diffs | Text diffs |
-| **Merging** | Data-aware merges | Text merge conflicts |
-| **Learning curve** | New tool (Dolt) | Git concepts |
-| **Hosting** | DoltHub or self-host | Any git host |
+| Aspect             | Dolt                      | Special Workspace    |
+| ------------------ | ------------------------- | -------------------- |
+| **Coordination**   | Native database branching | File locks + git     |
+| **Queries**        | SQL on any version        | File parsing only    |
+| **History**        | Semantic diffs            | Text diffs           |
+| **Merging**        | Data-aware merges         | Text merge conflicts |
+| **Learning curve** | New tool (Dolt)           | Git concepts         |
+| **Hosting**        | DoltHub or self-host      | Any git host         |
 
 ## Challenges with Dolt Approach
 
 ### 1. **Two-Repo Complexity**
+
 - Tasks in Dolt repo
-- Specs in Git repo  
+- Specs in Git repo
 - Need to keep them synchronized
 - More complex onboarding
 
 ### 2. **Tool Dependencies**
+
 - Team needs Dolt CLI installed
 - Another tool to learn
 - Smaller community than git
 
 ### 3. **Hosting Questions**
+
 - DoltHub for full features
 - Or lose query interface with GitHub
 - Backup strategy for Dolt data
@@ -219,24 +239,28 @@ for (const task of tasks) {
 ## Verdict on Dolt
 
 **Advantages:**
+
 - True versioned database semantics
 - SQL queries on historical data
 - Proper data branching and merging
 - Eliminates special workspace complexity
 
 **Trade-offs:**
+
 - Adds tool complexity
 - Two-repo architecture
 - Smaller ecosystem than git
 - DoltHub dependency for best experience
 
 **Best for:**
+
 - Teams comfortable with new tools
 - Heavy task relationship queries
 - Data-driven task analytics
 - Complex branching workflows
 
 **Maybe not worth it if:**
+
 - Team prefers familiar tools
 - Simple task tracking needs
 - Want to minimize dependencies

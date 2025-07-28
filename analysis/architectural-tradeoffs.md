@@ -2,19 +2,19 @@
 
 ## Executive Summary Matrix
 
-| Dimension | In-Tree Backends | Database Backends | Winner |
-|-----------|------------------|-------------------|---------|
-| **Setup Simplicity** | Just clone repo ✓ | Requires database setup | In-Tree |
-| **Backup/Sync** | Automatic via git ✓ | Manual or hosted service | In-Tree |
-| **Onboarding** | Zero friction (clone) ✓ | DB setup required | In-Tree |
-| **Operational Complexity** | High (special workspace) | Low (standard tools) | Database |
-| **Performance** | Poor (O(n) operations) | Excellent (O(1) queries) | Database |
-| **Team Collaboration** | Complex sync via git | Real-time updates | Database |
-| **Cross-Repo Support** | Fundamentally broken | Native support | Database |
-| **Scalability** | Degrades with repos/tasks | Linear scaling | Database |
-| **AI Integration** | Difficult/impossible | Natural fit | Database |
-| **Data Integrity** | Git-based (eventual) | ACID transactions | Database |
-| **Developer Experience** | Mixed (backup good, speed bad) | Fast but needs backup plan | Mixed |
+| Dimension                  | In-Tree Backends               | Database Backends          | Winner   |
+| -------------------------- | ------------------------------ | -------------------------- | -------- |
+| **Setup Simplicity**       | Just clone repo ✓              | Requires database setup    | In-Tree  |
+| **Backup/Sync**            | Automatic via git ✓            | Manual or hosted service   | In-Tree  |
+| **Onboarding**             | Zero friction (clone) ✓        | DB setup required          | In-Tree  |
+| **Operational Complexity** | High (special workspace)       | Low (standard tools)       | Database |
+| **Performance**            | Poor (O(n) operations)         | Excellent (O(1) queries)   | Database |
+| **Team Collaboration**     | Complex sync via git           | Real-time updates          | Database |
+| **Cross-Repo Support**     | Fundamentally broken           | Native support             | Database |
+| **Scalability**            | Degrades with repos/tasks      | Linear scaling             | Database |
+| **AI Integration**         | Difficult/impossible           | Natural fit                | Database |
+| **Data Integrity**         | Git-based (eventual)           | ACID transactions          | Database |
+| **Developer Experience**   | Mixed (backup good, speed bad) | Fast but needs backup plan | Mixed    |
 
 **Result: More Nuanced (6-5 with significant tradeoffs)**
 
@@ -22,7 +22,7 @@
 
 ### The Backup/Synchronization Advantage
 
-**Initial Analysis Error**: I incorrectly stated there was "no advantage over a tasks.md file" - but tasks.md IS the in-tree markdown backend. 
+**Initial Analysis Error**: I incorrectly stated there was "no advantage over a tasks.md file" - but tasks.md IS the in-tree markdown backend.
 
 **Key In-Tree Benefits I Undervalued**:
 
@@ -41,7 +41,7 @@ echo "- [ ] New task" >> process/tasks.md
 git commit -m "Add task"
 
 # Session 2: Updates status (at same time)
-sed -i 's/\[ \]/[x]/' process/tasks.md  
+sed -i 's/\[ \]/[x]/' process/tasks.md
 git commit -m "Complete task"
 
 # Result: Merge conflict in tasks.md
@@ -53,12 +53,14 @@ The special workspace is actually a clever solution to this coordination problem
 
 **The Backup Problem**: With SQLite backends, we need to solve:
 
-1. **Solo Developer Backup**: 
+1. **Solo Developer Backup**:
+
    - Manual backup commands (`minsky backup`)
    - File loss risk
    - No automatic sync to git
 
 2. **Team Synchronization**:
+
    - Hosted database required (Supabase, Neon, etc.)
    - External dependency
    - Cost considerations
@@ -73,6 +75,7 @@ The special workspace is actually a clever solution to this coordination problem
 ### 1. Setup and Onboarding
 
 #### In-Tree Advantages
+
 ```bash
 # New developer onboarding
 git clone repo
@@ -80,8 +83,9 @@ minsky tasks list  # Works immediately, tasks included
 ```
 
 #### Database Challenges
+
 ```bash
-# New developer onboarding  
+# New developer onboarding
 git clone repo
 # Need: Database setup, connection config, credentials
 minsky init --backend supabase --project-url xxx
@@ -92,12 +96,14 @@ minsky init --backend supabase --project-url xxx
 ### 2. Backup and Durability
 
 #### In-Tree Strengths
+
 - Automatic backup via git push
 - Distributed across all clones
 - Version history included
 - No single point of failure
 
 #### Database Concerns
+
 - SQLite: Single file, local backup needed
 - Hosted: Dependent on external service
 - Manual backup processes required
@@ -118,31 +124,37 @@ There's no middle ground that doesn't recreate the special workspace complexity.
 The analysis reveals there are only two coherent architectures:
 
 ### Option 1: Git-Based (Current)
+
 - **Accept**: Special workspace complexity
 - **Gain**: Automatic backup, zero-friction onboarding
 - **Trade**: Performance, cross-repo limitations
 
 ### Option 2: Database-Based (Clean)
+
 - **Accept**: External dependencies or manual backup
-- **Gain**: Performance, features, scalability  
+- **Gain**: Performance, features, scalability
 - **Trade**: Setup complexity, backup responsibility
 
 ### Non-Viable: Hybrid Approaches
+
 Attempts to get both benefits (like "SQLite with export") recreate the same git coordination problems the special workspace solves.
 
 ## Use Case Analysis
 
 ### Solo Developer, Single Repository
+
 - **In-Tree**: Reasonable choice if performance acceptable
 - **SQLite**: Better performance, but need backup strategy
 - **Hosted DB**: Overkill
 
-### Small Team, Multiple Repositories  
+### Small Team, Multiple Repositories
+
 - **In-Tree**: Breaks down fundamentally
 - **SQLite**: Sync problems
 - **Hosted DB**: Clear winner
 
 ### Large Team, Enterprise
+
 - **In-Tree**: Completely unsuitable
 - **Hosted DB**: Only viable option
 
@@ -151,17 +163,21 @@ Attempts to get both benefits (like "SQLite with export") recreate the same git 
 Rather than a blanket "abandon in-tree," the recommendation should be:
 
 ### 1. Acknowledge the Tradeoffs
+
 In-tree backends have real benefits that database approaches don't easily replicate.
 
 ### 2. Use Case Driven Choice
+
 - **Simple projects**: In-tree may be acceptable
 - **Cross-repo/team projects**: Database required
 - **Performance critical**: Database required
 
 ### 3. Clear Migration Path
+
 When projects outgrow in-tree limitations, provide smooth upgrade to hosted database.
 
 ### 4. Don't Force Migration
+
 If users are happy with in-tree performance and limitations, don't break their workflow.
 
 ## Conclusion

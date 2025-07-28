@@ -15,33 +15,37 @@ CRDTs offer mathematically guaranteed conflict resolution for distributed system
 ```typescript
 interface TaskCRDT {
   id: UUID;
-  title: LWWRegister<string>;     // Last-Writer-Wins for title
+  title: LWWRegister<string>; // Last-Writer-Wins for title
   status: LWWRegister<TaskStatus>; // Last-Writer-Wins for status
-  assignees: GSet<UserId>;        // Grow-only set of assignees
-  comments: GSequence<Comment>;   // Ordered sequence of comments
-  dependencies: GSet<TaskId>;     // Grow-only set of dependencies
+  assignees: GSet<UserId>; // Grow-only set of assignees
+  comments: GSequence<Comment>; // Ordered sequence of comments
+  dependencies: GSet<TaskId>; // Grow-only set of dependencies
 }
 ```
 
 ### Storage Options
 
 **Option A: CRDT Files in Git**
+
 - Each task is a CRDT stored as a file
 - Git syncs the CRDT state
 - Automatic merge resolution using CRDT semantics
 
 **Option B: CRDT Database with Git Sync**
+
 - Local CRDT database (like Automerge or Y.js)
 - Sync CRDT state via git or custom protocol
 - Best performance with automatic conflict resolution
 
 ### Benefits
+
 - **True Distributed**: No central coordination needed
 - **Automatic Conflicts**: Mathematical guarantees of convergence
 - **Offline-First**: Works indefinitely offline
 - **Git Integration**: Can sync via git repositories
 
 ### Drawbacks
+
 - **Complex Implementation**: CRDT libraries are sophisticated
 - **Learning Curve**: Team must understand CRDT semantics
 - **Storage Overhead**: CRDTs store more metadata than plain data
@@ -49,6 +53,7 @@ interface TaskCRDT {
 - **Overkill**: Most task conflicts are simple and rare
 
 ### Verdict
+
 CRDTs are fascinating technology but likely overkill for task management. The complexity cost far exceeds the benefit for typical task workflow conflicts.
 
 ## 2. Event Sourcing with Git Storage
@@ -61,7 +66,7 @@ Store task events (not state) in git files, replay events to build current state
 interface TaskEvent {
   id: UUID;
   taskId: TaskId;
-  type: 'created' | 'status_changed' | 'assigned';
+  type: "created" | "status_changed" | "assigned";
   payload: any;
   timestamp: number;
   userId: string;
@@ -69,19 +74,21 @@ interface TaskEvent {
 
 // File: process/events/task-123.json
 [
-  {type: "created", title: "Fix bug", timestamp: 1640995200},
-  {type: "status_changed", status: "IN_PROGRESS", timestamp: 1641081600},
-  {type: "assigned", user: "alice", timestamp: 1641168000}
-]
+  { type: "created", title: "Fix bug", timestamp: 1640995200 },
+  { type: "status_changed", status: "IN_PROGRESS", timestamp: 1641081600 },
+  { type: "assigned", user: "alice", timestamp: 1641168000 },
+];
 ```
 
 ### Benefits
+
 - **Complete Audit Trail**: Every change is tracked
 - **Time Travel**: Can replay to any point in history
 - **Debugging**: Can trace exact sequence of changes
 - **Git Native**: Events stored in git naturally
 
 ### Drawbacks
+
 - **Impedance Mismatch**: Git tracks file deltas, events are state deltas (delta-deltas)
 - **Conflict Nightmare**: Merging event streams is semantically complex
 - **Performance**: Must replay events for current state
@@ -102,6 +109,7 @@ echo '{"type": "status", "value": "DONE"}' >> task-123.json
 ```
 
 ### Verdict
+
 Event sourcing is excellent for task systems but belongs in databases, not git files. The impedance mismatch with git's text-based merging makes this approach problematic.
 
 ## 3. Operational Transform for Real-Time Collaboration
@@ -114,7 +122,7 @@ OT is the technology behind Google Docs that allows real-time collaborative edit
 
 ```typescript
 interface TaskOperation {
-  type: 'insert_char' | 'delete_char' | 'set_status' | 'add_assignee';
+  type: "insert_char" | "delete_char" | "set_status" | "add_assignee";
   position?: number;
   char?: string;
   status?: TaskStatus;
@@ -123,11 +131,11 @@ interface TaskOperation {
 
 // Transform conflicting operations
 function transform(opA: TaskOperation, opB: TaskOperation): [TaskOperation, TaskOperation] {
-  if (opA.type === 'set_status' && opB.type === 'add_assignee') {
+  if (opA.type === "set_status" && opB.type === "add_assignee") {
     return [opA, opB]; // No conflict, both apply
   }
 
-  if (opA.type === 'insert_char' && opB.type === 'insert_char') {
+  if (opA.type === "insert_char" && opB.type === "insert_char") {
     // Shift positions based on insertion order
     return transformTextOps(opA, opB);
   }
@@ -137,12 +145,14 @@ function transform(opA: TaskOperation, opB: TaskOperation): [TaskOperation, Task
 ```
 
 ### Benefits
+
 - **Real-Time Collaboration**: Multiple users editing simultaneously
 - **Automatic Conflict Resolution**: Mathematical transformation guarantees
 - **Rich Editing**: Character-level edits in descriptions
 - **Proven Technology**: Powers Google Docs, VS Code Live Share
 
 ### Drawbacks
+
 - **Extreme Complexity**: OT is notoriously difficult to implement correctly
 - **Overkill for Tasks**: Tasks don't need character-level collaboration
 - **High Maintenance**: Bugs in OT are subtle and hard to debug
@@ -150,15 +160,16 @@ function transform(opA: TaskOperation, opB: TaskOperation): [TaskOperation, Task
 
 ### Comparison with Alternatives
 
-| Aspect | Operational Transform | CRDTs | Simple Conflict Resolution |
-|--------|----------------------|-------|---------------------------|
-| **Implementation Complexity** | Extremely High | High | Low |
-| **Real-time Performance** | Excellent | Good | Good |
-| **Conflict Handling** | Perfect | Perfect | "Good Enough" |
-| **Debugging Difficulty** | Very Hard | Hard | Easy |
-| **Maintenance Burden** | Very High | Medium | Low |
+| Aspect                        | Operational Transform | CRDTs   | Simple Conflict Resolution |
+| ----------------------------- | --------------------- | ------- | -------------------------- |
+| **Implementation Complexity** | Extremely High        | High    | Low                        |
+| **Real-time Performance**     | Excellent             | Good    | Good                       |
+| **Conflict Handling**         | Perfect               | Perfect | "Good Enough"              |
+| **Debugging Difficulty**      | Very Hard             | Hard    | Easy                       |
+| **Maintenance Burden**        | Very High             | Medium  | Low                        |
 
 ### Verdict
+
 Operational Transform is overkill for task management. The complexity is only justified for rich text editing where character-level conflicts are common. For task fields (status, assignee, title), simpler conflict resolution is sufficient.
 
 ## 4. Hybrid: Git as Transport with Database Performance
@@ -169,25 +180,27 @@ Use databases for performance and querying, but sync via git for distribution.
 
 ```typescript
 // Local SQLite for fast operations
-const task = await db.task.findUnique({where: {id: 123}});
+const task = await db.task.findUnique({ where: { id: 123 } });
 
 // Export to git for sync
-await exportTasksToGit('./process/tasks-export.json');
-await git.commit('Update task state');
+await exportTasksToGit("./process/tasks-export.json");
+await git.commit("Update task state");
 await git.push();
 
 // Import from git after pull
 await git.pull();
-await importTasksFromGit('./process/tasks-export.json');
+await importTasksFromGit("./process/tasks-export.json");
 ```
 
 ### Benefits
+
 - **Database Performance**: Fast local queries
 - **Git Distribution**: Leverages existing git workflow
 - **Offline Capable**: Local database works offline
 - **Best of Both**: Database benefits + git transport
 
 ### Drawbacks
+
 - **Dual Complexity**: Must maintain both database and git sync
 - **Sync Conflicts**: Still need to resolve conflicts in export files
 - **Data Consistency**: Risk of database/git state divergence
@@ -196,6 +209,7 @@ await importTasksFromGit('./process/tasks-export.json');
 ### Storage Format Options
 
 **Option A: Snapshot Export**
+
 ```json
 {
   "tasks": [...all tasks...],
@@ -205,6 +219,7 @@ await importTasksFromGit('./process/tasks-export.json');
 ```
 
 **Option B: Delta Export**
+
 ```json
 {
   "changes_since": "2024-01-01T00:00:00Z",
@@ -216,6 +231,7 @@ await importTasksFromGit('./process/tasks-export.json');
 ```
 
 ### Verdict
+
 This hybrid approach has merit but adds significant complexity. For most teams, direct database sync (like Linear's approach) is simpler and more reliable.
 
 ## 5. Fossil-Inspired Integrated Approach
@@ -235,30 +251,33 @@ minsky push                              # Syncs code and tasks together
 ```
 
 ### Benefits
+
 - **True Integration**: No impedance mismatch between code and tasks
 - **Atomic Operations**: Update code and tasks in single transaction
 - **Custom Protocol**: Optimized for both code and task sync
 - **Clean Mental Model**: One tool, one workflow
 
 ### Drawbacks
+
 - **Adoption Barrier**: Would require teams to abandon git
 - **Ecosystem Loss**: Miss git tooling, GitHub/GitLab integration
 - **Development Effort**: Building a VCS is a massive undertaking
 - **Network Effects**: Git's ubiquity is hard to overcome
 
 ### Verdict
+
 While intellectually appealing, building a new VCS is beyond Minsky's scope and unlikely to gain adoption against git's network effects.
 
 ## Summary and Recommendations
 
-| Architecture | Complexity | Benefits | Verdict |
-|-------------|------------|----------|---------|
-| **Database-First** | Low | High performance, proven patterns | ✅ **Recommended** |
-| **CRDTs** | High | Automatic conflict resolution | ❌ Overkill |
-| **Event Sourcing in Git** | High | Audit trails, git integration | ❌ Impedance mismatch |
-| **Operational Transform** | Very High | Real-time collaboration | ❌ Unnecessary complexity |
-| **Hybrid Git+DB** | Medium | Best of both worlds | 🤔 Possible future exploration |
-| **Integrated VCS** | Extreme | Perfect integration | ❌ Infeasible |
+| Architecture              | Complexity | Benefits                          | Verdict                        |
+| ------------------------- | ---------- | --------------------------------- | ------------------------------ |
+| **Database-First**        | Low        | High performance, proven patterns | ✅ **Recommended**             |
+| **CRDTs**                 | High       | Automatic conflict resolution     | ❌ Overkill                    |
+| **Event Sourcing in Git** | High       | Audit trails, git integration     | ❌ Impedance mismatch          |
+| **Operational Transform** | Very High  | Real-time collaboration           | ❌ Unnecessary complexity      |
+| **Hybrid Git+DB**         | Medium     | Best of both worlds               | 🤔 Possible future exploration |
+| **Integrated VCS**        | Extreme    | Perfect integration               | ❌ Infeasible                  |
 
 ### The Right Choice
 

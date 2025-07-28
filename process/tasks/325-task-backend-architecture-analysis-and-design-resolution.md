@@ -37,6 +37,7 @@ Supporting in-tree task metadata backends (markdown/json files stored in the rep
 ### AI-First Architectural Requirements
 
 Minsky's core value proposition requires:
+
 - **Vector Storage**: For semantic task search and AI embeddings
 - **Real-time Operations**: For collaborative AI task decomposition
 - **Fast Queries**: For complex task relationship analysis
@@ -46,11 +47,13 @@ Minsky's core value proposition requires:
 ### Philosophical vs Practical Considerations
 
 The in-tree approach offers philosophical elegance:
+
 - **Dependency-free**: No external infrastructure required
 - **Git-native**: Task state follows git history naturally
 - **Self-contained**: Everything needed is in the repository
 
 However, AI-first requirements demand database capabilities:
+
 - **Vector operations**: Semantic search and embeddings
 - **Real-time updates**: Collaborative AI workflows
 - **Performance**: Sub-second operations for AI features
@@ -61,6 +64,7 @@ However, AI-first requirements demand database capabilities:
 ### 1. Backend Strategy for AI-First Architecture
 
 **SQLite-First vs Hosted-First**
+
 - Should we default to SQLite for onboarding simplicity?
 - When should users upgrade to hosted databases (PostgreSQL/Supabase)?
 - How do we provide smooth migration paths?
@@ -68,6 +72,7 @@ However, AI-first requirements demand database capabilities:
 ### 2. AI Feature Requirements
 
 **Local vs Hosted AI Capabilities**
+
 - Which AI features work with SQLite backends?
 - What requires hosted database capabilities?
 - How do we handle offline scenarios (when AI APIs unavailable)?
@@ -75,6 +80,7 @@ However, AI-first requirements demand database capabilities:
 ### 3. Progressive Enhancement Strategy
 
 **Onboarding vs Feature Completeness**
+
 - How do we minimize setup friction while enabling full AI capabilities?
 - What's the optimal upgrade path from SQLite to PostgreSQL?
 - Should we build sync engines or focus on migration tools?
@@ -82,6 +88,7 @@ However, AI-first requirements demand database capabilities:
 ### 4. Team Collaboration Requirements
 
 **Solo vs Team Workflows**
+
 - How do team AI workflows differ from solo AI workflows?
 - When do users need real-time collaboration features?
 - How do we handle the transition from solo to team usage?
@@ -89,6 +96,7 @@ However, AI-first requirements demand database capabilities:
 ### 5. Migration and Sync Architecture
 
 **Upgrade Path Complexity**
+
 - Should we support bidirectional sync between SQLite and PostgreSQL?
 - Is simple migration sufficient, or do users need hybrid modes?
 - How do we handle schema evolution across backend types?
@@ -98,11 +106,13 @@ However, AI-first requirements demand database capabilities:
 ### 1. AI-First Backend Requirements
 
 #### Vector Storage and Search
+
 - SQLite vector extension capabilities vs PostgreSQL pgvector
 - Semantic search performance requirements
 - Embedding storage and retrieval patterns
 
 #### Real-time Collaboration
+
 - WebSocket requirements for AI-powered workflows
 - Conflict resolution for AI-generated content
 - Team coordination patterns for task decomposition
@@ -110,12 +120,14 @@ However, AI-first requirements demand database capabilities:
 ### 2. SQLite to PostgreSQL Migration
 
 #### Upgrade Path Design
+
 - Manual migration command implementation
 - Data integrity validation strategies
 - Schema compatibility between backends
 - Rollback and recovery procedures
 
 #### Sync Engine Feasibility
+
 - Bidirectional sync complexity analysis
 - Conflict resolution strategies
 - Change tracking and log-based replication
@@ -124,12 +136,14 @@ However, AI-first requirements demand database capabilities:
 ### 3. Progressive Enhancement Strategy
 
 #### Onboarding Optimization
+
 - Zero-config SQLite setup
 - AI API key configuration flow
 - First-time user experience design
 - Feature discovery and upgrade prompts
 
 #### Feature Matrix Documentation
+
 - Which features work with each backend
 - Performance characteristics comparison
 - Team vs solo feature requirements
@@ -138,12 +152,14 @@ However, AI-first requirements demand database capabilities:
 ### 4. Hosted Database Integration
 
 #### Service Provider Analysis
+
 - Supabase vs alternatives for AI workflows
 - Vector database specialized services
 - Cost and performance characteristics
 - Team management and authentication
 
 #### Cloud SQLite Services
+
 - Turso, Cloudflare D1, LiteFS evaluation
 - Edge deployment capabilities
 - Upgrade paths to traditional PostgreSQL
@@ -154,6 +170,7 @@ However, AI-first requirements demand database capabilities:
 ### 1. AI-First Architecture Analysis
 
 A detailed document analyzing:
+
 - **SQLite Capabilities**: What AI features work with local SQLite
 - **PostgreSQL Requirements**: When hosted databases become necessary
 - **Migration Strategies**: Simple vs complex upgrade paths
@@ -163,6 +180,7 @@ A detailed document analyzing:
 ### 2. Architectural Decision Records (ADRs)
 
 Formal ADRs for key decisions:
+
 - Backend strategy (SQLite-first with PostgreSQL upgrade)
 - AI feature requirements and backend compatibility
 - Migration vs sync approach decision
@@ -171,6 +189,7 @@ Formal ADRs for key decisions:
 ### 3. Progressive Enhancement Design
 
 Detailed user journeys for:
+
 - Solo developer onboarding (SQLite + AI APIs)
 - Team collaboration upgrade (PostgreSQL migration)
 - AI feature enablement across backends
@@ -179,6 +198,7 @@ Detailed user journeys for:
 ### 4. Implementation Roadmap
 
 Phased approach to implementation:
+
 - **Phase 1**: SQLite backend with AI feature support
 - **Phase 2**: PostgreSQL migration tooling
 - **Phase 3**: Advanced team collaboration features
@@ -187,6 +207,7 @@ Phased approach to implementation:
 ### 5. Backend Decision Framework
 
 Clear guidance for users:
+
 - When to use SQLite vs PostgreSQL
 - How to evaluate upgrade timing
 - Cost-benefit analysis of different approaches
@@ -195,24 +216,28 @@ Clear guidance for users:
 ## Success Criteria (Updated)
 
 ### 1. Onboarding Simplicity
+
 - [ ] Zero-config startup with SQLite
 - [ ] AI features work immediately after API key setup
 - [ ] Clear upgrade path when team features needed
 - [ ] No forced migrations or service dependencies
 
 ### 2. AI Feature Enablement
+
 - [ ] Vector storage and semantic search in SQLite
 - [ ] Real-time collaboration in PostgreSQL
 - [ ] Performance meets AI workflow requirements
 - [ ] Team AI features work seamlessly
 
 ### 3. Migration Excellence
+
 - [ ] Smooth SQLite to PostgreSQL upgrade
 - [ ] Data integrity preserved during migration
 - [ ] Rollback capabilities if needed
 - [ ] Clear communication of what changes
 
 ### 4. Performance Standards
+
 - [ ] SQLite operations: <100ms for AI workflows
 - [ ] PostgreSQL operations: <50ms for team features
 - [ ] Migration time: <30 seconds for typical datasets
@@ -221,12 +246,14 @@ Clear guidance for users:
 ## Constraints (Updated)
 
 ### Non-negotiable Requirements
+
 - Must support AI-powered features as core value
 - Must preserve data integrity during backend transitions
 - Must work with major AI API providers (OpenAI, Anthropic)
 - Must enable team collaboration for PostgreSQL backends
 
 ### Scope Boundaries
+
 - **Primary focus**: AI-first architecture design
 - **Secondary focus**: Smooth upgrade paths
 - **Out of scope**: Offline-first optimization (AI requires internet)
@@ -248,17 +275,20 @@ Clear guidance for users:
 ## Related Context
 
 ### AI-First Architecture Implications
+
 - Core features require vector storage and fast queries
 - Real-time collaboration needed for team AI workflows
 - Internet connectivity assumed for AI API access
 - Offline work is secondary concern for AI-powered tool
 
 ### Current Implementation
+
 - Special workspace workflow for in-tree backends
 - Session-to-task mapping via git branches
 - Task status management complexity
 
 ### Future AI Features
+
 - AI-powered task decomposition
 - Semantic task relationship discovery
 - Real-time collaborative task refinement
@@ -269,16 +299,19 @@ Clear guidance for users:
 **Estimated Duration**: 2-3 weeks of focused analysis and design
 
 ### Week 1: AI Requirements and SQLite Analysis
+
 - AI feature requirements deep dive
 - SQLite capabilities for AI workflows
 - Performance benchmarking
 
 ### Week 2: Migration Strategy and PostgreSQL Integration
+
 - Migration tooling design
 - PostgreSQL feature analysis
 - Team collaboration requirements
 
 ### Week 3: Decision Making and Documentation
+
 - Formal ADRs and recommendations
 - Implementation roadmap
 - User decision framework

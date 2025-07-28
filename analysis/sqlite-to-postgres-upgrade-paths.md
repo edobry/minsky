@@ -6,6 +6,7 @@
 **Upgrade When Ready**: PostgreSQL for team collaboration and advanced features
 
 This approach:
+
 - ✅ Removes onboarding friction (no accounts, no setup)
 - ✅ Enables immediate AI experimentation
 - ✅ Provides clear growth path when team features needed
@@ -14,18 +15,20 @@ This approach:
 ## SQLite AI Capabilities Analysis
 
 ### What Works Great with SQLite + AI
+
 ```typescript
 // Core AI features work perfectly with SQLite
 const tasks = await sqlite.query('SELECT * FROM tasks WHERE status = "TODO"');
 const aiDecomposition = await openai.generateSubtasks(parentTask);
 await sqlite.transaction(async (tx) => {
   for (const subtask of aiDecomposition) {
-    await tx.insert('tasks', { ...subtask, parent_id: parentTask.id });
+    await tx.insert("tasks", { ...subtask, parent_id: parentTask.id });
   }
 });
 ```
 
 **Supported AI Features:**
+
 - ✅ AI task decomposition
 - ✅ AI complexity scoring
 - ✅ AI-powered insights
@@ -33,6 +36,7 @@ await sqlite.transaction(async (tx) => {
 - ✅ Local AI model inference (if desired)
 
 ### What Requires PostgreSQL
+
 - ❌ Real-time collaboration (multiple users)
 - ❌ Advanced vector search (pgvector)
 - ❌ Complex concurrent access
@@ -66,12 +70,12 @@ Keep SQLite as local cache, sync with PostgreSQL:
 
 ```typescript
 // Hybrid architecture
-const localDB = new SQLiteClient('.minsky/tasks.db');
+const localDB = new SQLiteClient(".minsky/tasks.db");
 const remoteDB = new PostgreSQLClient(config.postgres.url);
 const syncEngine = new BidirectionalSync(localDB, remoteDB);
 
 // All operations go to SQLite first (fast)
-await localDB.insert('tasks', newTask);
+await localDB.insert("tasks", newTask);
 
 // Sync happens in background
 await syncEngine.pushChanges(); // Local → Remote
@@ -79,12 +83,14 @@ await syncEngine.pullChanges(); // Remote → Local
 ```
 
 **Benefits:**
+
 - ✅ Fast local operations
 - ✅ Offline capability
 - ✅ Team collaboration when online
 - ✅ Conflict resolution
 
 **Complexity:**
+
 - 🔴 Significant sync logic required
 - 🔴 Conflict resolution strategies
 - 🔴 Schema compatibility maintenance
@@ -102,8 +108,9 @@ const db = new PGLite('.minsky/tasks.db');
 ```
 
 **Migration becomes simpler:**
+
 - Same SQL dialect (PostgreSQL)
-- Same client libraries  
+- Same client libraries
 - Same schema
 - Just change connection string
 
@@ -120,6 +127,7 @@ const db = new TursoClient(config.turso.postgresUrl);
 ```
 
 **Services to consider:**
+
 - **Turso**: SQLite with edge replication
 - **Cloudflare D1**: SQLite at the edge
 - **LiteFS**: SQLite with automatic replication
@@ -127,6 +135,7 @@ const db = new TursoClient(config.turso.postgresUrl);
 ## Recommended Architecture: Smart Defaults
 
 ### Phase 1: SQLite First
+
 ```bash
 # Zero-config startup
 minsky init
@@ -134,7 +143,8 @@ minsky init
 # → Ready for AI features immediately
 ```
 
-### Phase 2: AI Enhancement  
+### Phase 2: AI Enhancement
+
 ```bash
 # Configure AI when ready
 minsky config set ai.provider openai
@@ -145,6 +155,7 @@ minsky tasks decompose "Build user authentication"
 ```
 
 ### Phase 3: Team Upgrade
+
 ```bash
 # When team collaboration needed
 minsky upgrade team --provider supabase
@@ -157,13 +168,14 @@ minsky upgrade team --provider supabase
 For the bidirectional sync approach:
 
 ### Conflict Resolution Strategies
+
 ```typescript
 enum ConflictResolution {
-  LAST_WRITE_WINS = 'last_write_wins',
-  MERGE_FIELDS = 'merge_fields', 
-  MANUAL_RESOLUTION = 'manual',
-  LOCAL_WINS = 'local_wins',
-  REMOTE_WINS = 'remote_wins'
+  LAST_WRITE_WINS = "last_write_wins",
+  MERGE_FIELDS = "merge_fields",
+  MANUAL_RESOLUTION = "manual",
+  LOCAL_WINS = "local_wins",
+  REMOTE_WINS = "remote_wins",
 }
 
 // Example conflict resolution
@@ -173,7 +185,10 @@ async function resolveConflict(localTask: Task, remoteTask: Task): Promise<Task>
       return {
         ...localTask,
         title: remoteTask.updated_at > localTask.updated_at ? remoteTask.title : localTask.title,
-        status: remoteTask.status_updated_at > localTask.status_updated_at ? remoteTask.status : localTask.status,
+        status:
+          remoteTask.status_updated_at > localTask.status_updated_at
+            ? remoteTask.status
+            : localTask.status,
         // Smart field-level merging
       };
     case ConflictResolution.LAST_WRITE_WINS:
@@ -183,6 +198,7 @@ async function resolveConflict(localTask: Task, remoteTask: Task): Promise<Task>
 ```
 
 ### Change Tracking
+
 ```sql
 -- Add sync metadata to SQLite schema
 CREATE TABLE tasks (
@@ -209,23 +225,25 @@ CREATE TABLE sync_log (
 ## Migration Complexity Analysis
 
 ### Simple Export/Import
+
 ```typescript
 // Straightforward but requires downtime
 const sqliteData = await exportSQLiteData();
 await importToPostgreSQL(sqliteData);
-await updateConfig({ backend: 'postgresql' });
+await updateConfig({ backend: "postgresql" });
 ```
 
 **Pros**: Simple, reliable
 **Cons**: Downtime during migration, no rollback
 
 ### Live Migration
+
 ```typescript
 // Zero-downtime migration
 const migrator = new LiveMigrator(sqliteDB, postgresDB);
 await migrator.startReplication(); // Begin sync
-await migrator.waitForCatchUp();   // Ensure sync complete
-await migrator.cutover();          // Switch reads/writes to postgres
+await migrator.waitForCatchUp(); // Ensure sync complete
+await migrator.cutover(); // Switch reads/writes to postgres
 ```
 
 **Pros**: No downtime, can rollback
@@ -234,11 +252,12 @@ await migrator.cutover();          // Switch reads/writes to postgres
 ## Recommended Implementation Strategy
 
 ### Start with Simple Migration
+
 ```bash
 # Version 1.0: Manual migration command
 minsky upgrade to-postgres --db-url $DATABASE_URL
 
-# Version 1.5: Add backup/restore capabilities  
+# Version 1.5: Add backup/restore capabilities
 minsky backup create  # Before migration
 minsky migrate rollback  # If issues
 
@@ -247,11 +266,12 @@ minsky sync enable --remote-db $DATABASE_URL
 ```
 
 ### Schema Compatibility
+
 ```sql
 -- Design schema to work with both SQLite and PostgreSQL
 CREATE TABLE tasks (
   id SERIAL PRIMARY KEY,                    -- Works in both
-  title TEXT NOT NULL,                      -- Works in both  
+  title TEXT NOT NULL,                      -- Works in both
   metadata JSONB,                          -- PostgreSQL native, SQLite stores as TEXT
   embeddings VECTOR(1536),                 -- PostgreSQL pgvector, SQLite stores as BLOB
   created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
@@ -260,12 +280,12 @@ CREATE TABLE tasks (
 
 ## Cost-Benefit Analysis
 
-| Approach | Implementation Cost | User Experience | Migration Risk |
-|----------|---------------------|-----------------|----------------|
-| **Manual Migration** | Low | Good | Low |
-| **Sync Engine** | Very High | Excellent | Medium |
-| **PostgreSQL-Compatible** | Medium | Good | Low |
-| **Cloud SQLite** | Low | Good | Low |
+| Approach                  | Implementation Cost | User Experience | Migration Risk |
+| ------------------------- | ------------------- | --------------- | -------------- |
+| **Manual Migration**      | Low                 | Good            | Low            |
+| **Sync Engine**           | Very High           | Excellent       | Medium         |
+| **PostgreSQL-Compatible** | Medium              | Good            | Low            |
+| **Cloud SQLite**          | Low                 | Good            | Low            |
 
 ## Recommendation
 

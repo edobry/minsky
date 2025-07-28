@@ -7,11 +7,13 @@
 When we step back and analyze the in-tree backend approach through a distributed systems lens, we see that we're essentially building a distributed database with the following characteristics:
 
 1. **Git as the Consistency Protocol**
+
    - Git commits serve as distributed transactions
    - Git push/pull acts as the replication mechanism
    - Branch merges handle conflict resolution
 
 2. **File System as Storage Engine**
+
    - Markdown/JSON files as the data format
    - Directory structure as the schema
    - File locks as concurrency control
@@ -45,31 +47,34 @@ Building a distributed database is one of the hardest problems in computer scien
 
 Task management has different requirements than source code:
 
-| Aspect | Source Code | Task Management |
-|--------|-------------|-----------------|
-| Change Frequency | High | Medium |
-| Merge Conflicts | Resolvable by developers | Confusing for task state |
-| History | Critical for debugging | Nice-to-have audit trail |
-| Branching | Essential workflow | Unnecessary complexity |
-| Distribution | Must work offline | Can require connectivity |
+| Aspect           | Source Code              | Task Management          |
+| ---------------- | ------------------------ | ------------------------ |
+| Change Frequency | High                     | Medium                   |
+| Merge Conflicts  | Resolvable by developers | Confusing for task state |
+| History          | Critical for debugging   | Nice-to-have audit trail |
+| Branching        | Essential workflow       | Unnecessary complexity   |
+| Distribution     | Must work offline        | Can require connectivity |
 
 ### Comparison with Established Distributed Databases
 
 Let's compare our "git-as-database" approach with purpose-built distributed databases:
 
 #### 1. CockroachDB / Spanner
+
 - **Consistency**: Strong consistency with ACID guarantees
 - **Complexity**: Hidden from users behind SQL interface
 - **Performance**: Optimized for transactions
 - **Our Approach**: Eventual consistency, complex user-facing operations, poor performance
 
 #### 2. Cassandra / DynamoDB
+
 - **Scale**: Designed for massive scale
 - **Consistency**: Tunable consistency levels
 - **Operations**: Professional tooling and monitoring
 - **Our Approach**: Limited scale, fixed consistency model, DIY operations
 
 #### 3. Blockchain
+
 - **Trust Model**: Trustless, decentralized
 - **Consensus**: Proof-of-work/stake
 - **Use Case**: Financial transactions requiring zero trust
@@ -119,21 +124,25 @@ The in-tree approach creates barriers to integration:
 In contrast, a traditional database approach offers:
 
 ### 1. Proven Architecture
+
 - Decades of optimization for exactly this use case
 - Well-understood operational characteristics
 - Professional tooling ecosystem
 
 ### 2. Superior Performance
+
 - Indexed queries instead of file system scans
 - Connection pooling instead of git operations
 - In-memory caching instead of disk I/O
 
 ### 3. Operational Simplicity
+
 - Standard backup/restore procedures
 - Monitoring with existing tools
 - No special workspace complexity
 
 ### 4. Team Friendly
+
 - Real-time updates without git pull
 - No merge conflicts for task state
 - Proper access control and audit trails
