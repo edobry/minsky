@@ -45,6 +45,7 @@ export async function approveSessionImpl(
       setTaskStatus?: (taskId: string, status: string) => Promise<any>;
       getTaskStatus?: (taskId: string) => Promise<string | undefined>;
       getBackendForTask?: (taskId: string) => Promise<any>;
+      getTask?: (taskId: string) => Promise<any>;
     };
     workspaceUtils?: any;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
@@ -80,14 +81,18 @@ export async function approveSessionImpl(
     taskId = taskIdToUse;
 
     // **BUG FIX**: Validate task existence BEFORE checking for session
-    // Create TaskService to check if task actually exists
-    const taskService = new TaskService({
-      workspacePath: params.repo || process.cwd(),
-      backend: "markdown", // Use default backend for validation
-    });
+    // Use injected TaskService or create default one for validation
+    const taskService = depsInput?.taskService?.getTask
+      ? depsInput.taskService
+      : new TaskService({
+          workspacePath: params.repo || process.cwd(),
+          backend: "markdown", // Use default backend for validation
+        });
 
     try {
-      const task = await taskService.getTask(taskIdToUse);
+      const task = await (taskService.getTask
+        ? taskService.getTask(taskIdToUse)
+        : (taskService as any).getTask(taskIdToUse));
       if (!task) {
         // Task doesn't exist - provide clear, concise error
         throw new ResourceNotFoundError(

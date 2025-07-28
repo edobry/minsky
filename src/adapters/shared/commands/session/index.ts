@@ -6,6 +6,8 @@
  */
 
 // Base command infrastructure
+import { SessionCommandRegistry } from "./base-session-command";
+import type { SessionCommandDependencies } from "./base-session-command";
 export {
   BaseSessionCommand,
   SessionCommandRegistry,
@@ -16,7 +18,7 @@ export type { SessionCommandDependencies, BaseSessionCommandParams } from "./bas
 // Parameter definitions
 export * from "./session-parameters";
 
-// Basic commands
+// Basic commands (re-export)
 export {
   SessionListCommand,
   SessionGetCommand,
@@ -28,7 +30,7 @@ export {
   createSessionDirCommand,
 } from "./basic-commands";
 
-// Management commands
+// Management commands (re-export)
 export {
   SessionDeleteCommand,
   SessionUpdateCommand,
@@ -36,7 +38,7 @@ export {
   createSessionUpdateCommand,
 } from "./management-commands";
 
-// Workflow commands
+// Workflow commands (re-export)
 export {
   SessionApproveCommand,
   SessionPrCommand,
@@ -48,6 +50,25 @@ export {
 
 // Factory for creating all session commands
 export function createAllSessionCommands(deps?: SessionCommandDependencies) {
+  // Use require to avoid circular dependency issues
+  const {
+    createSessionListCommand,
+    createSessionGetCommand,
+    createSessionStartCommand,
+    createSessionDirCommand,
+  } = require("./basic-commands");
+
+  const {
+    createSessionDeleteCommand,
+    createSessionUpdateCommand,
+  } = require("./management-commands");
+
+  const {
+    createSessionApproveCommand,
+    createSessionPrCommand,
+    createSessionInspectCommand,
+  } = require("./workflow-commands");
+
   return {
     // Basic commands
     list: createSessionListCommand(deps),

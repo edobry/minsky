@@ -12,7 +12,7 @@ export type { BaseTaskParams, TaskCommandResult, TaskCommandFactory } from "./ba
 // Parameter definitions
 export * from "./task-parameters";
 
-// Command implementations
+// Command implementations (re-export)
 export {
   TasksStatusGetCommand,
   TasksStatusSetCommand,
@@ -33,27 +33,5 @@ export {
   createTasksDeleteCommand,
 } from "./crud-commands";
 
-// Factory for creating all commands
-export function createAllTaskCommands() {
-  return [
-    createTasksStatusGetCommand(),
-    createTasksStatusSetCommand(),
-    createTasksSpecCommand(),
-    createTasksListCommand(),
-    createTasksGetCommand(),
-    createTasksCreateCommand(),
-    createTasksDeleteCommand(),
-  ];
-}
-
-// Registry setup function
-export function setupTaskCommandRegistry(): TaskCommandRegistry {
-  const registry = new TaskCommandRegistry();
-
-  // Register all commands
-  createAllTaskCommands().forEach((command) => {
-    registry.register(command);
-  });
-
-  return registry;
-}
+// Export registry setup functions from separate module
+export { createAllTaskCommands, setupTaskCommandRegistry } from "./registry-setup";

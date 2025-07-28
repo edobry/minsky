@@ -50,6 +50,8 @@ export interface CategoryCommandOptions {
 export interface ParameterMappingOptions {
   /** Whether to use this parameter as a command argument */
   asArgument?: boolean;
+  /** Parameter alias (shorthand) */
+  alias?: string;
   /** Custom CLI option name */
   optionName?: string;
   /** Custom description for help text */
