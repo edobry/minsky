@@ -71,6 +71,9 @@ function processFileContentWithLineRange(
     endLine = Math.min(totalLines, startLine + 249);
   }
 
+  // Check if explicit ranges were provided (before any modifications)
+  const isExplicitRange = options.startLine !== undefined || options.endLine !== undefined;
+
   // Handle edge cases where startLine > endLine after clamping
   if (startLine > endLine) {
     // If start line is beyond available content, clamp to last line
@@ -87,14 +90,19 @@ function processFileContentWithLineRange(
   startLine = Math.max(1, Math.min(totalLines, startLine));
   endLine = Math.max(startLine, Math.min(totalLines, endLine));
 
-  // For all files, respect line ranges but may expand for better context
-  let actualStartLine = startLine;
-  let actualEndLine = endLine;
+  // Determine actual lines to use
+  let actualStartLine: number;
+  let actualEndLine: number;
 
-  // Only apply context expansion logic if no explicit ranges were provided
-  const isExplicitRange = options.startLine !== undefined || options.endLine !== undefined;
+  if (isExplicitRange) {
+    // For explicit ranges, use exact clamped values without any expansion
+    actualStartLine = startLine;
+    actualEndLine = endLine;
+  } else {
+    // Only apply context expansion logic if no explicit ranges were provided
+    actualStartLine = startLine;
+    actualEndLine = endLine;
 
-  if (!isExplicitRange) {
     // For very small files (≤50 lines), show entire file if range is small
     if (totalLines <= 50 && endLine - startLine + 1 < totalLines) {
       actualStartLine = 1;
