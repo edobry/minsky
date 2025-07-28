@@ -27,6 +27,7 @@ import {
 } from "./git/conflict-detection";
 import { validateError, validateGitError } from "../schemas/error";
 import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime";
+import { modularGitCommandsManager } from "./git/git-commands-modular";
 import {
   execGitWithTimeout,
   gitFetchWithTimeout,
@@ -993,7 +994,6 @@ export async function preparePrFromParams(params: {
   branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.preparePrFromParams(params);
 }
 
