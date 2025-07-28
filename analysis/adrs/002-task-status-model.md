@@ -1,6 +1,7 @@
 # ADR-002: Explicit Task Status with Git-Derived Insights
 
 ## Status
+
 Proposed
 
 ## Context
@@ -13,12 +14,14 @@ Task status tracking has two potential approaches:
 The question is whether task status should be explicitly tracked or implicitly derived from git operations.
 
 ### Git-Derived Status Mapping
+
 - Session exists → IN-PROGRESS
-- PR open → IN-REVIEW  
+- PR open → IN-REVIEW
 - PR merged → DONE
 - Branch deleted → CLOSED
 
 ### Challenges with Pure Git Derivation
+
 - BLOCKED status has no git equivalent
 - TODO status ambiguous (no session vs not started)
 - Custom workflows don't map to git operations
@@ -30,14 +33,15 @@ The question is whether task status should be explicitly tracked or implicitly d
 **Use explicit task status as the primary mechanism, with git-derived insights as supplementary information.**
 
 ### Status Model:
+
 ```typescript
 enum TaskStatus {
   TODO = "TODO",
-  IN_PROGRESS = "IN-PROGRESS", 
+  IN_PROGRESS = "IN-PROGRESS",
   IN_REVIEW = "IN-REVIEW",
   DONE = "DONE",
   BLOCKED = "BLOCKED",
-  CANCELLED = "CANCELLED"
+  CANCELLED = "CANCELLED",
 }
 
 interface TaskGitInsights {
@@ -53,18 +57,21 @@ interface TaskGitInsights {
 ## Rationale
 
 ### 1. Explicit Status Advantages
+
 - **Clear Intent**: Status reflects actual state, not git artifacts
 - **Flexibility**: Supports workflows beyond git conventions
 - **Speed**: No git operations required to check status
 - **Custom States**: BLOCKED, BACKLOG, etc. have no git equivalent
 
 ### 2. Git Insights Value
+
 - **Validation**: Detect status/git mismatches
 - **Automation**: Auto-update status on PR merge
 - **Context**: Show git state alongside status
 - **Migration**: Help derive initial status
 
 ### 3. Hybrid Benefits
+
 - Users can manually set status
 - System can suggest updates based on git
 - Dashboards show both explicit and derived state
@@ -73,6 +80,7 @@ interface TaskGitInsights {
 ## Consequences
 
 ### Positive
+
 - ✅ Supports all workflow types
 - ✅ Fast status queries
 - ✅ Clear user intent
@@ -80,11 +88,13 @@ interface TaskGitInsights {
 - ✅ Custom status values
 
 ### Negative
+
 - ❌ Status can diverge from git state
 - ❌ Requires explicit updates
 - ❌ Additional data to maintain
 
 ### Mitigation
+
 - Provide git-status sync command
 - Show warnings for mismatches
 - Automate common transitions
@@ -92,6 +102,7 @@ interface TaskGitInsights {
 ## Implementation
 
 ### 1. Database Schema
+
 ```sql
 CREATE TABLE tasks (
   id INTEGER PRIMARY KEY,
@@ -111,6 +122,7 @@ CREATE TABLE task_git_insights (
 ```
 
 ### 2. CLI Commands
+
 ```bash
 # Explicit status update
 minsky task status set 123 BLOCKED
@@ -123,6 +135,7 @@ minsky task status sync --all
 ```
 
 ### 3. Status Rules
+
 - Manual updates always take precedence
 - Git sync can be automated via hooks
 - Warnings shown for divergence

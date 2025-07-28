@@ -61,24 +61,52 @@ function processFileContentWithLineRange(
   }
 
   // Handle line range specification
-  const startLine = Math.max(1, options.startLine || 1);
-  const endLine = Math.min(totalLines, options.endLine || startLine + 249); // Default to 250 line window
+  let startLine = Math.max(1, options.startLine || 1);
+  let endLine: number;
+
+  if (options.endLine !== undefined) {
+    endLine = Math.min(totalLines, options.endLine);
+  } else {
+    // Default window size, but clamp to available content
+    endLine = Math.min(totalLines, startLine + 249);
+  }
+
+  // Handle edge cases where startLine > endLine after clamping
+  if (startLine > endLine) {
+    // If start line is beyond available content, clamp to last line
+    if (startLine > totalLines) {
+      startLine = totalLines;
+      endLine = totalLines;
+    } else {
+      // If end line is before start line due to user error, just use start line
+      endLine = startLine;
+    }
+  }
+
+  // Additional safety check: ensure both are within bounds
+  startLine = Math.max(1, Math.min(totalLines, startLine));
+  endLine = Math.max(startLine, Math.min(totalLines, endLine));
 
   // For all files, respect line ranges but may expand for better context
   let actualStartLine = startLine;
   let actualEndLine = endLine;
 
-  // For very small files (≤50 lines), show entire file if range is small
-  if (totalLines <= 50 && endLine - startLine + 1 < totalLines) {
-    actualStartLine = 1;
-    actualEndLine = totalLines;
-  } else {
-    // Expand small ranges to at least 50 lines for better context (like Cursor does)
-    const requestedLines = endLine - startLine + 1;
-    if (requestedLines < 50 && totalLines > 50) {
-      const expansion = Math.floor((50 - requestedLines) / 2);
-      actualStartLine = Math.max(1, startLine - expansion);
-      actualEndLine = Math.min(totalLines, endLine + expansion);
+  // Only apply context expansion logic if no explicit ranges were provided
+  const isExplicitRange = options.startLine !== undefined || options.endLine !== undefined;
+
+  if (!isExplicitRange) {
+    // For very small files (≤50 lines), show entire file if range is small
+    if (totalLines <= 50 && endLine - startLine + 1 < totalLines) {
+      actualStartLine = 1;
+      actualEndLine = totalLines;
+    } else {
+      // Expand small ranges to at least 50 lines for better context (like Cursor does)
+      const requestedLines = endLine - startLine + 1;
+      if (requestedLines < 50 && totalLines > 50) {
+        const expansion = Math.floor((50 - requestedLines) / 2);
+        actualStartLine = Math.max(1, startLine - expansion);
+        actualEndLine = Math.min(totalLines, endLine + expansion);
+      }
     }
   }
 

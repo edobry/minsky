@@ -2,7 +2,7 @@
  * Tests for auto-commit utility
  */
 import { describe, test, expect } from "bun:test";
-import { autoCommitTaskChanges } from "../auto-commit";
+import { autoCommitTaskChanges } from "./auto-commit";
 
 describe("autoCommitTaskChanges", () => {
   test("should be a function", () => {
