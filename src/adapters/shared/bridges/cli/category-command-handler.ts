@@ -141,19 +141,60 @@ export class CategoryCommandHandler {
     commandGroups: Map<string, Command>,
     context?: { viaFactory?: boolean }
   ): void {
-    // Parse command name for nested structure (e.g., "status get" -> ["status", "get"])
-    const nameParts = commandDef.name.split(" ");
+    // Parse command ID for hierarchical structure (e.g., "ai:models:list" -> ["ai", "models", "list"])
+    // The name contains just the final command name (e.g., "list")
+    const hierarchyParts = this.parseCommandHierarchy(commandDef);
 
-    if (nameParts.length === 1) {
+    if (hierarchyParts.length === 1) {
       // Simple command - add directly to category
       this.addSimpleCommand(categoryCommand, commandDef, context);
-    } else if (nameParts.length === 2) {
-      // Nested command - create/get the parent command and add as subcommand
-      this.addNestedCommand(categoryCommand, commandDef, nameParts, commandGroups, context);
     } else {
-      // More complex nesting - handle it with recursive nesting
-      this.addComplexNestedCommand(categoryCommand, commandDef, commandGroups, context);
+      // Nested command - use recursive nesting with hierarchy parts
+      this.addNestedCommandRecursive(
+        categoryCommand,
+        commandDef,
+        hierarchyParts,
+        commandGroups,
+        context
+      );
     }
+  }
+
+  /**
+   * Parse command hierarchy from ID and name
+   * E.g., id: "tasks.status.get", name: "status get" -> ["status", "get"]
+   * E.g., id: "ai.models.list", name: "list" -> ["ai", "models", "list"]
+   */
+  private parseCommandHierarchy(commandDef: any): string[] {
+    // Check if ID has category-based structure (e.g., "tasks.status.get", "ai.models.list")
+    const categoryPrefix = `${commandDef.category.toLowerCase()}.`;
+
+    if (commandDef.id.startsWith(categoryPrefix)) {
+      // Strip category prefix and parse remaining hierarchy
+      const hierarchyPart = commandDef.id.substring(categoryPrefix.length);
+      const idParts = hierarchyPart.split(".");
+
+      // The last part should match the command name
+      const lastPart = idParts[idParts.length - 1];
+      if (lastPart === commandDef.name) {
+        return idParts;
+      }
+      // If name doesn't match last ID part, append it
+      return [...idParts, commandDef.name];
+    }
+
+    // If ID contains dots but doesn't start with category, parse the whole ID
+    if (commandDef.id.includes(".")) {
+      const idParts = commandDef.id.split(".");
+      const lastPart = idParts[idParts.length - 1];
+      if (lastPart === commandDef.name) {
+        return idParts;
+      }
+      return [...idParts, commandDef.name];
+    }
+
+    // Fallback: split on spaces (legacy support)
+    return commandDef.name.split(" ");
   }
 
   /**
@@ -188,7 +229,7 @@ export class CategoryCommandHandler {
       return;
     }
 
-    // Get or create the parent command
+    // Get or create the parent command using consistent key generation
     const categoryName = categoryCommand.name() || "root";
     const commandKey = `${categoryName}.${parentName}`;
 
@@ -253,8 +294,23 @@ export class CategoryCommandHandler {
     const remainingParts = nameParts.slice(1);
 
     // Create a unique key for this command at this level
-    const parentName = parentCommand.name();
-    const commandKey = `${parentName || "root"}.${currentName}`;
+    // Find the parent command's key in the commandGroups map
+    let parentKey = "root";
+    let foundInGroups = false;
+    for (const [key, cmd] of commandGroups.entries()) {
+      if (cmd === parentCommand) {
+        parentKey = key;
+        foundInGroups = true;
+        break;
+      }
+    }
+
+    // If parent not found in groups, it's likely the category command
+    if (!foundInGroups) {
+      parentKey = parentCommand.name() || "root";
+    }
+
+    const commandKey = `${parentKey}.${currentName}`;
 
     // Get or create the intermediate command
     let intermediateCommand = commandGroups.get(commandKey);
