@@ -101,13 +101,13 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
     }),
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionNameName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
         await pathResolver.validatePathExists(resolvedPath);
 
         const content = await readFile(resolvedPath, "utf8");
 
         log.debug("Session file read successful", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           contentLength: content.length,
@@ -117,16 +117,16 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           success: true,
           content,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionNameName),
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
             resolvedPath
           ),
         };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -135,7 +135,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
         };
       }
     },
@@ -157,7 +157,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
     }),
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionNameName, args.path);
+        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Create parent directories if requested and they don't exist
         if (args.createDirs) {
@@ -168,7 +168,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         await writeFile(resolvedPath, args.content, "utf8");
 
         log.debug("Session file write successful", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           resolvedPath,
           contentLength: args.content.length,
@@ -178,9 +178,9 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         return {
           success: true,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
           resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionNameName),
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
             resolvedPath
           ),
           bytesWritten: args.content.length,
@@ -188,7 +188,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
-          session: args.sessionNameName,
+          session: args.sessionName,
           path: args.path,
           error: errorMessage,
         });
@@ -197,7 +197,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           success: false,
           error: errorMessage,
           path: args.path,
-          session: args.sessionNameName,
+          session: args.sessionName,
         };
       }
     },
