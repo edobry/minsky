@@ -26,7 +26,7 @@ export async function registerAllSharedCommands(): Promise<void> {
   registerTasksCommands();
 
   // Register session commands (async)
-  await registerSessionCommands();
+  // await registerSessionCommands(); // TODO: Fix registration conflicts
 
   // Register rules commands
   registerRulesCommands();
