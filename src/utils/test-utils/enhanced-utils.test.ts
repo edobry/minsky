@@ -60,7 +60,7 @@ describe("Enhanced Test Utilities", () => {
       let mockFn = mockFunction<(n: unknown) => number>();
 
       // Set implementation
-      mockFn = mockFunction((n) => n * 2);
+      mockFn = mock((n) => n * 2);
 
       // Use the mock
       const result = mockFn(TEST_ARRAY_SIZE);

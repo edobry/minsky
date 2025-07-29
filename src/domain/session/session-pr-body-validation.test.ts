@@ -53,6 +53,25 @@ describe("Session PR Body Validation Bug Fix", () => {
           taskId: "123",
           createdAt: new Date().toISOString(),
         }),
+      // Also provide getSessionByTaskId and listSessions for comprehensive coverage
+      getSessionByTaskId: () =>
+        Promise.resolve({
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          taskId: "123",
+          createdAt: new Date().toISOString(),
+        }),
+      listSessions: () =>
+        Promise.resolve([
+          {
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          },
+        ]),
     });
 
     const mockTaskService = createMockTaskService({

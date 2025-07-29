@@ -114,7 +114,7 @@ describe("SessionDB Functional Implementation", () => {
       const session = getSessionFn(state, "test-session-1");
       expect(session).not.toBeNull();
       expect(session?.session).toBe("test-session-1");
-      expect(session?.taskId).toBe("#101");
+      expect(session?.taskId).toBe("101");
     });
 
     it("should return null if session not found", () => {
@@ -161,7 +161,7 @@ describe("SessionDB Functional Implementation", () => {
       const newState = addSessionFn(state, newSession);
       expect(newState.sessions).toHaveLength(3);
       expect(newState.sessions[2]!.session).toBe("test-session-3");
-      expect(newState.sessions[2]!.taskId).toBe("#103");
+      expect(newState.sessions[2]!.taskId).toBe("103");
     });
   });
 
@@ -176,7 +176,7 @@ describe("SessionDB Functional Implementation", () => {
       const newState = updateSessionFn(state, "test-session-1", updates);
       const updatedSession = getSessionFn(newState, "test-session-1");
       expect(updatedSession?.branch).toBe("updated-branch");
-      expect(updatedSession?.taskId).toBe("#999");
+      expect(updatedSession?.taskId).toBe("999");
       expect(updatedSession?.repoName).toBe("local/minsky"); // Original value preserved
     });
 

@@ -1,15 +1,16 @@
 import { test, expect, describe, mock, beforeEach } from "bun:test";
 import { ConflictDetectionService } from "./conflict-detection";
 import { ConflictType } from "./conflict-detection-types";
+import { mockFunction } from "../../utils/test-utils";
 // Note: Simplified version focusing on working tests only
 
 // Mock git utilities (which is what the service actually uses)
-let mockExecGitWithTimeout = mockFunction(() => Promise.resolve({ stdout: "", stderr: "" }));
-let mockGitFetchWithTimeout = mockFunction(() => Promise.resolve({ stdout: "", stderr: "" }));
+let mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
+let mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 
 // Create a configurable mock implementation that tests can modify
 let mockExecAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
-let mockExecAsync = mockFunction(() => mockExecAsyncImpl());
+let mockExecAsync = mock(() => mockExecAsyncImpl());
 
 // Override the imports with mocks
 mock.module("../../utils/git-exec", () => ({
@@ -37,9 +38,9 @@ describe("ConflictDetectionService", () => {
   const baseBranch = "main";
 
   beforeEach(() => {
-    mockExecGitWithTimeout.mockClear();
-    mockExecAsync.mockClear();
-    // clearLoggerMocks(mockLog); // This line was removed as per the new_code
+    // Recreate mocks to reset them (bun:test pattern)
+    mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
+    mockExecAsync = mock(() => mockExecAsyncImpl());
     // Reset mock implementation to default
     mockExecAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
   });

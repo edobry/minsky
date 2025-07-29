@@ -374,7 +374,7 @@ describe("Session CLI Commands", () => {
 
       // Assert: Session update should succeed and preserve task ID
       expect(result.session).toBe(sessionName);
-      expect(result.taskId).toBe("task#42");
+      expect(result.taskId).toBe("42");
     });
 
     test("TASK #168 FIX: should provide clear error message when session workspace directory is missing", async () => {
