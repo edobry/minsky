@@ -16,7 +16,6 @@ export interface MarkdownConfig extends Omit<TaskBackendConfig, "workspacePath">
 
   /**
    * Repository URL for workspace resolution
-   * When provided, backend will use special workspace management
    */
   repoUrl?: string;
 
@@ -27,7 +26,7 @@ export interface MarkdownConfig extends Omit<TaskBackendConfig, "workspacePath">
   workspacePath?: string;
 
   /**
-   * Whether to force use of special workspace even if local tasks.md exists
+   * Force workspace selection behavior
    * Default: false (use local if available)
    */
 }
@@ -82,6 +81,6 @@ export interface BackendManagedTaskServiceOptions {
  */
 export interface WorkspaceResolutionResult {
   workspacePath: string;
-  method: "explicit" | "special-workspace" | "current-directory" | "local-tasks-md";
+  method: "explicit" | "current-directory" | "local-tasks-md";
   description: string;
 }
