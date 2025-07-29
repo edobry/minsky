@@ -68,11 +68,11 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   async getDefaultProvider(): Promise<string> {
     try {
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      return (
+      const defaultProvider =
         (result.resolved.ai as any).defaultProvider ||
         (result.resolved.ai as any).default_provider ||
-        "openai"
-      );
+        "openai";
+      return defaultProvider;
     } catch (error) {
       // Log at debug level only - this is expected when no config exists
       log.systemDebug("No default provider configured, using fallback: openai");
@@ -99,7 +99,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   private validateAPIKeyFormat(provider: string, apiKey: string): boolean {
     // Basic format validation for known providers
     const formatMap: Record<string, RegExp> = {
-      openai: /^sk-[a-zA-Z0-9]{20,}$/,
+      openai: /^sk-[a-zA-Z0-9_-]{20,}$/, // Allow dashes and underscores for modern keys
       anthropic: /^sk-ant-api03-[a-zA-Z0-9_-]{95}$/,
       google: /^AIza[0-9A-Za-z_-]{35}$/,
       cohere: /^[a-zA-Z0-9_-]+$/,

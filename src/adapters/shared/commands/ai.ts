@@ -135,10 +135,10 @@ export function registerAiCommands(): void {
         }
 
         // Create AI completion service with proper configuration service
-        const configService = new DefaultAIConfigurationService({
-          loadConfiguration: () => Promise.resolve({ resolved: config }),
-        } as any);
-        const completionService = new DefaultAICompletionService(configService);
+        const mockConfigService = {
+          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
+        };
+        const completionService = new DefaultAICompletionService(mockConfigService);
 
         const request = {
           prompt,
@@ -216,7 +216,10 @@ export function registerAiCommands(): void {
           exit(1);
         }
 
-        const completionService = new DefaultAICompletionService(aiConfig);
+        const mockConfigService = {
+          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
+        };
+        const completionService = new DefaultAICompletionService(mockConfigService);
 
         // For now, chat is not implemented due to readline complexity in Bun
         log.cliError("Interactive chat is not yet implemented. Use 'minsky ai complete' instead.");
@@ -268,7 +271,10 @@ export function registerAiCommands(): void {
           exit(1);
         }
 
-        const completionService = new DefaultAICompletionService(aiConfig);
+        const mockConfigService = {
+          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
+        };
+        const completionService = new DefaultAICompletionService(mockConfigService);
         const models = await completionService.getAvailableModels(provider as string | undefined);
 
         if (models.length === 0) {
@@ -367,7 +373,10 @@ export function registerAiCommands(): void {
           exit(1);
         }
 
-        const completionService = new DefaultAICompletionService(aiConfig);
+        const mockConfigService = {
+          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
+        };
+        const completionService = new DefaultAICompletionService(mockConfigService);
         const result = await completionService.validateConfiguration();
 
         // Collect validation results for JSON output
@@ -427,7 +436,7 @@ export function registerAiCommands(): void {
                 }
               }
             } else {
-              if (!json) log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
+              if (!json) log.cliWarn(`⚠ ${providerName} not configured (missing API key)`);
             }
 
             validationResults.providers.push(providerResult);
@@ -446,7 +455,7 @@ export function registerAiCommands(): void {
             }
 
             for (const warning of result.warnings) {
-              log.cliWarning(`  - ${warning.field}: ${warning.message}`);
+              log.cliWarn(`  - ${warning.field}: ${warning.message}`);
             }
             exit(1);
           }
