@@ -29,19 +29,14 @@ export const TaskTitleSchema = z.string().min(1, "Task title cannot be empty");
 /**
  * Task status schema
  */
-export const TaskStatusSchema = z.enum([
-  "TODO",
-  "IN-PROGRESS",
-  "IN-REVIEW",
-  "DONE",
-  "BLOCKED",
-  "CLOSED",
-], {
-  errorMap: () => ({
-    message:
-      "Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED",
-  }),
-});
+export const TaskStatusSchema = z.enum(
+  ["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"],
+  {
+    errorMap: () => ({
+      message: "Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED",
+    }),
+  }
+);
 
 /**
  * Task description schema
@@ -86,7 +81,5 @@ export const TaskStatusUpdateParametersSchema = BaseBackendParametersSchema.exte
 export type TaskCreateParameters = z.infer<typeof TaskCreateParametersSchema>;
 export type TaskListParameters = z.infer<typeof TaskListParametersSchema>;
 export type TaskGetParameters = z.infer<typeof TaskGetParametersSchema>;
-export type TaskStatusUpdateParameters = z.infer<
-  typeof TaskStatusUpdateParametersSchema
->;
+export type TaskStatusUpdateParameters = z.infer<typeof TaskStatusUpdateParametersSchema>;
 export type BaseTaskParameters = z.infer<typeof BaseBackendParametersSchema>;
