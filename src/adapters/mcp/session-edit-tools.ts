@@ -3,7 +3,6 @@
  * Provides session-scoped edit_file and search_replace tools that match Cursor's interface
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { z } from "zod";
 import { readFile, writeFile, stat } from "fs/promises";
 import { dirname } from "path";
 import { SessionPathResolver } from "./session-files";
@@ -11,27 +10,23 @@ import { log } from "../../utils/logger";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";
+import {
+  SessionFileEditSchema,
+  SessionSearchReplaceSchema,
+  type SessionFileEdit,
+  type SessionSearchReplace,
+} from "./schemas/common-parameters";
+import { createFileOperationResponse, createErrorResponse } from "./schemas/common-responses";
 
 /**
- * Interface for edit file operation
+ * Interface for edit file operation - now using shared type
  */
-interface EditFileArgs {
-  sessionName: string;
-  path: string;
-  instructions: string;
-  content: string;
-  createDirs?: boolean;
-}
+type EditFileArgs = SessionFileEdit;
 
 /**
- * Interface for search replace operation
+ * Interface for search replace operation - now using shared type
  */
-interface SearchReplaceArgs {
-  sessionName: string;
-  path: string;
-  search: string;
-  replace: string;
-}
+type SearchReplaceArgs = SessionSearchReplace;
 
 /**
  * Registers session-aware file editing tools with the MCP command mapper
@@ -43,17 +38,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.edit_file",
     description: "Edit a file within a session workspace using a diff-like format",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      instructions: z.string().describe("Instructions describing the edit to make"),
-      content: z.string().describe("The edit content with '// ... existing code ...' markers"),
-      createDirs: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
+    parameters: SessionFileEditSchema,
     handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -105,14 +90,17 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           contentLength: finalContent.length,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          edited: true,
-          created: !fileExists,
-          bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+          },
+          {
+            edited: true,
+            created: !fileExists,
+            bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
@@ -121,12 +109,10 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
@@ -135,12 +121,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.search_replace",
     description: "Replace a single occurrence of text in a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      search: z.string().describe("Text to search for (must be unique in the file)"),
-      replace: z.string().describe("Text to replace with"),
-    }),
+    parameters: SessionSearchReplaceSchema,
     handler: async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -178,14 +159,18 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           replaceLength: args.replace.length,
         });
 
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          replaced: true,
-          searchText: args.search,
-          replaceText: args.replace,
-        };
+        return createFileOperationResponse(
+          {
+            path: args.path,
+            session: args.sessionName,
+          },
+          {
+            edited: true,
+            replaced: true,
+            searchText: args.search,
+            replaceText: args.replace,
+          }
+        );
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {
@@ -194,12 +179,10 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           error: errorMessage,
         });
 
-        return {
-          success: false,
-          error: errorMessage,
+        return createErrorResponse(errorMessage, {
           path: args.path,
           session: args.sessionName,
-        };
+        });
       }
     },
   });
