@@ -3,6 +3,7 @@
  * These functions are used by the CLI and MCP adapters
  */
 import { z } from "zod";
+import { resolveRepoPath } from "../repo-utils";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import {
@@ -419,10 +420,8 @@ export async function getTaskSpecContentFromParams(
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
-    // SYNCHRONIZATION FIX: Use the stored spec path directly from the task database
-    // instead of calling getTaskSpecPath which may generate stale paths
-    const { fixTaskSpecPath } = await import("../../utils/task-workspace-commit");
-    const specPath = await fixTaskSpecPath(task.id, task.specPath || "", workspacePath);
+    // Use the task's spec path directly (simplified architecture)
+    const specPath = task.specPath;
 
     if (!specPath) {
       throw new ResourceNotFoundError(`Task ${taskId} has no specification file`, "task", taskId);
