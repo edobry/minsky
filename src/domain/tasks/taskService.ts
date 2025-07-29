@@ -647,7 +647,6 @@ ${description}
       backendConfig: {
         name: "markdown",
         repoUrl: config.repoUrl,
-        forceSpecialWorkspace: config.forceSpecialWorkspace,
       },
     });
   }
