@@ -46,11 +46,7 @@ export class JsonFileStorage implements DatabaseStorage<SessionRecord, SessionDb
 
   async readState(): Promise<DatabaseReadResult<SessionDbState>> {
     try {
-      const sessions = readSessionDbFile(this.getFileOptions());
-      const state: SessionDbState = {
-        sessions,
-        baseDir: this.baseDir,
-      };
+      const state = readSessionDbFile(this.getFileOptions());
       return {
         success: true,
         data: state,
