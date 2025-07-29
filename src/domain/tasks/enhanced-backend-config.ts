@@ -45,7 +45,6 @@ export interface WorkspaceResolvingJsonConfig extends Omit<TaskBackendConfig, "w
 
   /**
    * Repository URL for in-tree storage (optional)
-   * When provided, backend will use special workspace
    */
   repoUrl?: string;
 
