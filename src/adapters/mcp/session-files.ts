@@ -8,7 +8,6 @@ import { createSessionProvider, type SessionProviderInterface } from "../../doma
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { FileOperationResponse } from "../../types/semantic-errors";
 import {
   FileReadSchema,
   FileWriteSchema,
@@ -19,9 +18,6 @@ import {
   FileRenameSchema,
   DirectoryCreateSchema,
   GrepSearchSchema,
-  SessionFileRead,
-  SessionFileWrite,
-  SessionDirectoryList,
   FileOperationResponse,
 } from "../../domain/schemas";
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";

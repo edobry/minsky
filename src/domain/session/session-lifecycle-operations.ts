@@ -2,7 +2,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
-import { taskIdSchema } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import type {
   SessionGetParams,
   SessionListParams,
@@ -114,7 +114,7 @@ export async function getSessionDirImpl(
 
   if (params.task && !params.name) {
     // Find session by task ID
-    const normalizedTaskId = taskIdSchema.parse(params.task);
+    const normalizedTaskId = TaskIdSchema.parse(params.task);
     const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
 
     if (!session) {
