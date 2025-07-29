@@ -32,11 +32,11 @@ describe("Real-World Workflow Testing", () => {
 
   describe("JSON Backend Real Storage", () => {
     it("should actually create and store data in the correct location", async () => {
-      // 1. Create JSON backend with special workspace path
+      // 1. Create JSON backend with explicit path
       const jsonBackend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: testBaseDir,
-        dbFilePath: testJsonPath, // Explicit special workspace location
+        dbFilePath: testJsonPath, // Explicit database location
       });
 
       // 2. Verify the backend knows its storage location
@@ -104,7 +104,7 @@ describe("Real-World Workflow Testing", () => {
 
   describe("TaskService Integration", () => {
     it("should work with JSON backend for complete task operations", async () => {
-      // 1. Create TaskService with JSON backend in special workspace location
+      // 1. Create TaskService with JSON backend in explicit location
       const jsonBackend = createJsonFileTaskBackend({
         name: "json-file",
         workspacePath: testBaseDir,

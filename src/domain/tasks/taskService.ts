@@ -611,7 +611,7 @@ ${description}
         }
 
         const { createMarkdownBackend } = await import("./markdown-backend");
-        resolvedBackend = await createMarkdownBackend(backendConfig, isReadOperation);
+        resolvedBackend = createMarkdownBackend(backendConfig);
         break;
       }
 
@@ -621,7 +621,7 @@ ${description}
         }
 
         const { createWorkspaceResolvingJsonBackend } = await import("./json-backend");
-        resolvedBackend = await createWorkspaceResolvingJsonBackend(backendConfig, isReadOperation);
+        resolvedBackend = createWorkspaceResolvingJsonBackend(backendConfig);
         break;
       }
 
@@ -641,16 +641,12 @@ ${description}
   /**
    * Convenience method for markdown backends with repo URLs
    */
-  static async createMarkdownWithRepo(config: {
-    repoUrl: string;
-    forceSpecialWorkspace?: boolean;
-  }): Promise<TaskService> {
+  static async createMarkdownWithRepo(config: { repoUrl: string }): Promise<TaskService> {
     return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
         name: "markdown",
         repoUrl: config.repoUrl,
-        forceSpecialWorkspace: config.forceSpecialWorkspace,
       },
     });
   }
