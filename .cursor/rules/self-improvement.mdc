@@ -436,6 +436,66 @@ User: "312 @Start Task"
 Assistant: [searches for task specification, finds it in special workspace, investigates architectural context, understands complete requirements before starting]
 ```
 
+## ⚠️ CRITICAL SECRET PROTECTION PROTOCOL
+
+**🔥 SECURITY CRITICAL: NEVER COMMIT SECRETS TO ANY REPOSITORY UNDER ANY CIRCUMSTANCES 🔥**
+
+### Documented Secret Exposure Near-Miss
+
+**Pattern**: Creating documentation, task files, or examples containing real API keys, tokens, or credentials
+- **Critical Error**: Real API keys and GitHub tokens were nearly committed to repository in task documentation
+- **User Signal**: "we must NEVER commit secrets to the repo!!!!! we were lucky that github saved us here"
+- **Root Cause**: Security Error - failed to sanitize real credentials when creating documentation/examples
+- **Only Solution**: GitHub push protection prevented catastrophic credential exposure
+
+### MANDATORY SECRET PROTECTION VERIFICATION
+
+**BEFORE ANY commit or file creation, MUST verify:**
+- [ ] **NO real API keys** in any file content (look for `sk-`, `github_pat_`, etc.)
+- [ ] **NO real tokens or credentials** of any kind
+- [ ] **USE PLACEHOLDER VALUES ONLY** in examples (`sk-xxx...`, `github_pat_xxx...`)
+- [ ] **SCAN all file changes** for credential patterns before staging
+- [ ] **DOUBLE-CHECK task files** and documentation for real secrets
+
+### Enhanced Error Detection for Secret Exposure
+
+When creating ANY file that might reference credentials:
+- **Configuration examples**: Use `sk-xxx...` not real keys
+- **Task documentation**: Redact all real credentials
+- **Error messages**: Never copy/paste error output containing real keys
+- **Debug logs**: Sanitize before documenting
+
+**If ANY real credential appears in file content:**
+1. **STOP ALL OPERATIONS** immediately
+2. **DO NOT COMMIT** under any circumstances
+3. **SANITIZE file content** to use placeholder values
+4. **VERIFY no traces** of real credentials remain
+
+### ZERO-TOLERANCE ENFORCEMENT
+
+**This is a TERMINAL ERROR class violation:**
+- **Any real credential in repository**: Immediate operational pause
+- **Must implement preventive measures**: Pre-commit secret scanning required
+- **Update ALL documentation practices**: Use only sanitized examples
+
+### Examples
+
+// AVOID - TERMINAL SECURITY VIOLATION
+```markdown
+SECURITY ISSUE:
+- API keys displayed: sk-proj-m6Pv5d7juvrYrIO8XAD82H5oBrWhtl2p17IAU... [REAL KEY]
+- GitHub tokens exposed: github_pat_11AAAM3VY0TPZtiZ5lxx15... [REAL TOKEN]
+```
+
+// PREFER - SANITIZED EXAMPLES
+```markdown
+SECURITY ISSUE:
+- API keys displayed: sk-proj-xxx...xxxxx (configured but showing in output)
+- GitHub tokens exposed: github_pat_xxx...xxxxx (configured but exposed)
+```
+
+**CRITICAL**: Real credential exposure is a catastrophic security failure requiring immediate system-wide security review.
+
 ### Examples of Rule Update Requirements
 
 **Violation Pattern**: Taking corrective action without updating rules
