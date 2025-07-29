@@ -1120,16 +1120,14 @@ Sessions provide complete workspace isolation:
 - **Type Safety**: Full TypeScript support with runtime validation
 - **Maintainability**: Clear separation of concerns makes the codebase easier to understand and modify
 
+
 ## 🔒 Security: Secret Scanning
 
 This project includes **critical security measures** to prevent credential exposure:
 
 ### Pre-Commit Secret Scanning
 
-**Dual-layer protection** automatically scans for secrets before every commit:
-
-1. **Primary Scanner: Gitleaks** - Comprehensive binary scanner
-2. **Secondary Scanner: Secretlint** - JavaScript-native scanner with custom rules
+**Gitleaks** automatically scans for secrets before every commit and blocks dangerous commits.
 
 ### Protected Secret Types
 
@@ -1143,16 +1141,28 @@ This project includes **critical security measures** to prevent credential expos
 - **Private Keys** (SSH, SSL, etc.)
 - **Basic Auth credentials** in URLs
 
+### Setup Requirements
+
+**Install gitleaks:**
+```bash
+# macOS
+brew install gitleaks
+
+# Linux
+apt install gitleaks
+# or download from: https://github.com/gitleaks/gitleaks/releases
+```
+
 ### Manual Scanning Commands
 
 ```bash
-# Scan with gitleaks
-bun run secrets:gitleaks
-
-# Scan with secretlint  
+# Scan entire repository
 bun run secrets:scan
 
-# Scan staged files only
+# Scan with full gitleaks options
+bun run secrets:gitleaks
+
+# Scan staged files only (pre-commit simulation)
 gitleaks protect --staged --source .
 ```
 
@@ -1162,6 +1172,7 @@ gitleaks protect --staged --source .
 - **Use placeholder values** in documentation: `sk-proj-xxx...xxxxx`
 - **Never disable** secret scanning for convenience
 - **Real credentials** should NEVER be committed to any repository
+- **Missing gitleaks** will show warning but not block commits (temporary)
 
 This system prevented a **critical security incident** where real API keys were nearly committed to the repository.
 
