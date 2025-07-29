@@ -1678,3 +1678,30 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
+
+## [Task #341] - 2025-07-29
+
+### 🔒 SECURITY: Critical Secret Scanning Implementation
+
+#### Added
+- **Pre-commit secret scanning** with dual-layer protection (Gitleaks + Secretlint)
+- **Comprehensive secret detection** for OpenAI, GitHub, Anthropic, AWS, GCP, Slack, NPM tokens
+- **Enhanced `.husky/pre-commit`** hook with security-first execution order
+- **Developer tools**: `secrets:scan` and `secrets:gitleaks` npm scripts
+- **Security documentation** in README with best practices and usage guidelines
+- **Configuration files**: `.secretlintrc.json`, `.secretlintignore` for customization
+
+#### Security Impact
+- **Prevents catastrophic credential exposure** (addresses critical near-miss incident)
+- **Blocks commits containing real secrets** with clear error messages and remediation guidance
+- **Zero tolerance enforcement** for real credentials in repository
+- **Fast performance** (<2 seconds) maintains developer workflow efficiency
+
+#### Technical Details
+- **Gitleaks** (Go binary): Primary scanner with comprehensive built-in rules
+- **Secretlint** (TypeScript): Secondary scanner integrated with npm ecosystem
+- **Multi-pattern detection**: API keys, tokens, private keys, basic auth, environment variables
+- **Backwards compatible**: Preserves existing variable naming and ESLint checks
+
+This implementation successfully addresses **Task #341: Implement Pre-Commit Secret Scanning with Husky** and establishes robust security measures to prevent future credential exposure incidents.
+
