@@ -7,7 +7,7 @@
  * 3. Verify proper cleanup allows subsequent session creation
  */
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
 import {
