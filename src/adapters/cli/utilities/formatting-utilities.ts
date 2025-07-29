@@ -168,8 +168,12 @@ export function formatResolvedConfiguration(resolved: any): string {
     }
 
     if (resolved.credentials.ai && Object.keys(resolved.credentials.ai).length > 0) {
-      const configuredProviders = Object.keys(resolved.credentials.ai);
-      authServices.push(`AI (${configuredProviders.join(", ")})`);
+      const configuredProviders = Object.keys(resolved.credentials.ai).filter(
+        (provider) => provider !== "undefined"
+      );
+      if (configuredProviders.length > 0) {
+        authServices.push(`AI (${configuredProviders.join(", ")})`);
+      }
     }
 
     output += authServices.join(", ");
@@ -227,7 +231,7 @@ export function formatResolvedConfiguration(resolved: any): string {
   // GitHub Configuration
   if (resolved.github && Object.keys(resolved.github).length > 0) {
     output += "\n🐙 GitHub: ";
-    const githubDetails = [];
+    const githubDetails: string[] = [];
 
     if (resolved.github.organization) {
       githubDetails.push(`org: ${resolved.github.organization}`);
@@ -255,7 +259,7 @@ export function formatResolvedConfiguration(resolved: any): string {
 
     if (hasNonDefaultSettings) {
       output += "\n📊 Logger: ";
-      const loggerDetails = [];
+      const loggerDetails: string[] = [];
 
       if (logger.mode && logger.mode !== "auto") {
         loggerDetails.push(`mode: ${logger.mode}`);
@@ -286,7 +290,7 @@ export function formatResolvedConfiguration(resolved: any): string {
 
     if (hasNonEmptyBackends) {
       output += "\n⚙️  Backend Config: ";
-      const backendDetails = [];
+      const backendDetails: string[] = [];
 
       for (const [backend, config] of Object.entries(resolved.backendConfig)) {
         if (config && typeof config === "object" && Object.keys(config as object).length > 0) {

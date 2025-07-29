@@ -7,6 +7,7 @@
 import { SessionCommandRegistry } from "./session/base-session-command";
 import {
   setupSessionCommandRegistry,
+  createAllSessionCommands,
   type SessionCommandDependencies,
   createSessionListCommand,
   createSessionGetCommand,
@@ -17,7 +18,7 @@ import {
   createSessionApproveCommand,
   createSessionPrCommand,
   createSessionInspectCommand,
-} from "./session";
+} from "./session/";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**

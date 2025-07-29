@@ -171,7 +171,12 @@ async function gatherCredentialInfo(credentialResolver: DefaultCredentialResolve
   if (config.ai?.providers) {
     credentials.ai = {};
     for (const [provider, providerConfig] of Object.entries(config.ai.providers)) {
-      if (providerConfig && typeof providerConfig === "object") {
+      if (
+        provider &&
+        provider !== "undefined" &&
+        providerConfig &&
+        typeof providerConfig === "object"
+      ) {
         const providerCfg = providerConfig as any;
         if (providerCfg.apiKey) {
           credentials.ai[provider] = {
