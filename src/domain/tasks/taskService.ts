@@ -643,7 +643,7 @@ ${description}
    */
   static async createMarkdownWithRepo(config: {
     repoUrl: string;
-    // forceSpecialWorkspace removed - simplified architecture
+    // All task operations now run in current workspace
   }): Promise<TaskService> {
     return TaskService.createWithEnhancedBackend({
       backend: "markdown",

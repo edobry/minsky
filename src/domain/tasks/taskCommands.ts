@@ -420,7 +420,7 @@ export async function getTaskSpecContentFromParams(
       throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
     }
 
-    // Use the task's spec path directly (simplified architecture)
+    // Use the task's spec path directly
     const specPath = task.specPath;
 
     if (!specPath) {

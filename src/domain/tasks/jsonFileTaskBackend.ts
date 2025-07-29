@@ -119,7 +119,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       supportsFullTextSearch: true, // Can search through JSON content
 
       // Update mechanism - direct database operations
-      // requiresSpecialWorkspace removed - simplified architecture
+      // All operations now work in main workspace
       supportsTransactions: true, // JSON file operations can be atomic
       supportsRealTimeSync: false, // File-based, but more efficient than markdown
     };
