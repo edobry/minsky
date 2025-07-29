@@ -5,7 +5,7 @@
  * both regular workspace and special workspace scenarios.
  */
 import { describe, test, expect } from "bun:test";
-import { commitTaskChanges } from "../task-workspace-commit";
+import { commitTaskChanges } from "./task-workspace-commit";
 
 describe("commitTaskChanges", () => {
   const defaultOptions = {
