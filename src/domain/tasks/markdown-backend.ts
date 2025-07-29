@@ -1,14 +1,12 @@
 /**
- * Workspace-Resolving Markdown Task Backend
+ * Simplified Markdown Task Backend
  *
- * This backend handles its own workspace resolution internally,
- * eliminating the need for external TaskBackendRouter complexity.
+ * Operates directly in the main workspace without special workspace complexity.
  */
 
 import { join } from "path";
 import { existsSync } from "fs";
 import { MarkdownTaskBackend } from "./markdownTaskBackend";
-import { createSpecialWorkspaceManager } from "../workspace/special-workspace-manager";
 import type { TaskBackend } from "./taskBackend";
 import type { MarkdownConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { TaskBackendConfig } from "../../types/tasks/taskData";
@@ -17,11 +15,8 @@ import { log } from "../../utils/logger";
 /**
  * Resolve workspace path using configuration
  */
-async function resolveWorkspacePath(
-  config: MarkdownConfig,
-  isReadOperation: boolean = false
-): Promise<WorkspaceResolutionResult> {
-  // 1. Explicit workspace path override
+function resolveWorkspacePath(config: MarkdownConfig): WorkspaceResolutionResult {
+  // 1. Use explicitly provided workspace path
   if (config.workspacePath) {
     return {
       workspacePath: config.workspacePath,
@@ -30,92 +25,13 @@ async function resolveWorkspacePath(
     };
   }
 
-  // 2. Repository URL provided - use special workspace with timeout protection
-  if (config.repoUrl) {
-    // ⚠️ DEPRECATION WARNING: Special workspace approach is deprecated
-    log.warn(`
-⚠️  DEPRECATION WARNING: In-tree task backends are deprecated
-
-    Migration recommended: 'minsky migrate to-github-issues'
-
-    Benefits of GitHub Issues:
-    • Rich task specifications with markdown
-    • Native GitHub workflow integration
-    • Better collaboration and discussion
-    • Foundation for future AI features
-
-    Support for in-tree backends will be removed in a future version.
-    See: https://github.com/your-org/minsky/blob/main/analysis/adrs/003-deprecate-in-tree-backends.md
-  `);
-
-    try {
-      const specialWorkspaceManager = createSpecialWorkspaceManager({
-        repoUrl: config.repoUrl,
-      });
-
-      // Add timeout protection for initialization
-      const initTimeout = new Promise<never>((_, reject) => {
-        setTimeout(() => reject(new Error("Special workspace initialization timeout")), 10000); // 10 second timeout
-      });
-
-      // Use read-only initialization for read operations to avoid locking
-      const initPromise = isReadOperation
-        ? specialWorkspaceManager.initializeReadOnly()
-        : specialWorkspaceManager.initialize();
-
-      await Promise.race([initPromise, initTimeout]);
-
-      return {
-        workspacePath: specialWorkspaceManager.getWorkspacePath(),
-        method: "special-workspace",
-        description: `Using special workspace for repository: ${config.repoUrl}`,
-      };
-    } catch (error) {
-      log.warn("Special workspace failed, falling back to current directory", {
-        error: error instanceof Error ? error.message : String(error),
-        repoUrl: config.repoUrl,
-      });
-      // Fall through to current directory fallback
-    }
-  }
-
-  // 3. ALWAYS use special workspace for task operations - NO FALLBACKS
-  // Task operations MUST be consistent across CLI and MCP interfaces
-  log.debug("Task operations require special workspace - waiting for initialization");
-
-  // ⚠️ DEPRECATION WARNING: Special workspace approach is deprecated
-  log.warn(`
-⚠️  DEPRECATION WARNING: In-tree task backends are deprecated
-
-    Migration recommended: 'minsky migrate to-github-issues'
-
-    Benefits of GitHub Issues:
-    • Rich task specifications with markdown
-    • Native GitHub workflow integration
-    • Better collaboration and discussion
-    • Foundation for future AI features
-
-    Support for in-tree backends will be removed in a future version.
-    See: https://github.com/your-org/minsky/blob/main/analysis/adrs/003-deprecate-in-tree-backends.md
-  `);
-
-  const specialWorkspaceManager = createSpecialWorkspaceManager({
-    repoUrl: "https://github.com/local/minsky-tasks.git", // Default repo for tasks
-    workspaceName: "task-operations",
-    lockTimeoutMs: 30000, // Wait up to 30 seconds for lock
-  });
-
-  // Use read-only initialization for read operations to avoid locking
-  if (isReadOperation) {
-    await specialWorkspaceManager.initializeReadOnly();
-  } else {
-    await specialWorkspaceManager.initialize();
-  }
+  // 2. Use current working directory as default
+  const workspacePath = process.cwd();
 
   return {
-    workspacePath: specialWorkspaceManager.getWorkspacePath(),
-    method: "special-workspace",
-    description: "Using special workspace for consistent task operations",
+    workspacePath,
+    method: "current-directory",
+    description: "Using current working directory",
   };
 }
 
@@ -138,26 +54,19 @@ export class ConfigurableMarkdownBackend extends MarkdownTaskBackend {
   }
 
   /**
-   * This backend manages its own workspace resolution
-   * Determine based on resolution method
+   * This backend operates in-tree (in the main workspace)
    */
   isInTreeBackend(): boolean {
-    return (
-      this.workspaceResolutionResult.method === "special-workspace" ||
-      this.workspaceResolutionResult.method === "local-tasks-md"
-    );
+    return true;
   }
 }
 
 /**
  * Create markdown backend with workspace resolution
  */
-export async function createMarkdownBackend(
-  config: MarkdownConfig,
-  isReadOperation: boolean = false
-): Promise<TaskBackend> {
-  // Resolve workspace path first
-  const resolutionResult = await resolveWorkspacePath(config, isReadOperation);
+export function createMarkdownBackend(config: MarkdownConfig): TaskBackend {
+  // Resolve workspace path
+  const resolutionResult = resolveWorkspacePath(config);
 
   log.debug("Workspace resolution completed", {
     method: resolutionResult.method,
@@ -177,14 +86,9 @@ export async function createMarkdownBackend(
 /**
  * Convenience factory for common use cases
  */
-export async function createSelfContainedMarkdownBackend(
-  config: {
-    name: string;
-    repoUrl?: string;
-    workspacePath?: string;
-    forceSpecialWorkspace?: boolean;
-  },
-  isReadOperation: boolean = false
-): Promise<TaskBackend> {
-  return createMarkdownBackend(config, isReadOperation);
+export function createSelfContainedMarkdownBackend(config: {
+  name: string;
+  workspacePath?: string;
+}): TaskBackend {
+  return createMarkdownBackend(config);
 }

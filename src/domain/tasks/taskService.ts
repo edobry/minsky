@@ -611,7 +611,7 @@ ${description}
         }
 
         const { createMarkdownBackend } = await import("./markdown-backend");
-        resolvedBackend = await createMarkdownBackend(backendConfig, isReadOperation);
+        resolvedBackend = createMarkdownBackend(backendConfig);
         break;
       }
 
@@ -621,7 +621,7 @@ ${description}
         }
 
         const { createWorkspaceResolvingJsonBackend } = await import("./json-backend");
-        resolvedBackend = await createWorkspaceResolvingJsonBackend(backendConfig, isReadOperation);
+        resolvedBackend = createWorkspaceResolvingJsonBackend(backendConfig);
         break;
       }
 

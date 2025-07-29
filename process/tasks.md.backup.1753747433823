@@ -591,5 +591,3 @@
 - [ ] Test CLI task [#332](process/tasks/332-test-cli-task.md)
 
 - [ ] Debug test [#333](process/tasks/333-debug-test.md)
-
-- [ ] MCP test with error handling [#334](process/tasks/334-mcp-test-with-error-handling.md)

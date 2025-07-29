@@ -585,11 +585,4 @@
 - [ ] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
 - [ ] Apply Type Composition Patterns to CLI Adapters [#330](process/tasks/330-apply-type-composition-patterns-to-cli-adapters.md)
-
-- [ ] Test task [#331](process/tasks/331-test-task.md)
-
-- [ ] Test CLI task [#332](process/tasks/332-test-cli-task.md)
-
-- [ ] Debug test [#333](process/tasks/333-debug-test.md)
-
-- [ ] MCP test with error handling [#334](process/tasks/334-mcp-test-with-error-handling.md)
+- [ ] Categorize and audit rule templates for redundancy analysis [#330](process/tasks/330-categorize-and-audit-rule-templates-for-redundancy-analysis.md)
