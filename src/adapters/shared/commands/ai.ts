@@ -289,35 +289,19 @@ export function registerAiCommands(): void {
         let prompt: string;
 
         if (codeEdit) {
-          // Cursor-style format: use the provided code with existing code markers
-          prompt = `Apply the following edit pattern to the original content:
-
-Original content:
-\`\`\`${path.extname(filePath).slice(1) || "text"}
-${originalContent}
-\`\`\`
-
-Edit pattern (new code with markers):
-\`\`\`${path.extname(filePath).slice(1) || "text"}
-${codeEdit}
-\`\`\`
-
-Instructions:
-- Apply the edits shown in the edit pattern to the original content
-- The edit pattern uses "// ... existing code ..." markers to indicate unchanged sections
-- Return ONLY the complete updated file content
-- Preserve all formatting, indentation, and structure
-- Do not include explanations or markdown formatting`;
+          // Morph's exact format: ${instructions}\n`${initialCode}`\n${editSnippet}
+          // Generate instructions for code edit mode
+          const editInstructions =
+            instructions || "I am applying the provided code edits with existing code markers";
+          prompt = `${editInstructions}
+\`${originalContent}\`
+${codeEdit}`;
         } else {
-          // Instruction-based format: describe what to do
-          prompt = `Original file content:
-\`\`\`${path.extname(filePath).slice(1) || "text"}
-${originalContent}
-\`\`\`
-
-Instructions: ${instructions}
-
-Apply the requested changes and return ONLY the complete updated file content. Do not include explanations or markdown formatting.`;
+          // Morph's exact format for instruction-based mode
+          // For instruction-based, we need to provide the edit as instructions
+          prompt = `${instructions}
+\`${originalContent}\`
+// Apply the above instructions to modify this file`;
         }
 
         const mode = codeEdit ? "Cursor edit pattern" : "instruction-based";
