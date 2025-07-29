@@ -1,0 +1,123 @@
+---
+description: "REQUIRED security protocols for all file creation, commits, and documentation. Prevents credential exposure and implements mandatory security verification."
+globs: ["**/*"]
+alwaysApply: true
+---
+
+# Security Protocol
+
+## Core Principle
+
+**🔥 SECURITY CRITICAL: NEVER COMMIT SECRETS TO ANY REPOSITORY UNDER ANY CIRCUMSTANCES 🔥**
+
+All development activities must follow strict security protocols to prevent credential exposure, maintain secure documentation practices, and protect sensitive information.
+
+## Critical Secret Protection Protocol
+
+### Documented Secret Exposure Near-Miss
+
+**Pattern**: Creating documentation, task files, or examples containing real API keys, tokens, or credentials
+- **Critical Error**: Real API keys and GitHub tokens were nearly committed to repository in task documentation
+- **User Signal**: "we must NEVER commit secrets to the repo!!!!! we were lucky that github saved us here"
+- **Root Cause**: Security Error - failed to sanitize real credentials when creating documentation/examples
+- **Only Solution**: GitHub push protection prevented catastrophic credential exposure
+
+### MANDATORY SECRET PROTECTION VERIFICATION
+
+**BEFORE ANY commit or file creation, MUST verify:**
+- [ ] **NO real API keys** in any file content (look for `sk-`, `github_pat_`, etc.)
+- [ ] **NO real tokens or credentials** of any kind
+- [ ] **USE PLACEHOLDER VALUES ONLY** in examples (`sk-xxx...`, `github_pat_xxx...`)
+- [ ] **SCAN all file changes** for credential patterns before staging
+- [ ] **DOUBLE-CHECK task files** and documentation for real secrets
+
+### Enhanced Error Detection for Secret Exposure
+
+When creating ANY file that might reference credentials:
+- **Configuration examples**: Use `sk-xxx...` not real keys
+- **Task documentation**: Redact all real credentials
+- **Error messages**: Never copy/paste error output containing real keys
+- **Debug logs**: Sanitize before documenting
+
+**If ANY real credential appears in file content:**
+1. **STOP ALL OPERATIONS** immediately
+2. **DO NOT COMMIT** under any circumstances
+3. **SANITIZE file content** to use placeholder values
+4. **VERIFY no traces** of real credentials remain
+
+### ZERO-TOLERANCE ENFORCEMENT
+
+**This is a TERMINAL ERROR class violation:**
+- **Any real credential in repository**: Immediate operational pause
+- **Must implement preventive measures**: Pre-commit secret scanning required
+- **Update ALL documentation practices**: Use only sanitized examples
+
+### Examples
+
+// AVOID - TERMINAL SECURITY VIOLATION
+```markdown
+SECURITY ISSUE:
+- API keys displayed: sk-proj-m6Pv5d7juvrYrIO8XAD82H5oBrWhtl2p17IAU... [REAL KEY]
+- GitHub tokens exposed: github_pat_11AAAM3VY0TPZtiZ5lxx15... [REAL TOKEN]
+```
+
+// PREFER - SANITIZED EXAMPLES
+```markdown
+SECURITY ISSUE:
+- API keys displayed: sk-proj-xxx...xxxxx (configured but showing in output)
+- GitHub tokens exposed: github_pat_xxx...xxxxx (configured but exposed)
+```
+
+**CRITICAL**: Real credential exposure is a catastrophic security failure requiring immediate system-wide security review.
+
+## Credential Pattern Detection
+
+### Common Credential Patterns to Scan For:
+
+- **OpenAI API Keys**: `sk-proj-`, `sk-`
+- **GitHub Personal Access Tokens**: `github_pat_`, `ghp_`
+- **Anthropic API Keys**: `sk-ant-`
+- **Google API Keys**: `AIza`
+- **Long alphanumeric strings**: 32+ character sequences
+- **Environment variable assignments**: `OPENAI_API_KEY=sk-...`
+
+### Safe Placeholder Patterns:
+
+- **OpenAI**: `sk-proj-xxx...xxxxx` or `sk-xxx...xxxxx`
+- **GitHub**: `github_pat_xxx...xxxxx` or `ghp_xxx...xxxxx`
+- **Anthropic**: `sk-ant-api03-xxx...xxxxx`
+- **Google**: `AIza-xxx...xxxxx`
+
+## Emergency Response Protocol
+
+### If Real Credentials Are Detected:
+
+1. **IMMEDIATE HALT**: Stop all file operations and commits
+2. **DAMAGE ASSESSMENT**: Identify all files containing real credentials
+3. **SANITIZATION**: Replace all real credentials with placeholder patterns
+4. **VERIFICATION**: Double-check no traces remain in any files
+5. **DOCUMENTATION**: Record the incident and prevention measures
+
+### Recovery Actions:
+
+- Use `git reset` if credentials were staged but not committed
+- Use `git filter-branch` or BFG repo cleaner if credentials were committed
+- Rotate all exposed credentials immediately
+- Update security protocols to prevent recurrence
+
+## Integration with Development Workflow
+
+This rule integrates with:
+- [commit-all-changes-rule](mdc:.cursor/rules/commit-all-changes-rule.mdc) for secure commit workflows
+- [task-implementation-workflow](mdc:.cursor/rules/task-implementation-workflow.mdc) for secure task documentation
+- Task #341: Pre-commit secret scanning implementation
+
+## When to Apply This Rule
+
+This rule MUST be applied:
+- Before any file creation or modification
+- Before staging changes for commit
+- When creating documentation or examples
+- When copying error messages or debug output
+- When creating task specifications or reports
+- Before any git operations
