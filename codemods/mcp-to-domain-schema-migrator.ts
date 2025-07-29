@@ -32,7 +32,6 @@ import {
   SyntaxKind,
   Node,
 } from "ts-morph";
-import { CodemodBase, CodemodIssue, CodemodMetrics } from "./utils/codemod-framework";
 
 interface SchemaMigration {
   mcpSchema: string;
@@ -46,9 +45,23 @@ interface ResponseBuilderMigration {
   description: string;
 }
 
-export class McpToDomainSchemaMigrator extends CodemodBase {
+interface MigrationResult {
+  file: string;
+  importChanges: number;
+  schemaChanges: number;
+  responseBuilderChanges: number;
+  description: string;
+}
+
+export class McpToDomainSchemaMigrator {
+  private project: Project;
+  private results: MigrationResult[] = [];
+
   constructor() {
-    super("MCP to Domain Schema Migrator");
+    this.project = new Project({
+      tsConfigFilePath: "./tsconfig.json",
+      skipAddingFilesFromTsConfig: true,
+    });
   }
 
   private schemaMigrations: SchemaMigration[] = [
@@ -127,30 +140,82 @@ export class McpToDomainSchemaMigrator extends CodemodBase {
     },
   ];
 
-  protected async processFile(sourceFile: SourceFile): Promise<void> {
-    const filePath = sourceFile.getFilePath();
-    
-    // Only process MCP files that import from MCP schemas
-    if (!this.isMcpFile(sourceFile)) {
-      return;
+  async migrateFiles(): Promise<void> {
+    const targetFiles = [
+      "src/adapters/mcp/session-workspace.ts",
+      "src/adapters/mcp/session-files.ts",
+      "src/adapters/mcp/session-edit-tools.ts",
+    ];
+
+    console.log("🚀 Starting MCP to Domain Schema Migration...");
+    console.log(`📁 Processing ${targetFiles.length} MCP files...`);
+
+    let totalChanges = 0;
+
+    for (const filePath of targetFiles) {
+      try {
+        console.log(`\n🔄 Processing: ${filePath}`);
+        
+        // Check if file exists
+        try {
+          const sourceFile = this.project.addSourceFileAtPath(filePath);
+          const result = await this.processFile(sourceFile, filePath);
+          
+          if (result) {
+            this.results.push(result);
+            const fileChanges = result.importChanges + result.schemaChanges + result.responseBuilderChanges;
+            totalChanges += fileChanges;
+            
+            if (fileChanges > 0) {
+              await sourceFile.save();
+              console.log(`✅ ${filePath}: ${fileChanges} changes applied`);
+              console.log(`   - Imports: ${result.importChanges}`);
+              console.log(`   - Schemas: ${result.schemaChanges}`);
+              console.log(`   - Response builders: ${result.responseBuilderChanges}`);
+            } else {
+              console.log(`ℹ️  ${filePath}: No changes needed`);
+            }
+          }
+          
+          // Clean up memory
+          sourceFile.forget();
+        } catch (fileError) {
+          console.log(`⚠️  ${filePath}: File not found or inaccessible, skipping`);
+        }
+      } catch (error) {
+        console.error(`❌ Error processing ${filePath}:`, error);
+      }
     }
 
-    this.log(`Processing MCP file: ${filePath}`);
+    this.printSummary(totalChanges);
+  }
+
+  private async processFile(sourceFile: SourceFile, filePath: string): Promise<MigrationResult | null> {
+    // Only process MCP files that import from MCP schemas
+    if (!this.isMcpFile(sourceFile)) {
+      return null;
+    }
+
+    let importChanges = 0;
+    let schemaChanges = 0;
+    let responseBuilderChanges = 0;
 
     // Step 1: Update import declarations
-    await this.migrateImports(sourceFile);
+    importChanges = await this.migrateImports(sourceFile);
 
     // Step 2: Update schema references
-    await this.migrateSchemaReferences(sourceFile);
+    schemaChanges = await this.migrateSchemaReferences(sourceFile);
 
     // Step 3: Update response builder calls
-    await this.migrateResponseBuilders(sourceFile);
+    responseBuilderChanges = await this.migrateResponseBuilders(sourceFile);
 
-    // Step 4: Save changes
-    await sourceFile.save();
-    
-    this.metrics.fileChanges.set(filePath, 1);
-    this.log(`✅ Successfully migrated ${filePath}`);
+    return {
+      file: filePath,
+      importChanges,
+      schemaChanges,
+      responseBuilderChanges,
+      description: "MCP to domain schema migration",
+    };
   }
 
   private isMcpFile(sourceFile: SourceFile): boolean {
@@ -162,8 +227,9 @@ export class McpToDomainSchemaMigrator extends CodemodBase {
     });
   }
 
-  private async migrateImports(sourceFile: SourceFile): Promise<void> {
+  private async migrateImports(sourceFile: SourceFile): Promise<number> {
     const imports = sourceFile.getImportDeclarations();
+    let changes = 0;
     
     for (const importDecl of imports) {
       const moduleSpecifier = importDecl.getModuleSpecifierValue();
@@ -182,15 +248,6 @@ export class McpToDomainSchemaMigrator extends CodemodBase {
           
           if (migration) {
             domainImports.push(migration.domainSchema);
-            this.addIssue({
-              file: sourceFile.getFilePath(),
-              line: namedImport.getStartLineNumber(),
-              column: namedImport.getStart(),
-              description: `Migrated schema: ${migration.mcpSchema} → ${migration.domainSchema}`,
-              context: migration.description,
-              severity: "info",
-              type: "schema-migration",
-            });
           } else if (this.responseBuilderMigrations.some(r => r.mcpBuilder === importName)) {
             // Response builders are migrated to domain builders
             domainImports.push("createSuccessResponse", "createErrorResponse");
@@ -210,20 +267,16 @@ export class McpToDomainSchemaMigrator extends CodemodBase {
           importDecl.addNamedImport(domainImport);
         }
 
-        this.addIssue({
-          file: sourceFile.getFilePath(),
-          line: importDecl.getStartLineNumber(),
-          column: importDecl.getStart(),
-          description: `Updated import to use domain schemas`,
-          context: `${moduleSpecifier} → ../../domain/schemas`,
-          severity: "info",
-          type: "import-migration",
-        });
+        changes++;
       }
     }
+    
+    return changes;
   }
 
-  private async migrateSchemaReferences(sourceFile: SourceFile): Promise<void> {
+  private async migrateSchemaReferences(sourceFile: SourceFile): Promise<number> {
+    let changes = 0;
+    
     for (const migration of this.schemaMigrations) {
       const identifiers = sourceFile.getDescendantsOfKind(SyntaxKind.Identifier);
       
@@ -233,24 +286,18 @@ export class McpToDomainSchemaMigrator extends CodemodBase {
           const parent = identifier.getParent();
           if (parent && this.isSchemaReference(parent)) {
             identifier.replaceWithText(migration.domainSchema);
-            
-            this.addIssue({
-              file: sourceFile.getFilePath(),
-              line: identifier.getStartLineNumber(),
-              column: identifier.getStart(),
-              description: `Updated schema reference: ${migration.mcpSchema} → ${migration.domainSchema}`,
-              context: migration.description,
-              severity: "info",
-              type: "schema-reference",
-            });
+            changes++;
           }
         }
       }
     }
+    
+    return changes;
   }
 
-  private async migrateResponseBuilders(sourceFile: SourceFile): Promise<void> {
+  private async migrateResponseBuilders(sourceFile: SourceFile): Promise<number> {
     const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
+    let changes = 0;
     
     for (const callExpr of callExpressions) {
       const expression = callExpr.getExpression();
@@ -262,19 +309,12 @@ export class McpToDomainSchemaMigrator extends CodemodBase {
           // For now, just update the function name
           // In a full implementation, we'd also update the argument structure
           expression.replaceWithText(migration.domainPattern);
-          
-          this.addIssue({
-            file: sourceFile.getFilePath(),
-            line: callExpr.getStartLineNumber(),
-            column: callExpr.getStart(),
-            description: `Updated response builder: ${migration.mcpBuilder} → ${migration.domainPattern}`,
-            context: migration.description,
-            severity: "warning", // Warning because arguments may need manual adjustment
-            type: "response-builder",
-          });
+          changes++;
         }
       }
     }
+    
+    return changes;
   }
 
   private isSchemaReference(node: Node): boolean {
@@ -283,57 +323,52 @@ export class McpToDomainSchemaMigrator extends CodemodBase {
     return (
       Node.isPropertyAssignment(node) ||
       Node.isVariableDeclaration(node) ||
-      Node.isParameter(node) ||
+      Node.isParameterDeclaration(node) ||
       Node.isTypeReference(node) ||
       Node.isPropertySignature(node)
     );
   }
 
-  protected getFilePatterns(): string[] {
-    return [
-      "src/adapters/mcp/session-workspace.ts",
-      "src/adapters/mcp/session-files.ts", 
-      "src/adapters/mcp/session-edit-tools.ts",
-    ];
-  }
-
-  protected getMetricsLabels(): Record<string, string> {
-    return {
-      "schema-migration": "Schema Migrations",
-      "import-migration": "Import Updates", 
-      "schema-reference": "Schema Reference Updates",
-      "response-builder": "Response Builder Updates",
-    };
-  }
-}
-
-// CLI execution
-if (import.meta.main) {
-  const migrator = new McpToDomainSchemaMigrator();
-  
-  migrator.run({
-    tsConfigPath: "./tsconfig.json",
-    dryRun: false,
-    verbose: true,
-  }).then((metrics) => {
+  private printSummary(totalChanges: number): void {
     console.log("\n🎯 MCP to Domain Schema Migration Complete!");
-    console.log(`📁 Files processed: ${metrics.filesProcessed}`);
-    console.log(`🔍 Issues found: ${metrics.issuesFound}`);
-    console.log(`✅ Issues fixed: ${metrics.issuesFixed}`);
-    console.log(`⏱️ Processing time: ${metrics.processingTime}ms`);
-    console.log(`📊 Success rate: ${(metrics.successRate * 100).toFixed(1)}%`);
+    console.log(`📊 Total changes applied: ${totalChanges}`);
+    console.log(`📁 Files processed: ${this.results.length}`);
     
-    if (metrics.errors.length > 0) {
-      console.log("\n❌ Errors encountered:");
-      metrics.errors.forEach(error => console.log(`   - ${error}`));
+    if (this.results.length > 0) {
+      console.log("\n📋 File-by-file breakdown:");
+      for (const result of this.results) {
+        const fileChanges = result.importChanges + result.schemaChanges + result.responseBuilderChanges;
+        if (fileChanges > 0) {
+          console.log(`   ${result.file}:`);
+          console.log(`     - Import updates: ${result.importChanges}`);
+          console.log(`     - Schema references: ${result.schemaChanges}`);
+          console.log(`     - Response builders: ${result.responseBuilderChanges}`);
+        }
+      }
     }
     
     console.log("\n📋 Next steps:");
     console.log("   1. Review the changes in the migrated files");
-    console.log("   2. Update response builder argument structures manually");
+    console.log("   2. Update response builder argument structures manually if needed");
     console.log("   3. Test that all MCP tools still function correctly");
     console.log("   4. Run the test suite to verify functionality");
-  }).catch((error) => {
+    
+    if (totalChanges > 0) {
+      console.log("\n✅ Migration completed successfully! Files have been updated.");
+    } else {
+      console.log("\n🤷 No migration needed - files already use domain schemas or no MCP files found.");
+    }
+  }
+}
+
+// CLI execution
+async function main() {
+  const migrator = new McpToDomainSchemaMigrator();
+  await migrator.migrateFiles();
+}
+
+if (import.meta.main) {
+  main().catch((error) => {
     console.error("❌ Migration failed:", error);
     process.exit(1);
   });
