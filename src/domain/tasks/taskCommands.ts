@@ -93,7 +93,16 @@ export async function listTasksFromParams(params: TaskListParams): Promise<any[]
  * @param params Parameters for getting a task
  * @returns Task object
  */
-export async function getTaskFromParams(params: TaskGetParams): Promise<any> {
+export async function getTaskFromParams(
+  params: TaskGetParams,
+  deps: {
+    resolveRepoPath: typeof resolveRepoPath;
+    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
+  } = {
+    resolveRepoPath,
+    createTaskService: async (options) => await createConfiguredTaskService(options),
+  }
+): Promise<any> {
   try {
     // Handle taskId as either string or string array
     const taskIdInput = Array.isArray(params.taskId) ? params.taskId[0] : params.taskId;
@@ -120,7 +129,7 @@ export async function getTaskFromParams(params: TaskGetParams): Promise<any> {
     const workspacePath = process.cwd();
 
     // Create task service using dependency injection
-    const taskService = await actualDeps.createTaskService({
+    const taskService = await deps.createTaskService({
       workspacePath,
       backend: validParams.backend || "markdown",
     });
