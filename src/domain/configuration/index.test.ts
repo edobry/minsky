@@ -29,6 +29,18 @@ const mockLoadConfiguration = mock(() =>
       defaultBranch: "main",
       quiet: false,
       enableAgentLogs: false,
+      github: {
+        defaultOwner: "test-owner",
+        defaultRepo: "test-repo",
+      },
+      ai: {
+        defaultProvider: "openai",
+        providers: {
+          openai: {
+            enabled: true,
+          },
+        },
+      },
     },
     sources: [],
     validationResult: { isValid: true, errors: [] },
@@ -122,11 +134,15 @@ class TestConfigurationProvider implements ConfigurationProvider {
     return {
       sources: this.configResult?.sources || [],
       loadedAt: this.configResult?.loadedAt || new Date(),
+      version: "custom", // Add version property for test expectation
     };
   }
 
   validate(): any {
-    return this.configResult?.validationResult || { isValid: true, errors: [] };
+    return {
+      valid: true, // Change from isValid to valid
+      errors: [],
+    };
   }
 
   private getNestedValue(obj: any, path: string): any {

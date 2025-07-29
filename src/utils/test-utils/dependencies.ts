@@ -606,7 +606,7 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
           status: "TODO",
         })),
 
-    deleteTask: options.deleteTask || (() => Promise.resolve(true)),
+    deleteTask: options.deleteTask || (() => Promise.resolve(false)),
 
     getWorkspacePath: options.getWorkspacePath || (() => "/test/workspace/path"),
 

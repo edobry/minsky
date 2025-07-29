@@ -108,6 +108,7 @@ export const aiProvidersConfigSchema = z
     google: googleConfigSchema.optional(),
     cohere: cohereConfigSchema.optional(),
     mistral: mistralConfigSchema.optional(),
+    morph: aiProviderConfigSchema.optional(), // Add morph provider support
   })
   .strict();
 
@@ -166,6 +167,7 @@ export const aiValidation = {
     if (config.providers.google?.enabled) providers.push("google");
     if (config.providers.cohere?.enabled) providers.push("cohere");
     if (config.providers.mistral?.enabled) providers.push("mistral");
+    if (config.providers.morph?.enabled) providers.push("morph");
 
     return providers;
   },
@@ -190,6 +192,9 @@ export const aiValidation = {
     }
     if (config.providers.mistral && aiValidation.isProviderReady(config.providers.mistral)) {
       providers.push("mistral");
+    }
+    if (config.providers.morph && aiValidation.isProviderReady(config.providers.morph)) {
+      providers.push("morph");
     }
 
     return providers;
@@ -223,6 +228,8 @@ export const aiValidation = {
         return config.providers.cohere || null;
       case "mistral":
         return config.providers.mistral || null;
+      case "morph":
+        return config.providers.morph || null;
       default:
         return null;
     }
