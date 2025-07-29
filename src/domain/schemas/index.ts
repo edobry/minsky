@@ -51,6 +51,9 @@ export {
   TaskUpdateParametersSchema,
   TaskListParametersSchema,
   TaskGetParametersSchema,
+  TaskDeleteParametersSchema,
+  TaskSpecParametersSchema,
+  TaskStatusUpdateParametersSchema,
 
   // Task response schemas
   TaskOperationResponseSchema,
@@ -58,6 +61,15 @@ export {
 
   // Task status
   TaskStatusSchema,
+
+  // Task types
+  TaskCreateParameters,
+  TaskUpdateParameters,
+  TaskListParameters,
+  TaskGetParameters,
+  TaskDeleteParameters,
+  TaskSpecParameters,
+  TaskStatusUpdateParameters,
 } from "./task-schemas";
 
 export {
@@ -99,3 +111,41 @@ export {
   // File response builders
   createFileOperationResponse,
 } from "./file-schemas";
+
+// ========================
+// BACKWARD COMPATIBILITY ALIASES
+// ========================
+
+// Import schemas and types for aliasing
+import {
+  TaskListParametersSchema,
+  TaskGetParametersSchema,
+  TaskCreateParametersSchema,
+  TaskDeleteParametersSchema,
+  TaskSpecParametersSchema,
+  TaskStatusUpdateParametersSchema,
+  type TaskListParameters,
+  type TaskGetParameters,
+  type TaskCreateParameters,
+  type TaskDeleteParameters,
+  type TaskSpecParameters,
+  type TaskStatusUpdateParameters,
+} from "./task-schemas";
+
+// Task schema aliases for backward compatibility
+export const taskListParamsSchema = TaskListParametersSchema;
+export const taskGetParamsSchema = TaskGetParametersSchema;
+export const taskStatusGetParamsSchema = TaskGetParametersSchema; // Reuse TaskGetParametersSchema
+export const taskStatusSetParamsSchema = TaskStatusUpdateParametersSchema;
+export const taskCreateParamsSchema = TaskCreateParametersSchema;
+export const taskSpecContentParamsSchema = TaskSpecParametersSchema;
+export const taskDeleteParamsSchema = TaskDeleteParametersSchema;
+
+// Task type aliases for backward compatibility
+export type TaskListParams = TaskListParameters;
+export type TaskGetParams = TaskGetParameters;
+export type TaskStatusGetParams = TaskGetParameters;
+export type TaskStatusSetParams = TaskStatusUpdateParameters;
+export type TaskCreateParams = TaskCreateParameters;
+export type TaskSpecContentParams = TaskSpecParameters;
+export type TaskDeleteParams = TaskDeleteParameters;
