@@ -582,7 +582,7 @@
 
 - [x] Extend type composition refactoring to other MCP command domains [#328](process/tasks/328-extend-type-composition-refactoring-to-other-mcp-command-domains.md)
 
-- [ ] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
+- [+] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
 - [ ] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
 
@@ -599,3 +599,7 @@
 - [ ] Update documentation for enhanced configuration system [#340](process/tasks/340-update-documentation-for-enhanced-configuration-system.md)
 
 - [+] Move AI commands from CORE category to dedicated AI category for better UX and discoverability [#341](process/tasks/341-move-ai-commands-from-core-category-to-dedicated-ai-category-for-better-ux-and-discoverability.md)
+
+- [+] Fix configuration validation to ignore unknown fields [#342](process/tasks/342-fix-configuration-validation-to-ignore-unknown-fields.md)
+
+- [+] Fix configuration validation to ignore unknown fields [#343](process/tasks/343-fix-configuration-validation-to-ignore-unknown-fields.md)

@@ -129,9 +129,15 @@ const baseAiProvidersSchema = z.object({
 });
 
 export const aiProvidersConfigSchema = z
-  .any()
+  .object({
+    openai: openaiConfigSchema.optional(),
+    anthropic: anthropicConfigSchema.optional(),
+    google: googleConfigSchema.optional(),
+    cohere: cohereConfigSchema.optional(),
+    mistral: mistralConfigSchema.optional(),
+  })
   .transform((data) => detectAndWarnUnknownFields(data, baseAiProvidersSchema, "ai.providers"))
-  .pipe(baseAiProvidersSchema.strip());
+  .passthrough(); // Changed from .strict() to .passthrough() to allow unknown providers
 
 /**
  * Complete AI configuration
@@ -144,7 +150,7 @@ export const aiConfigSchema = z
     // Provider-specific configurations
     providers: aiProvidersConfigSchema.default({}),
   })
-  .strip()
+  .passthrough() // Changed from .strict() to .passthrough() to allow unknown fields
   .default({
     providers: {},
   });

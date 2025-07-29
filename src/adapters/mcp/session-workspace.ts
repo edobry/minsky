@@ -22,7 +22,7 @@ import {
   createFileReadResponse,
   createErrorResponse,
   createFileOperationResponse,
-  createDirectoryListResponse,
+//   createDirectoryListResponse,
 } from "./schemas/common-responses";
 
 /**
