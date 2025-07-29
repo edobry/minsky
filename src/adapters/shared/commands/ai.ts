@@ -13,6 +13,12 @@ import {
   type CommandParameterMap,
 } from "../command-registry";
 import { DefaultAICompletionService } from "../../../domain/ai/completion-service";
+import { DefaultAIConfigurationService } from "../../../domain/ai/config-service";
+import {
+  DefaultModelCacheService,
+  OpenAIModelFetcher,
+  AnthropicModelFetcher,
+} from "../../../domain/ai/model-cache";
 import { log } from "../../../utils/logger";
 import { getConfiguration } from "../../../domain/configuration";
 import { exit } from "../../../utils/process";
@@ -59,6 +65,50 @@ const aiCompleteParams: CommandParameterMap = {
     required: false,
   },
 };
+
+/**
+ * Helper function to handle refresh errors with user-friendly messages
+ */
+function handleRefreshError(provider: string, error: any): void {
+  const errorMessage = getErrorMessage(error);
+
+  // Handle specific known error cases
+  if (errorMessage.includes("HTTP 404") || errorMessage.includes("Not Found")) {
+    if (provider === "anthropic") {
+      log.cliWarn(
+        `⚠️  ${provider}: API endpoint not found - this provider may not support model listing`
+      );
+    } else {
+      log.cliWarn(`⚠️  ${provider}: Model listing endpoint not found`);
+    }
+  } else if (errorMessage.includes("HTTP 401") || errorMessage.includes("Unauthorized")) {
+    log.cliError(`❌ ${provider}: Invalid API key - please check your configuration`);
+  } else if (errorMessage.includes("HTTP 403") || errorMessage.includes("Forbidden")) {
+    log.cliError(`❌ ${provider}: Access denied - please check your API key permissions`);
+  } else if (errorMessage.includes("ENOTFOUND") || errorMessage.includes("network")) {
+    log.cliError(`❌ ${provider}: Network error - please check your internet connection`);
+  } else if (errorMessage.includes("timeout")) {
+    log.cliError(`❌ ${provider}: Request timeout - please try again later`);
+  } else {
+    log.cliError(`❌ ${provider}: ${errorMessage}`);
+  }
+}
+
+/**
+ * Helper function to get a user-friendly error message from any error
+ */
+function getErrorMessage(error: any): string {
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (typeof error === "object" && error?.message) {
+    return error.message;
+  }
+  if (typeof error === "string") {
+    return error;
+  }
+  return "Unknown error occurred";
+}
 
 /**
  * Register all AI-related shared commands
@@ -280,7 +330,7 @@ export function registerAiCommands(): void {
         const result = await completionService.validateConfiguration();
 
         if (result.valid) {
-          log.cliSuccess("AI configuration is valid!");
+          log.cli("AI configuration is valid!");
 
           // Test each provider if no specific provider requested
           const providersToTest = provider ? [provider] : Object.keys(aiConfig.providers || {});
@@ -295,7 +345,7 @@ export function registerAiCommands(): void {
                   provider: providerName,
                   maxTokens: 5,
                 });
-                log.cliSuccess(`✓ ${providerName} connection successful`);
+                log.cli(`✓ ${providerName} connection successful`);
               } catch (error) {
                 log.cliError(
                   `✗ ${providerName} connection failed: ${error instanceof Error ? error.message : String(error)}`
@@ -381,6 +431,13 @@ export function registerAiCommands(): void {
             exit(1);
           }
 
+          if (!providerConfig.apiKey) {
+            log.cliError(
+              `Provider '${provider}' is missing an API key. Please configure the API key first.`
+            );
+            exit(1);
+          }
+
           if (!force && !(await cacheService.isCacheStale(provider))) {
             log.info(
               `Cache for provider '${provider}' is still fresh. Use --force to refresh anyway.`
@@ -389,15 +446,20 @@ export function registerAiCommands(): void {
           }
 
           log.info(`Refreshing models for provider: ${provider}`);
-          await cacheService.refreshProvider(provider, {
-            apiKey: providerConfig.apiKey!,
-            baseURL: providerConfig.baseURL,
-          });
-          log.success(`✓ Successfully refreshed models for ${provider}`);
+          try {
+            await cacheService.refreshProvider(provider, {
+              apiKey: providerConfig.apiKey!,
+              baseURL: providerConfig.baseURL,
+            });
+            log.cli(`✓ Successfully refreshed models for ${provider}`);
+          } catch (refreshError) {
+            handleRefreshError(provider, refreshError);
+          }
         } else {
           // Refresh all providers
           const providerConfigs: Record<string, any> = {};
           const configuredProviders = Object.keys(aiConfig.providers || {});
+          const errors: string[] = [];
 
           for (const providerName of configuredProviders) {
             const providerConfig = await configService.getProviderConfig(providerName);
@@ -408,6 +470,8 @@ export function registerAiCommands(): void {
                   baseURL: providerConfig.baseURL,
                 };
               }
+            } else if (!providerConfig?.apiKey) {
+              log.cliWarn(`Skipping ${providerName}: No API key configured`);
             }
           }
 
@@ -417,13 +481,31 @@ export function registerAiCommands(): void {
           }
 
           log.info(`Refreshing models for ${Object.keys(providerConfigs).length} providers...`);
-          await cacheService.refreshAllProviders(providerConfigs);
-          log.success(`✓ Successfully refreshed models for all providers`);
+
+          // Refresh providers individually to handle errors gracefully
+          let successCount = 0;
+          for (const [providerName, config] of Object.entries(providerConfigs)) {
+            try {
+              await cacheService.refreshProvider(providerName, config);
+              log.cli(`✓ Successfully refreshed models for ${providerName}`);
+              successCount++;
+            } catch (refreshError) {
+              handleRefreshError(providerName, refreshError);
+              errors.push(providerName);
+            }
+          }
+
+          if (successCount > 0) {
+            log.cli(`\n✓ Successfully refreshed ${successCount} provider(s)`);
+          }
+
+          if (errors.length > 0) {
+            log.cliWarn(`Failed to refresh ${errors.length} provider(s): ${errors.join(", ")}`);
+            exit(1);
+          }
         }
       } catch (error) {
-        log.cliError(
-          `Failed to refresh models: ${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Failed to refresh models: ${getErrorMessage(error)}`);
         exit(1);
       }
     },
@@ -563,7 +645,16 @@ export function registerAiCommands(): void {
         const cacheService = createModelCacheService();
         const metadata = await cacheService.getCacheMetadata();
 
-        const providers = [];
+        const providers: Array<{
+          name: string;
+          configured: boolean;
+          hasApiKey: boolean;
+          lastFetched: string | undefined;
+          modelCount: number;
+          lastSuccess: boolean | null;
+          isStale: boolean;
+          error: string | undefined;
+        }> = [];
         for (const providerName of Object.keys(aiConfig.providers)) {
           const providerConfig = await configService.getProviderConfig(providerName);
           const providerMetadata = metadata.providers[providerName];
@@ -651,10 +742,10 @@ export function registerAiCommands(): void {
 
         if (provider) {
           await cacheService.clearProviderCache(provider);
-          log.success(`✓ Cleared cache for provider: ${provider}`);
+          log.cli(`✓ Cleared cache for provider: ${provider}`);
         } else {
           await cacheService.clearAllCache();
-          log.success("✓ Cleared all cached model data");
+          log.cli("✓ Cleared all cached model data");
         }
       } catch (error) {
         log.cliError(
