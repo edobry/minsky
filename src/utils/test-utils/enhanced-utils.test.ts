@@ -5,7 +5,7 @@ const TEST_VALUE = 123;
  * Tests for enhanced test utilities
  * This file demonstrates how to use the new test utilities effectively
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   createMock,
   createPartialMock,

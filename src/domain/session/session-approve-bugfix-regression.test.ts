@@ -71,8 +71,14 @@ describe("Session Approve - Bug Regression Tests", () => {
       });
 
       const mockTaskService = createMockTaskService({
-        getTaskStatus: () => Promise.resolve("TODO"),
+        getTask: () =>
+          Promise.resolve({
+            id: "#123",
+            title: "Test Task",
+            status: "TODO",
+          }),
         setTaskStatus: mock(() => Promise.resolve()),
+        getTaskStatus: () => Promise.resolve("TODO"),
       });
 
       // Act: Run session approve with uncommitted changes
@@ -156,6 +162,12 @@ describe("Session Approve - Bug Regression Tests", () => {
       });
 
       const mockTaskService = createMockTaskService({
+        getTask: () =>
+          Promise.resolve({
+            id: "#123",
+            title: "Test Task",
+            status: "TODO",
+          }),
         setTaskStatus: mock(() => Promise.resolve()),
         getTaskStatus: () => Promise.resolve("TODO"),
       });
@@ -219,6 +231,12 @@ describe("Session Approve - Bug Regression Tests", () => {
       });
 
       const mockTaskService = createMockTaskService({
+        getTask: () =>
+          Promise.resolve({
+            id: "#123",
+            title: "Test Task",
+            status: "TODO",
+          }),
         setTaskStatus: mock(() => Promise.resolve()),
         getTaskStatus: () => Promise.resolve("TODO"),
       });

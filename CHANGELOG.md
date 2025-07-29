@@ -15,6 +15,10 @@
   - Individual provider failures don't stop entire refresh operations
   - Providers without API keys are gracefully skipped with warnings
 
+- **Anthropic API Integration**: Fixed critical endpoint bug preventing Anthropic model fetching. Corrected double `/v1/` path segment that caused 404 errors, enabling successful retrieval of 8 Claude models including Claude Opus 4 and Sonnet 4. Replaced confusing "Failed to get default provider" error with helpful user guidance.
+
+- **JSON Output Support**: Added `--json` flag to all AI commands for consistent machine-readable output alongside existing `--format` parameter. Commands now support both `--format json` and `--json` for user convenience.
+
 ### Changed
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
   - `AI Validate` → `minsky core ai validate`

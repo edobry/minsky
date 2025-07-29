@@ -67,4 +67,4 @@ jobs:
             minsky-windows-x64.exe/minsky-windows-x64.exe
           generate_release_notes: true
         env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }} 
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

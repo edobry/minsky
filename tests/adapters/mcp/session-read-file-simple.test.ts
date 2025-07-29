@@ -37,18 +37,41 @@ function processFileContentWithLineRange(
   let startLine = options.startLine || 1;
   let endLine = options.endLine || startLine;
 
+  // Store original values for edge case detection
+  const originalStartLine = options.startLine;
+  const originalEndLine = options.endLine;
+
+  // Handle edge cases first
+  if (options.startLine !== undefined && options.endLine !== undefined) {
+    // Both start and end provided - handle edge cases
+    if (startLine > endLine) {
+      // Invalid range (start > end) - use just the start line
+      endLine = startLine;
+    }
+  }
+
   // Validate and clamp line numbers
-  startLine = Math.max(1, startLine);
+  startLine = Math.max(1, Math.min(totalLines, startLine));
   endLine = Math.min(totalLines, Math.max(startLine, endLine));
 
-  // For very small ranges, expand context
-  const rangeSize = endLine - startLine + 1;
-  if (rangeSize <= 3 && totalLines > 10) {
-    const contextLines = 3;
-    const expandedStart = Math.max(1, startLine - contextLines);
-    const expandedEnd = Math.min(totalLines, endLine + contextLines);
-    startLine = expandedStart;
-    endLine = expandedEnd;
+  // Handle special edge cases that should not get context expansion
+  const isEdgeCase =
+    (originalStartLine !== undefined && originalStartLine > totalLines) || // out of bounds
+    (originalStartLine !== undefined &&
+      originalEndLine !== undefined &&
+      originalStartLine > originalEndLine) || // invalid range
+    (originalStartLine !== undefined && originalStartLine < 1); // negative start
+
+  // For very small ranges, expand context ONLY if not an edge case
+  if (!isEdgeCase) {
+    const rangeSize = endLine - startLine + 1;
+    if (rangeSize <= 3 && totalLines > 10) {
+      const contextLines = 3;
+      const expandedStart = Math.max(1, startLine - contextLines);
+      const expandedEnd = Math.min(totalLines, endLine + contextLines);
+      startLine = expandedStart;
+      endLine = expandedEnd;
+    }
   }
 
   // Extract the lines (convert to 0-indexed for array access)

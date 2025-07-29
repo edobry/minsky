@@ -3,8 +3,8 @@
  * Verifies that filesystem errors are properly converted to semantic errors
  */
 
-import { SemanticErrorClassifier, ErrorContext } from "../semantic-error-classifier";
-import { SemanticErrorCode } from "../../types/semantic-errors";
+import { SemanticErrorClassifier, ErrorContext } from "./semantic-error-classifier";
+import { SemanticErrorCode } from "../types/semantic-errors";
 
 describe("SemanticErrorClassifier", () => {
   describe("classifyError", () => {

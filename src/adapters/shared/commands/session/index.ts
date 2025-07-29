@@ -30,6 +30,14 @@ export {
   createSessionDirCommand,
 } from "./basic-commands";
 
+// Import factory functions for internal use
+import {
+  createSessionListCommand,
+  createSessionGetCommand,
+  createSessionStartCommand,
+  createSessionDirCommand,
+} from "./basic-commands";
+
 // Management commands (re-export)
 export {
   SessionDeleteCommand,
@@ -38,11 +46,21 @@ export {
   createSessionUpdateCommand,
 } from "./management-commands";
 
+// Import management factory functions for internal use
+import { createSessionDeleteCommand, createSessionUpdateCommand } from "./management-commands";
+
 // Workflow commands (re-export)
 export {
   SessionApproveCommand,
   SessionPrCommand,
   SessionInspectCommand,
+  createSessionApproveCommand,
+  createSessionPrCommand,
+  createSessionInspectCommand,
+} from "./workflow-commands";
+
+// Import workflow factory functions for internal use
+import {
   createSessionApproveCommand,
   createSessionPrCommand,
   createSessionInspectCommand,

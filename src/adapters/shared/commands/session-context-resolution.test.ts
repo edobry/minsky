@@ -8,7 +8,7 @@
  */
 
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
-import { CommandExecutionContext } from "../../../shared/command-registry";
+import { CommandExecutionContext } from "../../../schemas/command-registry";
 
 describe("Session Context Resolution Architecture Issues", () => {
   let originalCwd: () => string;

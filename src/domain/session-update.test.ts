@@ -5,7 +5,7 @@ const TEST_VALUE = 123;
  * @migrated Migrated to native Bun patterns
  * @refactored Uses project utilities instead of raw Bun APIs
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { updateSessionFromParams } from "./session";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/index";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
