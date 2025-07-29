@@ -8,7 +8,7 @@
 import { describe, test, expect } from "bun:test";
 import { Project } from "ts-morph";
 import {
-  fixBunTestMockingInFile,
+  fixMockingConsistencyInFile,
   fixMockingConsistency,
 } from "./bun-test-mocking-consistency-fixer";
 
