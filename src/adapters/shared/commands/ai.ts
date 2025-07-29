@@ -67,6 +67,37 @@ const aiCompleteParams: CommandParameterMap = {
 };
 
 /**
+ * Parameters for fast-apply command
+ */
+const aiFastApplyParams: CommandParameterMap = {
+  filePath: {
+    schema: z.string().min(1),
+    description: "Path to the file to edit",
+    required: true,
+  },
+  instructions: {
+    schema: z.string().min(1),
+    description: "Instructions for how to edit the file",
+    required: true,
+  },
+  provider: {
+    schema: z.string(),
+    description: "Fast-apply provider to use (defaults to auto-detect)",
+    required: false,
+  },
+  model: {
+    schema: z.string(),
+    description: "Model to use for fast-apply",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Show the proposed changes without applying them",
+    required: false,
+  },
+};
+
+/**
  * Helper function to handle refresh errors with user-friendly messages
  */
 function handleRefreshError(provider: string, error: any): void {
@@ -174,6 +205,129 @@ export function registerAiCommands(): void {
       } catch (error) {
         log.cliError(
           `AI completion failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+        exit(1);
+      }
+    },
+  });
+
+  // Register AI fast-apply command
+  sharedCommandRegistry.registerCommand({
+    id: "ai.fast-apply",
+    category: CommandCategory.CORE,
+    name: "fast-apply",
+    description: "Apply fast edits to a file using fast-apply models",
+    parameters: aiFastApplyParams,
+    execute: async (params, context) => {
+      try {
+        const { filePath, instructions, provider, model, dryRun } = params;
+
+        // Import filesystem utilities
+        const fs = await import("fs/promises");
+        const path = await import("path");
+
+        // Read the target file
+        let originalContent: string;
+        try {
+          originalContent = (await fs.readFile(filePath, "utf-8")) as string;
+        } catch (error) {
+          log.cliError(
+            `Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          exit(1);
+        }
+
+        // Get AI configuration
+        const config = getConfiguration();
+        const aiConfig = config.ai;
+
+        if (!aiConfig?.providers) {
+          log.cliError("No AI providers configured. Please configure at least one provider.");
+          exit(1);
+        }
+
+        // Find fast-apply capable provider if not specified
+        let targetProvider = provider;
+        if (!targetProvider) {
+          // Auto-detect fast-apply provider
+          const fastApplyProviders = Object.entries(aiConfig.providers)
+            .filter(
+              ([_name, providerConfig]) =>
+                providerConfig?.enabled &&
+                // Check if provider supports fast-apply (morph for now)
+                _name === "morph"
+            )
+            .map(([name]) => name);
+
+          if (fastApplyProviders.length === 0) {
+            log.cliError(
+              "No fast-apply capable providers configured. Please configure Morph or another fast-apply provider."
+            );
+            exit(1);
+          }
+
+          targetProvider = fastApplyProviders[0];
+          log.info(`Auto-detected fast-apply provider: ${targetProvider}`);
+        }
+
+        // Create AI completion service
+        const mockConfigService = {
+          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
+        };
+        const completionService = new DefaultAICompletionService(mockConfigService);
+
+        // Create fast-apply prompt
+        const prompt = `Original file content:
+\`\`\`${path.extname(filePath).slice(1) || "text"}
+${originalContent}
+\`\`\`
+
+Instructions: ${instructions}
+
+Apply the requested changes and return ONLY the complete updated file content. Do not include explanations or markdown formatting.`;
+
+        log.info(`Applying edits to ${filePath} using ${targetProvider}...`);
+
+        // Generate the edited content
+        const response = await completionService.complete({
+          prompt,
+          provider: targetProvider,
+          model: model || (targetProvider === "morph" ? "morph-v3-large" : undefined),
+          temperature: 0.1, // Low temperature for precise edits
+          maxTokens: Math.max(originalContent.length * 2, 4000), // Ensure enough tokens for the response
+          systemPrompt:
+            "You are a precise code editor. Return only the final updated file content without any explanations or formatting.",
+        });
+
+        const editedContent = response.content.trim();
+
+        // Show the changes
+        if (dryRun) {
+          log.cli("🔍 Dry run - showing proposed changes:");
+          log.cli("\n--- Original ---");
+          log.cli(originalContent);
+          log.cli("\n--- Edited ---");
+          log.cli(editedContent);
+          log.cli(
+            `\nTokens used: ${response.usage.totalTokens} (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+          );
+          if (response.usage.cost) {
+            log.cli(`Cost: $${response.usage.cost.toFixed(4)}`);
+          }
+        } else {
+          // Apply the changes
+          await fs.writeFile(filePath, editedContent, "utf-8");
+          log.cli(`✅ Successfully applied edits to ${filePath}`);
+          log.info(
+            `Tokens used: ${response.usage.totalTokens} (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+          );
+          if (response.usage.cost) {
+            log.info(`Cost: $${response.usage.cost.toFixed(4)}`);
+          }
+        }
+      } catch (error) {
+        log.cliError(
+          `Fast-apply failed: ${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
       }

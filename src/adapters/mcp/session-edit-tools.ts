@@ -66,8 +66,8 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
         let finalContent: string;
 
         if (fileExists && args.content.includes("// ... existing code ...")) {
-          // Apply the edit pattern
-          finalContent = applyEditPattern(originalContent, args.content);
+          // Apply the edit pattern using fast-apply providers
+          finalContent = await applyEditPattern(originalContent, args.content);
         } else {
           // Direct write for new files or complete replacements
           finalContent = args.content;
@@ -191,10 +191,105 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
 }
 
 /**
- * Apply edit pattern with "// ... existing code ..." markers
- * Matches Cursor's edit_file behavior
+ * Apply edit pattern using fast-apply providers
+ * Replaces broken string-based pattern matching with AI-powered editing
  */
-function applyEditPattern(originalContent: string, editContent: string): string {
+async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
+  try {
+    // Import required dependencies
+    const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+    const { DefaultAIConfigurationService } = await import("../../domain/ai/config-service");
+    const { getConfiguration } = await import("../../domain/configuration");
+
+    // Get AI configuration
+    const config = getConfiguration();
+    const aiConfig = config.ai;
+
+    if (!aiConfig?.providers) {
+      throw new Error("No AI providers configured for fast-apply editing");
+    }
+
+    // Find fast-apply capable provider
+    const fastApplyProviders = Object.entries(aiConfig.providers)
+      .filter(
+        ([name, providerConfig]) =>
+          providerConfig?.enabled &&
+          // Check if provider supports fast-apply (morph for now, extendable)
+          name === "morph"
+      )
+      .map(([name]) => name);
+
+    if (fastApplyProviders.length === 0) {
+      // Fallback to the broken implementation for backward compatibility
+      log.warn("No fast-apply providers available, falling back to legacy pattern matching");
+      return applyEditPatternLegacy(originalContent, editContent);
+    }
+
+    const provider = fastApplyProviders[0];
+    log.debug(`Using fast-apply provider: ${provider}`);
+
+    // Create AI completion service
+    const configService = new DefaultAIConfigurationService({
+      loadConfiguration: () => Promise.resolve({ resolved: config }),
+    } as any);
+    const completionService = new DefaultAICompletionService(configService);
+
+    // Create fast-apply prompt
+    const prompt = `Apply the following edit pattern to the original content:
+
+Original content:
+\`\`\`
+${originalContent}
+\`\`\`
+
+Edit pattern:
+\`\`\`
+${editContent}
+\`\`\`
+
+Instructions:
+- Apply the edits shown in the edit pattern to the original content
+- The edit pattern uses "// ... existing code ..." markers to indicate unchanged sections
+- Return ONLY the complete updated file content
+- Preserve all formatting, indentation, and structure
+- Do not include explanations or markdown formatting`;
+
+    // Generate the edited content using fast-apply
+    const response = await completionService.complete({
+      prompt,
+      provider,
+      model: provider === "morph" ? "morph-v3-large" : undefined,
+      temperature: 0.1, // Low temperature for precise edits
+      maxTokens: Math.max(originalContent.length * 2, 4000),
+      systemPrompt:
+        "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
+    });
+
+    const result = response.content.trim();
+
+    // Log usage for monitoring
+    log.debug(`Fast-apply edit completed using ${provider}`, {
+      tokensUsed: response.usage.totalTokens,
+      originalLength: originalContent.length,
+      resultLength: result.length,
+    });
+
+    return result;
+  } catch (error) {
+    log.warn(
+      `Fast-apply edit failed, falling back to legacy pattern matching: ${error instanceof Error ? error.message : String(error)}`
+    );
+
+    // Fallback to legacy implementation
+    return applyEditPatternLegacy(originalContent, editContent);
+  }
+}
+
+/**
+ * Legacy pattern matching implementation (fallback)
+ * Original broken implementation kept for emergency fallback
+ */
+function applyEditPatternLegacy(originalContent: string, editContent: string): string {
   // If no existing code markers, return the edit content as-is
   if (!editContent.includes("// ... existing code ...")) {
     return editContent;

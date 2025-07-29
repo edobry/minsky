@@ -34,10 +34,11 @@ HIGH
 
 1. **✅ COMPLETED - Current Implementation Analysis**: Confirmed complete failure (0% success rate)
 2. **✅ COMPLETED - Fast-Apply API Research**: Validated Morph and Relace as viable solutions
-3. **🔄 IN PROGRESS - Morph Integration**: Implement using existing AI provider infrastructure
-4. **Add Model Capabilities Framework**: Extend AI provider types to support fast-apply capabilities
-5. **Implement Reapply Functionality**: Add missing `session_reapply` tool using fast-apply providers
-6. **Restore Edit Functionality**: Replace broken implementation with working fast-apply integration
+3. **✅ COMPLETED - Morph Integration**: Implemented using existing AI provider infrastructure
+4. **✅ COMPLETED - Model Capabilities Framework**: Extended AI provider types to support fast-apply capabilities
+5. **✅ COMPLETED - Fast-Apply Testing Command**: Created `minsky ai fast-apply` command for testing
+6. **🔄 IN PROGRESS - Replace Broken Session Edit Tools**: Fix session_edit_file and session_search_replace
+7. **DEFERRED - Reapply Functionality**: Moved to separate task for focused implementation
 
 ## Dependencies
 
@@ -323,16 +324,20 @@ HIGH
 - **Fast-Apply API Research**: Validated Morph (4,500+ tok/s, 98% accuracy) and Relace as solutions
 - **Business Case**: Infinite ROI from completely broken to working functionality
 
-### Phase 2: 🔄 IN PROGRESS - Morph Integration via AI Provider Infrastructure
-- **Add Model Capabilities**: Extend AI provider types to include "fast-apply" capability
-- **Morph Provider Integration**: Add Morph to existing AI provider enum and configuration
-- **Test-Driven Implementation**: Create validation script for real API testing
-- **Enhanced Session Tools**: Update session_edit_file to use fast-apply providers
+### Phase 2: ✅ COMPLETED - Morph Integration via AI Provider Infrastructure  
+- **✅ Model Capabilities**: Extended AI provider types to include "fast-apply" capability
+- **✅ Morph Provider Integration**: Added Morph to existing AI provider enum and configuration
+- **✅ Test-Driven Implementation**: Created comprehensive validation suite for real API testing
+- **✅ Fast-Apply Testing Command**: Implemented `minsky ai fast-apply` for file edit testing
 
-### Phase 3: Enhanced Tools & Reapply
-- **Session Reapply Tool**: Implement session_reapply using fast-apply providers
+### Phase 3: 🔄 IN PROGRESS - Session Tools Restoration
+- **Replace Broken Session Edit Tools**: Fix session_edit_file and session_search_replace using fast-apply
 - **Provider Selection**: Capability-based provider selection for edit operations
-- **Fallback Mechanisms**: Multi-provider support with graceful degradation
+- **Integration Testing**: Validate restored functionality with real-world scenarios
+
+### Phase 4: DEFERRED - Advanced Features (New Task)
+- **Session Reapply Tool**: Implement session_reapply using fast-apply providers (separate task)
+- **Multi-Provider Fallback**: Graceful degradation and provider selection optimization
 
 ## Requirements
 
@@ -350,14 +355,19 @@ HIGH
 
 ## Success Criteria
 
-### Immediate (Phase 2)
-- **Morph Provider Added**: Successfully integrated into AI provider configuration
-- **Basic Fast-Apply Working**: Can perform simple edit operations via Morph API
-- **Test Validation**: Real API calls succeed in test script
-- **Configuration Support**: Morph API key properly loaded from config
+### Immediate (Phase 2) - ✅ COMPLETED
+- **✅ Morph Provider Added**: Successfully integrated into AI provider configuration
+- **✅ Fast-Apply Testing**: `minsky ai fast-apply` command for file edit testing
+- **✅ Infrastructure Complete**: Real API calls validated, configuration working
+- **✅ Capability Framework**: Fast-apply provider detection operational
 
-### Medium-term (Phase 3)
-- **Full Edit Functionality**: >95% success rate on edit operations (vs. current 0%)
-- **Reapply Tool**: Working session_reapply implementation
-- **Provider Selection**: Automatic fast-apply provider detection and usage
-- **Fallback Support**: Graceful handling when fast-apply providers unavailable
+### Current (Phase 3) - 🔄 IN PROGRESS  
+- **Session Edit Tools Restored**: >95% success rate on edit operations (vs. current 0%)
+- **Provider Integration**: Session tools use fast-apply providers automatically
+- **Backward Compatibility**: Existing workflows continue to work
+- **Performance Improvement**: Fast, accurate edit operations
+
+### Future (Phase 4) - DEFERRED
+- **Reapply Tool**: Working session_reapply implementation (new dedicated task)
+- **Advanced Provider Selection**: Multi-provider fallback and optimization
+- **Performance Analytics**: Usage tracking and optimization insights
