@@ -14,7 +14,9 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
-    "validate-commit": "bun scripts/validate-commit-message.ts"
+    "validate-commit": "bun scripts/validate-commit-message.ts",
+    "secrets:scan": "npx secretlint \"**/*\" --no-color",
+    "secrets:gitleaks": "gitleaks detect --source . --verbose"
   },
   "bin": {
     "minsky": "./src/cli.ts"
@@ -22,6 +24,15 @@
   "devDependencies": {
     "@eslint/js": "9.29.0",
     "@modelcontextprotocol/inspector": "^0.16.2",
+    "@secretlint/secretlint-rule-aws": "^10.2.1",
+    "@secretlint/secretlint-rule-basicauth": "^10.2.1",
+    "@secretlint/secretlint-rule-gcp": "^10.2.1",
+    "@secretlint/secretlint-rule-github": "^10.2.1",
+    "@secretlint/secretlint-rule-npm": "^10.2.1",
+    "@secretlint/secretlint-rule-openai": "^10.2.1",
+    "@secretlint/secretlint-rule-preset-recommend": "^10.2.1",
+    "@secretlint/secretlint-rule-privatekey": "^10.2.1",
+    "@secretlint/secretlint-rule-slack": "^10.2.1",
     "@types/bun": "^1.2.11",
     "@types/jest": "^29.5.14",
     "@types/js-yaml": "^4.0.9",
@@ -41,6 +52,7 @@
     "husky": "^9.1.7",
     "lint-staged": "^16.0.0",
     "prettier": "^3.5.3",
+    "secretlint": "^10.2.1",
     "ts-morph": "^26.0.0"
   },
   "peerDependencies": {

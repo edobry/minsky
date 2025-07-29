@@ -1119,3 +1119,49 @@ Sessions provide complete workspace isolation:
 - **Extensibility**: New interfaces can be added without changing domain logic
 - **Type Safety**: Full TypeScript support with runtime validation
 - **Maintainability**: Clear separation of concerns makes the codebase easier to understand and modify
+
+## 🔒 Security: Secret Scanning
+
+This project includes **critical security measures** to prevent credential exposure:
+
+### Pre-Commit Secret Scanning
+
+**Dual-layer protection** automatically scans for secrets before every commit:
+
+1. **Primary Scanner: Gitleaks** - Comprehensive binary scanner
+2. **Secondary Scanner: Secretlint** - JavaScript-native scanner with custom rules
+
+### Protected Secret Types
+
+- **OpenAI API Keys** (`sk-proj-`, `sk-`)
+- **GitHub Personal Access Tokens** (`github_pat_`, `ghp_`)
+- **Anthropic API Keys** (`sk-ant-`)
+- **AWS Access Keys** (`AKIA`, `ASIA`)
+- **Google/GCP API Keys** (`AIza`)
+- **Slack Bot Tokens** (`xoxb-`)
+- **NPM Tokens** (`npm_`)
+- **Private Keys** (SSH, SSL, etc.)
+- **Basic Auth credentials** in URLs
+
+### Manual Scanning Commands
+
+```bash
+# Scan with gitleaks
+bun run secrets:gitleaks
+
+# Scan with secretlint  
+bun run secrets:scan
+
+# Scan staged files only
+gitleaks protect --staged --source .
+```
+
+### ⚠️ Important Security Notes
+
+- **Commits are BLOCKED** if secrets are detected
+- **Use placeholder values** in documentation: `sk-proj-xxx...xxxxx`
+- **Never disable** secret scanning for convenience
+- **Real credentials** should NEVER be committed to any repository
+
+This system prevented a **critical security incident** where real API keys were nearly committed to the repository.
+
