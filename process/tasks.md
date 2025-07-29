@@ -586,7 +586,7 @@
 
 - [ ] Apply Type Composition Patterns to CLI Adapters [#330](process/tasks/330-apply-type-composition-patterns-to-cli-adapters.md)
 
-- [ ] Test task [#331](process/tasks/331-test-task.md)
+- [x] Test task [#331](process/tasks/331-test-task.md)
 
 - [ ] Test CLI task [#332](process/tasks/332-test-cli-task.md)
 

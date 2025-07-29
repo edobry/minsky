@@ -94,8 +94,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       supportsMetadataQuery: false, // Would require parsing all files
       supportsFullTextSearch: true, // Can grep through markdown files
 
-      // Update mechanism - markdown backend requires special workspace
-      // All operations now work in main workspace
+      // Update mechanism
       supportsTransactions: false, // File-based, no transaction support
       supportsRealTimeSync: false, // Manual file operations
     };
