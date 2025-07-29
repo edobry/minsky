@@ -82,7 +82,7 @@ describe("Session CLI Commands", () => {
     test("should handle null taskId sessions correctly", () => {
       // Test the specific edge case that caused the original bug
       const sessionWithNullTaskId = { taskId: null };
-      const sessionWithTaskId = { taskId: "#160" };
+      const sessionWithTaskId = { taskId: "160" };
 
       // This should not throw and should filter out null values
       const normalizeTaskId = (taskId: string | null | undefined) => {
@@ -137,8 +137,8 @@ describe("Session CLI Commands", () => {
       const edgeCaseSessions = [
         { session: "old-session", taskId: null },
         { session: "task160", taskId: "160" }, // Without # prefix
-        { session: "task#160", taskId: "#160" }, // With # prefix
-        { session: "task-160-v2", taskId: "#160" }, // Another session with same task ID
+        { session: "task#160", taskId: "160" }, // With # prefix
+        { session: "task-160-v2", taskId: "160" }, // Another session with same task ID
       ];
 
       const normalizeTaskId = (taskId: string) => taskId.replace(/^#/, "");
@@ -337,7 +337,7 @@ describe("Session CLI Commands", () => {
         repoName: "local-minsky",
         repoUrl: repoUrl,
         createdAt: new Date().toISOString(),
-        taskId: "task#42", // Task ID should match session name
+        taskId: "42", // Task ID should match session name
       };
 
       mockSessionDB.getSession = async (name: string) => {

@@ -27,7 +27,7 @@ describe("SessionDB Functional Implementation", () => {
         repoName: "local/minsky",
         repoUrl: "local/minsky",
         createdAt: "2023-01-01T00:00:00.000Z",
-        taskId: "#101",
+        taskId: "101",
         branch: "test-branch-1",
       },
       {
@@ -35,7 +35,7 @@ describe("SessionDB Functional Implementation", () => {
         repoName: "github/user/repo",
         repoUrl: "https://github.com/user/repo",
         createdAt: "2023-01-02T00:00:00.000Z",
-        taskId: "#102",
+        taskId: "102",
         branch: "test-branch-2",
       },
     ];
@@ -154,7 +154,7 @@ describe("SessionDB Functional Implementation", () => {
         repoName: "local/new-repo",
         repoUrl: "local/new-repo",
         createdAt: "2023-01-03T00:00:00.000Z",
-        taskId: "#103",
+        taskId: "103",
         branch: "test-branch-3",
       };
 
@@ -170,7 +170,7 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const updates = {
         branch: "updated-branch",
-        taskId: "#999",
+        taskId: "999",
       };
 
       const newState = updateSessionFn(state, "test-session-1", updates);

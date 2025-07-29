@@ -30,7 +30,7 @@ describe("Session Approve Branch Cleanup", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#265",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         })
       ),
@@ -125,7 +125,7 @@ describe("Session Approve Branch Cleanup", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#265",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         })
       ),
@@ -214,7 +214,7 @@ describe("Session Approve Branch Cleanup", () => {
           session: name,
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
-          taskId: "#265",
+          taskId: "265",
           createdAt: new Date().toISOString(),
         })
       ),

@@ -26,14 +26,14 @@ describe("Session Command Domain Logic", () => {
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
-          taskId: "#123",
+          taskId: "123",
         },
         {
           session: "task#456",
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-02T00:00:00Z",
-          taskId: "#456",
+          taskId: "456",
         },
       ],
     });
@@ -53,7 +53,7 @@ describe("Session Command Domain Logic", () => {
 
       expect(result).not.toBeNull();
       expect(result?.session).toBe("test-session");
-      expect(result?.taskId).toBe("#123");
+      expect(result?.taskId).toBe("123");
     });
 
     test("resolves session by explicit task ID", async () => {
@@ -69,7 +69,7 @@ describe("Session Command Domain Logic", () => {
 
       expect(result).not.toBeNull();
       expect(result?.session).toBe("task#456");
-      expect(result?.taskId).toBe("#456");
+      expect(result?.taskId).toBe("456");
     });
 
     test("throws ResourceNotFoundError for non-existent session", async () => {
@@ -187,14 +187,14 @@ describe("Session Command Domain Logic", () => {
       // Test that the mock provider is being used by checking its exact behavior
       const session = await mockSessionProvider.getSession("test-session");
       expect(session).not.toBeNull();
-      expect(session?.taskId).toBe("#123");
+      expect(session?.taskId).toBe("123");
 
       // Test the same behavior through the domain function
       const result = await sessionGet(
         { name: "test-session", json: false },
         { sessionDB: mockSessionProvider }
       );
-      expect(result?.taskId).toBe("#123");
+      expect(result?.taskId).toBe("123");
     });
 
     test("session resolution is deterministic with same inputs", async () => {
@@ -209,9 +209,9 @@ describe("Session Command Domain Logic", () => {
       expect(results[0]?.session).toBe("test-session");
       expect(results[1]?.session).toBe("test-session");
       expect(results[2]?.session).toBe("test-session");
-      expect(results[0]?.taskId).toBe("#123");
-      expect(results[1]?.taskId).toBe("#123");
-      expect(results[2]?.taskId).toBe("#123");
+      expect(results[0]?.taskId).toBe("123");
+      expect(results[1]?.taskId).toBe("123");
+      expect(results[2]?.taskId).toBe("123");
     });
   });
 });
