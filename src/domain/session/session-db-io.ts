@@ -38,12 +38,29 @@ export function readSessionDbFile(
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
-    const sessions = JSON.parse(data);
+    const parsed = JSON.parse(data);
 
-    return {
-      sessions: sessions,
-      baseDir: baseDir,
-    };
+    // Handle both legacy format (array) and new format (SessionDbState object)
+    if (Array.isArray(parsed)) {
+      // Legacy format: file contains just the sessions array
+      return {
+        sessions: parsed,
+        baseDir: baseDir,
+      };
+    } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.sessions)) {
+      // New format: file contains SessionDbState object
+      return {
+        sessions: parsed.sessions,
+        baseDir: parsed.baseDir || baseDir,
+      };
+    } else {
+      // Invalid or corrupted data, return empty state
+      log.warn(`Invalid session database format in ${dbPath}, initializing empty state`);
+      return {
+        sessions: [],
+        baseDir: baseDir,
+      };
+    }
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
     return {
