@@ -431,3 +431,23 @@ export type FileReadResponse = z.infer<typeof FileReadResponseSchema>;
 export type DirectoryListResponse = z.infer<typeof DirectoryListResponseSchema>;
 export type FileExistsResponse = z.infer<typeof FileExistsResponseSchema>;
 export type GrepSearchResponse = z.infer<typeof GrepSearchResponseSchema>;
+
+// ========================
+// RESPONSE BUILDER FUNCTIONS
+// ========================
+
+/**
+ * Creates a file operation success response with file-specific context
+ */
+export function createFileOperationResponse(
+  context: { path: string; session: string; resolvedPath?: string },
+  operationData: Record<string, any> = {}
+) {
+  return {
+    success: true,
+    path: context.path,
+    session: context.session,
+    ...(context.resolvedPath && { resolvedPath: context.resolvedPath }),
+    ...operationData,
+  };
+}

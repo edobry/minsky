@@ -95,4 +95,7 @@ export {
   // File path schemas
   FilePathSchema,
   DirectoryPathSchema,
+
+  // File response builders
+  createFileOperationResponse,
 } from "./file-schemas";
