@@ -77,8 +77,13 @@ const aiFastApplyParams: CommandParameterMap = {
   },
   instructions: {
     schema: z.string().min(1),
-    description: "Instructions for how to edit the file",
-    required: true,
+    description: "Description of what changes to make",
+    required: false,
+  },
+  codeEdit: {
+    schema: z.string().min(1),
+    description: "New code with '// ... existing code ...' markers (Cursor format)",
+    required: false,
   },
   provider: {
     schema: z.string(),
@@ -216,11 +221,18 @@ export function registerAiCommands(): void {
     id: "ai.fast-apply",
     category: CommandCategory.CORE,
     name: "fast-apply",
-    description: "Apply fast edits to a file using fast-apply models",
+    description:
+      "Apply fast edits to a file using fast-apply models (supports both instruction and Cursor edit pattern modes)",
     parameters: aiFastApplyParams,
     execute: async (params, context) => {
       try {
-        const { filePath, instructions, provider, model, dryRun } = params;
+        const { filePath, instructions, codeEdit, provider, model, dryRun } = params;
+
+        // Validate that either instructions or codeEdit is provided
+        if (!instructions && !codeEdit) {
+          log.cliError("Either 'instructions' or 'codeEdit' parameter must be provided");
+          exit(1);
+        }
 
         // Import filesystem utilities
         const fs = await import("fs/promises");
@@ -276,8 +288,32 @@ export function registerAiCommands(): void {
         };
         const completionService = new DefaultAICompletionService(mockConfigService);
 
-        // Create fast-apply prompt
-        const prompt = `Original file content:
+        // Create fast-apply prompt based on mode
+        let prompt: string;
+
+        if (codeEdit) {
+          // Cursor-style format: use the provided code with existing code markers
+          prompt = `Apply the following edit pattern to the original content:
+
+Original content:
+\`\`\`${path.extname(filePath).slice(1) || "text"}
+${originalContent}
+\`\`\`
+
+Edit pattern (new code with markers):
+\`\`\`${path.extname(filePath).slice(1) || "text"}
+${codeEdit}
+\`\`\`
+
+Instructions:
+- Apply the edits shown in the edit pattern to the original content
+- The edit pattern uses "// ... existing code ..." markers to indicate unchanged sections
+- Return ONLY the complete updated file content
+- Preserve all formatting, indentation, and structure
+- Do not include explanations or markdown formatting`;
+        } else {
+          // Instruction-based format: describe what to do
+          prompt = `Original file content:
 \`\`\`${path.extname(filePath).slice(1) || "text"}
 ${originalContent}
 \`\`\`
@@ -285,8 +321,10 @@ ${originalContent}
 Instructions: ${instructions}
 
 Apply the requested changes and return ONLY the complete updated file content. Do not include explanations or markdown formatting.`;
+        }
 
-        log.info(`Applying edits to ${filePath} using ${targetProvider}...`);
+        const mode = codeEdit ? "Cursor edit pattern" : "instruction-based";
+        log.info(`Applying edits to ${filePath} using ${targetProvider} (${mode})...`);
 
         // Generate the edited content
         const response = await completionService.complete({
@@ -630,6 +668,10 @@ Apply the requested changes and return ONLY the complete updated file content. D
     // Register fetchers
     cacheService.registerFetcher(new OpenAIModelFetcher());
     cacheService.registerFetcher(new AnthropicModelFetcher());
+
+    // TODO: Add Morph model fetcher
+    // Morph uses OpenAI-compatible API, but needs separate provider ID for proper cache handling
+    // Need to create MorphModelFetcher class that extends OpenAI fetcher with provider="morph"
 
     return cacheService;
   };
