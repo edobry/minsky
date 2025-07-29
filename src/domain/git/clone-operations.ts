@@ -60,7 +60,10 @@ export async function cloneImpl(
     log.debug(`Executing: git clone ${options.repoUrl} ${workdir}`);
     const cloneCmd = `git clone ${options.repoUrl} ${workdir}`;
 
-    // Ensure parent directory exists
+    // Ensure parent directory exists (handle undefined workdir)
+    if (!workdir) {
+      throw new Error("Workdir is required for git clone operation");
+    }
     await deps.mkdir(dirname(workdir), { recursive: true });
     log.debug("Session parent directory created", { parentDir: dirname(workdir) });
 
