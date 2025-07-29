@@ -76,14 +76,10 @@ export async function listTasksFromParams(
     const backend = validParams.backend || "markdown";
     const workspacePath = await actualDeps.resolveTaskWorkspacePath({ backend });
 
-    // Create task service with read-only mode for better performance
-    const taskService = await TaskService.createWithEnhancedBackend({
-      backend: backend as "markdown" | "json-file",
-      backendConfig: {
-        name: backend,
-        workspacePath,
-      },
-      isReadOperation: true,
+    // Create task service using dependency injection
+    const taskService = await actualDeps.createTaskService({
+      workspacePath,
+      backend,
     });
 
     // Get tasks
