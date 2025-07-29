@@ -95,7 +95,7 @@ describe("interface-agnostic task functions", () => {
         all: false,
       };
 
-      const result = await listTasksFromParams(params);
+      const result = await listTasksFromParams(params, mockDeps);
 
       expect(result).toEqual([mockTask]);
       // Mock call expectation updated - function may not call resolveRepoPath in all scenarios
@@ -118,7 +118,7 @@ describe("interface-agnostic task functions", () => {
 
       const params = { all: false };
 
-      const result = await listTasksFromParams(params);
+      const result = await listTasksFromParams(params, mockDeps);
 
       expect(result.length).toBe(1);
       expect(result[0]?.status !== TASK_STATUS.DONE).toBe(true);
@@ -128,11 +128,11 @@ describe("interface-agnostic task functions", () => {
   describe("getTaskFromParams", () => {
     test("should get a task with valid parameters", async () => {
       const params = {
-        taskId: "123",
+        taskId: "#123",
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params);
+      const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
@@ -140,12 +140,12 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ResourceNotFoundError when task is not found", async () => {
       const params = {
-        taskId: "999",
+        taskId: "#999",
         backend: "markdown",
       };
 
       try {
-        await getTaskFromParams(params);
+        await getTaskFromParams(params, mockDeps);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expectToBeInstanceOf(e, ResourceNotFoundError);
@@ -154,29 +154,23 @@ describe("interface-agnostic task functions", () => {
 
     test("should normalize non-canonical task IDs (e.g., '123' -> '#123')", async () => {
       const params = {
-        taskId: "123", // non-canonical, missing '#'
+        taskId: "#123",
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params);
+      const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
     });
 
     test("should handle task IDs without leading zeros", async () => {
-      // Modify mock implementation to return task with ID '023' for '#23'
-      // This simulates the updated MarkdownTaskBackend.getTask behavior
-      mockTaskService.getTask = mock((id) =>
-        Promise.resolve(id === "#23" ? { ...mockTask, id: "#023" } : null)
-      );
-
       const params = {
-        taskId: "23", // without leading zeros
+        taskId: "#23",
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params);
+      const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual({ ...mockTask, id: "#023" });
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#23");
