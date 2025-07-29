@@ -7,6 +7,11 @@
 
 - **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
 
+- **Task 176 Continuation**: Dependency injection support for task command functions
+  - Added optional `deps` parameter to `listTasksFromParams()` and `getTaskFromParams()`
+  - Enhanced `getTaskStatusFromParams()` and `setTaskStatusFromParams()` with optional DI
+  - `expandGitHubShorthand()` function for GitHub shorthand notation support (org/repo → full URL)
+
 ### Changed
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
   - `AI Validate` → `minsky core ai validate`
@@ -18,6 +23,10 @@
 - **Tasks Status Commands**: Converted from problematic dot notation to proper hierarchy:
   - `tasks.status.get` → `minsky tasks status get` (proper nesting)
   - `tasks.status.set` → `minsky tasks status set` (proper nesting)
+
+- **Task Commands Architecture**: Migrated from `TaskService.createWithEnhancedBackend()` to `createConfiguredTaskService()` for consistency
+- **Test Infrastructure**: Restored `mockDeps` parameter usage in task interface tests for better isolation
+- **Mock Setup**: Fixed mock workspace paths (`/tmp/mock-session-workdir`)
 
 ### Fixed
 - **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
@@ -66,7 +75,6 @@
 
 ### Enhanced
 
-<<<<<<< HEAD
 - **Task #322: Refactored MCP Tools with Type Composition to Eliminate Argument Duplication**
 
   - Created shared Zod schema components for reusable parameter validation across MCP tools
@@ -76,91 +84,6 @@
   - Fixed critical sessionNameName bug in session-workspace.ts (7 instances of incorrect variable references)
   - Improved maintainability with consistent error handling and TypeScript type safety
   - All existing MCP tool functionality preserved with enhanced validation
-=======
-- **Session CLI Command Registration Fix**
-
-  - Fixed session command registration issue where only 'migrate' and 'check' commands were visible
-  - Resolved `ModularSessionCommandsManager` not properly populating command registry
-  - Fixed `BaseSessionCommand.getCommandCategory()` returning lowercase 'session' instead of `CommandCategory.SESSION`
-  - All session commands now properly available: list, get, start, dir, delete, update, approve, pr, inspect
-  - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
-
-- **Task #325: Completed Task Backend Architecture Analysis**
-  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
-  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
-  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
-  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
-  - **AI-First Architecture Insights**:
-    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
-    - Users already accept external dependencies (AI APIs, billing, internet)
-    - Offline concerns secondary for AI-powered workflows
-    - GitHub Issues provide excellent foundation for AI content analysis
-  - **Comprehensive Analysis Delivered**:
-    - AI-first architecture reanalysis changing all priorities
-    - SQLite-to-PostgreSQL upgrade path design (for future reference)
-    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
-    - Offline/onboarding analysis with AI context
-    - GitHub Issues interim strategy with future backend flexibility
-  - **Created Formal ADRs**:
-    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
-    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
-    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
-  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
-  - **Three-Phase Strategy**:
-    - Phase 1: GitHub Issues migration and basic AI features (immediate)
-    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
-    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
-  - # **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
-- **Task #325: Completed Task Backend Architecture Analysis**
-
-  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
-  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
-  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
-  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
-  - **AI-First Architecture Insights**:
-    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
-    - Users already accept external dependencies (AI APIs, billing, internet)
-    - Offline concerns secondary for AI-powered workflows
-    - GitHub Issues provide excellent foundation for AI content analysis
-  - **Comprehensive Analysis Delivered**:
-    - AI-first architecture reanalysis changing all priorities
-    - SQLite-to-PostgreSQL upgrade path design (for future reference)
-    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
-    - Offline/onboarding analysis with AI context
-    - GitHub Issues interim strategy with future backend flexibility
-  - **Created Formal ADRs**:
-    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
-    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
-    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
-  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
-  - **Three-Phase Strategy**:
-    - Phase 1: GitHub Issues migration and basic AI features (immediate)
-    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
-    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
-  - **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
-
-- **Task #322: Comprehensive Parameter Deduplication with Type Composition**
-
-  - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
-  - **70% CODE REDUCTION**: Reduced ~1000 lines to ~300 lines of parameter definitions (exceeded 60% target)
-  - **Created Dual-System Architecture**:
-    - `src/adapters/mcp/shared-schemas.ts`: 17+ reusable parameter schemas for MCP tools
-    - `src/adapters/shared/common-parameters.ts`: Comprehensive parameter library for shared commands
-  - **Refactored 11 Files Completely**:
-    - **MCP Tools**: `session-files.ts`, `session-edit-tools.ts`, `session-workspace.ts` (75% reduction)
-    - **Shared Commands**: `rules.ts`, `config.ts`, `init.ts`, `git.ts`, `session-parameters.ts`, `tasks/task-parameters.ts` (68% avg reduction)
-  - **Key Innovations**:
-    - Single source of truth for all common parameters (sessionName, path, json, repo, debug, etc.)
-    - Type-safe composition patterns with full TypeScript inference
-    - Backward compatibility with zero breaking changes
-    - Extensible patterns for future parameter additions
-  - **Eliminated All Major Duplication Patterns**:
-    - MCP sessionName parameters: 17+ → 1 schema
-    - MCP path parameters: 15+ → 1 schema
-    - Shared json parameters: 15+ → 1 schema
-    - Task/Git/Session parameter families: 100+ → organized libraries
-  - Established robust foundation for maintainable, DRY parameter management across entire codebase
->>>>>>> main
 
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
 
@@ -987,7 +910,6 @@ _See: SpecStory history [2025-05-19_implement-environment-aware-logging](mdc:.sp
     - `tasks.filter`: Enhanced task filtering with advanced options (title, ID, sorting)
     - `tasks.update`: Update a task's details (title, description, status)
     - `tasks.delete`: Delete a task with optional force flag
-<<<<<<< HEAD
     - `tasks.info`: Get statistical information about tasks with grouping
   - Updated README-MCP.md with comprehensive documentation for all task commands
   - Added test coverage for the new MCP task commands
@@ -1690,6 +1612,20 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
-=======
-    - `
->>>>>>> main
+
+- **Task Commands Architecture**: Migrated from `TaskService.createWithEnhancedBackend()` to `createConfiguredTaskService()` for consistency
+- **Test Infrastructure**: Restored `mockDeps` parameter usage in task interface tests for better isolation
+- **Mock Setup**: Fixed mock workspace paths (`/tmp/mock-session-workdir`)
+
+### Fixed
+- **Type Casting Issues**: Fixed `convertRepositoryURI()` function type casting with proper `as unknown as UriFormat` pattern
+- **Import Resolution**: Fixed missing `childProcess` import and module resolution issues
+- **ESLint Formatting**: Resolved formatting issues in task command functions with optional dependency injection parameters
+- **Test Mocking Paths**: Corrected mock workspace paths to use proper temporary directories
+
+### Technical Debt
+- **Test Failures**: 6/10 task interface command tests still failing due to mock configuration issues
+  - Root cause: `mockCreateTaskService` not properly returning mocked task service
+  - Symptoms: Tests creating real filesystem operations instead of using `mockTaskService`
+  - Next steps: Refine mock setup to ensure dependency injection returns proper mock objects
+- **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
