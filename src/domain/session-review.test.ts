@@ -1,7 +1,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import { sessionReviewFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
-import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createMock, createPartialMock, mockFunction } from "../utils/test-utils/mocking";
 import {
   createMockSessionProvider,
   createMockGitService,
