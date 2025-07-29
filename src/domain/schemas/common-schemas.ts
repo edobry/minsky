@@ -133,10 +133,7 @@ export const BaseErrorResponseSchema = z.object({
 /**
  * Base response union schema - used across all interfaces
  */
-export const BaseResponseSchema = z.union([
-  BaseSuccessResponseSchema,
-  BaseErrorResponseSchema,
-]);
+export const BaseResponseSchema = z.union([BaseSuccessResponseSchema, BaseErrorResponseSchema]);
 
 // ========================
 // COMPOSED COMMON SCHEMAS

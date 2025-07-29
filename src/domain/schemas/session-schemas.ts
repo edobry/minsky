@@ -50,10 +50,10 @@ export const PackageManagerSchema = z.enum(["bun", "npm", "yarn", "pnpm"]).optio
  */
 export const SessionStatusSchema = z.enum([
   "active",
-  "inactive", 
+  "inactive",
   "in-review",
   "completed",
-  "archived"
+  "archived",
 ]);
 
 // ========================
@@ -63,98 +63,112 @@ export const SessionStatusSchema = z.enum([
 /**
  * Session creation parameters
  */
-export const SessionStartParametersSchema = z.object({
-  name: SessionNameSchema,
-  description: SessionDescriptionSchema,
-  task: TaskIdSchema.optional(),
-  branch: GitBranchSchema,
-  packageManager: PackageManagerSchema,
-  skipInstall: z.boolean().default(false),
-  noStatusUpdate: z.boolean().default(false),
-  quiet: QuietSchema,
-}).merge(BaseBackendParametersSchema);
+export const SessionStartParametersSchema = z
+  .object({
+    name: SessionNameSchema,
+    description: SessionDescriptionSchema,
+    task: TaskIdSchema.optional(),
+    branch: GitBranchSchema,
+    packageManager: PackageManagerSchema,
+    skipInstall: z.boolean().default(false),
+    noStatusUpdate: z.boolean().default(false),
+    quiet: QuietSchema,
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Session retrieval parameters
  */
-export const SessionGetParametersSchema = z.object({
-  sessionName: SessionNameSchema.optional(),
-  name: SessionNameSchema.optional(),
-  task: TaskIdSchema.optional(),
-}).merge(BaseBackendParametersSchema);
+export const SessionGetParametersSchema = z
+  .object({
+    sessionName: SessionNameSchema.optional(),
+    name: SessionNameSchema.optional(),
+    task: TaskIdSchema.optional(),
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Session listing parameters
  */
-export const SessionListParametersSchema = BaseBackendParametersSchema
-  .merge(BaseExecutionContextSchema)
-  .merge(BaseListingParametersSchema);
+export const SessionListParametersSchema = BaseBackendParametersSchema.merge(
+  BaseExecutionContextSchema
+).merge(BaseListingParametersSchema);
 
 /**
  * Session deletion parameters
  */
-export const SessionDeleteParametersSchema = z.object({
-  sessionName: SessionNameSchema.optional(),
-  name: SessionNameSchema.optional(),
-  task: TaskIdSchema.optional(),
-  force: ForceSchema,
-}).merge(BaseBackendParametersSchema);
+export const SessionDeleteParametersSchema = z
+  .object({
+    sessionName: SessionNameSchema.optional(),
+    name: SessionNameSchema.optional(),
+    task: TaskIdSchema.optional(),
+    force: ForceSchema,
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Session update parameters
  */
-export const SessionUpdateParametersSchema = z.object({
-  sessionName: SessionNameSchema.optional(),
-  name: SessionNameSchema.optional(),
-  session: SessionIdSchema.optional(),
-  task: TaskIdSchema.optional(),
-  branch: GitBranchSchema,
-  dryRun: DryRunSchema,
-  force: ForceSchema,
-  noPush: z.boolean().default(false),
-  noStash: z.boolean().default(false),
-  autoResolveDeleteConflicts: z.boolean().default(false),
-  skipConflictCheck: z.boolean().default(false),
-  skipIfAlreadyMerged: z.boolean().default(false),
-}).merge(BaseBackendParametersSchema);
+export const SessionUpdateParametersSchema = z
+  .object({
+    sessionName: SessionNameSchema.optional(),
+    name: SessionNameSchema.optional(),
+    session: SessionIdSchema.optional(),
+    task: TaskIdSchema.optional(),
+    branch: GitBranchSchema,
+    dryRun: DryRunSchema,
+    force: ForceSchema,
+    noPush: z.boolean().default(false),
+    noStash: z.boolean().default(false),
+    autoResolveDeleteConflicts: z.boolean().default(false),
+    skipConflictCheck: z.boolean().default(false),
+    skipIfAlreadyMerged: z.boolean().default(false),
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Session directory parameters
  */
-export const SessionDirectoryParametersSchema = z.object({
-  sessionName: SessionNameSchema.optional(),
-  name: SessionNameSchema.optional(),
-  task: TaskIdSchema.optional(),
-}).merge(BaseBackendParametersSchema);
+export const SessionDirectoryParametersSchema = z
+  .object({
+    sessionName: SessionNameSchema.optional(),
+    name: SessionNameSchema.optional(),
+    task: TaskIdSchema.optional(),
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Session PR creation parameters
  */
-export const SessionPRParametersSchema = z.object({
-  sessionName: SessionNameSchema.optional(),
-  name: SessionNameSchema.optional(),
-  session: SessionIdSchema.optional(),
-  task: TaskIdSchema.optional(),
-  title: z.string().min(1),
-  body: z.string().optional(),
-  bodyPath: z.string().optional(),
-  debug: z.boolean().default(false),
-  noStatusUpdate: z.boolean().default(false),
-  skipConflictCheck: z.boolean().default(false),
-  skipUpdate: z.boolean().default(false),
-  autoResolveDeleteConflicts: z.boolean().default(false),
-}).merge(BaseBackendParametersSchema);
+export const SessionPRParametersSchema = z
+  .object({
+    sessionName: SessionNameSchema.optional(),
+    name: SessionNameSchema.optional(),
+    session: SessionIdSchema.optional(),
+    task: TaskIdSchema.optional(),
+    title: z.string().min(1),
+    body: z.string().optional(),
+    bodyPath: z.string().optional(),
+    debug: z.boolean().default(false),
+    noStatusUpdate: z.boolean().default(false),
+    skipConflictCheck: z.boolean().default(false),
+    skipUpdate: z.boolean().default(false),
+    autoResolveDeleteConflicts: z.boolean().default(false),
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Session approval parameters
  */
-export const SessionApproveParametersSchema = z.object({
-  sessionName: SessionNameSchema.optional(),
-  name: SessionNameSchema.optional(),
-  session: SessionIdSchema.optional(),
-  task: TaskIdSchema.optional(),
-  noStash: z.boolean().default(false),
-}).merge(BaseBackendParametersSchema);
+export const SessionApproveParametersSchema = z
+  .object({
+    sessionName: SessionNameSchema.optional(),
+    name: SessionNameSchema.optional(),
+    session: SessionIdSchema.optional(),
+    task: TaskIdSchema.optional(),
+    noStash: z.boolean().default(false),
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Session commit parameters
@@ -282,4 +296,4 @@ export type SessionOperationResponse = z.infer<typeof SessionOperationResponseSc
 export type SessionListResponse = z.infer<typeof SessionListResponseSchema>;
 export type SessionDirectoryResponse = z.infer<typeof SessionDirectoryResponseSchema>;
 export type SessionPRResponse = z.infer<typeof SessionPRResponseSchema>;
-export type SessionCommitResponse = z.infer<typeof SessionCommitResponseSchema>; 
+export type SessionCommitResponse = z.infer<typeof SessionCommitResponseSchema>;

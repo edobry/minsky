@@ -178,34 +178,40 @@ export const BaseDirectoryOperationSchema = z.object({
 /**
  * File read operation schema
  */
-export const FileReadSchema = BaseFileOperationSchema
-  .merge(LineRangeSchema)
-  .merge(z.object({ explanation: ExplanationSchema }));
+export const FileReadSchema = BaseFileOperationSchema.merge(LineRangeSchema).merge(
+  z.object({ explanation: ExplanationSchema })
+);
 
 /**
  * File write operation schema
  */
-export const FileWriteSchema = BaseFileOperationSchema.merge(z.object({
-  content: FileContentSchema,
-  createDirs: CreateDirectoriesSchema,
-}));
+export const FileWriteSchema = BaseFileOperationSchema.merge(
+  z.object({
+    content: FileContentSchema,
+    createDirs: CreateDirectoriesSchema,
+  })
+);
 
 /**
  * File edit operation schema
  */
-export const FileEditSchema = BaseFileOperationSchema.merge(z.object({
-  instructions: EditInstructionsSchema,
-  content: EditContentSchema,
-  createDirs: CreateDirectoriesSchema,
-}));
+export const FileEditSchema = BaseFileOperationSchema.merge(
+  z.object({
+    instructions: EditInstructionsSchema,
+    content: EditContentSchema,
+    createDirs: CreateDirectoriesSchema,
+  })
+);
 
 /**
  * File search/replace operation schema
  */
-export const FileSearchReplaceSchema = BaseFileOperationSchema.merge(z.object({
-  search: SearchTextSchema,
-  replace: ReplacementTextSchema,
-}));
+export const FileSearchReplaceSchema = BaseFileOperationSchema.merge(
+  z.object({
+    search: SearchTextSchema,
+    replace: ReplacementTextSchema,
+  })
+);
 
 /**
  * File existence check schema
@@ -231,17 +237,21 @@ export const FileMoveSchema = z.object({
 /**
  * File rename operation schema
  */
-export const FileRenameSchema = BaseFileOperationSchema.merge(z.object({
-  newName: NewFilenameSchema,
-  overwrite: OverwriteSchema,
-}));
+export const FileRenameSchema = BaseFileOperationSchema.merge(
+  z.object({
+    newName: NewFilenameSchema,
+    overwrite: OverwriteSchema,
+  })
+);
 
 /**
  * Directory listing schema
  */
-export const DirectoryListSchema = BaseDirectoryOperationSchema.merge(z.object({
-  showHidden: ShowHiddenSchema,
-}));
+export const DirectoryListSchema = BaseDirectoryOperationSchema.merge(
+  z.object({
+    showHidden: ShowHiddenSchema,
+  })
+);
 
 /**
  * Directory creation schema
@@ -318,14 +328,18 @@ export const FileReadResponseSchema = z.union([
   BaseSuccessResponseSchema.merge(BaseFileResponseSchema).extend({
     content: FileContentSchema,
     totalLines: z.number().optional(),
-    linesRead: z.object({
-      start: z.number(),
-      end: z.number(),
-    }).optional(),
+    linesRead: z
+      .object({
+        start: z.number(),
+        end: z.number(),
+      })
+      .optional(),
     linesShown: z.string().optional(),
-    omittedContent: z.object({
-      summary: z.string(),
-    }).optional(),
+    omittedContent: z
+      .object({
+        summary: z.string(),
+      })
+      .optional(),
   }),
   BaseErrorResponseSchema.extend({
     session: SessionIdSchema.optional(),
@@ -374,13 +388,15 @@ export const GrepSearchResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
     session: SessionIdSchema,
     query: SearchPatternSchema,
-    results: z.array(z.object({
-      file: z.string(),
-      line: z.number(),
-      column: z.number().optional(),
-      content: z.string(),
-      match: z.string(),
-    })),
+    results: z.array(
+      z.object({
+        file: z.string(),
+        line: z.number(),
+        column: z.number().optional(),
+        content: z.string(),
+        match: z.string(),
+      })
+    ),
     matchCount: z.number(),
     fileCount: z.number(),
   }),
@@ -414,4 +430,4 @@ export type FileOperationResponse = z.infer<typeof FileOperationResponseSchema>;
 export type FileReadResponse = z.infer<typeof FileReadResponseSchema>;
 export type DirectoryListResponse = z.infer<typeof DirectoryListResponseSchema>;
 export type FileExistsResponse = z.infer<typeof FileExistsResponseSchema>;
-export type GrepSearchResponse = z.infer<typeof GrepSearchResponseSchema>; 
+export type GrepSearchResponse = z.infer<typeof GrepSearchResponseSchema>;

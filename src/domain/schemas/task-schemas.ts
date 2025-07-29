@@ -29,22 +29,17 @@ import {
  */
 export const TaskStatusSchema = z.enum([
   "TODO",
-  "IN-PROGRESS", 
+  "IN-PROGRESS",
   "IN-REVIEW",
   "DONE",
   "BLOCKED",
-  "CLOSED"
+  "CLOSED",
 ]);
 
 /**
  * Task priority schema - used across all interfaces
  */
-export const TaskPrioritySchema = z.enum([
-  "low",
-  "medium", 
-  "high",
-  "urgent"
-]).default("medium");
+export const TaskPrioritySchema = z.enum(["low", "medium", "high", "urgent"]).default("medium");
 
 // ========================
 // TASK METADATA SCHEMAS
@@ -92,76 +87,92 @@ export const TaskDueDateSchema = z.string().datetime().optional();
 /**
  * Task creation parameters
  */
-export const TaskCreateParametersSchema = z.object({
-  title: TaskTitleSchema,
-  description: TaskDescriptionSchema,
-  descriptionPath: TaskDescriptionPathSchema,
-  priority: TaskPrioritySchema,
-  tags: TaskTagsSchema,
-  assignee: TaskAssigneeSchema,
-  dueDate: TaskDueDateSchema,
-  force: ForceSchema,
-}).merge(BaseBackendParametersSchema);
+export const TaskCreateParametersSchema = z
+  .object({
+    title: TaskTitleSchema,
+    description: TaskDescriptionSchema,
+    descriptionPath: TaskDescriptionPathSchema,
+    priority: TaskPrioritySchema,
+    tags: TaskTagsSchema,
+    assignee: TaskAssigneeSchema,
+    dueDate: TaskDueDateSchema,
+    force: ForceSchema,
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Task update parameters
  */
-export const TaskUpdateParametersSchema = z.object({
-  taskId: TaskIdSchema,
-  title: TaskTitleSchema.optional(),
-  description: TaskDescriptionSchema,
-  descriptionPath: TaskDescriptionPathSchema,
-  priority: TaskPrioritySchema.optional(),
-  status: TaskStatusSchema.optional(),
-  tags: TaskTagsSchema,
-  assignee: TaskAssigneeSchema,
-  dueDate: TaskDueDateSchema,
-  force: ForceSchema,
-}).merge(BaseBackendParametersSchema);
+export const TaskUpdateParametersSchema = z
+  .object({
+    taskId: TaskIdSchema,
+    title: TaskTitleSchema.optional(),
+    description: TaskDescriptionSchema,
+    descriptionPath: TaskDescriptionPathSchema,
+    priority: TaskPrioritySchema.optional(),
+    status: TaskStatusSchema.optional(),
+    tags: TaskTagsSchema,
+    assignee: TaskAssigneeSchema,
+    dueDate: TaskDueDateSchema,
+    force: ForceSchema,
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Task deletion parameters
  */
-export const TaskDeleteParametersSchema = z.object({
-  taskId: TaskIdSchema,
-  force: ForceSchema,
-}).merge(BaseBackendParametersSchema);
+export const TaskDeleteParametersSchema = z
+  .object({
+    taskId: TaskIdSchema,
+    force: ForceSchema,
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Task retrieval parameters
  */
-export const TaskGetParametersSchema = z.object({
-  taskId: TaskIdSchema,
-}).merge(BaseBackendParametersSchema).merge(BaseExecutionContextSchema);
+export const TaskGetParametersSchema = z
+  .object({
+    taskId: TaskIdSchema,
+  })
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
 
 /**
  * Task listing parameters
  */
-export const TaskListParametersSchema = z.object({
-  status: TaskStatusSchema.optional(),
-  priority: TaskPrioritySchema.optional(),
-  assignee: TaskAssigneeSchema,
-  tags: TaskTagsSchema,
-  all: z.boolean().default(false),
-}).merge(BaseBackendParametersSchema)
+export const TaskListParametersSchema = z
+  .object({
+    status: TaskStatusSchema.optional(),
+    priority: TaskPrioritySchema.optional(),
+    assignee: TaskAssigneeSchema,
+    tags: TaskTagsSchema,
+    all: z.boolean().default(false),
+  })
+  .merge(BaseBackendParametersSchema)
   .merge(BaseExecutionContextSchema)
   .merge(BaseListingParametersSchema);
 
 /**
  * Task status update parameters
  */
-export const TaskStatusUpdateParametersSchema = z.object({
-  taskId: TaskIdSchema,
-  status: TaskStatusSchema,
-}).merge(BaseBackendParametersSchema);
+export const TaskStatusUpdateParametersSchema = z
+  .object({
+    taskId: TaskIdSchema,
+    status: TaskStatusSchema,
+  })
+  .merge(BaseBackendParametersSchema);
 
 /**
  * Task specification retrieval parameters
  */
-export const TaskSpecParametersSchema = z.object({
-  taskId: TaskIdSchema,
-  section: z.string().optional(),
-}).merge(BaseBackendParametersSchema).merge(BaseExecutionContextSchema);
+export const TaskSpecParametersSchema = z
+  .object({
+    taskId: TaskIdSchema,
+    section: z.string().optional(),
+  })
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
 
 // ========================
 // TASK RESPONSE SCHEMAS
@@ -258,4 +269,4 @@ export type BaseTaskData = z.infer<typeof BaseTaskDataSchema>;
 export type TaskOperationResponse = z.infer<typeof TaskOperationResponseSchema>;
 export type TaskListResponse = z.infer<typeof TaskListResponseSchema>;
 export type TaskSpecResponse = z.infer<typeof TaskSpecResponseSchema>;
-export type TaskStatusResponse = z.infer<typeof TaskStatusResponseSchema>; 
+export type TaskStatusResponse = z.infer<typeof TaskStatusResponseSchema>;

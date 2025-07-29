@@ -181,7 +181,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         const rawContent = await readFile(resolvedPath, "utf8");
 
         // Process content with line range support
-        const processed = processFileContentWithLineRange(rawContent, {
+        const processed = processFileContentWithLineRange(rawContent as string, {
           startLine: args.start_line_one_indexed,
           endLine: args.end_line_one_indexed_inclusive,
           shouldReadEntireFile: args.should_read_entire_file,

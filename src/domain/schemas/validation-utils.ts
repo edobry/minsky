@@ -64,7 +64,7 @@ export function validateSchema<T>(
         fieldErrors: extractFieldErrors(error),
       };
     }
-    
+
     return {
       success: false,
       error: `Validation error${context ? ` in ${context}` : ""}: ${error instanceof Error ? error.message : String(error)}`,
@@ -76,10 +76,7 @@ export function validateSchema<T>(
 /**
  * Validates data against a Zod schema with safe parsing (returns undefined on error)
  */
-export function safeValidateSchema<T>(
-  schema: ZodSchema<T>,
-  data: unknown
-): T | undefined {
+export function safeValidateSchema<T>(schema: ZodSchema<T>, data: unknown): T | undefined {
   const result = schema.safeParse(data);
   return result.success ? result.data : undefined;
 }
@@ -143,7 +140,7 @@ export function validateApiRequest<T>(
  */
 export function formatZodError(error: ZodError, context?: string): string {
   const contextPrefix = context ? `${context}: ` : "";
-  
+
   if (error.errors.length === 1) {
     const issue = error.errors[0];
     if (!issue) {
@@ -152,7 +149,7 @@ export function formatZodError(error: ZodError, context?: string): string {
     const path = issue.path.length > 0 ? ` at '${issue.path.join(".")}'` : "";
     return `${contextPrefix}${issue.message}${path}`;
   }
-  
+
   const errorList = error.errors
     .filter((issue) => issue !== undefined)
     .map((issue) => {
@@ -160,7 +157,7 @@ export function formatZodError(error: ZodError, context?: string): string {
       return `  - ${issue.message}${path}`;
     })
     .join("\n");
-    
+
   return `${contextPrefix}Multiple validation errors:\n${errorList}`;
 }
 
@@ -169,18 +166,18 @@ export function formatZodError(error: ZodError, context?: string): string {
  */
 export function extractFieldErrors(error: ZodError): Record<string, string[]> {
   const fieldErrors: Record<string, string[]> = {};
-  
+
   for (const issue of error.errors) {
     const path = issue.path.join(".");
     const key = path || "_root";
-    
+
     if (!fieldErrors[key]) {
       fieldErrors[key] = [];
     }
-    
+
     fieldErrors[key].push(issue.message);
   }
-  
+
   return fieldErrors;
 }
 
@@ -193,13 +190,13 @@ export function extractFieldErrors(error: ZodError): Record<string, string[]> {
  */
 export function transformCliArguments(args: Record<string, any>): Record<string, any> {
   const transformed: Record<string, any> = {};
-  
+
   for (const [key, value] of Object.entries(args)) {
     // Convert kebab-case to camelCase
     const camelKey = key.replace(/-([a-z])/g, (_, letter) => letter.toUpperCase());
     transformed[camelKey] = value;
   }
-  
+
   return transformed;
 }
 
@@ -210,18 +207,14 @@ export function createValidationErrorResponse(
   validation: ValidationError,
   operation?: string
 ): BaseErrorResponse {
-  const errorMessage = operation 
+  const errorMessage = operation
     ? `Validation failed for ${operation}: ${validation.error}`
     : validation.error;
-    
-  return createErrorResponse(
-    errorMessage,
-    "VALIDATION_ERROR",
-    {
-      fieldErrors: validation.fieldErrors,
-      details: validation.details,
-    }
-  );
+
+  return createErrorResponse(errorMessage, "VALIDATION_ERROR", {
+    fieldErrors: validation.fieldErrors,
+    details: validation.details,
+  });
 }
 
 /**
@@ -236,9 +229,7 @@ export function isValidationSuccess<T>(
 /**
  * Checks if a validation result is an error
  */
-export function isValidationError<T>(
-  result: ValidationResult<T>
-): result is ValidationError {
+export function isValidationError<T>(result: ValidationResult<T>): result is ValidationError {
   return !result.success;
 }
 
@@ -246,4 +237,4 @@ export function isValidationError<T>(
 // ADDITIONAL EXPORTS
 // ========================
 
-// All types are already exported above as interfaces 
+// All types are already exported above as interfaces
