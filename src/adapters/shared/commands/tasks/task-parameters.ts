@@ -7,130 +7,61 @@
 import { z } from "zod";
 import { type CommandParameterMap } from "../../command-registry";
 import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
+import { CommonParameters, TaskParameters, composeParams } from "../../common-parameters";
 
 /**
- * Common task identification parameters
+ * Common task identification parameters (using shared parameters)
  */
 export const taskIdParam = {
-  taskId: {
-    schema: z.string(),
-    description: "Task identifier",
-    required: true,
-  },
+  taskId: TaskParameters.taskId,
 };
 
 /**
- * Common backend/context parameters
+ * Common backend/context parameters (using shared parameters)
  */
 export const taskContextParams = {
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  workspace: {
-    schema: z.string(),
-    description: "Workspace path",
-    required: false,
-  },
-  session: {
-    schema: z.string(),
-    description: "Session identifier",
-    required: false,
-  },
-  backend: {
-    schema: z.string(),
-    description: "Backend identifier",
-    required: false,
-  },
+  repo: CommonParameters.repo,
+  workspace: CommonParameters.workspace,
+  session: CommonParameters.session,
+  backend: CommonParameters.backend,
 };
 
 /**
- * Common output format parameters
+ * Common output format parameters (using shared parameters)
  */
 export const outputFormatParams = {
-  json: {
-    schema: z.boolean().default(false),
-    description: "Output in JSON format",
-    required: false,
-  },
+  json: CommonParameters.json,
 };
 
 /**
- * Task status parameter with validation
+ * Task status parameter with validation (using shared parameters)
  */
 export const taskStatusParam = {
-  status: {
-    schema: z.enum([
-      TASK_STATUS.TODO,
-      TASK_STATUS.IN_PROGRESS,
-      TASK_STATUS.IN_REVIEW,
-      TASK_STATUS.DONE,
-      TASK_STATUS.BLOCKED,
-      TASK_STATUS.CLOSED,
-    ]),
-    description: "Task status",
-    required: false,
-  },
+  status: TaskParameters.status,
 };
 
 /**
- * Task creation parameters
+ * Task creation parameters (using shared parameters)
  */
 export const taskCreationParams = {
-  title: {
-    schema: z.string(),
-    description: "Task title",
-    required: true,
-  },
-  description: {
-    schema: z.string(),
-    description: "Task description",
-    required: false,
-  },
+  title: TaskParameters.title,
+  description: TaskParameters.description,
+  force: CommonParameters.force,
   descriptionPath: {
     schema: z.string(),
     description: "Path to file containing task description",
     required: false,
   },
-  force: {
-    schema: z.boolean().default(false),
-    description: "Force creation without confirmation",
-    required: false,
-  },
 };
 
 /**
- * Task filtering parameters
+ * Task filtering parameters (using shared parameters)
  */
 export const taskFilterParams = {
-  all: {
-    schema: z.boolean().default(false),
-    description: "Show all tasks including completed",
-    required: false,
-  },
-  status: {
-    schema: z.enum([
-      TASK_STATUS.TODO,
-      TASK_STATUS.IN_PROGRESS,
-      TASK_STATUS.IN_REVIEW,
-      TASK_STATUS.DONE,
-      TASK_STATUS.BLOCKED,
-      TASK_STATUS.CLOSED,
-    ]),
-    description: "Filter by task status",
-    required: false,
-  },
-  filter: {
-    schema: z.string(),
-    description: "Filter tasks by text",
-    required: false,
-  },
-  limit: {
-    schema: z.number(),
-    description: "Maximum number of tasks to return",
-    required: false,
-  },
+  all: TaskParameters.all,
+  status: TaskParameters.status,
+  filter: TaskParameters.filter,
+  limit: TaskParameters.limit,
 };
 
 /**
@@ -145,14 +76,10 @@ export const taskSpecParams = {
 };
 
 /**
- * Task deletion parameters
+ * Task deletion parameters (using shared parameters)
  */
 export const taskDeletionParams = {
-  force: {
-    schema: z.boolean().default(false),
-    description: "Force deletion without confirmation",
-    required: false,
-  },
+  force: CommonParameters.force,
 };
 
 // Combined parameter sets for each command

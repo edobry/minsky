@@ -19,7 +19,7 @@ const capabilityMap = {
     // ... hard-coded values
   ],
   // ...
-}
+};
 ```
 
 3. **No Live Updates**: No mechanism to fetch current model availability, pricing, or capabilities from provider APIs
@@ -29,22 +29,26 @@ const capabilityMap = {
 ## Requirements
 
 1. **Provider API Integration**
+
    - OpenAI Models API: `GET /v1/models`
    - Anthropic: Static model list (no public API)
    - Google Vertex AI: Models API
    - Add other providers as needed
 
 2. **Data Caching**
+
    - Store fetched model data in cache directory (separate from configuration)
    - Implement TTL-based cache invalidation and refresh
    - Cache model data independently from user configuration
 
 3. **CLI Commands**
+
    - `minsky ai models refresh` - Fetch latest model data
    - `minsky ai models list [provider]` - Show available models
    - `minsky ai providers list` - Show configured providers
 
 4. **Model Information Storage**
+
    - Model IDs and names
    - Context windows and max output tokens
    - Pricing information (input/output costs)
@@ -59,6 +63,7 @@ const capabilityMap = {
 ## Implementation Approach
 
 1. **Create Provider Model Fetchers**
+
    ```typescript
    interface ModelFetcher {
      fetchModels(): Promise<ProviderModel[]>;
@@ -67,6 +72,7 @@ const capabilityMap = {
    ```
 
 2. **Cache Structure**
+
    ```
    ~/.cache/minsky/
    ├── models/
@@ -104,6 +110,7 @@ const capabilityMap = {
 ### ✅ Core Implementation Complete
 
 **Architecture:**
+
 - **Model Cache Types** (`src/domain/ai/model-cache/types.ts`)
   - `CachedProviderModel` interface extending `AIModel` with cache metadata
   - `ModelCacheService` interface for TTL-based cache management
@@ -111,6 +118,7 @@ const capabilityMap = {
   - Comprehensive error types (`ModelCacheError`, `ModelFetchError`)
 
 **Cache Service** (`src/domain/ai/model-cache/cache-service.ts`)
+
 - `DefaultModelCacheService` with file-based storage in `~/.cache/minsky/models/`
 - TTL-based cache invalidation (24-hour default)
 - Concurrent refresh management with semaphores
@@ -118,6 +126,7 @@ const capabilityMap = {
 - Per-provider cache status and error handling
 
 **Provider Implementations:**
+
 - **OpenAI Fetcher** (`src/domain/ai/model-cache/fetchers/openai-fetcher.ts`)
   - Live API integration with `/v1/models` endpoint
   - Comprehensive model specifications (GPT-4o, o1-preview, GPT-3.5, etc.)
@@ -130,6 +139,7 @@ const capabilityMap = {
   - Efficient, cost-effective model discovery
 
 **CLI Integration** (`src/adapters/shared/commands/ai.ts`)
+
 - Enhanced AI commands with model cache management
 - `ai:models:refresh [--provider] [--force]` - Refresh cache from APIs
 - `ai:models:list [--provider] [--format] [--show-cache]` - List cached models
@@ -137,6 +147,7 @@ const capabilityMap = {
 - `ai:cache:clear [--provider] [--confirm]` - Manage cache cleanup
 
 **AI Service Integration** (`src/domain/ai/completion-service.ts`)
+
 - Modified `DefaultAICompletionService.getProviderModels()` to use cache service
 - Background model refresh for stale cache
 - Graceful fallback to minimal model set on cache failures
@@ -145,6 +156,7 @@ const capabilityMap = {
 ### 🔄 Cache vs Configuration Architecture
 
 **Clear Separation Achieved:**
+
 - **Configuration** (`~/.config/minsky/config.yaml`) - User settings, API keys, provider preferences
 - **Cache** (`~/.cache/minsky/models/`) - Dynamic model data with TTL refresh
 - **Benefits**: Independent refresh cycles, no configuration pollution, faster lookups
@@ -152,26 +164,31 @@ const capabilityMap = {
 ### 📊 Features Delivered
 
 ✅ **Live Model Fetching**
+
 - OpenAI: Real-time API integration with comprehensive model detection
 - Anthropic: **CORRECTED** - Uses `/v1/models` API endpoint (no costly individual tests)
 - Error handling with graceful degradation
 
 ✅ **TTL-Based Caching**
+
 - 24-hour default TTL with per-provider overrides
 - Automatic staleness detection and background refresh
 - Cache metadata with provider-specific status tracking
 
 ✅ **CLI Commands**
+
 - Complete model management workflow
 - Multiple output formats (table, JSON, YAML)
 - Provider status monitoring and cache health checks
 
 ✅ **AI Service Integration**
+
 - Seamless replacement of hardcoded models
 - Background refresh for optimal performance
 - Fallback strategies for reliability
 
 ✅ **Production Ready**
+
 - Comprehensive error handling and logging
 - Concurrent operation management
 - File system safety with atomic operations
@@ -208,12 +225,14 @@ minsky ai cache clear --confirm
 **Implementation Status**: ✅ **COMPLETE**
 
 **Next Steps for Enhancement:**
+
 - Add Google Vertex AI fetcher with live API integration
 - Implement auto-refresh background service
 - Add model recommendation engine based on task requirements
 - Create model performance analytics and usage tracking
 
 **Testing Ready**: The implementation includes comprehensive error handling and can be tested with:
+
 1. Valid API keys for live model fetching
 2. CLI commands for cache management
 3. Integration with existing AI completion workflows

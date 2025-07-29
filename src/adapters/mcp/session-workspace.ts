@@ -3,31 +3,27 @@
  * Provides session-scoped workspace tools that enforce workspace isolation
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
-import { z } from "zod";
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
 import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-
-// Import new schemas and utilities
-// TODO: Fix import path for schemas
-// import {
-//   SessionFileReadSchema,
-//   SessionFileWriteSchema,
-//   SessionDirectoryListSchema,
-//   SessionFileExistsSchema,
-//   SessionFileDeleteSchema,
-//   SessionDirectoryCreateSchema,
-//   SessionGrepSearchSchema,
-// } from "./schemas/common-parameters";
-
-// TODO: Fix import path for response utilities
-// import {
-//   createFileReadResponse,
-//   createFileOperationResponse,
-//   createErrorResponse,
-// } from "./schemas/common-responses";
+import {
+  SessionFileReadSchema,
+  SessionFileOperationSchema,
+  SessionFileWriteSchema,
+  SessionDirectoryListSchema,
+  SessionFileExistsSchema,
+  SessionFileDeleteSchema,
+  SessionDirectoryCreateSchema,
+  SessionGrepSearchSchema,
+} from "./schemas/common-parameters";
+import {
+  createFileReadResponse,
+  createErrorResponse,
+  createFileOperationResponse,
+  createDirectoryListResponse,
+} from "./schemas/common-responses";
 
 /**
  * Session path resolver class for enforcing workspace boundaries
@@ -48,38 +44,57 @@ export class SessionPathResolver {
       throw new Error(`Session "${sessionId}" not found`);
     }
 
-    return session.repoPath;
+    return await this.sessionDB.getRepoPath(session);
   }
 
   /**
-   * Resolve relative path within session workspace
+   * Resolve and validate a path within a session workspace
    */
-  async resolvePath(sessionId: string, filePath: string): Promise<string> {
-    const workspacePath = await this.getSessionWorkspacePath(sessionId);
-    const resolvedPath = resolve(workspacePath, filePath);
+  async resolvePath(sessionId: string, inputPath: string): Promise<string> {
+    const sessionWorkspace = await this.getSessionWorkspacePath(sessionId);
 
-    // Security check: ensure resolved path is within workspace
-    if (!resolvedPath.startsWith(workspacePath)) {
-      throw new Error(`Path "${filePath}" resolves outside session workspace`);
+    // Convert relative paths to absolute within session workspace
+    let targetPath: string;
+    if (inputPath.startsWith("/")) {
+      // Absolute path - ensure it's within session workspace
+      targetPath = inputPath;
+    } else {
+      // Relative path - resolve within session workspace
+      targetPath = resolve(sessionWorkspace, inputPath);
     }
 
-    return resolvedPath;
+    // Normalize the path to handle .. and . components
+    const normalizedPath = resolve(targetPath);
+    const normalizedWorkspace = resolve(sessionWorkspace);
+
+    // Security check: ensure the resolved path is within the session workspace
+    if (
+      !normalizedPath.startsWith(`${normalizedWorkspace}/`) &&
+      normalizedPath !== normalizedWorkspace
+    ) {
+      throw new Error(
+        `Path "${inputPath}" resolves outside session workspace. ` +
+          `Session workspace: ${sessionWorkspace}, Resolved path: ${normalizedPath}`
+      );
+    }
+
+    return normalizedPath;
   }
 
   /**
-   * Validate that a path exists
+   * Validate that a path exists and is accessible
    */
-  async validatePathExists(fullPath: string): Promise<void> {
+  async validatePathExists(path: string): Promise<void> {
     try {
-      await access(fullPath);
-    } catch {
-      throw new Error(`Path "${fullPath}" does not exist`);
+      await access(path);
+    } catch (error) {
+      throw new Error(`Path does not exist or is not accessible: ${path}`);
     }
   }
 }
 
 /**
- * Process file content with line range support
+ * Utility function to process file content with line range support
  */
 function processFileContentWithLineRange(
   content: string,
@@ -92,58 +107,66 @@ function processFileContentWithLineRange(
 ): {
   content: string;
   totalLines: number;
-  linesShown: number;
+  linesShown: string;
+  summary?: string;
 } {
   const lines = content.split("\n");
   const totalLines = lines.length;
 
-  // If reading entire file or no range specified
-  if (options.shouldReadEntireFile || (!options.startLine && !options.endLine)) {
+  // If should read entire file, return everything
+  if (options.shouldReadEntireFile) {
     return {
       content,
       totalLines,
-      linesShown: totalLines,
+      linesShown: `1-${totalLines}`,
     };
   }
 
-  // Handle line range
-  const startLine = Math.max(1, options.startLine || 1);
-  const endLine = Math.min(totalLines, options.endLine || totalLines);
+  // Determine actual start and end lines
+  const actualStartLine = Math.max(1, options.startLine || 1);
+  const actualEndLine = Math.min(totalLines, options.endLine || totalLines);
 
-  // Convert to 0-based indexing
-  const startIndex = startLine - 1;
-  const endIndex = endLine;
+  // Extract the selected lines (convert to 0-based indexing)
+  const selectedLines = lines.slice(actualStartLine - 1, actualEndLine);
+  const resultContent = selectedLines.join("\n");
 
-  const selectedLines = lines.slice(startIndex, endIndex);
-  const processedContent = selectedLines.join("\n");
-
-  // Add context information if content was truncated
-  let finalContent = processedContent;
-  if (startLine > 1 || endLine < totalLines) {
-    const contextInfo = [];
-    if (startLine > 1) {
-      contextInfo.push(`... (showing lines ${startLine}-${endLine} of ${totalLines})`);
-    }
-    if (endLine < totalLines) {
-      contextInfo.push(`... (${totalLines - endLine} lines omitted)`);
-    }
-    if (contextInfo.length > 0) {
-      finalContent = `${contextInfo.join("\n")}\n${processedContent}`;
+  let summary: string | undefined;
+  if (actualStartLine > 1 || actualEndLine < totalLines) {
+    const before =
+      actualStartLine > 1 ? `Lines 1-${actualStartLine - 1}: [Earlier content...]` : "";
+    const after =
+      actualEndLine < totalLines
+        ? `Lines ${actualEndLine + 1}-${totalLines}: [Later content...]`
+        : "";
+    const parts = [before, after].filter(Boolean);
+    if (parts.length > 0) {
+      summary = `Outline of the rest of the file:\n${parts.join("\n")}`;
     }
   }
 
   return {
-    content: finalContent,
+    content: resultContent,
     totalLines,
-    linesShown: selectedLines.length,
+    linesShown:
+      actualStartLine === actualEndLine
+        ? `${actualStartLine}`
+        : `${actualStartLine}-${actualEndLine}`,
+    summary,
   };
 }
 
 /**
- * Register session workspace tools with the command mapper
+ * Create a new session path resolver instance
+ */
+function createPathResolver(): SessionPathResolver {
+  return new SessionPathResolver();
+}
+
+/**
+ * Registers session workspace tools with the MCP command mapper
  */
 export function registerSessionWorkspaceTools(commandMapper: CommandMapper): void {
-  const pathResolver = new SessionPathResolver();
+  const pathResolver = createPathResolver();
 
   // Session read file tool
   commandMapper.addCommand({
@@ -195,6 +218,8 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
                     end: args.end_line_one_indexed_inclusive,
                   }
                 : undefined,
+            linesShown: processed.linesShown,
+            omittedContent: processed.summary ? { summary: processed.summary } : undefined,
           }
         );
       } catch (error) {
@@ -298,6 +323,11 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           }
         }
 
+        const relativeResolvedPath = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        );
+
         log.debug("Session directory list successful", {
           session: args.sessionName,
           path: args.path,
@@ -306,19 +336,16 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           directoryCount: directories.length,
         });
 
-        return createFileOperationResponse(
+        return createDirectoryListResponse(
           {
             path: args.path,
             session: args.sessionName,
-            resolvedPath: relative(
-              await pathResolver.getSessionWorkspacePath(args.sessionName),
-              resolvedPath
-            ),
+            resolvedPath: relativeResolvedPath,
           },
           {
-            files,
-            directories,
-            totalItems: files.length + directories.length,
+            files: files.sort(),
+            directories: directories.sort(),
+            totalEntries: files.length + directories.length,
           }
         );
       } catch (error) {
@@ -347,42 +374,43 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         let exists = false;
-        let isDirectory = false;
         let isFile = false;
+        let isDirectory = false;
+        let size: number | undefined;
 
         try {
           const stats = await stat(resolvedPath);
           exists = true;
-          isDirectory = stats.isDirectory();
           isFile = stats.isFile();
-        } catch {
-          // File doesn't exist, which is fine
+          isDirectory = stats.isDirectory();
+          size = stats.size;
+        } catch (error) {
+          // File doesn't exist - that's fine, not an error
+          exists = false;
         }
 
-        log.debug("Session file exists check successful", {
+        log.debug("Session file exists check", {
           session: args.sessionName,
           path: args.path,
           resolvedPath,
           exists,
-          isDirectory,
           isFile,
+          isDirectory,
         });
 
-        return createFileOperationResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relative(
-              await pathResolver.getSessionWorkspacePath(args.sessionName),
-              resolvedPath
-            ),
-          },
-          {
-            exists,
-            isDirectory,
-            isFile,
-          }
-        );
+        return {
+          success: true,
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relative(
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
+            resolvedPath
+          ),
+          exists,
+          isFile,
+          isDirectory,
+          size,
+        };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file exists check failed", {
@@ -391,10 +419,12 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return {
+          success: false,
+          error: errorMessage,
           path: args.path,
           session: args.sessionName,
-        });
+        };
       }
     },
   });
@@ -409,6 +439,14 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
         await pathResolver.validatePathExists(resolvedPath);
 
+        // Additional safety check - ensure it's a file, not a directory
+        const stats = await stat(resolvedPath);
+        if (!stats.isFile()) {
+          throw new Error(
+            `Path "${args.path}" is not a file - use appropriate directory deletion tools`
+          );
+        }
+
         await unlink(resolvedPath);
 
         log.debug("Session file delete successful", {
@@ -417,19 +455,16 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           resolvedPath,
         });
 
-        return createFileOperationResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relative(
-              await pathResolver.getSessionWorkspacePath(args.sessionName),
-              resolvedPath
-            ),
-          },
-          {
-            deleted: true,
-          }
-        );
+        return {
+          success: true,
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relative(
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
+            resolvedPath
+          ),
+          deleted: true,
+        };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file delete failed", {
@@ -438,10 +473,12 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return {
+          success: false,
+          error: errorMessage,
           path: args.path,
           session: args.sessionName,
-        });
+        };
       }
     },
   });
@@ -464,20 +501,17 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           recursive: args.recursive,
         });
 
-        return createFileOperationResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relative(
-              await pathResolver.getSessionWorkspacePath(args.sessionName),
-              resolvedPath
-            ),
-          },
-          {
-            created: true,
-            recursive: args.recursive,
-          }
-        );
+        return {
+          success: true,
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relative(
+            await pathResolver.getSessionWorkspacePath(args.sessionName),
+            resolvedPath
+          ),
+          created: true,
+          recursive: args.recursive,
+        };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session directory create failed", {
@@ -486,10 +520,12 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return {
+          success: false,
+          error: errorMessage,
           path: args.path,
           session: args.sessionName,
-        });
+        };
       }
     },
   });
@@ -501,74 +537,101 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
     parameters: SessionGrepSearchSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
-        const workspacePath = await pathResolver.getSessionWorkspacePath(args.sessionName);
+        const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(args.sessionName);
 
-        // Build grep command
-        const grepArgs = ["grep", "-rn"];
+        // Build ripgrep command arguments
+        const rgArgs = [
+          "--line-number",
+          "--no-heading",
+          "--color",
+          "never",
+          "--max-count",
+          "50", // Limit to 50 matches as per Cursor behavior
+          args.case_sensitive ? "--case-sensitive" : "--ignore-case",
+        ];
 
-        if (!args.case_sensitive) {
-          grepArgs.push("-i");
-        }
-
+        // Add include pattern if specified
         if (args.include_pattern) {
-          grepArgs.push("--include", args.include_pattern);
+          rgArgs.push("--glob", args.include_pattern);
         }
 
+        // Add exclude pattern if specified
         if (args.exclude_pattern) {
-          grepArgs.push("--exclude", args.exclude_pattern);
+          rgArgs.push("--glob", `!${args.exclude_pattern}`);
         }
 
-        grepArgs.push(args.query, workspacePath);
+        // Add the search pattern and directory
+        rgArgs.push(args.query, sessionWorkspacePath);
 
-        // Import exec dynamically to avoid circular dependency
-        const { exec } = await import("../../utils/exec");
-
-        const { stdout } = await exec(grepArgs.join(" "), {
-          cwd: workspacePath,
-          timeout: 30000,
+        // Execute ripgrep
+        const proc = Bun.spawn(["rg", ...rgArgs], {
+          stdout: "pipe",
+          stderr: "pipe",
         });
 
-        const matches = stdout
-          .trim()
-          .split("\n")
-          .filter((line) => line.length > 0)
-          .slice(0, 50) // Limit to 50 matches
-          .map((line) => {
-            const colonIndex = line.indexOf(":");
-            const secondColonIndex = line.indexOf(":", colonIndex + 1);
+        const output = await new Response(proc.stdout).text();
+        const errorOutput = await new Response(proc.stderr).text();
+        await proc.exited;
 
-            if (colonIndex === -1 || secondColonIndex === -1) return null;
+        if (proc.exitCode !== 0 && proc.exitCode !== 1) {
+          // Exit code 1 means no matches found, which is normal
+          // Other exit codes indicate actual errors
+          throw new Error(`Ripgrep search failed: ${errorOutput}`);
+        }
 
-            const filePath = line.substring(0, colonIndex);
-            const lineNumber = parseInt(line.substring(colonIndex + 1, secondColonIndex));
-            const content = line.substring(secondColonIndex + 1);
+        // Parse ripgrep output into Cursor-compatible format
+        const results: string[] = [];
+        if (output.trim()) {
+          const lines = output.trim().split("\n");
+          let currentFile = "";
 
-            return {
-              file: relative(workspacePath, join(workspacePath, filePath)),
-              line: lineNumber,
-              content: content.trim(),
-            };
-          })
-          .filter((match) => match !== null);
+          for (const line of lines) {
+            // ripgrep output format: path:line_number:content
+            const match = line.match(/^([^:]+):(\d+):(.*)$/);
+            if (match && match[1] && match[2] && match[3] !== undefined) {
+              const [, filePath, lineNumber, content] = match;
+
+              // Convert to absolute file:// URL format like Cursor
+              const absolutePath = filePath.startsWith("/")
+                ? filePath
+                : `${sessionWorkspacePath}/${filePath}`;
+              const fileUrl = `file://${absolutePath}`;
+
+              // Add file header if it's a new file
+              if (currentFile !== fileUrl) {
+                currentFile = fileUrl;
+                results.push(`File: ${fileUrl}`);
+              }
+
+              results.push(`Line ${lineNumber}: ${content}`);
+            }
+          }
+        }
+
+        // Add "more results available" message if we hit the limit
+        const resultCount = results.filter((line) => line.startsWith("Line ")).length;
+        if (resultCount >= 50) {
+          results.push(
+            "NOTE: More results are available, but aren't shown here. If you need to, please refine the search query or restrict the scope."
+          );
+        }
 
         log.debug("Session grep search successful", {
           session: args.sessionName,
           query: args.query,
-          matchCount: matches.length,
+          caseSensitive: args.case_sensitive,
+          includePattern: args.include_pattern,
+          excludePattern: args.exclude_pattern,
+          resultCount,
         });
 
-        return createFileOperationResponse(
-          {
-            path: ".",
-            session: args.sessionName,
-            resolvedPath: ".",
-          },
-          {
-            matches,
-            query: args.query,
-            totalMatches: matches.length,
-          }
-        );
+        return {
+          success: true,
+          results: results.join("\n\n"),
+          session: args.sessionName,
+          query: args.query,
+          matchCount: resultCount,
+        };
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session grep search failed", {
@@ -577,10 +640,15 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           error: errorMessage,
         });
 
-        return createErrorResponse(errorMessage, {
+        return {
+          success: false,
+          error: errorMessage,
           session: args.sessionName,
-        });
+          query: args.query,
+        };
       }
     },
   });
+
+  log.debug("Session file operation tools registered successfully");
 }
