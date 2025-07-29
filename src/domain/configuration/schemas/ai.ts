@@ -109,7 +109,7 @@ export const aiProvidersConfigSchema = z
     cohere: cohereConfigSchema.optional(),
     mistral: mistralConfigSchema.optional(),
   })
-  .strict();
+  .passthrough(); // Changed from .strict() to .passthrough() to allow unknown providers
 
 /**
  * Complete AI configuration
@@ -122,7 +122,7 @@ export const aiConfigSchema = z
     // Provider-specific configurations
     providers: aiProvidersConfigSchema.default({}),
   })
-  .strict()
+  .passthrough() // Changed from .strict() to .passthrough() to allow unknown fields
   .default({
     providers: {},
   });

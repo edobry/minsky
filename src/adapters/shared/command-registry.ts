@@ -28,6 +28,7 @@ export enum CommandCategory {
   INIT = "INIT",
   CONFIG = "CONFIG",
   DEBUG = "DEBUG",
+  AI = "AI",
 }
 
 /**
