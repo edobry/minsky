@@ -1,6 +1,28 @@
+# Changelog
+
 ## [Unreleased]
 
 ### Added
+- **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
+
+- **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
+
+### Changed  
+- **AI Commands**: Restructured from space-separated names to hierarchical structure:
+  - `AI Validate` → `minsky core ai validate`
+  - `AI Models List` → `minsky core ai models list` 
+  - `AI Models Refresh` → `minsky core ai models refresh`
+  - `AI Providers List` → `minsky core ai providers list`
+  - `AI Cache Clear` → `minsky core ai cache clear`
+
+- **Tasks Status Commands**: Converted from problematic dot notation to proper hierarchy:
+  - `tasks.status.get` → `minsky tasks status get` (proper nesting)
+  - `tasks.status.set` → `minsky tasks status set` (proper nesting)
+
+### Fixed
+- **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
+- **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
+- **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
 
 
 - **Task #289: Implemented Template-Based Rules Generation System**
