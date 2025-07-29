@@ -34,7 +34,8 @@ HIGH
 4. **✅ COMPLETED - Model Capabilities Framework**: Extended AI provider types to support fast-apply capabilities
 5. **✅ COMPLETED - Fast-Apply Testing Command**: Created `minsky ai fast-apply` command for testing
 6. **✅ COMPLETED - Replace Broken Session Edit Tools**: Fixed session_edit_file and session_search_replace
-7. **DEFERRED - Reapply Functionality**: Moved to separate task for focused implementation
+7. **✅ COMPLETED - Morph API Specification Compliance**: Fixed implementation to match official Morph API format exactly
+8. **DEFERRED - Reapply Functionality**: Moved to separate task for focused implementation
 
 ## Dependencies
 
@@ -364,7 +365,18 @@ HIGH
 - **✅ Backward Compatibility**: Existing workflows continue to work with graceful fallback
 - **✅ Performance Improvement**: Fast, accurate edit operations using AI-powered editing
 
+### API Specification Compliance - ✅ COMPLETED
+- **✅ Morph Official Format**: Fixed prompt generation to match `${instructions}\n\`${initialCode}\`\n${editSnippet}` exactly
+- **✅ Tool Description Updated**: Added official Morph tool description with examples to session.edit_file
+- **✅ Single Backticks**: Corrected from triple backticks to single backticks for original content
+- **✅ First-Person Instructions**: Ensured instructions use first-person descriptions per Morph spec
+- **✅ Raw Edit Snippets**: Removed markdown formatting, using raw code with `// ... existing code ...` markers
+
 ### Future (Phase 4) - DEFERRED
 - **Reapply Tool**: Working session_reapply implementation (new dedicated task #350)
 - **Advanced Provider Selection**: Multi-provider fallback and optimization
 - **Performance Analytics**: Usage tracking and optimization insights
+
+## Conclusion
+
+Task successfully completed with Morph fast-apply provider fully integrated according to official API specification and session edit tools restored to working condition. Deferred reapply functionality moved to dedicated task #350.
