@@ -15,6 +15,79 @@ export const SessionIdentifierSchema = z.object({
 });
 
 /**
+ * Task identifier schema - cross-domain pattern
+ */
+export const TaskIdSchema = z.string().min(1, "Task ID cannot be empty");
+
+/**
+ * Backend identifier schema - cross-domain pattern
+ */
+export const BackendSchema = z.string().optional();
+
+/**
+ * Repository identifier schema - cross-domain pattern
+ */
+export const RepoSchema = z.string().optional();
+
+/**
+ * Workspace path schema - cross-domain pattern
+ */
+export const WorkspaceSchema = z.string().optional();
+
+/**
+ * Session identifier schema (optional) - cross-domain pattern
+ */
+export const SessionSchema = z.string().optional();
+
+/**
+ * Force flag schema - cross-domain pattern
+ */
+export const ForceSchema = z.boolean().default(false);
+
+/**
+ * All flag schema - cross-domain pattern
+ */
+export const AllSchema = z.boolean().default(false);
+
+/**
+ * Debug flag schema - cross-domain pattern
+ */
+export const DebugSchema = z.boolean().default(false);
+
+/**
+ * Filter string schema - cross-domain pattern
+ */
+export const FilterSchema = z.string().optional();
+
+/**
+ * Limit number schema - cross-domain pattern
+ */
+export const LimitSchema = z.number().positive().optional();
+
+/**
+ * Format schema - cross-domain pattern for output formatting
+ */
+export const FormatSchema = z.enum(["json", "yaml", "table"]).default("json");
+
+/**
+ * Base backend parameters that are common across domain operations
+ */
+export const BaseBackendParametersSchema = z.object({
+  backend: BackendSchema,
+  repo: RepoSchema,
+  workspace: WorkspaceSchema,
+  session: SessionSchema,
+});
+
+/**
+ * Base context parameters for command execution
+ */
+export const BaseExecutionContextSchema = z.object({
+  debug: DebugSchema,
+  format: FormatSchema,
+});
+
+/**
  * Base file path parameter for session workspace operations
  * Used in all file-related operations
  */
