@@ -166,7 +166,7 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Assert - Session should be created successfully
     expect(result).toMatchObject({
-      session: "task#160",
+      session: "task160",
       taskId: "160",
       repoUrl: "local/minsky",
     });
