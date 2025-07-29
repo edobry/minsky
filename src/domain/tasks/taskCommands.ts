@@ -65,8 +65,8 @@ export async function listTasksFromParams(
     const workspacePath = process.cwd();
 
     // Create task service using dependency injection or default implementation
-    const createTaskService = deps?.createTaskService || 
-      (async (options) => await createConfiguredTaskService(options));
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -113,8 +113,8 @@ export async function getTaskFromParams(
     const workspacePath = process.cwd();
 
     // Create task service using dependency injection or default implementation
-    const createTaskService = deps?.createTaskService || 
-      (async (options) => await createConfiguredTaskService(options));
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -178,8 +178,8 @@ export async function getTaskStatusFromParams(
     const workspacePath = process.cwd();
 
     // Create task service using dependency injection or default implementation
-    const createTaskService = deps?.createTaskService || 
-      (async (options) => await createConfiguredTaskService(options));
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -247,9 +247,9 @@ export async function setTaskStatusFromParams(
     // Use current directory as workspace path (simplified architecture)
     const workspacePath = process.cwd();
 
-    // Create task service using dependency injection or default implementation  
-    const createTaskService = deps?.createTaskService || 
-      (async (options) => await createConfiguredTaskService(options));
+    // Create task service using dependency injection or default implementation
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
 
     const taskService = await createTaskService({
       workspacePath,
