@@ -366,11 +366,11 @@ HIGH
 - **✅ Performance Improvement**: Fast, accurate edit operations using AI-powered editing
 
 ### API Specification Compliance - ✅ COMPLETED
-- **✅ Morph Official Format**: Fixed prompt generation to match `${instructions}\n\`${initialCode}\`\n${editSnippet}` exactly
+- **✅ Morph Official XML Format**: Fixed prompt generation to match `<instruction>...</instruction><code>...</code><update>...</update>` exactly
 - **✅ Tool Description Updated**: Added official Morph tool description with examples to session.edit_file
-- **✅ Single Backticks**: Corrected from triple backticks to single backticks for original content
+- **✅ Structured XML Tags**: Corrected to use proper XML structure instead of backticks
 - **✅ First-Person Instructions**: Ensured instructions use first-person descriptions per Morph spec
-- **✅ Raw Edit Snippets**: Removed markdown formatting, using raw code with `// ... existing code ...` markers
+- **✅ Raw Edit Snippets**: Using raw code with `// ... existing code ...` markers in `<update>` tags
 
 ### Future (Phase 4) - DEFERRED
 - **Reapply Tool**: Working session_reapply implementation (new dedicated task #350)

@@ -29,25 +29,11 @@ function demonstrateAPIMapping() {
 
   console.log("\n📡 **Step 3: Generated Prompt (Internal → Morph)**");
 
-  // This is exactly what our system generates
-  const generatedPrompt = `Apply the following edit pattern to the original content:
-
-Original content:
-\`\`\`typescript
-${originalContent}
-\`\`\`
-
-Edit pattern (new code with markers):
-\`\`\`typescript
-${cursorStyleEdit}
-\`\`\`
-
-Instructions:
-- Apply the edits shown in the edit pattern to the original content
-- The edit pattern uses "// ... existing code ..." markers to indicate unchanged sections
-- Return ONLY the complete updated file content
-- Preserve all formatting, indentation, and structure
-- Do not include explanations or markdown formatting`;
+  // This is exactly what our system generates (XML format)
+  const editInstructions = "I am applying the provided code edits with existing code markers";
+  const generatedPrompt = `<instruction>${editInstructions}</instruction>
+<code>${originalContent}</code>
+<update>${cursorStyleEdit}</update>`;
 
   console.log(generatedPrompt);
 

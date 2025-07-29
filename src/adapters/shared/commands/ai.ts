@@ -289,19 +289,18 @@ export function registerAiCommands(): void {
         let prompt: string;
 
         if (codeEdit) {
-          // Morph's exact format: ${instructions}\n`${initialCode}`\n${editSnippet}
+          // Morph's exact XML format: <instruction>...</instruction><code>...</code><update>...</update>
           // Generate instructions for code edit mode
           const editInstructions =
             instructions || "I am applying the provided code edits with existing code markers";
-          prompt = `${editInstructions}
-\`${originalContent}\`
-${codeEdit}`;
+          prompt = `<instruction>${editInstructions}</instruction>
+<code>${originalContent}</code>
+<update>${codeEdit}</update>`;
         } else {
-          // Morph's exact format for instruction-based mode
-          // For instruction-based, we need to provide the edit as instructions
-          prompt = `${instructions}
-\`${originalContent}\`
-// Apply the above instructions to modify this file`;
+          // Morph's exact XML format for instruction-based mode
+          prompt = `<instruction>${instructions}</instruction>
+<code>${originalContent}</code>
+<update>// Apply the above instructions to modify this file</update>`;
         }
 
         const mode = codeEdit ? "Cursor edit pattern" : "instruction-based";

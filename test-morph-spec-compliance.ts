@@ -41,10 +41,10 @@ function demonstrateMorphCompliance() {
 
   console.log("\n✅ **NEW: Morph's Exact Format (Fixed)**");
 
-  // This is our NEW format that matches Morph's spec exactly
-  const morphCompliantPrompt = `${instructions}
-\`${originalContent}\`
-${cursorStyleEdit}`;
+  // This is our NEW format that matches Morph's XML spec exactly
+  const morphCompliantPrompt = `<instruction>${instructions}</instruction>
+<code>${originalContent}</code>
+<update>${cursorStyleEdit}</update>`;
 
   console.log("**Generated Prompt:**");
   console.log('"""');
@@ -98,18 +98,18 @@ ${cursorStyleEdit}`;
   console.log(JSON.stringify(expectedResponse, null, 2));
 
   console.log("\n✅ **Compliance Verification:**");
-  console.log("1. ✅ Format: ${instructions}\\n`${initialCode}`\\n${editSnippet}");
-  console.log("2. ✅ Instructions: First-person description");
-  console.log("3. ✅ Original code: Single backticks (not triple)");
-  console.log("4. ✅ Edit snippet: Raw code with // ... existing code ... markers");
+  console.log("1. ✅ Format: <instruction>...</instruction><code>...</code><update>...</update>");
+  console.log("2. ✅ Instructions: Wrapped in <instruction> XML tags");
+  console.log("3. ✅ Original code: Wrapped in <code> XML tags");
+  console.log("4. ✅ Edit snippet: Wrapped in <update> tags with // ... existing code ... markers");
   console.log("5. ✅ API endpoint: /v1/chat/completions (OpenAI-compatible)");
   console.log("6. ✅ Tool description: Updated to match Morph's specification");
 
   console.log("\n🎯 **Key Fixes Applied:**");
   console.log("❌ BEFORE: Structured markdown prompt with instructions");
-  console.log("✅ AFTER: Morph's exact ${instructions}\\n`${code}`\\n${edit} format");
-  console.log("❌ BEFORE: Triple backticks with language specifier");
-  console.log("✅ AFTER: Single backticks around original content");
+  console.log("✅ AFTER: Morph's exact XML format with structured tags");
+  console.log("❌ BEFORE: Single/triple backticks around content");
+  console.log("✅ AFTER: Proper XML tags: <instruction>, <code>, <update>");
   console.log("❌ BEFORE: Generic tool description");
   console.log("✅ AFTER: Morph's verbatim tool description with examples");
 }
