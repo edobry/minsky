@@ -7,6 +7,8 @@
 
 - **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
 
+- **Enhanced config show command with comprehensive output**: The `minsky config show` command now displays detailed, user-friendly configuration including authentication status for GitHub and AI providers, session storage details with paths, AI provider configuration with models and authentication status, and GitHub configuration details. Resolves the issue where config output was "way too incomplete" by showing all configured settings instead of just defaults.
+
 ### Fixed
 - **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
   - 404 errors now explain "this provider may not support model listing"
@@ -20,6 +22,8 @@
 - **JSON Output Support**: Added `--json` flag to all AI commands for consistent machine-readable output alongside existing `--format` parameter. Commands now support both `--format json` and `--json` for user convenience.
 
 - **Error Message Cleanup**: Eliminated confusing JSON error dumps from CLI output. Replaced technical error objects with clean, actionable messages. Internal errors are now logged at debug level while users see helpful guidance like "Provider 'openai' is not configured" instead of complex JSON structures.
+
+- Fixed session command import issue causing startup errors with `setupSessionCommandRegistry`
 
 ### Changed
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
@@ -80,7 +84,6 @@
 
 ### Enhanced
 
-<<<<<<< HEAD
 - **Task #322: Refactored MCP Tools with Type Composition to Eliminate Argument Duplication**
 
   - Created shared Zod schema components for reusable parameter validation across MCP tools
@@ -90,7 +93,7 @@
   - Fixed critical sessionNameName bug in session-workspace.ts (7 instances of incorrect variable references)
   - Improved maintainability with consistent error handling and TypeScript type safety
   - All existing MCP tool functionality preserved with enhanced validation
-=======
+
 - **Session CLI Command Registration Fix**
 
   - Fixed session command registration issue where only 'migrate' and 'check' commands were visible
@@ -100,33 +103,6 @@
   - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
 
 - **Task #325: Completed Task Backend Architecture Analysis**
-  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
-  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
-  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
-  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
-  - **AI-First Architecture Insights**:
-    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
-    - Users already accept external dependencies (AI APIs, billing, internet)
-    - Offline concerns secondary for AI-powered workflows
-    - GitHub Issues provide excellent foundation for AI content analysis
-  - **Comprehensive Analysis Delivered**:
-    - AI-first architecture reanalysis changing all priorities
-    - SQLite-to-PostgreSQL upgrade path design (for future reference)
-    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
-    - Offline/onboarding analysis with AI context
-    - GitHub Issues interim strategy with future backend flexibility
-  - **Created Formal ADRs**:
-    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
-    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
-    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
-  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
-  - **Three-Phase Strategy**:
-    - Phase 1: GitHub Issues migration and basic AI features (immediate)
-    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
-    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
-  - # **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
-- **Task #325: Completed Task Backend Architecture Analysis**
-
   - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
   - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
   - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
@@ -174,7 +150,6 @@
     - Shared json parameters: 15+ → 1 schema
     - Task/Git/Session parameter families: 100+ → organized libraries
   - Established robust foundation for maintainable, DRY parameter management across entire codebase
->>>>>>> main
 
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
 
@@ -1001,7 +976,6 @@ _See: SpecStory history [2025-05-19_implement-environment-aware-logging](mdc:.sp
     - `tasks.filter`: Enhanced task filtering with advanced options (title, ID, sorting)
     - `tasks.update`: Update a task's details (title, description, status)
     - `tasks.delete`: Delete a task with optional force flag
-<<<<<<< HEAD
     - `tasks.info`: Get statistical information about tasks with grouping
   - Updated README-MCP.md with comprehensive documentation for all task commands
   - Added test coverage for the new MCP task commands
@@ -1704,6 +1678,3 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
-=======
-    - `
->>>>>>> main
