@@ -7,6 +7,7 @@ import { resolveRepoPath } from "../repo-utils";
 import { resolveTaskWorkspacePath } from "../../utils/workspace-resolver";
 import { commitTaskChanges } from "../../utils/task-workspace-commit";
 import { getErrorMessage } from "../../errors/index";
+import { log } from "../../utils/logger";
 import {
   createTaskService as createTaskServiceImpl,
   createConfiguredTaskService,
@@ -630,15 +631,23 @@ export async function createTaskFromTitleAndDescription(
       }
     );
 
-    // Auto-commit changes for markdown backend
+    // Auto-commit changes for markdown backend (with error handling to prevent MCP hangs)
     if ((validParams.backend || "markdown") === "markdown") {
-      const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
-      await commitTaskChanges({
-        workspacePath,
-        message: commitMessage,
-        repoUrl: repoPath,
-        backend: validParams.backend || "markdown",
-      });
+      try {
+        const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
+        await commitTaskChanges({
+          workspacePath,
+          message: commitMessage,
+          repoUrl: repoPath,
+          backend: validParams.backend || "markdown",
+        });
+      } catch (error) {
+        // Log error but don't fail task creation - prevents MCP hangs
+        log.warn("Auto-commit failed, task created successfully", {
+          taskId: task.id,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
     }
 
     return task;
