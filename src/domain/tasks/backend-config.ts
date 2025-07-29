@@ -30,7 +30,6 @@ export interface MarkdownConfig extends Omit<TaskBackendConfig, "workspacePath">
    * Whether to force use of special workspace even if local tasks.md exists
    * Default: false (use local if available)
    */
-  // Workspace path is now resolved at runtime
 }
 
 /**

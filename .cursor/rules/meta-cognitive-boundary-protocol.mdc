@@ -26,6 +26,54 @@
 - `smartConfigLoader` → `configLoaderWithDefaults`
 - `comprehensiveValidator` → `validatorWithMultipleChecks`
 
+## Comment Boundary Violations
+
+**CRITICAL**: Comments are external program artifacts and must not leak internal reasoning.
+
+### ❌ PROHIBITED Comment Patterns
+
+**Temporal References (my perspective, not code's):**
+- `// All operations now work in main workspace`
+- `// This was simplified after refactoring`
+- `// Previously used special workspace`
+
+**Internal Process Language:**
+- `// Enhanced error handling added`
+- `// Simplified architecture`
+- `// Robust implementation`
+- `// Comprehensive validation`
+
+**Obvious Statements (no value added):**
+- `// All operations work in main workspace` (when that's clearly what the code does)
+- `// Workspace path is resolved at runtime` (when that's obviously what the function does)
+- `// This function handles errors` (when function name is `handleErrors`)
+
+### ✅ VALID Comment Patterns
+
+**Explains WHY, not WHAT:**
+```typescript
+// Retry needed because external API has rate limits
+// Using setTimeout to avoid blocking the event loop
+// Cache expires after 5 minutes to balance freshness and performance
+```
+
+**Documents non-obvious behavior:**
+```typescript
+// Returns null when user lacks permission (intentional, not an error)
+// Modifies original array for performance reasons
+// Uses weak references to prevent memory leaks
+```
+
+### Comment Elimination Protocol
+
+**Before writing ANY comment, ask:**
+1. **Does this explain WHY, not WHAT?**
+2. **Would this be obvious to someone reading the code?**
+3. **Am I describing my internal process instead of the code's purpose?**
+4. **Does this add actual value or just state what's already clear?**
+
+**If in doubt: DELETE THE COMMENT**
+
 ## Required Boundary Maintenance
 
 ### Before naming ANY code artifact, ask:

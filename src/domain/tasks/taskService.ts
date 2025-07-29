@@ -641,10 +641,7 @@ ${description}
   /**
    * Convenience method for markdown backends with repo URLs
    */
-  static async createMarkdownWithRepo(config: {
-    repoUrl: string;
-    // All task operations now run in current workspace
-  }): Promise<TaskService> {
+  static async createMarkdownWithRepo(config: { repoUrl: string }): Promise<TaskService> {
     return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
