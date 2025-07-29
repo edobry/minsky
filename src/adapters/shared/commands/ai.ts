@@ -252,10 +252,10 @@ export function registerAiCommands(): void {
           // Auto-detect fast-apply provider
           const fastApplyProviders = Object.entries(aiConfig.providers)
             .filter(
-              ([_name, providerConfig]) =>
+              ([name, providerConfig]) =>
                 providerConfig?.enabled &&
                 // Check if provider supports fast-apply (morph for now)
-                _name === "morph"
+                name === "morph"
             )
             .map(([name]) => name);
 
