@@ -244,10 +244,17 @@ export function registerAiCommands(): void {
         description: "Output format (table|json)",
         required: false,
       },
+      json: {
+        schema: z.boolean(),
+        description: "Output in JSON format",
+        required: false,
+        defaultValue: false,
+      },
     },
     execute: async (params, context) => {
       try {
-        const { provider, format } = params;
+        const { provider, format, json } = params;
+        const outputFormat = json ? "json" : format;
 
         // Get AI configuration directly
         const config = getConfiguration();
@@ -273,12 +280,14 @@ export function registerAiCommands(): void {
             log.cliWarn("  - No API keys are configured");
             log.cliWarn("  - Providers don't support model listing");
             log.cliWarn("  - Network connectivity issues");
-            log.cli("\nTo configure providers, see: https://github.com/edobry/minsky#ai-completion-backend");
+            log.cli(
+              "\nTo configure providers, see: https://github.com/edobry/minsky#ai-completion-backend"
+            );
           }
           return;
         }
 
-        if (format === "json") {
+        if (outputFormat === "json") {
           log.cli(JSON.stringify(models, null, 2));
         } else {
           // Table format
@@ -335,10 +344,16 @@ export function registerAiCommands(): void {
         description: "Validate specific provider only",
         required: false,
       },
+      json: {
+        schema: z.boolean(),
+        description: "Output validation results in JSON format",
+        required: false,
+        defaultValue: false,
+      },
     },
     execute: async (params, context) => {
       try {
-        const { provider } = params;
+        const { provider, json } = params;
 
         // Get AI configuration directly
         const config = getConfiguration();
@@ -352,42 +367,86 @@ export function registerAiCommands(): void {
         const completionService = new DefaultAICompletionService(aiConfig);
         const result = await completionService.validateConfiguration();
 
-        if (result.valid) {
-          log.cli("AI configuration is valid!");
+        // Collect validation results for JSON output
+        const validationResults = {
+          valid: result.valid,
+          errors: result.errors,
+          warnings: result.warnings,
+          providers: [] as Array<{
+            name: string;
+            configured: boolean;
+            hasApiKey: boolean;
+            connectionTest: {
+              attempted: boolean;
+              successful: boolean;
+              error?: string;
+            };
+          }>,
+        };
 
+        if (result.valid) {
           // Test each provider if no specific provider requested
           const providersToTest = provider ? [provider] : Object.keys(aiConfig.providers || {});
 
           for (const providerName of providersToTest) {
             const providerConfig = aiConfig.providers?.[providerName];
+            const providerResult = {
+              name: providerName,
+              configured: !!providerConfig,
+              hasApiKey: !!providerConfig?.api_key,
+              connectionTest: {
+                attempted: false,
+                successful: false,
+                error: undefined as string | undefined,
+              },
+            };
+
             if (providerConfig?.api_key) {
               try {
-                log.cli(`Testing ${providerName}...`);
+                providerResult.connectionTest.attempted = true;
+                if (!json) log.cli(`Testing ${providerName}...`);
+
                 await completionService.complete({
                   prompt: "Hello",
                   provider: providerName,
                   maxTokens: 5,
                 });
-                log.cli(`✓ ${providerName} connection successful`);
+
+                providerResult.connectionTest.successful = true;
+                if (!json) log.cli(`✓ ${providerName} connection successful`);
               } catch (error) {
-                log.cliError(
-                  `✗ ${providerName} connection failed: ${error instanceof Error ? error.message : String(error)}`
-                );
+                providerResult.connectionTest.error =
+                  error instanceof Error ? error.message : String(error);
+                if (!json) {
+                  log.cliError(
+                    `✗ ${providerName} connection failed: ${providerResult.connectionTest.error}`
+                  );
+                }
               }
             } else {
-              log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
+              if (!json) log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
             }
-          }
-        } else {
-          log.cliError("AI configuration is invalid:");
-          for (const error of result.errors) {
-            log.cliError(`  - ${error.field}: ${error.message}`);
-          }
 
-          for (const warning of result.warnings) {
-            log.cliWarning(`  - ${warning.field}: ${warning.message}`);
+            validationResults.providers.push(providerResult);
           }
-          exit(1);
+        }
+
+        if (json) {
+          log.cli(JSON.stringify(validationResults, null, 2));
+        } else {
+          if (result.valid) {
+            log.cli("AI configuration is valid!");
+          } else {
+            log.cliError("AI configuration is invalid:");
+            for (const error of result.errors) {
+              log.cliError(`  - ${error.field}: ${error.message}`);
+            }
+
+            for (const warning of result.warnings) {
+              log.cliWarning(`  - ${warning.field}: ${warning.message}`);
+            }
+            exit(1);
+          }
         }
       } catch (error) {
         log.cliError(
@@ -558,10 +617,17 @@ export function registerAiCommands(): void {
         required: false,
         defaultValue: false,
       },
+      json: {
+        schema: z.boolean(),
+        description: "Output in JSON format",
+        required: false,
+        defaultValue: false,
+      },
     },
     execute: async (params, context) => {
       try {
-        const { provider, format, showCache } = params;
+        const { provider, format, showCache, json } = params;
+        const outputFormat = json ? "json" : format;
 
         const cacheService = createModelCacheService();
         const allModels = await cacheService.getAllCachedModels();
@@ -571,9 +637,9 @@ export function registerAiCommands(): void {
           modelsToShow = { [provider]: allModels[provider] || [] };
         }
 
-        if (format === "json") {
+        if (outputFormat === "json") {
           log.cli(JSON.stringify(modelsToShow, null, 2));
-        } else if (format === "yaml") {
+        } else if (outputFormat === "yaml") {
           // Simple YAML-like output
           for (const [providerName, models] of Object.entries(modelsToShow)) {
             log.cli(`${providerName}:`);
@@ -648,10 +714,17 @@ export function registerAiCommands(): void {
         required: false,
         defaultValue: "table",
       },
+      json: {
+        schema: z.boolean(),
+        description: "Output in JSON format",
+        required: false,
+        defaultValue: false,
+      },
     },
     execute: async (params, context) => {
       try {
-        const { format } = params;
+        const { format, json } = params;
+        const outputFormat = json ? "json" : format;
 
         // Get AI configuration
         const config = getConfiguration();
@@ -695,7 +768,7 @@ export function registerAiCommands(): void {
           });
         }
 
-        if (format === "json") {
+        if (outputFormat === "json") {
           log.cli(JSON.stringify(providers, null, 2));
         } else {
           // Table format

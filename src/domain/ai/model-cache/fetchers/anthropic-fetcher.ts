@@ -26,7 +26,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
       log.debug("Fetching Anthropic models from /v1/models API");
 
       const baseURL = config.baseURL || this.defaultBaseURL;
-      const url = `${baseURL}/v1/models`;
+      const url = `${baseURL}/models`;
 
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 second timeout

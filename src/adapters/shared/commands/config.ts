@@ -15,6 +15,7 @@ import {
   type CommandParameterMap,
 } from "../command-registry";
 import { has, get, getConfiguration } from "../../../domain/configuration/index";
+import { DefaultCredentialResolver } from "../../../domain/configuration/credential-resolver";
 import { log } from "../../../utils/logger";
 import { CommonParameters, ConfigParameters, composeParams } from "../common-parameters";
 
@@ -107,12 +108,19 @@ const configShowRegistration = {
     try {
       // Use custom configuration system to get resolved configuration
       const config = getConfiguration();
+
+      // Gather credential information safely
+      const credentialResolver = new DefaultCredentialResolver();
+      const credentials = await gatherCredentialInfo(credentialResolver, config);
+
       const resolved = {
         backend: config.backend,
         backendConfig: config.backendConfig,
         sessiondb: config.sessiondb,
         ai: config.ai,
         github: config.github,
+        logger: config.logger,
+        credentials,
       };
 
       return {
@@ -139,6 +147,44 @@ const configShowRegistration = {
     }
   },
 } as any;
+
+/**
+ * Safely gather credential information for display
+ */
+async function gatherCredentialInfo(credentialResolver: DefaultCredentialResolver, config: any) {
+  const credentials: any = {};
+
+  // Check GitHub credentials
+  try {
+    const githubToken = await credentialResolver.getCredential("github");
+    if (githubToken) {
+      credentials.github = {
+        token: `${"*".repeat(20)} (configured)`,
+        source: "environment", // Simplified for display
+      };
+    }
+  } catch (error) {
+    // Ignore credential resolution errors for display
+  }
+
+  // Check AI provider credentials
+  if (config.ai?.providers) {
+    credentials.ai = {};
+    for (const [provider, providerConfig] of Object.entries(config.ai.providers)) {
+      if (providerConfig && typeof providerConfig === "object") {
+        const providerCfg = providerConfig as any;
+        if (providerCfg.apiKey) {
+          credentials.ai[provider] = {
+            apiKey: `${"*".repeat(20)} (configured)`,
+            source: "environment",
+          };
+        }
+      }
+    }
+  }
+
+  return credentials;
+}
 
 /**
  * Register all config commands
