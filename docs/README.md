@@ -137,3 +137,8 @@ When updating documentation:
 5. Document any breaking changes in migration guides
 
 For questions or suggestions about documentation, please open an issue or contribute improvements via pull request.
+
+## Template System
+
+- [Template System User Guide](rules/template-system-guide.md) - Complete guide for using and creating rule templates
+
