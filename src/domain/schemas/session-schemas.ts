@@ -74,7 +74,8 @@ export const SessionStartParametersSchema = z
     noStatusUpdate: z.boolean().default(false),
     quiet: QuietSchema,
   })
-  .merge(BaseBackendParametersSchema);
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
 
 /**
  * Session retrieval parameters
