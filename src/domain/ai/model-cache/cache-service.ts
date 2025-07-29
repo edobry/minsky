@@ -203,9 +203,10 @@ export class DefaultModelCacheService implements ModelCacheService {
       const duration = Date.now() - startTime;
       const errorMessage = error instanceof Error ? error.message : String(error);
 
-      log.error(`Failed to refresh provider ${provider} after ${duration}ms`, {
-        error: errorMessage,
-      });
+      // Log at debug level - the error will be handled by calling code with user-friendly messages
+      log.systemDebug(
+        `Failed to refresh provider ${provider} after ${duration}ms: ${errorMessage}`
+      );
 
       // Update metadata with error
       await this.updateProviderMetadata(provider, {
