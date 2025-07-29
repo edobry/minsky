@@ -777,7 +777,7 @@ export function registerAiCommands(): void {
 
           for (const provider of providers) {
             const status = !provider.hasApiKey
-              ? "❌ No API Key"
+              ? "🚫 Not Configured"
               : provider.lastSuccess === false
                 ? "❌ Error"
                 : provider.isStale
