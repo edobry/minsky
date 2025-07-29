@@ -351,6 +351,14 @@ export class DefaultAICompletionService implements AICompletionService {
         });
         break;
 
+      case "morph":
+        // Morph is OpenAI-compatible, so use OpenAI SDK with Morph's base URL
+        model = openai(resolvedModel, {
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseURL || "https://api.morphllm.com/v1",
+        });
+        break;
+
       default:
         throw new AIProviderError(
           `Unsupported provider: ${resolvedProvider}`,

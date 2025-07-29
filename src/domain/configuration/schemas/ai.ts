@@ -99,6 +99,19 @@ export const mistralConfigSchema = aiProviderConfigSchema
   .strict();
 
 /**
+ * Morph-specific configuration
+ */
+export const morphConfigSchema = aiProviderConfigSchema
+  .extend({
+    // Default model for Morph (fast-apply models)
+    model: z.string().default("morph-v3-large"),
+
+    // Base URL defaults to Morph API
+    baseUrl: z.string().default("https://api.morphllm.com/v1"),
+  })
+  .strict();
+
+/**
  * All AI providers configuration
  */
 export const aiProvidersConfigSchema = z
@@ -108,6 +121,7 @@ export const aiProvidersConfigSchema = z
     google: googleConfigSchema.optional(),
     cohere: cohereConfigSchema.optional(),
     mistral: mistralConfigSchema.optional(),
+    morph: morphConfigSchema.optional(),
   })
   .strict();
 
@@ -134,6 +148,7 @@ export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type GoogleConfig = z.infer<typeof googleConfigSchema>;
 export type CohereConfig = z.infer<typeof cohereConfigSchema>;
 export type MistralConfig = z.infer<typeof mistralConfigSchema>;
+export type MorphConfig = z.infer<typeof morphConfigSchema>;
 export type AIProvidersConfig = z.infer<typeof aiProvidersConfigSchema>;
 export type AIConfig = z.infer<typeof aiConfigSchema>;
 
@@ -166,6 +181,7 @@ export const aiValidation = {
     if (config.providers.google?.enabled) providers.push("google");
     if (config.providers.cohere?.enabled) providers.push("cohere");
     if (config.providers.mistral?.enabled) providers.push("mistral");
+    if (config.providers.morph?.enabled) providers.push("morph");
 
     return providers;
   },
@@ -190,6 +206,9 @@ export const aiValidation = {
     }
     if (config.providers.mistral && aiValidation.isProviderReady(config.providers.mistral)) {
       providers.push("mistral");
+    }
+    if (config.providers.morph && aiValidation.isProviderReady(config.providers.morph)) {
+      providers.push("morph");
     }
 
     return providers;
@@ -223,6 +242,8 @@ export const aiValidation = {
         return config.providers.cohere || null;
       case "mistral":
         return config.providers.mistral || null;
+      case "morph":
+        return config.providers.morph || null;
       default:
         return null;
     }
@@ -252,6 +273,10 @@ export const aiEnvMapping = {
 
   // Mistral
   MISTRAL_API_KEY: "ai.providers.mistral.apiKey",
+
+  // Morph
+  MORPH_API_KEY: "ai.providers.morph.apiKey",
+  MORPH_BASE_URL: "ai.providers.morph.baseUrl",
 
   // General AI settings
   AI_DEFAULT_PROVIDER: "ai.defaultProvider",

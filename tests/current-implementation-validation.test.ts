@@ -1,6 +1,6 @@
 /**
  * Current Implementation Validation Tests
- * 
+ *
  * These tests validate the current applyEditPattern function and session edit tools
  * to identify limitations, edge cases, and failure modes for comparison with fast-apply APIs.
  */
@@ -108,7 +108,7 @@ describe("Current Implementation Performance Tests", () => {
 }`;
 
     const result = applyEditPattern(original, edit);
-    
+
     // This test validates basic functionality
     expect(result).toContain("new middle line");
   });
@@ -128,7 +128,7 @@ describe("Current Implementation Performance Tests", () => {
 
     // This should demonstrate the indexOf issue with duplicate content
     expect(() => applyEditPattern(original, edit)).not.toThrow();
-    
+
     const result = applyEditPattern(original, edit);
     // Verify it only modifies the first occurrence (potential issue)
     const debugOccurrences = (result.match(/console\.log\("debug"\)/g) || []).length;
@@ -174,7 +174,7 @@ describe("Current Implementation Performance Tests", () => {
     // Create large content to test performance
     const largeContent = "console.log('line');\n".repeat(10000);
     const original = `function bigFunction() {\n${largeContent}}`;
-    
+
     const edit = `function bigFunction() {
   console.log("start");
   // ... existing code ...
@@ -183,11 +183,11 @@ describe("Current Implementation Performance Tests", () => {
     const startTime = performance.now();
     const result = applyEditPattern(original, edit);
     const endTime = performance.now();
-    
+
     // Document performance characteristics
     const duration = endTime - startTime;
     console.log(`Large file edit took ${duration}ms for ${original.length} characters`);
-    
+
     expect(result).toContain("start");
     expect(duration).toBeLessThan(1000); // Should complete within 1 second
   });
@@ -207,7 +207,7 @@ describe("Current Implementation Performance Tests", () => {
 
     // Test Unicode handling
     expect(() => applyEditPattern(original, edit)).not.toThrow();
-    
+
     const result = applyEditPattern(original, edit);
     expect(result).toContain("🚀");
     expect(result).toContain("αβγ");
@@ -236,10 +236,10 @@ describe("Current Implementation Performance Tests", () => {
 
     // This demonstrates the indexOf problem with similar structures
     const result = applyEditPattern(original, edit);
-    
+
     // Verify it affects the intended block (may fail)
     expect(result).toContain("added to first block");
-    
+
     // Count if blocks to verify only one was modified
     const ifBlocks = (result.match(/if \(condition\)/g) || []).length;
     expect(ifBlocks).toBe(2); // Should still have both blocks
@@ -303,7 +303,7 @@ describe("Edge Case Documentation", () => {
 describe("Performance Baseline Measurements", () => {
   const testSizes = [
     { name: "small", size: 1000 }, // 1KB
-    { name: "medium", size: 50000 }, // 50KB  
+    { name: "medium", size: 50000 }, // 50KB
     { name: "large", size: 500000 }, // 500KB
   ];
 
@@ -311,7 +311,7 @@ describe("Performance Baseline Measurements", () => {
     test(`should measure ${name} file performance (${size} chars)`, () => {
       const content = "console.log('line');\n".repeat(size / 20);
       const original = `function test() {\n${content}}`;
-      
+
       const edit = `function test() {
   console.log("start");
   // ... existing code ...
@@ -320,12 +320,12 @@ describe("Performance Baseline Measurements", () => {
       const startTime = performance.now();
       const result = applyEditPattern(original, edit);
       const endTime = performance.now();
-      
+
       const duration = endTime - startTime;
       console.log(`${name} file (${original.length} chars) took ${duration}ms`);
-      
+
       expect(result).toContain("start");
-      
+
       // Document performance expectations
       if (name === "small") expect(duration).toBeLessThan(100);
       if (name === "medium") expect(duration).toBeLessThan(500);
@@ -334,4 +334,4 @@ describe("Performance Baseline Measurements", () => {
   });
 });
 
-export { applyEditPattern }; 
+export { applyEditPattern };
