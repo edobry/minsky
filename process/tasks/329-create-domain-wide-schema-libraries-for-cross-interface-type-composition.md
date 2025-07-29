@@ -54,13 +54,16 @@ This demonstrates practical migration and validates that domain schemas can repl
 - [x] validation-utils.ts for cross-interface validation
 - [x] index.ts for central exports
 
-### Phase 2: Refactor MCP Modules 📋
+### Phase 2: Refactor MCP Modules ✅
 - [x] Copy MCP modules to session workspace for refactoring
 - [x] Create comprehensive migration guide with schema mapping
 - [x] Document response builder migration patterns
-- [ ] **FUTURE TASK**: Execute systematic migration of all 3 MCP files
-- [ ] **FUTURE TASK**: Test migrated MCP tools functionality
-- [ ] **FUTURE TASK**: Deprecate old MCP-specific schemas
+- [x] **CODEMOD APPROACH**: Create automated migration codemod
+- [x] Build `mcp-to-domain-schema-migrator.ts` with AST-based transformations
+- [x] Create comprehensive test suite for codemod validation
+- [x] Provide systematic, safe migration using ts-morph framework
+- [ ] **FUTURE EXECUTION**: Run codemod on target MCP files
+- [ ] **FUTURE TESTING**: Validate migrated MCP tools functionality
 
 ### Phase 3: Documentation and Testing ✅
 - [x] Comprehensive documentation with examples
@@ -70,7 +73,21 @@ This demonstrates practical migration and validates that domain schemas can repl
 
 ## Solution
 
-Implemented a comprehensive domain-wide schema architecture that extends Task #322's patterns to work across all interfaces. Created modular schema libraries with interface-agnostic validation utilities and response builders. Currently refactoring existing MCP modules to demonstrate practical migration.
+Implemented a comprehensive domain-wide schema architecture that extends Task #322's patterns to work across all interfaces. Created modular schema libraries with interface-agnostic validation utilities and response builders.
+
+**Key Deliverables:**
+1. **Domain Schema Libraries** - Complete schema system in `src/domain/schemas/`
+2. **Migration Infrastructure** - AST-based codemod for automated MCP module migration
+3. **Comprehensive Documentation** - Architecture guide and migration patterns
+4. **Validation Framework** - Cross-interface validation utilities
+
+**Codemod-Driven Migration:**
+Created `mcp-to-domain-schema-migrator.ts` using ts-morph for safe, automated migration:
+- Systematic import statement transformations
+- Schema name mapping (SessionFileReadSchema → FileReadSchema)
+- Response builder pattern updates
+- Comprehensive test coverage and safety validations
+- Ready for execution on target MCP files
 
 ## Notes
 
