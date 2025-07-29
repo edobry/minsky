@@ -8,7 +8,7 @@ const TEST_VALUE = 123;
 import { describe, test, expect, beforeEach } from "bun:test";
 import { updateSessionFromParams } from "./session";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/index";
-import { createMock, setupTestMocks, mockFunction } from "../utils/test-utils/mocking";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../utils/test-utils/assertions";
 
 // Set up automatic mock cleanup

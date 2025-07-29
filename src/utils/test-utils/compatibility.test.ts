@@ -70,7 +70,7 @@ describe("Mock Function Compatibility", () => {
     let mockFn = compat.createCompatMock();
 
     // Implement the function
-    mockFn = mockFunction(() => "mocked");
+    mockFn = mock(() => "mocked");
 
     // Verify implementation is used
     expect(mockFn()).toBe("mocked");
@@ -81,7 +81,7 @@ describe("Mock Function Compatibility", () => {
     let mockFn = compat.createCompatMock();
 
     // Set a return value
-    mockFn = mockFunction(() => "value");
+    mockFn = mock(() => "value");
 
     // Verify return value is used
     expect(mockFn()).toBe("value");
@@ -116,7 +116,7 @@ describe("Mock Function Compatibility", () => {
     let mockFn = compat.createCompatMock();
 
     // Set resolved value
-    mockFn = mockFunction(() => Promise.resolve("resolved"));
+    mockFn = mock(() => Promise.resolve("resolved"));
 
     // Verify resolved value by directly calling the function
     const result = await mockFn();
@@ -124,7 +124,7 @@ describe("Mock Function Compatibility", () => {
 
     // Create another mock for rejection testing
     let mockFn2 = compat.createCompatMock();
-    mockFn2 = mockFunction(() => Promise.reject(new Error("rejected")));
+    mockFn2 = mock(() => Promise.reject(new Error("rejected")));
 
     // Verify rejection with try/catch
     let error: Error | null = null;
