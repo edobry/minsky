@@ -66,9 +66,9 @@ const aiCompleteParams: CommandParameterMap = {
 export function registerAiCommands(): void {
   // Register AI completion command
   sharedCommandRegistry.registerCommand({
-    id: "ai:complete",
+    id: "ai.complete",
     category: CommandCategory.CORE,
-    name: "AI Complete",
+    name: "complete",
     description: "Generate AI completion for a prompt",
     parameters: aiCompleteParams,
     execute: async (params, context) => {
@@ -129,9 +129,9 @@ export function registerAiCommands(): void {
 
   // Register AI chat command
   sharedCommandRegistry.registerCommand({
-    id: "ai:chat",
+    id: "ai.chat",
     category: CommandCategory.CORE,
-    name: "AI Chat",
+    name: "chat",
     description: "Start an interactive AI chat session",
     parameters: {
       model: {
@@ -177,12 +177,12 @@ export function registerAiCommands(): void {
     },
   });
 
-  // Register AI models command
+  // Register AI models available command
   sharedCommandRegistry.registerCommand({
-    id: "ai:models",
+    id: "ai.models.available",
     category: CommandCategory.CORE,
-    name: "AI Models",
-    description: "List available AI models",
+    name: "available",
+    description: "List available AI models from providers",
     parameters: {
       provider: {
         schema: z.string(),
