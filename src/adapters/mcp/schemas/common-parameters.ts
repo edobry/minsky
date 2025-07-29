@@ -25,7 +25,7 @@ export const TaskIdSchema = z.string().min(1, "Task ID cannot be empty");
 export const BackendSchema = z.string().optional();
 
 /**
- * Repository identifier schema - cross-domain pattern  
+ * Repository identifier schema - cross-domain pattern
  */
 export const RepoSchema = z.string().optional();
 
