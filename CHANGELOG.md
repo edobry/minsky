@@ -1,6 +1,54 @@
+# Changelog
+
 ## [Unreleased]
 
 ### Added
+- **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
+
+- **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
+
+### Changed
+- **AI Commands**: Restructured from space-separated names to hierarchical structure:
+  - `AI Validate` → `minsky core ai validate`
+  - `AI Models List` → `minsky core ai models list`
+  - `AI Models Refresh` → `minsky core ai models refresh`
+  - `AI Providers List` → `minsky core ai providers list`
+  - `AI Cache Clear` → `minsky core ai cache clear`
+
+- **Tasks Status Commands**: Converted from problematic dot notation to proper hierarchy:
+  - `tasks.status.get` → `minsky tasks status get` (proper nesting)
+  - `tasks.status.set` → `minsky tasks status set` (proper nesting)
+
+### Fixed
+- **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
+- **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
+- **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
+
+### Documentation
+- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
+
+
+- **Task #289: Implemented Template-Based Rules Generation System**
+
+  - Built production-ready template system for dynamic rule generation based on project configuration
+  - Implemented 8 core workflow templates including all major Minsky workflows
+  - Added conditional CLI/MCP command generation: produces `minsky tasks list` for CLI mode, `<function_calls><invoke name="mcp_minsky-server_tasks_list">` for MCP mode
+  - Created fully functional `minsky rules generate` command with interface modes (cli/mcp/hybrid)
+  - Converted all core workflow rules to use dynamic template system (minsky-workflow-orchestrator, task-implementation-workflow, minsky-session-management, task-status-protocol, pr-preparation-workflow)
+  - Added comprehensive user documentation with examples for all interface modes
+  - Verified end-to-end functionality: template generation produces correct syntax for both human users and AI agents
+  - Achieved core objective: replaced static rule generation with configuration-driven, conditional CLI/MCP template system
+
+- **Task #325: COMPLETELY ELIMINATED Special Workspace Architecture**
+
+  - **MAJOR BREAKING CHANGE**: Completely removed all special workspace code and infrastructure
+  - **Files Deleted**: special-workspace-manager.ts (445 lines), task-workspace-commit.ts, workspace-resolver.ts, task-database-sync.ts
+  - **Directory Removed**: ~/.local/state/minsky/task-operations/ special workspace completely deleted
+  - **Content Synchronized**: Copied missing task files (331-334) and directories (077, 096, 097, 106) before deletion
+  - **Simplified Architecture**: In-tree backends now operate directly in main workspace with zero coordination overhead
+  - **Verification Complete**: All task operations work consistently - eliminated CLI vs MCP database inconsistencies
+  - **Code Reduction**: Eliminated 1,200+ lines of special workspace complexity while maintaining full functionality
+  - **Mission Complete**: Final architectural resolution per comprehensive task 325 analysis
 
 - Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
 
@@ -18,41 +66,78 @@
 
 ### Enhanced
 
-- **Task #176: CRITICAL - Fixed Comprehensive Session Database Architecture**
+<<<<<<< HEAD
+- **Task #322: Refactored MCP Tools with Type Composition to Eliminate Argument Duplication**
 
-  - **RESOLVED CRITICAL ARCHITECTURAL ISSUES**: Fixed fundamental session command registration conflicts blocking core session workflows
-  - **Session Command Registration Fixed**: All 11 session commands now properly registered and functional (`list`, `get`, `start`, `delete`, `update`, `approve`, `pr`, `dir`, `inspect`, `migrate`, `check`)
-  - **Duplicate Registration Conflicts Resolved**: Added `allowOverwrite: true` to prevent CLI bridge registration conflicts
-  - **Unified Database Architecture**: Session database operations confirmed working with 50+ sessions accessible
-  - **CLI Bridge Integration Working**: Command generation and CLI integration now properly connected
-  - **Impact**: Session workflows fully operational in session workspaces, resolving critical user-blocking issues
+  - Created shared Zod schema components for reusable parameter validation across MCP tools
+  - Achieved 60%+ reduction in duplicate parameter definitions (17+ sessionName, 15+ path, 6+ line range duplications)
+  - Introduced composed schemas: SessionFileReadSchema, SessionFileWriteSchema, SessionDirectoryListSchema, etc.
+  - Single source of truth for parameter descriptions and validation patterns
+  - Fixed critical sessionNameName bug in session-workspace.ts (7 instances of incorrect variable references)
+  - Improved maintainability with consistent error handling and TypeScript type safety
+  - All existing MCP tool functionality preserved with enhanced validation
+=======
+- **Session CLI Command Registration Fix**
+
+  - Fixed session command registration issue where only 'migrate' and 'check' commands were visible
+  - Resolved `ModularSessionCommandsManager` not properly populating command registry
+  - Fixed `BaseSessionCommand.getCommandCategory()` returning lowercase 'session' instead of `CommandCategory.SESSION`
+  - All session commands now properly available: list, get, start, dir, delete, update, approve, pr, inspect
+  - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
 
 - **Task #325: Completed Task Backend Architecture Analysis**
-
-  - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
-  - **Key Findings**:
-    - Special workspace represents 445+ lines of complexity providing negative user value
-    - In-tree backends are essentially a poorly-implemented distributed database
-    - Performance analysis shows 100-1000x improvement with database backends
-    - Cross-repository workflows are fundamentally incompatible with in-tree storage
-    - No user persona actually benefits from in-tree backends
-  - **Delivered Comprehensive Analysis**:
-    - Current implementation complexity documentation
-    - Distributed systems perspective revealing anti-patterns
-    - Cross-repository challenge analysis
-    - Detailed architectural tradeoffs (databases win 9-1)
-    - Limited-scope hybrid approach evaluation (not viable)
-    - Philosophical resolution prioritizing pragmatism over purity
+  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
+  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
+  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
+  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
+  - **AI-First Architecture Insights**:
+    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
+    - Users already accept external dependencies (AI APIs, billing, internet)
+    - Offline concerns secondary for AI-powered workflows
+    - GitHub Issues provide excellent foundation for AI content analysis
+  - **Comprehensive Analysis Delivered**:
+    - AI-first architecture reanalysis changing all priorities
+    - SQLite-to-PostgreSQL upgrade path design (for future reference)
+    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
+    - Offline/onboarding analysis with AI context
+    - GitHub Issues interim strategy with future backend flexibility
   - **Created Formal ADRs**:
-    - ADR-001: Database-First Architecture (SQLite default, PostgreSQL for teams)
-    - ADR-002: Explicit Task Status Model with git-derived insights
-    - ADR-003: Gradual Migration Strategy with 6-month deprecation
-  - **Implementation Roadmap**:
-    - Phase 1: SQLite implementation (immediate)
-    - Phase 2: PostgreSQL support (3 months)
-    - Phase 3: In-tree deprecation (6 months)
-    - Phase 4: Legacy code removal (12 months)
-  - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
+    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
+    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
+    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
+  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
+  - **Three-Phase Strategy**:
+    - Phase 1: GitHub Issues migration and basic AI features (immediate)
+    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
+    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
+  - # **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
+- **Task #325: Completed Task Backend Architecture Analysis**
+
+  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
+  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
+  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
+  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
+  - **AI-First Architecture Insights**:
+    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
+    - Users already accept external dependencies (AI APIs, billing, internet)
+    - Offline concerns secondary for AI-powered workflows
+    - GitHub Issues provide excellent foundation for AI content analysis
+  - **Comprehensive Analysis Delivered**:
+    - AI-first architecture reanalysis changing all priorities
+    - SQLite-to-PostgreSQL upgrade path design (for future reference)
+    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
+    - Offline/onboarding analysis with AI context
+    - GitHub Issues interim strategy with future backend flexibility
+  - **Created Formal ADRs**:
+    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
+    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
+    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
+  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
+  - **Three-Phase Strategy**:
+    - Phase 1: GitHub Issues migration and basic AI features (immediate)
+    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
+    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
+  - **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
 
@@ -75,6 +160,7 @@
     - Shared json parameters: 15+ → 1 schema
     - Task/Git/Session parameter families: 100+ → organized libraries
   - Established robust foundation for maintainable, DRY parameter management across entire codebase
+>>>>>>> main
 
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
 
@@ -901,6 +987,7 @@ _See: SpecStory history [2025-05-19_implement-environment-aware-logging](mdc:.sp
     - `tasks.filter`: Enhanced task filtering with advanced options (title, ID, sorting)
     - `tasks.update`: Update a task's details (title, description, status)
     - `tasks.delete`: Delete a task with optional force flag
+<<<<<<< HEAD
     - `tasks.info`: Get statistical information about tasks with grouping
   - Updated README-MCP.md with comprehensive documentation for all task commands
   - Added test coverage for the new MCP task commands
@@ -1599,26 +1686,10 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Added
 
 - **Cognitive Error Correction**: Fixed implementation-verification-protocol rule after Task #171 false completion claim
-
   - Original error: Trusted task documentation claiming "75% reduction achieved" without verification
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
-
-- **Task Spec File Management**: Comprehensively resolved multiple task specification file duplications and mismatches
-
-  - **Task #295**: Resolved multiple spec files claiming same task number by removing duplicate and renaming MCP client registration to #324
-  - **Task #309**: Removed duplicate stub file, kept detailed spec referenced by tasks.md
-  - **Task #311/#316**: Removed duplicate #311, kept #316 (identical max-lines ESLint rule content)
-  - **File Reference Mismatches**: Updated tasks.md to reference correct file names for tasks #310, #318, #319
-  - **Missing Files Recovered**: Found and copied missing task #315 and #320 files from special workspace locations
-  - **Orphaned Files**: Added tasks #310b and #324 to tasks.md for existing spec files
-  - **Result**: All task spec files now properly correspond to tasks.md entries
-
-- **CLI Commands Hanging**: Fixed issue where `minsky tasks get`, `minsky tasks list`, and other CLI commands would display output correctly but hang indefinitely instead of returning to shell prompt
-  - Added explicit `process.exit(0)` after successful command execution
-  - Added read-only workspace initialization to reduce lock contention for read operations
-  - Commands now complete properly without leaving resources that keep the event loop alive
-  - Resolves commands timing out due to unclosed file handles, timers, or workspace managers
-
-### Added
+=======
+    - `
+>>>>>>> main

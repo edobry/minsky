@@ -76,6 +76,14 @@ export function getTasksCustomizations(): {
             },
           },
         },
+        "tasks.status.get": {
+          parameters: {
+            taskId: {
+              asArgument: true,
+              description: "ID of the task to get status for",
+            },
+          },
+        },
         "tasks.status.set": {
           parameters: {
             taskId: {

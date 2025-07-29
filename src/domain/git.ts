@@ -27,6 +27,7 @@ import {
 } from "./git/conflict-detection";
 import { validateError, validateGitError } from "../schemas/error";
 import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime";
+import { modularGitCommandsManager } from "./git/git-commands-modular";
 import {
   execGitWithTimeout,
   gitFetchWithTimeout,
@@ -960,7 +961,6 @@ export async function createPullRequestFromParams(params: {
   debug?: boolean;
   noStatusUpdate?: boolean;
 }): Promise<{ markdown: string; statusUpdateResult?: any }> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.createPullRequestFromParams(params);
 }
 
@@ -976,7 +976,6 @@ export async function commitChangesFromParams(params: {
   amend?: boolean;
   noStage?: boolean;
 }): Promise<{ commitHash: string; message: string }> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.commitChangesFromParams(params);
 }
 
@@ -993,7 +992,6 @@ export async function preparePrFromParams(params: {
   branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.preparePrFromParams(params);
 }
 
@@ -1021,7 +1019,6 @@ export async function cloneFromParams(params: {
   session?: string;
   branch?: string;
 }): Promise<CloneResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.cloneFromParams(params);
 }
 

@@ -68,9 +68,14 @@ export function createSpecCommand(): Command {
       const result = await getTaskSpecContentFromParams(params);
 
       // Format and display the result
-      outputResult(result, {
-        json: options.json,
-      });
+      if (options.json) {
+        outputResult(result, {
+          json: true,
+        });
+      } else {
+        // For non-JSON output, just print the content with proper newlines
+        console.log(result.content);
+      }
     } catch (error) {
       handleCliError(error);
     }

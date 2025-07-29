@@ -67,7 +67,7 @@ export function getGitHubBackendConfig(
   const { logErrors = false } = options || {};
 
   // Check for GitHub token in environment
-  const githubToken = process.env.GITHUBTOKEN || process.env.GH_TOKEN;
+  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
 
   if (!githubToken) {
     if (logErrors) {

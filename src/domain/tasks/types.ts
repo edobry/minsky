@@ -31,7 +31,6 @@ export interface BackendCapabilities {
   supportsFullTextSearch: boolean;
 
   // Update mechanism
-  requiresSpecialWorkspace: boolean;
   supportsTransactions: boolean;
   supportsRealTimeSync: boolean;
 }
