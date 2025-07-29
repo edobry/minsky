@@ -19,6 +19,8 @@
 
 - **JSON Output Support**: Added `--json` flag to all AI commands for consistent machine-readable output alongside existing `--format` parameter. Commands now support both `--format json` and `--json` for user convenience.
 
+- **Error Message Cleanup**: Eliminated confusing JSON error dumps from CLI output. Replaced technical error objects with clean, actionable messages. Internal errors are now logged at debug level while users see helpful guidance like "Provider 'openai' is not configured" instead of complex JSON structures.
+
 ### Changed
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
   - `AI Validate` → `minsky core ai validate`
