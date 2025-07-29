@@ -7,6 +7,14 @@
 
 - **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
 
+### Fixed
+- **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
+  - 404 errors now explain "this provider may not support model listing"
+  - 401/403 errors provide clear API key guidance
+  - Network errors and timeouts have specific helpful messages
+  - Individual provider failures don't stop entire refresh operations
+  - Providers without API keys are gracefully skipped with warnings
+
 ### Changed
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
   - `AI Validate` → `minsky core ai validate`
