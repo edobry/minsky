@@ -119,8 +119,8 @@ export async function getTaskFromParams(params: TaskGetParams): Promise<any> {
     // Use current directory as workspace path (simplified architecture)
     const workspacePath = process.cwd();
 
-    // Create task service using dependency injection
-    const taskService = await actualDeps.createTaskService({
+    // Create task service using enhanced backend
+    const taskService = await createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend || "markdown",
     });

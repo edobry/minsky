@@ -11,6 +11,7 @@ import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/i
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../utils/test-utils/assertions";
 import * as execUtils from "../utils/exec";
+import * as childProcess from "child_process";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -47,7 +48,7 @@ describe("updateSessionFromParams", () => {
           taskId: "TEST_VALUE",
         })
       ),
-      getSessionWorkdir: createMock(() => Promise.resolve("/mock/session/workdir")),
+      getSessionWorkdir: createMock(() => Promise.resolve("/tmp/mock-session-workdir")),
     };
 
     mockGetCurrentSession = createMock(() => Promise.resolve("test-session"));

@@ -183,7 +183,7 @@ export function convertRepositoryURI(
 ): string | undefined {
   try {
     // Map our RepositoryURIType to UriFormat
-    const targetFormat = targetType;
+    const targetFormat = targetType as unknown as UriFormat;
     return convertRepositoryUri(uri, targetFormat);
   } catch (error) {
     return undefined;
@@ -249,6 +249,31 @@ export function getRepositoryName(uri: string): string {
  */
 export async function detectRepositoryURI(cwd?: string): Promise<string | undefined> {
   return detectRepositoryFromCwd(cwd);
+}
+
+/**
+ * Expand GitHub shorthand notation to full URLs
+ * @param shorthand - GitHub shorthand like "org/repo"
+ * @param format - URL format: "https" (default) or "ssh"
+ * @returns Full GitHub URL or null for invalid shorthand
+ */
+export function expandGitHubShorthand(
+  shorthand: string,
+  format: "https" | "ssh" = "https"
+): string | null {
+  // Validate shorthand format (org/repo)
+  const parts = shorthand.split("/");
+  if (parts.length !== 2 || !parts[0] || !parts[1]) {
+    return null;
+  }
+
+  const [org, repo] = parts;
+
+  if (format === "ssh") {
+    return `git@github.com:${org}/${repo}.git`;
+  } else {
+    return `https://github.com/${org}/${repo}`;
+  }
 }
 
 /**

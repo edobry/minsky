@@ -95,7 +95,7 @@ describe("interface-agnostic task functions", () => {
         all: false,
       };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params);
 
       expect(result).toEqual([mockTask]);
       // Mock call expectation updated - function may not call resolveRepoPath in all scenarios
@@ -118,7 +118,7 @@ describe("interface-agnostic task functions", () => {
 
       const params = { all: false };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params);
 
       expect(result.length).toBe(1);
       expect(result[0]?.status !== TASK_STATUS.DONE).toBe(true);
@@ -132,7 +132,7 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params);
 
       expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
@@ -145,7 +145,7 @@ describe("interface-agnostic task functions", () => {
       };
 
       try {
-        await getTaskFromParams(params, mockDeps);
+        await getTaskFromParams(params);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expectToBeInstanceOf(e, ResourceNotFoundError);
@@ -158,7 +158,7 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params);
 
       expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#123");
@@ -176,7 +176,7 @@ describe("interface-agnostic task functions", () => {
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params);
 
       expect(result).toEqual({ ...mockTask, id: "#023" });
       expect(mockTaskService.getTask).toHaveBeenCalledWith("#23");
