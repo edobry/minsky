@@ -3,7 +3,11 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
-import { ConflictScanner, type ConflictScanOptions } from "../../conflict-scanner";
+import {
+  scanSessionConflicts,
+  formatSessionConflictResults,
+  type SessionConflictScanOptions,
+} from "../../../session/session-conflicts-operations";
 import { log } from "../../../../utils/logger";
 import { getCurrentWorkingDirectory } from "../../../../utils/process";
 
@@ -35,7 +39,9 @@ export const conflictsCommandParams: CommandParameterMap = {
  */
 export async function executeConflictsCommand(
   parameters: {
-    [K in keyof typeof conflictsCommandParams]: z.infer<(typeof conflictsCommandParams)[K]["schema"]>;
+    [K in keyof typeof conflictsCommandParams]: z.infer<
+      (typeof conflictsCommandParams)[K]["schema"]
+    >;
   },
   context: CommandExecutionContext
 ): Promise<string> {
@@ -46,37 +52,38 @@ export async function executeConflictsCommand(
     const repoPath = getCurrentWorkingDirectory();
 
     if (context.debug) {
-      log.debug("Executing conflicts command", { 
-        repoPath, 
-        format, 
-        contextLines, 
-        files 
+      log.debug("Executing conflicts command", {
+        repoPath,
+        format,
+        contextLines,
+        files,
       });
     }
 
-    const options: ConflictScanOptions = {
+    const options: SessionConflictScanOptions = {
       format: format as "json" | "text",
       context: contextLines,
       files,
     };
 
-    const result = await ConflictScanner.scanRepository(repoPath, options);
+    // Reuse session conflicts logic but with empty params (auto-detect current context)
+    const result = await scanSessionConflicts({}, options);
 
-    if (format === "text") {
-      return ConflictScanner.formatAsText(result);
-    } else {
-      return JSON.stringify(result, null, 2);
-    }
+    return formatSessionConflictResults(result, format as "json" | "text");
   } catch (error) {
     log.error("Error executing conflicts command", { error, parameters });
-    
+
     if (format === "text") {
       return `Error: ${error instanceof Error ? error.message : String(error)}`;
     } else {
-      return JSON.stringify({
-        error: error instanceof Error ? error.message : String(error),
-        timestamp: new Date().toISOString(),
-      }, null, 2);
+      return JSON.stringify(
+        {
+          error: error instanceof Error ? error.message : String(error),
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2
+      );
     }
   }
-} 
+}
