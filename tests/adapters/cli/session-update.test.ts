@@ -205,7 +205,7 @@ describe("session update command", () => {
       repoName: "local-minsky",
       repoUrl: repoUrl,
       createdAt: new Date().toISOString(),
-      taskId: "task#42", // Task ID should match session name
+      taskId: "42", // Task ID should match session name
     };
 
     testData.mockSessionDB.getSession = async (name: string) => {

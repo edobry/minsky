@@ -23,7 +23,7 @@ const VALID_JSON_DATA = {
       repoName: "test-repo",
       repoUrl: "https://github.com/test/repo.git",
       createdAt: "2023-01-01T00:00:00.000Z",
-      taskId: "task#001",
+      taskId: "001",
       branch: "main",
       repoPath: "/path/to/repo",
     },
