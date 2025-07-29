@@ -51,7 +51,7 @@ describe.skip("Session PR Refresh Functionality", () => {
         Promise.resolve("feat(#231): Initial implementation\n\nThis is the PR body")
       ); // get commit message
 
-      mockPreparePrFromParams = mock(() =>
+      mockPreparePrFromParams = mockFunction(() =>
         Promise.resolve({
           prBranch: "pr/task#231",
           baseBranch: "main",
@@ -83,7 +83,7 @@ describe.skip("Session PR Refresh Functionality", () => {
         Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
       ); // remote branch check
 
-      mockPreparePrFromParams = mock(() =>
+      mockPreparePrFromParams = mockFunction(() =>
         Promise.resolve({
           prBranch: "pr/task#231",
           baseBranch: "main",
@@ -115,7 +115,7 @@ describe.skip("Session PR Refresh Functionality", () => {
         Promise.resolve("")
       ); // remote branch check (empty = doesn't exist)
 
-      mockPreparePrFromParams = mock(() =>
+      mockPreparePrFromParams = mockFunction(() =>
         Promise.resolve({
           prBranch: "pr/task#231",
           baseBranch: "main",
@@ -195,7 +195,7 @@ describe.skip("Session PR Refresh Functionality", () => {
           )
         ); // get commit message
 
-      mockPreparePrFromParams = mock(() =>
+      mockPreparePrFromParams = mockFunction(() =>
         Promise.resolve({
           prBranch: "pr/task#231",
           baseBranch: "main",
@@ -221,7 +221,7 @@ describe.skip("Session PR Refresh Functionality", () => {
       ) = // remote branch check
         mock(() => Promise.resolve("feat(#231): Simple title only")); // get commit message
 
-      mockPreparePrFromParams = mock(() =>
+      mockPreparePrFromParams = mockFunction(() =>
         Promise.resolve({
           prBranch: "pr/task#231",
           baseBranch: "main",
@@ -249,7 +249,7 @@ describe.skip("Session PR Refresh Functionality", () => {
         ) = // remote branch check
         mock(() => Promise.resolve("feat(#231): Existing title\n\nExisting body")); // get commit message
 
-      mockPreparePrFromParams = mock(() =>
+      mockPreparePrFromParams = mockFunction(() =>
         Promise.resolve({
           prBranch: "pr/task#231",
           baseBranch: "main",

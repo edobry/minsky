@@ -60,16 +60,16 @@ describe("Session Start Consistency Tests", () => {
       resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace/path")),
     };
 
-    mockResolveRepoPath = mock(() => Promise.resolve("local/minsky"));
+    mockResolveRepoPath = mockFunction(() => Promise.resolve("local/minsky"));
 
     // Create individual spies for call tracking
-    gitCloneSpy = mock(() =>
+    gitCloneSpy = mockFunction(() =>
       Promise.resolve({ workdir: "/test/sessions/task160", session: "task160" })
     );
-    gitBranchWithoutSessionSpy = mock(() =>
+    gitBranchWithoutSessionSpy = mockFunction(() =>
       Promise.resolve({ workdir: "/test/sessions/task160", branch: "task160" })
     );
-    sessionAddSpy = mock(() => Promise.resolve());
+    sessionAddSpy = mockFunction(() => Promise.resolve());
 
     // Replace service methods with spies for call tracking
     mockGitService.clone = gitCloneSpy;
@@ -113,7 +113,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git clone fails", async () => {
       // Arrange
       const gitError = new Error("destination path already exists and is not an empty directory");
-      gitCloneSpy = mock(() => Promise.reject(gitError));
+      gitCloneSpy = mockFunction(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -141,7 +141,7 @@ describe("Session Start Consistency Tests", () => {
     it("should not add session to database when git branch creation fails", async () => {
       // Arrange
       const branchError = new Error("failed to create branch");
-      gitBranchWithoutSessionSpy = mock(() => Promise.reject(branchError));
+      gitBranchWithoutSessionSpy = mockFunction(() => Promise.reject(branchError));
 
       const params = {
         task: "160",
@@ -170,7 +170,7 @@ describe("Session Start Consistency Tests", () => {
       // Arrange
       const gitError = new Error("git operation failed");
 
-      gitCloneSpy = mock(() => Promise.reject(gitError));
+      gitCloneSpy = mockFunction(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -199,7 +199,7 @@ describe("Session Start Consistency Tests", () => {
   describe("Error handling edge cases", () => {
     it("should prevent session creation when session already exists", async () => {
       // Arrange
-      const sessionGetSpy = mock(() =>
+      const sessionGetSpy = mockFunction(() =>
         Promise.resolve({
           session: "task#160",
           repoUrl: "local/minsky",
@@ -237,7 +237,7 @@ describe("Session Start Consistency Tests", () => {
 
     it("should prevent session creation when another session exists for same task", async () => {
       // Arrange
-      const listSessionsSpy = mock(() =>
+      const listSessionsSpy = mockFunction(() =>
         Promise.resolve([
           {
             session: "different-session",
@@ -277,7 +277,7 @@ describe("Session Start Consistency Tests", () => {
 
     it("should prevent session creation when task does not exist", async () => {
       // Arrange
-      const taskGetSpy = mock(() => Promise.resolve(null));
+      const taskGetSpy = mockFunction(() => Promise.resolve(null));
       mockTaskService.getTask = taskGetSpy;
 
       const params = {
@@ -311,7 +311,7 @@ describe("Session Start Consistency Tests", () => {
       const gitError = new Error(
         "fatal: destination path 'task#160' already exists and is not an empty directory"
       );
-      gitCloneSpy = mock(() => Promise.reject(gitError));
+      gitCloneSpy = mockFunction(() => Promise.reject(gitError));
 
       const params = {
         task: "160",
@@ -341,7 +341,7 @@ describe("Session Start Consistency Tests", () => {
     it("should successfully add session record only after all operations complete", async () => {
       // Arrange
       const sessionDbMock = createMockSessionProvider();
-      const addSessionSpy = mock(() => Promise.resolve());
+      const addSessionSpy = mockFunction(() => Promise.resolve());
       sessionDbMock.addSession = addSessionSpy;
 
       const params = {

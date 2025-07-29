@@ -4,12 +4,12 @@ import { ConflictType } from "./conflict-detection-types";
 // Note: Simplified version focusing on working tests only
 
 // Mock git utilities (which is what the service actually uses)
-let mockExecGitWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
-let mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
+let mockExecGitWithTimeout = mockFunction(() => Promise.resolve({ stdout: "", stderr: "" }));
+let mockGitFetchWithTimeout = mockFunction(() => Promise.resolve({ stdout: "", stderr: "" }));
 
 // Create a configurable mock implementation that tests can modify
 let mockExecAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
-let mockExecAsync = mock(() => mockExecAsyncImpl());
+let mockExecAsync = mockFunction(() => mockExecAsyncImpl());
 
 // Override the imports with mocks
 mock.module("../../utils/git-exec", () => ({
