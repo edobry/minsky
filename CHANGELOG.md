@@ -6,7 +6,7 @@
 - **Task #289: Implemented Template-Based Rules Generation System**
 
   - Built production-ready template system for dynamic rule generation based on project configuration
-  - Implemented 8 core workflow templates including all major Minsky workflows  
+  - Implemented 8 core workflow templates including all major Minsky workflows
   - Added conditional CLI/MCP command generation: produces `minsky tasks list` for CLI mode, `<function_calls><invoke name="mcp_minsky-server_tasks_list">` for MCP mode
   - Created fully functional `minsky rules generate` command with interface modes (cli/mcp/hybrid)
   - Converted all core workflow rules to use dynamic template system (minsky-workflow-orchestrator, task-implementation-workflow, minsky-session-management, task-status-protocol, pr-preparation-workflow)
@@ -14,13 +14,15 @@
   - Verified end-to-end functionality: template generation produces correct syntax for both human users and AI agents
   - Achieved core objective: replaced static rule generation with configuration-driven, conditional CLI/MCP template system
 
-- **Task #325: Implemented Special Workspace Deprecation Warnings**
+- **Task #325: Completely Removed Special Workspace Complexity**
 
-  - Added deprecation warnings to in-tree task backends (markdown-backend.ts and json-backend.ts)
-  - Users now see migration guidance when using deprecated special workspace approach
-  - References ADR-003 deprecation strategy with clear benefits of GitHub Issues backend
+  - **BREAKING CHANGE**: Removed special workspace manager from markdown and JSON backends
+  - Simplified workspace resolution to use main workspace directly (no more 445+ lines of complex coordination)
+  - Updated all backend factory functions to be synchronous
+  - Updated tests to work without special workspace dependencies
+  - In-tree backends now operate directly in main workspace, eliminating synchronization issues
   - Cleaned up obsolete task 160 session workspaces (task#160 and task160-ai-backend)
-  - Completed final implementation phase of architectural resolution
+  - System is now much simpler to understand and maintain
 
 - Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
 
