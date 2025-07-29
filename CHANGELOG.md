@@ -1,6 +1,16 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
 ## [Unreleased]
+
+### Security
+- **CRITICAL FIX**: Fixed security vulnerability in config list command that exposed API keys and GitHub tokens in plain text (#337)
+  - Added credential masking by default for all sensitive values
+  - Added `--show-secrets` flag for intentional credential exposure with security warning
+  - Applied comprehensive credential detection (API keys, tokens, connection strings, secrets)
+  - Added security notices when credentials are masked
+  - Consistent masking across CLI and MCP interfaces
 
 ### Added
 - **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
