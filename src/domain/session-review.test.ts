@@ -16,7 +16,7 @@ describe("sessionReviewFromParams", () => {
   test("reviews session by name", async () => {
     // Create trackable spies for methods we need to verify
     let getSessionSpy = createMock();
-    getSessionSpy = mock((name: unknown) =>
+    getSessionSpy = mockFunction((name: unknown) =>
       Promise.resolve({
         session: name as string,
         taskId: "123",
@@ -28,12 +28,12 @@ describe("sessionReviewFromParams", () => {
     );
 
     let getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+    getSessionWorkdirSpy = mockFunction((_sessionName: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 
     let execInRepositorySpy = createMock();
-    execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
+    execInRepositorySpy = mockFunction((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
         return Promise.resolve("refs/heads/pr/testSession");
@@ -51,7 +51,7 @@ describe("sessionReviewFromParams", () => {
     });
 
     let getTaskSpecDataSpy = createMock();
-    getTaskSpecDataSpy = mock(() =>
+    getTaskSpecDataSpy = mockFunction(() =>
       Promise.resolve({ title: "Test Task", description: "Test description" })
     );
 
@@ -75,7 +75,7 @@ describe("sessionReviewFromParams", () => {
     });
 
     let getCurrentSessionSpy = createMock();
-    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
+    getCurrentSessionSpy = mockFunction((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
       sessionDB: mockSessionDB,
@@ -101,7 +101,7 @@ describe("sessionReviewFromParams", () => {
   test("reviews session by task ID", async () => {
     // Create trackable spies for methods we need to verify
     let getSessionByTaskIdSpy = createMock();
-    getSessionByTaskIdSpy = mock((taskId: unknown) =>
+    getSessionByTaskIdSpy = mockFunction((taskId: unknown) =>
       Promise.resolve({
         session: "task123",
         taskId: taskId as string,
@@ -113,7 +113,7 @@ describe("sessionReviewFromParams", () => {
     );
 
     let getSessionSpy = createMock();
-    getSessionSpy = mock((name: unknown) =>
+    getSessionSpy = mockFunction((name: unknown) =>
       Promise.resolve({
         session: name as string,
         taskId: "123",
@@ -125,12 +125,12 @@ describe("sessionReviewFromParams", () => {
     );
 
     let getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy = mock((_sessionName: unknown) =>
+    getSessionWorkdirSpy = mockFunction((_sessionName: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 
     let execInRepositorySpy = createMock();
-    execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
+    execInRepositorySpy = mockFunction((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
         return Promise.resolve("refs/heads/pr/task123");
@@ -170,7 +170,7 @@ describe("sessionReviewFromParams", () => {
     });
 
     let getCurrentSessionSpy = createMock();
-    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
+    getCurrentSessionSpy = mockFunction((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
       sessionDB: mockSessionDB,
@@ -207,7 +207,7 @@ describe("sessionReviewFromParams", () => {
     });
 
     let getCurrentSessionSpy = createMock();
-    getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve(null));
+    getCurrentSessionSpy = mockFunction((_cwd?: unknown) => Promise.resolve(null));
 
     const deps = {
       sessionDB: mockSessionDB,

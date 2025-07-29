@@ -28,7 +28,7 @@ describe("Session Approve", () => {
   test("successfully approves and merges a PR branch", async () => {
     // Create trackable spies for methods we need to verify (simplified typing)
     let getSessionSpy = createMock();
-    getSessionSpy = mock((name) =>
+    getSessionSpy = mockFunction((name) =>
       Promise.resolve({
         session: name, // Fixed: use 'session' instead of '_session'
         repoName: "test-repo",
@@ -39,7 +39,7 @@ describe("Session Approve", () => {
     );
 
     let getSessionByTaskIdSpy = createMock();
-    getSessionByTaskIdSpy = mock((taskId) => {
+    getSessionByTaskIdSpy = mockFunction((taskId) => {
       if (taskId === "265") {
         return Promise.resolve({
           session: "test-session", // Fixed: use 'session' instead of '_session'
@@ -53,12 +53,12 @@ describe("Session Approve", () => {
     });
 
     let getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy = mock(() =>
+    getSessionWorkdirSpy = mockFunction(() =>
       Promise.resolve("/test/workdir/test-repo/sessions/test-session")
     );
 
     let execInRepositorySpy = createMock();
-    execInRepositorySpy = mock((_workdir, command) => {
+    execInRepositorySpy = mockFunction((_workdir, command) => {
       if (command.includes("rev-parse HEAD")) {
         return Promise.resolve("abcdef123456");
       }
@@ -69,10 +69,10 @@ describe("Session Approve", () => {
     });
 
     let setTaskStatusSpy = createMock();
-    setTaskStatusSpy = mock(() => Promise.resolve());
+    setTaskStatusSpy = mockFunction(() => Promise.resolve());
 
     let getBackendForTaskSpy = createMock();
-    getBackendForTaskSpy = mock(() =>
+    getBackendForTaskSpy = mockFunction(() =>
       Promise.resolve({
         setTaskMetadata: createMock(() => Promise.resolve()),
       })
@@ -153,7 +153,7 @@ describe("Session Approve", () => {
   test("detects current session when repo path is provided", async () => {
     // Create trackable spies for methods we need to verify
     let getSessionSpy = createMock();
-    getSessionSpy = mock((name) => {
+    getSessionSpy = mockFunction((name) => {
       if (name === "current-session") {
         return Promise.resolve({
           session: name, // Fixed: use 'session' instead of '_session'
@@ -166,15 +166,15 @@ describe("Session Approve", () => {
     });
 
     let getSessionByTaskIdSpy = createMock();
-    getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
+    getSessionByTaskIdSpy = mockFunction(() => Promise.resolve(null));
 
     let getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy = mock((_sessionName) =>
+    getSessionWorkdirSpy = mockFunction((_sessionName) =>
       Promise.resolve("/test/workdir/test-repo/sessions/current-session")
     );
 
     let execInRepositorySpy = createMock();
-    execInRepositorySpy = mock((_workdir, command) => {
+    execInRepositorySpy = mockFunction((_workdir, command) => {
       if (command.includes("rev-parse HEAD")) {
         return Promise.resolve("abcdef123456");
       }
@@ -185,10 +185,10 @@ describe("Session Approve", () => {
     });
 
     let setTaskStatusSpy = createMock();
-    setTaskStatusSpy = mock(() => Promise.resolve());
+    setTaskStatusSpy = mockFunction(() => Promise.resolve());
 
     let getBackendForTaskSpy = createMock();
-    getBackendForTaskSpy = mock(() =>
+    getBackendForTaskSpy = mockFunction(() =>
       Promise.resolve({
         setTaskMetadata: createMock(() => Promise.resolve()),
       })
@@ -396,7 +396,7 @@ describe("Session Approve", () => {
   test("merges from local PR branch and handles missing remote branch gracefully", async () => {
     // Create trackable spies for methods we need to verify
     let getSessionSpy = createMock();
-    getSessionSpy = mock((name) =>
+    getSessionSpy = mockFunction((name) =>
       Promise.resolve({
         session: name, // Fixed: use 'session' instead of '_session'
         repoName: "test-repo",
@@ -407,16 +407,16 @@ describe("Session Approve", () => {
     );
 
     let getSessionByTaskIdSpy = createMock();
-    getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
+    getSessionByTaskIdSpy = mockFunction(() => Promise.resolve(null));
 
     let getSessionWorkdirSpy = createMock();
-    getSessionWorkdirSpy = mock(() =>
+    getSessionWorkdirSpy = mockFunction(() =>
       Promise.resolve("/test/workdir/test-repo/sessions/test-session")
     );
 
     const gitCommands: string[] = [];
     let execInRepositorySpy = createMock();
-    execInRepositorySpy = mock((_workdir, command) => {
+    execInRepositorySpy = mockFunction((_workdir, command) => {
       gitCommands.push(command);
 
       if (command.includes("rev-parse HEAD")) {
@@ -433,10 +433,10 @@ describe("Session Approve", () => {
     });
 
     let setTaskStatusSpy = createMock();
-    setTaskStatusSpy = mock(() => Promise.resolve());
+    setTaskStatusSpy = mockFunction(() => Promise.resolve());
 
     let getBackendForTaskSpy = createMock();
-    getBackendForTaskSpy = mock(() =>
+    getBackendForTaskSpy = mockFunction(() =>
       Promise.resolve({
         setTaskMetadata: createMock(() => Promise.resolve()),
       })
@@ -506,7 +506,7 @@ describe("Session Approve", () => {
     test("should delete local PR branch and task branch after successful merge", async () => {
       // Create trackable spies for methods we need to verify
       let getSessionSpy = createMock();
-      getSessionSpy = mock((name) =>
+      getSessionSpy = mockFunction((name) =>
         Promise.resolve({
           session: name,
           repoName: "test-repo",
@@ -517,16 +517,16 @@ describe("Session Approve", () => {
       );
 
       let getSessionByTaskIdSpy = createMock();
-      getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
+      getSessionByTaskIdSpy = mockFunction(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
-      getSessionWorkdirSpy = mock(() =>
+      getSessionWorkdirSpy = mockFunction(() =>
         Promise.resolve("/test/workdir/test-repo/sessions/test-session")
       );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
-      execInRepositorySpy = mock((_workdir, command) => {
+      execInRepositorySpy = mockFunction((_workdir, command) => {
         gitCommands.push(command);
 
         if (command.includes("rev-parse HEAD")) {
@@ -547,10 +547,10 @@ describe("Session Approve", () => {
       });
 
       let setTaskStatusSpy = createMock();
-      setTaskStatusSpy = mock(() => Promise.resolve());
+      setTaskStatusSpy = mockFunction(() => Promise.resolve());
 
       let getBackendForTaskSpy = createMock();
-      getBackendForTaskSpy = mock(() =>
+      getBackendForTaskSpy = mockFunction(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
         })
@@ -612,7 +612,7 @@ describe("Session Approve", () => {
     test("should handle branch cleanup failures gracefully without failing the operation", async () => {
       // Create trackable spies for methods we need to verify
       let getSessionSpy = createMock();
-      getSessionSpy = mock((name) =>
+      getSessionSpy = mockFunction((name) =>
         Promise.resolve({
           session: name,
           repoName: "test-repo",
@@ -623,16 +623,16 @@ describe("Session Approve", () => {
       );
 
       let getSessionByTaskIdSpy = createMock();
-      getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
+      getSessionByTaskIdSpy = mockFunction(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
-      getSessionWorkdirSpy = mock(() =>
+      getSessionWorkdirSpy = mockFunction(() =>
         Promise.resolve("/test/workdir/test-repo/sessions/test-session")
       );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
-      execInRepositorySpy = mock((_workdir, command) => {
+      execInRepositorySpy = mockFunction((_workdir, command) => {
         gitCommands.push(command);
 
         if (command.includes("rev-parse HEAD")) {
@@ -649,10 +649,10 @@ describe("Session Approve", () => {
       });
 
       let setTaskStatusSpy = createMock();
-      setTaskStatusSpy = mock(() => Promise.resolve());
+      setTaskStatusSpy = mockFunction(() => Promise.resolve());
 
       let getBackendForTaskSpy = createMock();
-      getBackendForTaskSpy = mock(() =>
+      getBackendForTaskSpy = mockFunction(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
         })
@@ -711,7 +711,7 @@ describe("Session Approve", () => {
     test("should not attempt branch cleanup for already approved sessions", async () => {
       // Create trackable spies for methods we need to verify
       let getSessionSpy = createMock();
-      getSessionSpy = mock((name) =>
+      getSessionSpy = mockFunction((name) =>
         Promise.resolve({
           session: name,
           repoName: "test-repo",
@@ -722,16 +722,16 @@ describe("Session Approve", () => {
       );
 
       let getSessionByTaskIdSpy = createMock();
-      getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
+      getSessionByTaskIdSpy = mockFunction(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
-      getSessionWorkdirSpy = mock(() =>
+      getSessionWorkdirSpy = mockFunction(() =>
         Promise.resolve("/test/workdir/test-repo/sessions/test-session")
       );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
-      execInRepositorySpy = mock((_workdir, command) => {
+      execInRepositorySpy = mockFunction((_workdir, command) => {
         gitCommands.push(command);
 
         if (command.includes("rev-parse HEAD")) {
@@ -752,10 +752,10 @@ describe("Session Approve", () => {
       });
 
       let setTaskStatusSpy = createMock();
-      setTaskStatusSpy = mock(() => Promise.resolve());
+      setTaskStatusSpy = mockFunction(() => Promise.resolve());
 
       let getBackendForTaskSpy = createMock();
-      getBackendForTaskSpy = mock(() =>
+      getBackendForTaskSpy = mockFunction(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
         })
@@ -807,7 +807,7 @@ describe("Session Approve", () => {
     test("should handle case where task branch doesn't exist but PR branch does", async () => {
       // Create trackable spies for methods we need to verify
       let getSessionSpy = createMock();
-      getSessionSpy = mock((name) =>
+      getSessionSpy = mockFunction((name) =>
         Promise.resolve({
           session: name,
           repoName: "test-repo",
@@ -818,16 +818,16 @@ describe("Session Approve", () => {
       );
 
       let getSessionByTaskIdSpy = createMock();
-      getSessionByTaskIdSpy = mock(() => Promise.resolve(null));
+      getSessionByTaskIdSpy = mockFunction(() => Promise.resolve(null));
 
       let getSessionWorkdirSpy = createMock();
-      getSessionWorkdirSpy = mock(() =>
+      getSessionWorkdirSpy = mockFunction(() =>
         Promise.resolve("/test/workdir/test-repo/sessions/test-session")
       );
 
       const gitCommands: string[] = [];
       let execInRepositorySpy = createMock();
-      execInRepositorySpy = mock((_workdir, command) => {
+      execInRepositorySpy = mockFunction((_workdir, command) => {
         gitCommands.push(command);
 
         if (command.includes("rev-parse HEAD")) {
@@ -848,10 +848,10 @@ describe("Session Approve", () => {
       });
 
       let setTaskStatusSpy = createMock();
-      setTaskStatusSpy = mock(() => Promise.resolve());
+      setTaskStatusSpy = mockFunction(() => Promise.resolve());
 
       let getBackendForTaskSpy = createMock();
-      getBackendForTaskSpy = mock(() =>
+      getBackendForTaskSpy = mockFunction(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
         })

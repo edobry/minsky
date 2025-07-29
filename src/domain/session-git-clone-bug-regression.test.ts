@@ -9,7 +9,7 @@
 
 import { describe, it, expect } from "bun:test";
 import { startSessionFromParams } from "./session";
-import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { createMock, createPartialMock, mockFunction } from "../utils/test-utils/mocking";
 import {
   createMockSessionProvider,
   createMockGitService,
@@ -23,17 +23,17 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Create trackable spies for methods we need to verify
     let addSessionSpy = createMock();
-    addSessionSpy = mock(() => Promise.resolve(undefined));
+    addSessionSpy = mockFunction(() => Promise.resolve(undefined));
 
     let cloneSpy = createMock();
-    cloneSpy = mock(() =>
+    cloneSpy = mockFunction(() =>
       Promise.reject(
         new Error("fatal: destination path 'task#160' already exists and is not an empty directory")
       )
     );
 
     let branchSpy = createMock();
-    branchSpy = mock(() =>
+    branchSpy = mockFunction(() =>
       Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" })
     );
 
@@ -102,15 +102,15 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Create trackable spies for methods we need to verify
     let addSessionSpy = createMock();
-    addSessionSpy = mock(() => Promise.resolve(undefined));
+    addSessionSpy = mockFunction(() => Promise.resolve(undefined));
 
     let cloneSpy = createMock();
-    cloneSpy = mock(() =>
+    cloneSpy = mockFunction(() =>
       Promise.resolve({ workdir: "/test/sessions/task#160", session: "task#160" })
     );
 
     let branchSpy = createMock();
-    branchSpy = mock(() =>
+    branchSpy = mockFunction(() =>
       Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" })
     );
 

@@ -55,7 +55,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // CASE 1: CLI context (session workspace) - should NOT auto-detect in domain
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mockFunction(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
 
       const cliContext: CommandExecutionContext = {
         interface: "cli",
@@ -104,7 +104,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // CASE 1: Main workspace context - should fail
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mockFunction(() => "/Users/edobry/Projects/minsky");
 
       let mainWorkspaceError: Error | null = null;
       try {
@@ -120,7 +120,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       }
 
       // CASE 2: Session workspace context - auto-detects
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mockFunction(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
 
       let sessionWorkspaceResult: any = null;
       try {
@@ -168,7 +168,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // Should always fail without session, regardless of working directory
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mockFunction(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
       await expect(
         pureDomainFunction({
           title: "test",
@@ -177,7 +177,7 @@ describe("Session Context Resolution Architecture Issues", () => {
         } as any)
       ).rejects.toThrow("Session parameter is required");
 
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mockFunction(() => "/Users/edobry/Projects/minsky");
       await expect(
         pureDomainFunction({
           title: "test",
@@ -230,7 +230,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // CLI adapter should auto-resolve session
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mockFunction(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
       const cliResolvedParams = mockCliAdapter.resolveSessionContext(
         {
           title: "test",
@@ -242,7 +242,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       expect(cliResolvedParams.session).toBe("task#158");
 
       // MCP adapter should require explicit session
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mockFunction(() => "/Users/edobry/Projects/minsky");
       expect(() => {
         mockMcpAdapter.resolveSessionContext(
           {
