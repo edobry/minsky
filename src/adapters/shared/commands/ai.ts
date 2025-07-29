@@ -66,7 +66,7 @@ const aiCompleteParams: CommandParameterMap = {
 export function registerAiCommands(): void {
   // Register AI completion command
   sharedCommandRegistry.registerCommand({
-    id: "ai:complete",
+    id: "ai.complete",
     category: CommandCategory.CORE,
     name: "complete",
     description: "Generate AI completion for a prompt",
@@ -129,7 +129,7 @@ export function registerAiCommands(): void {
 
   // Register AI chat command
   sharedCommandRegistry.registerCommand({
-    id: "ai:chat",
+    id: "ai.chat",
     category: CommandCategory.CORE,
     name: "chat",
     description: "Start an interactive AI chat session",
@@ -177,12 +177,12 @@ export function registerAiCommands(): void {
     },
   });
 
-  // Register AI models command
+  // Register AI models available command
   sharedCommandRegistry.registerCommand({
-    id: "ai:models",
+    id: "ai.models.available",
     category: CommandCategory.CORE,
-    name: "models",
-    description: "List available AI models",
+    name: "available",
+    description: "List available AI models from providers",
     parameters: {
       provider: {
         schema: z.string(),
@@ -252,9 +252,9 @@ export function registerAiCommands(): void {
 
   // Register AI validate command
   sharedCommandRegistry.registerCommand({
-    id: "ai:validate",
+    id: "ai.validate",
     category: CommandCategory.CORE,
-    name: "AI Validate",
+    name: "validate",
     description: "Validate AI configuration and test connectivity",
     parameters: {
       provider: {
@@ -338,9 +338,9 @@ export function registerAiCommands(): void {
 
   // Register AI models refresh command
   sharedCommandRegistry.registerCommand({
-    id: "ai:models:refresh",
+    id: "ai.models.refresh",
     category: CommandCategory.CORE,
-    name: "AI Models Refresh",
+    name: "refresh",
     description: "Refresh cached model data from provider APIs",
     parameters: {
       provider: {
@@ -429,11 +429,11 @@ export function registerAiCommands(): void {
     },
   });
 
-  // Register AI models list command (enhanced version)
+  // Register AI models list command
   sharedCommandRegistry.registerCommand({
-    id: "ai:models:list",
+    id: "ai.models.list",
     category: CommandCategory.CORE,
-    name: "AI Models List",
+    name: "list",
     description: "List cached AI models with detailed information",
     parameters: {
       provider: {
@@ -532,9 +532,9 @@ export function registerAiCommands(): void {
 
   // Register AI providers list command
   sharedCommandRegistry.registerCommand({
-    id: "ai:providers:list",
+    id: "ai.providers.list",
     category: CommandCategory.CORE,
-    name: "AI Providers List",
+    name: "list",
     description: "List configured AI providers and their cache status",
     parameters: {
       format: {
@@ -619,9 +619,9 @@ export function registerAiCommands(): void {
 
   // Register AI cache clear command
   sharedCommandRegistry.registerCommand({
-    id: "ai:cache:clear",
+    id: "ai.cache.clear",
     category: CommandCategory.CORE,
-    name: "AI Cache Clear",
+    name: "clear",
     description: "Clear cached model data",
     parameters: {
       provider: {

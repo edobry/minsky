@@ -580,7 +580,7 @@
 
 - [ ] Analyze and architect general message/prompt system supporting human and AI agents across contexts [#327](process/tasks/327-analyze-and-architect-general-message-prompt-system-supporting-human-and-ai-agents-across-contexts.md)
 
-- [-] Extend type composition refactoring to other MCP command domains [#328](process/tasks/328-extend-type-composition-refactoring-to-other-mcp-command-domains.md)
+- [x] Extend type composition refactoring to other MCP command domains [#328](process/tasks/328-extend-type-composition-refactoring-to-other-mcp-command-domains.md)
 
 - [ ] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
