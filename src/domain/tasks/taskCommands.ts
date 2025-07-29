@@ -161,14 +161,10 @@ export async function getTaskFromParams(
       repoUrl: repoPath,
     });
 
-    // Create task service with read-only mode for better performance
-    const taskService = await TaskService.createWithEnhancedBackend({
-      backend: (validParams.backend || "markdown") as "markdown" | "json-file",
-      backendConfig: {
-        name: validParams.backend || "markdown",
-        workspacePath,
-      },
-      isReadOperation: true,
+    // Create task service using dependency injection
+    const taskService = await actualDeps.createTaskService({
+      workspacePath,
+      backend: validParams.backend || "markdown",
     });
 
     // Get the task
