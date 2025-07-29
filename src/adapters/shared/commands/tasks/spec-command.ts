@@ -34,7 +34,7 @@ export class TasksSpecCommand extends BaseTaskCommand {
     const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Get task specification
-    const specContent = await getTaskSpecContentFromParams({
+    const specResult = await getTaskSpecContentFromParams({
       ...this.createTaskParams(params),
       taskId: normalizedTaskId,
       section: params.section,
@@ -46,12 +46,14 @@ export class TasksSpecCommand extends BaseTaskCommand {
     // unless JSON format is explicitly requested
     if (params.json) {
       return this.createSuccessResult(normalizedTaskId, "Task specification retrieved", {
-        content: specContent,
+        task: specResult.task,
+        specPath: specResult.specPath,
+        content: specResult.content,
         section: params.section,
       });
     } else {
       // Return the specification content directly for easy viewing
-      return specContent;
+      return specResult.content;
     }
   }
 }

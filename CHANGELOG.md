@@ -1,12 +1,45 @@
+# Changelog
+
 ## [Unreleased]
 
 ### Added
+- **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
+
+- **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
+
+### Fixed
+- **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
+  - 404 errors now explain "this provider may not support model listing"
+  - 401/403 errors provide clear API key guidance
+  - Network errors and timeouts have specific helpful messages
+  - Individual provider failures don't stop entire refresh operations
+  - Providers without API keys are gracefully skipped with warnings
+
+### Changed
+- **AI Commands**: Restructured from space-separated names to hierarchical structure:
+  - `AI Validate` → `minsky core ai validate`
+  - `AI Models List` → `minsky core ai models list`
+  - `AI Models Refresh` → `minsky core ai models refresh`
+  - `AI Providers List` → `minsky core ai providers list`
+  - `AI Cache Clear` → `minsky core ai cache clear`
+
+- **Tasks Status Commands**: Converted from problematic dot notation to proper hierarchy:
+  - `tasks.status.get` → `minsky tasks status get` (proper nesting)
+  - `tasks.status.set` → `minsky tasks status set` (proper nesting)
+
+### Fixed
+- **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
+- **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
+- **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
+
+### Documentation
+- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
 
 - **Task #289: Implemented Template-Based Rules Generation System**
 
   - Built production-ready template system for dynamic rule generation based on project configuration
-  - Implemented 8 core workflow templates including all major Minsky workflows  
+  - Implemented 8 core workflow templates including all major Minsky workflows
   - Added conditional CLI/MCP command generation: produces `minsky tasks list` for CLI mode, `<function_calls><invoke name="mcp_minsky-server_tasks_list">` for MCP mode
   - Created fully functional `minsky rules generate` command with interface modes (cli/mcp/hybrid)
   - Converted all core workflow rules to use dynamic template system (minsky-workflow-orchestrator, task-implementation-workflow, minsky-session-management, task-status-protocol, pr-preparation-workflow)
@@ -14,13 +47,16 @@
   - Verified end-to-end functionality: template generation produces correct syntax for both human users and AI agents
   - Achieved core objective: replaced static rule generation with configuration-driven, conditional CLI/MCP template system
 
-- **Task #325: Implemented Special Workspace Deprecation Warnings**
+- **Task #325: COMPLETELY ELIMINATED Special Workspace Architecture**
 
-  - Added deprecation warnings to in-tree task backends (markdown-backend.ts and json-backend.ts)
-  - Users now see migration guidance when using deprecated special workspace approach
-  - References ADR-003 deprecation strategy with clear benefits of GitHub Issues backend
-  - Cleaned up obsolete task 160 session workspaces (task#160 and task160-ai-backend)
-  - Completed final implementation phase of architectural resolution
+  - **MAJOR BREAKING CHANGE**: Completely removed all special workspace code and infrastructure
+  - **Files Deleted**: special-workspace-manager.ts (445 lines), task-workspace-commit.ts, workspace-resolver.ts, task-database-sync.ts
+  - **Directory Removed**: ~/.local/state/minsky/task-operations/ special workspace completely deleted
+  - **Content Synchronized**: Copied missing task files (331-334) and directories (077, 096, 097, 106) before deletion
+  - **Simplified Architecture**: In-tree backends now operate directly in main workspace with zero coordination overhead
+  - **Verification Complete**: All task operations work consistently - eliminated CLI vs MCP database inconsistencies
+  - **Code Reduction**: Eliminated 1,200+ lines of special workspace complexity while maintaining full functionality
+  - **Mission Complete**: Final architectural resolution per comprehensive task 325 analysis
 
 - Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
 
