@@ -9,6 +9,35 @@ import { z } from "zod";
 import { baseSchemas, enumSchemas } from "./base";
 
 /**
+ * Logger for configuration warnings - we'll import this from the logging system
+ */
+const logConfigWarning = (message: string) => {
+  // For now, use console.warn - this should be replaced with proper logging
+  console.warn(`Configuration Warning: ${message}`);
+};
+
+/**
+ * Detect unknown fields in an object and log warnings
+ */
+const detectAndWarnUnknownFields = (data: any, schema: z.ZodObject<any>, context: string): any => {
+  if (!data || typeof data !== "object") {
+    return data;
+  }
+
+  const knownKeys = new Set(Object.keys(schema.shape));
+  const dataKeys = Object.keys(data);
+  const unknownKeys = dataKeys.filter((key) => !knownKeys.has(key));
+
+  if (unknownKeys.length > 0) {
+    logConfigWarning(
+      `Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`
+    );
+  }
+
+  return data;
+};
+
+/**
  * Individual AI provider configuration
  */
 export const aiProviderConfigSchema = z
@@ -40,76 +69,69 @@ export const aiProviderConfigSchema = z
     // Custom headers for API requests
     headers: z.record(z.string()).optional(),
   })
-  .strict();
+  .strip();
 
 /**
  * OpenAI-specific configuration
  */
 export const openaiConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for OpenAI
-    model: z.string().default("gpt-4"),
-
-    // Organization ID for OpenAI API
+    // OpenAI-specific organization ID
     organization: baseSchemas.optionalNonEmptyString,
   })
-  .strict();
+  .strip();
 
 /**
  * Anthropic-specific configuration
  */
 export const anthropicConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Anthropic
-    model: z.string().default("claude-3-sonnet-20240229"),
+    // Anthropic-specific settings can be added here
   })
-  .strict();
+  .strip();
 
 /**
- * Google AI-specific configuration
+ * Google-specific configuration
  */
 export const googleConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Google AI
-    model: z.string().default("gemini-pro"),
-
-    // Project ID for Google Cloud
-    projectId: baseSchemas.optionalNonEmptyString,
+    // Google-specific settings can be added here
   })
-  .strict();
+  .strip();
 
 /**
  * Cohere-specific configuration
  */
 export const cohereConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Cohere
-    model: z.string().default("command"),
+    // Cohere-specific settings can be added here
   })
-  .strict();
+  .strip();
 
 /**
  * Mistral-specific configuration
  */
 export const mistralConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Mistral
-    model: z.string().default("mistral-medium"),
+    // Mistral-specific settings can be added here
   })
-  .strict();
+  .strip();
 
 /**
- * All AI providers configuration
+ * All AI providers configuration with unknown field detection
  */
+const baseAiProvidersSchema = z.object({
+  openai: openaiConfigSchema.optional(),
+  anthropic: anthropicConfigSchema.optional(),
+  google: googleConfigSchema.optional(),
+  cohere: cohereConfigSchema.optional(),
+  mistral: mistralConfigSchema.optional(),
+});
+
 export const aiProvidersConfigSchema = z
-  .object({
-    openai: openaiConfigSchema.optional(),
-    anthropic: anthropicConfigSchema.optional(),
-    google: googleConfigSchema.optional(),
-    cohere: cohereConfigSchema.optional(),
-    mistral: mistralConfigSchema.optional(),
-  })
-  .strict();
+  .any()
+  .transform((data) => detectAndWarnUnknownFields(data, baseAiProvidersSchema, "ai.providers"))
+  .pipe(baseAiProvidersSchema.strip());
 
 /**
  * Complete AI configuration
@@ -122,7 +144,7 @@ export const aiConfigSchema = z
     // Provider-specific configurations
     providers: aiProvidersConfigSchema.default({}),
   })
-  .strict()
+  .strip()
   .default({
     providers: {},
   });
