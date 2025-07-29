@@ -67,9 +67,23 @@ import {
 } from "./workflow-commands";
 
 // Factory for creating all session commands
-export function createAllSessionCommands(deps?: SessionCommandDependencies) {
-  // Use the already imported factory functions
-  // (These are already imported at the top of the file)
+export async function createAllSessionCommands(deps?: SessionCommandDependencies) {
+  // Use dynamic imports to avoid circular dependency issues
+  const basicCommands = await import("./basic-commands");
+  const managementCommands = await import("./management-commands");
+  const workflowCommands = await import("./workflow-commands");
+
+  const {
+    createSessionListCommand,
+    createSessionGetCommand,
+    createSessionStartCommand,
+    createSessionDirCommand,
+  } = basicCommands;
+
+  const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
+
+  const { createSessionApproveCommand, createSessionPrCommand, createSessionInspectCommand } =
+    workflowCommands;
 
   return {
     // Basic commands
@@ -90,11 +104,11 @@ export function createAllSessionCommands(deps?: SessionCommandDependencies) {
 }
 
 // Registry setup function
-export function setupSessionCommandRegistry(
+export async function setupSessionCommandRegistry(
   deps?: SessionCommandDependencies
-): SessionCommandRegistry {
+): Promise<SessionCommandRegistry> {
   const registry = new SessionCommandRegistry();
-  const commands = createAllSessionCommands(deps);
+  const commands = await createAllSessionCommands(deps);
 
   // Register all commands
   registry.register("session.list", commands.list);

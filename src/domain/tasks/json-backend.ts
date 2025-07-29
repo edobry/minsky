@@ -1,14 +1,11 @@
 /**
- * Enhanced JSON Task Backend
+ * Simplified JSON Task Backend
  *
- * This backend handles its own workspace resolution internally,
- * eliminating the need for external TaskBackendRouter complexity.
+ * Operates directly in the main workspace.
  */
 
 import { join } from "path";
-import { existsSync } from "fs";
 import { JsonFileTaskBackend } from "./jsonFileTaskBackend";
-import { createSpecialWorkspaceManager } from "../workspace/special-workspace-manager";
 import type { TaskBackend } from "./taskBackend";
 import type { JsonConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { JsonFileTaskBackendOptions } from "./jsonFileTaskBackend";
@@ -17,11 +14,10 @@ import { log } from "../../utils/logger";
 /**
  * Resolve workspace path and database file path using configuration
  */
-async function resolveWorkspacePath(
-  config: JsonConfig,
-  isReadOperation: boolean = false
-): Promise<WorkspaceResolutionResult & { dbFilePath: string }> {
-  // 1. Explicit workspace path override
+function resolveWorkspacePath(
+  config: JsonConfig
+): WorkspaceResolutionResult & { dbFilePath: string } {
+  // 1. Use explicitly provided workspace path
   if (config.workspacePath) {
     const dbFilePath = config.dbFilePath || join(config.workspacePath, "process", "tasks.json");
     return {
@@ -32,51 +28,14 @@ async function resolveWorkspacePath(
     };
   }
 
-  // 2. Repository URL provided - use special workspace
-  if (config.repoUrl) {
-    const specialWorkspaceManager = createSpecialWorkspaceManager({
-      repoUrl: config.repoUrl,
-    });
-
-    // Use read-only initialization for read operations to avoid locking
-    if (isReadOperation) {
-      await specialWorkspaceManager.initializeReadOnly();
-    } else {
-      await specialWorkspaceManager.initialize();
-    }
-
-    const workspacePath = specialWorkspaceManager.getWorkspacePath();
-    const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
-
-    return {
-      workspacePath,
-      method: "special-workspace",
-      description: `Using special workspace for repository: ${config.repoUrl}`,
-      dbFilePath,
-    };
-  }
-
-  // 3. ALWAYS use special workspace for task operations - NO FALLBACKS
-  // Task operations MUST be consistent across CLI and MCP interfaces
-  const specialWorkspaceManager = createSpecialWorkspaceManager({
-    repoUrl: "https://github.com/local/minsky-tasks.git", // Default repo for tasks
-    workspaceName: "task-operations",
-    lockTimeoutMs: 30000, // Wait up to 30 seconds for lock
-  });
-
-  // Use read-only initialization for read operations to avoid locking
-  if (isReadOperation) {
-    await specialWorkspaceManager.initializeReadOnly();
-  } else {
-    await specialWorkspaceManager.initialize();
-  }
-  const workspacePath = specialWorkspaceManager.getWorkspacePath();
+  // 2. Use current working directory as default
+  const workspacePath = process.cwd();
   const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
 
   return {
     workspacePath,
-    method: "special-workspace",
-    description: "Using special workspace for consistent task operations",
+    method: "current-directory",
+    description: "Using current working directory",
     dbFilePath,
   };
 }
@@ -100,27 +59,19 @@ export class WorkspaceResolvingJsonBackend extends JsonFileTaskBackend {
   }
 
   /**
-   * This backend manages its own workspace resolution
-   * Determine based on resolution method
+   * This backend operates in-tree (in the main workspace)
    */
   isInTreeBackend(): boolean {
-    return (
-      this.workspaceResolutionResult.method === "special-workspace" ||
-      this.workspaceResolutionResult.method === "local-tasks-md"
-    );
+    return true;
   }
 }
 
 /**
- * Create an enhanced JSON backend
- * This factory function handles async workspace resolution before backend creation
+ * Create a simplified JSON backend
  */
-export async function createWorkspaceResolvingJsonBackend(
-  config: JsonConfig,
-  isReadOperation: boolean = false
-): Promise<TaskBackend> {
-  // Resolve workspace path and database file path first
-  const resolutionResult = await resolveWorkspacePath(config, isReadOperation);
+export function createWorkspaceResolvingJsonBackend(config: JsonConfig): TaskBackend {
+  // Resolve workspace path and database file path
+  const resolutionResult = resolveWorkspacePath(config);
 
   log.debug("JSON workspace resolution completed", {
     method: resolutionResult.method,
@@ -142,11 +93,10 @@ export async function createWorkspaceResolvingJsonBackend(
 /**
  * Convenience factory for common use cases
  */
-export async function createSelfContainedJsonBackend(config: {
+export function createSelfContainedJsonBackend(config: {
   name: string;
-  repoUrl?: string;
   workspacePath?: string;
   dbFilePath?: string;
-}): Promise<TaskBackend> {
+}): TaskBackend {
   return createWorkspaceResolvingJsonBackend(config);
 }

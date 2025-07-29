@@ -94,8 +94,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       supportsMetadataQuery: false, // Would require parsing all files
       supportsFullTextSearch: true, // Can grep through markdown files
 
-      // Update mechanism - markdown backend requires special workspace
-      requiresSpecialWorkspace: true, // Uses task operations workspace
+      // Update mechanism
       supportsTransactions: false, // File-based, no transaction support
       supportsRealTimeSync: false, // Manual file operations
     };
@@ -483,8 +482,7 @@ ${description}
   }
 
   /**
-   * Markdown backend always requires special workspace for task operations
-   * All markdown task operations must be performed in the dedicated special workspace
+   * Get backend capabilities
    */
   isInTreeBackend(): boolean {
     return true;

@@ -629,6 +629,121 @@ minsky rules get coding-style
 minsky rules search --query "testing"
 ```
 
+### AI Completion Backend
+
+Minsky includes a powerful AI completion backend that supports multiple providers (OpenAI, Anthropic, Google) for AI-powered development workflows. This enables AI agents to leverage LLM capabilities for code generation, analysis, and intelligent assistance.
+
+#### Supported Providers
+
+- **OpenAI**: GPT-4o, GPT-4o Mini, o1-preview
+- **Anthropic**: Claude 3.5 Sonnet, Claude 3.5 Haiku
+- **Google**: Gemini 1.5 Pro, Gemini 1.5 Flash
+
+#### Configuration
+
+Configure AI providers using environment variables or configuration files:
+
+```bash
+# Environment variables
+export OPENAI_API_KEY=sk-...
+export ANTHROPIC_API_KEY=sk-ant-api03-...
+export GOOGLE_AI_API_KEY=AIza...
+export AI_DEFAULT_PROVIDER=openai
+```
+
+Or in your configuration file:
+
+```toml
+# ~/.config/minsky/config.toml or .minsky/config.toml
+[ai]
+defaultProvider = "openai"
+
+[ai.providers.openai]
+apiKey = "sk-..."
+model = "gpt-4o"
+
+[ai.providers.anthropic]
+apiKey = "sk-ant-api03-..."
+model = "claude-3-5-sonnet-20241022"
+
+[ai.providers.google]
+apiKey = "AIza..."
+model = "gemini-1.5-pro"
+```
+
+#### Commands
+
+All AI commands are available under `minsky core AI`:
+
+#### `minsky core AI Complete <prompt> [options]`
+
+Generate AI completion for a text prompt.
+
+Options:
+
+- `--model <model>`: Specific model to use (overrides provider default)
+- `--provider <provider>`: AI provider to use (openai, anthropic, google)
+- `--temperature <temp>`: Completion temperature (0-1)
+- `--max-tokens <tokens>`: Maximum tokens to generate
+- `--stream`: Stream the response token by token
+- `--system <prompt>`: System prompt to set context
+
+#### `minsky core AI Chat [options]`
+
+Start an interactive AI chat session (note: currently returns an error directing to use Complete instead).
+
+Options:
+
+- `--model <model>`: AI model to use
+- `--provider <provider>`: AI provider to use
+- `--system <prompt>`: System prompt for the conversation
+
+#### `minsky core AI Models [options]`
+
+List all available AI models across configured providers.
+
+Options:
+
+- `--provider <provider>`: Filter models by provider
+- `--json`: Output in JSON format
+
+#### `minsky core AI Validate [options]`
+
+Validate AI configuration and test connectivity to providers.
+
+Options:
+
+- `--provider <provider>`: Test specific provider only
+- `--json`: Output in JSON format
+
+#### Examples
+
+```bash
+# Generate code completion
+minsky core AI Complete "Write a TypeScript function to validate email addresses"
+
+# Use specific provider and model
+minsky core AI Complete "Explain this error" --provider anthropic --model claude-3-5-haiku-20241022
+
+# Stream response with custom temperature
+minsky core AI Complete "Generate a README for this project" --stream --temperature 0.7
+
+# List available models
+minsky core AI Models --provider openai
+
+# Validate configuration
+minsky core AI Validate
+```
+
+#### Features
+
+- **Multi-provider Support**: Switch between OpenAI, Anthropic, and Google models
+- **Streaming**: Real-time token streaming for immediate feedback
+- **Tool Calling**: Support for function calling and structured outputs
+- **Usage Tracking**: Monitor token usage and costs across providers
+- **Configuration Integration**: Seamless integration with Minsky's configuration system
+- **Error Handling**: Comprehensive error handling with provider-specific error messages
+
 ### Configuration Management
 
 Minsky provides configuration management to customize behavior across different projects and environments.

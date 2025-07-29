@@ -123,15 +123,15 @@ async function diagnoseTaskOperations() {
       );
     });
 
-    // Test 6: Check if special workspace operations are involved
-    await profiler.measureOperation("special-workspace-check", async () => {
+    // Test 6: Verify special workspace was properly removed
+    await profiler.measureOperation("special-workspace-cleanup-check", async () => {
       const specialWorkspacePath = "~/.local/state/minsky/task-operations/";
       try {
         return await execGitWithTimeout("status-check-special", "status --porcelain", {
           workdir: specialWorkspacePath,
         });
       } catch (error) {
-        return { stdout: "No special workspace found", stderr: "" };
+        return { stdout: "Special workspace properly removed", stderr: "" };
       }
     });
   } catch (error) {

@@ -26,12 +26,25 @@ const defaultGitOperationDependencies: GitOperationDependencies = {
  * Provides a clean interface for executing git operations.
  */
 export class ModularGitCommandsManager {
-  private operations: ReturnType<typeof createAllGitOperations>;
-  private operationRegistry: GitOperationRegistry;
+  private operations: ReturnType<typeof createAllGitOperations> | null = null;
+  private operationRegistry: GitOperationRegistry | null = null;
+  private deps: GitOperationDependencies;
 
   constructor(deps: GitOperationDependencies = defaultGitOperationDependencies) {
-    this.operations = createAllGitOperations(deps);
-    this.operationRegistry = setupGitOperationRegistry(deps);
+    this.deps = deps;
+    // Lazy load operations to avoid circular dependency issues
+  }
+
+  private initializeOperations(): void {
+    if (!this.operations) {
+      this.operations = createAllGitOperations(this.deps);
+      this.operationRegistry = setupGitOperationRegistry(this.deps);
+    }
+  }
+
+  private getOperations(): ReturnType<typeof createAllGitOperations> {
+    this.initializeOperations();
+    return this.operations!;
   }
 
   /**
@@ -45,7 +58,7 @@ export class ModularGitCommandsManager {
     debug?: boolean;
     noStatusUpdate?: boolean;
   }): Promise<{ markdown: string; statusUpdateResult?: any }> {
-    return await this.operations.createPullRequest.execute(params);
+    return await this.getOperations().createPullRequest.execute(params);
   }
 
   /**
@@ -59,7 +72,7 @@ export class ModularGitCommandsManager {
     amend?: boolean;
     noStage?: boolean;
   }): Promise<{ commitHash: string; message: string }> {
-    return await this.operations.commit.execute(params);
+    return await this.getOperations().commit.execute(params);
   }
 
   /**
@@ -74,7 +87,7 @@ export class ModularGitCommandsManager {
     branchName?: string;
     debug?: boolean;
   }): Promise<any> {
-    return await this.operations.preparePr.execute(params);
+    return await this.getOperations().preparePr.execute(params);
   }
 
   /**
@@ -86,7 +99,7 @@ export class ModularGitCommandsManager {
     baseBranch?: string;
     session?: string;
   }): Promise<any> {
-    return await this.operations.mergePr.execute(params);
+    return await this.getOperations().mergePr.execute(params);
   }
 
   /**
@@ -98,14 +111,14 @@ export class ModularGitCommandsManager {
     session?: string;
     branch?: string;
   }): Promise<any> {
-    return await this.operations.clone.execute(params);
+    return await this.getOperations().clone.execute(params);
   }
 
   /**
    * Create branch using the provided parameters
    */
   async branchFromParams(params: { session: string; name: string }): Promise<any> {
-    return await this.operations.branch.execute(params);
+    return await this.getOperations().branch.execute(params);
   }
 
   /**
@@ -118,7 +131,7 @@ export class ModularGitCommandsManager {
     force?: boolean;
     debug?: boolean;
   }): Promise<any> {
-    return await this.operations.push.execute(params);
+    return await this.getOperations().push.execute(params);
   }
 
   /**
@@ -133,7 +146,7 @@ export class ModularGitCommandsManager {
     autoResolve?: boolean;
     conflictStrategy?: string;
   }): Promise<any> {
-    return await this.operations.merge.execute(params);
+    return await this.getOperations().merge.execute(params);
   }
 
   /**
@@ -147,7 +160,7 @@ export class ModularGitCommandsManager {
     autoResolve?: boolean;
     conflictStrategy?: string;
   }): Promise<any> {
-    return await this.operations.checkout.execute(params);
+    return await this.getOperations().checkout.execute(params);
   }
 
   /**
@@ -162,7 +175,7 @@ export class ModularGitCommandsManager {
     autoResolve?: boolean;
     conflictStrategy?: string;
   }): Promise<any> {
-    return await this.operations.rebase.execute(params);
+    return await this.getOperations().rebase.execute(params);
   }
 
   /**
@@ -172,28 +185,24 @@ export class ModularGitCommandsManager {
     operationName: string,
     params: TParams
   ): Promise<TResult> {
-    return await this.operationRegistry.execute<TParams, TResult>(operationName, params);
+    this.initializeOperations();
+    return await this.operationRegistry!.execute<TParams, TResult>(operationName, params);
   }
 
   /**
    * Get available operation names
    */
   getOperationNames(): string[] {
-    return this.operationRegistry.getOperationNames();
+    this.initializeOperations();
+    return this.operationRegistry!.getOperationNames();
   }
 
   /**
    * Get the operation registry
    */
   getOperationRegistry(): GitOperationRegistry {
-    return this.operationRegistry;
-  }
-
-  /**
-   * Get direct access to operations (for advanced usage)
-   */
-  getOperations() {
-    return this.operations;
+    this.initializeOperations();
+    return this.operationRegistry!;
   }
 }
 
