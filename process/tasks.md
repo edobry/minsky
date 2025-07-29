@@ -602,4 +602,4 @@
 
 - [+] Fix configuration validation to ignore unknown fields [#342](process/tasks/342-fix-configuration-validation-to-ignore-unknown-fields.md)
 
-- [+] Fix configuration validation to ignore unknown fields [#343](process/tasks/343-fix-configuration-validation-to-ignore-unknown-fields.md)
+- [-] Fix configuration validation to ignore unknown fields [#343](process/tasks/343-fix-configuration-validation-to-ignore-unknown-fields.md)
