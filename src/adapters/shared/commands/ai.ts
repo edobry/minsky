@@ -14,11 +14,8 @@ import {
 } from "../command-registry";
 import { DefaultAICompletionService } from "../../../domain/ai/completion-service";
 import { DefaultAIConfigurationService } from "../../../domain/ai/config-service";
-import {
-  DefaultModelCacheService,
-  OpenAIModelFetcher,
-  AnthropicModelFetcher,
-} from "../../../domain/ai/model-cache";
+import { DefaultModelCacheService } from "../../../domain/ai/model-cache";
+import { PROVIDER_FETCHER_REGISTRY, type AIProvider } from "../../../domain/ai/provider-registry";
 import { log } from "../../../utils/logger";
 import { getConfiguration } from "../../../domain/configuration";
 import { exit } from "../../../utils/process";
@@ -665,13 +662,19 @@ Apply the requested changes and return ONLY the complete updated file content. D
   const createModelCacheService = () => {
     const cacheService = new DefaultModelCacheService();
 
-    // Register fetchers
-    cacheService.registerFetcher(new OpenAIModelFetcher());
-    cacheService.registerFetcher(new AnthropicModelFetcher());
-
-    // TODO: Add Morph model fetcher
-    // Morph uses OpenAI-compatible API, but needs separate provider ID for proper cache handling
-    // Need to create MorphModelFetcher class that extends OpenAI fetcher with provider="morph"
+    // Register all available fetchers from the type-safe registry
+    Object.entries(PROVIDER_FETCHER_REGISTRY).forEach(([provider, FetcherClass]) => {
+      if (FetcherClass && typeof FetcherClass === "function") {
+        try {
+          cacheService.registerFetcher(new FetcherClass());
+          log.debug(`Registered model fetcher for provider: ${provider}`);
+        } catch (error) {
+          log.warn(`Failed to register model fetcher for provider ${provider}:`, error);
+        }
+      } else {
+        log.warn(`No model fetcher implementation available for provider: ${provider}`);
+      }
+    });
 
     return cacheService;
   };
