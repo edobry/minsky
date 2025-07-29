@@ -10,12 +10,56 @@ import { getConfigurationProvider } from "../../domain/configuration";
 
 interface ListOptions {
   json?: boolean;
+  showSecrets?: boolean;
+}
+
+/**
+ * Masks sensitive credential values in configuration
+ * @param config Configuration object
+ * @param showSecrets Whether to show actual secret values
+ * @returns Configuration with credentials masked unless showSecrets is true
+ */
+function maskCredentials(config: any, showSecrets: boolean): any {
+  if (showSecrets) {
+    return config;
+  }
+
+  const masked = JSON.parse(JSON.stringify(config)); // Deep clone
+
+  // Mask AI provider API keys
+  if (masked.ai?.providers) {
+    for (const [provider, providerConfig] of Object.entries(masked.ai.providers)) {
+      if (providerConfig && typeof providerConfig === "object") {
+        const cfg = providerConfig as any;
+        if (cfg.apiKey) {
+          cfg.apiKey = `${"*".repeat(20)} (configured)`;
+        }
+      }
+    }
+  }
+
+  // Mask GitHub token
+  if (masked.github?.token) {
+    masked.github.token = `${"*".repeat(20)} (configured)`;
+  }
+
+  // Mask any other potential credential fields
+  if (masked.sessiondb?.connectionString) {
+    masked.sessiondb.connectionString = `${"*".repeat(20)} (configured)`;
+  }
+
+  return masked;
 }
 
 export function createConfigListCommand(): Command {
   return new Command("list")
     .description("List all configuration values and their sources")
     .option("--json", "Output in JSON format", false)
+    .option(
+      "--show-secrets",
+      "Show actual credential values (SECURITY RISK: use with caution)",
+      false
+    )
     .action(async (options: ListOptions) => {
       try {
         // Use new configuration system with metadata support
@@ -32,15 +76,18 @@ export function createConfigListCommand(): Command {
           logger: config.logger,
         };
 
+        // Apply credential masking unless explicitly requested to show secrets
+        const maskedConfig = maskCredentials(resolved, options.showSecrets || false);
+
         if (options.json) {
           const output = {
-            resolved,
+            resolved: maskedConfig,
             metadata,
             sources: metadata.sources || [],
           };
           await Bun.write(Bun.stdout, `${JSON.stringify(output, undefined, 2)}\n`);
         } else {
-          await displayConfigurationSources(resolved, metadata);
+          await displayConfigurationSources(maskedConfig, metadata, options.showSecrets || false);
         }
       } catch (error) {
         await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);
@@ -49,7 +96,7 @@ export function createConfigListCommand(): Command {
     });
 }
 
-async function displayConfigurationSources(resolved: any, metadata: any) {
+async function displayConfigurationSources(resolved: any, metadata: any, showSecrets: boolean) {
   await Bun.write(Bun.stdout, "CONFIGURATION SOURCES\n");
   await Bun.write(Bun.stdout, `${"=".repeat(40)}\n`);
 
@@ -82,6 +129,13 @@ async function displayConfigurationSources(resolved: any, metadata: any) {
     if (configuredProviders.length > 0) {
       await Bun.write(Bun.stdout, `AI Providers: ${configuredProviders.join(", ")}\n`);
     }
+  }
+
+  if (!showSecrets) {
+    await Bun.write(
+      Bun.stdout,
+      "\n⚠️  Credentials are masked for security. Use --show-secrets to reveal actual values.\n"
+    );
   }
 
   await Bun.write(Bun.stdout, "\nFor detailed configuration values, use: minsky config show\n");
