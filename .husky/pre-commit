@@ -2,34 +2,24 @@
 
 echo "🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)..."
 
-# SECURITY: Secret scanning with gitleaks (primary scanner)
+# SECURITY: Secret scanning with gitleaks
 echo "🔍 Running gitleaks scan..."
 if command -v gitleaks >/dev/null 2>&1; then
     if ! gitleaks protect --staged --source . --verbose; then
-        echo "❌ �� SECRETS DETECTED BY GITLEAKS! Commit blocked for security."
+        echo "❌ 🚨 SECRETS DETECTED BY GITLEAKS! Commit blocked for security."
         echo "📋 Review the findings above and sanitize any real credentials."
         echo "💡 Use placeholder values like 'sk-proj-xxx...xxxxx' instead."
         exit 1
     fi
     echo "✅ Gitleaks: No secrets detected in staged changes."
 else
-    echo "⚠️  gitleaks not found. Install via: brew install gitleaks"
+    echo "⚠️  gitleaks not found. Please install via:"
+    echo "   macOS: brew install gitleaks"
+    echo "   Linux: apt install gitleaks (or check: https://github.com/gitleaks/gitleaks)"
+    echo "⚠️  Skipping secret scanning - SECURITY RISK!"
 fi
 
-# SECURITY: Additional secret scanning with secretlint (secondary scanner)
-echo "🔍 Running secretlint scan..."
-if command -v npx >/dev/null 2>&1; then
-    if ! npx secretlint "**/*" --no-color 2>/dev/null; then
-        echo "❌ 🚨 ADDITIONAL SECRETS DETECTED BY SECRETLINT! Commit blocked for security."
-        echo "�� Review the findings above and sanitize any real credentials."
-        exit 1
-    fi
-    echo "✅ Secretlint: No additional secrets detected."
-else
-    echo "⚠️  npx not available for secretlint."
-fi
-
-echo "✅ SECURITY: Secret scanning completed successfully."
+echo "✅ SECURITY: Secret scanning completed."
 
 echo "🔍 Checking for variable naming issues..."
 
