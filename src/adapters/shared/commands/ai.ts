@@ -261,6 +261,23 @@ export function registerAiCommands(): void {
         const completionService = new DefaultAICompletionService(aiConfig);
         const models = await completionService.getAvailableModels(provider as string | undefined);
 
+        if (models.length === 0) {
+          if (provider) {
+            log.cliWarn(`No models available for provider '${provider}'. This may be because:`);
+            log.cliWarn("  - The provider doesn't support model listing");
+            log.cliWarn("  - The API key is not configured or invalid");
+            log.cliWarn("  - The provider name is incorrect");
+          } else {
+            log.cliWarn("No models available from any configured providers.");
+            log.cliWarn("This may be because:");
+            log.cliWarn("  - No API keys are configured");
+            log.cliWarn("  - Providers don't support model listing");
+            log.cliWarn("  - Network connectivity issues");
+            log.cli("\nTo configure providers, see: https://github.com/edobry/minsky#ai-completion-backend");
+          }
+          return;
+        }
+
         if (format === "json") {
           log.cli(JSON.stringify(models, null, 2));
         } else {
@@ -292,9 +309,15 @@ export function registerAiCommands(): void {
           }
         }
       } catch (error) {
-        log.cliError(
-          `Failed to list models: ${error instanceof Error ? error.message : String(error)}`
-        );
+        log.cliError(`Failed to list models: ${getErrorMessage(error)}`);
+        log.cliWarn("This may be due to:");
+        log.cliWarn("  - Network connectivity issues");
+        log.cliWarn("  - Invalid API keys");
+        log.cliWarn("  - Provider service unavailable");
+        log.cli("\nTry:");
+        log.cli("  - Check your internet connection");
+        log.cli("  - Verify your API keys are configured correctly");
+        log.cli("  - Use 'minsky core ai validate' to test your configuration");
         exit(1);
       }
     },
