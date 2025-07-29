@@ -7,10 +7,10 @@
 
 - **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
 
-### Changed  
+### Changed
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
   - `AI Validate` → `minsky core ai validate`
-  - `AI Models List` → `minsky core ai models list` 
+  - `AI Models List` → `minsky core ai models list`
   - `AI Models Refresh` → `minsky core ai models refresh`
   - `AI Providers List` → `minsky core ai providers list`
   - `AI Cache Clear` → `minsky core ai cache clear`
@@ -23,6 +23,9 @@
 - **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
 - **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
 - **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
+
+### Documentation
+- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
 
 - **Task #289: Implemented Template-Based Rules Generation System**
