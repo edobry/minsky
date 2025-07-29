@@ -82,7 +82,7 @@ describe("Session CLI Commands", () => {
     test("should handle null taskId sessions correctly", () => {
       // Test the specific edge case that caused the original bug
       const sessionWithNullTaskId = { taskId: null };
-      const sessionWithTaskId = { taskId: "#160" };
+      const sessionWithTaskId = { taskId: "160" };
 
       // This should not throw and should filter out null values
       const normalizeTaskId = (taskId: string | null | undefined) => {
@@ -129,7 +129,7 @@ describe("Session CLI Commands", () => {
       expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
       expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
       expect(session?.session).toBe("task#160"); // Fixed: correct session returned
-      expect(session?.taskId).toBe("#160"); // Fixed: correct taskId
+      expect(session?.taskId).toBe("160"); // Fixed: correct taskId in storage format
     });
 
     test("EDGE CASE: multiple sessions with same task ID but different formats", () => {
@@ -137,8 +137,8 @@ describe("Session CLI Commands", () => {
       const edgeCaseSessions = [
         { session: "old-session", taskId: null },
         { session: "task160", taskId: "160" }, // Without # prefix
-        { session: "task#160", taskId: "#160" }, // With # prefix
-        { session: "task-160-v2", taskId: "#160" }, // Another session with same task ID
+        { session: "task#160", taskId: "160" }, // With # prefix
+        { session: "task-160-v2", taskId: "160" }, // Another session with same task ID
       ];
 
       const normalizeTaskId = (taskId: string) => taskId.replace(/^#/, "");
@@ -337,7 +337,7 @@ describe("Session CLI Commands", () => {
         repoName: "local-minsky",
         repoUrl: repoUrl,
         createdAt: new Date().toISOString(),
-        taskId: "task#42", // Task ID should match session name
+        taskId: "42", // Task ID should match session name
       };
 
       mockSessionDB.getSession = async (name: string) => {
@@ -374,7 +374,7 @@ describe("Session CLI Commands", () => {
 
       // Assert: Session update should succeed and preserve task ID
       expect(result.session).toBe(sessionName);
-      expect(result.taskId).toBe("task#42");
+      expect(result.taskId).toBe("42");
     });
 
     test("TASK #168 FIX: should provide clear error message when session workspace directory is missing", async () => {

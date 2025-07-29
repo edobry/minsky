@@ -159,17 +159,19 @@ export function formatResolvedConfiguration(resolved: any): string {
   }
 
   // Authentication
-  if (Object.keys(resolved.credentials).length > 0) {
+  if (resolved.credentials && Object.keys(resolved.credentials).length > 0) {
     output += "\n🔐 Authentication: ";
-    const authServices = [];
-    for (const [service, creds] of Object.entries(resolved.credentials)) {
-      if (creds && typeof creds === "object") {
-        const credsObj = creds as any;
-        const serviceName = service === "github" ? "GitHub" : service;
-        const source = credsObj.source === "environment" ? "env" : credsObj.source;
-        authServices.push(`${serviceName} (${source})`);
-      }
+    const authServices: string[] = [];
+
+    if (resolved.credentials.github) {
+      authServices.push("GitHub (configured)");
     }
+
+    if (resolved.credentials.ai && Object.keys(resolved.credentials.ai).length > 0) {
+      const configuredProviders = Object.keys(resolved.credentials.ai);
+      authServices.push(`AI (${configuredProviders.join(", ")})`);
+    }
+
     output += authServices.join(", ");
   }
 
@@ -184,6 +186,116 @@ export function formatResolvedConfiguration(resolved: any): string {
       output += " (configured)";
     } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
       output += ` (${resolved.sessiondb.baseDir})`;
+    }
+  }
+
+  // AI Configuration
+  if (resolved.ai?.providers && Object.keys(resolved.ai.providers).length > 0) {
+    output += "\n🤖 AI Providers: ";
+    const providerDetails: string[] = [];
+
+    if (resolved.ai.defaultProvider) {
+      providerDetails.push(`default: ${resolved.ai.defaultProvider}`);
+    }
+
+    const configuredProviders: string[] = [];
+    for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+      if (config && typeof config === "object") {
+        const providerConfig = config as any;
+        let providerInfo = provider;
+
+        if (providerConfig.model) {
+          providerInfo += ` (${providerConfig.model})`;
+        }
+
+        const hasApiKey = providerConfig.apiKey || resolved.credentials?.ai?.[provider];
+        if (hasApiKey) {
+          providerInfo += " ✓";
+        }
+
+        configuredProviders.push(providerInfo);
+      }
+    }
+
+    if (configuredProviders.length > 0) {
+      providerDetails.push(configuredProviders.join(", "));
+    }
+
+    output += providerDetails.join(" | ");
+  }
+
+  // GitHub Configuration
+  if (resolved.github && Object.keys(resolved.github).length > 0) {
+    output += "\n🐙 GitHub: ";
+    const githubDetails = [];
+
+    if (resolved.github.organization) {
+      githubDetails.push(`org: ${resolved.github.organization}`);
+    }
+
+    if (resolved.github.baseUrl && resolved.github.baseUrl !== "https://api.github.com") {
+      githubDetails.push(`custom URL`);
+    }
+
+    if (resolved.credentials?.github) {
+      githubDetails.push("authenticated");
+    }
+
+    output += githubDetails.length > 0 ? githubDetails.join(", ") : "configured";
+  }
+
+  // Logger Configuration (only show if non-default)
+  if (resolved.logger) {
+    const logger = resolved.logger;
+    const hasNonDefaultSettings =
+      logger.mode !== "auto" ||
+      logger.level !== "info" ||
+      logger.enableAgentLogs === true ||
+      logger.logFile;
+
+    if (hasNonDefaultSettings) {
+      output += "\n📊 Logger: ";
+      const loggerDetails = [];
+
+      if (logger.mode && logger.mode !== "auto") {
+        loggerDetails.push(`mode: ${logger.mode}`);
+      }
+
+      if (logger.level && logger.level !== "info") {
+        loggerDetails.push(`level: ${logger.level}`);
+      }
+
+      if (logger.enableAgentLogs === true) {
+        loggerDetails.push("agent logs enabled");
+      }
+
+      if (logger.logFile) {
+        loggerDetails.push(`file: ${logger.logFile}`);
+      }
+
+      output += loggerDetails.join(", ");
+    }
+  }
+
+  // Backend-specific Configuration (only show if configured)
+  if (resolved.backendConfig && Object.keys(resolved.backendConfig).length > 0) {
+    const hasNonEmptyBackends = Object.entries(resolved.backendConfig).some(
+      ([, config]) =>
+        config && typeof config === "object" && Object.keys(config as object).length > 0
+    );
+
+    if (hasNonEmptyBackends) {
+      output += "\n⚙️  Backend Config: ";
+      const backendDetails = [];
+
+      for (const [backend, config] of Object.entries(resolved.backendConfig)) {
+        if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
+          const details = Object.entries(config as object).map(([key, value]) => `${key}=${value}`);
+          backendDetails.push(`${backend} (${details.join(", ")})`);
+        }
+      }
+
+      output += backendDetails.join(" | ");
     }
   }
 

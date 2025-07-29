@@ -21,7 +21,7 @@ import { describe, test, expect } from "bun:test";
 describe("Git Commands Import Tests", () => {
   test("should be able to import git command index", async () => {
     // Test that we can import the main index file
-    const gitCommands = await import("../index");
+    const gitCommands = await import("./index.js");
 
     // Verify that the main command functions exist
     expect(typeof gitCommands.cloneFromParams).toBe("function");
@@ -36,7 +36,7 @@ describe("Git Commands Import Tests", () => {
 
   test("should be able to import git types", async () => {
     // Test that we can import the types file
-    const gitTypes = await import("../types");
+    const gitTypes = await import("./types.js");
 
     // Verify that the types module exports something
     expect(gitTypes).toBeDefined();
@@ -44,10 +44,10 @@ describe("Git Commands Import Tests", () => {
 
   test("should be able to import individual command files", async () => {
     // Test individual command imports
-    const cloneCommand = await import("../clone-command");
-    const branchCommand = await import("../branch-command");
-    const commitCommand = await import("../commit-command");
-    const pushCommand = await import("../push-command");
+    const cloneCommand = await import("./clone-command.js");
+    const branchCommand = await import("./branch-command.js");
+    const commitCommand = await import("./commit-command.js");
+    const pushCommand = await import("./push-command.js");
 
     expect(cloneCommand).toBeDefined();
     expect(branchCommand).toBeDefined();
@@ -57,7 +57,7 @@ describe("Git Commands Import Tests", () => {
 
   test("should be able to import subcommands", async () => {
     // Test subcommand imports
-    const subcommands = await import("../subcommands/index");
+    const subcommands = await import("./subcommands/index.js");
 
     expect(subcommands).toBeDefined();
   });

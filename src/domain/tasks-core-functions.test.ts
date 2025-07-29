@@ -129,7 +129,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ResourceNotFoundError when task is not found", async () => {
       const params = {
-        taskId: "#999",
+        taskId: "999",
         backend: "markdown",
       };
 
@@ -191,7 +191,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ResourceNotFoundError when task status is not found", async () => {
       const params = {
-        taskId: "#999",
+        taskId: "999",
         backend: "markdown",
       };
 

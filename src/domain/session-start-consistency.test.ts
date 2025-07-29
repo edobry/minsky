@@ -205,7 +205,7 @@ describe("Session Start Consistency Tests", () => {
           repoUrl: "local/minsky",
           repoName: "local-minsky",
           createdAt: new Date().toISOString(),
-          taskId: "#160",
+          taskId: "160",
           branch: "task#160",
         })
       );
@@ -241,7 +241,7 @@ describe("Session Start Consistency Tests", () => {
         Promise.resolve([
           {
             session: "different-session",
-            taskId: "#160",
+            taskId: "160",
             repoUrl: "local/minsky",
             repoName: "local-minsky",
             createdAt: new Date().toISOString(),
@@ -367,7 +367,7 @@ describe("Session Start Consistency Tests", () => {
       // Verify return value includes session information
       expect(result).toMatchObject({
         session: "task#160",
-        taskId: "#160",
+        taskId: "160",
       });
     });
   });

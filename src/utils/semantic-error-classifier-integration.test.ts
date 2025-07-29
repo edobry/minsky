@@ -6,8 +6,8 @@
 import { mkdtemp, rmdir, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
-import { SemanticErrorClassifier, ErrorContext } from "../semantic-error-classifier";
-import { SemanticErrorCode } from "../../types/semantic-errors";
+import { SemanticErrorClassifier, ErrorContext } from "./semantic-error-classifier";
+import { SemanticErrorCode } from "../types/semantic-errors";
 
 describe("SemanticErrorClassifier Integration Tests", () => {
   let testDir: string;

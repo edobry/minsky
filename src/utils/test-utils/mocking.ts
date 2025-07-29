@@ -36,6 +36,9 @@ export { createMockObject, createMockExecSync, createPartialMock } from "./objec
 // Export filesystem mocking utilities
 export { createMockFilesystem, mockFsOperations } from "./filesystem/mock-filesystem";
 
+// Compatibility export for tests that use uppercase 'S'
+export { createMockFilesystem as createMockFileSystem } from "./filesystem/mock-filesystem";
+
 // Export spy and property utilities
 export { mockReadonlyProperty, createSpyOn, spyOn } from "./spies/mock-spies";
 

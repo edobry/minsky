@@ -128,7 +128,7 @@ describe("interface-agnostic task functions", () => {
   describe("getTaskFromParams", () => {
     test("should get a task with valid parameters", async () => {
       const params = {
-        taskId: "#123",
+        taskId: "123",
         backend: "markdown",
       };
 
@@ -140,7 +140,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ResourceNotFoundError when task is not found", async () => {
       const params = {
-        taskId: "#999",
+        taskId: "999",
         backend: "markdown",
       };
 
@@ -186,7 +186,7 @@ describe("interface-agnostic task functions", () => {
   describe("getTaskStatusFromParams", () => {
     test("should get task status with valid parameters", async () => {
       const params = {
-        taskId: "#123",
+        taskId: "123",
         backend: "markdown",
       };
 
@@ -198,7 +198,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ResourceNotFoundError when task status is not found", async () => {
       const params = {
-        taskId: "#999",
+        taskId: "999",
         backend: "markdown",
       };
 
@@ -217,7 +217,7 @@ describe("interface-agnostic task functions", () => {
       mockTaskService.getTask = mock(defaultGetTaskMock);
 
       const params = {
-        taskId: "#123",
+        taskId: "123",
         status: TASK_STATUS.IN_PROGRESS,
         backend: "markdown",
       };
@@ -229,7 +229,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ValidationError when status is invalid", async () => {
       const params = {
-        taskId: "#123",
+        taskId: "123",
         status: "INVALID-STATUS" as any,
         backend: "markdown",
       };

@@ -7,6 +7,7 @@
 import { join } from "path";
 import { mkdir, rmdir } from "fs/promises";
 import { existsSync } from "fs";
+import { mock } from "bun:test";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
@@ -42,7 +43,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#160", // Session with task ID
+      taskId: "160", // Session with task ID (storage format)
       branch: "task#160",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#160",
       backendType: "local",
@@ -53,7 +54,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#170", // Session with task ID
+      taskId: "170", // Session with task ID (storage format)
       branch: "task#170",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#170",
       backendType: "local",
@@ -65,7 +66,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#168",
+      taskId: "168", // Storage format
       branch: "test-existing-session",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/test-existing-session",
       backendType: "local",
@@ -76,7 +77,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#42",
+      taskId: "42", // Storage format
       branch: "task#42",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#42",
       backendType: "local",
@@ -87,7 +88,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#236",
+      taskId: "236", // Storage format
       branch: "task#236",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#236",
       backendType: "local",
@@ -162,22 +163,22 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
 
 export function createGitServiceMock(): GitServiceInterface {
   return {
-    getCurrentBranch: (createMock() = mock(() => Promise.resolve("main"))),
-    getRemoteUrl: (createMock() = mock(() => Promise.resolve("https://github.com/edobry/minsky"))),
-    getRepoPath: (createMock() = mock(() => Promise.resolve("/Users/edobry/Projects/minsky"))),
-    clone: (createMock() = mock(() => Promise.resolve(undefined))),
-    checkout: (createMock() = mock(() => Promise.resolve(undefined))),
-    createBranch: (createMock() = mock(() => Promise.resolve(undefined))),
-    push: (createMock() = mock(() => Promise.resolve(undefined))),
-    pull: (createMock() = mock(() => Promise.resolve(undefined))),
-    merge: (createMock() = mock(() => Promise.resolve(undefined))),
-    getStatus: (createMock() = mock(() => Promise.resolve({ hasChanges: false, changes: [] }))),
-    add: (createMock() = mock(() => Promise.resolve(undefined))),
-    commit: (createMock() = mock(() => Promise.resolve(undefined))),
-    reset: (createMock() = mock(() => Promise.resolve(undefined))),
-    stash: (createMock() = mock(() => Promise.resolve(undefined))),
-    stashPop: (createMock() = mock(() => Promise.resolve(undefined))),
-    getCommitHash: (createMock() = mock(() => Promise.resolve("abc123"))),
+    getCurrentBranch: mock(() => Promise.resolve("main")),
+    getRemoteUrl: mock(() => Promise.resolve("https://github.com/edobry/minsky")),
+    getRepoPath: mock(() => Promise.resolve("/Users/edobry/Projects/minsky")),
+    clone: mock(() => Promise.resolve(undefined)),
+    checkout: mock(() => Promise.resolve(undefined)),
+    createBranch: mock(() => Promise.resolve(undefined)),
+    push: mock(() => Promise.resolve(undefined)),
+    pull: mock(() => Promise.resolve(undefined)),
+    merge: mock(() => Promise.resolve(undefined)),
+    getStatus: mock(() => Promise.resolve({ hasChanges: false, changes: [] })),
+    add: mock(() => Promise.resolve(undefined)),
+    commit: mock(() => Promise.resolve(undefined)),
+    reset: mock(() => Promise.resolve(undefined)),
+    stash: mock(() => Promise.resolve(undefined)),
+    stashPop: mock(() => Promise.resolve(undefined)),
+    getCommitHash: mock(() => Promise.resolve("abc123")),
   } as GitServiceInterface;
 }
 
