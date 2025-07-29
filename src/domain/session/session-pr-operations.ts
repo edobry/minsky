@@ -5,7 +5,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import type { SessionPrParams } from "../../schemas/session";
+import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface, preparePrFromParams } from "../git";
 import { TASK_STATUS, TaskService } from "../tasks";
@@ -27,7 +27,7 @@ export interface SessionPrDependencies {
  * Extracted from session.ts for better maintainability
  */
 export async function sessionPrImpl(
-  params: SessionPrParams,
+  params: SessionPRParameters,
   deps: SessionPrDependencies
 ): Promise<{
   prBranch: string;
@@ -38,8 +38,8 @@ export async function sessionPrImpl(
   // STEP 0: Validate parameters using schema
   try {
     // Import schema here to avoid circular dependency issues
-    const { sessionPrParamsSchema } = await import("../../schemas/session");
-    sessionPrParamsSchema.parse(params);
+    const { SessionPRParametersSchema } = await import("../../domain/schemas");
+    SessionPRParametersSchema.parse(params);
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
       // Extract the validation error message

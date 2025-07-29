@@ -1,4 +1,4 @@
-import type { SessionDirParams } from "../../schemas/session";
+import type { SessionDirectoryParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionProviderInterface, SessionDependencies } from "../types";
@@ -9,7 +9,7 @@ import { ResourceNotFoundError, ValidationError } from "../../errors/index";
  * Using proper dependency injection for better testability
  */
 export async function getSessionDirFromParams(
-  params: SessionDirParams,
+  params: SessionDirectoryParameters,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
   }
