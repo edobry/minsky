@@ -1,3 +1,60 @@
+---
+name: Test Organization
+description: '- Creating new test files'
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - mcp
+  - required
+  - advanced
+  - quality
+lifecycle: active
+verbosity_score: 2
+word_count: 413
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - code-organization
+cli_commands:
+  - |-
+    // ❌ BAD - Creates test fragmentation
+    session-dir-task-lookup-bug.test.ts
+    auth-token-refresh-bug.test.ts
+    config-merge-issue.test.ts
+    user-login-edge-case.test.ts
+  - |-
+    // ❌ BAD - Fragments related functionality
+    session-create-only.test.ts
+    session-list-only.test.ts
+    session-delete-only.test.ts
+    task-status-update-only.test.ts
+  - |-
+    // ✅ GOOD - Co-located with the code they test
+    src/domain/session.ts
+    src/domain/session.test.ts              // Domain service tests
+    src/domain/session.commands.test.ts     // Domain command tests
+
+    src/adapters/cli/session.ts
+    src/adapters/cli/session.adapter.test.ts // CLI adapter tests
+
+    src/adapters/mcp/session.ts
+    src/adapters/mcp/session.adapter.test.ts // MCP adapter tests
+  - tests/
+  - |-
+    // ✅ GOOD - For integration tests that don't fit simple co-location
+    src/domain/tests/session-lifecycle-integration.test.ts
+    src/adapters/tests/cli-mcp-integration.test.ts
+  - '[module].test.ts'
+  - session.test.ts
+  - '[module].commands.test.ts'
+  - session.commands.test.ts
+  - '[module].adapter.test.ts'
+last_analyzed: '2025-07-29T19:44:50.690Z'
+---
 # Test File Organization
 
 ## When to Use This Rule

@@ -1,10 +1,36 @@
 ---
-description:
-globs:
+description: >-
+  **NEVER add underscores to variables that are already correctly named and in
+  use.**
+globs: null
 alwaysApply: true
----
----
-description: Use when encountering variable naming linter errors or "not defined" errors before changing variable names
+name: Variable Naming Protocol
+categories:
+  - quality
+tags:
+  - mcp
+  - required
+  - core
+  - protocol
+lifecycle: active
+verbosity_score: 4
+word_count: 1248
+content_themes:
+  - testing
+  - error-handling
+  - rules-management
+cli_commands:
+  - const _workspacePath = ...
+  - workspacePath
+  - _workspacePath
+  - err
+  - options
+  - _options
+  - command
+  - _command
+  - context
+  - _context
+last_analyzed: '2025-07-29T19:44:50.691Z'
 ---
 
 # Variable Naming Protocol

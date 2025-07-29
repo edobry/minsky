@@ -1,7 +1,30 @@
 ---
-description:
-globs:
+description: >-
+  This document maps key engineering best practices to the canonical rules that
+  govern them in this project. Use this as a reference for onboarding,
+  enforcement, and cross-referencing.
+globs: null
 alwaysApply: false
+name: Rule Map
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - frontend
+  - meta
+lifecycle: active
+verbosity_score: 1
+word_count: 177
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - error-handling
+  - rules-management
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.689Z'
 ---
 # Rule Map: Best Practices and Canonical Rules
 

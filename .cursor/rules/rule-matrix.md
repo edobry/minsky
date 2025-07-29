@@ -1,3 +1,73 @@
+---
+name: Rule Matrix
+description: >-
+  This document provides a comprehensive overview of rule relationships in the
+  Minsky project. Use it to understand how rules are organized into systems and
+  how they relate to each other.
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - mcp
+  - meta
+  - minsky
+  - bun
+lifecycle: active
+verbosity_score: 2
+word_count: 288
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+  - rules-management
+cli_commands:
+  - |-
+    Testing System:
+    testing-router
+    ├── testing-boundaries (Foundation)
+    ├── bun-test-patterns (Foundation)
+    ├── framework-specific-tests (Implementation)
+    ├── test-infrastructure-patterns (Implementation)
+    ├── designing-tests (Implementation)
+    ├── test-debugging (Specialized)
+    ├── test-expectations (Specialized)
+    └── test-driven-bugfix (Specialized)
+
+    Error Handling System:
+    error-handling-router
+    ├── robust-error-handling
+    └── dont-ignore-errors
+
+    Code Organization System:
+    code-organization-router
+    ├── domain-oriented-modules
+    ├── file-size
+    ├── constants-management
+    ├── command-organization
+    ├── no-dynamic-imports
+    └── template-literals
+
+    Workflow System:
+    minsky-workflow-orchestrator
+    ├── session-first-workflow
+    ├── task-implementation-workflow
+    ├── task-status-protocol
+    ├── pr-preparation-workflow
+    ├── minsky-session-management
+    └── minsky-cli-usage
+
+    Meta-Rules System:
+    self-improvement
+    ├── rule-creation-guidelines
+    ├── rules-management
+    └── user-preferences
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # Minsky Rules Relationship Matrix
 
 This document provides a comprehensive overview of rule relationships in the Minsky project. Use it to understand how rules are organized into systems and how they relate to each other.

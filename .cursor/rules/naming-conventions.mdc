@@ -1,3 +1,30 @@
+---
+name: Naming Conventions
+description: '**NEVER use process-descriptive adjectives as function/variable names:**'
+categories:
+  - workflow
+  - meta
+  - task
+tags:
+  - frontend
+  - advanced
+lifecycle: active
+verbosity_score: 2
+word_count: 202
+content_themes: []
+cli_commands:
+  - robust
+  - enhanced
+  - smart
+  - advanced
+  - improved
+  - better
+  - optimized
+  - comprehensive
+  - createTempDirWithFallbacks
+  - validateWithRetry
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # Naming Conventions
 
 ## Function and Variable Naming

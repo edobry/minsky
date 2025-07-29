@@ -1,3 +1,66 @@
+---
+name: Test Infrastructure Patterns
+description: >-
+  This rule establishes patterns for test infrastructure, utilities, and
+  organization to ensure consistent, maintainable testing practices.
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - backend
+  - required
+  - advanced
+  - quality
+  - minsky
+  - git
+lifecycle: active
+verbosity_score: 3
+word_count: 982
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+cli_commands:
+  - |-
+    src/utils/test-utils/
+    ├── setup.ts        # Global test environment and state management
+    ├── database.ts     # Database test utilities and isolation
+    ├── fixtures.ts     # Test data factories and fixtures
+    ├── mocking.ts      # Mock creation and management
+    ├── cleanup.ts      # Resource cleanup utilities
+    └── index.ts        # Consolidated exports
+  - setup.ts
+  - database.ts
+  - fixtures.ts
+  - mocking.ts
+  - cleanup.ts
+  - |-
+    typescript
+    // AVOID - Single module with mixed responsibilities
+    // isolation.ts combining state + data + database utilities
+    export class TestIsolation { /* state management */ }
+    export class TestDataFactory { /* data generation */ }
+    export class DatabaseIsolation { /* database utilities */ }
+  - |-
+    typescript
+    // PREFER - Separate focused modules
+    // setup.ts
+    export function initializeTestEnvironment() { /* state only */ }
+
+    // fixtures.ts
+    export class TaskDataFactory { /* data only */ }
+
+    // database.ts
+    export function createTestDatabase() { /* database only */ }
+  - isolation.ts
+  - utils.ts
+last_analyzed: '2025-07-29T19:44:50.690Z'
+---
 # Test Infrastructure Patterns
 
 This rule establishes patterns for test infrastructure, utilities, and organization to ensure consistent, maintainable testing practices.

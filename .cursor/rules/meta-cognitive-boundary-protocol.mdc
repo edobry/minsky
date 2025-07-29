@@ -1,3 +1,40 @@
+---
+name: Meta Cognitive Boundary Protocol
+description: >-
+  **CRITICAL VIOLATION**: Internal reasoning language leaking into external
+  program artifacts.
+categories:
+  - workflow
+  - testing
+  - documentation
+tags:
+  - mcp
+  - backend
+  - required
+  - core
+  - advanced
+  - protocol
+lifecycle: active
+verbosity_score: 3
+word_count: 621
+content_themes:
+  - session-management
+  - testing
+  - error-handling
+  - rules-management
+cli_commands:
+  - createRobustTempDir
+  - createTempDirWithFallbacks
+  - enhancedErrorHandler
+  - errorHandlerWithRetry
+  - smartConfigLoader
+  - configLoaderWithDefaults
+  - comprehensiveValidator
+  - validatorWithMultipleChecks
+  - // All operations now work in main workspace
+  - // This was simplified after refactoring
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # Meta-Cognitive Boundary Protocol
 
 ## Core Issue Identification

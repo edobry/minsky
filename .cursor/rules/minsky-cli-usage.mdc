@@ -1,3 +1,44 @@
+---
+name: Minsky Cli Usage
+description: '⛔️ **CRITICAL: ALL TASK AND SESSION OPERATIONS MUST USE THE MINSKY CLI**'
+categories:
+  - tools
+tags:
+  - minsky
+  - bun
+  - mcp
+  - backend
+  - required
+  - core
+  - automation
+  - git
+lifecycle: active
+verbosity_score: 3
+word_count: 905
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - error-handling
+  - documentation
+  - rules-management
+cli_commands:
+  - minsky commands
+  - minsky CLI command
+  - minsky --help
+  - minsky tasks list --json
+  - minsky tasks status get
+  - minsky tasks list
+  - minsky tasks get
+  - minsky tasks spec
+  - |-
+    minsky tasks status
+      get
+  - minsky tasks create
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # Minsky CLI Usage Protocol
 
 ⛔️ **CRITICAL: ALL TASK AND SESSION OPERATIONS MUST USE THE MINSKY CLI**

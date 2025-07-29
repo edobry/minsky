@@ -1,3 +1,61 @@
+---
+name: Pr Description Guidelines
+description: >-
+  For any Pull Request, follow these standards to ensure clarity, consistency,
+  and comprehensive documentation of changes.
+categories:
+  - documentation
+  - workflow
+tags:
+  - mcp
+  - frontend
+  - required
+  - automation
+  - guidelines
+  - git
+lifecycle: active
+verbosity_score: 4
+word_count: 1283
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - code-organization
+  - error-handling
+  - documentation
+  - rules-management
+cli_commands:
+  - XDG_STATE_HOME
+  - process/tasks/<task-id>/pr.md
+  - 'docs(#<task-id>): Improve PR description'
+  - |-
+    markdown
+    # feat(scope): description
+
+    ## Summary
+    ...rest of PR description...
+  - >-
+    markdown
+
+
+    2. **For code examples inside your PR description**: Use one of these
+    approaches:
+       - Use indentation (4 spaces) instead of backticks for simple code examples
+       - For syntax highlighting in nested blocks, use HTML syntax:
+  - >-
+    - Alternatively, escape the backticks in nested code blocks with HTML
+    entities:
+  - '3. **For simple inline code**, continue using single backticks as normal:'
+  - |-
+    ## PR Title Format
+    - Always use the conventional commits format:
+  - '- For task-related PRs, include the task ID in the scope:'
+  - |-
+    - Use appropriate types:
+      -
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # PR Description Guidelines
 
 For any Pull Request, follow these standards to ensure clarity, consistency, and comprehensive documentation of changes.

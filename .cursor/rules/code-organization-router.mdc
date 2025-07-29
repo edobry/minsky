@@ -1,7 +1,40 @@
 ---
-description: REQUIRED entry point for all code organization decisions. Use to navigate to specific organization rules like domain-oriented-modules or command-organization.
-globs:
+description: >-
+  REQUIRED entry point for all code organization decisions. Use to navigate to
+  specific organization rules like domain-oriented-modules or
+  command-organization.
+globs: null
 alwaysApply: false
+name: Code Organization Router
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - mcp
+  - backend
+  - frontend
+  - required
+  - core
+  - router
+lifecycle: active
+verbosity_score: 3
+word_count: 711
+content_themes:
+  - testing
+  - cli-commands
+  - code-organization
+  - rules-management
+cli_commands:
+  - isolation.ts
+  - utils.ts
+  - helpers.ts
+  - setup.ts
+  - database.ts
+  - fixtures.ts
+  - manager.ts
+  - handler.ts
+last_analyzed: '2025-07-29T19:44:50.687Z'
 ---
 # Code Organization Guidance - Start Here
 

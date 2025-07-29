@@ -1,7 +1,50 @@
 ---
-description: REQUIRED guidelines for verifying workspace context and command availability before making changes
-globs:
+description: >-
+  REQUIRED guidelines for verifying workspace context and command availability
+  before making changes
+globs: null
 alwaysApply: false
+name: Workspace Verification
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - minsky
+  - git
+  - mcp
+  - core
+  - advanced
+lifecycle: active
+verbosity_score: 2
+word_count: 425
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+  - rules-management
+cli_commands:
+  - |-
+    minsky rules --help
+    Commands
+  - |-
+    minsky rules list                List all rules
+      minsky rules get
+  - minsky rules create
+  - minsky rules update
+  - minsky rules list
+  - |-
+    minsky rule list
+    Error
+  - minsky
+  - git status
+  - pwd
+  - '--help'
+last_analyzed: '2025-07-29T19:44:50.691Z'
 ---
 # Workspace Verification
 

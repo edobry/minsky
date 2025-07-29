@@ -1,3 +1,51 @@
+---
+name: Creating Tasks
+description: >-
+  - The ONLY supported method for creating new tasks is via the `minsky tasks
+  create` command.
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - minsky
+  - git
+  - ai
+  - mcp
+  - backend
+  - frontend
+  - required
+  - automation
+lifecycle: active
+verbosity_score: 4
+word_count: 1591
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - code-organization
+  - error-handling
+  - documentation
+cli_commands:
+  - minsky tasks create
+  - minsky tasks list
+  - minsky tasks create --title
+  - minsky tasks create process
+  - minsky tasks spec
+  - minsky tasks create temp-task-spec
+  - git repository
+  - process/tasks.md
+  - minsky tasks list | grep "relevant-keywords"
+  - |-
+    bash
+       # Method 1: Inline description (for short descriptions)
+       minsky tasks create --title "Task Title" --description "Task description text"
+
+       # Method 2: Description from file (for comprehensive descriptions)
+       minsky tasks create --title "Task Title" --description-path path/to/description.md
+last_analyzed: '2025-07-29T19:44:50.688Z'
+---
 
 # Task Creation Process
 

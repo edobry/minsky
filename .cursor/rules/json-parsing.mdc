@@ -1,7 +1,56 @@
 ---
-description: Use this when working with any command that outputs JSON, or when planning to use grep/awk/sed
-globs:
+description: >-
+  Use this when working with any command that outputs JSON, or when planning to
+  use grep/awk/sed
+globs: null
 alwaysApply: false
+name: Json Parsing
+categories:
+  - tools
+  - testing
+  - meta
+tags:
+  - minsky
+  - mcp
+  - core
+lifecycle: active
+verbosity_score: 2
+word_count: 406
+content_themes:
+  - task-management
+  - cli-commands
+  - code-organization
+  - error-handling
+cli_commands:
+  - minsky tasks list --json
+  - grep
+  - awk
+  - sed
+  - |-
+    bash
+    # BAD - Using grep to find tasks with "feature" in the title
+    minsky tasks list --json | grep "feature"
+
+    # GOOD - Using jq to properly query the JSON structure
+    minsky tasks list --json | jq '.[] | select(.title | contains("feature"))'
+
+    # BAD - Using grep to extract the ID field
+    minsky tasks list --json | grep '"id":'
+
+    # GOOD - Using jq to extract just the ID values
+    minsky tasks list --json | jq '.[].id'
+
+    # BAD - Using grep to find a specific task by ID
+    minsky tasks list --json | grep '"id": "#001"'
+
+    # GOOD - Using jq with proper filtering
+    minsky tasks list --json | jq '.[] | select(.id == "#001")'
+  - select(.field == "value")
+  - .fieldname
+  - '.[]'
+  - contains("text")
+  - select(.field1 == "x" and .field2 == "y")
+last_analyzed: '2025-07-29T19:44:50.689Z'
 ---
 # JSON Parsing Best Practices
 

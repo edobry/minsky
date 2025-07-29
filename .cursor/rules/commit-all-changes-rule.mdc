@@ -1,7 +1,26 @@
 ---
-description: "REQUIRED when making any code changes. Ensures all changes are automatically committed and pushed without explicit user request."
+description: >-
+  REQUIRED when making any code changes. Ensures all changes are automatically
+  committed and pushed without explicit user request.
 globs: null
 alwaysApply: true
+name: Commit All Changes Rule
+categories:
+  - testing
+  - meta
+  - task
+tags:
+  - core
+  - meta
+lifecycle: active
+verbosity_score: 1
+word_count: 178
+content_themes:
+  - task-management
+  - git-workflow
+  - rules-management
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 # Commit All Changes Rule
 

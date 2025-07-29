@@ -1,3 +1,47 @@
+---
+name: Session First Workflow
+description: '**Purpose:**'
+categories:
+  - workflow
+tags:
+  - git
+  - bun
+  - ai
+  - mcp
+  - required
+  - core
+  - advanced
+  - automation
+lifecycle: active
+verbosity_score: 4
+word_count: 1695
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+  - documentation
+  - rules-management
+  - automation
+cli_commands:
+  - git status
+  - bun test
+  - /Users/edobry/Projects/minsky
+  - /Users/edobry/.local/state/minsky/sessions/task#227/src/file.ts
+  - src/file.ts
+  - '/Users/edobry/.local/state/minsky/sessions/task#[TASK_ID]/[PROJECT_PATH]'
+  - edit_file
+  - /Users/edobry/.local/state/minsky/sessions/task#227
+  - >-
+    /Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts
+  - >-
+    ls -la
+    /Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts
+last_analyzed: '2025-07-29T19:44:50.690Z'
+---
 # Session-First Workflow
 
 **Purpose:**

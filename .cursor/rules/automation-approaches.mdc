@@ -1,3 +1,27 @@
+---
+name: Automation Approaches
+description: '**Always address the root cause, not symptoms.**'
+categories:
+  - project-types
+  - tools
+tags:
+  - mcp
+  - required
+  - core
+  - advanced
+  - automation
+lifecycle: active
+verbosity_score: 4
+word_count: 1917
+content_themes:
+  - task-management
+  - testing
+  - error-handling
+  - documentation
+  - automation
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.686Z'
+---
 # Automation and Codemod Approaches
 
 ## Core Principle: Root Cause vs Symptoms

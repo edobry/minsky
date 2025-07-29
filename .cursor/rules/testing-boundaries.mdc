@@ -1,7 +1,127 @@
 ---
 description: Use this whenever working on tests
-globs:
+globs: null
 alwaysApply: false
+name: Testing Boundaries
+categories:
+  - testing
+tags:
+  - mcp
+  - backend
+  - frontend
+  - required
+  - core
+  - quality
+lifecycle: active
+verbosity_score: 4
+word_count: 1080
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - code-organization
+  - error-handling
+  - rules-management
+cli_commands:
+  - expect(true).toBe(true)
+  - .skip()
+  - |-
+    typescript
+    // Good test example - Testing domain logic
+    import { calculateRating } from "../domain/rating";
+
+    test("calculateRating returns correct rating based on score", () => {
+      expect(calculateRating(95)).toBe("A");
+      expect(calculateRating(85)).toBe("B");
+      expect(calculateRating(75)).toBe("C");
+    });
+  - |-
+    typescript
+    // Good test example - Testing error handling
+    test("processData throws an error with invalid data format", () => {
+      expect(() => processData({ malformed: true })).toThrowError("Invalid data format");
+    });
+  - |-
+    typescript
+    // Good test example - Testing integration between modules
+    test("session uses task repository correctly", () => {
+      const mockTaskRepo = createMock();
+      mockTaskRepo.findTask.mockReturnValue({ id: "123", title: "Test Task" });
+
+      const session = createSession({ taskRepo: mockTaskRepo });
+      const result = session.getCurrentTask();
+
+      expect(mockTaskRepo.findTask).toHaveBeenCalled();
+      expect(result.id).toBe("123");
+    });
+  - |-
+    typescript
+    // BAD test example - Testing framework internals
+    test("commander correctly parses command line arguments", () => {
+      const program = new Command();
+      program.option('-d, --debug', 'debug mode');
+      program.parse(['-d']);
+
+      // Don't test the framework's argument parsing logic
+      expect(program.opts().debug).toBe(true);
+    });
+  - |-
+    typescript
+    // BAD test example - Testing CLI interface directly
+    test("CLI command prints correct output", async () => {
+      const { stdout } = await execCommand('task create "Test Task"');
+
+      // Don't test the specific output formatting
+      expect(stdout).toContain('Task "Test Task" created successfully');
+    });
+
+    // GOOD test example - Testing domain method instead
+    test("createTask returns the created task", async () => {
+      const task = await createTask("Test Task");
+
+      expect(task.title).toBe("Test Task");
+      expect(task.status).toBe("open");
+    });
+  - |-
+    typescript
+    // BAD test example - Testing filesystem operations directly
+    test("writeConfig saves the config to disk", () => {
+      writeConfig({ setting: "value" });
+
+      // Don't test actual filesystem operations
+      const content = fs.readFileSync(CONFIG_PATH, 'utf8');
+      expect(JSON.parse(content)).toEqual({ setting: "value" });
+    });
+
+    // GOOD test example - Using mock filesystem
+    test("writeConfig saves the config to the correct path", () => {
+      const mockFS = createMockFileSystem();
+
+      writeConfig({ setting: "value" });
+
+      expect(mockFS.written[CONFIG_PATH]).toEqual(JSON.stringify({ setting: "value" }));
+    });
+  - |-
+    typescript
+    // BAD test example - Testing console output directly
+    test("reportStatus logs the status", () => {
+      const spy = jest.spyOn(console, 'log');
+
+      reportStatus({ status: "completed" });
+
+      // Don't test specific output strings
+      expect(spy).toHaveBeenCalledWith(expect.stringContaining("Status: completed"));
+    });
+
+    // GOOD test example - Testing the core logic instead
+    test("getStatusReport returns the correct status information", () => {
+      const report = getStatusReport({ status: "completed" });
+
+      expect(report.status).toBe("completed");
+      expect(report.timestamp).toBeDefined();
+    });
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Testing Boundaries: What to Test and What NOT to Test
 

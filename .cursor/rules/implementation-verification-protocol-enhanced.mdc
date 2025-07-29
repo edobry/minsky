@@ -1,3 +1,40 @@
+---
+name: Implementation Verification Protocol Enhanced
+description: '**This rule AUTOMATICALLY ACTIVATES when using completion language:**'
+categories:
+  - tools
+  - testing
+  - meta
+tags:
+  - bun
+  - mcp
+  - required
+  - protocol
+lifecycle: active
+verbosity_score: 2
+word_count: 217
+content_themes:
+  - task-management
+  - testing
+  - cli-commands
+  - rules-management
+cli_commands:
+  - bun lint 2
+  - bun test
+  - |-
+    bash
+    # MUST show 0 for completion
+    bun lint 2>&1 | grep "[rule-name]" | wc -l
+  - |-
+    bash
+    # MUST show 0 for completion  
+    grep -r "[pattern]" --include="*.ts" src/ | wc -l
+  - |-
+    bash
+    # MUST show passing tests
+    bun test [relevant-test-files]
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # Enhanced Implementation Verification Protocol
 
 ## MANDATORY TRIGGER SYSTEM

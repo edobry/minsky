@@ -1,7 +1,61 @@
 ---
-description: Use for test execution requirements and verification protocols. Apply after implementing tests per testing-boundaries
-globs:
+description: >-
+  Use for test execution requirements and verification protocols. Apply after
+  implementing tests per testing-boundaries
+globs: null
 alwaysApply: false
+name: Tests
+categories:
+  - tools
+  - testing
+  - meta
+tags:
+  - bun
+  - required
+  - core
+  - quality
+lifecycle: active
+verbosity_score: 3
+word_count: 508
+content_themes:
+  - testing
+  - git-workflow
+  - code-organization
+  - rules-management
+cli_commands:
+  - bun test
+  - bun test --coverage
+  - bun lint
+  - bun type-check
+  - 'bun lint:tests'
+  - |-
+    bash
+      bun lint        # Check code quality
+      bun type-check  # Verify TypeScript types
+      bun test        # Run tests
+      bun lint:tests  # Check for placeholder tests
+  - src/utils/test-utils/mocking.ts
+  - >-
+    typescript
+
+    // ❌ INCORRECT - Using platform APIs directly
+
+    const mockFn = jest.fn();
+
+    mock.module("../path/to/module", () => ({}));
+
+
+    // ✅ CORRECT - Using centralized utilities
+
+    import { createMock, mockModule, setupTestMocks } from
+    "../utils/test-utils/mocking";
+
+    setupTestMocks();
+
+    const mockFn = createMock();
+
+    mockModule("../path/to/module", () => ({}));
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Test Execution and Verification
 

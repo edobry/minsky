@@ -1,7 +1,80 @@
 ---
 description: Use this when fixing a bug or error of any kind
-globs:
+globs: null
 alwaysApply: false
+name: Test Driven Bugfix
+categories:
+  - testing
+  - quality
+tags:
+  - bun
+  - core
+  - quality
+lifecycle: active
+verbosity_score: 3
+word_count: 590
+content_themes:
+  - task-management
+  - testing
+  - error-handling
+  - documentation
+cli_commands:
+  - bun test
+  - |-
+    typescript
+       // Example of a failing test for a bug
+       describe('calculateTotal', () => {
+         it('should handle negative quantities correctly', () => {
+           // This test should fail until the bug is fixed
+           expect(calculateTotal(-5, 10)).toBe(0);
+         });
+       });
+  - |-
+    typescript
+       describe('user authentication', () => {
+         // Bug #123: Users remain logged in after password change
+         // Steps to reproduce:
+         // 1. User logs in
+         // 2. User changes password
+         // 3. Old session should be invalidated
+         it('should invalidate existing sessions when password changes', async () => {
+           const user = await loginUser();
+           const oldToken = user.sessionToken;
+           await user.changePassword('newPassword');
+
+           // This should fail until the bug is fixed
+           expect(await validateToken(oldToken)).toBe(false);
+         });
+       });
+  - |-
+    typescript
+    // 1. Write failing test
+    describe('userPermissions', () => {
+      it('should remove user access when group is deleted', async () => {
+        // Set up test scenario
+        const group = await createGroup();
+        const user = await addUserToGroup(group.id);
+
+        // Perform the action that should trigger permission update
+        await deleteGroup(group.id);
+
+        // This should fail until the bug is fixed
+        const permissions = await getUserPermissions(user.id);
+        expect(permissions).not.toContain(group.permissions);
+      });
+    });
+
+    // 2. Implement fix
+    async function deleteGroup(groupId: string) {
+      // Fix: Add missing permission cleanup
+      await removeGroupPermissionsFromUsers(groupId);
+      // Existing deletion logic
+      await deleteGroupFromDatabase(groupId);
+    }
+
+    // 3. Verify fix
+    // Run: bun test
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Test-Driven Bug Fixing
 

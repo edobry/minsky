@@ -1,7 +1,60 @@
 ---
 description: Use this when testing changes made in a session repository
-globs: 
+globs: null
 alwaysApply: false
+name: Testing Session Repo Changes
+categories:
+  - tools
+  - testing
+  - meta
+tags:
+  - minsky
+  - bun
+  - automation
+  - quality
+lifecycle: active
+verbosity_score: 2
+word_count: 300
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - automation
+cli_commands:
+  - minsky tasks list
+  - minsky tasks status set
+  - bun run
+  - bun run test-feature
+  - bun run test-workspace-detection
+  - minsky
+  - |-
+    bash
+       # WRONG - This runs the globally installed version, not your modified code
+       minsky tasks list
+       
+       # CORRECT - This runs your modified code directly
+       bun run ./src/cli.ts tasks list
+  - |-
+    typescript
+       // test-feature.ts
+       import { YourModifiedModule } from './src/domain/your-module';
+       
+       async function testFeature() {
+         // Test your changes directly
+         const result = await YourModifiedModule.yourModifiedFunction();
+         console.log('Result:', result);
+       }
+       
+       testFeature();
+  - |-
+    bash
+       bun run test-feature.ts
+  - |-
+    bash
+       # For testing environment-dependent code
+       MINSKY_DEBUG=true bun run ./src/cli.ts your-command
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Testing Session Repository Changes
 

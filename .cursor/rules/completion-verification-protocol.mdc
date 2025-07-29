@@ -1,3 +1,43 @@
+---
+name: Completion Verification Protocol
+description: >-
+  **NEVER declare a task complete or successful without verifying all
+  quantifiable success criteria are met.**
+categories:
+  - tools
+  - testing
+  - documentation
+tags:
+  - bun
+  - mcp
+  - required
+  - protocol
+lifecycle: active
+verbosity_score: 2
+word_count: 376
+content_themes:
+  - task-management
+  - testing
+  - cli-commands
+  - rules-management
+cli_commands:
+  - bun lint 2
+  - >-
+    bash
+
+    # MUST show 0 for completion
+
+    bun lint 2>&1 | grep "custom/no-jest-patterns" | wc -l
+
+    grep -r "\.mockResolvedValue\|\.mockReturnValue" --include="*.ts" src/ | wc
+    -l
+  - |-
+    bash
+    # MUST show 0 violations for the specific rule
+    bun lint 2>&1 | grep "[rule-name]" | wc -l
+  - custom/no-jest-patterns
+last_analyzed: '2025-07-29T19:44:50.688Z'
+---
 # Completion Verification Protocol
 
 ## Rule Name: completion-verification-protocol

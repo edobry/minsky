@@ -1,7 +1,53 @@
 ---
-description: Use this when deciding where to put code, or when refactoring modules or moving functions around
-globs:
+description: >-
+  Use this when deciding where to put code, or when refactoring modules or
+  moving functions around
+globs: null
 alwaysApply: false
+name: Domain Oriented Modules
+categories:
+  - organization
+tags:
+  - frontend
+  - required
+lifecycle: active
+verbosity_score: 2
+word_count: 438
+content_themes:
+  - task-management
+  - cli-commands
+  - code-organization
+  - rules-management
+cli_commands:
+  - |-
+    typescript
+    // utils/homebrew.ts
+    export async function isBrewPackageInstalled() { /* ... */ }
+
+    // commands/tools/homebrew.ts
+    import { isBrewPackageInstalled } from '../../utils/homebrew.ts';
+    export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
+
+    // utils/tool-status.ts
+    import { getToolBrewPackageName } from '../commands/tools/homebrew';
+    import { isBrewPackageInstalled } from './homebrew';
+  - >-
+    typescript
+
+    // utils/homebrew.ts - Contains ALL homebrew-related functions
+
+    export async function isBrewPackageInstalled() { /* ... */ }
+
+    export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
+
+    export function normalizeBrewConfig(brewConfig, toolId) { /* ... */ }
+
+
+    // Commands use the consolidated utility module
+
+    import { isBrewPackageInstalled, getToolBrewPackageName } from
+    '../../utils/homebrew';
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 # Domain-Oriented Module Organization
 

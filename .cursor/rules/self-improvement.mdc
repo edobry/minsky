@@ -1,3 +1,68 @@
+---
+name: Self Improvement
+description: >-
+  When the user indicates that your actions, reasoning, or responses are
+  incorrect or suboptimal, or when they express preferences for future behavior,
+  implement this systematic error detection and correction framework.
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - git
+  - ai
+  - mcp
+  - backend
+  - frontend
+  - required
+  - core
+  - minsky
+lifecycle: active
+verbosity_score: 5
+word_count: 2739
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+  - documentation
+  - rules-management
+  - automation
+cli_commands:
+  - git reset --hard
+  - git status
+  - |-
+    [ ] Assumption Error: Started with incorrect premise
+       [ ] Process Error: Used wrong methodology/approach
+       [ ] Instruction Error: Misunderstood or skipped requirements
+       [ ] Context Error: Failed to consider relevant information
+       [ ] Pattern Error: Applied pattern inappropriately
+       [ ] Verification Error: Failed to validate before proceeding
+       [ ] Tool Error: Misused available tools/functions
+       [ ] Preference Error: Failed to adhere to user preferences
+       [ ] Completion Assessment Error: Declared completion without proper verification
+  - >-
+    I apologize for applying the wrong rule. I see that this situation calls for
+    the [correct-rule] instead of [incorrect-rule]. The key difference is
+    [explanation]. I'll now apply the correct rule.
+  - >-
+    I see my explanation was confusing. Let me clarify: [simple, direct
+    explanation]. The core point is [key takeaway]. Does that make more sense?
+  - >-
+    I understand what you're asking for, but I'm limited in my ability to
+    [specific limitation]. Let me suggest an alternative approach: [workaround].
+  - >-
+    I understand your preference for [specific preference]. I'll adjust my
+    approach to [specific change] going forward. Let me demonstrate that now by
+    [example of implementing preference].
+  - rm -rf
+  - file_search
+  - grep_search
+last_analyzed: '2025-07-29T19:44:50.690Z'
+---
 
 # Self-Improvement
 

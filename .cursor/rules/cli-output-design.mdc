@@ -1,10 +1,51 @@
 ---
-description:
-globs:
+description: '**Learned from config command redesign experience**'
+globs: null
 alwaysApply: false
----
----
-description: Use when designing or implementing CLI command output and user-facing messages
+name: Cli Output Design
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - git
+  - docker
+  - npm
+  - mcp
+  - backend
+  - required
+  - core
+  - advanced
+lifecycle: active
+verbosity_score: 3
+word_count: 632
+content_themes:
+  - task-management
+  - testing
+  - cli-commands
+  - error-handling
+  - documentation
+  - rules-management
+cli_commands:
+  - git config --list
+  - docker info
+  - kubectl config view
+  - npm config list
+  - kubectl handle similar output
+  - "\U0001F4CB CURRENT CONFIGURATION\n\U0001F4C1 Task Storage: Markdown files (process/tasks.md)\n\U0001F510 Authentication: GitHub (env)\n\U0001F4BE Session Storage: SQLite database (~/.local/state/minsky/sessions.db)"
+  - |-
+    Configuration Sources:
+    The configuration system loads settings from multiple sources in order...
+    [15+ lines of system explanation]
+
+    Backend Auto-Detection Rules:
+    1. If process/tasks.md exists, use markdown backend
+    2. If .minsky/tasks.json exists, use json-file backend
+    [verbose decision tree explanation]
+  - outputFormatter
+  - console.log()
+  - '******************** (hidden)'
+last_analyzed: '2025-07-29T19:44:50.687Z'
 ---
 
 # CLI Output Design Principles

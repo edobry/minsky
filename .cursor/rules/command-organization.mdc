@@ -1,7 +1,40 @@
 ---
-description: Use this when creating/modifying CLI commands or working with the interface-agnostic architecture
-globs:
+description: >-
+  Use this when creating/modifying CLI commands or working with the
+  interface-agnostic architecture
+globs: null
 alwaysApply: false
+name: Command Organization
+categories:
+  - organization
+tags:
+  - mcp
+  - backend
+  - frontend
+  - core
+  - git
+lifecycle: active
+verbosity_score: 2
+word_count: 314
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - code-organization
+  - error-handling
+cli_commands:
+  - src/domain/
+  - src/adapters/
+  - src/commands/
+  - tasks.ts
+  - git.ts
+  - session.ts
+  - src/adapters/cli/
+  - src/adapters/mcp/
+  - src/commands/mcp/
+  - src/domain/tasks.ts
+last_analyzed: '2025-07-29T19:44:50.687Z'
 ---
 
 # Command Organization

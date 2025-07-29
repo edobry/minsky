@@ -1,7 +1,64 @@
 ---
-description: Guidelines for structuring code to be easily testable with proper separation of concerns, dependency injection, and pure functions where possible
-globs:
+description: >-
+  Guidelines for structuring code to be easily testable with proper separation
+  of concerns, dependency injection, and pure functions where possible
+globs: null
 alwaysApply: false
+name: Testable Design
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - git
+  - frontend
+  - required
+  - advanced
+  - quality
+lifecycle: active
+verbosity_score: 3
+word_count: 538
+content_themes:
+  - task-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - rules-management
+cli_commands:
+  - git operations to
+  - src/domain/
+  - src/commands/git/clone.ts
+  - src/domain/git.ts
+  - |-
+    typescript
+    // ❌ Hard to test
+    function processData() {
+      const config = readConfigFile(); // Direct dependency
+      // ...process using config
+    }
+
+    // ✅ Testable with dependency injection
+    function processData(config: Config) {
+      // ...process using injected config
+    }
+  - |-
+    typescript
+    // ❌ Unpredictable side effect
+    function updateUserStatus(user) {
+      user.status = computeNewStatus();
+      user.lastUpdated = new Date(); // Side effect: creates unpredictable date
+    }
+
+    // ✅ Pure function with explicit, predictable behavior
+    function computeUpdatedUser(user, timestamp) {
+      return {
+        ...user,
+        status: computeNewStatus(user),
+        lastUpdated: timestamp,
+      };
+    }
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Testable Design Principles
 

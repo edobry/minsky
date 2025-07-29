@@ -1,3 +1,39 @@
+---
+name: Minsky Session Management
+description: '**NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**'
+categories:
+  - workflow
+  - tools
+tags:
+  - minsky
+  - mcp
+  - backend
+  - required
+  - automation
+  - management
+lifecycle: active
+verbosity_score: 3
+word_count: 568
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - rules-management
+cli_commands:
+  - minsky session start --task
+  - minsky session start --task 067
+  - minsky session start --description
+  - minsky session dir
+  - minsky session dir --task
+  - minsky session list
+  - minsky session get
+  - minsky session get --task
+  - minsky session update
+  - minsky session delete
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # Minsky Session Management Protocol
 
 **NO IMPLEMENTATION WORK CAN BEGIN WITHOUT AN ACTIVE SESSION**

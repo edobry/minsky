@@ -1,7 +1,37 @@
 ---
-description:
-globs:
+description: >-
+  This document categorizes all available rules in the Minsky ecosystem,
+  describes their purpose, and identifies which rules apply in different usage
+  scenarios.
+globs: null
 alwaysApply: false
+name: Index
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - ai
+  - mcp
+  - frontend
+  - required
+  - core
+lifecycle: active
+verbosity_score: 4
+word_count: 1151
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+  - documentation
+  - rules-management
+cli_commands:
+  - rules
+last_analyzed: '2025-07-29T19:44:50.689Z'
 ---
 # Minsky Rules Index
 

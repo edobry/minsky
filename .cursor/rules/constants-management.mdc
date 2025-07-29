@@ -1,7 +1,81 @@
 ---
-description: Use when defining or refactoring string constants or identifiers. Apply when strings are duplicated or represent domain concepts.
-globs:
+description: >-
+  Use when defining or refactoring string constants or identifiers. Apply when
+  strings are duplicated or represent domain concepts.
+globs: null
 alwaysApply: false
+name: Constants Management
+categories:
+  - workflow
+  - tools
+  - documentation
+tags:
+  - backend
+  - management
+lifecycle: active
+verbosity_score: 3
+word_count: 549
+content_themes:
+  - cli-commands
+  - error-handling
+cli_commands:
+  - "typescript\n   // AVOID - Repeated emoji\n   console.log(\"\U0001F534 Error: Connection failed\");\n   console.log(\"\U0001F534 Error: Authentication failed\");\n   console.log(\"\U0001F534 Error: Network timeout\");\n\n   // PREFER - Extracted emoji constant\n   const ERROR_EMOJI = \"\U0001F534\";\n   console.log("
+  - |-
+    );
+       console.log(
+  - "typescript\n   // Organize by domain\n   export const BREW_CMD = {\n     LIST_FORMULAS: 'brew list --formula',\n     LIST_CASKS: 'brew list --cask',\n     INSTALL_FORMULA: 'brew install',\n     INSTALL_CASK: 'brew install --cask',\n   };\n\n   export const DISPLAY = {\n     EMOJIS: {\n       ENABLED: '\U0001F7E2',\n       DISABLED: '\U0001F534',\n       WARNING: '⚠️',\n       UNKNOWN: '❓',\n       CHECK: '✅',\n       INSTALL: '\U0001F3D7️',\n       ADDITIONAL_INFO: 'ℹ️',\n     },\n     SEPARATOR: '─'.repeat(80),\n   };"
+  - |-
+    typescript
+       // AVOID
+       app.get('/api/users', ...);
+       app.post('/api/users', ...);
+       app.get('/api/posts', ...);
+
+       // PREFER
+       const API_PREFIX = '/api';
+       app.get(
+  - |-
+    , ...);
+       app.post(
+  - |-
+    , ...);
+       app.get(
+  - ', ...);'
+  - |-
+    typescript
+       // constants/index.ts - The main export point
+       export * from './display';
+       export * from './commands';
+       export * from './paths';
+
+       // constants/display.ts - Display-related constants
+       export const DISPLAY = { ... };
+
+       // constants/commands.ts - Command-related constants
+       export const COMMANDS = { ... };
+  - |-
+    typescript
+       const BASE_URL = 'https://api.example.com';
+       const API_VERSION = 'v1';
+
+       // Derived constant using template literals
+       const API_ENDPOINT =
+  - |-
+    typescript
+       // String literal union for status
+       export type Status = 'idle' | 'loading' | 'success' | 'error';
+
+       // Properly typed object of constants
+       export const HTTP_STATUS: Record<string, number> = {
+         OK: 200,
+         CREATED: 201,
+         BAD_REQUEST: 400,
+         UNAUTHORIZED: 401,
+         FORBIDDEN: 403,
+         NOT_FOUND: 404,
+         SERVER_ERROR: 500,
+       };
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 # Constants Management
 

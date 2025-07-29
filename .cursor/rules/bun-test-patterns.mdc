@@ -1,3 +1,235 @@
+---
+name: Bun Test Patterns
+description: >-
+  **CRITICAL REQUIREMENT: Always use the project's centralized mocking utilities
+  in `src/utils/test-utils/mocking.ts` instead of directly using bun:test
+  APIs.**
+categories:
+  - testing
+  - tools
+tags:
+  - ai
+  - backend
+  - required
+  - core
+  - advanced
+  - quality
+  - bun
+lifecycle: active
+verbosity_score: 4
+word_count: 1175
+content_themes:
+  - task-management
+  - testing
+  - cli-commands
+  - code-organization
+  - error-handling
+cli_commands:
+  - src/utils/test-utils/mocking.ts
+  - >-
+    typescript
+
+    // ❌ NEVER USE DIRECT BUN:TEST APIs
+
+    import { jest, mock } from "bun:test";
+
+    const mockFn = jest.fn();
+
+    mock.module("../path/to/module", () => ({ ... }));
+
+
+    // ✅ ALWAYS USE CENTRALIZED UTILITIES
+
+    import { createMock, mockModule, setupTestMocks } from
+    "../utils/test-utils/mocking";
+
+    import { createMockLogger, clearLoggerMocks } from
+    "../utils/test-utils/logger-mock";
+
+    setupTestMocks();
+
+    const mockFn = createMock();
+
+    const mockLog = createMockLogger();
+
+    mockModule("../../../src/path/to/module", () => ({ ... }));
+  - |-
+    typescript
+    import { describe, test, expect } from "bun:test";
+    import {
+      createMock,
+      mockModule,
+      setupTestMocks,
+      createMockFileSystem
+    } from "../utils/test-utils/mocking";
+    import { createMockLogger } from "../utils/test-utils/logger-mock";
+
+    // Set up automatic mock cleanup
+    setupTestMocks();
+  - |-
+    typescript
+    // ❌ INCORRECT - Direct jest API usage
+    const mockFunction = jest.fn().mockReturnValue("result");
+
+    // ✅ CORRECT - Using centralized utility
+    const mockFunction = createMock(() => "default value");
+    mockFunction.mockReturnValue("result");
+
+    // Assertion examples
+    expect(mockFunction).toHaveBeenCalled();
+    expect(mockFunction).toHaveBeenCalledWith("arg");
+    expect(mockFunction.mock.calls.length).toBe(1);
+  - |-
+    typescript
+    // ❌ INCORRECT - Direct mock API usage or wrong paths
+    mock.module("../path/to/module", () => ({
+      exportedFunction: jest.fn()
+    }));
+
+    // ✅ CORRECT - Using centralized utility with src/ prefix
+    mockModule("../../../src/domain/tasks", () => ({
+      getTaskFromParams: createMock(),
+      setTaskStatusFromParams: createMock()
+    }));
+
+    // ✅ CORRECT - From adapter tests
+    mockModule("../../../../src/adapters/shared/commands/tasks", () => ({
+      registerTasksCommands: createMock()
+    }));
+  - |-
+    typescript
+    // ❌ INCORRECT - Incomplete logger mock
+    const mockLog = {
+      debug: jest.fn(),
+      info: jest.fn()
+      // Missing cli, agent, and other methods
+    };
+
+    // ✅ CORRECT - Using centralized logger mock
+    import { createMockLogger } from "../utils/test-utils/logger-mock";
+
+    const mockLog = createMockLogger();
+
+    // Mock the logger module
+    mockModule("../../../src/utils/logger", () => ({
+      log: mockLog
+    }));
+
+    // Now all logger methods are available
+    expect(mockLog.cli).toHaveBeenCalledWith("CLI message");
+    expect(mockLog.debug).toHaveBeenCalledWith("Debug message");
+    expect(mockLog.agent).toHaveBeenCalledWith("Agent message");
+  - |-
+    typescript
+    // ❌ INCORRECT - Testing actual filesystem
+    test("saves config to file", () => {
+      saveConfig({ setting: true });
+      expect(fs.existsSync(CONFIG_PATH)).toBe(true);
+    });
+
+    // ✅ CORRECT - Using mock filesystem
+    test("saves config to file", () => {
+      const mockFS = createMockFileSystem();
+      mockModule("fs", () => mockFS);
+
+      saveConfig({ setting: true });
+
+      expect(mockFS.written[CONFIG_PATH]).toBeDefined();
+    });
+  - >-
+    typescript
+
+    // src/domain/tasks.commands.test.ts
+
+    import { describe, test, expect, beforeEach } from "bun:test";
+
+    import { createMock, mockModule, setupTestMocks } from
+    "../utils/test-utils/mocking";
+
+
+    // Set up automatic mock cleanup
+
+    setupTestMocks();
+
+
+    // Mock domain services that the commands use
+
+    const mockTaskService = createMock();
+
+    mockModule("../../../src/domain/tasks/taskService", () => ({
+      getTask: mockTaskService
+    }));
+
+
+    describe("Task Domain Commands", () => {
+      beforeEach(() => {
+        mockTaskService.mockReset();
+      });
+
+      describe("getTaskFromParams", () => {
+        test("should validate and retrieve task", async () => {
+          // Arrange
+          const params = { id: "123" };
+          const expectedTask = { id: "123", title: "Test Task" };
+          mockTaskService.mockResolvedValue(expectedTask);
+
+          // Act
+          const result = await getTaskFromParams(params);
+
+          // Assert
+          expect(result).toEqual(expectedTask);
+          expect(mockTaskService).toHaveBeenCalledWith("123");
+        });
+      });
+    });
+  - >-
+    typescript
+
+    // src/adapters/shared/tasks.adapter.test.ts
+
+    import { describe, test, expect, beforeEach } from "bun:test";
+
+    import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+
+    import { registerTasksCommands } from
+    "../../../../src/adapters/shared/commands/tasks";
+
+
+    // Set up automatic mock cleanup
+
+    setupTestMocks();
+
+
+    describe("Shared Tasks Adapter", () => {
+      test("registers correct number of commands", () => {
+        // Arrange
+        const mockRegistry = {
+          commands: new Map(),
+          register: createMock()
+        };
+
+        // Act
+        registerTasksCommands(mockRegistry);
+
+        // Assert
+        expect(mockRegistry.register).toHaveBeenCalledTimes(7);
+      });
+    });
+  - |-
+    typescript
+    describe("Module name", () => {
+      describe("functionName", () => {
+        test("should handle specific input correctly", () => {
+          // Test content
+        });
+
+        test("should throw error for invalid input", () => {
+          // Test content
+        });
+      });
+    });
+last_analyzed: '2025-07-29T19:44:50.687Z'
+---
 # Bun Test Patterns
 
 ## ALWAYS USE CENTRALIZED MOCKING UTILITIES

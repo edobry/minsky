@@ -1,3 +1,38 @@
+---
+name: README
+description: >-
+  This directory contains Cursor rules (`.mdc` files) that define behavior
+  guidelines, conventions, and workflows for the Minsky project.
+categories:
+  - workflow
+  - tools
+  - documentation
+tags:
+  - minsky
+  - mcp
+  - required
+  - git
+lifecycle: active
+verbosity_score: 2
+word_count: 322
+content_themes:
+  - task-management
+  - session-management
+  - cli-commands
+  - rules-management
+cli_commands:
+  - minsky rules get
+  - minsky rules list
+  - minsky rules create
+  - minsky rules update
+  - minsky rules search
+  - minsky rules --help
+  - .mdc
+  - '~/.local/state/minsky/git/{repo}/sessions/task#{id}'
+  - minsky rules get <rule-id>
+  - /path/to/main/workspace/.cursor/rules/
+last_analyzed: '2025-07-29T19:44:50.686Z'
+---
 # Minsky Rules System
 
 This directory contains Cursor rules (`.mdc` files) that define behavior guidelines, conventions, and workflows for the Minsky project.

@@ -1,7 +1,93 @@
 ---
-description: Use when handling errors or exceptions. Apply alongside dont-ignore-errors when implementing error recovery.
-globs:
+description: >-
+  Use when handling errors or exceptions. Apply alongside dont-ignore-errors
+  when implementing error recovery.
+globs: null
 alwaysApply: false
+name: Robust Error Handling
+categories:
+  - quality
+tags:
+  - mcp
+  - frontend
+  - required
+  - core
+lifecycle: active
+verbosity_score: 2
+word_count: 432
+content_themes:
+  - error-handling
+cli_commands:
+  - |-
+    typescript
+       // AVOID
+       catch (err) {
+         console.error(
+  - |-
+    ); // Converts Error object to string, losing the stack trace
+       }
+
+       // PREFER
+       catch (err) {
+         const error = err instanceof Error ? err : new Error(String(err));
+         console.error(
+  - |-
+    );
+         // log error.stack when needed
+       }
+  - |-
+    typescript
+       // For function results that may contain errors
+       interface OperationResult {
+         success: boolean;
+         error?: Error;
+         message?: string;
+       }
+
+       // For specialized error types
+       class ConfigurationError extends Error {
+         constructor(message: string) {
+           super(message);
+           this.name = 'ConfigurationError';
+         }
+       }
+  - |-
+    typescript
+       async function checkStatus() {
+         try {
+           // Core functionality
+         } catch (err) {
+           logger.error(
+  - |-
+    );
+           // Return a default or fallback state
+           return { status: 'unknown', error: err };
+         }
+       }
+  - |-
+    typescript
+       try {
+         await processFile(filePath);
+       } catch (err) {
+         throw new Error(
+  - |-
+    , { cause: err });
+       }
+  - |-
+    typescript
+       // Set up a timeout with proper cleanup
+       const timeoutPromise = new Promise((_, reject) => {
+         const id = setTimeout(() => {
+           clearTimeout(id);
+           reject(new Error(
+  - |-
+    ));
+         }, timeoutMs);
+       });
+
+       // Race the operation against the timeout
+       return Promise.race([operation(), timeoutPromise]);
+last_analyzed: '2025-07-29T19:44:50.689Z'
 ---
 # Robust Error Handling
 

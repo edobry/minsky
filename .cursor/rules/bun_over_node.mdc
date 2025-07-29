@@ -1,7 +1,36 @@
 ---
-description: Use this when running bun/nodejs commands, or when referencing nodejs in code/configuration.
-globs:
+description: >-
+  Use this when running bun/nodejs commands, or when referencing nodejs in
+  code/configuration.
+globs: null
 alwaysApply: false
+name: Bun_over_node
+categories:
+  - tools
+  - testing
+  - documentation
+tags:
+  - bun
+  - npm
+  - backend
+lifecycle: active
+verbosity_score: 1
+word_count: 151
+content_themes:
+  - testing
+  - cli-commands
+cli_commands:
+  - bun install
+  - npm install
+  - bun run
+  - bun test
+  - bun build
+  - bun run src
+  - bun --watch src
+  - bun build src
+  - bun shebang
+  - bun
+last_analyzed: '2025-07-29T19:44:50.687Z'
 ---
 Always use `bun` instead of `node` when running JavaScript/TypeScript in the project. Bun is the preferred runtime.
 

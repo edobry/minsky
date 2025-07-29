@@ -1,7 +1,41 @@
 ---
 description: Use this when working with rules
-globs:
+globs: null
 alwaysApply: false
+name: Rules Management
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - minsky
+  - required
+  - core
+  - management
+  - meta
+lifecycle: active
+verbosity_score: 3
+word_count: 556
+content_themes:
+  - task-management
+  - cli-commands
+  - code-organization
+  - documentation
+  - rules-management
+cli_commands:
+  - minsky rules list
+  - |-
+    minsky rules list --format cursor
+    minsky rules list --format generic
+  - minsky rules list --tag workflow
+  - minsky rules list --json
+  - minsky rules get
+  - minsky rules create
+  - minsky rules create my-rule-id --name
+  - minsky rules create my-rule-id --globs
+  - minsky rules create my-rule-id --tags
+  - minsky rules create my-rule-id --format generic
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Rules Management
 

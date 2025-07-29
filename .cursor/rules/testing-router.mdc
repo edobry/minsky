@@ -1,3 +1,58 @@
+---
+name: Testing Router
+description: >-
+  This rule serves as the **primary entry point** for all testing guidance in
+  the Minsky project. It directs you to the relevant rules for your specific
+  testing needs, recognizing that **multiple rules often apply simultaneously**
+  for any testing scenario.
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - mcp
+  - required
+  - core
+  - advanced
+  - router
+  - quality
+lifecycle: active
+verbosity_score: 3
+word_count: 777
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - code-organization
+  - documentation
+  - rules-management
+cli_commands:
+  - |-
+    src/
+    ├── domain/
+    │   ├── session.ts
+    │   ├── session.test.ts              # Domain service tests
+    │   ├── session.commands.test.ts     # Domain command tests
+    │   └── tests/                       # Complex integration tests only
+    ├── adapters/
+    │   ├── cli/
+    │   │   ├── session.ts
+    │   │   └── session.adapter.test.ts  # CLI adapter tests
+    │   └── mcp/
+    │       ├── session.ts
+    │       └── session.adapter.test.ts  # MCP adapter tests
+  - 'src/domain/[module].test.ts'
+  - '*FromParams'
+  - 'src/domain/[module].commands.test.ts'
+  - 'src/adapters/cli/[module].adapter.test.ts'
+  - 'src/adapters/mcp/[module].adapter.test.ts'
+  - tests/
+  - src/utils/test-utils/mocking.ts
+  - createMock()
+  - jest.fn()
+last_analyzed: '2025-07-29T19:44:50.690Z'
+---
 # Minsky Testing Guidance - Start Here
 
 This rule serves as the **primary entry point** for all testing guidance in the Minsky project. It directs you to the relevant rules for your specific testing needs, recognizing that **multiple rules often apply simultaneously** for any testing scenario.

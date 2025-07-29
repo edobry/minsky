@@ -1,5 +1,17 @@
 ---
-description:
-globs:
+description: No description available
+globs: null
 alwaysApply: false
+name: Cli Bridge Development
+categories:
+  - cli
+  - tools
+tags: []
+lifecycle: active
+verbosity_score: 1
+word_count: 6
+content_themes: []
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.687Z'
 ---
+

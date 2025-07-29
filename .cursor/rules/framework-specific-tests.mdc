@@ -1,7 +1,7 @@
 ---
 name: Framework-Specific Testing
 description: Standards and patterns for testing with specific frameworks, focusing on bun:test.
-globs: **/*.test.ts'
+globs: "**/*.test".ts'
 ---
 # Framework-Specific Testing
 

@@ -1,6 +1,17 @@
 ---
-description: Use when creating or modifying files that exceed 400 lines. Apply alongside domain-oriented-modules when refactoring large files.
-globs:
+description: >-
+  Use when creating or modifying files that exceed 400 lines. Apply alongside
+  domain-oriented-modules when refactoring large files.
+globs: null
 alwaysApply: true
+name: File Size
+categories: []
+tags: []
+lifecycle: active
+verbosity_score: 1
+word_count: 63
+content_themes: []
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 Try to not create very large code files, the definition of which is flexible but generally not more than ~400 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.

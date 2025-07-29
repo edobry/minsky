@@ -1,6 +1,6 @@
 ---
 description: Guidelines for creating or updating .mdc rule files. REQUIRED when writing, modifying, or reviewing any cursor rule.
-globs: **/*.mdc
+globs: "**/*.mdc"
 alwaysApply: false
 ---
 # Cursor Rule Creation Guidelines

@@ -1,3 +1,96 @@
+---
+name: Codemods Directory
+description: >-
+  All codemods in the `codemods/` directory must follow these mandatory
+  standards established in Task #178.
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - required
+  - automation
+lifecycle: active
+verbosity_score: 3
+word_count: 762
+content_themes:
+  - task-management
+  - testing
+  - code-organization
+  - error-handling
+  - documentation
+cli_commands:
+  - codemods/
+  - |-
+    typescript
+    /**
+     * [Codemod Name]
+     *
+     * PROBLEM SOLVED:
+     * [Exact TypeScript error or issue being addressed]
+     *
+     * EXACT SITUATION:
+     * [Specific circumstances where this codemod applies]
+     *
+     * TRANSFORMATION APPLIED:
+     * [Before/after code examples showing the transformation]
+     *
+     * TARGETED PATTERNS:
+     * [Specific classes, properties, functions, or patterns affected]
+     *
+     * SAFETY CONSIDERATIONS:
+     * [Limitations, risks, and boundaries of the codemod]
+     *
+     * EXPECTED INPUTS:
+     * [What kind of code this codemod expects to process]
+     *
+     * EXPECTED OUTPUTS:
+     * [What the transformed code should look like]
+     *
+     * LIMITATIONS:
+     * [What this codemod cannot or will not handle]
+     *
+     * USAGE:
+     * [How to run the codemod]
+     */
+  - fix-ts2564-property-initialization.test.ts
+  - |-
+    typescript
+    // 1. Mirror the exact configuration from the codemod
+    const CODEMOD_CONFIG = [
+      // Copy exact configuration from the codemod
+    ];
+
+    // 2. Test positive constraints (what it SHOULD do)
+    test('codemod ONLY processes configured elements', () => {
+      // Create mixed scenario with both target and non-target elements
+      const sourceFile = project.createSourceFile('test.ts',
+  - |-
+    );
+      
+      // Apply codemod logic
+      // ...
+      
+      // Verify positive constraints
+      expect(transformedCode).toContain('expected modification');
+      
+      // Verify negative constraints  
+      expect(transformedCode).toContain('unchanged non-target element');
+    });
+
+    // 3. Test boundary cases
+    test('codemod handles edge cases gracefully', () => {
+      // Test already-processed items
+      // Test missing elements
+      // Test malformed input
+    });
+  - fix-ts2564-property-initialization.ts
+  - fix-errors.ts
+  - cleanup.ts
+  - '[codemod-name].ts'
+  - '[codemod-name].test.ts'
+last_analyzed: '2025-07-29T19:44:50.687Z'
+---
 # Codemods Directory Standards
 
 All codemods in the `codemods/` directory must follow these mandatory standards established in Task #178.

@@ -1,6 +1,39 @@
 ---
 name: Git Usage Policy
 description: REQUIRED when executing Git commands
+categories:
+  - tools
+  - workflow
+tags:
+  - git
+  - mcp
+  - required
+  - advanced
+  - automation
+lifecycle: active
+verbosity_score: 4
+word_count: 1555
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - error-handling
+  - documentation
+  - automation
+cli_commands:
+  - git status
+  - git log --oneline -n 5
+  - git branch --show-current
+  - git stash
+  - git branch temp-backup
+  - git reflog
+  - git reset
+  - git reset --hard
+  - git branch backup-before-reset
+  - git checkout -b new-branch
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 # Git Usage Policy
 # Git Usage Policy

@@ -1,7 +1,71 @@
 ---
-description: Best practices for testing command-line interfaces, including end-to-end tests, output validation, and terminal interaction simulation
-globs:
+description: >-
+  Best practices for testing command-line interfaces, including end-to-end
+  tests, output validation, and terminal interaction simulation
+globs: null
 alwaysApply: false
+name: Cli Testing
+categories:
+  - testing
+  - tools
+tags:
+  - required
+  - quality
+  - bun
+lifecycle: active
+verbosity_score: 3
+word_count: 550
+content_themes:
+  - task-management
+  - testing
+  - cli-commands
+  - error-handling
+cli_commands:
+  - spawnSync
+  - >-
+    typescript
+
+    const { stdout, stderr, status } = spawnSync('bun', ['run', CLI, 'command',
+    'subcommand', '--flag'], {
+      encoding: 'utf-8',
+      env: { ...process.env, CUSTOM_VAR: 'value' }
+    });
+
+
+    expect(status).toBe(0); // Successful exit
+
+    expect(stdout).toContain('Expected output');
+
+    expect(stderr).toBe(''); // No errors
+  - >-
+    typescript
+
+    // Test human-readable output
+
+    const { stdout: textOut } = spawnSync('bun', ['run', CLI, 'command']);
+
+    expect(textOut).toContain('Human readable result:');
+
+
+    // Test JSON output
+
+    const { stdout: jsonOut } = spawnSync('bun', ['run', CLI, 'command',
+    '--json']);
+
+    const result = JSON.parse(jsonOut);
+
+    expect(result.success).toBe(true);
+
+    expect(result.data).toHaveProperty('key');
+  - >-
+    typescript
+
+    const { status } = spawnSync('bun', ['run', CLI, 'command',
+    '--invalid-flag']);
+
+    expect(status).toBe(1); // Error exit code
+  - testing-boundaries.mdc
+last_analyzed: '2025-07-29T19:44:50.687Z'
 ---
 # CLI Testing
 

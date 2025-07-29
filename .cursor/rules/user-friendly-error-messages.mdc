@@ -1,7 +1,55 @@
 ---
-description:
-globs:
+description: >-
+  Transform technical error messages into helpful, actionable guidance that
+  empowers users to resolve issues quickly.
+globs: null
 alwaysApply: false
+name: User Friendly Error Messages
+categories:
+  - tools
+  - testing
+  - meta
+tags:
+  - minsky
+  - git
+  - mcp
+  - backend
+  - required
+  - core
+  - automation
+lifecycle: active
+verbosity_score: 3
+word_count: 922
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - error-handling
+  - rules-management
+cli_commands:
+  - minsky session pr --title
+  - minsky session pr --session my-session --title
+  - minsky session pr --task 123 --title
+  - minsky session list
+  - minsky tasks get 123
+  - minsky tasks get
+  - minsky tasks list
+  - git config credential
+  - git pull
+  - >-
+    typescript
+
+    throw new Error("Cannot create PR with uncommitted changes. Please commit or
+    stash your changes first.");
+
+    throw new Error("Authentication failed. Check your credentials or SSH
+    key.");
+
+    throw new Error("Either 'session', 'taskId', or 'repoPath' must be provided
+    to create a PR.");
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # User-Friendly Error Messages
 

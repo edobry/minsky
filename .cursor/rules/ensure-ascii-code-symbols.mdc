@@ -1,10 +1,41 @@
 ---
-name: Ensure ASCII Code Symbols
----
----
-description: "REQUIRED: Generated code symbols (variables, functions, etc.) MUST use standard ASCII characters only. Prohibits non-ASCII in symbols."
-globs: ["**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx", "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.rb", "**/*.php", "**/*.c", "**/*.cpp", "**/*.h", "**/*.hpp"]
+description: >-
+  This rule ensures that all generated code symbols (variable names, function
+  names, class names, constants, identifiers, etc.) STRICTLY use only standard
+  ASCII characters.
+globs:
+  - '**/*.ts'
+  - '**/*.js'
+  - '**/*.tsx'
+  - '**/*.jsx'
+  - '**/*.py'
+  - '**/*.go'
+  - '**/*.java'
+  - '**/*.cs'
+  - '**/*.rb'
+  - '**/*.php'
+  - '**/*.c'
+  - '**/*.cpp'
+  - '**/*.h'
+  - '**/*.hpp'
 alwaysApply: true
+name: Ensure ASCII Code Symbols
+categories:
+  - testing
+  - documentation
+  - meta
+tags:
+  - ai
+  - required
+  - core
+lifecycle: active
+verbosity_score: 2
+word_count: 304
+content_themes:
+  - rules-management
+cli_commands:
+  - 'alwaysApply: true'
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 # Rule: Ensure ASCII Code Symbols
 

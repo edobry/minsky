@@ -1,3 +1,34 @@
+---
+name: Verification Checklist
+description: >-
+  **NEVER claim a resource doesn't exist without proper verification using
+  available tools.**
+categories:
+  - tools
+  - meta
+  - session
+tags:
+  - mcp
+  - required
+  - core
+lifecycle: active
+verbosity_score: 2
+word_count: 255
+content_themes:
+  - rules-management
+  - automation
+cli_commands:
+  - file_search
+  - grep_search
+  - fetch_rules
+  - 'I found the [resource] at [location]. Here''s what it contains: [content]'
+  - >-
+    I searched for [resource] using [tools used] and checked [locations/patterns
+    searched].
+
+    I was unable to find [resource] in the available workspace.
+last_analyzed: '2025-07-29T19:44:50.691Z'
+---
 # Verification Checklist
 
 ## Core Principle

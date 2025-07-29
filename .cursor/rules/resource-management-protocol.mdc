@@ -1,6 +1,46 @@
 ---
-description: REQUIRED guidelines for managing project resources using dedicated tools rather than direct file editing
+description: >-
+  REQUIRED guidelines for managing project resources using dedicated tools
+  rather than direct file editing
 alwaysApply: false
+name: Resource Management Protocol
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - minsky
+  - bun
+  - ai
+  - mcp
+  - frontend
+  - required
+  - core
+  - protocol
+lifecycle: active
+verbosity_score: 4
+word_count: 1149
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - cli-commands
+  - error-handling
+  - documentation
+  - rules-management
+  - automation
+cli_commands:
+  - minsky --help
+  - minsky rules --help
+  - minsky rules get user-preferences
+  - minsky rules update user-preferences --description
+  - minsky rules
+  - minsky tasks
+  - minsky tasks spec
+  - minsky session
+  - minsky tasks --help
+  - bun add
+last_analyzed: '2025-07-29T19:44:50.689Z'
 ---
 
 # Resource Management Protocol

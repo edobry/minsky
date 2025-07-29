@@ -1,11 +1,44 @@
 ---
 name: PR Preparation Workflow
-description: REQUIRED workflow for preparing and submitting pull requests including the git approve command for PR merging
+description: >-
+  REQUIRED workflow for preparing and submitting pull requests including the git
+  approve command for PR merging
 globs:
-  - "**/*.md"
-  - "**/*.ts"
-  - "**/*.js"
+  - '**/*.md'
+  - '**/*.ts'
+  - '**/*.js'
 alwaysApply: true
+categories:
+  - workflow
+tags:
+  - minsky
+  - git
+  - mcp
+  - required
+  - process
+lifecycle: active
+verbosity_score: 3
+word_count: 849
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - documentation
+  - rules-management
+cli_commands:
+  - minsky git pr --task
+  - minsky git pr
+  - minsky tasks status set
+  - minsky session pr --body
+  - minsky session pr --body-path
+  - minsky session pr --title
+  - minsky session pr
+  - git pr --task
+  - git pr
+  - git add process
+last_analyzed: '2025-07-29T19:44:50.689Z'
 ---
 # PR Preparation Workflow
 

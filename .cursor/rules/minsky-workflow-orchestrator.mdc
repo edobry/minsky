@@ -1,7 +1,40 @@
 ---
-description: REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging
-globs:
+description: >-
+  REQUIRED entry point for understanding the Minsky workflow system including
+  the git approve command for PR merging
+globs: null
 alwaysApply: false
+name: Minsky Workflow Orchestrator
+categories:
+  - workflow
+  - meta
+tags:
+  - minsky
+  - git
+  - mcp
+  - required
+  - core
+  - process
+lifecycle: active
+verbosity_score: 4
+word_count: 1612
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - error-handling
+  - rules-management
+cli_commands:
+  - minsky tasks list
+  - minsky tasks status get
+  - minsky git approve
+  - minsky session start
+  - minsky session dir
+  - git approve
+  - minsky tasks status get '#<id>'
+last_analyzed: '2025-07-29T19:44:50.689Z'
 ---
 |--------------|--------------|--------------|
 | **Initial Setup** | minsky-cli-usage | When using ANY Minsky CLI command |

@@ -1,7 +1,27 @@
 ---
-description: Use when updating test assertions or expected outputs. Apply with testing-boundaries to ensure proper test focus
-globs:
+description: >-
+  Use when updating test assertions or expected outputs. Apply with
+  testing-boundaries to ensure proper test focus
+globs: null
 alwaysApply: false
+name: Test Expectations
+categories:
+  - testing
+  - documentation
+  - task
+tags:
+  - quality
+lifecycle: active
+verbosity_score: 2
+word_count: 217
+content_themes:
+  - task-management
+  - testing
+cli_commands:
+  - "typescript\n   // Updating test expectation: now using BLACK_CIRCLE (⚫) for disabled status\n   // instead of RED_CIRCLE (\U0001F534) per design decision in PR #123\n   expect(getChainStatus(false, true)).toBe('⚫');"
+  - '--update-snapshots'
+  - "feat: Change disabled status indicator from \U0001F534 to ⚫\n\n   - Updates getChainStatus to use BLACK_CIRCLE for disabled items\n   - Updates tests that previously expected RED_CIRCLE (\U0001F534) to now expect BLACK_CIRCLE (⚫)"
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Test Expectations Management
 

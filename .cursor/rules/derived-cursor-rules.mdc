@@ -1,7 +1,54 @@
 ---
-description:
-globs:
+description: >-
+  All project documentation will be stored in the `.specstory` directory,
+  following the SpecStory format. Version updates will be noted in the relevant
+  section headers (e.g., "TECH STACK", "WORKFLOW & RELEASE RULES").  The
+  changelog will reference relevant SpecStory conversation histories.  See
+  `.specstory/.what-is-this.md` for details on the SpecStory artifact system.
+globs: null
 alwaysApply: false
+name: Derived Cursor Rules
+categories:
+  - meta
+tags:
+  - minsky
+  - ai
+  - mcp
+  - backend
+  - frontend
+  - required
+  - core
+  - automation
+lifecycle: active
+verbosity_score: 5
+word_count: 4900
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+  - documentation
+  - rules-management
+  - automation
+cli_commands:
+  - minsky session start
+  - minsky projects
+  - minsky tasks list --json
+  - |-
+    minsky CLI
+    globs
+  - minsky
+  - |-
+    minsky session dir
+         cd
+  - minsky git pr
+  - minsky task status set
+  - minsky git clone
+  - minsky git branch
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 
 

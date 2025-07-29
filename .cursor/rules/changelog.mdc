@@ -1,7 +1,28 @@
 ---
-description:
-globs:
+description: >-
+  For any code change, **record it in the `CHANGELOG.md` file in the nearest
+  ancestor directory that contains a `CHANGELOG.md`**.
+globs: null
 alwaysApply: true
+name: Changelog
+categories:
+  - documentation
+tags:
+  - mcp
+lifecycle: active
+verbosity_score: 2
+word_count: 225
+content_themes:
+  - session-management
+  - documentation
+cli_commands:
+  - CHANGELOG.md
+  - project/src/commands/tools/constants.ts
+  - project/CHANGELOG.md
+  - project/src/utils/tools.ts
+  - README.md
+  - docs/usage.md
+last_analyzed: '2025-07-29T19:44:50.687Z'
 ---
 # Changelog Rule
 

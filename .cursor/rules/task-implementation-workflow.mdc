@@ -1,3 +1,45 @@
+---
+name: Task Implementation Workflow
+description: >-
+  This rule provides a detailed, step-by-step process for implementing tasks in
+  the Minsky workflow.
+categories:
+  - workflow
+tags:
+  - minsky
+  - git
+  - bun
+  - mcp
+  - backend
+  - frontend
+  - required
+  - core
+lifecycle: active
+verbosity_score: 4
+word_count: 1365
+content_themes:
+  - task-management
+  - session-management
+  - testing
+  - git-workflow
+  - cli-commands
+  - code-organization
+  - error-handling
+  - documentation
+  - rules-management
+cli_commands:
+  - minsky tasks list --json
+  - minsky tasks get
+  - minsky tasks spec
+  - minsky tasks status get
+  - minsky session start --task
+  - minsky session dir --task
+  - minsky session get --task
+  - minsky git pr --task
+  - minsky tasks status set
+  - minsky git pr
+last_analyzed: '2025-07-29T19:44:50.690Z'
+---
 # Task Implementation Workflow
 
 This rule provides a detailed, step-by-step process for implementing tasks in the Minsky workflow.

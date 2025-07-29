@@ -1,3 +1,30 @@
+---
+name: Implementation Verification Protocol
+description: '**Never claim "implemented" or "working" without testing it first.**'
+categories:
+  - tools
+  - testing
+  - meta
+tags:
+  - mcp
+  - required
+  - core
+  - protocol
+lifecycle: active
+verbosity_score: 2
+word_count: 357
+content_themes:
+  - task-management
+  - testing
+  - git-workflow
+  - documentation
+cli_commands:
+  - command
+  - |-
+    bash
+     command [usage]  # Must show actual output/results
+last_analyzed: '2025-07-29T19:44:50.689Z'
+---
 # Implementation Verification Protocol
 
 ## Rule

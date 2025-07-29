@@ -1,7 +1,28 @@
 ---
-description: REQUIRED entry point for all error handling decisions. Use to navigate to specific error handling rules like robust-error-handling or dont-ignore-errors.
-globs:
+description: >-
+  REQUIRED entry point for all error handling decisions. Use to navigate to
+  specific error handling rules like robust-error-handling or
+  dont-ignore-errors.
+globs: null
 alwaysApply: false
+name: Error Handling Router
+categories:
+  - tools
+  - meta
+  - task
+tags:
+  - mcp
+  - backend
+  - core
+  - router
+lifecycle: active
+verbosity_score: 2
+word_count: 287
+content_themes:
+  - error-handling
+  - rules-management
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.688Z'
 ---
 # Error Handling Guidance - Start Here
 

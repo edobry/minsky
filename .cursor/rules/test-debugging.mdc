@@ -1,7 +1,38 @@
 ---
-description: Use for systematic debugging of bun:test issues and test failures.
-globs:
+description: 'Use for systematic debugging of bun:test issues and test failures.'
+globs: null
 alwaysApply: false
+name: Test Debugging
+categories:
+  - workflow
+  - tools
+  - testing
+tags:
+  - bun
+  - mcp
+  - backend
+  - required
+  - quality
+lifecycle: active
+verbosity_score: 3
+word_count: 980
+content_themes:
+  - task-management
+  - testing
+  - code-organization
+  - error-handling
+cli_commands:
+  - bun test path
+  - bun test path/to/file.test.ts
+  - it.only()
+  - test.only()
+  - const _workspacePath = X
+  - workspacePath
+  - _workspacePath
+  - _result
+  - result
+  - _options
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 # Test Debugging
 

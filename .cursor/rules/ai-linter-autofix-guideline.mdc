@@ -1,7 +1,24 @@
 ---
 description: Use this when dealing with code formatting issues and linter errors in general
-globs:
+globs: null
 alwaysApply: false
+name: Ai Linter Autofix Guideline
+categories:
+  - workflow
+  - documentation
+  - meta
+tags:
+  - ai
+  - required
+  - core
+  - advanced
+  - guidelines
+lifecycle: active
+verbosity_score: 2
+word_count: 305
+content_themes: []
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.686Z'
 ---
 # AI Guideline: Linter Autofixable Formatting
 

@@ -1,6 +1,20 @@
 ---
-description: Use when constructing or concatenating strings in TypeScript code. Prefer template literals over string concatenation
-globs:
+description: >-
+  Use when constructing or concatenating strings in TypeScript code. Prefer
+  template literals over string concatenation
+globs: null
 alwaysApply: false
+name: Template Literals
+categories:
+  - meta
+  - rules
+tags:
+  - meta
+lifecycle: active
+verbosity_score: 1
+word_count: 36
+content_themes: []
+cli_commands: []
+last_analyzed: '2025-07-29T19:44:50.690Z'
 ---
 When constructing strings in TypeScript, especially when doing concatenation/substitution, tend towards using template literals liberally.
