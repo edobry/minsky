@@ -134,8 +134,11 @@ export function registerAiCommands(): void {
           exit(1);
         }
 
-        // Create AI completion service with direct config access
-        const completionService = new DefaultAICompletionService(aiConfig);
+        // Create AI completion service with proper configuration service
+        const configService = new DefaultAIConfigurationService({
+          loadConfiguration: () => Promise.resolve({ resolved: config }),
+        } as any);
+        const completionService = new DefaultAICompletionService(configService);
 
         const request = {
           prompt,
@@ -393,7 +396,7 @@ export function registerAiCommands(): void {
             const providerResult = {
               name: providerName,
               configured: !!providerConfig,
-              hasApiKey: !!providerConfig?.api_key,
+              hasApiKey: !!providerConfig?.apiKey,
               connectionTest: {
                 attempted: false,
                 successful: false,
@@ -401,7 +404,7 @@ export function registerAiCommands(): void {
               },
             };
 
-            if (providerConfig?.api_key) {
+            if (providerConfig?.apiKey) {
               try {
                 providerResult.connectionTest.attempted = true;
                 if (!json) log.cli(`Testing ${providerName}...`);

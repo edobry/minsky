@@ -68,7 +68,11 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   async getDefaultProvider(): Promise<string> {
     try {
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      return (result.resolved.ai as any).default_provider || "openai";
+      return (
+        (result.resolved.ai as any).defaultProvider ||
+        (result.resolved.ai as any).default_provider ||
+        "openai"
+      );
     } catch (error) {
       // Log at debug level only - this is expected when no config exists
       log.systemDebug("No default provider configured, using fallback: openai");
