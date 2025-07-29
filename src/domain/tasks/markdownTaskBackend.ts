@@ -482,8 +482,7 @@ ${description}
   }
 
   /**
-   * Markdown backend always requires special workspace for task operations
-   * All markdown task operations must be performed in the dedicated special workspace
+   * Get backend capabilities
    */
   isInTreeBackend(): boolean {
     return true;

@@ -51,7 +51,7 @@ describe("Enhanced JSON Backend", () => {
     expect(backend.getStorageLocation()).toBe(customDbPath);
   });
 
-  test("should identify as in-tree backend when using special workspace", async () => {
+  test("should identify as in-tree backend when configured appropriately", async () => {
     const backend = createWorkspaceResolvingJsonBackend({
       name: "json-file",
       workspacePath: testDir,

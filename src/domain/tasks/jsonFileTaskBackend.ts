@@ -59,13 +59,13 @@ export class JsonFileTaskBackend implements TaskBackend {
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
 
     // Storage location priority:
-    // 1. Explicitly provided dbFilePath (e.g., from special workspace)
+    // 1. Explicitly provided dbFilePath
     // 2. Team-shareable location in process/ directory
     // 3. Local fallback in .minsky directory
     let dbFilePath: string;
 
     if (options.dbFilePath) {
-      // Use provided path (likely from special workspace or team configuration)
+      // Use provided path from configuration
       dbFilePath = options.dbFilePath;
     } else {
       // Try team-shareable location first

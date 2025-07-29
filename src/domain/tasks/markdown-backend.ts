@@ -1,7 +1,7 @@
 /**
  * Simplified Markdown Task Backend
  *
- * Operates directly in the main workspace without special workspace complexity.
+ * Operates directly in the main workspace.
  */
 
 import { join } from "path";
