@@ -1,4 +1,4 @@
-# Task 162: Research and Design Comprehensive AI Evals Framework for Rules, Context Construction, and Agent Operations
+# Task 162: Implement AI Evals Framework Using Fast-Apply Infrastructure
 
 ## Status
 
@@ -10,136 +10,212 @@ HIGH
 
 ## Description
 
-Design and implement a comprehensive evaluation framework for testing the efficacy of rules, context construction strategies, and agent operations within the Minsky system. This task is **heavily research-focused** and requires deep analysis of the evaluation landscape before any implementation work begins.
+Implement a comprehensive evaluation framework for testing rules, context construction, and agent operations by **leveraging the proven fast-apply infrastructure from Task #249**. This approach reuses our successful Morph integration patterns, type-safe provider registry, and XML prompt structure for rapid, reliable evaluations.
+
+## Foundation: Task #249 Success Patterns
+
+This task directly builds on the successful infrastructure from Task #249:
+
+- **✅ Fast-Apply Integration**: Proven Morph API integration with XML format compliance
+- **✅ Type-Safe Provider Registry**: Compile-time validation for provider implementations  
+- **✅ AI Provider System**: Working completion service and configuration management
+- **✅ CLI Command Framework**: Established patterns for `minsky ai fast-apply` commands
+- **✅ Session Integration**: MCP tools with session path resolution and workspace management
+- **✅ XML Prompt Structure**: Validated `<instruction>`, `<code>`, `<update>` format
 
 ## Objectives
 
-### Primary Research Phase (REQUIRED BEFORE ANY CODE)
+### Leverage Fast-Apply Infrastructure (Task #249 Foundation)
 
-Conduct extensive research into AI evaluation methodologies and frameworks, with particular focus on:
+Build evaluation framework using proven patterns and infrastructure:
 
-1. **AI Evals Approaches & Best Practices**
+1. **Fast-Apply Evaluation Engine**
 
-   - Study various approaches to AI evaluation (accuracy, safety, capability, robustness)
-   - Understand how different organizations approach AI system evaluation
-   - Research methodologies for evaluating agent behavior and rule compliance
-   - Analyze approaches for measuring context construction effectiveness
+   - Extend existing AI provider system to support "evaluation" capability
+   - Use Morph and other fast-apply providers for rapid rule compliance checking
+   - Leverage XML prompt structure: `<instruction>`, `<code>`, `<evaluation>`
+   - Reuse completion service and provider registry architecture
 
-2. **Eval Framework Architecture**
+2. **Type-Safe Evaluation Provider Registry**
 
-   - How are evaluation frameworks typically structured?
-   - What are the key components (data management, execution, reporting, analysis)?
-   - How do evaluation frameworks integrate with existing software development workflows?
-   - What are the performance and scalability considerations?
+   - Extend `PROVIDER_FETCHER_REGISTRY` to include evaluation capabilities
+   - Create `EvaluationProvider` interface similar to `TypedModelFetcher`
+   - Enforce compile-time validation for evaluation provider implementations
+   - Support multiple evaluation backends (Morph, OpenAI, Anthropic)
 
-3. **Integration with Software Testing**
+3. **CLI Evaluation Commands**
 
-   - Do teams typically use existing test frameworks (Jest, Mocha, pytest) for evals?
-   - What are the pros/cons of leveraging test infrastructure vs. specialized eval tools?
-   - How do evaluation suites integrate with CI/CD pipelines?
-   - What testing patterns work well for non-deterministic AI systems?
+   - Implement `minsky eval rule` for rule compliance testing
+   - Create `minsky eval context` for context construction evaluation
+   - Add `minsky eval agent` for end-to-end agent task assessment
+   - Follow same pattern as `minsky ai fast-apply` command structure
 
-4. **Tooling and Infrastructure**
+4. **Session-Aware Evaluation Tools**
 
-   - Research prompt management libraries/frameworks for versioning and reproducibility
-   - Investigate reporting and analytics approaches (dashboards, metrics, trend analysis)
-   - Analyze self-hosted vs. platform-based solutions
-   - Study approaches to eval data management and versioning
+   - Create `session.eval_rule` MCP tool for session-scoped evaluations
+   - Implement `session.eval_context` for context quality assessment
+   - Build `session.eval_output` for validating agent outputs
+   - Reuse session path resolution and workspace management
 
-5. **Evaluation Design Patterns**
-   - How to design meaningful, reliable evaluations for rule compliance
-   - Approaches to measuring context construction quality
-   - Methods for evaluating agent decision-making and task completion
-   - Strategies for handling non-deterministic behavior in evaluations
+5. **XML-Structured Evaluation Prompts**
+
+   - Design evaluation-specific XML schemas for different eval types
+   - Create structured prompts for rule compliance, context quality, output validation
+   - Ensure consistent evaluation criteria across different providers
+   - Support both automated scoring and detailed feedback generation
 
 ## Example Evaluation Types to Support
 
-The framework should eventually support evaluations such as:
+Using fast-apply infrastructure for rapid, reliable evaluations:
 
-1. **Rule Compliance Testing**
+1. **Rule Compliance Testing** (`minsky eval rule`)
 
-   - Given a sample code file and specific change instructions
-   - Verify that particular rules are followed appropriately
-   - Measure consistency of rule application across similar scenarios
-   - Test rule interaction and conflict resolution
+   ```xml
+   <instruction>Evaluate if this code change follows the variable-naming-protocol rule</instruction>
+   <code>Original code here</code>
+   <evaluation>
+   Rule: Variable Naming Protocol
+   Change: [description of change made]
+   Criteria: No underscores added to working variables
+   Score: [0-10] with reasoning
+   </evaluation>
+   ```
 
-2. **Context Construction Efficacy**
+2. **Context Construction Efficacy** (`minsky eval context`)
 
-   - Evaluate whether agents gather sufficient context for decisions
-   - Test context relevance and completeness
-   - Measure efficiency of information gathering strategies
+   ```xml
+   <instruction>Assess context gathering quality for this agent interaction</instruction>
+   <code>Agent session transcript</code>
+   <evaluation>
+   Context Quality Metrics:
+   - Information completeness: [score/reasoning]
+   - Relevance filtering: [score/reasoning]  
+   - Efficiency: [score/reasoning]
+   Overall: [score] with improvement suggestions
+   </evaluation>
+   ```
 
-3. **Agent Task Performance**
+3. **Agent Task Performance** (`minsky eval agent`)
 
-   - End-to-end task completion success rates
-   - Quality of outputs (code, documentation, analysis)
-   - Adherence to workflow protocols and best practices
+   ```xml
+   <instruction>Evaluate agent task completion quality</instruction>
+   <code>Task spec + Agent output</code>
+   <evaluation>
+   Task Completion Assessment:
+   - Requirements met: [checklist]
+   - Code quality: [score/feedback]
+   - Protocol adherence: [score/feedback]
+   - Overall success: [PASS/FAIL] with reasoning
+   </evaluation>
+   ```
 
-4. **Robustness and Edge Cases**
-   - Performance under unusual or challenging conditions
-   - Handling of ambiguous or conflicting instructions
-   - Recovery from errors or unexpected states
+4. **Fast-Apply Edit Quality** (`minsky eval edit`)
 
-## Research Deliverables
+   ```xml
+   <instruction>Assess quality of this fast-apply edit result</instruction>
+   <code>Original + Edit Pattern + Result</code>
+   <evaluation>
+   Edit Quality Metrics:
+   - Accuracy: Did changes match intent?
+   - Completeness: Were all markers handled?
+   - Code quality: Is result syntactically correct?
+   - Score: [0-10] with specific feedback
+   </evaluation>
+   ```
 
-Before any implementation work begins, produce:
+## Implementation Deliverables
 
-1. **Comprehensive Literature Review**
+Building on proven Task #249 patterns and infrastructure:
 
-   - Survey of existing eval frameworks and approaches
-   - Analysis of strengths/weaknesses of different methodologies
-   - Recommendations for our specific use case
+1. **Extended AI Provider System**
 
-2. **Architecture Design Document**
+   - Add `evaluation` capability to existing AI provider types
+   - Extend `PROVIDER_FETCHER_REGISTRY` with evaluation provider support
+   - Create `EvaluationCapability` interface for provider validation
+   - Update `MorphModelFetcher` to support evaluation workflows
 
-   - Proposed framework structure and components
-   - Integration strategy with existing Minsky infrastructure
-   - Data flow and execution model
+2. **CLI Evaluation Commands**
 
-3. **Technology Stack Analysis**
+   - `minsky eval rule --rule-name <rule> --code-file <file> --change-description <desc>`
+   - `minsky eval context --session <session> --interaction-id <id>`
+   - `minsky eval agent --task-spec <file> --agent-output <file>`
+   - `minsky eval edit --original <file> --edit-pattern <file> --result <file>`
 
-   - Evaluation of tools, libraries, and frameworks
-   - Recommendations for prompt management, reporting, and execution
-   - Decision matrix for self-hosted vs. platform solutions
+3. **Session-Aware Evaluation MCP Tools**
 
-4. **Implementation Roadmap**
-   - Phased approach to building the framework
-   - Dependencies and prerequisites
-   - Success metrics and validation criteria
+   - `session.eval_rule` - Evaluate rule compliance in session context
+   - `session.eval_context` - Assess context construction quality
+   - `session.eval_output` - Validate agent outputs against specifications
+   - Integration with existing session path resolution and workspace management
+
+4. **XML Evaluation Prompt Templates**
+
+   - Standardized XML schemas for each evaluation type
+   - Template system for consistent evaluation criteria
+   - Provider-agnostic prompt generation using existing completion service
+   - Support for both scoring and detailed feedback modes
 
 ## Constraints
 
-- **NO CODE IMPLEMENTATION** until research phase is complete and reviewed
-- Focus on approaches that don't require hosted platforms (self-contained solutions preferred)
-- Must integrate well with existing Minsky architecture and tooling
-- Should leverage TypeScript/Bun ecosystem where possible
-- Must support reproducible, versioned evaluations
+- **Leverage existing Task #249 infrastructure** - reuse proven patterns and code
+- Use fast-apply providers (Morph, etc.) for rapid evaluation execution
+- Must integrate seamlessly with existing Minsky architecture and tooling
+- Leverage TypeScript/Bun ecosystem and existing AI provider system
+- Support reproducible, versioned evaluations using XML structured prompts
+- Maintain type safety with compile-time validation for evaluation providers
 
-## Research Questions to Address
+## Implementation Approach
 
-1. What evaluation methodologies are most effective for rule-based AI systems?
-2. How can we ensure eval reproducibility and consistency over time?
-3. What metrics best capture rule compliance and context construction quality?
-4. How should we handle the inherent variability in LLM responses?
-5. What's the right balance between comprehensive evaluation and execution speed?
-6. How can we make evaluations actionable for improving rules and agent behavior?
+Building on successful Task #249 patterns:
+
+1. **Reuse AI Provider Infrastructure**: Extend existing provider registry and completion service
+2. **XML Prompt Structure**: Use proven `<instruction>`, `<code>`, `<evaluation>` format
+3. **CLI Command Pattern**: Follow `minsky ai fast-apply` command structure and design
+4. **Session Integration**: Leverage existing session path resolution and MCP tool patterns
+5. **Type Safety**: Extend type-safe provider registry to include evaluation capabilities
+6. **Configuration Reuse**: Use existing AI provider configuration system
 
 ## Success Criteria
 
-- Comprehensive understanding of eval framework landscape
-- Clear architectural vision for Minsky-specific implementation
-- Technology stack recommendations with justification
-- Detailed implementation plan with realistic timelines
-- Framework design that addresses our specific evaluation needs
+- **✅ Working CLI Commands**: `minsky eval rule/context/agent/edit` commands functional
+- **✅ Session Integration**: Evaluation MCP tools working in session workflows  
+- **✅ Fast-Apply Integration**: Morph and other providers executing evaluations rapidly
+- **✅ Type Safety**: Compile-time validation for evaluation provider implementations
+- **✅ XML Compliance**: Structured evaluation prompts following proven format
+- **✅ Provider Extensibility**: Easy to add new evaluation providers and capabilities
 
 ## Dependencies
 
-- Understanding of current Minsky rule system and agent architecture
-- Access to representative scenarios and use cases for testing
-- Ability to analyze existing agent interactions and outcomes
+- **Task #249**: Fast-apply infrastructure must be completed and stable
+- Access to Morph and other fast-apply providers for evaluation execution
+- Understanding of current Minsky rule system and agent architecture  
+- Existing AI provider configuration and completion service infrastructure
+- Session management and MCP tool framework
+
+## Implementation Plan
+
+### Phase 1: Core Infrastructure Extension
+1. Extend AI provider types to include `evaluation` capability
+2. Update `PROVIDER_FETCHER_REGISTRY` with evaluation provider support
+3. Create `EvaluationCapability` interface and validation logic
+
+### Phase 2: CLI Evaluation Commands  
+1. Implement `minsky eval rule` command using existing CLI patterns
+2. Add `minsky eval context`, `minsky eval agent`, `minsky eval edit` commands
+3. Create XML prompt templates for each evaluation type
+
+### Phase 3: Session Integration
+1. Implement `session.eval_rule` MCP tool
+2. Add `session.eval_context` and `session.eval_output` tools
+3. Integrate with existing session path resolution and workspace management
+
+### Phase 4: Provider Integration & Testing
+1. Update `MorphModelFetcher` to support evaluation workflows
+2. Test evaluation commands with real Morph API integration
+3. Add support for other evaluation-capable providers
 
 ## Notes
 
-This task represents a significant investment in understanding the evaluation problem space before committing to any particular implementation approach. The research phase is critical for making informed decisions about framework design and avoiding costly architectural mistakes.
+This task leverages the **proven success patterns from Task #249** to rapidly implement a comprehensive evaluation framework. By reusing existing infrastructure (AI providers, XML prompts, CLI patterns, session tools), we avoid the research overhead and architectural risk of building from scratch.
 
-The evaluation framework will ultimately be a foundational component for improving Minsky's effectiveness, so thorough research and thoughtful design are essential.
+The evaluation framework will immediately benefit from fast-apply provider speeds and reliability, while maintaining type safety and extensibility for future enhancements.
