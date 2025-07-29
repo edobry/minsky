@@ -10,6 +10,7 @@ import { updateSessionFromParams } from "./session";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/index";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../utils/test-utils/assertions";
+import * as execUtils from "../utils/exec";
 
 // Set up automatic mock cleanup
 setupTestMocks();

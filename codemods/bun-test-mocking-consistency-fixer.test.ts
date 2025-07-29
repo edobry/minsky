@@ -172,8 +172,8 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       const results = fixMockingConsistency(["/nonexistent/file.test.ts"]);
 
       expect(results.length).toBe(1);
-      expect(results[0].result.changed).toBe(false);
-      expect(results[0].result.reason).toContain("Error");
+      expect(results[0].changed).toBe(false);
+      expect(results[0].reason).toContain("Error");
     });
   });
 
