@@ -77,8 +77,9 @@ export async function listTasksFromParams(
     let tasks = await taskService.listTasks();
 
     // Apply filters
-    if (validParams.status && validParams.status.length > 0) {
-      tasks = tasks.filter((task) => validParams.status!.includes(task.status));
+    if (validParams.filter) {
+      const filterValue = validParams.filter as string;
+      tasks = tasks.filter((task) => task.status === filterValue);
     }
 
     if (validParams.all !== true) {
