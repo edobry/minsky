@@ -26,6 +26,7 @@ import {
   RULE_NAME_DESCRIPTION,
   OVERWRITE_DESCRIPTION,
 } from "../../../utils/option-descriptions";
+import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
 
 /**
  * Parameters for the rules list command
@@ -37,30 +38,16 @@ type RulesListParams = {
   debug?: boolean;
 };
 
-const rulesListCommandParams: CommandParameterMap = {
-  format: {
-    schema: z.string().optional(),
-    description: RULE_FORMAT_DESCRIPTION,
-    required: false,
+const rulesListCommandParams: CommandParameterMap = composeParams(
+  {
+    format: RulesParameters.format,
+    tag: RulesParameters.tag,
   },
-  tag: {
-    schema: z.string().optional(),
-    description: RULE_TAGS_DESCRIPTION,
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  debug: {
-    schema: z.boolean(),
-    description: "Enable debug output",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    json: CommonParameters.json,
+    debug: CommonParameters.debug,
+  }
+);
 
 /**
  * Parameters for the rules get command
@@ -72,30 +59,16 @@ type RulesGetParams = {
   debug?: boolean;
 };
 
-const rulesGetCommandParams: CommandParameterMap = {
-  id: {
-    schema: z.string().min(1),
-    description: "Rule ID",
-    required: true,
+const rulesGetCommandParams: CommandParameterMap = composeParams(
+  {
+    id: RulesParameters.id,
+    format: RulesParameters.format,
   },
-  format: {
-    schema: z.string().optional(),
-    description: "Preferred rule format (cursor or generic)",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  debug: {
-    schema: z.boolean(),
-    description: "Enable debug output",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    json: CommonParameters.json,
+    debug: CommonParameters.debug,
+  }
+);
 
 /**
  * Parameters for the rules create command
@@ -112,55 +85,29 @@ type RulesCreateParams = {
   json?: boolean;
 };
 
-const rulesCreateCommandParams: CommandParameterMap = {
-  id: {
-    schema: z.string().min(1),
-    description: "ID of the rule to create",
-    required: true,
+const rulesCreateCommandParams: CommandParameterMap = composeParams(
+  {
+    id: RulesParameters.id,
+    content: RulesParameters.content,
+    description: {
+      schema: z.string().optional(),
+      description: RULE_DESCRIPTION_DESCRIPTION,
+      required: false,
+    },
+    name: {
+      schema: z.string().optional(),
+      description: RULE_NAME_DESCRIPTION,
+      required: false,
+    },
+    globs: RulesParameters.globs,
+    tags: RulesParameters.tags,
+    format: RulesParameters.format,
   },
-  content: {
-    schema: z.string(),
-    description: RULE_CONTENT_DESCRIPTION,
-    required: true,
-  },
-  description: {
-    schema: z.string().optional(),
-    description: RULE_DESCRIPTION_DESCRIPTION,
-    required: false,
-  },
-  name: {
-    schema: z.string().optional(),
-    description: RULE_NAME_DESCRIPTION,
-    required: false,
-  },
-  globs: {
-    schema: z.string().optional(),
-    description: "Comma-separated list or JSON array of glob patterns to match files",
-    required: false,
-  },
-  tags: {
-    schema: z.string().optional(),
-    description: RULE_TAGS_DESCRIPTION,
-    required: false,
-  },
-  format: {
-    schema: z.string().optional(),
-    description: RULE_FORMAT_DESCRIPTION,
-    required: false,
-  },
-  overwrite: {
-    schema: z.boolean(),
-    description: OVERWRITE_DESCRIPTION,
-    required: false,
-    defaultValue: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    overwrite: CommonParameters.overwrite,
+    json: CommonParameters.json,
+  }
+);
 
 /**
  * Parameters for the rules update command
@@ -177,55 +124,33 @@ type RulesUpdateParams = {
   debug?: boolean;
 };
 
-const rulesUpdateCommandParams: CommandParameterMap = {
-  id: {
-    schema: z.string().min(1),
-    description: "ID of the rule to update",
-    required: true,
+const rulesUpdateCommandParams: CommandParameterMap = composeParams(
+  {
+    id: RulesParameters.id,
+    content: {
+      schema: z.string().optional(),
+      description: RULE_CONTENT_DESCRIPTION,
+      required: false,
+    },
+    description: {
+      schema: z.string().optional(),
+      description: RULE_DESCRIPTION_DESCRIPTION,
+      required: false,
+    },
+    name: {
+      schema: z.string().optional(),
+      description: RULE_NAME_DESCRIPTION,
+      required: false,
+    },
+    globs: RulesParameters.globs,
+    tags: RulesParameters.tags,
+    format: RulesParameters.format,
   },
-  content: {
-    schema: z.string().optional(),
-    description: RULE_CONTENT_DESCRIPTION,
-    required: false,
-  },
-  description: {
-    schema: z.string().optional(),
-    description: RULE_DESCRIPTION_DESCRIPTION,
-    required: false,
-  },
-  name: {
-    schema: z.string().optional(),
-    description: RULE_NAME_DESCRIPTION,
-    required: false,
-  },
-  globs: {
-    schema: z.string().optional(),
-    description: "Comma-separated list or JSON array of glob patterns to match files",
-    required: false,
-  },
-  tags: {
-    schema: z.string().optional(),
-    description: RULE_TAGS_DESCRIPTION,
-    required: false,
-  },
-  format: {
-    schema: z.string().optional(),
-    description: RULE_FORMAT_DESCRIPTION,
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  debug: {
-    schema: z.boolean(),
-    description: "Enable debug output",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    json: CommonParameters.json,
+    debug: CommonParameters.debug,
+  }
+);
 
 /**
  * Parameters for the rules search command
@@ -238,35 +163,17 @@ type RulesSearchParams = {
   debug?: boolean;
 };
 
-const rulesSearchCommandParams: CommandParameterMap = {
-  query: {
-    schema: z.string().optional(),
-    description: "Search query term",
-    required: false,
+const rulesSearchCommandParams: CommandParameterMap = composeParams(
+  {
+    query: RulesParameters.query,
+    format: RulesParameters.format,
+    tag: RulesParameters.tag,
   },
-  format: {
-    schema: z.string().optional(),
-    description: "Filter by rule format (cursor or generic)",
-    required: false,
-  },
-  tag: {
-    schema: z.string().optional(),
-    description: "Filter by tag",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  debug: {
-    schema: z.boolean(),
-    description: "Enable debug output",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    json: CommonParameters.json,
+    debug: CommonParameters.debug,
+  }
+);
 
 /**
  * Register the rules commands in the shared command registry
