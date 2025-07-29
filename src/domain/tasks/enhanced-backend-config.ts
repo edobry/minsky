@@ -30,7 +30,7 @@ export interface WorkspaceResolvingMarkdownConfig extends Omit<TaskBackendConfig
    * Whether to force use of special workspace even if local tasks.md exists
    * Default: false (use local if available)
    */
-  forceSpecialWorkspace?: boolean;
+  // forceSpecialWorkspace removed - simplified architecture
 }
 
 /**
