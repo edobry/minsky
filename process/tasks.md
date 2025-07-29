@@ -600,6 +600,6 @@
 
 - [+] Move AI commands from CORE category to dedicated AI category for better UX and discoverability [#341](process/tasks/341-move-ai-commands-from-core-category-to-dedicated-ai-category-for-better-ux-and-discoverability.md)
 
-- [+] Fix configuration validation to ignore unknown fields [#342](process/tasks/342-fix-configuration-validation-to-ignore-unknown-fields.md)
+- [-] Fix configuration validation to ignore unknown fields [#342](process/tasks/342-fix-configuration-validation-to-ignore-unknown-fields.md)
 
 - [-] Fix configuration validation to ignore unknown fields [#343](process/tasks/343-fix-configuration-validation-to-ignore-unknown-fields.md)
