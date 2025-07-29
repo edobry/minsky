@@ -13,6 +13,14 @@ All notable changes to this project will be documented in this file.
   - Consistent masking across CLI and MCP interfaces
 
 ### Added
+- **Domain-Wide Schema Libraries for Cross-Interface Type Composition** (#329): Implemented comprehensive schema architecture that extends Task #322's type composition patterns to work across CLI, MCP, and future API interfaces:
+  - Created modular schema libraries in `src/domain/schemas/` covering tasks, sessions, files, and common types
+  - Established interface-agnostic design patterns for consistent validation across all interfaces
+  - Built comprehensive validation utilities with standardized error handling and CLI argument transformation
+  - Added extensive documentation with usage examples and migration guide
+  - Benefits: Code reuse, type safety, consistency, maintainability, and extensibility
+  - All schemas tested and verified working correctly
+
 - **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
 
 - **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
