@@ -688,8 +688,8 @@ export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): T
 /**
  * Configure workspace and database file path for JSON backend
  */
-async function configureJsonBackendWorkspace(config: any): Promise<JsonFileTaskBackendOptions> {
-  // 1. Explicit workspace path override
+function configureJsonBackendWorkspace(config: any): JsonFileTaskBackendOptions {
+  // 1. Use explicitly provided workspace path
   if (config.workspacePath) {
     const dbFilePath = config.dbFilePath || join(config.workspacePath, "process", "tasks.json");
     return {
@@ -699,42 +699,10 @@ async function configureJsonBackendWorkspace(config: any): Promise<JsonFileTaskB
     };
   }
 
-  // 2. Repository URL provided - use special workspace
-  if (config.repoUrl) {
-    const { createSpecialWorkspaceManager } = await import(
-      "../workspace/special-workspace-manager"
-    );
-    const specialWorkspaceManager = createSpecialWorkspaceManager({
-      repoUrl: config.repoUrl,
-    });
-
-    // Initialize the workspace if it doesn't exist
-    await specialWorkspaceManager.initialize();
-
-    const workspacePath = specialWorkspaceManager.getWorkspacePath();
-    const dbFilePath = config.dbFilePath || join(workspacePath, "process", "tasks.json");
-
-    return {
-      ...config,
-      workspacePath,
-      dbFilePath,
-    };
-  }
-
-  // 3. Check for local tasks.json file in process directory
+  // 2. Use current working directory as default
   const currentDir = (process as any).cwd();
-  const localTasksPath = join(currentDir, "process", "tasks.json");
-
-  if (existsSync(localTasksPath)) {
-    return {
-      ...config,
-      workspacePath: currentDir,
-      dbFilePath: config.dbFilePath || localTasksPath,
-    };
-  }
-
-  // 4. Default to current directory
   const dbFilePath = config.dbFilePath || join(currentDir, "process", "tasks.json");
+
   return {
     ...config,
     workspacePath: currentDir,
@@ -745,8 +713,8 @@ async function configureJsonBackendWorkspace(config: any): Promise<JsonFileTaskB
 /**
  * Create a JSON backend with workspace and storage configuration
  */
-export async function createJsonBackendWithConfig(config: any): Promise<TaskBackend> {
-  const backendConfig = await configureJsonBackendWorkspace(config);
+export function createJsonBackendWithConfig(config: any): TaskBackend {
+  const backendConfig = configureJsonBackendWorkspace(config);
 
   log.debug("JSON backend configured", {
     workspacePath: backendConfig.workspacePath,

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { createJsonBackend } from "../json-backend";
+import { createWorkspaceResolvingJsonBackend } from "./json-backend";
 import { rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
@@ -21,7 +21,7 @@ describe("Enhanced JSON Backend", () => {
   });
 
   test("should create backend with explicit workspace path", async () => {
-    const backend = await createWorkspaceResolvingJsonBackend({
+    const backend = createWorkspaceResolvingJsonBackend({
       name: "json-file",
       workspacePath: testDir,
       dbFilePath: join(testDir, "custom-tasks.json"),
@@ -32,7 +32,7 @@ describe("Enhanced JSON Backend", () => {
   });
 
   test("should resolve workspace using current directory", async () => {
-    const backend = await createWorkspaceResolvingJsonBackend({
+    const backend = createWorkspaceResolvingJsonBackend({
       name: "json-file",
     });
 
@@ -42,20 +42,20 @@ describe("Enhanced JSON Backend", () => {
 
   test("should handle database file path configuration", async () => {
     const customDbPath = join(testDir, "my-tasks.json");
-    const backend = (await createWorkspaceResolvingJsonBackend({
+    const backend = createWorkspaceResolvingJsonBackend({
       name: "json-file",
       workspacePath: testDir,
       dbFilePath: customDbPath,
-    })) as any;
+    }) as any;
 
     expect(backend.getStorageLocation()).toBe(customDbPath);
   });
 
   test("should identify as in-tree backend when using special workspace", async () => {
-    const backend = (await createWorkspaceResolvingJsonBackend({
+    const backend = createWorkspaceResolvingJsonBackend({
       name: "json-file",
       workspacePath: testDir,
-    })) as any;
+    }) as any;
 
     expect(backend.isInTreeBackend()).toBe(true);
   });

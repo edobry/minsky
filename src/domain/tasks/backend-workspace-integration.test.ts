@@ -190,7 +190,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     test("should handle workspace resolution internally with explicit path", async () => {
       const { createMarkdownBackend } = await import("./markdown-backend");
 
-      const backend = await createMarkdownBackend({
+      const backend = createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir,
       });
@@ -206,7 +206,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     test("should handle current directory workspace resolution", async () => {
       const { createMarkdownBackend } = await import("./markdown-backend");
 
-      const backend = await createMarkdownBackend({
+      const backend = createMarkdownBackend({
         name: "markdown",
         // No explicit config - should use current directory
       });
@@ -221,7 +221,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     test.skip("should handle special workspace resolution with repo URL", async () => {
       const { createMarkdownBackend } = await import("./markdown-backend");
 
-      const backend = await createMarkdownBackend({
+      const backend = createMarkdownBackend({
         name: "markdown",
         repoUrl: "https://github.com/test/repo.git",
       });
@@ -237,7 +237,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
     test("should work with task operations", async () => {
       const { createMarkdownBackend } = await import("./markdown-backend");
 
-      const backend = await createMarkdownBackend({
+      const backend = createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir,
       });
@@ -257,7 +257,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       const { createMarkdownBackend } = await import("./markdown-backend");
 
       // One-step creation - no resolveTaskWorkspacePath needed
-      const backend = await createMarkdownBackend({
+      const backend = createMarkdownBackend({
         name: "markdown",
         workspacePath: tempDir,
       });
@@ -277,7 +277,7 @@ describe("Target Backend Architecture - Self-Contained Workspace Resolution", ()
       const { createMarkdownBackend } = await import("./markdown-backend");
 
       // One-step creation with repo URL
-      const backend = await createMarkdownBackend({
+      const backend = createMarkdownBackend({
         name: "markdown",
         repoUrl: "https://github.com/test/repo.git",
       });
