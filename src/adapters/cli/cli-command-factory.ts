@@ -528,6 +528,133 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
     },
   });
 
+  // Rules commands customization
+  cliFactory.customizeCategory(CommandCategory.RULES, {
+    commandOptions: {
+      "rules.generate": {
+        parameters: {
+          interface: {
+            description: "Interface preference (cli, mcp, or hybrid)",
+          },
+          rules: {
+            description: "Comma-separated list of specific rule templates to generate",
+          },
+          outputDir: {
+            description: "Output directory for generated rules",
+          },
+          dryRun: {
+            alias: "n",
+            description: "Show what would be generated without creating files",
+          },
+          overwrite: {
+            description: "Overwrite existing rule files",
+          },
+          format: {
+            description: "Rule format (cursor or openai)",
+          },
+          preferMcp: {
+            description: "In hybrid mode, prefer MCP commands over CLI",
+          },
+          mcpTransport: {
+            description: "MCP transport method (stdio or http)",
+          },
+        },
+      },
+      "rules.list": {
+        parameters: {
+          format: {
+            description: "Filter by rule format (cursor or generic)",
+          },
+          tag: {
+            description: "Filter by tag",
+          },
+        },
+      },
+      "rules.get": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          id: {
+            asArgument: true,
+            description: "Rule ID",
+          },
+          format: {
+            description: "Preferred rule format (cursor or generic)",
+          },
+        },
+      },
+      "rules.create": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          id: {
+            asArgument: true,
+            description: "ID of the rule to create",
+          },
+          content: {
+            description: "Rule content (can be a file path starting with @)",
+          },
+          description: {
+            description: "Description of the rule",
+          },
+          name: {
+            description: "Display name for the rule",
+          },
+          globs: {
+            description: "Comma-separated list of glob patterns",
+          },
+          tags: {
+            description: "Comma-separated list of tags",
+          },
+          format: {
+            description: "Rule format (cursor or generic)",
+          },
+          overwrite: {
+            description: "Overwrite existing rule if it exists",
+          },
+        },
+      },
+      "rules.update": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          id: {
+            asArgument: true,
+            description: "ID of the rule to update",
+          },
+          content: {
+            description: "Updated rule content (can be a file path starting with @)",
+          },
+          description: {
+            description: "Updated description of the rule",
+          },
+          name: {
+            description: "Updated display name for the rule",
+          },
+          globs: {
+            description: "Updated comma-separated list of glob patterns",
+          },
+          tags: {
+            description: "Updated comma-separated list of tags",
+          },
+          format: {
+            description: "Updated rule format (cursor or generic)",
+          },
+        },
+      },
+      "rules.search": {
+        parameters: {
+          query: {
+            description: "Search query term",
+          },
+          tag: {
+            description: "Filter by tag",
+          },
+          format: {
+            description: "Filter by rule format (cursor or generic)",
+          },
+        },
+      },
+    },
+  });
+
   // SessionDB commands customization
   cliFactory.customizeCategory(CommandCategory.SESSIONDB, {
     commandOptions: {
@@ -831,14 +958,10 @@ function formatConfigSection(config: any): string {
     }
   }
 
-  return output.trimEnd();
+  return output;
 }
 
 function sanitizeCredentials(creds: any): any {
-  if (!creds || typeof creds !== "object") {
-    return creds;
-  }
-
   const sanitized = { ...creds };
   if (sanitized.token) {
     sanitized.token = `${"*".repeat(20)} (hidden)`;
@@ -871,12 +994,6 @@ function formatFlattenedConfiguration(resolved: any): string {
             }
           });
         }
-      } else if (
-        typeof value === "string" &&
-        (fullKey.includes("token") || fullKey.includes("password"))
-      ) {
-        // Hide sensitive values
-        result.push(`${fullKey}=*** (hidden)`);
       } else {
         result.push(`${fullKey}=${value}`);
       }
