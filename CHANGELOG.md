@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
   - Auto-detection of current session context when no session specified
   - Proper integration with shared command registry and CLI/MCP interfaces
 
+- **Task #338 - MCP Temporary File Creation Command**: Created comprehensive issue for implementing a new MCP command `files.createTemp` that creates temporary files for AI and external tool workflows. Includes detailed requirements for security, error handling, customizable parameters (prefix, suffix, content), and integration with existing temporary file utilities.
+
 - **Domain-Wide Schema Libraries for Cross-Interface Type Composition** (#329): Implemented comprehensive schema architecture that extends Task #322's type composition patterns to work across CLI, MCP, and future API interfaces:
 
   - Created modular schema libraries in `src/domain/schemas/` covering tasks, sessions, files, and common types

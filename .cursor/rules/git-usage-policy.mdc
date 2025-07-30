@@ -1,7 +1,3 @@
----
-name: Git Usage Policy
-description: REQUIRED when executing Git commands
----
 # Git Usage Policy
 # Git Usage Policy
 # Git Usage Policy
@@ -148,6 +144,50 @@ Accidental or unapproved use of `git push --force` that results in data loss or 
 - Notification to the USER and affected team members.
 - An immediate review and update of this (`git-usage-policy`) and related rules (e.g., `self-improvement`) to prevent recurrence.
 
+## ⚠️ Precision Requirements for Destructive Git Operations
+
+**CRITICAL**: When user specifies precision requirements (e.g., "surgical", "targeted", "precise"), the approach MUST match the specified precision level, not default to most comprehensive methods.
+
+### Surgical Operation Protocol
+
+When user requests "SURGICAL" approach:
+
+1. **Identify Minimal Scope**: Determine exact commits/files that need modification
+2. **Choose Least Invasive Tool**: 
+   - `git rebase -i` for specific commit edits
+   - Manual file edits for content changes
+   - Targeted `git filter-repo --refs <range>` for limited history modification
+   - **NEVER** global `git filter-repo` on entire repository history
+
+3. **Verify Scope Before Execution**: "This will affect N commits in range X-Y"
+4. **Confirm Approach**: Ensure method matches user's precision requirement
+
+### Tool Selection Hierarchy for Credential Removal
+
+**User says "surgical"**:
+- `git rebase -i <commit-range>` for interactive editing
+- Manual file edits + `git commit --amend` for recent commits  
+- `git filter-repo --refs <specific-range>` for targeted history modification
+
+**User says "comprehensive" or "clean everything"**:
+- Global `git filter-repo` (with explicit confirmation of scope)
+
+### Critical Anti-Pattern
+
+**PROHIBITED**: Using comprehensive tools when surgical precision is requested
+- ❌ User says "surgical" → Running `git filter-repo` on entire 6,890 commit history
+- ❌ Defaulting to most thorough approach when precision is specified
+- ❌ Ignoring scope limitations in favor of completeness
+
+### Recovery Strategy Integration
+
+For surgical operations that fail:
+- Session workspaces at `~/.local/state/minsky/sessions/` provide recovery snapshots
+- Reset to safe commit and cherry-pick clean changes
+- Use targeted approach on restored repository state
+
+**CRITICAL**: Precision requirement violations constitute immediate safety protocol failures.
+
 ## General Git Best Practices
 
 - **Commit Frequently**: Make small, atomic commits with clear, descriptive messages.
@@ -168,6 +208,10 @@ Accidental or unapproved use of `git push --force` that results in data loss or 
 
 
 ## See Also
+
+- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
+- `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
+
 
 - `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
 - `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
