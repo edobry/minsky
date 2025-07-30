@@ -18,6 +18,7 @@
 **Primary Tool**: Implement `detect-secrets` or `gitleaks` with husky pre-commit hooks
 
 **Must scan for:**
+
 - OpenAI API keys (`sk-proj-`, `sk-`)
 - GitHub Personal Access Tokens (`github_pat_`, `ghp_`)
 - Anthropic API keys (`sk-ant-`)
@@ -28,10 +29,12 @@
 ### 2. Integration with Existing Husky Setup
 
 **Current husky hooks:**
+
 - `.husky/pre-commit` (ESLint, variable naming checks)
 - `.husky/commit-msg` (commit message validation)
 
 **Add to pre-commit workflow:**
+
 ```bash
 # Secret scanning (must run BEFORE any other checks)
 echo "🔍 Scanning for secrets..."
@@ -41,11 +44,13 @@ detect-secrets scan --all-files --baseline .secrets.baseline || exit 1
 ### 3. Configuration Requirements
 
 **Baseline Configuration** (`.secrets.baseline`):
+
 - Allow known safe patterns (placeholder examples)
 - Whitelist test fixtures with fake credentials
 - Configure appropriate sensitivity levels
 
 **Scanner Configuration**:
+
 - Scan all file types (especially `.md`, `.ts`, `.yaml`, `.json`)
 - Include process/tasks/ directory (high risk area)
 - Exclude node_modules/, .git/, build artifacts
@@ -53,6 +58,7 @@ detect-secrets scan --all-files --baseline .secrets.baseline || exit 1
 ### 4. Emergency Response Integration
 
 **If secrets detected:**
+
 1. **BLOCK commit immediately** with clear error message
 2. **List exact files and line numbers** containing secrets
 3. **Provide remediation guidance** (sanitize with placeholders)
@@ -61,6 +67,7 @@ detect-secrets scan --all-files --baseline .secrets.baseline || exit 1
 ### 5. Developer Workflow Integration
 
 **Setup Commands**:
+
 ```bash
 # Initialize baseline (one-time setup)
 detect-secrets scan --all-files --baseline .secrets.baseline
@@ -71,6 +78,7 @@ detect-secrets scan --all-files --baseline .secrets.baseline
 ```
 
 **Documentation Updates**:
+
 - Add security section to main README
 - Document how to handle false positives
 - Include examples of safe placeholder patterns
@@ -80,6 +88,7 @@ detect-secrets scan --all-files --baseline .secrets.baseline
 ### 1. Tool Selection
 
 **Primary Choice**: `detect-secrets` (more configurable than gitleaks)
+
 ```bash
 npm install --save-dev detect-secrets
 # or
@@ -91,6 +100,7 @@ pip install detect-secrets
 ### 2. Husky Integration
 
 **Update `.husky/pre-commit`**:
+
 ```bash
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
@@ -115,6 +125,7 @@ fi
 ### 3. Baseline Configuration
 
 **Initial `.secrets.baseline`**:
+
 - Scan current repository state
 - Mark known safe examples as allowed
 - Configure plugin settings for various secret types

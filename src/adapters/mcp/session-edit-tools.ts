@@ -10,13 +10,16 @@ import { log } from "../../utils/logger";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";
+import { FileEditSchema } from "../../domain/schemas";
+import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
+
+// Import schemas that haven't been migrated yet
 import {
-  SessionFileEditSchema,
   SessionSearchReplaceSchema,
-  type SessionFileEdit,
+  SessionFileEditSchema,
   type SessionSearchReplace,
+  type SessionFileEdit,
 } from "./schemas/common-parameters";
-import { createFileOperationResponse, createErrorResponse } from "./schemas/common-responses";
 
 /**
  * Interface for edit file operation - now using shared type
@@ -115,7 +118,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           contentLength: finalContent.length,
         });
 
-        return createFileOperationResponse(
+        return createSuccessResponse(
           {
             path: args.path,
             session: args.sessionName,
@@ -184,7 +187,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           replaceLength: args.replace.length,
         });
 
-        return createFileOperationResponse(
+        return createSuccessResponse(
           {
             path: args.path,
             session: args.sessionName,
@@ -235,9 +238,7 @@ async function applyEditPattern(originalContent: string, editContent: string): P
   // Find fast-apply capable provider (currently Morph, extendable to others)
   const fastApplyProviders = Object.entries(aiConfig.providers)
     .filter(
-      ([name, providerConfig]) =>
-        providerConfig?.enabled &&
-        name === "morph" // Add other fast-apply providers here as needed
+      ([name, providerConfig]) => providerConfig?.enabled && name === "morph" // Add other fast-apply providers here as needed
     )
     .map(([name]) => name);
 
@@ -254,14 +255,14 @@ async function applyEditPattern(originalContent: string, editContent: string): P
   } else {
     // Fallback to default provider
     provider = aiConfig.defaultProvider || "anthropic";
-    
+
     // Simple fallback - try to find an enabled provider with API key
     const fallbackConfig = aiConfig.providers[provider];
     if (!fallbackConfig?.enabled || !fallbackConfig?.apiKey) {
       // Try Anthropic as ultimate fallback
       provider = "anthropic";
     }
-    
+
     log.debug(`Fast-apply providers unavailable, using fallback provider: ${provider}`);
   }
 
@@ -304,12 +305,15 @@ Instructions:
   const result = response.content.trim();
 
   // Log usage for monitoring
-  log.debug(`Edit completed using ${isFastApply ? "fast-apply" : "fallback"} provider: ${provider}`, {
-    tokensUsed: response.usage.totalTokens,
-    originalLength: originalContent.length,
-    resultLength: result.length,
-    isFastApply,
-  });
+  log.debug(
+    `Edit completed using ${isFastApply ? "fast-apply" : "fallback"} provider: ${provider}`,
+    {
+      tokensUsed: response.usage.totalTokens,
+      originalLength: originalContent.length,
+      resultLength: result.length,
+      isFastApply,
+    }
+  );
 
   return result;
 }

@@ -6,8 +6,8 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
-import type { SessionStartParams } from "../../schemas/session";
+import { TaskIdSchema } from "../../domain/schemas";
+import type { SessionStartParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { installDependencies } from "../../utils/package-manager";
 import { type GitServiceInterface } from "../git";
@@ -31,7 +31,7 @@ export interface StartSessionDependencies {
  * Extracted from session.ts for better maintainability
  */
 export async function startSessionImpl(
-  params: SessionStartParams,
+  params: SessionStartParameters,
   deps: StartSessionDependencies
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
@@ -116,7 +116,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
-      const normalizedTaskId = taskIdSchema.parse(taskId);
+      const normalizedTaskId = TaskIdSchema.parse(taskId);
       taskId = normalizedTaskId;
 
       // Verify the task exists

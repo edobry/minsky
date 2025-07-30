@@ -582,18 +582,25 @@
 
 - [x] Extend type composition refactoring to other MCP command domains [#328](process/tasks/328-extend-type-composition-refactoring-to-other-mcp-command-domains.md)
 
-- [ ] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
+- [x] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
 - [ ] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
-- [+] Categorize and audit rule templates for redundancy analysis [#336](process/tasks/336-categorize-and-audit-rule-templates-for-redundancy-analysis.md)
+- [x] Implement Pre-Commit Secret Scanning with Husky [#341](process/tasks/341-implement-pre-commit-secret-scanning-with-husky.md)
 
-- [+] URGENT: Fix security vulnerability in config list command [#337](process/tasks/337-urgent-fix-security-vulnerability-in-config-list-command.md)
+- [x] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
 
-- [ ] Improve config list command user experience [#338](process/tasks/338-improve-config-list-command-user-experience.md)
+- [ ] Exclude Content Field from Rules.list Command Output [#345](process/tasks/345-exclude-content-field-from-rules-list-command-output.md)
 
-- [ ] Add configuration management subcommands [#339](process/tasks/339-add-configuration-management-subcommands.md)
+- [ ] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
 
-- [ ] Update documentation for enhanced configuration system [#340](process/tasks/340-update-documentation-for-enhanced-configuration-system.md)
+- [ ] Analyze Command Registration Architecture for Simplification [#348](process/tasks/348-analyze-command-registration-architecture-for-simplification.md)
+
+- [ ] Analyze Cursor Chat History to Understand Agent OODA Loop Logic [#349](process/tasks/349-analyze-cursor-chat-history-to-understand-agent-ooda-loop-logic.md)
+
+- [ ] Explore Active Sessions Command and Task/Session Equivalence Analysis [#350](process/tasks/350-explore-active-sessions-command-and-task-session-equivalence-analysis.md)
+
+- [+] Improve configuration validation system: integrate proper logging, add strictness controls, improve type safety, and document behavior for unknown config fields [#351](process/tasks/351-improve-configuration-validation-system-integrate-proper-logging-add-strictness-controls-improve-type-safety-and-document-behavior-for-unknown-config-fields.md)
+- [ ] Implement session cleanup with validation [#353](process/tasks/353-implement-session-cleanup-with-validation.md)

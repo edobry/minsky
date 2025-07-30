@@ -9,7 +9,7 @@ import {
   getErrorMessage,
   createCommandFailureMessage,
 } from "../../errors/index";
-import type { SessionUpdateParams } from "../../schemas/session";
+import type { SessionUpdateParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { getCurrentSession } from "../workspace";
@@ -30,7 +30,7 @@ export interface UpdateSessionDependencies {
  * Extracted from session.ts for better maintainability
  */
 export async function updateSessionImpl(
-  params: SessionUpdateParams,
+  params: SessionUpdateParameters,
   deps: UpdateSessionDependencies
 ): Promise<Session> {
   let {

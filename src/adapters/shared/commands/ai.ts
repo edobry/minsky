@@ -150,7 +150,7 @@ export function registerAiCommands(): void {
   // Register AI completion command
   sharedCommandRegistry.registerCommand({
     id: "ai.complete",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "complete",
     description: "Generate AI completion for a prompt",
     parameters: aiCompleteParams,
@@ -167,11 +167,10 @@ export function registerAiCommands(): void {
           exit(1);
         }
 
-        // Create AI completion service with proper configuration service
-        const mockConfigService = {
-          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
-        };
-        const completionService = new DefaultAICompletionService(mockConfigService);
+        const configService = new DefaultAIConfigurationService({
+          loadConfiguration: () => Promise.resolve({ resolved: config }),
+        } as any);
+        const completionService = new DefaultAICompletionService(configService);
 
         const request = {
           prompt,
@@ -355,7 +354,7 @@ export function registerAiCommands(): void {
   // Register AI chat command
   sharedCommandRegistry.registerCommand({
     id: "ai.chat",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "chat",
     description: "Start an interactive AI chat session",
     parameters: {
@@ -408,7 +407,7 @@ export function registerAiCommands(): void {
   // Register AI models available command
   sharedCommandRegistry.registerCommand({
     id: "ai.models.available",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "available",
     description: "List available AI models from providers",
     parameters: {
@@ -516,7 +515,7 @@ export function registerAiCommands(): void {
   // Register AI validate command
   sharedCommandRegistry.registerCommand({
     id: "ai.validate",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "validate",
     description: "Validate AI configuration and test connectivity",
     parameters: {
@@ -609,6 +608,7 @@ export function registerAiCommands(): void {
               }
             } else {
               if (!json) log.cliWarn(`⚠ ${providerName} not configured (missing API key)`);
+              if (!json) log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
             }
 
             validationResults.providers.push(providerResult);
@@ -628,6 +628,7 @@ export function registerAiCommands(): void {
 
             for (const warning of result.warnings) {
               log.cliWarn(`  - ${warning.field}: ${warning.message}`);
+              log.cliWarning(`  - ${warning.field}: ${warning.message}`);
             }
             exit(1);
           }
@@ -665,7 +666,7 @@ export function registerAiCommands(): void {
   // Register AI models refresh command
   sharedCommandRegistry.registerCommand({
     id: "ai.models.refresh",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "refresh",
     description: "Refresh cached model data from provider APIs",
     parameters: {
@@ -790,7 +791,7 @@ export function registerAiCommands(): void {
   // Register AI models list command
   sharedCommandRegistry.registerCommand({
     id: "ai.models.list",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "list",
     description: "List cached AI models with detailed information",
     parameters: {
@@ -898,7 +899,7 @@ export function registerAiCommands(): void {
   // Register AI providers list command
   sharedCommandRegistry.registerCommand({
     id: "ai.providers.list",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "list",
     description: "List configured AI providers and their cache status",
     parameters: {
@@ -1001,7 +1002,7 @@ export function registerAiCommands(): void {
   // Register AI cache clear command
   sharedCommandRegistry.registerCommand({
     id: "ai.cache.clear",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "clear",
     description: "Clear cached model data",
     parameters: {

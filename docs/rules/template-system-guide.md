@@ -10,7 +10,7 @@ The Minsky template system enables dynamic rule generation that adapts to your p
 # Generate all rules for CLI usage
 minsky rules generate --interface=cli
 
-# Generate all rules for MCP usage  
+# Generate all rules for MCP usage
 minsky rules generate --interface=mcp
 
 # Generate specific rules only
@@ -45,6 +45,7 @@ minsky session start [--name <value>] [--task <value>] [--description <value>]
 ```
 
 **Use when:**
+
 - Working directly with Minsky CLI
 - Creating documentation for human users
 - Terminal-based workflows
@@ -63,6 +64,7 @@ Generates rules with MCP tool call syntax:
 ```
 
 **Use when:**
+
 - Working with AI agents via MCP
 - Integration with Claude, Cursor, or other AI tools
 - Programmatic access to Minsky functionality
@@ -76,6 +78,7 @@ minsky tasks list [--all <value>] [--status <value>]
 ```
 
 **Use when:**
+
 - Supporting both human users and AI agents
 - Documentation that needs to be readable but MCP-compatible
 - Development environments with mixed access patterns
@@ -140,7 +143,7 @@ const MY_CUSTOM_TEMPLATE: RuleTemplate = {
   tags: ["custom", "workflow"],
   generateContent: (context) => {
     const { helpers } = context;
-    
+
     return `# My Custom Rule
     
 Use ${helpers.command("tasks.list")} to list tasks.
@@ -179,18 +182,21 @@ minsky init --mcp             # Equivalent to --interface=mcp
 ### Common Issues
 
 **Templates not loading:**
+
 ```bash
 # Check if templates are available
 minsky rules list --tag template
 ```
 
 **Generation fails:**
+
 ```bash
 # Use dry-run to debug
 minsky rules generate --dry-run --interface=cli
 ```
 
 **Wrong command syntax:**
+
 ```bash
 # Verify interface mode
 minsky rules generate --interface=mcp --rules=minsky-workflow-orchestrator --dry-run
@@ -250,6 +256,7 @@ To migrate from static rules to templates:
 ---
 
 For more information, see:
+
 - [Rule System Architecture](../architecture/interface-agnostic-commands.md)
 - [MCP Integration Guide](../mcp-integration.md)
 - [Contributing Guidelines](../../CONTRIBUTING.md)

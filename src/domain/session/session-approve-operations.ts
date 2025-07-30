@@ -10,7 +10,7 @@ import {
   createCommandFailureMessage,
   createErrorContext,
 } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
@@ -76,7 +76,7 @@ export async function approveSessionImpl(
       log.cli("🔍 Resolving session from task ID...");
     }
 
-    const taskIdToUse = taskIdSchema.parse(params.task);
+    const taskIdToUse = TaskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
     // **BUG FIX**: Validate task existence BEFORE checking for session
@@ -525,11 +525,8 @@ The task exists but has no associated session to approve.
                       "✅ The task is marked as DONE - you can fix linting issues separately"
                     );
                   }
-                  log.warn("Task status commit failed due to pre-commit checks", {
-                    taskId,
-                    errors: errorCount,
-                    warnings: warningCount,
-                  });
+                  // Log the warning without JSON metadata for cleaner output
+                  log.warn("Task status commit failed due to pre-commit checks");
                   // Re-throw to fail the command - linting issues should block session approval
                   throw new MinskyError(
                     `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`

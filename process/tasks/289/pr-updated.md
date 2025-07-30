@@ -9,7 +9,7 @@ This PR implements a comprehensive template-based rules generation system that e
 ### Added
 
 - **RuleTemplateService**: Core service for template management and rule generation
-- **Template System**: Dynamic content generation with configurable interface support  
+- **Template System**: Dynamic content generation with configurable interface support
 - **Command Generator**: Converts shared commands to appropriate CLI or MCP XML syntax
 - **8 Complete Rule Templates**: All core Minsky workflow patterns implemented
   - minsky-workflow-orchestrator ✅
@@ -67,7 +67,7 @@ This PR implements a comprehensive template-based rules generation system that e
 ## Migration Impact
 
 - **Backward Compatible**: Existing static rules continue to work
-- **Opt-in Migration**: Projects can adopt templates incrementally  
+- **Opt-in Migration**: Projects can adopt templates incrementally
 - **Rule Library Foundation**: Prepares for future rule ecosystem improvements
 
 ## Follow-up Work
@@ -93,7 +93,7 @@ minsky rules list --tag template
 ## Checklist
 
 - [x] All requirements implemented
-- [x] All tests pass  
+- [x] All tests pass
 - [x] Template generation works in all modes
 - [x] CLI integration functional
 - [x] Documentation complete

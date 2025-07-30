@@ -141,4 +141,3 @@ For questions or suggestions about documentation, please open an issue or contri
 ## Template System
 
 - [Template System User Guide](rules/template-system-guide.md) - Complete guide for using and creating rule templates
-

@@ -1,4 +1,4 @@
-import type { SessionPrParams } from "../../schemas/session";
+import type { SessionPRParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { preparePrFromParams } from "../../git";
@@ -16,8 +16,12 @@ import { extractPrDescription } from "../session-update-operations";
 /**
  * Prepares a PR for a session based on parameters
  */
-export async function sessionPr(params: SessionPrParams): Promise<SessionPrResult> {
-  const { session, task, repo, baseBranch, title, body, branchName, debug } = params;
+export async function sessionPr(params: SessionPRParameters): Promise<SessionPrResult> {
+  const { session, task, repo, title, body, bodyPath, debug } = params;
+
+  // Set default values for properties not in new schema
+  const baseBranch = "main"; // Default base branch
+  const branchName = undefined; // Will be generated automatically
 
   // Set up dependencies with defaults
   const sessionDB = createSessionProvider();

@@ -1,21 +1,26 @@
 ## Implementation Status: 🔄 IN PROGRESS - CORE REFACTORING COMPLETED
 
 <<<<<<< HEAD
+
 ### ✅ **PHASE 1: CORE REFACTORING COMPLETED**
+
 =======
+
 ## Overview
 
 The MCP tool implementations have significant duplication in argument types, response patterns, and validation logic across different tools. This creates maintenance overhead and violates DRY principles. Refactor using TypeScript interface composition and Zod schema composition to eliminate this duplication.
->>>>>>> main
+
+> > > > > > > main
 
 #### **SYSTEM 1: MCP Tool Parameter Refactoring** - 100% COMPLETE ✅
 
 1. **Created Modular Schema Architecture**:
 
 <<<<<<< HEAD
-   - ✅ `src/adapters/mcp/schemas/common-parameters.ts` (345 lines) - Composable parameter schemas
-   - ✅ `src/adapters/mcp/schemas/common-responses.ts` (179 lines) - Standardized response builders
-   - ✅ `src/adapters/mcp/utils/error-handling.ts` (78 lines) - Common error handling utilities
+
+- ✅ `src/adapters/mcp/schemas/common-parameters.ts` (345 lines) - Composable parameter schemas
+- ✅ `src/adapters/mcp/schemas/common-responses.ts` (179 lines) - Standardized response builders
+- ✅ `src/adapters/mcp/utils/error-handling.ts` (78 lines) - Common error handling utilities
 
 2. **Core Parameter Schemas Created**:
 
@@ -28,21 +33,21 @@ The MCP tool implementations have significant duplication in argument types, res
 
    - BaseResponse, SessionResponse, FileResponse interfaces
    - FileOperationResponse, FileReadResponse, DirectoryListResponse
-   - Standardized response builders (createErrorResponse, createSuccessResponse, etc.)
-=======
-1. **Session Parameters** (17+ occurrences):
+   - # Standardized response builders (createErrorResponse, createSuccessResponse, etc.)
+
+4. **Session Parameters** (17+ occurrences):
 
    ```ts
    sessionName: z.string().describe("Session identifier (name or task ID)");
    ```
 
-2. **File Path Parameters** (15+ occurrences):
+5. **File Path Parameters** (15+ occurrences):
 
    ```ts
    path: z.string().describe("Path to the file within the session workspace");
    ```
 
-3. **Common Options** (repeated across tools):
+6. **Common Options** (repeated across tools):
 
    ```ts
    createDirs: z.boolean()
@@ -54,7 +59,7 @@ The MCP tool implementations have significant duplication in argument types, res
      .describe("One sentence explanation of why this tool is being used");
    ```
 
-4. **Error Response Patterns** (repeated in every tool):
+7. **Error Response Patterns** (repeated in every tool):
 
    ```ts
    return {
@@ -65,7 +70,7 @@ The MCP tool implementations have significant duplication in argument types, res
    };
    ```
 
-5. **Success Response Patterns** (similar structures across tools):
+8. **Success Response Patterns** (similar structures across tools):
 
    ```ts
    return {
@@ -75,18 +80,19 @@ The MCP tool implementations have significant duplication in argument types, res
      // ... tool-specific fields
    };
    ```
->>>>>>> main
 
-4. **Error Handling Utilities**:
+   > > > > > > > main
+
+9. **Error Handling Utilities**:
 
    - createMcpErrorHandler for consistent error logging
    - withMcpErrorHandling wrapper for tool handlers
    - Standardized error response patterns
 
-5. **Refactored All Session MCP Tools**:
-   - ✅ `session-files.ts`: Updated imports to use new schema organization
-   - ✅ `session-edit-tools.ts`: Updated imports to use new schema organization
-   - ✅ `session-workspace.ts`: Updated imports + fixed session.read_file with line range support
+10. **Refactored All Session MCP Tools**:
+    - ✅ `session-files.ts`: Updated imports to use new schema organization
+    - ✅ `session-edit-tools.ts`: Updated imports to use new schema organization
+    - ✅ `session-workspace.ts`: Updated imports + fixed session.read_file with line range support
 
 #### **SYSTEM 2: Shared Command Parameter Refactoring** - 100% COMPLETE ✅
 
@@ -100,65 +106,67 @@ The MCP tool implementations have significant duplication in argument types, res
    - ConfigParameters: sources, etc.
    - Utility functions for parameter composition
 
-<<<<<<< HEAD
-4. **Refactored ALL Shared Command Files**:
-   - ✅ `rules.ts`: All 5 parameter definitions refactored (70%+ reduction)
-   - ✅ `config.ts`: All 2 parameter definitions refactored (100% duplication eliminated)
-   - ✅ `init.ts`: Refactored to use shared parameters (40%+ reduction)
-   - ✅ `git.ts`: ALL 7 commands completed (60%+ reduction)
-   - ✅ `session-parameters.ts`: ALL 8 commands completed (80%+ reduction)
-   - ✅ `tasks/task-parameters.ts`: ALL parameter groups completed (70%+ reduction)
+<<<<<<< HEAD 4. **Refactored ALL Shared Command Files**:
+
+- ✅ `rules.ts`: All 5 parameter definitions refactored (70%+ reduction)
+- ✅ `config.ts`: All 2 parameter definitions refactored (100% duplication eliminated)
+- ✅ `init.ts`: Refactored to use shared parameters (40%+ reduction)
+- ✅ `git.ts`: ALL 7 commands completed (60%+ reduction)
+- ✅ `session-parameters.ts`: ALL 8 commands completed (80%+ reduction)
+- ✅ `tasks/task-parameters.ts`: ALL parameter groups completed (70%+ reduction)
 
 ### 📊 **FINAL QUANTIFIED RESULTS**
 
 #### **Total Duplication Eliminated**:
+
 =======
 // File system parameters
 export const filePathParam = z.string().describe("Path to the file within the session workspace");
 export const createDirsParam = z
-  .boolean()
-  .optional()
-  .default(true)
-  .describe("Create parent directories if they don't exist");
+.boolean()
+.optional()
+.default(true)
+.describe("Create parent directories if they don't exist");
 export const explanationParam = z
-  .string()
-  .optional()
-  .describe("One sentence explanation of why this tool is being used");
+.string()
+.optional()
+.describe("One sentence explanation of why this tool is being used");
 
 // Line range parameters (for file reading)
 export const lineRangeParams = z.object({
-  start_line_one_indexed: z
-    .number()
-    .min(1)
-    .optional()
-    .describe("The one-indexed line number to start reading from (inclusive)"),
-  end_line_one_indexed_inclusive: z
-    .number()
-    .min(1)
-    .optional()
-    .describe("The one-indexed line number to end reading at (inclusive)"),
-  should_read_entire_file: z
-    .boolean()
-    .optional()
-    .default(false)
-    .describe("Whether to read the entire file"),
+start_line_one_indexed: z
+.number()
+.min(1)
+.optional()
+.describe("The one-indexed line number to start reading from (inclusive)"),
+end_line_one_indexed_inclusive: z
+.number()
+.min(1)
+.optional()
+.describe("The one-indexed line number to end reading at (inclusive)"),
+should_read_entire_file: z
+.boolean()
+.optional()
+.default(false)
+.describe("Whether to read the entire file"),
 });
 
 // Search parameters
 export const searchParams = z.object({
-  query: z.string().describe("Regex pattern to search for"),
-  case_sensitive: z
-    .boolean()
-    .optional()
-    .default(false)
-    .describe("Whether the search should be case sensitive"),
-  include_pattern: z
-    .string()
-    .optional()
-    .describe("Glob pattern for files to include (e.g. '*.ts' for TypeScript files)"),
-  exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
+query: z.string().describe("Regex pattern to search for"),
+case_sensitive: z
+.boolean()
+.optional()
+.default(false)
+.describe("Whether the search should be case sensitive"),
+include_pattern: z
+.string()
+.optional()
+.describe("Glob pattern for files to include (e.g. '\*.ts' for TypeScript files)"),
+exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
 });
->>>>>>> main
+
+> > > > > > > main
 
 - **MCP Tools**: 60+ duplicated parameters → 0 duplications ✅
 - **Shared Commands**: 150+ duplicated parameters → 0 duplications ✅
@@ -193,25 +201,25 @@ export const searchParams = z.object({
 **Still Needed**:
 
 <<<<<<< HEAD
+
 1. Integration testing and validation of all refactored components
 2. Comprehensive documentation of parameter composition patterns
 3. Error handling standardization (began in Task #288)
 4. Production deployment validation
-5. Performance impact assessment
-=======
-// Response builders
-export function createErrorResponse(
-  error: string,
-  context: { path?: string; session?: string }
-): FileResponse {
-  return {
-    success: false,
-    error,
-    ...(context.path && { path: context.path }),
-    ...(context.session && { session: context.session }),
-  };
-}
->>>>>>> main
+5. # Performance impact assessment
+   // Response builders
+   export function createErrorResponse(
+   error: string,
+   context: { path?: string; session?: string }
+   ): FileResponse {
+   return {
+   success: false,
+   error,
+   ...(context.path && { path: context.path }),
+   ...(context.session && { session: context.session }),
+   };
+   }
+   > > > > > > > main
 
 ### 📁 **COMPREHENSIVE FILES MODIFIED**
 
@@ -233,32 +241,35 @@ export function createErrorResponse(
 - `src/adapters/shared/commands/tasks/task-parameters.ts`
 
 <<<<<<< HEAD
+
 ### 💡 **KEY INNOVATIONS DELIVERED**
+
 =======
 commandMapper.addCommand({
-  name: "session.read_file",
-  parameters: fileContext.extend(lineRangeParams.shape).extend({
-    explanation: explanationParam,
-  }),
-  handler: async (args) => {
-    try {
-      // ... implementation
-      return createSuccessResponse(
-        { path: args.path, session: args.sessionName },
-        {
-          content: processedContent,
-          totalLines: processed.totalLines,
-          // ... other specific data
-        }
-      );
-    } catch (error) {
-      return createErrorResponse(getErrorMessage(error), {
-        path: args.path,
-        session: args.sessionName,
-      });
-    }
-  },
+name: "session.read_file",
+parameters: fileContext.extend(lineRangeParams.shape).extend({
+explanation: explanationParam,
+}),
+handler: async (args) => {
+try {
+// ... implementation
+return createSuccessResponse(
+{ path: args.path, session: args.sessionName },
+{
+content: processedContent,
+totalLines: processed.totalLines,
+// ... other specific data
+}
+);
+} catch (error) {
+return createErrorResponse(getErrorMessage(error), {
+path: args.path,
+session: args.sessionName,
 });
+}
+},
+});
+
 ```
 >>>>>>> main
 
@@ -339,12 +350,13 @@ commandMapper.addCommand({
 
 ## 🔗 **RELATIONSHIP TO OTHER TASKS**
 
-**Task #288**: MCP error handling standardization builds on this parameter work  
+**Task #288**: MCP error handling standardization builds on this parameter work
 **Integration**: Error handling patterns need to align with new parameter composition patterns
 
 ## ⏱️ **ESTIMATED COMPLETION TIME**
 
-**Remaining Work**: 2-3 weeks  
+**Remaining Work**: 2-3 weeks
 **Dependencies**: Task #288 error handling completion recommended for full integration
 
 **Status**: 🔄 TASK IN PROGRESS - FOUNDATION COMPLETE, INTEGRATION & VALIDATION NEEDED
+```

@@ -7,6 +7,7 @@
 ## Resolution
 
 **Task #325** made this entire task obsolete by:
+
 - Removing the special workspace system entirely
 - Eliminating the need for auto-commit coordination between workspaces
 - Simplifying task operations to work directly in main workspace

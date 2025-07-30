@@ -11,7 +11,6 @@ HIGH
 ## Description
 
 **CRITICAL**: Phase 1 investigation revealed our current session-aware edit tools are completely non-functional:
-
 1. **Complete Failure**: 0% success rate on all test scenarios (12/12 tests failed)
 2. **Broken Pattern Matching**: `applyEditPattern` cannot match even basic content due to oversimplified `indexOf` approach
 3. **No Reapply Functionality**: Missing the critical `reapply` tool for recovering from failed edits
@@ -317,6 +316,7 @@ HIGH
 ## Implementation Plan
 
 ### Phase 1: ✅ COMPLETED - Investigation & Research
+
 - **Current Implementation Analysis**: Confirmed 0% success rate across all scenarios
 - **Fast-Apply API Research**: Validated Morph (4,500+ tok/s, 98% accuracy) and Relace as solutions
 - **Business Case**: Infinite ROI from completely broken to working functionality
@@ -339,12 +339,14 @@ HIGH
 ## Requirements
 
 ### Core Functionality
+
 - **Morph API Integration**: Leverage existing AI provider infrastructure
 - **Model Capabilities**: Extend provider types to support fast-apply detection
 - **Session Tool Enhancement**: Replace broken applyEditPattern with fast-apply providers
 - **Configuration Support**: Use existing API key configuration patterns
 
 ### Technical Requirements
+
 - **Provider Abstraction**: Integrate Morph via existing AI completion service
 - **Capability Detection**: Add "fast-apply" to AICapability enum
 - **OpenAI Compatibility**: Use Morph's OpenAI-compatible API format

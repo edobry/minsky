@@ -30,11 +30,13 @@ This PR implements a comprehensive template-based rules generation system that e
 ## Key Features
 
 ### Dynamic Interface Adaptation
+
 - Rules automatically reference CLI commands or MCP tools based on configuration
 - Conditional content sections appear/disappear based on interface preference
 - Template helpers generate appropriate command syntax dynamically
 
 ### Comprehensive Template Coverage
+
 - `minsky-workflow`: Core workflow guide
 - `minsky-workflow-orchestrator`: Workflow system entry point
 - `task-implementation-workflow`: Step-by-step task implementation
@@ -45,11 +47,12 @@ This PR implements a comprehensive template-based rules generation system that e
 - `index`: Rules navigation index
 
 ### CLI Command Options
+
 ```bash
 # Generate all rules for CLI interface
 minsky rules generate --interface cli
 
-# Generate specific rules for MCP interface  
+# Generate specific rules for MCP interface
 minsky rules generate --interface mcp --rules "minsky-workflow,task-status-protocol"
 
 # Preview hybrid rules preferring MCP
@@ -60,6 +63,7 @@ minsky rules generate --output-dir /custom/path --overwrite
 ```
 
 ### Template System Architecture
+
 - **Template Literals**: JavaScript template literal evaluation for dynamic content
 - **Helper Functions**: Command generation, code blocks, parameter documentation
 - **Configuration-Driven**: Rules adapt based on RuleGenerationConfig
@@ -80,18 +84,21 @@ minsky rules generate --output-dir /custom/path --overwrite
 ## Technical Implementation
 
 ### Core Classes
+
 - `RuleTemplateService`: Main orchestration service
 - `CommandGeneratorService`: Interface-aware command syntax generation
 - `TemplateContext`: Template evaluation context with helpers
 - `RuleTemplate`: Interface for template definitions
 
 ### Integration Points
+
 - **Shared Command Registry**: Leverages existing command definitions
 - **CLI Bridge**: Integrated with existing CLI command structure
 - **MCP Tools**: Proper XML format for MCP protocol compliance
 - **Init Command**: Seamless integration with project initialization
 
 ### Configuration System
+
 ```typescript
 interface RuleGenerationConfig {
   interface: "cli" | "mcp" | "hybrid";
@@ -106,18 +113,21 @@ interface RuleGenerationConfig {
 ## Benefits
 
 ### For Users
+
 - **Adaptive Rules**: Rules automatically match project configuration
 - **Interface Flexibility**: Same rules work for CLI, MCP, or hybrid setups
 - **Selective Generation**: Generate only needed rules to reduce clutter
 - **Preview Mode**: Dry-run capability for safe rule preview
 
 ### For Developers
+
 - **Template System**: Easy to create and maintain rule templates
 - **Dynamic Content**: No more hardcoded command references
 - **Comprehensive Testing**: Well-tested foundation for future extensions
 - **Modular Architecture**: Clean separation of concerns
 
 ### For AI Agents
+
 - **Proper MCP Format**: Correct XML syntax for MCP tool invocation
 - **Context-Aware Rules**: Rules adapt to available interface methods
 - **Complete Coverage**: All Minsky workflows properly documented
@@ -139,4 +149,4 @@ interface RuleGenerationConfig {
 - [x] Documentation and examples provided
 - [x] Backward compatibility maintained
 - [x] Performance optimized with template caching
-- [x] Code quality standards met 
+- [x] Code quality standards met
