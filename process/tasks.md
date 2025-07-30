@@ -594,7 +594,7 @@
 
 - [x] Exclude Content Field from Rules.list Command Output [#345](process/tasks/345-exclude-content-field-from-rules-list-command-output.md)
 
-- [ ] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
+- [x] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
 
 - [ ] Analyze Command Registration Architecture for Simplification [#348](process/tasks/348-analyze-command-registration-architecture-for-simplification.md)
 
