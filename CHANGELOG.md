@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
   - Added security notices when credentials are masked
   - Consistent masking across CLI and MCP interfaces
 
+### Changed
+- **Rules List Command Optimization**: Excluded `content` field from `rules.list` command output for both CLI `--json` and MCP interfaces (#345)
+  - Improves command usability by reducing output size and removing verbose rule content
+  - Maintains all other rule information (id, title, description, tags, etc.)
+  - Content can still be retrieved via `rules.get` command when needed
+
 ### Fixed
 - **CLI Module Loading Error**: Fixed Bun runtime error "export 'TaskDeleteParameters' not found" when running CLI commands. Corrected type-only exports in domain schemas index by adding `type` keyword to TypeScript type exports, importing schemas/types separately for backward compatibility aliases, and updating imports in files using non-migrated schemas.
 
