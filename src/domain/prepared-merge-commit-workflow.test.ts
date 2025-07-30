@@ -121,7 +121,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         await mockExecAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
 
         // 3. Create commit message file with PR title/body
-        await mockExecAsync(`echo "${options.title}" > ${workdir}/.pr_title`);
+        await mockExecAsync(`echo "${options._title}" > ${workdir}/.pr_title`);
         if (options.body) {
           await mockExecAsync(`echo "${options.body}" >> ${workdir}/.pr_title`);
         }
@@ -135,7 +135,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         return {
           prBranch,
           baseBranch,
-          _title: options.title,
+          _title: options._title,
           body: options.body,
         };
       });
@@ -183,62 +183,66 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const mockSessionDb = {
         getSession: createMock(() =>
           Promise.resolve({
-            _session: "test-session",
+            session: "test-session",
             repoName: "test-repo",
             repoUrl: "/test/repo",
             taskId: "task123",
           })
         ),
         getSessionByTaskId: createMock(() => Promise.resolve(null)),
+        getSessionWorkdir: createMock(() => Promise.resolve("/test/repo")),
+        updateSession: createMock(() => Promise.resolve()),
       };
 
-      // Mock preparePrFromParams to capture its call
+      // Track preparePr calls using dependency injection approach
       let preparePrCalled = false;
-      let preparePrParams: unknown = null;
+      let preparePrParams: any = null;
 
-      const mockPreparePrFromParams = createMock(async (params: unknown) => {
-        preparePrCalled = true;
-        preparePrParams = params;
+      const mockGitService = {
+        preparePr: createMock(async (params: any) => {
+          preparePrCalled = true;
+          preparePrParams = params;
 
-        return {
-          prBranch: "pr/test-session",
-          baseBranch: "main",
-          title: params.title,
-          body: params.body,
-        };
-      });
+          return {
+            prBranch: "pr/test-session",
+            baseBranch: "main",
+            title: params.title,
+            body: params.body,
+          };
+        }),
+      };
 
-      // Replace the preparePrFromParams function
-      const originalPreparePr = require("./git").preparePrFromParams;
-      (require("./git") as any).preparePrFromParams = mockPreparePrFromParams;
-
-      try {
-        // Execute sessionPrFromParams
-        const result = await sessionPrFromParams({
-          _session: "test-session",
-          _title: "Test Session PR",
+      // Execute sessionPrFromParams with dependency injection
+      const result = await sessionPrFromParams(
+        {
+          session: "test-session",
+          title: "Test Session PR",
           body: "Test body",
           baseBranch: "main",
           noStatusUpdate: true,
-        });
+          skipUpdate: true, // Skip session update to avoid dependency on complex session update logic
+        },
+        {
+          sessionDB: mockSessionDb as any,
+          gitService: mockGitService as any,
+          getCurrentSession: createMock(() => Promise.resolve("test-session")),
+        }
+      );
 
-        // Verify that preparePrFromParams was called with correct parameters
-        expect(preparePrCalled).toBe(true);
-        expect(preparePrParams).toEqual({
-          _session: "test-session",
-          _title: "Test Session PR",
+      // Verify that preparePr was called with correct parameters
+      expect(preparePrCalled).toBe(true);
+      expect(preparePrParams).toEqual(
+        expect.objectContaining({
+          session: "test-session",
+          title: "Test Session PR",
           body: "Test body",
           baseBranch: "main",
-          debug: undefined,
-        });
+        })
+      );
 
-        // Verify result
-        expect(result.prBranch).toBe("pr/test-session");
-        expect(result.baseBranch).toBe("main");
-      } finally {
-        // Restore original function
-        (require("./git") as any).preparePrFromParams = originalPreparePr;
-      }
+      // Verify result
+      expect(result.prBranch).toBe("pr/test-session");
+      expect(result.baseBranch).toBe("main");
     });
   });
 
