@@ -319,17 +319,20 @@ HIGH
 ## Implementation Plan
 
 ### Phase 1: ✅ COMPLETED - Investigation & Research
+
 - **Current Implementation Analysis**: Confirmed 0% success rate across all scenarios
 - **Fast-Apply API Research**: Validated Morph (4,500+ tok/s, 98% accuracy) and Relace as solutions
 - **Business Case**: Infinite ROI from completely broken to working functionality
 
 ### Phase 2: 🔄 IN PROGRESS - Morph Integration via AI Provider Infrastructure
+
 - **Add Model Capabilities**: Extend AI provider types to include "fast-apply" capability
 - **Morph Provider Integration**: Add Morph to existing AI provider enum and configuration
 - **Test-Driven Implementation**: Create validation script for real API testing
 - **Enhanced Session Tools**: Update session_edit_file to use fast-apply providers
 
 ### Phase 3: Enhanced Tools & Reapply
+
 - **Session Reapply Tool**: Implement session_reapply using fast-apply providers
 - **Provider Selection**: Capability-based provider selection for edit operations
 - **Fallback Mechanisms**: Multi-provider support with graceful degradation
@@ -337,12 +340,14 @@ HIGH
 ## Requirements
 
 ### Core Functionality
+
 - **Morph API Integration**: Leverage existing AI provider infrastructure
 - **Model Capabilities**: Extend provider types to support fast-apply detection
 - **Session Tool Enhancement**: Replace broken applyEditPattern with fast-apply providers
 - **Configuration Support**: Use existing API key configuration patterns
 
 ### Technical Requirements
+
 - **Provider Abstraction**: Integrate Morph via existing AI completion service
 - **Capability Detection**: Add "fast-apply" to AICapability enum
 - **OpenAI Compatibility**: Use Morph's OpenAI-compatible API format
@@ -351,12 +356,14 @@ HIGH
 ## Success Criteria
 
 ### Immediate (Phase 2)
+
 - **Morph Provider Added**: Successfully integrated into AI provider configuration
 - **Basic Fast-Apply Working**: Can perform simple edit operations via Morph API
 - **Test Validation**: Real API calls succeed in test script
 - **Configuration Support**: Morph API key properly loaded from config
 
 ### Medium-term (Phase 3)
+
 - **Full Edit Functionality**: >95% success rate on edit operations (vs. current 0%)
 - **Reapply Tool**: Working session_reapply implementation
 - **Provider Selection**: Automatic fast-apply provider detection and usage

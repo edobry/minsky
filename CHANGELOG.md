@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Security
+
 - **CRITICAL FIX**: Fixed security vulnerability in config list command that exposed API keys and GitHub tokens in plain text (#337)
   - Added credential masking by default for all sensitive values
   - Added `--show-secrets` flag for intentional credential exposure with security warning
@@ -13,7 +14,9 @@ All notable changes to this project will be documented in this file.
   - Consistent masking across CLI and MCP interfaces
 
 ### Added
+
 - **Domain-Wide Schema Libraries for Cross-Interface Type Composition** (#329): Implemented comprehensive schema architecture that extends Task #322's type composition patterns to work across CLI, MCP, and future API interfaces:
+
   - Created modular schema libraries in `src/domain/schemas/` covering tasks, sessions, files, and common types
   - Established interface-agnostic design patterns for consistent validation across all interfaces
   - Built comprehensive validation utilities with standardized error handling and CLI argument transformation
@@ -28,7 +31,9 @@ All notable changes to this project will be documented in this file.
 - **Enhanced config show command with comprehensive output**: The `minsky config show` command now displays detailed, user-friendly configuration including authentication status for GitHub and AI providers, session storage details with paths, AI provider configuration with models and authentication status, and GitHub configuration details. Resolves the issue where config output was "way too incomplete" by showing all configured settings instead of just defaults.
 
 ### Fixed
+
 - **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
+
   - 404 errors now explain "this provider may not support model listing"
   - 401/403 errors provide clear API key guidance
   - Network errors and timeouts have specific helpful messages
@@ -44,7 +49,9 @@ All notable changes to this project will be documented in this file.
 - Fixed session command import issue causing startup errors with `setupSessionCommandRegistry`
 
 ### Changed
+
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
+
   - `AI Validate` → `minsky core ai validate`
   - `AI Models List` → `minsky core ai models list`
   - `AI Models Refresh` → `minsky core ai models refresh`
@@ -56,13 +63,14 @@ All notable changes to this project will be documented in this file.
   - `tasks.status.set` → `minsky tasks status set` (proper nesting)
 
 ### Fixed
+
 - **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
 - **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
 - **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
 
 ### Documentation
-- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
+- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
 - **Task #289: Implemented Template-Based Rules Generation System**
 
@@ -121,6 +129,7 @@ All notable changes to this project will be documented in this file.
   - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
 
 - **Task #325: Completed Task Backend Architecture Analysis**
+
   - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
   - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
   - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience

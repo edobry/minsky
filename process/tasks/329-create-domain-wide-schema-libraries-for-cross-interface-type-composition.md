@@ -13,8 +13,9 @@ Task #322 successfully implemented type composition for MCP session tools, creat
 ### 1. Domain Schema Libraries
 
 Create reusable schema libraries organized by domain:
+
 - src/domain/schemas/task-schemas.ts
-- src/domain/schemas/session-schemas.ts  
+- src/domain/schemas/session-schemas.ts
 - src/domain/schemas/file-schemas.ts
 - src/domain/schemas/common-schemas.ts
 

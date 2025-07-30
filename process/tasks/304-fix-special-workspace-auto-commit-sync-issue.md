@@ -13,6 +13,7 @@ During testing of the task infrastructure, critical issues were discovered in th
 ## Resolution
 
 **Task #325** resolved all these issues by completely eliminating the special workspace approach:
+
 - Removed 445+ lines of special workspace manager code
 - Simplified in-tree backends to work directly in main workspace
 - Eliminated synchronization complexity and auto-commit issues

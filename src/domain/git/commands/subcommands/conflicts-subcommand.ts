@@ -87,3 +87,40 @@ export async function executeConflictsCommand(
     }
   }
 }
+
+/**
+ * FromParams wrapper for the conflicts command to match existing patterns
+ */
+export async function conflictsFromParams(params: {
+  format?: "json" | "text";
+  context?: number;
+  files?: string;
+}): Promise<{
+  success: boolean;
+  data?: string;
+  error?: string;
+}> {
+  try {
+    const repoPath = getCurrentWorkingDirectory();
+    const options: SessionConflictScanOptions = {
+      format: params.format || "json",
+      context: params.context || 3,
+      files: params.files,
+    };
+
+    // Reuse session conflicts logic but with empty params (auto-detect current context)
+    const result = await scanSessionConflicts({}, options);
+    const formattedOutput = formatSessionConflictResults(result, options.format);
+
+    return {
+      success: true,
+      data: formattedOutput,
+    };
+  } catch (error) {
+    log.error("Error executing conflicts command", { error, params });
+    return {
+      success: false,
+      error: error instanceof Error ? error.message : String(error),
+    };
+  }
+}
