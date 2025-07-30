@@ -89,7 +89,7 @@ Before any file operation (especially edits), the following verifications **MUST
    - **SECOND VIOLATION**: Critical error - update rule enforcement
    - **THIRD VIOLATION**: Terminal error - complete operational pause
 
-3. **Tool Usage Restrictions**: 
+3. **Tool Usage Restrictions**:
    - `edit_file` tool MUST use absolute paths in session workspaces
    - `read_file` tool MUST use absolute paths in session workspaces
    - `delete_file` tool MUST use absolute paths in session workspaces
@@ -195,3 +195,85 @@ When working with code and tests:
 - **Absolute paths eliminate ambiguity** about which workspace is being modified.
 
 ---
+
+## ⚠️ CRITICAL ENFORCEMENT: LEARNED VIOLATIONS
+
+### VIOLATION: Manual Git Operations in Session Context
+**Date Identified**: Task #329 Session PR Creation
+**Pattern**: Using manual `git checkout main`, `git merge origin/main` instead of `minsky session update`
+**Root Cause**: Bypassing designed session tooling when encountering conflicts
+**MANDATORY RESPONSE**: When session tools report conflicts:
+1. **NEVER** switch to manual git operations
+2. **ALWAYS** use `minsky session update` with appropriate flags:
+   - `--auto-resolve-delete-conflicts` for add/add conflicts
+   - `--force` for overriding conflict detection
+   - `--skip-conflict-check` when conflicts are expected
+3. **INVESTIGATE** session tooling options before bypassing
+
+### VIOLATION: Ignoring Tool Instructions
+**Date Identified**: Task #329 Session PR Creation
+**Pattern**: Tool provides step-by-step conflict resolution instructions → AI attempts workarounds instead
+**Root Cause**: Not trusting that tools know their internal state and provide correct guidance
+**MANDATORY RESPONSE**: When tools provide explicit instructions:
+1. **FOLLOW EXACTLY** as provided - tools understand their internal state
+2. **DO NOT** attempt workarounds or alternative approaches
+3. **TRUST** that session tooling is designed for these scenarios
+
+### VIOLATION: Workflow Boundary Crossing
+**Date Identified**: Task #329 Session PR Creation
+**Pattern**: Leaving session workspace context to perform operations in main workspace
+**Root Cause**: Assuming manual operations are "faster" than understanding proper workflow
+**MANDATORY RESPONSE**:
+1. **NEVER** leave session workspace for git operations
+2. **ALWAYS** use session-scoped tools (`minsky session update`, `minsky session pr`)
+3. **REMEMBER**: Session isolation exists for a reason - respect boundaries
+
+## Session Update Protocol
+
+### When Session PR Fails with "Error during session update"
+**ROOT CAUSE**: Local session branches not synchronized with origin/main
+**PROPER SOLUTION**:
+```bash
+# 1. Update session with latest main workspace changes
+minsky session update --name <session-name>
+
+# 2. Handle conflicts through session tooling (not manual git)
+# Use flags: --auto-resolve-delete-conflicts, --force, --skip-conflict-check
+
+# 3. Then create PR
+minsky session pr --name <session-name> --title "..." --body-path "..."
+```
+
+**NEVER MANUAL GIT**: Do not use `git checkout main`, `git pull origin main`, `git merge` manually
+
+## ⚠️ CRITICAL ENFORCEMENT: LEARNED VIOLATIONS
+
+### VIOLATION: Manual Git Operations in Session Context
+**Date Identified**: Task #329 Session PR Creation
+**Pattern**: Using manual `git checkout main`, `git merge origin/main` instead of `minsky session update`
+**Root Cause**: Bypassing designed session tooling when encountering conflicts
+**MANDATORY RESPONSE**: When session tools report conflicts:
+1. **NEVER** switch to manual git operations
+2. **ALWAYS** use `minsky session update` with appropriate flags:
+   - `--auto-resolve-delete-conflicts` for add/add conflicts
+   - `--force` for overriding conflict detection
+   - `--skip-conflict-check` when conflicts are expected
+3. **INVESTIGATE** session tooling options before bypassing
+
+### VIOLATION: Ignoring Tool Instructions
+**Date Identified**: Task #329 Session PR Creation
+**Pattern**: Tool provides step-by-step conflict resolution instructions → AI attempts workarounds instead
+**Root Cause**: Not trusting that tools know their internal state and provide correct guidance
+**MANDATORY RESPONSE**: When tools provide explicit instructions:
+1. **FOLLOW EXACTLY** as provided - tools understand their internal state
+2. **DO NOT** attempt workarounds or alternative approaches
+3. **TRUST** that session tooling is designed for these scenarios
+
+### VIOLATION: Workflow Boundary Crossing
+**Date Identified**: Task #329 Session PR Creation
+**Pattern**: Leaving session workspace context to perform operations in main workspace
+**Root Cause**: Assuming manual operations are "faster" than understanding proper workflow
+**MANDATORY RESPONSE**:
+1. **NEVER** leave session workspace for git operations
+2. **ALWAYS** use session-scoped tools (`minsky session update`, `minsky session pr`)
+3. **REMEMBER**: Session isolation exists for a reason - respect boundaries

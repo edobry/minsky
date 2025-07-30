@@ -358,11 +358,7 @@
 
 - [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
 
-<<<<<<< HEAD
 - [!] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
-=======
-- [!] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md) - OBSOLETE: Special workspace removed
->>>>>>> origin/main
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
@@ -482,11 +478,7 @@
 
 - [x] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
-<<<<<<< HEAD
 - [!] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md)
-=======
-- [!] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md) - OBSOLETE: Special workspace removed
->>>>>>> origin/main
 
 - [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
@@ -556,11 +548,7 @@
 
 - [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
-<<<<<<< HEAD
 - [!] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
-=======
-- [!] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md) - OBSOLETE: Special workspace removed
->>>>>>> origin/main
 
 - [x] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
@@ -599,16 +587,13 @@
 - [ ] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
-<<<<<<< HEAD
 
-- [+] Categorize and audit rule templates for redundancy analysis [#336](process/tasks/336-categorize-and-audit-rule-templates-for-redundancy-analysis.md)
+- [x] Implement Pre-Commit Secret Scanning with Husky [#341](process/tasks/341-implement-pre-commit-secret-scanning-with-husky.md)
 
-- [+] URGENT: Fix security vulnerability in config list command [#337](process/tasks/337-urgent-fix-security-vulnerability-in-config-list-command.md)
+- [ ] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
 
-- [ ] Improve config list command user experience [#338](process/tasks/338-improve-config-list-command-user-experience.md)
+- [ ] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
 
-- [ ] Add configuration management subcommands [#339](process/tasks/339-add-configuration-management-subcommands.md)
+- [ ] Analyze Command Registration Architecture for Simplification [#348](process/tasks/348-analyze-command-registration-architecture-for-simplification.md)
 
-- [ ] Update documentation for enhanced configuration system [#340](process/tasks/340-update-documentation-for-enhanced-configuration-system.md)
-=======
->>>>>>> origin/main
+- [ ] Analyze Cursor Chat History to Understand Agent OODA Loop Logic [#349](process/tasks/349-analyze-cursor-chat-history-to-understand-agent-ooda-loop-logic.md)

@@ -152,10 +152,10 @@ describe("Session PR Body Content Bug Fix", () => {
     test("should correctly read body content from file path", async () => {
       // Test the actual file reading logic that works with --body-path
       const filePath = require("path").resolve(testBodyPath);
-      const { readFile } = await import("fs/promises");
+      const fs = await import("fs/promises");
 
-      const fileContent = await readFile(filePath, "utf-8");
-      const content = typeof fileContent === "string" ? fileContent : fileContent.toString();
+      const fileContent = await fs.readFile(filePath, "utf-8");
+      const content = fileContent.toString();
 
       expect(content).toBe(newBodyContent);
       expect(content.trim()).not.toBe("");
@@ -163,11 +163,9 @@ describe("Session PR Body Content Bug Fix", () => {
 
     test("should handle non-existent body files correctly", async () => {
       const nonExistentPath = join(testDir, "missing-file.md");
-      const { readFile } = await import("fs/promises");
+      const fs = await import("fs/promises");
 
-      await expect(async () => {
-        await readFile(nonExistentPath, "utf-8");
-      }).toThrow();
+      await expect(fs.readFile(nonExistentPath, "utf-8")).rejects.toThrow();
     });
   });
 });

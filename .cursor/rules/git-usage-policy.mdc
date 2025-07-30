@@ -153,7 +153,7 @@ Accidental or unapproved use of `git push --force` that results in data loss or 
 When user requests "SURGICAL" approach:
 
 1. **Identify Minimal Scope**: Determine exact commits/files that need modification
-2. **Choose Least Invasive Tool**: 
+2. **Choose Least Invasive Tool**:
    - `git rebase -i` for specific commit edits
    - Manual file edits for content changes
    - Targeted `git filter-repo --refs <range>` for limited history modification
@@ -166,7 +166,7 @@ When user requests "SURGICAL" approach:
 
 **User says "surgical"**:
 - `git rebase -i <commit-range>` for interactive editing
-- Manual file edits + `git commit --amend` for recent commits  
+- Manual file edits + `git commit --amend` for recent commits
 - `git filter-repo --refs <specific-range>` for targeted history modification
 
 **User says "comprehensive" or "clean everything"**:
@@ -201,17 +201,47 @@ For surgical operations that fail:
     4. Avoid embedding raw newline characters directly within the `-m` flag of `git commit` when using automated tools, as this can lead to errors.
 - **Avoid Large Commits**: Do not commit large binary files or generated files unless absolutely necessary and approved.
 
+## ⚠️ CRITICAL: Session Workspace Git Operations
+
+### Violation: Manual Git Operations in Session Context
+**Date Identified**: Task #329 Session PR Creation
+**Problem**: Using manual git commands (`git checkout`, `git merge`, `git pull`) instead of session-aware tooling
+
+### MANDATORY SESSION GIT PROTOCOL:
+
+**IN SESSION WORKSPACES** (`/Users/edobry/.local/state/minsky/sessions/*`):
+
+1. **NEVER use manual git commands for workspace synchronization**:
+   - ❌ `git checkout main`
+   - ❌ `git pull origin main`
+   - ❌ `git merge origin/main`
+   - ❌ Manual conflict resolution outside session context
+
+2. **ALWAYS use session-aware commands**:
+   - ✅ `minsky session update --name <session-name>`
+   - ✅ `minsky session update --auto-resolve-delete-conflicts`
+   - ✅ `minsky session pr --name <session-name>`
+
+3. **Session Update Flags for Conflicts**:
+   - `--auto-resolve-delete-conflicts`: For add/add conflicts
+   - `--force`: Override conflict detection
+   - `--skip-conflict-check`: When conflicts are expected
+
+### WHY SESSION TOOLING IS REQUIRED:
+- **Maintains isolation** between session and main workspace
+- **Handles cross-workspace synchronization** correctly
+- **Preserves session context** during operations
+- **Provides conflict resolution** designed for session workflows
+
+### VIOLATION CONSEQUENCE:
+Manual git operations in session context **bypass session safety mechanisms** and can lead to:
+- Lost session work
+- Incorrect branch synchronization
+- Workflow boundary violations
+- Integration conflicts
+
 ## See Also
 
 - `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
 - `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
-
-
-## See Also
-
-- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
-- `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
-
-
-- `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
-- `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
+- `session-first-workflow`: For complete session workspace isolation requirements.
