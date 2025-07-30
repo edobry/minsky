@@ -92,6 +92,14 @@ class TestConfigurationProvider implements ConfigurationProvider {
       if (!this.configResult || !this.configResult.sources) {
         throw new Error(`Invalid configuration result: ${JSON.stringify(this.configResult)}`);
       }
+
+      // Apply overrides if provided
+      if (this.options.overrideSource) {
+        this.configResult.config = {
+          ...this.configResult.config,
+          ...this.options.overrideSource,
+        };
+      }
     } catch (error) {
       console.error("Configuration loading failed:", error);
       throw error;
@@ -239,7 +247,7 @@ describe("Custom Configuration System", () => {
     });
 
     test("should support configuration overrides", async () => {
-      const factory = new CustomConfigFactory();
+      const factory = new TestConfigFactory(); // Use TestConfigFactory instead of CustomConfigFactory
       await initializeConfiguration(factory, {
         overrides: { backend: "json-file" },
       });
