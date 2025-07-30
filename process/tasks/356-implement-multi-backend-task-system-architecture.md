@@ -17,6 +17,7 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 ### Phase 1: Core Infrastructure (High Priority)
 
 #### 1.1 Backend-Qualified Task ID System
+- [ ] **Start with comprehensive tests** following test-driven development approach for all new ID functionality
 - [ ] Implement `BackendQualifiedId` type system with validation
 - [ ] Create parsing utilities (`parseTaskId`, `isQualifiedId`)
 - [ ] Add formatting utilities (`formatTaskId`, `formatForDisplay`)
@@ -24,8 +25,8 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [ ] Add validation and error handling for malformed IDs
 
 #### 1.2 TaskBackend Interface Updates
-- [ ] Add `prefix` property to TaskBackend interface
-- [ ] Update all existing backends (markdown, JSON, GitHub) to support prefixes
+- [ ] Add `prefix` property to TaskBackend interface (backends define their own prefixes)
+- [ ] Update all existing backends (markdown, JSON, GitHub) to include prefix property
 - [ ] Implement local ID generation and validation methods
 - [ ] Add migration support methods (`exportTask`, `importTask`)
 - [ ] Update backend capability discovery for qualified IDs
@@ -36,7 +37,7 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [ ] Add automatic task routing based on qualified IDs
 - [ ] Implement cross-backend operations (list all, search across backends)
 - [ ] Add backend selection for new task creation
-- [ ] Create migration utilities between backends
+- [ ] Create migration utilities between backends with collision tracking
 
 ### Phase 2: System Integration (High Priority)
 
@@ -48,8 +49,10 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [ ] Ensure backward compatibility with existing sessions
 
 #### 2.2 Git Operations Updates
-- [ ] Update branch naming for qualified IDs (`task#md:123`, `pr/task#md:123`)
-- [ ] Modify PR preparation and merge operations
+- [ ] **CRITICAL**: Design git-compatible branch naming strategy (colons `:` are forbidden in git branch names)
+- [ ] Use alternative format for branches: `task-md-123` instead of `task#md:123`
+- [ ] Implement branch name conversion utilities between session names and git branch names
+- [ ] Update PR preparation and merge operations for new branch format
 - [ ] Update branch cleanup operations for qualified names
 - [ ] Update git command integrations throughout the system
 - [ ] Ensure git operations work with both qualified and legacy IDs
@@ -59,12 +62,15 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [ ] Update task spec path generation for backend qualification
 - [ ] Create session workspace paths with qualified IDs (`sessions/task#md:123/`)
 - [ ] Implement file system migration utilities
+- [ ] **Add migration collision detection and reporting system**
+- [ ] Generate detailed migration reports for manual reconciliation of conflicts
 - [ ] Ensure cross-platform compatibility for new path structures
 
 ### Phase 3: CLI and Compatibility (Medium Priority)
 
 #### 3.1 CLI Command Schema Updates
-- [ ] Update all command schemas to accept qualified task IDs
+- [ ] **Leverage Task #329 schema libraries** for consistent cross-interface type composition
+- [ ] Update all command schemas to accept qualified task IDs using domain-wide schema patterns
 - [ ] Add backend parameter support for new task creation
 - [ ] Implement unqualified ID resolution with fallback logic
 - [ ] Add cross-backend command operations (`--all-backends`, `--backend`)
@@ -84,13 +90,14 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [ ] Implement file system reorganization scripts
 - [ ] Add session record migration tools
 - [ ] Create bulk migration commands
+- [ ] **Implement collision tracking system that logs conflicts and generates reports**
 - [ ] Add validation and rollback capabilities
+- [ ] Create migration summary reports for manual conflict resolution
 
 #### 4.2 Testing and Documentation
 - [ ] Comprehensive unit tests for all new components
 - [ ] Integration tests across multiple backends
 - [ ] Migration scenario testing
-- [ ] Performance testing with multiple backends
 - [ ] Update all documentation for qualified IDs
 - [ ] Create migration guides and troubleshooting docs
 
@@ -108,6 +115,28 @@ type BackendQualifiedId = `${BackendPrefix}:${string}`;
 // json:789 - JSON file backend task 789
 ```
 
+### Git-Compatible Branch Naming Strategy
+
+```typescript
+// Session names: task#md:123 (for display/storage)
+// Git branch names: task-md-123 (git-compatible)
+// PR branch names: pr/task-md-123
+
+function sessionNameToBranchName(sessionName: string): string {
+  // Convert task#md:123 → task-md-123
+  return sessionName.replace('#', '-').replace(':', '-');
+}
+
+function branchNameToSessionName(branchName: string): string {
+  // Convert task-md-123 → task#md:123
+  const parts = branchName.split('-');
+  if (parts.length >= 3 && parts[0] === 'task') {
+    return `task#${parts[1]}:${parts.slice(2).join('-')}`;
+  }
+  return branchName;
+}
+```
+
 ### Updated TaskService Interface
 
 ```typescript
@@ -116,17 +145,35 @@ interface MultiBackendTaskService {
   registerBackend(backend: TaskBackend): void;
   getAvailableBackends(): string[];
   getDefaultBackend(): string;
-
+  
   // Task operations with automatic routing
   getTask(qualifiedId: BackendQualifiedId): Promise<Task>;
   createTask(spec: TaskSpec, backend?: string): Promise<Task>;
-
+  
   // Cross-backend operations
   listAllTasks(): Promise<Task[]>;
   listTasksByBackend(backend: string): Promise<Task[]>;
-
-  // Migration utilities
+  
+  // Migration utilities with collision tracking
   migrateTask(fromId: BackendQualifiedId, toBackend: string): Promise<BackendQualifiedId>;
+  generateMigrationReport(): Promise<MigrationReport>;
+}
+
+interface TaskBackend {
+  name: string;
+  prefix: BackendPrefix; // Each backend defines its own prefix
+  // ... other methods
+}
+
+interface MigrationReport {
+  successful: BackendQualifiedId[];
+  conflicts: MigrationConflict[];
+  errors: MigrationError[];
+  summary: {
+    total: number;
+    successful: number;
+    failed: number;
+  };
 }
 ```
 
@@ -159,21 +206,23 @@ process/
 
 2. **System Integration**
    - Session names support backend-qualified task IDs
-   - Git operations (branches, PRs) work with qualified IDs
+   - Git operations (branches, PRs) work with git-compatible branch names
    - File system organization supports backend-specific structures
 
 3. **User Experience**
    - CLI commands accept both qualified and unqualified task IDs
    - Clear error messages for malformed or missing task IDs
    - Migration tools successfully convert existing tasks
+   - **Migration collision reports provide actionable information for manual resolution**
 
-4. **Performance and Reliability**
-   - System performance within 10% of current single-backend performance
+4. **Reliability**
    - All existing tests pass with multi-backend architecture
    - Comprehensive test coverage for new functionality
+   - **Test-driven development ensures robust implementation**
 
 ## Dependencies
 
+- **Task #329**: Create Domain-Wide Schema Libraries for Cross-Interface Type Composition (provides schema foundation)
 - Task ID utilities and validation (building on Task #283)
 - Session management system
 - Git operations infrastructure
@@ -189,8 +238,8 @@ process/
 2. **Data Loss**: Migration errors could lose task data
    - *Mitigation*: Backup systems, validation, rollback procedures
 
-3. **Performance Impact**: Multiple backends could slow operations
-   - *Mitigation*: Efficient routing, caching, async operations
+3. **Git Branch Naming Conflicts**: Invalid characters in branch names
+   - *Mitigation*: Git-compatible branch naming strategy using dashes instead of colons
 
 **Medium Risks:**
 1. **User Confusion**: New ID format may confuse users
@@ -199,9 +248,13 @@ process/
 2. **File Path Issues**: Longer paths may hit OS limits
    - *Mitigation*: Short prefixes, path validation
 
+3. **Migration Conflicts**: ID collisions during backend migration
+   - *Mitigation*: Collision detection system with detailed reporting for manual resolution
+
 ## Related Tasks
 
 - **Task #138**: Add GitHub Issues Support as Task Backend (depends on this task)
+- **Task #329**: Create Domain-Wide Schema Libraries for Cross-Interface Type Composition (foundation for CLI schema updates)
 - **Task #283**: Separate Task ID Storage from Display Format (foundation)
 - **Task #091**: Enhance SessionDB with Multiple Backend Support
 
@@ -211,19 +264,15 @@ HIGH - Prerequisite for Task #138 (GitHub Issues Backend)
 
 ## Estimated Effort
 
-Extra Large (20-30 hours)
+Extra Large
 
 ## Notes
 
 - This task is a prerequisite for Task #138 and should be implemented first
 - Careful attention to backward compatibility is essential
+- **Start with comprehensive test coverage following test-driven development principles**
 - Architecture design document available at `docs/architecture/multi-backend-task-system-design.md`
 - Migration strategy should be well-tested before production deployment
 - Consider implementing in phases to reduce risk and enable incremental testing
-
-
-## Requirements
-
-## Solution
-
-## Notes
+- **Task #329 schema libraries provide the foundation for CLI command schema updates**
+- **Git branch naming must avoid colons and other forbidden characters**
