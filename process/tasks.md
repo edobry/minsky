@@ -308,7 +308,7 @@
 
 - [+] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
 
-- [ ] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
+- [+] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
 
 - [ ] Research and Design Comprehensive AI Evals Framework for Rules, Context Construction, and Agent Operations [#162](process/tasks/162-research-and-design-comprehensive-ai-evals-framework-for-rules-context-construction-and-agent-operations.md)
 
@@ -610,4 +610,4 @@
 
 - [x] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [#355](process/tasks/355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
 
-- [ ] Implement Multi-Backend Task System Architecture [#356](process/tasks/356-implement-multi-backend-task-system-architecture.md)
+- [+] Implement Multi-Backend Task System Architecture [#356](process/tasks/356-implement-multi-backend-task-system-architecture.md)
