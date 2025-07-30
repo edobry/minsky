@@ -5,8 +5,8 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Task Specification**: Session PR command restructuring with explicit subcommands
-  - Created comprehensive task specification for restructuring `session pr` to use explicit subcommands
+- **Task #359**: Session PR command restructuring with explicit subcommands
+  - Created comprehensive task for restructuring `session pr` to use explicit subcommands
   - **BREAKING CHANGE**: Replaces `session pr` with `session pr create` for explicit command structure
   - Defines `session pr list` subcommand for listing PRs by session name, task ID, or status with filtering options
   - Defines `session pr get [name] --task <id>` subcommand using same identifier pattern as `session get` command

@@ -1,5 +1,9 @@
 # Restructure Session PR Command with Explicit Subcommands
 
+## Context
+
+# Restructure Session PR Command with Explicit Subcommands
+
 ## Problem Statement
 
 The existing `session pr` command creates pull requests directly, but this creates an inconsistent command structure when adding list and get operations. Users need to inspect PR status, review PR content, and manage multiple PRs across sessions, but the current command structure doesn't scale well for multiple operations and lacks consistency with modern CLI patterns.
@@ -381,3 +385,10 @@ interface SessionPrCommands {
 - Automatic PR status synchronization
 - Notification systems for PR state changes
 - CI/CD pipeline status integration 
+
+
+## Requirements
+
+## Solution
+
+## Notes
