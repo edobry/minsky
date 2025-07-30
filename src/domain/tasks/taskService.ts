@@ -12,7 +12,7 @@ import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
-import { getGitHubBackendConfig, getGitHubBackendConfigFromRepo } from "./githubBackendConfig";
+import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 
 /**
@@ -579,7 +579,7 @@ ${description}
    * This eliminates the need for external workspace resolution
    */
   static async createWithEnhancedBackend(options: {
-    backend: "markdown" | "json-file" | "github-issues";
+    backend: "markdown" | "json-file";
     backendConfig?: any;
     customBackends?: TaskBackend[];
     isReadOperation?: boolean;
@@ -611,7 +611,7 @@ ${description}
         }
 
         const { createMarkdownBackend } = await import("./markdown-backend");
-        resolvedBackend = await createMarkdownBackend(backendConfig, isReadOperation);
+        resolvedBackend = createMarkdownBackend(backendConfig);
         break;
       }
 
@@ -621,32 +621,8 @@ ${description}
         }
 
         const { createWorkspaceResolvingJsonBackend } = await import("./json-backend");
-        resolvedBackend = await createWorkspaceResolvingJsonBackend(backendConfig, isReadOperation);
+        resolvedBackend = createWorkspaceResolvingJsonBackend(backendConfig);
         break;
-      }
-
-      case "github-issues": {
-        if (!backendConfig) {
-          throw new Error("Backend configuration required for github-issues backend");
-        }
-
-        // GitHub Issues task backend requires GitHub repository backend integration
-        throw new Error(
-          "GitHub Issues task backend requires GitHub repository backend integration.\n" +
-            "\n" +
-            "ARCHITECTURE ISSUE: Task backends should get repository information from repository backends,\n" +
-            "not parse git remotes directly. The GitHub Issues task backend requires a GitHub repository\n" +
-            "backend to provide owner/repo information, but repository backend configuration is not yet\n" +
-            "integrated into the configuration system.\n" +
-            "\n" +
-            "To use GitHub Issues task backend:\n" +
-            "1. First implement repository backend configuration integration (Task #014)\n" +
-            "2. Configure repository backend to use 'github' type\n" +
-            "3. GitHub repository backend will provide owner/repo to GitHub Issues task backend\n" +
-            "\n" +
-            "Current configuration only specifies task backend but not repository backend.\n" +
-            "Using GitHub Issues task backend with Local repository backend is not supported."
-        );
       }
 
       default: {
@@ -665,16 +641,12 @@ ${description}
   /**
    * Convenience method for markdown backends with repo URLs
    */
-  static async createMarkdownWithRepo(config: {
-    repoUrl: string;
-    forceSpecialWorkspace?: boolean;
-  }): Promise<TaskService> {
+  static async createMarkdownWithRepo(config: { repoUrl: string }): Promise<TaskService> {
     return TaskService.createWithEnhancedBackend({
       backend: "markdown",
       backendConfig: {
         name: "markdown",
         repoUrl: config.repoUrl,
-        forceSpecialWorkspace: config.forceSpecialWorkspace,
       },
     });
   }

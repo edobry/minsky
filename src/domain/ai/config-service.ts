@@ -13,11 +13,15 @@ import {
   ValidationError,
   ValidationWarning,
 } from "./types";
-import { ConfigurationService } from "../configuration/types";
+import { enumSchemas } from "../configuration/schemas/base";
+import { z } from "zod";
 import { log } from "../../utils/logger";
 
+// Properly typed AI provider using existing enum
+type AIProvider = z.infer<typeof enumSchemas.aiProvider>;
+
 export class DefaultAIConfigurationService implements AIConfigurationService {
-  constructor(private configService: ConfigurationService) {}
+  constructor(private configService: any) {} // Accept any config service for flexibility
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
@@ -33,25 +37,21 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
         return null;
       }
 
-      // Extract API key from unified config (automatically populated by environment variable mapping)
-      const apiKey = providerConfig.api_key;
+      // Extract API key from unified config (schema-based configuration uses camelCase)
+      const apiKey = providerConfig.apiKey || providerConfig.api_key; // Support both formats for compatibility
 
       // If no API key is available, we can't use this provider
       if (!apiKey) {
         return null;
       }
 
-      // Create provider config from unified configuration
+      // Create provider config from unified configuration (support both camelCase and snake_case)
       return {
-        provider: provider,
+        provider: provider as AIProvider,
         apiKey,
-        baseURL: providerConfig.base_url,
-        defaultModel: providerConfig.default_model,
+        baseURL: providerConfig.baseUrl || providerConfig.base_url,
+        defaultModel: providerConfig.model || providerConfig.default_model,
         supportedCapabilities: await this.getProviderCapabilities(provider),
-        enabled: providerConfig.enabled ?? true,
-        models: providerConfig.models || [],
-        maxTokens: providerConfig.max_tokens,
-        temperature: providerConfig.temperature,
       };
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
@@ -68,9 +68,14 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   async getDefaultProvider(): Promise<string> {
     try {
       const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      return (result.resolved.ai as any).default_provider || "openai";
+      const defaultProvider =
+        (result.resolved.ai as any).defaultProvider ||
+        (result.resolved.ai as any).default_provider ||
+        "openai";
+      return defaultProvider;
     } catch (error) {
-      log.error("Failed to get default provider", { error });
+      // Log at debug level only - this is expected when no config exists
+      log.systemDebug("No default provider configured, using fallback: openai");
       return "openai";
     }
   }
@@ -94,11 +99,12 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
   private validateAPIKeyFormat(provider: string, apiKey: string): boolean {
     // Basic format validation for known providers
     const formatMap: Record<string, RegExp> = {
-      openai: /^sk-[a-zA-Z0-9]{20,}$/,
+      openai: /^sk-[a-zA-Z0-9_-]{20,}$/, // Allow dashes and underscores for modern keys
       anthropic: /^sk-ant-api03-[a-zA-Z0-9_-]{95}$/,
       google: /^AIza[0-9A-Za-z_-]{35}$/,
       cohere: /^[a-zA-Z0-9_-]+$/,
       mistral: /^[a-zA-Z0-9_-]+$/,
+      morph: /^[a-zA-Z0-9_-]+$/, // Morph uses similar format to other providers
     };
 
     const pattern = formatMap[provider];
@@ -131,6 +137,11 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       ],
       mistral: [
         { name: "tool-calling" as const, supported: true },
+        { name: "structured-output" as const, supported: true },
+      ],
+      morph: [
+        { name: "fast-apply" as const, supported: true, maxTokens: 32000 },
+        { name: "reasoning" as const, supported: true, maxTokens: 32000 },
         { name: "structured-output" as const, supported: true },
       ],
     };

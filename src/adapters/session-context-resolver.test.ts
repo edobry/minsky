@@ -9,8 +9,8 @@ import {
   MCPSessionContextResolver,
   SessionContextResolverFactory,
   resolveSessionForInterface,
-} from "../session-context-resolver";
-import { ValidationError } from "../../errors/index";
+} from "./session-context-resolver";
+import { ValidationError } from "../errors/index";
 
 describe("Interface-Layer Session Context Resolution", () => {
   describe("CLI Session Context Resolver", () => {

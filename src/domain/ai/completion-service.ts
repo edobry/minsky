@@ -6,7 +6,7 @@
  */
 
 import { generateText, streamText, generateObject, LanguageModel } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { openai, createOpenAI } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 
@@ -22,6 +22,7 @@ import {
   AIUsage,
 } from "./types";
 import { DefaultAIConfigurationService } from "./config-service";
+import { DefaultModelCacheService, OpenAIModelFetcher, AnthropicModelFetcher } from "./model-cache";
 import { ConfigurationService } from "../configuration/types";
 import { log } from "../../utils/logger";
 
@@ -31,9 +32,15 @@ import { log } from "../../utils/logger";
 export class DefaultAICompletionService implements AICompletionService {
   private configService: DefaultAIConfigurationService;
   private providerModels: Map<string, LanguageModel> = new Map();
+  private modelCacheService: DefaultModelCacheService;
 
-  constructor(configurationService: ConfigurationService) {
+  constructor(configurationService: any) {
     this.configService = new DefaultAIConfigurationService(configurationService);
+
+    // Initialize model cache service with fetchers
+    this.modelCacheService = new DefaultModelCacheService();
+    this.modelCacheService.registerFetcher(new OpenAIModelFetcher());
+    this.modelCacheService.registerFetcher(new AnthropicModelFetcher());
   }
 
   /**
@@ -114,7 +121,10 @@ export class DefaultAICompletionService implements AICompletionService {
         },
       };
     } catch (error) {
-      log.error("AI completion failed", { error, request });
+      // Log at debug level - the error will be re-thrown and handled with user-friendly messages
+      log.systemDebug(
+        `AI completion failed for provider ${request.provider}: ${error instanceof Error ? error.message : String(error)}`
+      );
       throw this.transformError(error, request.provider, request.model);
     }
   }
@@ -211,7 +221,10 @@ export class DefaultAICompletionService implements AICompletionService {
 
       return allModels;
     } catch (error) {
-      log.error("Failed to get available models", { error, provider });
+      // Log at debug level - this is expected when providers aren't configured
+      log.systemDebug(
+        `Failed to get available models for provider ${provider}: ${error instanceof Error ? error.message : String(error)}`
+      );
       return [];
     }
   }
@@ -338,6 +351,16 @@ export class DefaultAICompletionService implements AICompletionService {
         });
         break;
 
+      case "morph": {
+        // Morph is OpenAI-compatible, so use createOpenAI to create a custom provider
+        const morphProvider = createOpenAI({
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseURL || "https://api.morphllm.com/v1",
+        });
+        model = (morphProvider as any)(resolvedModel); // Use the actual model name (e.g., morph-v3-large)
+        break;
+      }
+
       default:
         throw new AIProviderError(
           `Unsupported provider: ${resolvedProvider}`,
@@ -359,13 +382,14 @@ export class DefaultAICompletionService implements AICompletionService {
       openai: "gpt-4o",
       anthropic: "claude-3-5-sonnet-20241022",
       google: "gemini-1.5-pro-latest",
+      morph: "morph-v3-large",
     };
 
     return defaultModels[provider] || "gpt-4o";
   }
 
   /**
-   * Get available models for a specific provider
+   * Get available models for a specific provider using cache service
    */
   private async getProviderModels(provider: string): Promise<AIModel[]> {
     const providerConfig = await this.configService.getProviderConfig(provider);
@@ -374,90 +398,204 @@ export class DefaultAICompletionService implements AICompletionService {
       return [];
     }
 
-    // Return hardcoded model definitions for now
-    // In the future, this could fetch live model data from provider APIs
-    const modelDefinitions: Record<string, AIModel[]> = {
-      openai: [
-        {
-          id: "gpt-4o",
-          provider: "openai",
-          name: "GPT-4o",
-          description: "Most advanced GPT-4 model with improved reasoning",
-          capabilities: providerConfig.supportedCapabilities,
-          contextWindow: 128000,
-          maxOutputTokens: 4096,
-          costPer1kTokens: { input: 0.005, output: 0.015 },
-        },
-        {
-          id: "gpt-4o-mini",
-          provider: "openai",
-          name: "GPT-4o Mini",
-          description: "Faster, more cost-efficient GPT-4o variant",
-          capabilities: providerConfig.supportedCapabilities,
-          contextWindow: 128000,
-          maxOutputTokens: 16384,
-          costPer1kTokens: { input: 0.00015, output: 0.0006 },
-        },
-        {
-          id: "o1-preview",
-          provider: "openai",
-          name: "o1 Preview",
-          description: "Advanced reasoning model with step-by-step thinking",
-          capabilities: [{ name: "reasoning", supported: true, maxTokens: 128000 }],
-          contextWindow: 128000,
-          maxOutputTokens: 32768,
-          costPer1kTokens: { input: 0.015, output: 0.06 },
-        },
-      ],
-      anthropic: [
-        {
-          id: "claude-3-5-sonnet-20241022",
-          provider: "anthropic",
-          name: "Claude 3.5 Sonnet",
-          description: "Most intelligent Claude model with enhanced capabilities",
-          capabilities: providerConfig.supportedCapabilities,
-          contextWindow: 200000,
-          maxOutputTokens: 8192,
-          costPer1kTokens: { input: 0.003, output: 0.015 },
-        },
-        {
-          id: "claude-3-5-haiku-20241022",
-          provider: "anthropic",
-          name: "Claude 3.5 Haiku",
-          description: "Fast and cost-effective Claude model",
-          capabilities: providerConfig.supportedCapabilities.filter(
-            (c) => c.name !== "prompt-caching"
-          ),
-          contextWindow: 200000,
-          maxOutputTokens: 8192,
-          costPer1kTokens: { input: 0.001, output: 0.005 },
-        },
-      ],
-      google: [
-        {
-          id: "gemini-1.5-pro-latest",
-          provider: "google",
-          name: "Gemini 1.5 Pro",
-          description: "Google's most capable multimodal model",
-          capabilities: providerConfig.supportedCapabilities,
-          contextWindow: 1000000,
-          maxOutputTokens: 8192,
-          costPer1kTokens: { input: 0.00125, output: 0.005 },
-        },
-        {
-          id: "gemini-1.5-flash",
-          provider: "google",
-          name: "Gemini 1.5 Flash",
-          description: "Fast and efficient Gemini model",
-          capabilities: providerConfig.supportedCapabilities,
-          contextWindow: 1000000,
-          maxOutputTokens: 8192,
-          costPer1kTokens: { input: 0.000075, output: 0.0003 },
-        },
-      ],
-    };
+    try {
+      // Try to get cached models first
+      const cachedModels = await this.modelCacheService.getCachedModels(provider);
 
-    return modelDefinitions[provider] || [];
+      if (cachedModels.length > 0) {
+        // Check if cache is stale and refresh in background if needed
+        if (await this.modelCacheService.isCacheStale(provider)) {
+          // Refresh in background (don't await)
+          this.refreshProviderModelsInBackground(provider, providerConfig);
+        }
+
+        // Convert cached models to AIModel format
+        return cachedModels.map((cachedModel) => ({
+          id: cachedModel.id,
+          provider: cachedModel.provider,
+          name: cachedModel.name,
+          description: cachedModel.description,
+          capabilities: cachedModel.capabilities,
+          contextWindow: cachedModel.contextWindow,
+          maxOutputTokens: cachedModel.maxOutputTokens,
+          costPer1kTokens: cachedModel.costPer1kTokens,
+        }));
+      }
+
+      // If no cached models, try to fetch fresh ones (with timeout)
+      if (providerConfig.apiKey) {
+        log.debug(`No cached models for ${provider}, attempting fresh fetch`);
+        await this.refreshProviderModelsInBackground(provider, providerConfig);
+
+        // Try to get cached models again after refresh
+        const refreshedModels = await this.modelCacheService.getCachedModels(provider);
+        if (refreshedModels.length > 0) {
+          return refreshedModels.map((cachedModel) => ({
+            id: cachedModel.id,
+            provider: cachedModel.provider,
+            name: cachedModel.name,
+            description: cachedModel.description,
+            capabilities: cachedModel.capabilities,
+            contextWindow: cachedModel.contextWindow,
+            maxOutputTokens: cachedModel.maxOutputTokens,
+            costPer1kTokens: cachedModel.costPer1kTokens,
+          }));
+        }
+      }
+
+      // Fallback to hardcoded models if cache fails
+      const modelDefinitions: Record<string, AIModel[]> = {
+        openai: [
+          {
+            id: "gpt-4o",
+            provider: "openai",
+            name: "GPT-4o",
+            description: "Most advanced GPT-4 model with improved reasoning",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 128000,
+            maxOutputTokens: 4096,
+            costPer1kTokens: { input: 0.005, output: 0.015 },
+          },
+          {
+            id: "gpt-4o-mini",
+            provider: "openai",
+            name: "GPT-4o Mini",
+            description: "Faster, more cost-efficient GPT-4o variant",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 128000,
+            maxOutputTokens: 16384,
+            costPer1kTokens: { input: 0.00015, output: 0.0006 },
+          },
+          {
+            id: "o1-preview",
+            provider: "openai",
+            name: "o1 Preview",
+            description: "Advanced reasoning model with step-by-step thinking",
+            capabilities: [{ name: "reasoning", supported: true, maxTokens: 128000 }],
+            contextWindow: 128000,
+            maxOutputTokens: 32768,
+            costPer1kTokens: { input: 0.015, output: 0.06 },
+          },
+        ],
+        anthropic: [
+          {
+            id: "claude-3-5-sonnet-20241022",
+            provider: "anthropic",
+            name: "Claude 3.5 Sonnet",
+            description: "Most intelligent Claude model with enhanced capabilities",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 200000,
+            maxOutputTokens: 8192,
+            costPer1kTokens: { input: 0.003, output: 0.015 },
+          },
+          {
+            id: "claude-3-5-haiku-20241022",
+            provider: "anthropic",
+            name: "Claude 3.5 Haiku",
+            description: "Fast and cost-effective Claude model",
+            capabilities: providerConfig.supportedCapabilities.filter(
+              (c) => c.name !== "prompt-caching"
+            ),
+            contextWindow: 200000,
+            maxOutputTokens: 8192,
+            costPer1kTokens: { input: 0.001, output: 0.005 },
+          },
+        ],
+        google: [
+          {
+            id: "gemini-1.5-pro-latest",
+            provider: "google",
+            name: "Gemini 1.5 Pro",
+            description: "Google's most capable multimodal model",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 1000000,
+            maxOutputTokens: 8192,
+            costPer1kTokens: { input: 0.00125, output: 0.005 },
+          },
+          {
+            id: "gemini-1.5-flash",
+            provider: "google",
+            name: "Gemini 1.5 Flash",
+            description: "Fast and efficient Gemini model",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 1000000,
+            maxOutputTokens: 8192,
+            costPer1kTokens: { input: 0.000075, output: 0.0003 },
+          },
+        ],
+      };
+
+      return modelDefinitions[provider] || [];
+    } catch (error) {
+      log.warn(`Failed to get models for provider ${provider}, falling back to minimal set`, {
+        error,
+      });
+
+      // Return minimal fallback models
+      const fallbackModels: Record<string, AIModel[]> = {
+        openai: [
+          {
+            id: "gpt-4o",
+            provider: "openai",
+            name: "GPT-4o",
+            description: "OpenAI's most capable model",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 128000,
+            maxOutputTokens: 4096,
+          },
+        ],
+        anthropic: [
+          {
+            id: "claude-3-5-sonnet-20241022",
+            provider: "anthropic",
+            name: "Claude 3.5 Sonnet",
+            description: "Anthropic's most capable model",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 200000,
+            maxOutputTokens: 8192,
+          },
+        ],
+        google: [
+          {
+            id: "gemini-1.5-pro-latest",
+            provider: "google",
+            name: "Gemini 1.5 Pro",
+            description: "Google's most capable model",
+            capabilities: providerConfig.supportedCapabilities,
+            contextWindow: 1000000,
+            maxOutputTokens: 8192,
+          },
+        ],
+      };
+
+      return fallbackModels[provider] || [];
+    }
+  }
+
+  /**
+   * Refresh models for a provider in the background
+   */
+  private async refreshProviderModelsInBackground(
+    provider: string,
+    providerConfig: AIProviderConfig
+  ): Promise<void> {
+    try {
+      if (!providerConfig.apiKey) {
+        log.debug(`No API key for provider ${provider}, skipping refresh`);
+        return;
+      }
+
+      await this.modelCacheService.refreshProvider(provider, {
+        apiKey: providerConfig.apiKey,
+        baseURL: providerConfig.baseURL,
+        timeout: 15000, // 15 second timeout for background refresh
+      });
+
+      log.debug(`Successfully refreshed models for provider ${provider} in background`);
+    } catch (error) {
+      log.debug(`Background model refresh failed for provider ${provider}`, { error });
+      // Don't throw - this is a background operation
+    }
   }
 
   /**

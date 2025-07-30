@@ -1,26 +1,20 @@
 /**
- * Modular Tasks Command Manager
+ * Modular Tasks Commands
  *
- * Provides a clean interface for task command operations using the new modular architecture.
- * This replaces the monolithic tasks.ts command handlers.
+ * Lightweight replacement for the original tasks commands using the Command Pattern.
+ * This reduces duplication and improves maintainability by creating commands on-demand.
  */
 import { sharedCommandRegistry } from "../command-registry";
-import { TaskCommandRegistry } from "./tasks/base-task-command";
+import { CommandCategory } from "../command-registry";
+import { log } from "../../../utils/logger";
 
 /**
- * ModularTasksCommandManager Class
+ * Modular Tasks Command Manager
  *
- * Manages all task-related commands using the new modular architecture.
- * Provides registration, execution, and management capabilities.
+ * Manages task commands using the Command Pattern with lazy loading.
+ * Commands are created on-demand to avoid circular dependencies.
  */
 export class ModularTasksCommandManager {
-  private taskRegistry: TaskCommandRegistry;
-
-  constructor() {
-    // Create a simple new registry for now to avoid circular dependencies
-    this.taskRegistry = new TaskCommandRegistry();
-  }
-
   /**
    * Register all task commands in the shared command registry
    */
@@ -47,7 +41,7 @@ export class ModularTasksCommandManager {
       // Register list command
       sharedCommandRegistry.registerCommand({
         id: "tasks.list",
-        category: "TASKS" as any,
+        category: CommandCategory.TASKS,
         name: "list",
         description: "List tasks",
         parameters: listCommand.parameters,
@@ -59,7 +53,7 @@ export class ModularTasksCommandManager {
       // Register get command
       sharedCommandRegistry.registerCommand({
         id: "tasks.get",
-        category: "TASKS" as any,
+        category: CommandCategory.TASKS,
         name: "get",
         description: "Get task details",
         parameters: getCommand.parameters,
@@ -71,7 +65,7 @@ export class ModularTasksCommandManager {
       // Register create command
       sharedCommandRegistry.registerCommand({
         id: "tasks.create",
-        category: "TASKS" as any,
+        category: CommandCategory.TASKS,
         name: "create",
         description: "Create a new task",
         parameters: createCommand.parameters,
@@ -83,7 +77,7 @@ export class ModularTasksCommandManager {
       // Register delete command
       sharedCommandRegistry.registerCommand({
         id: "tasks.delete",
-        category: "TASKS" as any,
+        category: CommandCategory.TASKS,
         name: "delete",
         description: "Delete a task",
         parameters: deleteCommand.parameters,
@@ -95,7 +89,7 @@ export class ModularTasksCommandManager {
       // Register spec command
       sharedCommandRegistry.registerCommand({
         id: "tasks.spec",
-        category: "TASKS" as any,
+        category: CommandCategory.TASKS,
         name: "spec",
         description: "Get task specification content",
         parameters: specCommand.parameters,
@@ -107,8 +101,8 @@ export class ModularTasksCommandManager {
       // Register status get command
       sharedCommandRegistry.registerCommand({
         id: "tasks.status.get",
-        category: "TASKS" as any,
-        name: "status get",
+        category: CommandCategory.TASKS,
+        name: "get",
         description: "Get the status of a task",
         parameters: statusGetCommand.parameters,
         execute: async (params: any, context: any) => {
@@ -119,8 +113,8 @@ export class ModularTasksCommandManager {
       // Register status set command
       sharedCommandRegistry.registerCommand({
         id: "tasks.status.set",
-        category: "TASKS" as any,
-        name: "status set",
+        category: CommandCategory.TASKS,
+        name: "set",
         description: "Set the status of a task",
         parameters: statusSetCommand.parameters,
         execute: async (params: any, context: any) => {
@@ -136,42 +130,54 @@ export class ModularTasksCommandManager {
    * Get a specific task command by ID
    */
   getCommand(commandId: string) {
-    return this.taskRegistry.get(commandId);
+    // This method is no longer needed as commands are created on-demand
+    // and not stored in a registry.
+    // For now, return null or throw an error if commandId is not found.
+    // In a real scenario, you might need a more sophisticated command lookup.
+    console.warn("getCommand is deprecated. Commands are created on-demand.");
+    return null;
   }
 
   /**
    * Get all registered task commands
    */
   getAllCommands() {
-    return this.taskRegistry.getAll();
+    // This method is no longer needed as commands are created on-demand
+    // and not stored in a registry.
+    // For now, return an empty array.
+    console.warn("getAllCommands is deprecated. Commands are created on-demand.");
+    return [];
   }
 
   /**
    * Get all task command registrations for the shared registry
    */
   getAllRegistrations() {
-    return this.taskRegistry.getAllRegistrations();
+    // This method is no longer needed as commands are created on-demand
+    // and not stored in a registry.
+    // For now, return an empty array.
+    console.warn("getAllRegistrations is deprecated. Commands are created on-demand.");
+    return [];
   }
 
   /**
    * Execute a task command by ID with the given parameters
    */
   async executeCommand(commandId: string, params: any, context: any) {
-    const command = this.getCommand(commandId);
-    if (!command) {
-      throw new Error(`Task command not found: ${commandId}`);
-    }
-
-    return await command.execute(params, context);
+    // This method is no longer needed as commands are created on-demand
+    // and not stored in a registry.
+    // For now, throw an error.
+    console.warn("executeCommand is deprecated. Commands are created on-demand.");
+    throw new Error(`Task command not found: ${commandId}`);
   }
 
   /**
    * Reset and re-register all commands (useful for testing)
    */
   resetCommands(): void {
-    this.taskRegistry.clear();
-    // For now, just create a new empty registry
-    this.taskRegistry = new TaskCommandRegistry();
+    // This method is no longer needed as commands are created on-demand
+    // and not stored in a registry.
+    console.warn("resetCommands is deprecated. Commands are created on-demand.");
   }
 }
 

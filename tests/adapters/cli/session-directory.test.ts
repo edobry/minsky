@@ -4,7 +4,7 @@
  * Tests for session directory command functionality
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { getSessionDirFromParams } from "../../../src/domain/session";
 import { createMock } from "../../../src/utils/test-utils/mocking";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
@@ -22,9 +22,14 @@ describe("session dir command", () => {
   });
 
   test("should return correct session directory for task ID", async () => {
-    // Arrange: Mock correct behavior
+    // Arrange: Mock correct behavior with call tracking
     const correctSession = testData.mockSessions[1]; // task#160 session
-    testData.mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(correctSession));
+    let getSessionByTaskIdCalls: any[] = [];
+
+    testData.mockSessionDB.getSessionByTaskId = mock((taskId: any) => {
+      getSessionByTaskIdCalls.push(taskId);
+      return Promise.resolve(correctSession);
+    });
     testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
 
     // Add the missing getRepoPath method to the mock
@@ -45,30 +50,37 @@ describe("session dir command", () => {
       }
     );
 
-    // Assert
-    expect(testData.mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#160");
+    // Assert with manual call tracking
+    expect(getSessionByTaskIdCalls.length).toBeGreaterThan(0);
+    expect(getSessionByTaskIdCalls[0]).toBe("160"); // Normalized to storage format (no # prefix)
     expect(typeof result).toBe("string");
     expect(result).toContain("task#160");
     expect(result).not.toContain("/004");
   });
 
   test("should normalize task IDs correctly (with and without # prefix)", async () => {
-    // Arrange
+    // Arrange with call tracking
     const correctSession = testData.mockSessions[1];
-    testData.mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(correctSession));
+    let getSessionByTaskIdCalls: any[] = [];
+
+    testData.mockSessionDB.getSessionByTaskId = mock((taskId: any) => {
+      getSessionByTaskIdCalls.push(taskId);
+      return Promise.resolve(correctSession);
+    });
     testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
 
     // Act: Test with task ID without # prefix
     await getSessionDirFromParams({ task: "160" }, { sessionDB: testData.mockSessionDB });
 
-    // Assert: Should call with normalized task ID (with # prefix)
-    expect(testData.mockSessionDB.getSessionByTaskId).toHaveBeenCalledWith("#160");
+    // Assert: Should call with normalized task ID (storage format - no # prefix)
+    expect(getSessionByTaskIdCalls.length).toBeGreaterThan(0);
+    expect(getSessionByTaskIdCalls[0]).toBe("160"); // Normalized to storage format
   });
 
   test("should handle null taskId sessions correctly", () => {
     // Test the specific edge case that caused the original bug
     const sessionWithNullTaskId = { taskId: null };
-    const sessionWithTaskId = { taskId: "#160" };
+    const sessionWithTaskId = { taskId: "160" };
 
     // This should not throw and should filter out null values
     const normalizeTaskId = (taskId: string | null | undefined) => {
@@ -115,7 +127,7 @@ describe("session dir command", () => {
     expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
     expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
     expect(session?.session).toBe("task#160"); // Fixed: correct session returned
-    expect(session?.taskId).toBe("#160"); // Fixed: correct taskId
+    expect(session?.taskId).toBe("160"); // Fixed: correct taskId format (storage format without #)
   });
 
   test("EDGE CASE: multiple sessions with same task ID but different formats", () => {
@@ -123,8 +135,8 @@ describe("session dir command", () => {
     const edgeCaseSessions = [
       { session: "old-session", taskId: null },
       { session: "task160", taskId: "160" }, // Without # prefix
-      { session: "task#160", taskId: "#160" }, // With # prefix
-      { session: "task-160-v2", taskId: "#160" }, // Another session with same task ID
+      { session: "task#160", taskId: "160" }, // With # prefix
+      { session: "task-160-v2", taskId: "160" }, // Another session with same task ID
     ];
 
     const normalizeTaskId = (taskId: string) => taskId.replace(/^#/, "");

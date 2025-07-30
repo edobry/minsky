@@ -23,10 +23,12 @@ export enum CommandCategory {
   GIT = "GIT",
   TASKS = "TASKS",
   SESSION = "SESSION",
+  SESSIONDB = "SESSIONDB",
   RULES = "RULES",
   INIT = "INIT",
   CONFIG = "CONFIG",
   DEBUG = "DEBUG",
+  AI = "AI",
 }
 
 /**

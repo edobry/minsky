@@ -9,6 +9,35 @@ import { z } from "zod";
 import { baseSchemas, enumSchemas } from "./base";
 
 /**
+ * Logger for configuration warnings - we'll import this from the logging system
+ */
+const logConfigWarning = (message: string) => {
+  // For now, use console.warn - this should be replaced with proper logging
+  console.warn(`Configuration Warning: ${message}`);
+};
+
+/**
+ * Detect unknown fields in an object and log warnings
+ */
+const detectAndWarnUnknownFields = (data: any, schema: z.ZodObject<any>, context: string): any => {
+  if (!data || typeof data !== "object") {
+    return data;
+  }
+
+  const knownKeys = new Set(Object.keys(schema.shape));
+  const dataKeys = Object.keys(data);
+  const unknownKeys = dataKeys.filter((key) => !knownKeys.has(key));
+
+  if (unknownKeys.length > 0) {
+    logConfigWarning(
+      `Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`
+    );
+  }
+
+  return data;
+};
+
+/**
  * Individual AI provider configuration
  */
 export const aiProviderConfigSchema = z
@@ -40,76 +69,83 @@ export const aiProviderConfigSchema = z
     // Custom headers for API requests
     headers: z.record(z.string()).optional(),
   })
-  .strict();
+  .strip();
 
 /**
  * OpenAI-specific configuration
  */
 export const openaiConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for OpenAI
-    model: z.string().default("gpt-4"),
-
-    // Organization ID for OpenAI API
+    // OpenAI-specific organization ID
     organization: baseSchemas.optionalNonEmptyString,
   })
-  .strict();
+  .strip();
 
 /**
  * Anthropic-specific configuration
  */
 export const anthropicConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Anthropic
-    model: z.string().default("claude-3-sonnet-20240229"),
+    // Anthropic-specific settings can be added here
   })
-  .strict();
+  .strip();
 
 /**
- * Google AI-specific configuration
+ * Google-specific configuration
  */
 export const googleConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Google AI
-    model: z.string().default("gemini-pro"),
-
-    // Project ID for Google Cloud
-    projectId: baseSchemas.optionalNonEmptyString,
+    // Google-specific settings can be added here
   })
-  .strict();
+  .strip();
 
 /**
  * Cohere-specific configuration
  */
 export const cohereConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Cohere
-    model: z.string().default("command"),
+    // Cohere-specific settings can be added here
   })
-  .strict();
+  .strip();
 
 /**
  * Mistral-specific configuration
  */
 export const mistralConfigSchema = aiProviderConfigSchema
   .extend({
-    // Default model for Mistral
-    model: z.string().default("mistral-medium"),
+    // Mistral-specific settings can be added here
+  })
+  .strip();
+
+/**
+ * Morph-specific configuration
+ */
+export const morphConfigSchema = aiProviderConfigSchema
+  .extend({
+    // Default model for Morph (fast-apply models)
+    model: z.string().default("morph-v3-large"),
+
+    // Base URL defaults to Morph API
+    baseUrl: z.string().default("https://api.morphllm.com/v1"),
   })
   .strict();
 
 /**
- * All AI providers configuration
+ * All AI providers configuration with unknown field detection
  */
+const baseAiProvidersSchema = z.object({
+  openai: openaiConfigSchema.optional(),
+  anthropic: anthropicConfigSchema.optional(),
+  google: googleConfigSchema.optional(),
+  cohere: cohereConfigSchema.optional(),
+  mistral: mistralConfigSchema.optional(),
+  morph: morphConfigSchema.optional(),
+});
+
 export const aiProvidersConfigSchema = z
-  .object({
-    openai: openaiConfigSchema.optional(),
-    anthropic: anthropicConfigSchema.optional(),
-    google: googleConfigSchema.optional(),
-    cohere: cohereConfigSchema.optional(),
-    mistral: mistralConfigSchema.optional(),
-  })
-  .strict();
+  .any()
+  .transform((data) => detectAndWarnUnknownFields(data, baseAiProvidersSchema, "ai.providers"))
+  .pipe(baseAiProvidersSchema.strip());
 
 /**
  * Complete AI configuration
@@ -122,7 +158,7 @@ export const aiConfigSchema = z
     // Provider-specific configurations
     providers: aiProvidersConfigSchema.default({}),
   })
-  .strict()
+  .passthrough() // Changed from .strict() to .passthrough() to allow unknown fields
   .default({
     providers: {},
   });
@@ -134,6 +170,7 @@ export type AnthropicConfig = z.infer<typeof anthropicConfigSchema>;
 export type GoogleConfig = z.infer<typeof googleConfigSchema>;
 export type CohereConfig = z.infer<typeof cohereConfigSchema>;
 export type MistralConfig = z.infer<typeof mistralConfigSchema>;
+export type MorphConfig = z.infer<typeof morphConfigSchema>;
 export type AIProvidersConfig = z.infer<typeof aiProvidersConfigSchema>;
 export type AIConfig = z.infer<typeof aiConfigSchema>;
 
@@ -166,6 +203,7 @@ export const aiValidation = {
     if (config.providers.google?.enabled) providers.push("google");
     if (config.providers.cohere?.enabled) providers.push("cohere");
     if (config.providers.mistral?.enabled) providers.push("mistral");
+    if (config.providers.morph?.enabled) providers.push("morph");
 
     return providers;
   },
@@ -190,6 +228,9 @@ export const aiValidation = {
     }
     if (config.providers.mistral && aiValidation.isProviderReady(config.providers.mistral)) {
       providers.push("mistral");
+    }
+    if (config.providers.morph && aiValidation.isProviderReady(config.providers.morph)) {
+      providers.push("morph");
     }
 
     return providers;
@@ -223,6 +264,8 @@ export const aiValidation = {
         return config.providers.cohere || null;
       case "mistral":
         return config.providers.mistral || null;
+      case "morph":
+        return config.providers.morph || null;
       default:
         return null;
     }
@@ -252,6 +295,10 @@ export const aiEnvMapping = {
 
   // Mistral
   MISTRAL_API_KEY: "ai.providers.mistral.apiKey",
+
+  // Morph
+  MORPH_API_KEY: "ai.providers.morph.apiKey",
+  MORPH_BASE_URL: "ai.providers.morph.baseUrl",
 
   // General AI settings
   AI_DEFAULT_PROVIDER: "ai.defaultProvider",

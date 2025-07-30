@@ -12,10 +12,12 @@ export const commandCategorySchema = z.enum([
   "GIT",
   "TASKS",
   "SESSION",
+  "SESSIONDB",
   "RULES",
   "INIT",
   "CONFIG",
   "DEBUG",
+  "AI",
 ]);
 
 /**

@@ -8,8 +8,8 @@
 import { describe, test, expect } from "bun:test";
 import { Project } from "ts-morph";
 import {
-  fixBunTestMockingInFile,
-  fixBunTestMockingInFiles,
+  fixMockingConsistencyInFile,
+  fixMockingConsistency,
 } from "./bun-test-mocking-consistency-fixer";
 
 describe("Bun Test Mocking Consistency Fixer", () => {
@@ -159,17 +159,17 @@ describe("Bun Test Mocking Consistency Fixer", () => {
     });
   });
 
-  describe("fixBunTestMockingInFiles", () => {
+  describe("fixMockingConsistency", () => {
     test("should process multiple files and return results", () => {
       // This test verifies the batch processing functionality
-      const results = fixBunTestMockingInFiles([]);
+      const results = fixMockingConsistency([]);
 
       expect(Array.isArray(results)).toBe(true);
       expect(results.length).toBe(0);
     });
 
     test("should handle file processing errors gracefully", () => {
-      const results = fixBunTestMockingInFiles(["/nonexistent/file.test.ts"]);
+      const results = fixMockingConsistency(["/nonexistent/file.test.ts"]);
 
       expect(results.length).toBe(1);
       expect(results[0].result.changed).toBe(false);

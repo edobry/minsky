@@ -7,7 +7,7 @@
  * 3. Verify proper cleanup allows subsequent session creation
  */
 
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
 import {
@@ -166,8 +166,8 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Assert - Session should be created successfully
     expect(result).toMatchObject({
-      session: "task#160",
-      taskId: "#160",
+      session: "task160",
+      taskId: "160",
       repoUrl: "local/minsky",
     });
 
@@ -180,7 +180,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     expect(addSessionSpy).toHaveBeenCalledWith(
       expect.objectContaining({
         session: "task#160",
-        taskId: "#160",
+        taskId: "160",
         repoUrl: "local/minsky",
         repoPath: "/test/sessions/task#160",
       })

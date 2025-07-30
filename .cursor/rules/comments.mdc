@@ -1,0 +1,71 @@
+# Comment Guidelines
+
+## Core Principle
+
+**Comments should explain WHY, not WHAT.**
+
+If the code clearly shows what it does, don't comment it.
+
+## ❌ DELETE These Comment Types
+
+**Obvious statements:**
+```typescript
+// Create a new user
+const user = createUser();
+
+// Return the result
+return result;
+
+// All operations work in main workspace
+function processInWorkspace() { /* clearly works in workspace */ }
+```
+
+**Temporal references (your internal process, not the code's purpose):**
+```typescript
+// This was simplified after refactoring
+// Operations now work in main workspace
+// Previously used a different approach
+```
+
+**Internal reasoning language:**
+```typescript
+// Enhanced error handling
+// Robust implementation
+// Comprehensive validation
+```
+
+## ✅ KEEP These Comment Types
+
+**Explains WHY something non-obvious happens:**
+```typescript
+// Cache expires after 5 minutes to balance freshness and performance
+// Using setTimeout instead of setInterval to avoid overlapping calls
+// Returns null when user lacks permission (intentional, not an error)
+```
+
+**Documents business logic or domain knowledge:**
+```typescript
+// Tax calculation must use the rate from the invoice date, not current rate
+// API rate limit is 100 requests per minute per API key
+// Users can only edit their own posts unless they're admins
+```
+
+**Warns about gotchas or non-obvious behavior:**
+```typescript
+// Modifies the original array for performance reasons
+// This function has side effects - it updates the global cache
+// Don't call this during unit tests - it makes real HTTP requests
+```
+
+## Comment Test
+
+Before writing any comment, ask:
+1. **Is this obvious from reading the code?** → Delete it
+2. **Does this explain WHY, not WHAT?** → Keep it
+3. **Would this help someone understand the business logic?** → Keep it
+
+**When in doubt: DELETE THE COMMENT**
+
+## Rationale
+
+Useless comments create noise, become outdated, and waste mental energy. Good comments provide context that code cannot express on its own.

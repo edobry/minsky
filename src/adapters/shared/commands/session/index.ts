@@ -30,6 +30,14 @@ export {
   createSessionDirCommand,
 } from "./basic-commands";
 
+// Import factory functions for internal use
+import {
+  createSessionListCommand,
+  createSessionGetCommand,
+  createSessionStartCommand,
+  createSessionDirCommand,
+} from "./basic-commands";
+
 // Management commands (re-export)
 export {
   SessionDeleteCommand,
@@ -37,6 +45,9 @@ export {
   createSessionDeleteCommand,
   createSessionUpdateCommand,
 } from "./management-commands";
+
+// Import management factory functions for internal use
+import { createSessionDeleteCommand, createSessionUpdateCommand } from "./management-commands";
 
 // Workflow commands (re-export)
 export {
@@ -48,26 +59,34 @@ export {
   createSessionInspectCommand,
 } from "./workflow-commands";
 
+// Import conflicts command
+import { createSessionConflictsCommand } from "./conflicts-command";
+
+// Import workflow factory functions for internal use
+import {
+  createSessionApproveCommand,
+  createSessionPrCommand,
+  createSessionInspectCommand,
+} from "./workflow-commands";
+
 // Factory for creating all session commands
-export function createAllSessionCommands(deps?: SessionCommandDependencies) {
-  // Use require to avoid circular dependency issues
+export async function createAllSessionCommands(deps?: SessionCommandDependencies) {
+  // Use dynamic imports to avoid circular dependency issues
+  const basicCommands = await import("./basic-commands");
+  const managementCommands = await import("./management-commands");
+  const workflowCommands = await import("./workflow-commands");
+
   const {
     createSessionListCommand,
     createSessionGetCommand,
     createSessionStartCommand,
     createSessionDirCommand,
-  } = require("./basic-commands");
+  } = basicCommands;
 
-  const {
-    createSessionDeleteCommand,
-    createSessionUpdateCommand,
-  } = require("./management-commands");
+  const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
 
-  const {
-    createSessionApproveCommand,
-    createSessionPrCommand,
-    createSessionInspectCommand,
-  } = require("./workflow-commands");
+  const { createSessionApproveCommand, createSessionPrCommand, createSessionInspectCommand } =
+    workflowCommands;
 
   return {
     // Basic commands
@@ -84,15 +103,18 @@ export function createAllSessionCommands(deps?: SessionCommandDependencies) {
     approve: createSessionApproveCommand(deps),
     pr: createSessionPrCommand(deps),
     inspect: createSessionInspectCommand(deps),
+
+    // Utility commands
+    conflicts: createSessionConflictsCommand(deps),
   };
 }
 
 // Registry setup function
-export function setupSessionCommandRegistry(
+export async function setupSessionCommandRegistry(
   deps?: SessionCommandDependencies
-): SessionCommandRegistry {
+): Promise<SessionCommandRegistry> {
   const registry = new SessionCommandRegistry();
-  const commands = createAllSessionCommands(deps);
+  const commands = await createAllSessionCommands(deps);
 
   // Register all commands
   registry.register("session.list", commands.list);
@@ -104,6 +126,7 @@ export function setupSessionCommandRegistry(
   registry.register("session.approve", commands.approve);
   registry.register("session.pr", commands.pr);
   registry.register("session.inspect", commands.inspect);
+  registry.register("session.conflicts", commands.conflicts);
 
   return registry;
 }

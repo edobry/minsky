@@ -9,8 +9,8 @@ import {
   ValidationError,
   getErrorMessage,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
-import { taskIdSchema } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/common";
-import type { SessionStartParams } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
+import { TaskIdSchema } from "../../domain/schemas";
+import type { SessionStartParameters } from "../../domain/schemas";
 import { log } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/logger";
 import { installDependencies } from "../../utils/package-manager";
 import { type GitServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/git";
@@ -36,7 +36,7 @@ import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task
  * Extracted from session.ts for better modularity
  */
 export async function startSessionImpl(
-  params: SessionStartParams,
+  params: SessionStartParameters,
   deps: {
     sessionDB: SessionProviderInterface;
     gitService: GitServiceInterface;
@@ -130,7 +130,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
-      const normalizedTaskId = taskIdSchema.parse(taskId);
+      const normalizedTaskId = TaskIdSchema.parse(taskId);
       taskId = normalizedTaskId;
 
       // Verify the task exists

@@ -528,6 +528,133 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
     },
   });
 
+  // Rules commands customization
+  cliFactory.customizeCategory(CommandCategory.RULES, {
+    commandOptions: {
+      "rules.generate": {
+        parameters: {
+          interface: {
+            description: "Interface preference (cli, mcp, or hybrid)",
+          },
+          rules: {
+            description: "Comma-separated list of specific rule templates to generate",
+          },
+          outputDir: {
+            description: "Output directory for generated rules",
+          },
+          dryRun: {
+            alias: "n",
+            description: "Show what would be generated without creating files",
+          },
+          overwrite: {
+            description: "Overwrite existing rule files",
+          },
+          format: {
+            description: "Rule format (cursor or openai)",
+          },
+          preferMcp: {
+            description: "In hybrid mode, prefer MCP commands over CLI",
+          },
+          mcpTransport: {
+            description: "MCP transport method (stdio or http)",
+          },
+        },
+      },
+      "rules.list": {
+        parameters: {
+          format: {
+            description: "Filter by rule format (cursor or generic)",
+          },
+          tag: {
+            description: "Filter by tag",
+          },
+        },
+      },
+      "rules.get": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          id: {
+            asArgument: true,
+            description: "Rule ID",
+          },
+          format: {
+            description: "Preferred rule format (cursor or generic)",
+          },
+        },
+      },
+      "rules.create": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          id: {
+            asArgument: true,
+            description: "ID of the rule to create",
+          },
+          content: {
+            description: "Rule content (can be a file path starting with @)",
+          },
+          description: {
+            description: "Description of the rule",
+          },
+          name: {
+            description: "Display name for the rule",
+          },
+          globs: {
+            description: "Comma-separated list of glob patterns",
+          },
+          tags: {
+            description: "Comma-separated list of tags",
+          },
+          format: {
+            description: "Rule format (cursor or generic)",
+          },
+          overwrite: {
+            description: "Overwrite existing rule if it exists",
+          },
+        },
+      },
+      "rules.update": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          id: {
+            asArgument: true,
+            description: "ID of the rule to update",
+          },
+          content: {
+            description: "Updated rule content (can be a file path starting with @)",
+          },
+          description: {
+            description: "Updated description of the rule",
+          },
+          name: {
+            description: "Updated display name for the rule",
+          },
+          globs: {
+            description: "Updated comma-separated list of glob patterns",
+          },
+          tags: {
+            description: "Updated comma-separated list of tags",
+          },
+          format: {
+            description: "Updated rule format (cursor or generic)",
+          },
+        },
+      },
+      "rules.search": {
+        parameters: {
+          query: {
+            description: "Search query term",
+          },
+          tag: {
+            description: "Filter by tag",
+          },
+          format: {
+            description: "Filter by rule format (cursor or generic)",
+          },
+        },
+      },
+    },
+  });
+
   // SessionDB commands customization
   cliFactory.customizeCategory(CommandCategory.SESSIONDB, {
     commandOptions: {
@@ -591,37 +718,169 @@ function formatResolvedConfiguration(resolved: any): string {
     const github = resolved.backendConfig["github-issues"];
     output += ` (${github.owner}/${github.repo})`;
   }
+  output += "\n";
 
-  // Authentication
-  if (resolved.credentials && Object.keys(resolved.credentials).length > 0) {
-    output += "\n🔐 Authentication: ";
-    const authServices = [];
-    for (const [service, creds] of Object.entries(resolved.credentials)) {
-      if (creds && typeof creds === "object") {
-        const credsObj = creds as any;
-        const serviceName = service === "github" ? "GitHub" : service;
-        const source = credsObj.source === "environment" ? "env" : credsObj.source;
-        authServices.push(`${serviceName} (${source})`);
+  // Authentication & Credentials
+  const hasAuth =
+    (resolved.credentials && Object.keys(resolved.credentials).length > 0) ||
+    resolved.github?.token ||
+    (resolved.ai?.providers &&
+      Object.keys(resolved.ai.providers).some((p) => resolved.ai.providers[p]?.apiKey));
+
+  if (hasAuth) {
+    output += "🔐 Authentication:\n";
+
+    // GitHub authentication
+    if (resolved.github?.token || resolved.credentials?.github) {
+      output += "   • GitHub: ✓ configured\n";
+    }
+
+    // AI provider authentication
+    if (resolved.ai?.providers) {
+      const configuredAI: string[] = [];
+      for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+        if (config && typeof config === "object") {
+          const providerConfig = config as any;
+          if (providerConfig.apiKey) {
+            configuredAI.push(provider);
+          }
+        }
+      }
+      if (configuredAI.length > 0) {
+        output += `   • AI Providers: ${configuredAI.join(", ")} ✓\n`;
       }
     }
-    output += authServices.join(", ");
   }
 
   // Session Storage
   if (resolved.sessiondb) {
+    output += "💾 Session Storage:\n";
     const sessionBackend = resolved.sessiondb.backend || "json";
-    output += `\n💾 Session Storage: ${getSessionBackendDisplayName(sessionBackend)}`;
+    output += `   • Backend: ${getSessionBackendDisplayName(sessionBackend)}\n`;
 
-    if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
-      output += ` (${resolved.sessiondb.dbPath})`;
-    } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
-      output += " (configured)";
+    if (sessionBackend === "sqlite" && resolved.sessiondb.sqlite?.path) {
+      output += `   • Database: ${resolved.sessiondb.sqlite.path}\n`;
+    } else if (sessionBackend === "postgres" && resolved.sessiondb.postgres?.connectionString) {
+      output += "   • Connection: configured\n";
     } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
-      output += ` (${resolved.sessiondb.baseDir})`;
+      output += `   • Directory: ${resolved.sessiondb.baseDir}\n`;
     }
   }
 
-  return output;
+  // AI Configuration
+  if (resolved.ai?.providers && Object.keys(resolved.ai.providers).length > 0) {
+    output += "🤖 AI Configuration:\n";
+
+    if (resolved.ai.defaultProvider) {
+      output += `   • Default Provider: ${resolved.ai.defaultProvider}\n`;
+    }
+
+    output += "   • Configured Providers:\n";
+    for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+      if (config && typeof config === "object") {
+        const providerConfig = config as any;
+        output += `     ${provider}:`;
+
+        const details: string[] = [];
+        if (providerConfig.model) {
+          details.push(`model: ${providerConfig.model}`);
+        }
+        if (providerConfig.enabled !== undefined) {
+          details.push(`enabled: ${providerConfig.enabled ? "yes" : "no"}`);
+        }
+        if (providerConfig.apiKey) {
+          details.push("authenticated");
+        }
+
+        if (details.length > 0) {
+          output += ` ${details.join(", ")}\n`;
+        } else {
+          output += "\n";
+        }
+      }
+    }
+  }
+
+  // GitHub Configuration
+  if (resolved.github && Object.keys(resolved.github).length > 0) {
+    output += "🐙 GitHub Configuration:\n";
+
+    if (resolved.github.token) {
+      output += "   • Token: configured\n";
+    }
+    if (resolved.github.organization) {
+      output += `   • Organization: ${resolved.github.organization}\n`;
+    }
+    if (resolved.github.baseUrl && resolved.github.baseUrl !== "https://api.github.com") {
+      output += `   • Base URL: ${resolved.github.baseUrl}\n`;
+    }
+  }
+
+  // Logger Configuration (show if non-default or has interesting settings)
+  if (resolved.logger) {
+    const logger = resolved.logger;
+    const hasNonDefaultSettings =
+      logger.mode !== "auto" ||
+      logger.level !== "info" ||
+      logger.enableAgentLogs === true ||
+      logger.logFile ||
+      logger.includeTimestamp === false ||
+      logger.includeLevel === false;
+
+    if (hasNonDefaultSettings) {
+      output += "📊 Logger Configuration:\n";
+
+      if (logger.mode && logger.mode !== "auto") {
+        output += `   • Mode: ${logger.mode}\n`;
+      }
+
+      if (logger.level && logger.level !== "info") {
+        output += `   • Level: ${logger.level}\n`;
+      }
+
+      if (logger.enableAgentLogs === true) {
+        output += "   • Agent Logs: enabled\n";
+      }
+
+      if (logger.logFile) {
+        output += `   • Log File: ${logger.logFile}\n`;
+      }
+
+      // Show other notable settings
+      const otherSettings: string[] = [];
+      if (logger.includeTimestamp === false) otherSettings.push("no timestamps");
+      if (logger.includeLevel === false) otherSettings.push("no levels");
+      if (logger.maxFileSize) otherSettings.push(`max file: ${logger.maxFileSize}MB`);
+      if (logger.maxFiles) otherSettings.push(`max files: ${logger.maxFiles}`);
+
+      if (otherSettings.length > 0) {
+        output += `   • Other: ${otherSettings.join(", ")}\n`;
+      }
+    }
+  }
+
+  // Backend-specific Configuration (only show if configured)
+  if (resolved.backendConfig && Object.keys(resolved.backendConfig).length > 0) {
+    const hasNonEmptyBackends = Object.entries(resolved.backendConfig).some(
+      ([, config]) =>
+        config && typeof config === "object" && Object.keys(config as object).length > 0
+    );
+
+    if (hasNonEmptyBackends) {
+      output += "⚙️  Backend Configuration:\n";
+
+      for (const [backend, config] of Object.entries(resolved.backendConfig)) {
+        if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
+          output += `   • ${backend}:\n`;
+          for (const [key, value] of Object.entries(config as object)) {
+            output += `     ${key}: ${value}\n`;
+          }
+        }
+      }
+    }
+  }
+
+  return output.trim();
 }
 
 function getBackendDisplayName(backend: string): string {
@@ -699,14 +958,10 @@ function formatConfigSection(config: any): string {
     }
   }
 
-  return output.trimEnd();
+  return output;
 }
 
 function sanitizeCredentials(creds: any): any {
-  if (!creds || typeof creds !== "object") {
-    return creds;
-  }
-
   const sanitized = { ...creds };
   if (sanitized.token) {
     sanitized.token = `${"*".repeat(20)} (hidden)`;
@@ -739,12 +994,6 @@ function formatFlattenedConfiguration(resolved: any): string {
             }
           });
         }
-      } else if (
-        typeof value === "string" &&
-        (fullKey.includes("token") || fullKey.includes("password"))
-      ) {
-        // Hide sensitive values
-        result.push(`${fullKey}=*** (hidden)`);
       } else {
         result.push(`${fullKey}=${value}`);
       }

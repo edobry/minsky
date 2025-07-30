@@ -1,5 +1,24 @@
 # Fix special workspace and main workspace synchronization for task operations
 
+## Status: ❌ OBSOLETE - Special Workspace Architecture Removed
+
+**This task is obsolete as of Task #325 completion.** The special workspace architecture and all synchronization issues have been eliminated by moving to a simplified approach where in-tree backends operate directly in the main workspace.
+
+## Resolution
+
+**Task #325** resolved all synchronization issues by completely removing the special workspace:
+
+- Eliminated the need for synchronization between special workspace and main workspace
+- Simplified task operations to work directly in main workspace
+- Removed 445+ lines of complex coordination code
+- All commands now work consistently without synchronization overhead
+
+See: [Task #325: Task Backend Architecture Analysis and Design Resolution](325-task-backend-architecture-analysis-and-design-resolution.md)
+
+## Historical Context (Pre-Removal)
+
+The following was the original issue before the architectural decision to remove special workspace entirely:
+
 ## Context
 
 During investigation of task #313, we discovered that while task files are correctly created in both the special workspace (~/.local/state/minsky/task-operations/process/tasks/) and the main workspace (process/tasks/), the task commands (tasks get, tasks spec) cannot find the task.

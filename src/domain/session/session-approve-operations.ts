@@ -10,13 +10,12 @@ import {
   createCommandFailureMessage,
   createErrorContext,
 } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "../tasks";
 import { execAsync } from "../../utils/exec";
-import { gitPushWithTimeout, gitFetchWithTimeout, execGitWithTimeout } from "../../utils/git-exec";
 import {
   type WorkspaceUtilsInterface,
   getCurrentSession,
@@ -77,7 +76,7 @@ export async function approveSessionImpl(
       log.cli("🔍 Resolving session from task ID...");
     }
 
-    const taskIdToUse = taskIdSchema.parse(params.task);
+    const taskIdToUse = TaskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
     // **BUG FIX**: Validate task existence BEFORE checking for session
@@ -299,7 +298,7 @@ The task exists but has no associated session to approve.
     if (!params.json) {
       log.cli("📡 Fetching latest changes...");
     }
-    await gitFetchWithTimeout("origin", undefined, { workdir: workingDirectory });
+    await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
 
     // Check if the PR branch has already been merged
     let isNewlyApproved = true;
@@ -347,18 +346,15 @@ The task exists but has no associated session to approve.
         ).trim();
 
         // Push the changes
-        await gitPushWithTimeout("origin", baseBranch, { workdir: workingDirectory });
+        await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
 
         // Delete the PR branch from remote only if it exists there
         try {
-          // Check if remote branch exists first using timeout wrapper to avoid hanging
+          // Check if remote branch exists first
           // This is expected to fail if the branch doesn't exist, which is normal
-          await execGitWithTimeout(
-            "check-remote-ref",
-            `show-ref --verify --quiet refs/remotes/origin/${prBranch}`,
-            {
-              workdir: workingDirectory,
-            }
+          await deps.gitService.execInRepository(
+            workingDirectory,
+            `git show-ref --verify --quiet refs/remotes/origin/${prBranch}`
           );
           // If it exists, delete it
           await deps.gitService.execInRepository(
@@ -529,11 +525,8 @@ The task exists but has no associated session to approve.
                       "✅ The task is marked as DONE - you can fix linting issues separately"
                     );
                   }
-                  log.warn("Task status commit failed due to pre-commit checks", {
-                    taskId,
-                    errors: errorCount,
-                    warnings: warningCount,
-                  });
+                  // Log the warning without JSON metadata for cleaner output
+                  log.warn("Task status commit failed due to pre-commit checks");
                   // Re-throw to fail the command - linting issues should block session approval
                   throw new MinskyError(
                     `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`
@@ -546,7 +539,7 @@ The task exists but has no associated session to approve.
 
               // Try to push the commit if it succeeded
               try {
-                await gitPushWithTimeout("origin", undefined, { workdir: workingDirectory });
+                await deps.gitService.execInRepository(workingDirectory, "git push");
                 log.debug(`Pushed task ${taskId} status update`);
               } catch (pushError) {
                 // Log but don't fail if push fails

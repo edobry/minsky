@@ -4,7 +4,7 @@
  * Tests for session update command functionality
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { mkdir } from "fs/promises";
 import { updateSessionFromParams } from "../../../src/domain/session";
@@ -205,7 +205,7 @@ describe("session update command", () => {
       repoName: "local-minsky",
       repoUrl: repoUrl,
       createdAt: new Date().toISOString(),
-      taskId: "task#42", // Task ID should match session name
+      taskId: "42", // Task ID should match session name
     };
 
     testData.mockSessionDB.getSession = async (name: string) => {
@@ -240,9 +240,9 @@ describe("session update command", () => {
       }
     );
 
-    // Assert: Session update should succeed and preserve task ID
+    // Assert: Session update should succeed and preserve task ID in storage format
     expect(result.session).toBe(sessionName);
-    expect(result.taskId).toBe("task#42");
+    expect(result.taskId).toBe("42");
   });
 
   test("TASK #168 FIX: should provide clear error message when session workspace directory is missing", async () => {

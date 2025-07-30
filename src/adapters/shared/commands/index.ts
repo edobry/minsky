@@ -13,19 +13,20 @@ import { registerInitCommands } from "./init";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerSessiondbCommands } from "./sessiondb";
+import { registerAiCommands } from "./ai";
 
 /**
  * Register all shared commands in the shared command registry
  */
-export function registerAllSharedCommands(): void {
+export async function registerAllSharedCommands(): Promise<void> {
   // Register git commands
   registerGitCommands();
 
   // Register tasks commands
   registerTasksCommands();
 
-  // Register session commands
-  registerSessionCommands();
+  // Register session commands (async)
+  await registerSessionCommands();
 
   // Register rules commands
   registerRulesCommands();
@@ -42,6 +43,9 @@ export function registerAllSharedCommands(): void {
   // Register sessiondb commands
   registerSessiondbCommands();
 
+  // Register AI commands
+  registerAiCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -56,4 +60,5 @@ export {
   registerConfigCommands,
   registerDebugCommands,
   registerSessiondbCommands,
+  registerAiCommands,
 };

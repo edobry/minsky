@@ -53,7 +53,7 @@ describe("Session PR Command Branch Behavior", () => {
             session: "task#228",
             repoName: "test-repo",
             repoUrl: "/test/repo",
-            taskId: "#228",
+            taskId: "228",
           })
       ),
     };
@@ -145,7 +145,7 @@ describe("Session PR Command Branch Behavior", () => {
           session: "task#228",
           repoName: "test-repo",
           repoUrl: "/test/repo",
-          taskId: "#228",
+          taskId: "228",
         })
       ),
     };

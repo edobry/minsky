@@ -4,13 +4,23 @@
  */
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat, rename } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
-import { z } from "zod";
 import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { SemanticErrorClassifier, ErrorContext } from "../../utils/semantic-error-classifier";
-import { FileOperationResponse } from "../../types/semantic-errors";
+import {
+  FileReadSchema,
+  FileWriteSchema,
+  DirectoryListSchema,
+  FileExistsSchema,
+  FileDeleteSchema,
+  FileMoveSchema,
+  FileRenameSchema,
+  DirectoryCreateSchema,
+  GrepSearchSchema,
+  FileOperationResponse,
+} from "../../domain/schemas";
+import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 
 /**
  * Utility function to process file content with line range support
@@ -61,24 +71,60 @@ function processFileContentWithLineRange(
   }
 
   // Handle line range specification
-  const startLine = Math.max(1, options.startLine || 1);
-  const endLine = Math.min(totalLines, options.endLine || startLine + 249); // Default to 250 line window
+  let startLine = Math.max(1, options.startLine || 1);
+  let endLine: number;
 
-  // For all files, respect line ranges but may expand for better context
-  let actualStartLine = startLine;
-  let actualEndLine = endLine;
-
-  // For very small files (≤50 lines), show entire file if range is small
-  if (totalLines <= 50 && endLine - startLine + 1 < totalLines) {
-    actualStartLine = 1;
-    actualEndLine = totalLines;
+  if (options.endLine !== undefined) {
+    endLine = Math.min(totalLines, options.endLine);
   } else {
-    // Expand small ranges to at least 50 lines for better context (like Cursor does)
-    const requestedLines = endLine - startLine + 1;
-    if (requestedLines < 50 && totalLines > 50) {
-      const expansion = Math.floor((50 - requestedLines) / 2);
-      actualStartLine = Math.max(1, startLine - expansion);
-      actualEndLine = Math.min(totalLines, endLine + expansion);
+    // Default window size, but clamp to available content
+    endLine = Math.min(totalLines, startLine + 249);
+  }
+
+  // Check if explicit ranges were provided (before any modifications)
+  const isExplicitRange = options.startLine !== undefined || options.endLine !== undefined;
+
+  // Handle edge cases where startLine > endLine after clamping
+  if (startLine > endLine) {
+    // If start line is beyond available content, clamp to last line
+    if (startLine > totalLines) {
+      startLine = totalLines;
+      endLine = totalLines;
+    } else {
+      // If end line is before start line due to user error, just use start line
+      endLine = startLine;
+    }
+  }
+
+  // Additional safety check: ensure both are within bounds
+  startLine = Math.max(1, Math.min(totalLines, startLine));
+  endLine = Math.max(startLine, Math.min(totalLines, endLine));
+
+  // Determine actual lines to use
+  let actualStartLine: number;
+  let actualEndLine: number;
+
+  if (isExplicitRange) {
+    // For explicit ranges, use exact clamped values without any expansion
+    actualStartLine = startLine;
+    actualEndLine = endLine;
+  } else {
+    // Only apply context expansion logic if no explicit ranges were provided
+    actualStartLine = startLine;
+    actualEndLine = endLine;
+
+    // For very small files (≤50 lines), show entire file if range is small
+    if (totalLines <= 50 && endLine - startLine + 1 < totalLines) {
+      actualStartLine = 1;
+      actualEndLine = totalLines;
+    } else {
+      // Expand small ranges to at least 50 lines for better context (like Cursor does)
+      const requestedLines = endLine - startLine + 1;
+      if (requestedLines < 50 && totalLines > 50) {
+        const expansion = Math.floor((50 - requestedLines) / 2);
+        actualStartLine = Math.max(1, startLine - expansion);
+        actualEndLine = Math.min(totalLines, endLine + expansion);
+      }
     }
   }
 
@@ -192,459 +238,11 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   const pathResolver = createPathResolver();
 
   // Session read file tool with line range support
-  commandMapper.addCommand({
-    name: "session.read_file",
-    description: "Read a file within a session workspace with optional line range support",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      start_line_one_indexed: z
-        .number()
-        .min(1)
-        .optional()
-        .describe("The one-indexed line number to start reading from (inclusive)"),
-      end_line_one_indexed_inclusive: z
-        .number()
-        .min(1)
-        .optional()
-        .describe("The one-indexed line number to end reading at (inclusive)"),
-      should_read_entire_file: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Whether to read the entire file"),
-      explanation: z
-        .string()
-        .optional()
-        .describe("One sentence explanation of why this tool is being used"),
-    }),
-    handler: async (args): Promise<FileOperationResponse> => {
-      try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
-        await pathResolver.validatePathExists(resolvedPath);
-
-        const content = await readFile(resolvedPath, "utf8");
-
-        // Process content with line range support
-        const processed = processFileContentWithLineRange(content, {
-          startLine: args.start_line_one_indexed,
-          endLine: args.end_line_one_indexed_inclusive,
-          shouldReadEntireFile: args.should_read_entire_file,
-          filePath: args.path,
-        });
-
-        log.debug("Session file read successful", {
-          session: args.sessionName,
-          path: args.path,
-          resolvedPath,
-          totalLines: processed.totalLines,
-          linesShown: processed.linesShown,
-          contentLength: processed.content.length,
-        });
-
-        // Build response content with header like Cursor does
-        let responseContent = `Contents of ${args.path}, lines ${processed.linesShown}`;
-        if (processed.totalLines > 0) {
-          responseContent += ` (total ${processed.totalLines} lines)`;
-        }
-        responseContent += `:\n${processed.content}`;
-
-        // Add summary if content was truncated
-        if (processed.summary) {
-          responseContent += `\n\n${processed.summary}`;
-        }
-
-        // Enhanced response format matching the specification
-        const response: any = {
-          success: true,
-          content: responseContent,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          totalLines: processed.totalLines,
-        };
-
-        // Add line range metadata if applicable
-        if (
-          processed.linesShown !== "(entire file)" &&
-          !processed.linesShown.includes("entire file")
-        ) {
-          const [start, end] = processed.linesShown.split("-").map(Number);
-          response.linesRead = {
-            start: start || Number(processed.linesShown),
-            end: end || Number(processed.linesShown),
-          };
-        }
-
-        // Add omitted content information if content was truncated
-        if (processed.summary) {
-          response.omittedContent = {
-            summary: processed.summary,
-          };
-        }
-
-        return response;
-      } catch (error) {
-        const errorContext: ErrorContext = {
-          operation: "read_file",
-          path: args.path,
-          session: args.sessionName,
-        };
-
-        log.error("Session file read failed", {
-          session: args.sessionName,
-          path: args.path,
-          error: getErrorMessage(error),
-        });
-
-        return SemanticErrorClassifier.classifyError(error, errorContext);
-      }
-    },
-  });
-
-  // Session write file tool
-  commandMapper.addCommand({
-    name: "session.write_file",
-    description: "Write content to a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file within the session workspace"),
-      content: z.string().describe("Content to write to the file"),
-      createDirs: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
-    handler: async (args): Promise<FileOperationResponse> => {
-      try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
-
-        // Create parent directories if requested and they don't exist
-        if (args.createDirs) {
-          const parentDir = dirname(resolvedPath);
-          await mkdir(parentDir, { recursive: true });
-        }
-
-        await writeFile(resolvedPath, args.content, "utf8");
-
-        log.debug("Session file write successful", {
-          session: args.sessionName,
-          path: args.path,
-          resolvedPath,
-          contentLength: args.content.length,
-          createdDirs: args.createDirs,
-        });
-
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          bytesWritten: Buffer.from(args.content, "utf8").length,
-        };
-      } catch (error) {
-        const errorContext: ErrorContext = {
-          operation: "write_file",
-          path: args.path,
-          session: args.sessionName,
-          createDirs: args.createDirs,
-        };
-
-        log.error("Session file write failed", {
-          session: args.sessionName,
-          path: args.path,
-          error: getErrorMessage(error),
-        });
-
-        return SemanticErrorClassifier.classifyError(error, errorContext);
-      }
-    },
-  });
-
-  // Session list directory tool
-  commandMapper.addCommand({
-    name: "session.list_directory",
-    description: "List contents of a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z
-        .string()
-        .optional()
-        .default(".")
-        .describe("Path to the directory within the session workspace"),
-      showHidden: z
-        .boolean()
-        .optional()
-        .default(false)
-        .describe("Include hidden files (starting with .)"),
-    }),
-    handler: async (args): Promise<Record<string, any>> => {
-      try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
-        await pathResolver.validatePathExists(resolvedPath);
-
-        const entries = await readdir(resolvedPath, { withFileTypes: true });
-
-        const files: string[] = [];
-        const directories: string[] = [];
-
-        for (const entry of entries) {
-          // Skip hidden files unless explicitly requested
-          if (!args.showHidden && entry.name.startsWith(".")) {
-            continue;
-          }
-
-          if (entry.isDirectory()) {
-            directories.push(entry.name);
-          } else {
-            files.push(entry.name);
-          }
-        }
-
-        log.debug("Session directory list successful", {
-          session: args.sessionName,
-          path: args.path,
-          resolvedPath,
-          fileCount: files.length,
-          directoryCount: directories.length,
-        });
-
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          files: files.sort(),
-          directories: directories.sort(),
-          totalEntries: files.length + directories.length,
-        };
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        const errorContext: ErrorContext = {
-          operation: "list_directory",
-          path: args.path,
-          session: args.sessionName,
-        };
-
-        log.error("Session directory list failed", {
-          session: args.sessionName,
-          path: args.path,
-          error: getErrorMessage(error),
-        });
-
-        return SemanticErrorClassifier.classifyError(error, errorContext);
-      }
-    },
-  });
-
-  // Session file exists tool
-  commandMapper.addCommand({
-    name: "session_file_exists",
-    description: "Check if a file or directory exists within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to check within the session workspace"),
-    }),
-    handler: async (args): Promise<Record<string, any>> => {
-      try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
-
-        let exists = false;
-        let isFile = false;
-        let isDirectory = false;
-        let size: number | undefined;
-
-        try {
-          const stats = await stat(resolvedPath);
-          exists = true;
-          isFile = stats.isFile();
-          isDirectory = stats.isDirectory();
-          size = stats.size;
-        } catch (error) {
-          // File doesn't exist - that's fine, not an error
-          exists = false;
-        }
-
-        log.debug("Session file exists check", {
-          session: args.sessionName,
-          path: args.path,
-          resolvedPath,
-          exists,
-          isFile,
-          isDirectory,
-        });
-
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          exists,
-          isFile,
-          isDirectory,
-          size,
-        };
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        const errorContext: ErrorContext = {
-          operation: "file_exists",
-          path: args.path,
-          session: args.sessionName,
-        };
-
-        log.error("Session file exists check failed", {
-          session: args.sessionName,
-          path: args.path,
-          error: getErrorMessage(error),
-        });
-
-        return SemanticErrorClassifier.classifyError(error, errorContext);
-      }
-    },
-  });
-
-  // Session delete file tool
-  commandMapper.addCommand({
-    name: "session_delete_file",
-    description: "Delete a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the file to delete within the session workspace"),
-    }),
-    handler: async (args): Promise<Record<string, any>> => {
-      try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
-        await pathResolver.validatePathExists(resolvedPath);
-
-        // Additional safety check - ensure it's a file, not a directory
-        const stats = await stat(resolvedPath);
-        if (!stats.isFile()) {
-          throw new Error(
-            `Path "${args.path}" is not a file - use appropriate directory deletion tools`
-          );
-        }
-
-        await unlink(resolvedPath);
-
-        log.debug("Session file delete successful", {
-          session: args.sessionName,
-          path: args.path,
-          resolvedPath,
-        });
-
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          deleted: true,
-        };
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        const errorContext: ErrorContext = {
-          operation: "delete_file",
-          path: args.path,
-          session: args.sessionName,
-        };
-
-        log.error("Session file delete failed", {
-          session: args.sessionName,
-          path: args.path,
-          error: getErrorMessage(error),
-        });
-
-        return SemanticErrorClassifier.classifyError(error, errorContext);
-      }
-    },
-  });
-
-  // Session create directory tool
-  commandMapper.addCommand({
-    name: "session_create_directory",
-    description: "Create a directory within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Path to the directory to create within the session workspace"),
-      recursive: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-    }),
-    handler: async (args): Promise<Record<string, any>> => {
-      try {
-        const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
-
-        await mkdir(resolvedPath, { recursive: args.recursive });
-
-        log.debug("Session directory create successful", {
-          session: args.sessionName,
-          path: args.path,
-          resolvedPath,
-          recursive: args.recursive,
-        });
-
-        return {
-          success: true,
-          path: args.path,
-          session: args.sessionName,
-          resolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          created: true,
-          recursive: args.recursive,
-        };
-      } catch (error) {
-        const errorMessage = getErrorMessage(error);
-        const errorContext: ErrorContext = {
-          operation: "create_directory",
-          path: args.path,
-          session: args.sessionName,
-        };
-
-        log.error("Session directory create failed", {
-          session: args.sessionName,
-          path: args.path,
-          error: getErrorMessage(error),
-        });
-
-        return SemanticErrorClassifier.classifyError(error, errorContext);
-      }
-    },
-  });
-
   // Session move file tool
   commandMapper.addCommand({
-    name: "session_move_file",
+    name: "session.move_file",
     description: "Move a file from one location to another within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      sourcePath: z.string().describe("Current file path within the session workspace"),
-      targetPath: z.string().describe("New file path within the session workspace"),
-      createDirs: z
-        .boolean()
-        .optional()
-        .default(true)
-        .describe("Create parent directories if they don't exist"),
-      overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
-    }),
+    parameters: FileMoveSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const sourceResolvedPath = await pathResolver.resolvePath(
@@ -702,22 +300,29 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           createdDirs: args.createDirs,
         });
 
-        return {
-          success: true,
-          sourcePath: args.sourcePath,
-          targetPath: args.targetPath,
-          session: args.sessionName,
-          sourceResolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            sourceResolvedPath
-          ),
-          targetResolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            targetResolvedPath
-          ),
-          moved: true,
-          overwritten: targetExists,
-        };
+        const sourceResolvedPath_rel = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          sourceResolvedPath
+        );
+        const targetResolvedPath_rel = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          targetResolvedPath
+        );
+
+        return createSuccessResponse(
+          {
+            path: args.targetPath,
+            session: args.sessionName,
+          },
+          {
+            sourcePath: args.sourcePath,
+            targetPath: args.targetPath,
+            sourceResolvedPath: sourceResolvedPath_rel,
+            targetResolvedPath: targetResolvedPath_rel,
+            moved: true,
+            overwritten: targetExists,
+          }
+        );
       } catch (error) {
         const errorContext: ErrorContext = {
           operation: "move_file",
@@ -733,21 +338,19 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return SemanticErrorClassifier.classifyError(error, errorContext);
+        return createErrorResponse(getErrorMessage(error), {
+          session: args.sessionName,
+          path: args.sourcePath,
+        });
       }
     },
   });
 
   // Session rename file tool
   commandMapper.addCommand({
-    name: "session_rename_file",
+    name: "session.rename_file",
     description: "Rename a file within a session workspace",
-    parameters: z.object({
-      sessionName: z.string().describe("Session identifier (name or task ID)"),
-      path: z.string().describe("Current file path within the session workspace"),
-      newName: z.string().describe("New filename (not full path)"),
-      overwrite: z.boolean().optional().default(false).describe("Overwrite target if it exists"),
-    }),
+    parameters: FileRenameSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -798,23 +401,30 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           overwrite: args.overwrite,
         });
 
-        return {
-          success: true,
-          originalPath: args.path,
-          newPath: targetPath,
-          newName: args.newName,
-          session: args.sessionName,
-          originalResolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            resolvedPath
-          ),
-          newResolvedPath: relative(
-            await pathResolver.getSessionWorkspacePath(args.sessionName),
-            targetResolvedPath
-          ),
-          renamed: true,
-          overwritten: targetExists,
-        };
+        const originalResolvedPath_rel = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          resolvedPath
+        );
+        const newResolvedPath_rel = relative(
+          await pathResolver.getSessionWorkspacePath(args.sessionName),
+          targetResolvedPath
+        );
+
+        return createSuccessResponse(
+          {
+            path: targetPath,
+            session: args.sessionName,
+          },
+          {
+            originalPath: args.path,
+            newPath: targetPath,
+            newName: args.newName,
+            originalResolvedPath: originalResolvedPath_rel,
+            newResolvedPath: newResolvedPath_rel,
+            renamed: true,
+            overwritten: targetExists,
+          }
+        );
       } catch (error) {
         const errorContext: ErrorContext = {
           operation: "rename_file",
@@ -829,7 +439,10 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           error: getErrorMessage(error),
         });
 
-        return SemanticErrorClassifier.classifyError(error, errorContext);
+        return createErrorResponse(getErrorMessage(error), {
+          session: args.sessionName,
+          path: args.path,
+        });
       }
     },
   });

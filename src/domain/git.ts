@@ -27,6 +27,7 @@ import {
 } from "./git/conflict-detection";
 import { validateError, validateGitError } from "../schemas/error";
 import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime";
+import { modularGitCommandsManager } from "./git/git-commands-modular";
 import {
   execGitWithTimeout,
   gitFetchWithTimeout,
@@ -593,7 +594,9 @@ export class GitService implements GitServiceInterface {
       const { stdout } = await execAsync(command!, { cwd: workdir });
       return stdout;
     } catch (error) {
-      log.error("Command execution failed", {
+      // Log at debug level to avoid showing expected command failures to users
+      // Many git operations (like checking if branches exist) are expected to fail
+      log.debug("Command execution failed", {
         error: getErrorMessage(error as any),
         command,
         workdir,
@@ -960,7 +963,6 @@ export async function createPullRequestFromParams(params: {
   debug?: boolean;
   noStatusUpdate?: boolean;
 }): Promise<{ markdown: string; statusUpdateResult?: any }> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.createPullRequestFromParams(params);
 }
 
@@ -976,7 +978,6 @@ export async function commitChangesFromParams(params: {
   amend?: boolean;
   noStage?: boolean;
 }): Promise<{ commitHash: string; message: string }> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.commitChangesFromParams(params);
 }
 
@@ -993,7 +994,6 @@ export async function preparePrFromParams(params: {
   branchName?: string;
   debug?: boolean;
 }): Promise<PreparePrResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.preparePrFromParams(params);
 }
 
@@ -1021,7 +1021,6 @@ export async function cloneFromParams(params: {
   session?: string;
   branch?: string;
 }): Promise<CloneResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
   return await modularGitCommandsManager.cloneFromParams(params);
 }
 

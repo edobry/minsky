@@ -1,118 +1,23 @@
 # Task 193: Implement Special Workspace for Task Operations
 
-## Status
+## Status: ❌ OBSOLETE - Special Workspace Architecture Removed
 
-IMPLEMENTED
+**This task is obsolete as of Task #325 completion.** The special workspace architecture has been completely removed. This task was focused on implementing the special workspace system that no longer exists.
 
-## Implementation Status
+## Resolution
 
-**✅ CORE IMPLEMENTATION COMPLETE** (All 4 phases implemented and working)
+**Task #325** made this entire task obsolete by removing the special workspace approach entirely:
 
-### Phase 1: Special Workspace Manager ✅
+- Eliminated the need for special workspace manager
+- Simplified task operations to work directly in main workspace
+- Removed complex workspace coordination and synchronization issues
+- All task backends now operate directly in the current workspace
 
-- **SpecialWorkspaceManager** (`src/domain/workspace/special-workspace-manager.ts`): Complete with atomic operations, locking, rollback mechanisms, performance optimizations (shallow clone, single branch), error handling, and workspace repair functionality
+See: [Task #325: Task Backend Architecture Analysis and Design Resolution](325-task-backend-architecture-analysis-and-design-resolution.md)
 
-### Phase 2: Intelligent Backend Routing ✅
+## Historical Context (Pre-Removal)
 
-- **TaskBackendRouter** (`src/domain/tasks/task-backend-router.ts`): Complete intelligent routing system with auto-detection of backend types, strategy pattern for workspace resolution, and type-safe detection via `InTreeBackendCapable` interface
-- **Backend Interface Extensions**: Added `isInTreeBackend()` method to JsonFileTaskBackend and MarkdownTaskBackend (both return true)
-- **TaskService Integration**: Modified TaskService to support TaskBackendRouter, created async factory pattern `TaskService.createWithSpecialWorkspace()` for special workspace initialization
-
-### Phase 3: JSON Backend Storage Integration ✅
-
-- **JsonFileTaskBackend**: Updated to prioritize provided dbFilePath, default to team-shareable location `{workspace}/process/tasks.json`, enhanced metadata tracking
-- **Storage Architecture**: In-tree backends use special workspace and store in `{special-workspace}/process/`, external backends use normal workspace resolution
-
-### Phase 4: Testing and Validation ✅
-
-- **Integration Test Suite**: Created comprehensive test suite (`src/domain/tasks/__tests__/special-workspace-integration.test.ts`) with 9 tests covering backend detection, routing logic, storage integration, and end-to-end workflows - all tests passing with 21 assertions
-
-### Critical Fixes Applied ✅
-
-- **Variable Naming Protocol Violations**: Fixed recurring error pattern where variables defined with underscores (`const _spec =`) were used without underscores (`spec.id`), corrected by removing underscores from definitions rather than adding them to usage
-- **Rule System Updates**: Enhanced `variable-naming-protocol.mdc` and `self-improvement.mdc` with zero-tolerance enforcement mechanisms and mandatory decision trees
-- **Test Suite Improvements**: Fixed 65 tests across tasks domain, improving success rate from 30/132 to 95/132 (65% → 86% pass rate)
-
-### Final Test Status
-
-- **Task Functions**: 35/41 tests passing (remaining 6 failures are business logic issues, not infrastructure)
-- **TaskService Tests**: 15/15 tests passing (100% - completely resolved)
-- **JsonFileTaskBackend Tests**: 10/12 tests passing (83% - major improvement from variable naming fixes)
-- **TaskService JsonFile Integration**: 3/8 tests passing (38% - significant improvement from 0/8, infrastructure issues resolved)
-- **Mocking Utilities**: 4/4 tests passing (100% - completely resolved from variable naming fixes)
-- **Task Constants**: 14/14 tests passing (100% - complete resolution with regex pattern fix)
-- **Git Domain Tests**: 17/36 tests passing (47% - incremental improvement with variable naming fixes)
-- **Project Types Tests**: 5/5 tests passing (100% - complete resolution from variable naming fixes)
-- **Package Manager Tests**: 17/17 tests passing (100% - already passing)
-- **Overall Cumulative**: 154/206 tests passing (75% pass rate)
-- **Special Workspace Integration**: 9/9 tests passing (100%)
-
-### Comprehensive Test Improvement Summary
-
-- **Starting Point**: 30/132 tests passing (23% pass rate)
-- **After Task 193 Core Implementation**: 95/132 tests passing (72% pass rate)
-- **After Systematic Variable Naming Protocol Fixes**: 154/206 tests passing (75% pass rate)
-- **Total Improvement**: +124 tests fixed across expanded test suite
-- **Test Files Completely Resolved**: taskService.test.ts (15/15), mocking.test.ts (4/4), taskConstants.test.ts (14/14), project.test.ts (5/5)
-
-### Variable Naming Protocol Success Pattern
-
-**✅ Systematic Application of Updated Rules:**
-
-- Applied mandatory decision tree to 10+ test files systematically
-- Fixed definition vs usage mismatches (const \_var → const var, \_param → param)
-- Resolved parameter destructuring issues ([path, content] vs \_path, \_content)
-- Fixed property references (\_title → title, \_status → status, \_session → session)
-- Corrected catch block variable capture (catch → catch (e))
-- Fixed method parameter definitions ((\_other: unknown) → (other: unknown))
-
-**📊 Variable Naming Fix Impact Analysis:**
-
-- **Infrastructure Failures Eliminated**: 30+ variable naming errors resolved
-- **Test Files with 100% Resolution**: taskService.test.ts, mocking.test.ts, taskConstants.test.ts, project.test.ts
-- **Files with Major Improvements**: taskFunctions.test.ts, jsonFileTaskBackend.test.ts, taskService-jsonFile-integration.test.ts, git.test.ts
-- **Pattern Recognition**: Function parameters, destructuring, property references, catch blocks, object properties
-
-**🔧 Business Logic Fixes Applied:**
-
-- **Regex Pattern Fix**: Updated TASK*LINE regex to support alphanumeric task IDs ([A-Za-z0-9*]+)
-- **Pattern now matches**: Both #TEST_VALUE (alphanumeric) and #456 (numeric) task IDs
-- **Result**: Complete resolution of taskConstants.test.ts (14/14 passing)
-
-**⚠️ Remaining 52 failures categorized as business logic issues:**
-
-- Task ID parsing and normalization logic
-- Backend integration complexities and dependency injection
-- Missing dependency modules and function interface mismatches
-- Git service dependency resolution issues
-- Cross-service integration complexity
-
-**All changes committed and pushed to remote repository**
-
-## Priority
-
-HIGH
-
-## Category
-
-ENHANCEMENT
-
-## Problem Statement
-
-Task operations performed in session workspaces currently operate on local copies of task files, causing synchronization issues. While Task #182 provides an immediate fix by redirecting task operations to the main workspace, a more robust long-term solution is needed to ensure task operations are isolated, atomic, and consistent across all contexts.
-
-**Additionally, the JSON task backend suffers from the same storage location issues** - it defaults to storing tasks in local directories (`{workspace}/.minsky/tasks.json`), making it non-shareable across team members and defeating the purpose of centralized task management.
-
-The solution is to implement a **special internal workspace dedicated exclusively to task operations**, ensuring all task modifications happen in a controlled, synchronized environment that works for both markdown and JSON backends.
-
-## Background
-
-Investigation completed in the original phase of this task revealed:
-
-- Root cause: `resolveWorkspacePath()` returns current directory for all operations
-- Multiple synchronization failure scenarios documented
-- **JSON backend storage location issue**: Each workspace gets its own JSON file, breaking team collaboration
-- Trade-off analysis showed a special workspace approach provides the best balance
+The following was the original specification before the architectural decision to remove special workspace entirely:
 
 ## Proposed Solution: Special Task Operations Workspace
 

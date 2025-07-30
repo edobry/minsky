@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { getErrorMessage, ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import { type CommandExecutionContext } from "../../command-registry";
+import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
 
 /**
  * Common dependencies for session commands
@@ -69,7 +69,7 @@ export abstract class BaseSessionCommand<TParams, TResult> {
    * Get the command category
    */
   getCommandCategory(): string {
-    return "session";
+    return CommandCategory.SESSION;
   }
 
   /**
@@ -92,10 +92,14 @@ export abstract class BaseSessionCommand<TParams, TResult> {
 
   /**
    * Log command errors with consistent format
+   * Only logs for debugging purposes, not user-facing output
    */
   protected logError(params: TParams, error: any): void {
     const baseParams = params as BaseSessionCommandParams;
-    log.error(`Error in ${this.getCommandId()}`, {
+
+    // Only log detailed error information for debugging, not to user interface
+    // The CLI error handler will provide user-friendly error messages
+    log.debug(`Error in ${this.getCommandId()}`, {
       session: baseParams.name,
       task: baseParams.task,
       repo: baseParams.repo,

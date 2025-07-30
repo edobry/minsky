@@ -3,15 +3,23 @@ version: 1
 # Task Backend Configuration - GitHub Issues backend will error out  
 backend: "github-issues"
 
-# Override AI config to avoid validation errors from main workspace
+# AI Provider Configuration for Testing
 ai:
-  defaultProvider: "openai"
+  defaultProvider: morph
   providers:
-    openai:
+    morph:
       enabled: true
-      model: "gpt-4"
+      apiKey: "test-morph-key-placeholder"  # This will be replaced with real key in environment
+      baseUrl: "https://api.morphllm.com/v1"
+      model: "morph-v3-large"
     
-# SessionDB Configuration  
+    # Keep OpenAI as fallback for testing
+    openai:
+      enabled: false  # Disabled for now to focus on Morph testing
+      apiKey: "test-openai-key-placeholder"
+      model: "gpt-4"
+
+# SessionDB Configuration
 sessiondb:
   backend: "json"
   json:

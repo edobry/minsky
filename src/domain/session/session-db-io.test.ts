@@ -42,7 +42,7 @@ describe("Session DB I/O Functions", () => {
           repoName: "test-repo",
           repoUrl: "https://example.com/test-repo",
           createdAt: "2023-01-01T00:00:00.000Z",
-          taskId: "#123",
+          taskId: "123",
           branch: "test-branch",
         },
       ];
@@ -107,7 +107,7 @@ describe("Session DB I/O Functions", () => {
           repoName: "test-repo",
           repoUrl: "https://example.com/test-repo",
           createdAt: "2023-01-01T00:00:00.000Z",
-          taskId: "#123",
+          taskId: "123",
           branch: "test-branch",
         },
       ];

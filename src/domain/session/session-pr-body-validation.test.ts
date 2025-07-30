@@ -17,33 +17,90 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { sessionPrImpl } from "../session-pr-operations";
-import { ValidationError } from "../../../errors";
+import { sessionPrImpl } from "./session-pr-operations";
+import { ValidationError } from "../errors";
+import {
+  createMockGitService,
+  createMockSessionProvider,
+  createMockTaskService,
+} from "../../utils/test-utils/dependencies";
+import { MinskyError } from "../../errors";
 
 /**
- * Bug Fix Test: Session PR should require body for new PRs
+ * Session PR Body Validation Bug Fix Tests
  *
- * Current Bug: sessionPrImpl allows empty body for new PRs
- * Expected Behavior: Should throw ValidationError requiring body/bodyPath for new PRs
+ * These tests verify that PR validation properly checks for required body content.
+ * Previously, the session PR command would proceed without validating that
+ * a PR description was provided, leading to PRs being created without proper descriptions.
+ *
+ * This test ensures that ValidationError is thrown when:
+ * - Creating a new PR without --body or --body-path
+ * - The validation happens BEFORE any git operations
  */
+
 describe("Session PR Body Validation Bug Fix", () => {
   test("should throw ValidationError for new PR without body", async () => {
-    // This test documents the expected behavior after our fix
-    // Currently this will fail because the bug allows empty bodies
+    // Arrange: Set up minimal mocks for dependencies
+    const mockGitService = createMockGitService({
+      getCurrentBranch: () => Promise.resolve("main"),
+    });
+
+    const mockSessionProvider = createMockSessionProvider({
+      getSession: () =>
+        Promise.resolve({
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          taskId: "123",
+          createdAt: new Date().toISOString(),
+        }),
+      // Also provide getSessionByTaskId and listSessions for comprehensive coverage
+      getSessionByTaskId: () =>
+        Promise.resolve({
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo",
+          taskId: "123",
+          createdAt: new Date().toISOString(),
+        }),
+      listSessions: () =>
+        Promise.resolve([
+          {
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            taskId: "123",
+            createdAt: new Date().toISOString(),
+          },
+        ]),
+    });
+
+    const mockTaskService = createMockTaskService({
+      getTask: () =>
+        Promise.resolve({
+          id: "#123",
+          title: "Test Task",
+          status: "TODO",
+        }),
+    });
 
     try {
+      // Act: Try to create PR without body (should fail validation)
       await sessionPrImpl(
         {
-          title: "fix: Test PR",
-          // NO body or bodyPath provided for NEW PR - should fail after fix
-          session: "task123",
+          session: "test-session",
+          title: "Test PR",
+          // No body or bodyPath provided - this should trigger ValidationError
           debug: false,
           noStatusUpdate: false,
           skipUpdate: true,
           autoResolveDeleteConflicts: false,
           skipConflictCheck: false,
         },
-        {} as any // Mock dependencies - will be improved if test runs
+        {
+          gitService: mockGitService,
+          sessionDB: mockSessionProvider,
+        }
       );
 
       // If we get here, the bug still exists (no error thrown)

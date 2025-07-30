@@ -35,7 +35,7 @@ export async function createCli(): Promise<Command> {
   setupCommonCommandCustomizations(cli);
 
   // Register all shared commands
-  registerAllSharedCommands();
+  await registerAllSharedCommands();
 
   // Register all commands via CLI command factory (which applies customizations)
   registerAllCommands(cli);

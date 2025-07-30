@@ -7,242 +7,149 @@
 
 import { z } from "zod";
 import { type CommandParameterMap } from "../../shared/command-registry";
+import {
+  CommonParameters,
+  SessionParameters,
+  GitParameters,
+  composeParams,
+} from "../common-parameters";
 
 /**
  * Parameters for the session list command
  */
-export const sessionListCommandParams: CommandParameterMap = {
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
+export const sessionListCommandParams: CommandParameterMap = composeParams(
+  {
+    repo: CommonParameters.repo,
+    json: CommonParameters.json,
   },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {}
+);
 
 /**
  * Parameters for the session get command
  */
-export const sessionGetCommandParams: CommandParameterMap = {
-  sessionName: {
-    schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
-    required: false,
+export const sessionGetCommandParams: CommandParameterMap = composeParams(
+  {
+    sessionName: SessionParameters.sessionName,
+    name: SessionParameters.name,
+    task: CommonParameters.task,
+    repo: CommonParameters.repo,
+    json: CommonParameters.json,
   },
-  name: {
-    schema: z.string().min(1),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID associated with the session",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {}
+);
 
 /**
  * Parameters for the session start command
  */
-export const sessionStartCommandParams: CommandParameterMap = {
-  name: {
-    schema: z.string().min(1),
-    description: "Name for the new session (optional, alternative to --task)",
-    required: false,
+export const sessionStartCommandParams: CommandParameterMap = composeParams(
+  {
+    name: SessionParameters.name,
+    task: CommonParameters.task,
+    repo: CommonParameters.repo,
+    json: CommonParameters.json,
+    quiet: CommonParameters.quiet,
+    skipInstall: SessionParameters.skipInstall,
+    packageManager: SessionParameters.packageManager,
   },
-  task: {
-    schema: z.string(),
-    description: "Task ID to associate with the session (required if --description not provided)",
-    required: false,
-  },
-  description: {
-    schema: z.string().min(1),
-    description: "Description for auto-created task (required if --task not provided)",
-    required: false,
-  },
-  branch: {
-    schema: z.string(),
-    description: "Branch name to create (defaults to session name)",
-    required: false,
-  },
-  repo: {
-    schema: z.string(),
-    description: "Repository path",
-    required: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-  quiet: {
-    schema: z.boolean(),
-    description: "Suppress output except for the session directory path",
-    required: false,
-    defaultValue: false,
-  },
-  noStatusUpdate: {
-    schema: z.boolean(),
-    description: "Skip updating task status when starting a session with a task",
-    required: false,
-    defaultValue: false,
-  },
-  skipInstall: {
-    schema: z.boolean(),
-    description: "Skip automatic dependency installation",
-    required: false,
-    defaultValue: false,
-  },
-  packageManager: {
-    schema: z.enum(["bun", "npm", "yarn", "pnpm"]),
-    description: "Override the detected package manager",
-    required: false,
-  },
-};
+  {
+    description: {
+      schema: z.string().min(1),
+      description: "Description for auto-created task (required if --task not provided)",
+      required: false,
+    },
+    branch: {
+      schema: z.string(),
+      description: "Branch name to create (defaults to session name)",
+      required: false,
+    },
+    noStatusUpdate: {
+      schema: z.boolean(),
+      description: "Skip updating task status when starting a session with a task",
+      required: false,
+      defaultValue: false,
+    },
+  }
+);
 
 /**
  * Parameters for the session dir command
  */
-export const sessionDirCommandParams: CommandParameterMap = {
-  sessionName: {
-    schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
-    required: false, // Not required to allow using name or task instead
+export const sessionDirCommandParams: CommandParameterMap = composeParams(
+  {
+    sessionName: SessionParameters.sessionName,
+    json: CommonParameters.json,
   },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {}
+);
 
 /**
  * Parameters for the session delete command
  */
-export const sessionDeleteCommandParams: CommandParameterMap = {
-  sessionName: {
-    schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
-    required: false, // Changed to allow using name or task instead
+export const sessionDeleteCommandParams: CommandParameterMap = composeParams(
+  {
+    sessionName: SessionParameters.sessionName,
+    force: CommonParameters.force,
+    json: CommonParameters.json,
   },
-  force: {
-    schema: z.boolean(),
-    description: "Skip confirmation prompt",
-    required: false,
-    defaultValue: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {}
+);
 
 /**
  * Parameters for the session update command
  */
-export const sessionUpdateCommandParams: CommandParameterMap = {
-  sessionName: {
-    schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
-    required: false, // Changed to allow using name or task instead
+export const sessionUpdateCommandParams: CommandParameterMap = composeParams(
+  {
+    sessionName: SessionParameters.sessionName,
+    force: CommonParameters.force,
+    json: CommonParameters.json,
+    noStash: GitParameters.noStash,
+    noPush: GitParameters.noPush,
   },
-  branch: {
-    schema: z.string(),
-    description: "Update branch name",
-    required: false,
-  },
-  noStash: {
-    schema: z.boolean(),
-    description: "Skip stashing local changes",
-    required: false,
-    defaultValue: false,
-  },
-  noPush: {
-    schema: z.boolean(),
-    description: "Skip pushing changes to remote after update",
-    required: false,
-    defaultValue: false,
-  },
-  force: {
-    schema: z.boolean(),
-    description: "Force update even if the session workspace is dirty",
-    required: false,
-    defaultValue: false,
-  },
-  skipConflictCheck: {
-    schema: z.boolean(),
-    description: "Skip proactive conflict detection before update",
-    required: false,
-    defaultValue: false,
-  },
-  autoResolveDeleteConflicts: {
-    schema: z.boolean(),
-    description: "Automatically resolve delete/modify conflicts by accepting deletions",
-    required: false,
-    defaultValue: false,
-  },
-  dryRun: {
-    schema: z.boolean(),
-    description: "Check for conflicts without performing actual update",
-    required: false,
-    defaultValue: false,
-  },
-  skipIfAlreadyMerged: {
-    schema: z.boolean(),
-    description: "Skip update if session changes are already in base branch",
-    required: false,
-    defaultValue: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    branch: {
+      schema: z.string(),
+      description: "Update branch name",
+      required: false,
+    },
+    skipConflictCheck: {
+      schema: z.boolean(),
+      description: "Skip proactive conflict detection before update",
+      required: false,
+      defaultValue: false,
+    },
+    autoResolveDeleteConflicts: {
+      schema: z.boolean(),
+      description: "Automatically resolve delete/modify conflicts by accepting deletions",
+      required: false,
+      defaultValue: false,
+    },
+    dryRun: {
+      schema: z.boolean(),
+      description: "Check for conflicts without performing actual update",
+      required: false,
+      defaultValue: false,
+    },
+    skipIfAlreadyMerged: {
+      schema: z.boolean(),
+      description: "Skip update if session changes are already in base branch",
+      required: false,
+      defaultValue: false,
+    },
+  }
+);
 
 /**
  * Parameters for the session approve command
  */
-export const sessionApproveCommandParams: CommandParameterMap = {
-  sessionName: {
-    schema: z.string().min(1),
-    description: "Session identifier (name or task ID)",
-    required: false, // Changed to allow using name or task instead
+export const sessionApproveCommandParams: CommandParameterMap = composeParams(
+  {
+    sessionName: SessionParameters.sessionName,
+    noStash: GitParameters.noStash,
+    json: CommonParameters.json,
   },
-  noStash: {
-    schema: z.boolean(),
-    description: "Skip automatic stashing of uncommitted changes",
-    required: false,
-    defaultValue: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {}
+);
 
 /**
  * Parameters for the session pr command
@@ -315,39 +222,34 @@ export const sessionInspectCommandParams: CommandParameterMap = {
 /**
  * Parameters for the session commit command
  */
-export const sessionCommitCommandParams: CommandParameterMap = {
-  sessionName: {
-    schema: z.string().min(1),
-    description: "Session name",
-    required: true,
+export const sessionCommitCommandParams: CommandParameterMap = composeParams(
+  {
+    sessionName: SessionParameters.sessionName,
+    json: CommonParameters.json,
   },
-  message: {
-    schema: z.string().min(1),
-    description: "Commit message",
-    required: true,
-  },
-  all: {
-    schema: z.boolean(),
-    description: "Stage all changes including deletions",
-    required: false,
-    defaultValue: false,
-  },
-  amend: {
-    schema: z.boolean(),
-    description: "Amend the previous commit",
-    required: false,
-    defaultValue: false,
-  },
-  noStage: {
-    schema: z.boolean(),
-    description: "Skip staging changes",
-    required: false,
-    defaultValue: false,
-  },
-  json: {
-    schema: z.boolean(),
-    description: "Output in JSON format",
-    required: false,
-    defaultValue: false,
-  },
-};
+  {
+    message: {
+      schema: z.string().min(1),
+      description: "Commit message",
+      required: true,
+    },
+    all: {
+      schema: z.boolean(),
+      description: "Stage all changes including deletions",
+      required: false,
+      defaultValue: false,
+    },
+    amend: {
+      schema: z.boolean(),
+      description: "Amend the previous commit",
+      required: false,
+      defaultValue: false,
+    },
+    noStage: {
+      schema: z.boolean(),
+      description: "Skip staging changes",
+      required: false,
+      defaultValue: false,
+    },
+  }
+);

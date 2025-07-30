@@ -1,12 +1,29 @@
 # Fix special workspace auto-commit sync issue
 
-## Status
+## Status: ❌ OBSOLETE - Special Workspace Architecture Removed
 
-COMPLETED
+**This task is obsolete as of Task #325 completion.** The special workspace architecture has been completely removed and replaced with a simplified approach where in-tree backends operate directly in the main workspace.
 
-## Context
+## Original Context
 
 During testing of the task infrastructure, critical issues were discovered in the special workspace system that prevented auto-commit functionality from working properly. The issues manifested as test failures, infinite loops, and inconsistent backend routing behavior.
+
+**Note: This task addressed issues in the special workspace system that no longer exists.**
+
+## Resolution
+
+**Task #325** resolved all these issues by completely eliminating the special workspace approach:
+
+- Removed 445+ lines of special workspace manager code
+- Simplified in-tree backends to work directly in main workspace
+- Eliminated synchronization complexity and auto-commit issues
+- All task operations now work consistently without coordination overhead
+
+See: [Task #325: Task Backend Architecture Analysis and Design Resolution](325-task-backend-architecture-analysis-and-design-resolution.md)
+
+## Historical Context (Pre-Removal)
+
+The following was the original analysis before the architectural decision to remove special workspace entirely:
 
 ## Problems Identified
 
@@ -105,9 +122,9 @@ private categorizeMarkdownBackend(backend: TaskBackend): BackendRoutingInfo {
 
 ### Architecture Compliance Restored
 
-✅ **All markdown backends use special workspace** (no exceptions)  
-✅ **Backend routing logic is deterministic and reliable**  
-✅ **Auto-commit sync works properly across all contexts**  
+✅ **All markdown backends use special workspace** (no exceptions)
+✅ **Backend routing logic is deterministic and reliable**
+✅ **Auto-commit sync works properly across all contexts**
 ✅ **Test isolation prevents cross-test contamination**
 
 ### Auto-Commit Functionality Verified

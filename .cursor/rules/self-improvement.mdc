@@ -49,6 +49,23 @@ When updating rules based on feedback:
 
 **CRITICAL**: After identifying required rule changes, they MUST be implemented immediately using edit tools, not merely described.
 
+### ⚠️ DO NOT UPDATE SELF-IMPROVEMENT FOR WORKFLOW ISSUES
+
+**WRONG**: Updating self-improvement.mdc for commit protocols, security practices, development workflows
+**CORRECT**: Update appropriate workflow/process rules, then reference them from self-improvement if needed
+
+**Self-improvement is ONLY for:**
+- Meta-process corrections (how to follow rules)
+- Error analysis patterns
+- Rule application failures
+- Process improvement methodology
+
+**Self-improvement is NOT for:**
+- Commit workflows → Update commit protocol rules
+- Security practices → Update [security-protocol](mdc:.cursor/rules/security-protocol.mdc) rule
+- Development processes → Update workflow rules
+- Technical procedures → Update domain-specific rules
+
 ## Examples
 
 ### Error Correction
@@ -435,6 +452,7 @@ Assistant: [starts work based only on database title without finding task specif
 User: "312 @Start Task"
 Assistant: [searches for task specification, finds it in special workspace, investigates architectural context, understands complete requirements before starting]
 ```
+
 
 ### Examples of Rule Update Requirements
 

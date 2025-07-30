@@ -25,6 +25,8 @@ import { aiConfigSchema, type AIConfig } from "./ai";
 
 import { loggerConfigSchema, type LoggerConfig } from "./logger";
 
+import { validationConfigSchema, type ValidationConfig } from "./validation";
+
 /**
  * Complete application configuration schema
  *
@@ -49,6 +51,9 @@ export const configurationSchema = z
 
     // Logging configuration
     logger: loggerConfigSchema,
+
+    // Validation configuration
+    validation: validationConfigSchema,
   })
   .passthrough(); // Use passthrough instead of strict to allow extra properties
 

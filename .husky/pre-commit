@@ -1,6 +1,27 @@
 #!/usr/bin/env sh
 . "$(dirname -- "$0")/_/husky.sh"
 
+echo "🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)..."
+
+# SECURITY: Secret scanning with gitleaks
+echo "🔍 Running gitleaks scan..."
+if command -v gitleaks >/dev/null 2>&1; then
+    if ! gitleaks protect --staged --source . --verbose; then
+        echo "❌ 🚨 SECRETS DETECTED BY GITLEAKS! Commit blocked for security."
+        echo "📋 Review the findings above and sanitize any real credentials."
+        echo "💡 Use placeholder values like 'sk-proj-xxx...xxxxx' instead."
+        exit 1
+    fi
+    echo "✅ Gitleaks: No secrets detected in staged changes."
+else
+    echo "⚠️  gitleaks not found. Please install via:"
+    echo "   macOS: brew install gitleaks"
+    echo "   Linux: apt install gitleaks (or check: https://github.com/gitleaks/gitleaks)"
+    echo "⚠️  Skipping secret scanning - SECURITY RISK!"
+fi
+
+echo "✅ SECURITY: Secret scanning completed."
+
 echo "🔍 Checking for variable naming issues..."
 
 # Run the variable naming checker
@@ -19,4 +40,4 @@ if ! npm run lint -- --quiet; then
   exit 1
 fi
 
-echo "✅ All checks passed!"
+echo "✅ All checks passed! Commit proceeding..."

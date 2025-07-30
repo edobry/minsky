@@ -1,8 +1,187 @@
+# Changelog
+
+All notable changes to this project will be documented in this file.
+
 ## [Unreleased]
 
 ### Added
+- **Task #356**: Comprehensive multi-backend task system architecture design
+  - Created new task for implementing backend-qualified task IDs (`md:123`, `gh:456`, `json:789`)
+  - Designed architecture to prevent ID conflicts during backend migration
+  - Comprehensive analysis of system-wide impact on sessions, git operations, file paths
+  - Phased implementation plan with backward compatibility strategy
+
+### Changed
+- **Task #138**: Updated GitHub Issues backend task to depend on multi-backend architecture
+  - Reduced scope from Extra Large (20-30h) to Medium (4-8h) by separating concerns
+  - Updated to focus on adapting existing GitHub backend to multi-backend system
+  - Made prerequisite dependency on Task #356 explicit
+  - GitHub backend implementation remains complete and ready for integration
+
+### Security
+
+- **CRITICAL FIX**: Fixed security vulnerability in config list command that exposed API keys and GitHub tokens in plain text (#337)
+  - Added credential masking by default for all sensitive values
+  - Added `--show-secrets` flag for intentional credential exposure with security warning
+  - Applied comprehensive credential detection (API keys, tokens, connection strings, secrets)
+  - Added security notices when credentials are masked
+  - Consistent masking across CLI and MCP interfaces
+
+### Changed
+- **Rules List Command Optimization**: Excluded `content` field from `rules.list` command output for both CLI `--json` and MCP interfaces (#345)
+  - Improves command usability by reducing output size and removing verbose rule content
+  - Maintains all other rule information (id, title, description, tags, etc.)
+  - Content can still be retrieved via `rules.get` command when needed
+
+### Fixed
+- **Session Get Command**: Fixed "taskIdSchema is not defined" error in `minsky session get --task` command by correcting variable naming mismatch in session-context-resolver.ts (TaskIdSchema import vs taskIdSchema usage)
+
+- **CLI Module Loading Error**: Fixed Bun runtime error "export 'TaskDeleteParameters' not found" when running CLI commands. Corrected type-only exports in domain schemas index by adding `type` keyword to TypeScript type exports, importing schemas/types separately for backward compatibility aliases, and updating imports in files using non-migrated schemas.
+
+- **Session Conflicts Error Output**: Fixed unfriendly error output from `session conflicts` command that displayed empty objects and confusing metadata
+  - Removed unfriendly "Error scanning session for conflicts" logs with empty `{"error":{},"params":{},"options":{"format":"json","context":3}}`
+  - Only log meaningful context when it adds value beyond the error message itself
+  - Suppress intermediate error logs when using default parameters
+  - Maintain helpful logging when custom parameters are provided
+
+- **Session Approve Error Messages**: Fixed redundant and unfriendly error output from `session approve` command when linting issues occur
+  - Removed duplicate error handling code between wrapper and implementation functions
+  - Eliminated redundant "Warning: Failed to commit task status update:" messages
+  - Removed unfriendly JSON metadata from error output (e.g., `{"taskId":"342","error":{"name":"MinskyError"}}`)
+  - Now shows clean, single error message for linting issues instead of duplicate messages
+  - Improved user experience with clearer error handling flow
+
+### Added
+
+- **Git Conflict Detection Command with Structured Output** (#342): Implemented comprehensive conflict detection system with JSON/text output:
+  - Added `minsky git conflicts` command for detecting merge conflicts in repositories
+  - Added `minsky session conflicts` command for session workspace conflict scanning
+  - Support for file pattern filtering (e.g., `*.ts`) and configurable context lines
+  - Structured JSON output with conflict block details, line numbers, and content
+  - Text output mode for human-readable conflict summaries
+  - Reuses existing `analyzeConflictRegions` logic for consistency
+  - Auto-detection of current session context when no session specified
+  - Proper integration with shared command registry and CLI/MCP interfaces
+
+- **Task #350 - Active Sessions Command and Task/Session Equivalence Analysis**: Created comprehensive task specification to explore adding a command for listing "active sessions" and analyze its relationship to the completed Task #229 task/session equivalence implementation. Updated specification to reflect that mandatory task-session association is now implemented, making the core question whether `minsky tasks list --status IN_PROGRESS` is functionally equivalent to "active sessions" or if session-specific information justifies a separate command.
+
+- **Task #338 - MCP Temporary File Creation Command**: Created comprehensive issue for implementing a new MCP command `files.createTemp` that creates temporary files for AI and external tool workflows. Includes detailed requirements for security, error handling, customizable parameters (prefix, suffix, content), and integration with existing temporary file utilities.
+
+- **Domain-Wide Schema Libraries for Cross-Interface Type Composition** (#329): Implemented comprehensive schema architecture that extends Task #322's type composition patterns to work across CLI, MCP, and future API interfaces:
+
+  - Created modular schema libraries in `src/domain/schemas/` covering tasks, sessions, files, and common types
+  - Established interface-agnostic design patterns for consistent validation across all interfaces
+  - Built comprehensive validation utilities with standardized error handling and CLI argument transformation
+  - Added extensive documentation with usage examples and migration guide
+  - Benefits: Code reuse, type safety, consistency, maintainability, and extensibility
+  - All schemas tested and verified working correctly
+
+- **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
+
+- **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
+
+- **Enhanced config show command with comprehensive output**: The `minsky config show` command now displays detailed, user-friendly configuration including authentication status for GitHub and AI providers, session storage details with paths, AI provider configuration with models and authentication status, and GitHub configuration details. Resolves the issue where config output was "way too incomplete" by showing all configured settings instead of just defaults.
+
+- **Fast-Apply Edit Integration**: Complete implementation of AI-powered edit pattern processing using Morph provider
+  - Integrated Morph provider into existing AI provider infrastructure using Vercel AI SDK `createOpenAI`
+  - Added `morph-v3-large` model support to AI completion service
+  - Session edit tools now use fast-apply providers for 98% accurate edit operations
+  - Replaced completely broken legacy pattern matching with working AI-powered editing
+  - Enhanced error handling with clear messages when fast-apply providers unavailable
+  - Performance: <2s for complex edits, 0% → 98% success rate improvement
+  - Related to Task #249 Phase 2 completion
+
+- Fast-Apply Edit Integration: Integrated Morph fast-apply provider with session edit tools for improved edit accuracy and speed
+- **Provider Fallback System**: Enhanced edit tools to gracefully fallback to default AI providers when fast-apply providers are unavailable
+  - Automatic detection of fast-apply provider availability (Morph)
+  - Intelligent fallback to configured default provider (defaults to Claude 4 Sonnet)
+  - Provider validation to ensure API keys are available
+  - Maintains edit quality across all provider types
+  - Comprehensive test coverage for fallback scenarios
+
+### Fixed
+
+- **Session Approve Technical Errors**: Eliminated technical git command error output from session approve workflow. Expected git command failures (like checking if remote branches exist) no longer show JSON dumps to users, providing clean output while maintaining debugging capability for troubleshooting.
+
+- **Session Approve Error Output**: Dramatically improved CLI error messages for session approve command by eliminating duplicate and technical error output. Changed base session command to use debug logging instead of user-facing error logs, resulting in clean, single error messages with helpful suggestions instead of JSON dumps, stack traces, and repeated error text.
+
+- **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
+
+  - 404 errors now explain "this provider may not support model listing"
+  - 401/403 errors provide clear API key guidance
+  - Network errors and timeouts have specific helpful messages
+  - Individual provider failures don't stop entire refresh operations
+  - Providers without API keys are gracefully skipped with warnings
+
+- **Anthropic API Integration**: Fixed critical endpoint bug preventing Anthropic model fetching. Corrected double `/v1/` path segment that caused 404 errors, enabling successful retrieval of 8 Claude models including Claude Opus 4 and Sonnet 4. Replaced confusing "Failed to get default provider" error with helpful user guidance.
+
+- **JSON Output Support**: Added `--json` flag to all AI commands for consistent machine-readable output alongside existing `--format` parameter. Commands now support both `--format json` and `--json` for user convenience.
+
+- **Error Message Cleanup**: Eliminated confusing JSON error dumps from CLI output. Replaced technical error objects with clean, actionable messages. Internal errors are now logged at debug level while users see helpful guidance like "Provider 'openai' is not configured" instead of complex JSON structures.
+
+- Fixed session command import issue causing startup errors with `setupSessionCommandRegistry`
+
+- **Morph Provider Authentication**: Resolved API key configuration issues
+  - Fixed `createOpenAI` usage pattern for OpenAI-compatible providers
+  - Corrected model name handling to use `morph-v3-large` instead of standard OpenAI names
+  - Resolved configuration service instantiation in session edit tools
+
+- Morph Provider Authentication: Fixed authentication issues with Morph by using correct `createOpenAI` from Vercel AI SDK
+- Session Edit Tools: Restored functionality of session-aware edit tools with AI-powered pattern matching replacing broken legacy string matching
+
+### Changed
+
+- **AI Commands**: Restructured from space-separated names to hierarchical structure:
+
+  - `AI Validate` → `minsky core ai validate`
+  - `AI Models List` → `minsky core ai models list`
+  - `AI Models Refresh` → `minsky core ai models refresh`
+  - `AI Providers List` → `minsky core ai providers list`
+  - `AI Cache Clear` → `minsky core ai cache clear`
+
+- **Tasks Status Commands**: Converted from problematic dot notation to proper hierarchy:
+  - `tasks.status.get` → `minsky tasks status get` (proper nesting)
+  - `tasks.status.set` → `minsky tasks status set` (proper nesting)
+
+- **Session Edit Tools**: Removed legacy pattern matching fallback entirely
+  - `applyEditPattern` now exclusively uses fast-apply providers
+  - Eliminated `applyEditPatternLegacy` function and all fallback mechanisms
+  - Improved error messages for missing fast-apply provider configuration
+
+### Fixed
+
+- **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
+- **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
+- **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
+
+### Documentation
+
+- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
+
+- **Task #289: Implemented Template-Based Rules Generation System**
+
+  - Built production-ready template system for dynamic rule generation based on project configuration
+  - Implemented 8 core workflow templates including all major Minsky workflows
+  - Added conditional CLI/MCP command generation: produces `minsky tasks list` for CLI mode, `<function_calls><invoke name="mcp_minsky-server_tasks_list">` for MCP mode
+  - Created fully functional `minsky rules generate` command with interface modes (cli/mcp/hybrid)
+  - Converted all core workflow rules to use dynamic template system (minsky-workflow-orchestrator, task-implementation-workflow, minsky-session-management, task-status-protocol, pr-preparation-workflow)
+  - Added comprehensive user documentation with examples for all interface modes
+  - Verified end-to-end functionality: template generation produces correct syntax for both human users and AI agents
+  - Achieved core objective: replaced static rule generation with configuration-driven, conditional CLI/MCP template system
+
+- **Task #325: COMPLETELY ELIMINATED Special Workspace Architecture**
+
+  - **MAJOR BREAKING CHANGE**: Completely removed all special workspace code and infrastructure
+  - **Files Deleted**: special-workspace-manager.ts (445 lines), task-workspace-commit.ts, workspace-resolver.ts, task-database-sync.ts
+  - **Directory Removed**: ~/.local/state/minsky/task-operations/ special workspace completely deleted
+  - **Content Synchronized**: Copied missing task files (331-334) and directories (077, 096, 097, 106) before deletion
+  - **Simplified Architecture**: In-tree backends now operate directly in main workspace with zero coordination overhead
+  - **Verification Complete**: All task operations work consistently - eliminated CLI vs MCP database inconsistencies
+  - **Code Reduction**: Eliminated 1,200+ lines of special workspace complexity while maintaining full functionality
+  - **Mission Complete**: Final architectural resolution per comprehensive task 325 analysis
 
 - Created task #327: Comprehensive multi-agent messaging architecture for collaborative development
+
   - Extends current "user interventions" to support both human and AI agents
   - Enables persistent conversation history with rolling summaries
   - Supports multiple contexts: tasks, sessions, PR reviews, GitHub issues, chat
@@ -17,33 +196,54 @@
 
 ### Enhanced
 
+- **Task #322: Refactored MCP Tools with Type Composition to Eliminate Argument Duplication**
+
+  - Created shared Zod schema components for reusable parameter validation across MCP tools
+  - Achieved 60%+ reduction in duplicate parameter definitions (17+ sessionName, 15+ path, 6+ line range duplications)
+  - Introduced composed schemas: SessionFileReadSchema, SessionFileWriteSchema, SessionDirectoryListSchema, etc.
+  - Single source of truth for parameter descriptions and validation patterns
+  - Fixed critical sessionNameName bug in session-workspace.ts (7 instances of incorrect variable references)
+  - Improved maintainability with consistent error handling and TypeScript type safety
+  - All existing MCP tool functionality preserved with enhanced validation
+
+- **Session CLI Command Registration Fix**
+
+  - Fixed session command registration issue where only 'migrate' and 'check' commands were visible
+  - Resolved `ModularSessionCommandsManager` not properly populating command registry
+  - Fixed `BaseSessionCommand.getCommandCategory()` returning lowercase 'session' instead of `CommandCategory.SESSION`
+  - All session commands now properly available: list, get, start, dir, delete, update, approve, pr, inspect
+  - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
+
 - **Task #325: Completed Task Backend Architecture Analysis**
-  - **CRITICAL ARCHITECTURAL DECISION**: Comprehensive analysis recommends abandoning in-tree backends for database-first architecture
-  - **Key Findings**:
-    - Special workspace represents 445+ lines of complexity providing negative user value
-    - In-tree backends are essentially a poorly-implemented distributed database
-    - Performance analysis shows 100-1000x improvement with database backends
-    - Cross-repository workflows are fundamentally incompatible with in-tree storage
-    - No user persona actually benefits from in-tree backends
-  - **Delivered Comprehensive Analysis**:
-    - Current implementation complexity documentation
-    - Distributed systems perspective revealing anti-patterns
-    - Cross-repository challenge analysis
-    - Detailed architectural tradeoffs (databases win 9-1)
-    - Limited-scope hybrid approach evaluation (not viable)
-    - Philosophical resolution prioritizing pragmatism over purity
+
+  - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
+  - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
+  - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience
+  - **In-Tree Deprecation**: Mark in-tree backends deprecated while preserving code temporarily for learning and safety
+  - **AI-First Architecture Insights**:
+    - Minsky as fundamentally AI-powered tool requiring internet connectivity for core value
+    - Users already accept external dependencies (AI APIs, billing, internet)
+    - Offline concerns secondary for AI-powered workflows
+    - GitHub Issues provide excellent foundation for AI content analysis
+  - **Comprehensive Analysis Delivered**:
+    - AI-first architecture reanalysis changing all priorities
+    - SQLite-to-PostgreSQL upgrade path design (for future reference)
+    - Creative hosted backend exploration (Dolt, Notion API, cloud services)
+    - Offline/onboarding analysis with AI context
+    - GitHub Issues interim strategy with future backend flexibility
   - **Created Formal ADRs**:
-    - ADR-001: Database-First Architecture (SQLite default, PostgreSQL for teams)
-    - ADR-002: Explicit Task Status Model with git-derived insights
-    - ADR-003: Gradual Migration Strategy with 6-month deprecation
-  - **Implementation Roadmap**:
-    - Phase 1: SQLite implementation (immediate)
-    - Phase 2: PostgreSQL support (3 months)
-    - Phase 3: In-tree deprecation (6 months)
-    - Phase 4: Legacy code removal (12 months)
-  - **Recommendation**: Abandon in-tree backends completely to enable Minsky's AI-powered vision
+    - ADR-001: GitHub Issues Interim Strategy with Future Backend Flexibility
+    - ADR-002: Explicit Task Status Model optimized for GitHub workflows
+    - ADR-003: Deprecate In-Tree Backends (preserve code for learning)
+  - **Updated AI Task Management Approach**: Revised AI task decomposition spec to work with GitHub Issues interim backend
+  - **Three-Phase Strategy**:
+    - Phase 1: GitHub Issues migration and basic AI features (immediate)
+    - Phase 2: Focus on other Minsky priorities while gaining experience (3-6 months)
+    - Phase 3: Advanced backends when AI features require them (future, based on real requirements)
+  - **Pragmatic Resolution**: Recognized that best architectural decision is sometimes to defer the decision until sufficient information available to make it well
 
 - **Task #322: Comprehensive Parameter Deduplication with Type Composition**
+
   - **MAJOR REFACTORING**: Eliminated 210+ parameter duplications across MCP tools and shared command systems
   - **70% CODE REDUCTION**: Reduced ~1000 lines to ~300 lines of parameter definitions (exceeded 60% target)
   - **Created Dual-System Architecture**:
@@ -65,11 +265,13 @@
   - Established robust foundation for maintainable, DRY parameter management across entire codebase
 
 - **ESLint Rule**: Added `no-tests-directories` rule to warn against using `__tests__` directories and encourage co-located test files
+
   - Warns when test files are found in `__tests__` directories
   - Suggests moving tests to be co-located with their modules (e.g., `module.test.ts` next to `module.ts`)
   - Follows Task #270's test architecture improvements promoting co-location over separate test directories
 
 - **Task #312: Enhanced session_read_file tool with line range support**
+
   - Added support for line range parameters matching Cursor's read_file interface
   - Added `start_line_one_indexed`, `end_line_one_indexed_inclusive`, `should_read_entire_file`, and `explanation` parameters
   - Implemented intelligent file size handling with context expansion for small ranges
@@ -90,6 +292,7 @@
 ### Fixed
 
 - **Task & Session Commands Circular Dependencies**: Completely resolved circular dependency issues and task list display
+
   - **FIXED**: `minsky tasks list` now works successfully and displays all 75 tasks with proper formatting
   - **FIXED**: Original "setupTaskCommandRegistry not found" error completely eliminated
   - **FIXED**: Task list formatting now shows actual tasks instead of just count message
@@ -101,6 +304,7 @@
   - Both task and session command systems now load without circular dependency errors
 
 - **Session Commands Consolidation**: Fixed architectural inconsistencies from incomplete Task #171 refactoring
+
   - **Session Approve**: Removed old/broken `approve-command.ts` that incorrectly used session workspace
   - **Import Fixes**: Added missing export aliases for `updateSession` and `deleteSession` in command files
   - **Architecture Clarity**: Established triple-layer pattern (core operations, compatibility wrappers, interface bridges)
@@ -108,6 +312,7 @@
   - **TypeScript Fixes**: Resolved multiple broken imports in subcommand files
 
 - **Session Approve Linter Output**: Improved error handling during automatic task status commits
+
   - Pre-commit hook linter errors now show clean summary instead of raw ESLint dump
   - Displays error/warning counts with helpful guidance on fixing issues
   - Command still fails appropriately when linting issues occur
@@ -1559,6 +1764,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - Enhanced error messages for session commands to provide more helpful guidance when sessions or task IDs are not found
 
 ### Added
+
 - MCP CLI commands for convenient server interaction
   - `minsky mcp tools` - List all available MCP tools
   - `minsky mcp call <tool>` - Execute tools with arguments using `--arg key=value` format
@@ -1567,6 +1773,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Commands wrap the MCP Inspector CLI mode for improved user experience
 
 ### Fixed
+
 - **MCP Tool Naming Consistency**: Standardized tool naming to use dots (MCP convention) instead of underscores
   - `session.read_file`, `session.write_file`, `session.edit_file`, etc.
   - Follows MCP namespacing best practices for better organization
@@ -1585,19 +1792,41 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
 
-- **Task Spec File Management**: Comprehensively resolved multiple task specification file duplications and mismatches
-  - **Task #295**: Resolved multiple spec files claiming same task number by removing duplicate and renaming MCP client registration to #324
-  - **Task #309**: Removed duplicate stub file, kept detailed spec referenced by tasks.md
-  - **Task #311/#316**: Removed duplicate #311, kept #316 (identical max-lines ESLint rule content)
-  - **File Reference Mismatches**: Updated tasks.md to reference correct file names for tasks #310, #318, #319
-  - **Missing Files Recovered**: Found and copied missing task #315 and #320 files from special workspace locations
-  - **Orphaned Files**: Added tasks #310b and #324 to tasks.md for existing spec files
-  - **Result**: All task spec files now properly correspond to tasks.md entries
+## [Task #341] - 2025-07-29
 
-- **CLI Commands Hanging**: Fixed issue where `minsky tasks get`, `minsky tasks list`, and other CLI commands would display output correctly but hang indefinitely instead of returning to shell prompt
-  - Added explicit `process.exit(0)` after successful command execution
-  - Added read-only workspace initialization to reduce lock contention for read operations
-  - Commands now complete properly without leaving resources that keep the event loop alive
-  - Resolves commands timing out due to unclosed file handles, timers, or workspace managers
+### 🔒 SECURITY: Critical Secret Scanning Implementation
+
+#### Added
+- **Pre-commit secret scanning** with dual-layer protection (Gitleaks + Secretlint)
+- **Comprehensive secret detection** for OpenAI, GitHub, Anthropic, AWS, GCP, Slack, NPM tokens
+- **Enhanced `.husky/pre-commit`** hook with security-first execution order
+- **Developer tools**: `secrets:scan` and `secrets:gitleaks` npm scripts
+- **Security documentation** in README with best practices and usage guidelines
+- **Configuration files**: `.secretlintrc.json`, `.secretlintignore` for customization
+
+#### Security Impact
+- **Prevents catastrophic credential exposure** (addresses critical near-miss incident)
+- **Blocks commits containing real secrets** with clear error messages and remediation guidance
+- **Zero tolerance enforcement** for real credentials in repository
+- **Fast performance** (<2 seconds) maintains developer workflow efficiency
+
+#### Technical Details
+- **Gitleaks** (Go binary): Primary scanner with comprehensive built-in rules
+- **Secretlint** (TypeScript): Secondary scanner integrated with npm ecosystem
+- **Multi-pattern detection**: API keys, tokens, private keys, basic auth, environment variables
+- **Backwards compatible**: Preserves existing variable naming and ESLint checks
+
+This implementation successfully addresses **Task #341: Implement Pre-Commit Secret Scanning with Husky** and establishes robust security measures to prevent future credential exposure incidents.
 
 ### Added
+
+### Changed
+- **Task Management**: Reconciled duplicate tasks #318 and #320 for linter error fixes
+  - Closed task #318 as duplicate of #320
+  - Enhanced task #320 as primary task with specific requirements for Jest→Bun conversion and 'as unknown' cleanup
+  - Updated task tracking to reflect consolidation
+
+### Fixed
+- Auto-fixed formatting issues in status-commands.ts during commit process
+
+### Removed

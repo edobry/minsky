@@ -8,7 +8,7 @@
 
 import { log } from "../../utils/logger";
 import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import { getCurrentSession, getCurrentSessionContext } from "../workspace";
 import type { SessionProviderInterface } from "../session";
 import { createSessionProvider } from "../session";
@@ -99,7 +99,7 @@ export async function resolveSessionContext(
   if (task) {
     log.debug("Resolving session from task ID", { task });
 
-    const normalizedTaskId = taskIdSchema!.parse(task);
+    const normalizedTaskId = TaskIdSchema.parse(task);
     const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
 
     if (!sessionRecord) {

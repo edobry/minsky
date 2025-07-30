@@ -9,7 +9,7 @@ import type { LanguageModel } from "ai";
 
 // Provider configuration
 export interface AIProviderConfig {
-  provider: "openai" | "anthropic" | "google" | "cohere" | "mistral";
+  provider: "openai" | "anthropic" | "google" | "cohere" | "mistral" | "morph";
   apiKey?: string;
   baseURL?: string;
   defaultModel?: string;
@@ -17,7 +17,13 @@ export interface AIProviderConfig {
 }
 
 export interface AICapability {
-  name: "reasoning" | "tool-calling" | "prompt-caching" | "image-input" | "structured-output";
+  name:
+    | "reasoning"
+    | "tool-calling"
+    | "prompt-caching"
+    | "image-input"
+    | "structured-output"
+    | "fast-apply";
   supported: boolean;
   maxTokens?: number;
   metadata?: Record<string, any>;

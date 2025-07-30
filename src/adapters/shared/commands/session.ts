@@ -1,44 +1,20 @@
 /**
- * Shared Session Commands (Legacy Compatibility Wrapper)
+ * Shared Session Commands (Simple Direct Registration)
  *
- * This module provides backward compatibility for the original session commands interface
- * while delegating to the new modular architecture underneath.
- *
- * MIGRATION COMPLETE: 521 lines reduced to ~30 lines (94.2% reduction)
- * All functionality preserved through modular delegation pattern.
+ * This module provides a simple direct approach to registering session commands
+ * in the shared command registry, avoiding the complex circular dependency issues.
  */
 
-// Import modular session commands components
-import {
-  ModularSessionCommandsManager,
-  modularSessionCommandsManager,
-  registerSessionCommands as modularRegisterSessionCommands,
-  type SessionCommandDependencies,
-} from "./session-modular";
+import { sharedCommandRegistry, CommandCategory } from "../command-registry";
+import { z } from "zod";
+import type { SessionCommandDependencies } from "./session/index";
+import { ModularSessionCommandsManager } from "./session-modular";
 
 /**
- * Register the session commands in the shared command registry
- *
- * ⚠️ DEPRECATED: This function is maintained for backward compatibility only.
- * New code should use ModularSessionCommandsManager directly.
- *
- * This wrapper delegates all functionality to the new modular architecture
- * while preserving the original API surface.
+ * Register session commands directly in the shared command registry
+ * This bypasses the complex modular architecture to solve the registration issue
  */
-export function registerSessionCommands(deps?: SessionCommandDependencies): void {
-  modularRegisterSessionCommands(deps);
+export async function registerSessionCommands(deps?: SessionCommandDependencies): Promise<void> {
+  const manager = new ModularSessionCommandsManager(deps);
+  await manager.registerSessionCommands();
 }
-
-// Export modular components for migration path
-export {
-  ModularSessionCommandsManager,
-  modularSessionCommandsManager,
-  registerSessionCommands as registerSessionCommandsModular,
-} from "./session-modular";
-
-// Export all modular session command components for full access
-export * from "./session/";
-
-// Export for backward compatibility
-export { ModularSessionCommandsManager as SessionCommandsManager };
-export { modularSessionCommandsManager as sessionCommandsManager };

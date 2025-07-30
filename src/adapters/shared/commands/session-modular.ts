@@ -6,10 +6,19 @@
  */
 import { SessionCommandRegistry } from "./session/base-session-command";
 import {
-  createAllSessionCommands,
   setupSessionCommandRegistry,
+  createAllSessionCommands,
   type SessionCommandDependencies,
-} from "./session";
+  createSessionListCommand,
+  createSessionGetCommand,
+  createSessionStartCommand,
+  createSessionDirCommand,
+  createSessionDeleteCommand,
+  createSessionUpdateCommand,
+  createSessionApproveCommand,
+  createSessionPrCommand,
+  createSessionInspectCommand,
+} from "./session/";
 import { sharedCommandRegistry } from "../command-registry";
 
 /**
@@ -26,19 +35,42 @@ const defaultSessionCommandDependencies: SessionCommandDependencies = {
  * Provides a clean interface for registering and managing session commands.
  */
 export class ModularSessionCommandsManager {
-  private commands: ReturnType<typeof createAllSessionCommands>;
+  private commands: Awaited<ReturnType<typeof createAllSessionCommands>> | null = null;
   private commandRegistry: SessionCommandRegistry;
+  private initialized = false;
 
   constructor(deps: SessionCommandDependencies = defaultSessionCommandDependencies) {
-    // Simplified initialization to avoid circular dependencies
-    this.commands = {} as any; // Temporary empty object
+    // Create empty registry - will be populated during initialization
     this.commandRegistry = new SessionCommandRegistry();
+
+    // Initialize asynchronously
+    this.initialize(deps);
+  }
+
+  private async initialize(deps: SessionCommandDependencies): Promise<void> {
+    if (this.initialized) return;
+
+    try {
+      // Initialize commands using the factory
+      this.commands = await createAllSessionCommands(deps);
+
+      // Setup the command registry with the commands
+      this.commandRegistry = await setupSessionCommandRegistry(deps);
+
+      this.initialized = true;
+    } catch (error) {
+      // Log error but don't throw to avoid breaking the constructor
+      console.error("Failed to initialize session commands:", error);
+    }
   }
 
   /**
    * Register all session commands in the shared command registry
    */
-  registerSessionCommands(): void {
+  async registerSessionCommands(): Promise<void> {
+    // Wait for initialization to complete
+    await this.waitForInitialization();
+
     // Get all commands from the registry
     const allCommands = this.commandRegistry.getAllCommands();
 
@@ -46,6 +78,16 @@ export class ModularSessionCommandsManager {
     allCommands.forEach(({ id, registrationData }) => {
       sharedCommandRegistry.registerCommand(registrationData);
     });
+  }
+
+  /**
+   * Wait for initialization to complete
+   */
+  private async waitForInitialization(): Promise<void> {
+    // Simple polling approach - wait for initialization
+    while (!this.initialized) {
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
   }
 
   /**
@@ -87,9 +129,9 @@ export function createModularSessionCommandsManager(
 /**
  * Register session commands using the modular architecture (backward compatibility)
  */
-export function registerSessionCommands(deps?: SessionCommandDependencies): void {
+export async function registerSessionCommands(deps?: SessionCommandDependencies): Promise<void> {
   const manager = deps ? createModularSessionCommandsManager(deps) : modularSessionCommandsManager;
-  manager.registerSessionCommands();
+  await manager.registerSessionCommands();
 }
 
 // Export all command components for direct access

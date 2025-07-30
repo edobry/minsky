@@ -27,7 +27,7 @@ describe("SessionDB Functional Implementation", () => {
         repoName: "local/minsky",
         repoUrl: "local/minsky",
         createdAt: "2023-01-01T00:00:00.000Z",
-        taskId: "#101",
+        taskId: "101",
         branch: "test-branch-1",
       },
       {
@@ -35,7 +35,7 @@ describe("SessionDB Functional Implementation", () => {
         repoName: "github/user/repo",
         repoUrl: "https://github.com/user/repo",
         createdAt: "2023-01-02T00:00:00.000Z",
-        taskId: "#102",
+        taskId: "102",
         branch: "test-branch-2",
       },
     ];
@@ -114,7 +114,7 @@ describe("SessionDB Functional Implementation", () => {
       const session = getSessionFn(state, "test-session-1");
       expect(session).not.toBeNull();
       expect(session?.session).toBe("test-session-1");
-      expect(session?.taskId).toBe("#101");
+      expect(session?.taskId).toBe("101");
     });
 
     it("should return null if session not found", () => {
@@ -154,14 +154,14 @@ describe("SessionDB Functional Implementation", () => {
         repoName: "local/new-repo",
         repoUrl: "local/new-repo",
         createdAt: "2023-01-03T00:00:00.000Z",
-        taskId: "#103",
+        taskId: "103",
         branch: "test-branch-3",
       };
 
       const newState = addSessionFn(state, newSession);
       expect(newState.sessions).toHaveLength(3);
       expect(newState.sessions[2]!.session).toBe("test-session-3");
-      expect(newState.sessions[2]!.taskId).toBe("#103");
+      expect(newState.sessions[2]!.taskId).toBe("103");
     });
   });
 
@@ -170,13 +170,13 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const updates = {
         branch: "updated-branch",
-        taskId: "#999",
+        taskId: "999",
       };
 
       const newState = updateSessionFn(state, "test-session-1", updates);
       const updatedSession = getSessionFn(newState, "test-session-1");
       expect(updatedSession?.branch).toBe("updated-branch");
-      expect(updatedSession?.taskId).toBe("#999");
+      expect(updatedSession?.taskId).toBe("999");
       expect(updatedSession?.repoName).toBe("local/minsky"); // Original value preserved
     });
 

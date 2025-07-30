@@ -126,7 +126,7 @@ This is a test task description.
         title: "Test Task",
         description: "Test description",
         metadata: {
-          taskId: "#001",
+          taskId: "001",
           githubIssue: {
             number: 1,
             html_url: "https://github.com/test/repo/issues/1",
