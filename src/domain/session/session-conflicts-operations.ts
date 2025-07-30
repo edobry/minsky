@@ -131,7 +131,35 @@ export async function scanSessionConflicts(
 
     return result;
   } catch (error) {
-    log.error("Error scanning session for conflicts", { error, params, options });
+    // Only log meaningful context when it adds value beyond the error message itself
+    const hasSessionParams = params.name || params.task;
+    const hasCustomOptions =
+      options.files ||
+      (options.format && options.format !== "json") ||
+      (options.context && options.context !== 3);
+
+    if (hasSessionParams || hasCustomOptions) {
+      const logContext: Record<string, any> = {};
+
+      if (hasSessionParams) {
+        logContext.sessionParams = {
+          ...(params.name && { name: params.name }),
+          ...(params.task && { task: params.task }),
+        };
+      }
+
+      if (hasCustomOptions) {
+        logContext.scanOptions = {
+          ...(options.files && { files: options.files }),
+          ...(options.format && options.format !== "json" && { format: options.format }),
+          ...(options.context && options.context !== 3 && { context: options.context }),
+        };
+      }
+
+      log.error("Error scanning session for conflicts", logContext);
+    }
+    // Otherwise, let the descriptive error message speak for itself without intermediate logs
+
     throw error;
   }
 }
