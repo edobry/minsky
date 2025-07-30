@@ -2,7 +2,7 @@
 export interface BackendQualifiedId {
   backend: string;
   localId: string;
-  full: string; // Full qualified ID string "backend:localId"
+  full: string; // Full task ID string "task-backend#localId"
 }
 
 export interface TaskBackendMeta {
@@ -86,60 +86,79 @@ export function extractLocalIdFromId(taskId: string): string | null {
   return taskId ? taskId : null;
 }
 
-// Git branch naming conversion functions
+// Unified format conversion functions
+// UNIFIED FORMAT: task-md#123 (used everywhere - tasks, sessions, branches)
+
+export function qualifiedIdToUnifiedFormat(qualifiedId: string): string {
+  const parsed = parseTaskId(qualifiedId);
+  if (!parsed) {
+    // Handle legacy unqualified IDs - assume markdown backend
+    if (/^\d+$/.test(qualifiedId)) {
+      return `task-md#${qualifiedId}`;
+    }
+    return qualifiedId; // Return as-is if unparseable
+  }
+
+  return `task-${parsed.backend}#${parsed.localId}`;
+}
+
+export function unifiedFormatToQualifiedId(unifiedFormat: string): string {
+  // Parse task-md#123 → md:123
+  const match = unifiedFormat.match(/^task-([^#]+)#(.+)$/);
+  if (!match) {
+    // Handle legacy formats or invalid input
+    const legacyMatch = unifiedFormat.match(/^task#(\d+)$/);
+    if (legacyMatch) {
+      return `md:${legacyMatch[1]}`; // task#123 → md:123
+    }
+
+    // Check if it's already a qualified ID
+    if (parseTaskId(unifiedFormat)) {
+      return unifiedFormat;
+    }
+
+    // If it looks like a plain number, assume markdown backend
+    if (/^\d+$/.test(unifiedFormat)) {
+      return `md:${unifiedFormat}`;
+    }
+
+    return unifiedFormat; // Return as-is if unparseable
+  }
+
+  const [, backend, localId] = match;
+  if (!backend || !localId) {
+    return unifiedFormat; // Return as-is if invalid
+  }
+  return formatTaskId(backend, localId);
+}
+
+// Backward compatibility functions (no longer needed but kept for transition)
 export function sessionNameToBranchName(sessionName: string): string {
-  if (!sessionName || typeof sessionName !== "string") {
-    return sessionName;
-  }
-
-  // Convert task#md:123 → task#md-123
-  // Only replace the first colon after # to maintain git compatibility
-  const hashIndex = sessionName.indexOf("#");
-  if (hashIndex === -1) {
-    return sessionName;
-  }
-
-  const beforeHash = sessionName.substring(0, hashIndex + 1);
-  const afterHash = sessionName.substring(hashIndex + 1);
-
-  // Replace the first colon in the after-hash part
-  const colonIndex = afterHash.indexOf(":");
-  if (colonIndex === -1) {
-    return sessionName; // No colon, return as-is
-  }
-
-  const converted = `${beforeHash + afterHash.substring(0, colonIndex)}-${afterHash.substring(colonIndex + 1)}`;
-  return converted;
+  // Since we use unified format everywhere, no conversion needed
+  return sessionName;
 }
 
 export function branchNameToSessionName(branchName: string): string {
-  if (!branchName || typeof branchName !== "string") {
-    return branchName;
+  // Since we use unified format everywhere, no conversion needed
+  return branchName;
+}
+
+// Migration utilities
+export function migrateUnqualifiedId(taskId: string, defaultBackend = "md"): string {
+  // Convert unqualified ID to qualified format
+  if (isQualifiedId(taskId)) {
+    return taskId; // Already qualified
   }
 
-  // Convert task#md-123 → task#md:123
-  // Only replace the first dash after # that represents a backend separator
-  const hashIndex = branchName.indexOf("#");
-  if (hashIndex === -1) {
-    return branchName;
+  if (/^\d+$/.test(taskId)) {
+    return formatTaskId(defaultBackend, taskId);
   }
 
-  const beforeHash = branchName.substring(0, hashIndex + 1);
-  const afterHash = branchName.substring(hashIndex + 1);
-
-  // Look for pattern: backend-localId
-  // Find the first dash that could be a backend separator
-  const dashIndex = afterHash.indexOf("-");
-  if (dashIndex === -1) {
-    return branchName; // No dash, return as-is
+  // Handle task#123 format
+  const legacyMatch = taskId.match(/^(?:task#)?(\d+)$/);
+  if (legacyMatch && legacyMatch[1]) {
+    return formatTaskId(defaultBackend, legacyMatch[1]);
   }
 
-  // Check if this looks like a backend-localId pattern
-  const potentialBackend = afterHash.substring(0, dashIndex);
-  if (!potentialBackend) {
-    return branchName; // Invalid pattern
-  }
-
-  const converted = `${beforeHash + potentialBackend}:${afterHash.substring(dashIndex + 1)}`;
-  return converted;
+  return taskId; // Can't migrate, return as-is
 }
