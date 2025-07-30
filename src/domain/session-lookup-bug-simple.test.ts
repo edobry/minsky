@@ -15,6 +15,7 @@ import { join } from "path";
 import { rm } from "fs/promises";
 import { existsSync } from "fs";
 import { startSessionFromParams } from "./session";
+import { getSessionDir } from "../utils/paths";
 
 describe("Session Creation Bug Fix (TDD)", () => {
   let tempDir: string;
@@ -24,10 +25,15 @@ describe("Session Creation Bug Fix (TDD)", () => {
   });
 
   afterEach(async () => {
-    // Clean up test directories
+    // Clean up test directories and real session directory
     try {
       if (existsSync(tempDir)) {
         await rm(tempDir, { recursive: true, force: true });
+      }
+      // Also clean up the real session directory that might be created
+      const sessionDir = getSessionDir("test-session");
+      if (existsSync(sessionDir)) {
+        await rm(sessionDir, { recursive: true, force: true });
       }
     } catch (error) {
       // Ignore cleanup errors
@@ -62,7 +68,8 @@ describe("Session Creation Bug Fix (TDD)", () => {
       clone: async (options: any) => {
         // REPRODUCE THE BUG: Create directories THEN fail (like real GitService.clone does)
         const { existsSync, mkdirSync } = await import("fs");
-        const sessionPath = join(tempDir, "local-minsky", "sessions", "test-session");
+        // Use the real session directory path to match what cleanup expects
+        const sessionPath = getSessionDir("test-session");
 
         // Create directory structure like real GitService does
         if (!existsSync(sessionPath)) {
@@ -102,8 +109,8 @@ describe("Session Creation Bug Fix (TDD)", () => {
     expect(sessionStartFailed)!.toBe(true); // Session creation should fail
 
     // CRITICAL: This assertion should PASS after fix but FAILS before fix
-    // Currently fails because git.clone creates directories before failing
-    const sessionDirPath = join(tempDir, "local-minsky", "sessions", "test-session");
+    // Use the real session directory path to match what cleanup expects
+    const sessionDirPath = getSessionDir("test-session");
     expect(existsSync(sessionDirPath))!.toBe(false); // No orphaned directories should exist
 
     // Session should not be in database either
