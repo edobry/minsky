@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Task #138**: GitHub Issues backend production readiness improvements
+  - **Documentation Package**: Comprehensive setup guide with token configuration, usage examples, troubleshooting, and best practices
+  - **CLI Enhancements**: Added `minsky github test` and `minsky github status` commands for connectivity testing and configuration validation
+  - **Integration Tests**: Created separate GitHub API integration test suite with cleanup and real API testing capability
+  - Enhanced error messages and verbose debugging options for GitHub Issues backend
+  - Complete production-ready package while awaiting Task 161 Phase 0 repository backend integration
+
 - **Task #356**: Comprehensive multi-backend task system architecture design
   - Created new task for implementing backend-qualified task IDs (`md:123`, `gh:456`, `json:789`)
   - Designed architecture to prevent ID conflicts during backend migration
