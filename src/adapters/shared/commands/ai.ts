@@ -14,11 +14,8 @@ import {
 } from "../command-registry";
 import { DefaultAICompletionService } from "../../../domain/ai/completion-service";
 import { DefaultAIConfigurationService } from "../../../domain/ai/config-service";
-import {
-  DefaultModelCacheService,
-  OpenAIModelFetcher,
-  AnthropicModelFetcher,
-} from "../../../domain/ai/model-cache";
+import { DefaultModelCacheService } from "../../../domain/ai/model-cache";
+import { PROVIDER_FETCHER_REGISTRY, type AIProvider } from "../../../domain/ai/provider-registry";
 import { log } from "../../../utils/logger";
 import { getConfiguration } from "../../../domain/configuration";
 import { exit } from "../../../utils/process";
@@ -62,6 +59,42 @@ const aiCompleteParams: CommandParameterMap = {
   system: {
     schema: z.string(),
     description: "System prompt",
+    required: false,
+  },
+};
+
+/**
+ * Parameters for fast-apply command
+ */
+const aiFastApplyParams: CommandParameterMap = {
+  filePath: {
+    schema: z.string().min(1),
+    description: "Path to the file to edit",
+    required: true,
+  },
+  instructions: {
+    schema: z.string().min(1),
+    description: "Description of what changes to make",
+    required: false,
+  },
+  codeEdit: {
+    schema: z.string().min(1),
+    description: "New code with '// ... existing code ...' markers (Cursor format)",
+    required: false,
+  },
+  provider: {
+    schema: z.string(),
+    description: "Fast-apply provider to use (defaults to auto-detect)",
+    required: false,
+  },
+  model: {
+    schema: z.string(),
+    description: "Model to use for fast-apply",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Show the proposed changes without applying them",
     required: false,
   },
 };
@@ -173,6 +206,145 @@ export function registerAiCommands(): void {
       } catch (error) {
         log.cliError(
           `AI completion failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+        exit(1);
+      }
+    },
+  });
+
+  // Register AI fast-apply command
+  sharedCommandRegistry.registerCommand({
+    id: "ai.fast-apply",
+    category: CommandCategory.CORE,
+    name: "fast-apply",
+    description:
+      "Apply fast edits to a file using fast-apply models (supports both instruction and Cursor edit pattern modes)",
+    parameters: aiFastApplyParams,
+    execute: async (params, context) => {
+      try {
+        const { filePath, instructions, codeEdit, provider, model, dryRun } = params;
+
+        // Validate that either instructions or codeEdit is provided
+        if (!instructions && !codeEdit) {
+          log.cliError("Either 'instructions' or 'codeEdit' parameter must be provided");
+          exit(1);
+        }
+
+        // Import filesystem utilities
+        const fs = await import("fs/promises");
+        const path = await import("path");
+
+        // Read the target file
+        let originalContent: string;
+        try {
+          originalContent = (await fs.readFile(filePath, "utf-8")) as string;
+        } catch (error) {
+          log.cliError(
+            `Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+          );
+          exit(1);
+        }
+
+        // Get AI configuration
+        const config = getConfiguration();
+        const aiConfig = config.ai;
+
+        if (!aiConfig?.providers) {
+          log.cliError("No AI providers configured. Please configure at least one provider.");
+          exit(1);
+        }
+
+        // Find fast-apply capable provider if not specified
+        let targetProvider = provider;
+        if (!targetProvider) {
+          // Auto-detect fast-apply provider
+          const fastApplyProviders = Object.entries(aiConfig.providers)
+            .filter(
+              ([name, providerConfig]) =>
+                providerConfig?.enabled &&
+                // Check if provider supports fast-apply (morph for now)
+                name === "morph"
+            )
+            .map(([name]) => name);
+
+          if (fastApplyProviders.length === 0) {
+            log.cliError(
+              "No fast-apply capable providers configured. Please configure Morph or another fast-apply provider."
+            );
+            exit(1);
+          }
+
+          targetProvider = fastApplyProviders[0];
+          log.info(`Auto-detected fast-apply provider: ${targetProvider}`);
+        }
+
+        // Create AI completion service
+        const mockConfigService = {
+          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
+        };
+        const completionService = new DefaultAICompletionService(mockConfigService);
+
+        // Create fast-apply prompt based on mode
+        let prompt: string;
+
+        if (codeEdit) {
+          // Morph's exact XML format: <instruction>...</instruction><code>...</code><update>...</update>
+          // Generate instructions for code edit mode
+          const editInstructions =
+            instructions || "I am applying the provided code edits with existing code markers";
+          prompt = `<instruction>${editInstructions}</instruction>
+<code>${originalContent}</code>
+<update>${codeEdit}</update>`;
+        } else {
+          // Morph's exact XML format for instruction-based mode
+          prompt = `<instruction>${instructions}</instruction>
+<code>${originalContent}</code>
+<update>// Apply the above instructions to modify this file</update>`;
+        }
+
+        const mode = codeEdit ? "Cursor edit pattern" : "instruction-based";
+        log.info(`Applying edits to ${filePath} using ${targetProvider} (${mode})...`);
+
+        // Generate the edited content
+        const response = await completionService.complete({
+          prompt,
+          provider: targetProvider,
+          model: model || (targetProvider === "morph" ? "morph-v3-large" : undefined),
+          temperature: 0.1, // Low temperature for precise edits
+          maxTokens: Math.max(originalContent.length * 2, 4000), // Ensure enough tokens for the response
+          systemPrompt:
+            "You are a precise code editor. Return only the final updated file content without any explanations or formatting.",
+        });
+
+        const editedContent = response.content.trim();
+
+        // Show the changes
+        if (dryRun) {
+          log.cli("🔍 Dry run - showing proposed changes:");
+          log.cli("\n--- Original ---");
+          log.cli(originalContent);
+          log.cli("\n--- Edited ---");
+          log.cli(editedContent);
+          log.cli(
+            `\nTokens used: ${response.usage.totalTokens} (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+          );
+          if (response.usage.cost) {
+            log.cli(`Cost: $${response.usage.cost.toFixed(4)}`);
+          }
+        } else {
+          // Apply the changes
+          await fs.writeFile(filePath, editedContent, "utf-8");
+          log.cli(`✅ Successfully applied edits to ${filePath}`);
+          log.info(
+            `Tokens used: ${response.usage.totalTokens} (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+          );
+          if (response.usage.cost) {
+            log.info(`Cost: $${response.usage.cost.toFixed(4)}`);
+          }
+        }
+      } catch (error) {
+        log.cliError(
+          `Fast-apply failed: ${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
       }
@@ -474,9 +646,19 @@ export function registerAiCommands(): void {
   const createModelCacheService = () => {
     const cacheService = new DefaultModelCacheService();
 
-    // Register fetchers
-    cacheService.registerFetcher(new OpenAIModelFetcher());
-    cacheService.registerFetcher(new AnthropicModelFetcher());
+    // Register all available fetchers from the type-safe registry
+    Object.entries(PROVIDER_FETCHER_REGISTRY).forEach(([provider, FetcherClass]) => {
+      if (FetcherClass && typeof FetcherClass === "function") {
+        try {
+          cacheService.registerFetcher(new FetcherClass());
+          log.debug(`Registered model fetcher for provider: ${provider}`);
+        } catch (error) {
+          log.warn(`Failed to register model fetcher for provider ${provider}:`, error);
+        }
+      } else {
+        log.warn(`No model fetcher implementation available for provider: ${provider}`);
+      }
+    });
 
     return cacheService;
   };

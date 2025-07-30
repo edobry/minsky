@@ -6,7 +6,7 @@
  */
 
 import { generateText, streamText, generateObject, LanguageModel } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { openai, createOpenAI } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 
@@ -351,6 +351,16 @@ export class DefaultAICompletionService implements AICompletionService {
         });
         break;
 
+      case "morph": {
+        // Morph is OpenAI-compatible, so use createOpenAI to create a custom provider
+        const morphProvider = createOpenAI({
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseURL || "https://api.morphllm.com/v1",
+        });
+        model = (morphProvider as any)(resolvedModel); // Use the actual model name (e.g., morph-v3-large)
+        break;
+      }
+
       default:
         throw new AIProviderError(
           `Unsupported provider: ${resolvedProvider}`,
@@ -372,6 +382,7 @@ export class DefaultAICompletionService implements AICompletionService {
       openai: "gpt-4o",
       anthropic: "claude-3-5-sonnet-20241022",
       google: "gemini-1.5-pro-latest",
+      morph: "morph-v3-large",
     };
 
     return defaultModels[provider] || "gpt-4o";

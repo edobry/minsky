@@ -104,6 +104,7 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       google: /^AIza[0-9A-Za-z_-]{35}$/,
       cohere: /^[a-zA-Z0-9_-]+$/,
       mistral: /^[a-zA-Z0-9_-]+$/,
+      morph: /^[a-zA-Z0-9_-]+$/, // Morph uses similar format to other providers
     };
 
     const pattern = formatMap[provider];
@@ -136,6 +137,11 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
       ],
       mistral: [
         { name: "tool-calling" as const, supported: true },
+        { name: "structured-output" as const, supported: true },
+      ],
+      morph: [
+        { name: "fast-apply" as const, supported: true, maxTokens: 32000 },
+        { name: "reasoning" as const, supported: true, maxTokens: 32000 },
         { name: "structured-output" as const, supported: true },
       ],
     };
