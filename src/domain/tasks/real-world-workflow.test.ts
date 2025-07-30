@@ -41,6 +41,22 @@ mock.module("fs", () => ({
   writeFileSync: mockFs.writeFileSync,
 }));
 
+// Mock fs/promises module for async operations
+mock.module("fs/promises", () => ({
+  writeFile: mock(async (path: string, data: string) => {
+    mockFileSystem.set(path, data);
+  }),
+  unlink: mock(async (path: string) => {
+    mockFileSystem.delete(path);
+  }),
+  readFile: mock(async (path: string) => {
+    if (!mockFileSystem.has(path)) {
+      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+    }
+    return mockFileSystem.get(path);
+  }),
+}));
+
 // Mock os module
 mock.module("os", () => ({
   tmpdir: mock(() => "/mock/tmp"),
@@ -62,6 +78,11 @@ describe("Real-World Workflow Testing", () => {
     mockFileSystem.clear();
     mockDirectories.clear();
 
+    // Setup required directories
+    mockDirectories.add(testBaseDir);
+    mockDirectories.add(testProcessDir);
+    mockDirectories.add("/mock/tmp"); // Add temp directory for task creation
+
     // Reset filesystem mocks
     mockFs.existsSync = mock(
       (path: string) => mockFileSystem.has(path) || mockDirectories.has(path)
@@ -82,10 +103,6 @@ describe("Real-World Workflow Testing", () => {
     mockFs.writeFileSync = mock((path: string, data: string) => {
       mockFileSystem.set(path, data);
     });
-
-    // Setup mock directory structure
-    mockDirectories.add(testBaseDir);
-    mockDirectories.add(testProcessDir);
   });
 
   afterEach(() => {
@@ -174,6 +191,13 @@ describe("Real-World Workflow Testing", () => {
         workspacePath: testBaseDir,
         dbFilePath: testJsonPath,
       });
+
+      // Debug: Check which backend is selected
+      console.log("Current backend name:", (taskService as any).currentBackend?.name);
+      console.log(
+        "Available backends:",
+        (taskService as any).backends?.map((b: any) => b.name)
+      );
 
       // 2. Create tasks via service
       const task1 = await taskService.createTaskFromTitleAndDescription(

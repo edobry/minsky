@@ -273,6 +273,11 @@ export class JsonFileTaskBackend implements TaskBackend {
     await this.updateTaskData(id, { status: status as TaskStatus });
   }
 
+  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+    // Delegate to the existing createTaskFromSpecFile method
+    return this.createTaskFromSpecFile(specPath, options);
+  }
+
   /**
    * Create a task from title and description
    * @param title Title of the task
