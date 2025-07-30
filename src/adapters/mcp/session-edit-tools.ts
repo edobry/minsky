@@ -216,7 +216,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
 }
 
 /**
- * Apply edit pattern using fast-apply providers
+ * Apply edit pattern using fast-apply providers with fallback support
  * Uses AI-powered editing to replace legacy string-based pattern matching
  */
 async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
@@ -229,7 +229,7 @@ async function applyEditPattern(originalContent: string, editContent: string): P
   const aiConfig = config.ai;
 
   if (!aiConfig?.providers) {
-    throw new Error("No AI providers configured for fast-apply editing");
+    throw new Error("No AI providers configured for edit operations");
   }
 
   // Find fast-apply capable provider (currently Morph, extendable to others)
@@ -241,19 +241,36 @@ async function applyEditPattern(originalContent: string, editContent: string): P
     )
     .map(([name]) => name);
 
-  if (fastApplyProviders.length === 0) {
-    throw new Error("No fast-apply providers available. Please configure a fast-apply capable provider like Morph.");
-  }
+  let provider: string;
+  let model: string | undefined;
+  let isFastApply = false;
 
-  const provider = fastApplyProviders[0];
-  log.debug(`Using fast-apply provider: ${provider}`);
+  if (fastApplyProviders.length > 0) {
+    // Use fast-apply provider
+    provider = fastApplyProviders[0];
+    model = provider === "morph" ? "morph-v3-large" : undefined;
+    isFastApply = true;
+    log.debug(`Using fast-apply provider: ${provider}`);
+  } else {
+    // Fallback to default provider
+    provider = aiConfig.defaultProvider || "anthropic";
+    
+    // Simple fallback - try to find an enabled provider with API key
+    const fallbackConfig = aiConfig.providers[provider];
+    if (!fallbackConfig?.enabled || !fallbackConfig?.apiKey) {
+      // Try Anthropic as ultimate fallback
+      provider = "anthropic";
+    }
+    
+    log.debug(`Fast-apply providers unavailable, using fallback provider: ${provider}`);
+  }
 
   // Create AI completion service
   const completionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);
 
-  // Create fast-apply prompt
+  // Create edit prompt optimized for the provider type
   const prompt = `Apply the following edit pattern to the original content:
 
 Original content:
@@ -273,11 +290,11 @@ Instructions:
 - Preserve all formatting, indentation, and structure
 - Do not include explanations or markdown formatting`;
 
-  // Generate the edited content using fast-apply
+  // Generate the edited content using the selected provider
   const response = await completionService.complete({
     prompt,
     provider,
-    model: provider === "morph" ? "morph-v3-large" : undefined,
+    model,
     temperature: 0.1, // Low temperature for precise edits
     maxTokens: Math.max(originalContent.length * 2, 4000),
     systemPrompt:
@@ -287,10 +304,11 @@ Instructions:
   const result = response.content.trim();
 
   // Log usage for monitoring
-  log.debug(`Fast-apply edit completed using ${provider}`, {
+  log.debug(`Edit completed using ${isFastApply ? "fast-apply" : "fallback"} provider: ${provider}`, {
     tokensUsed: response.usage.totalTokens,
     originalLength: originalContent.length,
     resultLength: result.length,
+    isFastApply,
   });
 
   return result;

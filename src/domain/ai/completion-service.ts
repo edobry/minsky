@@ -351,7 +351,7 @@ export class DefaultAICompletionService implements AICompletionService {
         });
         break;
 
-      case "morph":
+      case "morph": {
         // Morph is OpenAI-compatible, so use createOpenAI to create a custom provider
         const morphProvider = createOpenAI({
           apiKey: providerConfig.apiKey,
@@ -359,6 +359,7 @@ export class DefaultAICompletionService implements AICompletionService {
         });
         model = (morphProvider as any)(resolvedModel); // Use the actual model name (e.g., morph-v3-large)
         break;
+      }
 
       default:
         throw new AIProviderError(

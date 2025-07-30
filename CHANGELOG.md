@@ -20,6 +20,14 @@ All notable changes to this project will be documented in this file.
   - Performance: <2s for complex edits, 0% → 98% success rate improvement
   - Related to Task #249 Phase 2 completion
 
+- Fast-Apply Edit Integration: Integrated Morph fast-apply provider with session edit tools for improved edit accuracy and speed
+- **Provider Fallback System**: Enhanced edit tools to gracefully fallback to default AI providers when fast-apply providers are unavailable
+  - Automatic detection of fast-apply provider availability (Morph)
+  - Intelligent fallback to configured default provider (defaults to Claude 4 Sonnet)
+  - Provider validation to ensure API keys are available
+  - Maintains edit quality across all provider types
+  - Comprehensive test coverage for fallback scenarios
+
 ### Fixed
 - **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
   - 404 errors now explain "this provider may not support model listing"
@@ -40,6 +48,9 @@ All notable changes to this project will be documented in this file.
   - Fixed `createOpenAI` usage pattern for OpenAI-compatible providers
   - Corrected model name handling to use `morph-v3-large` instead of standard OpenAI names
   - Resolved configuration service instantiation in session edit tools
+
+- Morph Provider Authentication: Fixed authentication issues with Morph by using correct `createOpenAI` from Vercel AI SDK
+- Session Edit Tools: Restored functionality of session-aware edit tools with AI-powered pattern matching replacing broken legacy string matching
 
 ### Changed
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
