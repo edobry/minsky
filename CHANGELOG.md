@@ -20,6 +20,8 @@ All notable changes to this project will be documented in this file.
   - Content can still be retrieved via `rules.get` command when needed
 
 ### Fixed
+- **Session Get Command**: Fixed "taskIdSchema is not defined" error in `minsky session get --task` command by correcting variable naming mismatch in session-context-resolver.ts (TaskIdSchema import vs taskIdSchema usage)
+
 - **CLI Module Loading Error**: Fixed Bun runtime error "export 'TaskDeleteParameters' not found" when running CLI commands. Corrected type-only exports in domain schemas index by adding `type` keyword to TypeScript type exports, importing schemas/types separately for backward compatibility aliases, and updating imports in files using non-migrated schemas.
 
 - **Session Approve Error Messages**: Fixed redundant and unfriendly error output from `session approve` command when linting issues occur
