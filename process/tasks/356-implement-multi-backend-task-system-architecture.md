@@ -6,6 +6,23 @@
 
 Implement comprehensive multi-backend task system architecture to support concurrent use of multiple task backends (markdown, GitHub Issues, JSON) with backend-qualified task IDs, preventing ID conflicts during backend migration.
 
+## ✅ PROGRESS SUMMARY
+
+### **PHASE 1: CORE INFRASTRUCTURE - COMPLETED**
+
+**✅ Unified Task ID System (44/44 tests passing)**
+- Task IDs: `md#123`, `gh#456`, `json#789` (clean format)
+- Session/Branch names: `task-md#123`, `task-gh#456` (contextual prefix)
+- Migration utilities for legacy formats (`123`, `task#123` → `md#123`)
+- Comprehensive backward compatibility and error handling
+- Git-compatible naming (no colons, uses `#` which is valid)
+
+**✅ Architecture Design Completed**
+- Enhanced TaskBackend interface with `prefix` property
+- Multi-backend routing strategy defined
+- Collision detection and reporting system designed
+- Migration strategy established (all unqualified IDs → markdown backend)
+
 ## Description
 
 Currently, Minsky supports only a single active task backend at a time, creating significant challenges for migrating from one backend to another due to potential task ID conflicts. This task implements a multi-backend architecture that allows multiple task backends to coexist safely with backend-qualified task IDs.
@@ -16,13 +33,14 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 
 ### Phase 1: Core Infrastructure (High Priority)
 
-#### 1.1 Backend-Qualified Task ID System
-- [ ] **Start with comprehensive tests** following test-driven development approach for all new ID functionality
-- [ ] Implement `BackendQualifiedId` type system with validation
-- [ ] Create parsing utilities (`parseTaskId`, `isQualifiedId`)
-- [ ] Add formatting utilities (`formatTaskId`, `formatForDisplay`)
-- [ ] Support backward compatibility with unqualified IDs
-- [ ] Add validation and error handling for malformed IDs
+#### 1.1 Backend-Qualified Task ID System ✅ **COMPLETED**
+- [x] **Start with comprehensive tests** following test-driven development approach for all new ID functionality
+- [x] Implement `TaskId` type system with validation (unified-task-id.ts)
+- [x] Create parsing utilities (`parseTaskId`, `isQualifiedTaskId`)
+- [x] Add formatting utilities (`formatTaskId`, `extractBackend`, `extractLocalId`)
+- [x] Support backward compatibility with unqualified IDs and legacy formats
+- [x] Add validation and error handling for malformed IDs
+- [x] **44/44 tests passing** with comprehensive coverage
 
 #### 1.2 TaskBackend Interface Updates
 - [ ] Add `prefix` property to TaskBackend interface (backends define their own prefixes)
@@ -115,23 +133,30 @@ type BackendQualifiedId = `${BackendPrefix}:${string}`;
 // json:789 - JSON file backend task 789
 ```
 
-### Git-Compatible Branch Naming Strategy
+### ✅ UNIFIED TASK ID ARCHITECTURE (IMPLEMENTED)
+
+**FINAL DESIGN DECISION**: Single format everywhere with contextual prefixes
 
 ```typescript
-// Session names: task#md:123 (for display/storage)
-// Git branch names: task-md#123 (git-compatible)
-// PR branch names: pr/task-md#123
+// Task IDs: md#123, gh#456, json#789 (clean, no prefix)
+// Session/Branch names: task-md#123, task-gh#456 (with contextual prefix)
+// Git-compatible (no colons, uses # which is valid)
 
-function sessionNameToBranchName(sessionName: string): string {
-  // Convert task#md:123 → task-md#123
-  return sessionName.replace(':', '-');
+function taskIdToSessionName(taskId: string): string {
+  // md#123 → task-md#123
+  return `task-${taskId}`;
 }
 
-function branchNameToSessionName(branchName: string): string {
-  // Convert task-md#123 → task#md:123
-  return branchName.replace('-', ':');
+function sessionNameToTaskId(sessionName: string): string {
+  // task-md#123 → md#123
+  return sessionName.replace(/^task-/, "");
 }
 ```
+
+**MIGRATION STRATEGY**: All existing unqualified IDs assume markdown backend
+- `"123"` → `"md#123"`
+- `"task#123"` → `"md#123"`
+- Automatic detection and conversion
 
 ### Updated TaskService Interface
 
@@ -272,3 +297,18 @@ Extra Large
 - Consider implementing in phases to reduce risk and enable incremental testing
 - **Task #329 schema libraries provide the foundation for CLI command schema updates**
 - **Git branch naming must avoid colons and other forbidden characters**
+
+## 🚀 NEXT STEPS
+
+**Phase 2: Multi-Backend System Implementation**
+1. **Implement mock factories** for test-driven development
+2. **Build MultiBackendTaskService** with routing logic and backend registration
+3. **Add collision detection** with manual reconciliation reporting
+4. **Create migration utilities** with collision tracking
+
+**Phase 3: System Integration**
+5. **Update session management** to use unified task ID format
+6. **Leverage Task #329** domain-wide schemas for CLI updates
+7. **Update git operations** for new session naming
+
+The foundation is solid with 44/44 tests passing and clean architecture established!
