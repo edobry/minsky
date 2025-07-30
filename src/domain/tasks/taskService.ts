@@ -630,41 +630,23 @@ ${description}
           throw new Error("Backend configuration required for github-issues backend");
         }
 
-        // GitHub Issues backend auto-detects repository info from git remote
-        let githubConfig: any = null;
-
-        // Get GitHub repository info from configuration (if explicitly configured)
-        try {
-          const githubRepoConfig = get("github");
-          if (githubRepoConfig && githubRepoConfig.organization && githubRepoConfig.repository) {
-            githubConfig = getGitHubBackendConfigFromRepo(
-              {
-                githubOwner: githubRepoConfig.organization,
-                githubRepo: githubRepoConfig.repository,
-              },
-              { logErrors: false }
-            );
-          }
-        } catch (error) {
-          // No explicit GitHub config, continue to auto-detection
-        }
-
-        // Auto-detect from workspace git remote (handles session workspace → main workspace → GitHub URL chain)
-        if (!githubConfig) {
-          githubConfig = getGitHubBackendConfig(backendConfig.workspacePath, { logErrors: true });
-        }
-
-        if (!githubConfig) {
-          throw new Error(
-            "GitHub Issues backend requires GitHub repository configuration. Configure in .minsky/config.yaml with github.organization and github.repository, or use 'minsky init --github-owner <owner> --github-repo <repo>'."
-          );
-        }
-
-        resolvedBackend = createGitHubIssuesTaskBackend({
-          ...backendConfig,
-          ...githubConfig,
-        });
-        break;
+        // GitHub Issues task backend requires GitHub repository backend integration
+        throw new Error(
+          "GitHub Issues task backend requires GitHub repository backend integration.\n" +
+            "\n" +
+            "ARCHITECTURE ISSUE: Task backends should get repository information from repository backends,\n" +
+            "not parse git remotes directly. The GitHub Issues task backend requires a GitHub repository\n" +
+            "backend to provide owner/repo information, but repository backend configuration is not yet\n" +
+            "integrated into the configuration system.\n" +
+            "\n" +
+            "To use GitHub Issues task backend:\n" +
+            "1. First implement repository backend configuration integration (Task #014)\n" +
+            "2. Configure repository backend to use 'github' type\n" +
+            "3. GitHub repository backend will provide owner/repo to GitHub Issues task backend\n" +
+            "\n" +
+            "Current configuration only specifies task backend but not repository backend.\n" +
+            "Using GitHub Issues task backend with Local repository backend is not supported."
+        );
       }
 
       default: {

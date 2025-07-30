@@ -1,9 +1,17 @@
 version: 1
 
-# Task Backend Configuration - GitHub Issues backend auto-detects repository from git remote
+# Task Backend Configuration - GitHub Issues backend will error out  
 backend: "github-issues"
+
+# Override AI config to avoid validation errors from main workspace
+ai:
+  defaultProvider: "openai"
+  providers:
+    openai:
+      enabled: true
+      model: "gpt-4"
     
-# SessionDB Configuration
+# SessionDB Configuration  
 sessiondb:
   backend: "json"
   json:
