@@ -5,6 +5,10 @@ import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:
 import { readFileSync, writeFileSync, mkdirSync, rmSync, existsSync } from "fs";
 import { tmpdir } from "os";
 import { join } from "path";
+import {
+  registerSessionFileTools,
+  SessionPathResolver,
+} from "../../../src/adapters/mcp/session-files";
 
 describe("Session File Move Tools Integration", () => {
   let tempDir: string;
@@ -31,16 +35,13 @@ describe("Session File Move Tools Integration", () => {
     }
   });
 
-  test("session file tools can be imported without errors", async () => {
-    // Test that we can import the module
-    const sessionFileModule = await import("../../../src/adapters/mcp/session-files");
-    expect(sessionFileModule.registerSessionFileTools).toBeDefined();
-    expect(sessionFileModule.SessionPathResolver).toBeDefined();
+  test("session file tools can be imported without errors", () => {
+    // Test that we can import the module statically
+    expect(registerSessionFileTools).toBeDefined();
+    expect(SessionPathResolver).toBeDefined();
   });
 
-  test("registerSessionFileTools registers move and rename commands", async () => {
-    const sessionFileModule = await import("../../../src/adapters/mcp/session-files");
-
+  test("registerSessionFileTools registers move and rename commands", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
       addCommand: mock((command: any) => {
@@ -49,7 +50,7 @@ describe("Session File Move Tools Integration", () => {
     };
 
     // Register the tools
-    sessionFileModule.registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as any);
 
     // Check that our new commands were registered
     const commandNames = registeredCommands.map((cmd) => cmd.name);
@@ -71,9 +72,7 @@ describe("Session File Move Tools Integration", () => {
     expect(typeof renameCommand.handler).toBe("function");
   });
 
-  test("command parameters validation works correctly", async () => {
-    const sessionFileModule = await import("../../../src/adapters/mcp/session-files");
-
+  test("command parameters validation works correctly", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
       addCommand: mock((command: any) => {
@@ -81,7 +80,7 @@ describe("Session File Move Tools Integration", () => {
       }),
     };
 
-    sessionFileModule.registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as any);
 
     // Test session.move_file parameters
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
@@ -113,9 +112,7 @@ describe("Session File Move Tools Integration", () => {
     expect(renameResult.success).toBe(true);
   });
 
-  test("parameter validation rejects invalid data", async () => {
-    const sessionFileModule = await import("../../../src/adapters/mcp/session-files");
-
+  test("parameter validation rejects invalid data", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
       addCommand: mock((command: any) => {
@@ -123,7 +120,7 @@ describe("Session File Move Tools Integration", () => {
       }),
     };
 
-    sessionFileModule.registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as any);
 
     // Test invalid move command parameters (missing required fields)
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
@@ -150,9 +147,7 @@ describe("Session File Move Tools Integration", () => {
     expect(renameResult.success).toBe(false);
   });
 
-  test("default parameter values are set correctly", async () => {
-    const sessionFileModule = await import("../../../src/adapters/mcp/session-files");
-
+  test("default parameter values are set correctly", () => {
     const registeredCommands: any[] = [];
     const mockCommandMapper = {
       addCommand: mock((command: any) => {
@@ -160,7 +155,7 @@ describe("Session File Move Tools Integration", () => {
       }),
     };
 
-    sessionFileModule.registerSessionFileTools(mockCommandMapper as any);
+    registerSessionFileTools(mockCommandMapper as any);
 
     // Test session.move_file default values
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
@@ -192,17 +187,13 @@ describe("Session File Move Tools Integration", () => {
     expect(renameResult.overwrite).toBe(false);
   });
 
-  test("tools are properly exported from module", async () => {
-    const sessionFileModule = await import("../../../src/adapters/mcp/session-files");
-
+  test("tools are properly exported from module", () => {
     // Check that the function and class are properly exported
-    expect(typeof sessionFileModule.registerSessionFileTools).toBe("function");
-    expect(typeof sessionFileModule.SessionPathResolver).toBe("function");
+    expect(typeof registerSessionFileTools).toBe("function");
+    expect(typeof SessionPathResolver).toBe("function");
   });
 
-  test("SessionPathResolver can be instantiated", async () => {
-    const { SessionPathResolver } = await import("../../../src/adapters/mcp/session-files");
-
+  test("SessionPathResolver can be instantiated", () => {
     // Should be able to create an instance
     const pathResolver = new SessionPathResolver();
     expect(pathResolver).toBeDefined();
