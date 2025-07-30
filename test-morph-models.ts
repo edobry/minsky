@@ -13,7 +13,7 @@ async function testMorphModels() {
 
   try {
     const morphProvider = createOpenAI({
-      apiKey: "sk-S-E_EIrfm3MSanIWZDOVDOo-O8ABFsrzlgo1MtaXmLzYBRNz",
+      apiKey: "sk-proj-xxx...xxxxx",
       baseURL: "https://api.morphllm.com/v1",
     });
 
@@ -70,7 +70,7 @@ async function testMorphModels() {
     try {
       const response = await fetch("https://api.morphllm.com/v1/models", {
         headers: {
-          Authorization: `Bearer sk-S-E_EIrfm3MSanIWZDOVDOo-O8ABFsrzlgo1MtaXmLzYBRNz`,
+          Authorization: `Bearer sk-proj-xxx...xxxxx`,
           "Content-Type": "application/json",
         },
       });

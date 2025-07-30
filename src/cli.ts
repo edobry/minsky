@@ -12,6 +12,7 @@ import { log } from "./utils/logger";
 import { exit } from "./utils/process";
 import { registerAllSharedCommands } from "./adapters/shared/commands/index";
 import { createMCPCommand } from "./commands/mcp/index";
+import { createGitHubCommand } from "./commands/github/index";
 import {
   setupCommonCommandCustomizations,
   registerAllCommands,
@@ -41,6 +42,9 @@ export async function createCli(): Promise<Command> {
 
   // Add MCP command (this is not yet migrated to shared commands)
   cli.addCommand(await createMCPCommand());
+
+  // Add GitHub command for testing and status
+  cli.addCommand(createGitHubCommand());
 
   // Set error handler
   cli.configureOutput({
