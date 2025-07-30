@@ -525,11 +525,8 @@ The task exists but has no associated session to approve.
                       "✅ The task is marked as DONE - you can fix linting issues separately"
                     );
                   }
-                  log.warn("Task status commit failed due to pre-commit checks", {
-                    taskId,
-                    errors: errorCount,
-                    warnings: warningCount,
-                  });
+                  // Log the warning without JSON metadata for cleaner output
+                  log.warn("Task status commit failed due to pre-commit checks");
                   // Re-throw to fail the command - linting issues should block session approval
                   throw new MinskyError(
                     `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`
