@@ -87,7 +87,7 @@ export class SessionPrCommand extends BaseSessionCommand<any, any> {
         title: params.title,
         body: params.body,
         bodyPath: params.bodyPath,
-        session: params.name,
+        name: params.name,
         task: params.task,
         repo: params.repo,
         noStatusUpdate: params.noStatusUpdate,

@@ -7,18 +7,21 @@ Update project documentation to reflect the enhanced configuration system and ne
 DOCUMENTATION UPDATES NEEDED:
 
 1. README.md updates:
+
    - Update config show examples with new comprehensive output
    - Document all configuration options and their meanings
    - Add configuration section with setup examples
    - Show both human-friendly and JSON output formats
 
 2. Configuration Guide:
+
    - Create detailed configuration documentation
    - Document all supported environment variables
    - Explain configuration file locations and precedence
    - Add examples for common configuration scenarios
 
 3. Troubleshooting Guide:
+
    - Common configuration issues and solutions
    - How to diagnose authentication problems
    - Session storage setup and troubleshooting

@@ -1132,8 +1132,16 @@ export async function sessionPrFromParams(
     throw error;
   }
 
-  // STEP 1: Get session from required parameter (provided by CLI/MCP interfaces)
-  const sessionName = params.session;
+  // STEP 1: Resolve session context using name/task parameters
+  const { resolveSessionContextWithFeedback } = await import("./session/session-context-resolver");
+  const resolvedContext = await resolveSessionContextWithFeedback({
+    session: params.name,
+    task: params.task,
+    repo: params.repo,
+    sessionProvider: depsInput?.sessionDB || createSessionProvider(),
+    allowAutoDetection: true,
+  });
+  const sessionName = resolvedContext.sessionName;
 
   // STEP 2: Initialize git service for session operations
   const gitService = depsInput?.gitService || createGitService();

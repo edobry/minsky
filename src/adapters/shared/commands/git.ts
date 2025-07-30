@@ -22,6 +22,10 @@ import {
   checkoutFromParams,
   rebaseFromParams,
 } from "../../../domain/git";
+import {
+  conflictsFromParams,
+  conflictsCommandParams,
+} from "../../../domain/git/commands/subcommands/conflicts-subcommand";
 import { log } from "../../../utils/logger";
 import {
   REPO_DESCRIPTION,
@@ -388,6 +392,33 @@ export function registerGitCommands(): void {
         message: result!.conflicts
           ? result!.conflictDetails || "Rebase completed with conflicts"
           : "Rebase completed successfully",
+      };
+    },
+  });
+
+  // Register git conflicts command
+  sharedCommandRegistry.registerCommand({
+    id: "git.conflicts",
+    category: CommandCategory.GIT,
+    name: "conflicts",
+    description: "Detect and report merge conflicts in structured format",
+    parameters: conflictsCommandParams,
+    execute: async (params, context) => {
+      log.debug("Executing git.conflicts command", { params });
+
+      const result = await conflictsFromParams({
+        format: params!.format,
+        context: params!.context,
+        files: params!.files,
+      });
+
+      if (!result.success) {
+        throw new Error(result.error || "Failed to scan for conflicts");
+      }
+
+      return {
+        success: true,
+        data: result.data,
       };
     },
   });
