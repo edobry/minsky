@@ -608,4 +608,4 @@
 
 - [ ] Implement Session Reapply Tool with Fast-Apply Recovery [#354](process/tasks/354-implement-session-reapply-tool-with-fast-apply-recovery.md)
 
-- [+] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [#355](process/tasks/355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
+- [x] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [#355](process/tasks/355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
