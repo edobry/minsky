@@ -1676,42 +1676,8 @@ Task ${taskIdToUse} exists but has no associated session to approve.
                 await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
                 log.debug(`Committed task ${taskId} status update`);
               } catch (commitError) {
-                                 // Handle pre-commit hook failures gracefully
-                 const errorMsg = getErrorMessage(commitError as Error);
-                 if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
-                   // Parse linter output to show clean summary
-                   const errorCount = (errorMsg.match(/error/g) || []).length;
-                   const warningCount = (errorMsg.match(/warning/g) || []).length;
-
-                   log.cli("⚠️  Pre-commit linting detected issues during task status commit");
-                   log.cli("📝 Task status was updated but commit had linting issues");
-
-                   if (errorCount > 0) {
-                     log.cli(`📋 Found ${errorCount} linting errors`);
-                   }
-                   if (warningCount > 0) {
-                     log.cli(`📋 Found ${warningCount} linting warnings`);
-                   }
-
-                   log.cli("");
-                   log.cli("💡 To fix issues:");
-                   log.cli("  • Run 'bun run lint' to see detailed errors");
-                   log.cli("  • Run 'bun run lint:fix' to auto-fix what's possible");
-                   log.cli("");
-
-                   log.warn("Task status commit failed due to pre-commit checks", {
-                     taskId,
-                     errors: errorCount,
-                     warnings: warningCount,
-                   });
-                   // Re-throw to fail the command - linting issues should block session approval
-                   throw new MinskyError(
-                     `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`
-                   );
-                } else {
-                  // Re-throw for other types of commit errors
-                  throw commitError;
-                }
+                // Re-throw commit errors to be handled by outer catch block
+                throw commitError;
               }
 
               // Try to push the commit if it succeeded
@@ -1729,10 +1695,16 @@ Task ${taskIdToUse} exists but has no associated session to approve.
               log.debug("No uncommitted changes from task status update");
             }
           } catch (commitError) {
-            // Log the error but don't fail the whole operation
-            const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
-            log.error(errorMsg, { taskId, error: commitError });
-            log.cli(`Warning: ${errorMsg}`);
+            // Handle MinskyError specially to avoid duplicate logging
+            if (commitError instanceof MinskyError) {
+              // MinskyError (e.g., linting issues) already logged by implementation, just re-throw
+              throw commitError;
+            } else {
+              // Log the error but don't fail the whole operation for other commit errors
+              const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
+              log.error(errorMsg, { taskId, error: commitError });
+              log.cli(`Warning: ${errorMsg}`);
+            }
           }
         } else {
           log.debug(`Task ${taskId} is already DONE, skipping status update`);
