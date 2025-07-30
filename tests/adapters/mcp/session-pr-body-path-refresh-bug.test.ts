@@ -21,6 +21,8 @@ describe("Session PR Body Content Bug Fix", () => {
   beforeEach(async () => {
     await mkdir(testDir, { recursive: true });
     await writeFile(testBodyPath, newBodyContent);
+    // Ensure file is fully written and synced
+    await new Promise(resolve => setTimeout(resolve, 50));
   });
 
   afterEach(async () => {
@@ -157,9 +159,13 @@ describe("Session PR Body Content Bug Fix", () => {
       expect(filePath).toBe(testBodyPath); // Should be absolute already
 
       try {
+        // Add a small delay to ensure file write is complete
+        await new Promise(resolve => setTimeout(resolve, 10));
+        
         const fileContent = await readFile(filePath, "utf-8");
         expect(fileContent).toBeDefined();
         expect(typeof fileContent).toBe("string");
+        expect(fileContent.length).toBeGreaterThan(0);
 
         const content = fileContent.toString();
         expect(typeof content).toBe("string");
