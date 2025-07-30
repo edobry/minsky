@@ -1,27 +1,48 @@
-# Add Session PR List and Get Subcommands
+# Restructure Session PR Command with Explicit Subcommands
 
 ## Problem Statement
 
-The existing `session pr` command only supports creating pull requests, but lacks the ability to list existing PRs or retrieve specific PR information. Users need to inspect PR status, review PR content, and manage multiple PRs across sessions, but currently must use external tools or manual processes.
+The existing `session pr` command creates pull requests directly, but this creates an inconsistent command structure when adding list and get operations. Users need to inspect PR status, review PR content, and manage multiple PRs across sessions, but the current command structure doesn't scale well for multiple operations and lacks consistency with modern CLI patterns.
 
 ## Context
 
-The current Minsky CLI provides a `session pr` command that creates pull requests for session workflows. However, the command lacks inspection capabilities that would enhance the PR management workflow:
+The current Minsky CLI provides a `session pr` command that creates pull requests directly. However, this design creates several issues:
 
-1. **Limited PR Visibility**: No way to list PRs associated with sessions
-2. **No PR Inspection**: Cannot retrieve PR details, status, or content programmatically  
-3. **Inconsistent Interface**: Missing standard CRUD operations (list/get) that exist in other command groups
-4. **Workflow Gaps**: Users cannot easily track PR status across multiple sessions
+1. **Inconsistent Command Structure**: Direct action commands don't scale well when adding multiple operations
+2. **Limited PR Visibility**: No way to list PRs associated with sessions
+3. **No PR Inspection**: Cannot retrieve PR details, status, or content programmatically  
+4. **Non-Standard Pattern**: Modern CLIs use explicit subcommands (e.g., `gh pr create`, `kubectl get pods`)
+5. **Future Growth Constraints**: Adding operations like edit, close, merge becomes awkward
 
-This creates friction in PR-based workflows where users need to monitor and manage multiple pull requests.
+This creates friction in PR-based workflows and deviates from established CLI design patterns.
 
 ## Objectives
 
-Extend the existing `session pr` command with `list` and `get` subcommands that provide comprehensive PR inspection capabilities while maintaining consistency with existing Minsky CLI patterns.
+Restructure the `session pr` command to use explicit subcommands (`create`, `list`, `get`) that provide comprehensive PR management capabilities while following modern CLI design patterns and ensuring future extensibility.
 
 ## Requirements
 
-### 1. Session PR List Subcommand
+### 1. Session PR Create Subcommand
+
+**Command**: `minsky session pr create`
+
+**Functionality**:
+- Replace current `minsky session pr` behavior with explicit `create` subcommand
+- Maintain all existing parameters and functionality
+- Create pull requests for session workflows with same capabilities as before
+
+**Parameters**: (identical to current `session pr` command)
+- `--session <name>` (optional): Session name to create PR for
+- `--task <id>` / `-t <id>` (optional): Task ID associated with the session
+- `--title <title>` (optional): PR title (auto-generated if not provided)
+- `--body <body>` (optional): PR description
+- `--body-path <path>` (optional): Path to file containing PR description
+- `--repo <path>` (optional): Repository path
+- `--debug` (optional): Enable debug output
+
+**Behavior**: Identical to current `session pr` command behavior
+
+### 2. Session PR List Subcommand
 
 **Command**: `minsky session pr list`
 
@@ -63,7 +84,7 @@ bug-fix    #124   #457   merged   fix(#124): Fix login bug       1 week ago
 }
 ```
 
-### 2. Session PR Get Subcommand
+### 3. Session PR Get Subcommand
 
 **Command**: `minsky session pr get [session-name] --task <id>`
 
@@ -135,19 +156,22 @@ Files Changed: (5)
 }
 ```
 
-### 3. Command Structure Integration
+### 4. Command Structure Integration
 
-**Existing Command**: `minsky session pr` (creates PR)
-**New Subcommands**: 
+**Breaking Change**: Restructure `session pr` to use explicit subcommands
+
+**New Command Structure**: 
+- `minsky session pr create` (creates PR - replaces bare `session pr`)
 - `minsky session pr list` (lists PRs)
 - `minsky session pr get [name] --task <id>` (gets specific PR)
 
-**Backwards Compatibility**: 
-- Existing `minsky session pr` behavior remains unchanged when no subcommand specified
-- All existing parameters and functionality preserved
-- New subcommands are additive only
+**Migration Impact**: 
+- **BREAKING**: `minsky session pr` will no longer work directly
+- Users must update to `minsky session pr create`
+- All existing parameters and functionality preserved in `create` subcommand
+- Clean, consistent command structure for future extensions
 
-### 4. Error Handling
+### 5. Error Handling
 
 **Common Error Scenarios**:
 - No PRs found for specified filters
@@ -167,9 +191,9 @@ Files Changed: (5)
 ### 1. Command Structure
 
 ```typescript
-// Extend existing session PR command group
+// Restructured session PR command group with explicit subcommands
 interface SessionPrCommands {
-  create: SessionPrCreateCommand;  // existing
+  create: SessionPrCreateCommand;  // replaces bare `session pr`
   list: SessionPrListCommand;      // new
   get: SessionPrGetCommand;        // new
 }
@@ -199,10 +223,11 @@ interface SessionPrCommands {
 ### 4. CLI Registration
 
 **Integration Points**:
-- Extend existing session PR command registration in CLI factory
-- Add subcommand routing logic to session PR command handler
-- Register new parameter schemas for list and get subcommands
-- Update CLI customizations for new parameters
+- **BREAKING**: Replace existing session PR command with subcommand router
+- Implement subcommand routing logic for create/list/get operations
+- Register parameter schemas for all three subcommands (create/list/get)
+- Update CLI customizations to support new command structure
+- Remove direct PR creation from base `session pr` command
 
 ## Architecture Considerations
 
@@ -281,6 +306,9 @@ interface SessionPrCommands {
 
 ### Core Functionality
 
+- [ ] `minsky session pr create` creates PRs with same functionality as old `session pr`
+- [ ] `minsky session pr create --task <id>` works with task-based session lookup
+- [ ] `minsky session pr create` supports all existing parameters (title, body, body-path, etc.)
 - [ ] `minsky session pr list` displays all session-related PRs in tabular format
 - [ ] `minsky session pr list --json` outputs PR list in JSON format
 - [ ] `minsky session pr list --session <name>` filters PRs by session name
@@ -293,6 +321,7 @@ interface SessionPrCommands {
 
 ### Parameter Consistency
 
+- [ ] `session pr create` maintains all existing parameter behavior from old `session pr`
 - [ ] `session pr get` uses identical parameter resolution as `session get`
 - [ ] Same precedence rules: positional name > --task > auto-detection
 - [ ] Same error messages for missing or conflicting parameters
@@ -312,12 +341,14 @@ interface SessionPrCommands {
 - [ ] Timestamps are displayed in human-readable format
 - [ ] Long PR titles are properly truncated in tabular view
 
-### Backwards Compatibility
+### Breaking Change Management
 
-- [ ] Existing `minsky session pr` behavior unchanged
-- [ ] All existing parameters continue to work
-- [ ] No breaking changes to existing workflows
-- [ ] Help documentation clearly shows new subcommands
+- [ ] **BREAKING**: `minsky session pr` no longer works directly
+- [ ] Clear error message directing users to `minsky session pr create`
+- [ ] All existing parameters work in `minsky session pr create`
+- [ ] Functionality identical between old `session pr` and new `session pr create`
+- [ ] Help documentation clearly shows new command structure
+- [ ] Migration guide provided for updating scripts and workflows
 
 ## Future Enhancements
 

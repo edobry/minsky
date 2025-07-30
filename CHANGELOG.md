@@ -5,12 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
-- **Task Specification**: Session PR list and get subcommands
-  - Created comprehensive task specification for extending `session pr` command with inspection capabilities
+- **Task Specification**: Session PR command restructuring with explicit subcommands
+  - Created comprehensive task specification for restructuring `session pr` to use explicit subcommands
+  - **BREAKING CHANGE**: Replaces `session pr` with `session pr create` for explicit command structure
   - Defines `session pr list` subcommand for listing PRs by session name, task ID, or status with filtering options
   - Defines `session pr get [name] --task <id>` subcommand using same identifier pattern as `session get` command
-  - Includes detailed requirements, GitHub API integration strategy, and backwards compatibility preservation
-  - Enables comprehensive PR management workflow within Minsky CLI ecosystem
+  - Follows modern CLI patterns (like GitHub CLI) with explicit subcommands for all operations
+  - Enables comprehensive PR management workflow and future extensibility within Minsky CLI ecosystem
 
 - **Task #358**: PR approval and merge decoupling exploration
   - Created foundational task to explore separating PR approval from merge operations
