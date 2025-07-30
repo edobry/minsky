@@ -12,6 +12,8 @@
 - **Enhanced config show command with comprehensive output**: The `minsky config show` command now displays detailed, user-friendly configuration including authentication status for GitHub and AI providers, session storage details with paths, AI provider configuration with models and authentication status, and GitHub configuration details. Resolves the issue where config output was "way too incomplete" by showing all configured settings instead of just defaults.
 
 ### Fixed
+- **Session Approve Error Output**: Dramatically improved CLI error messages for session approve command by eliminating duplicate and technical error output. Changed base session command to use debug logging instead of user-facing error logs, resulting in clean, single error messages with helpful suggestions instead of JSON dumps, stack traces, and repeated error text.
+
 - **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
   - 404 errors now explain "this provider may not support model listing"
   - 401/403 errors provide clear API key guidance
@@ -1706,4 +1708,3 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **Backwards compatible**: Preserves existing variable naming and ESLint checks
 
 This implementation successfully addresses **Task #341: Implement Pre-Commit Secret Scanning with Husky** and establishes robust security measures to prevent future credential exposure incidents.
-
