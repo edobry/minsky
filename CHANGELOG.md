@@ -5,6 +5,20 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Task Specification**: Session PR list and get subcommands
+  - Created comprehensive task specification for extending `session pr` command with inspection capabilities
+  - Defines `session pr list` subcommand for listing PRs by session name, task ID, or status with filtering options
+  - Defines `session pr get [name] --task <id>` subcommand using same identifier pattern as `session get` command
+  - Includes detailed requirements, GitHub API integration strategy, and backwards compatibility preservation
+  - Enables comprehensive PR management workflow within Minsky CLI ecosystem
+
+- **Task #310**: PR approval and merge decoupling exploration
+  - Created foundational task to explore separating PR approval from merge operations
+  - Analyzes current coupling in session approve command and repository backends
+  - Proposes enhanced repository backend interface with separate approval/merge methods
+  - Defines new APPROVED task status and backward compatibility strategies
+  - Critical prerequisite for GitHub PR workflow implementation (Task #161)
+
 - **Task #138**: GitHub Issues backend production readiness improvements
   - **Documentation Package**: Comprehensive setup guide with token configuration, usage examples, troubleshooting, and best practices
   - **CLI Enhancements**: Added `minsky github test` and `minsky github status` commands for connectivity testing and configuration validation
