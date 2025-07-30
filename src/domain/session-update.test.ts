@@ -29,7 +29,10 @@ describe("updateSessionFromParams", () => {
       execInRepository: createMock((workdir, command) => {
         // Return different values based on the git command
         if ((command as string).includes("rev-list --left-right --count")) {
-          return Promise.resolve("0\t1"); // 0 commits ahead, 1 behind origin (needs update)
+          return Promise.resolve("0\t5"); // 0 commits ahead, 5 behind origin (definitely needs update)
+        }
+        if ((command as string).includes("rev-parse") && (command as string).includes("origin/")) {
+          return Promise.resolve("abc123"); // Remote ref exists
         }
         return Promise.resolve("");
       }),
@@ -41,6 +44,18 @@ describe("updateSessionFromParams", () => {
       getCurrentBranch: createMock(() => Promise.resolve("main")),
       hasUncommittedChanges: createMock(() => Promise.resolve(false)),
       fetchDefaultBranch: createMock(() => Promise.resolve("main")),
+      analyzeBranchDivergence: createMock(() =>
+        Promise.resolve({
+          sessionBranch: "test-session",
+          baseBranch: "main",
+          aheadCommits: 0,
+          behindCommits: 5, // Session is 5 commits behind
+          lastCommonCommit: "abc123",
+          sessionChangesInBase: false,
+          divergenceType: "behind" as const, // This will trigger the update
+          recommendedAction: "pull" as const,
+        })
+      ),
     };
 
     mockSessionProvider = {

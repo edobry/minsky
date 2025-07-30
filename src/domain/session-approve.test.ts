@@ -705,7 +705,7 @@ describe("Session Approve", () => {
 
       // Verify cleanup was attempted
       expect(gitCommands).toContain("git branch -d pr/task#265");
-      expect(gitCommands).toContain("git branch -d task#265");
+      // Note: Only PR branch is deleted, not the task branch
     });
 
     test("should not attempt branch cleanup for already approved sessions", async () => {

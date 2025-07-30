@@ -221,7 +221,7 @@ describe("Custom Configuration System", () => {
         overrides: { backend: "json-file" },
       });
 
-      const config = getConfiguration();
+      const config = provider.getConfig();
       expect(config.backend).toBe("json-file");
     });
   });
