@@ -8,13 +8,17 @@ import { readFile } from "fs/promises";
 import {
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
-  taskCreateFromTitleAndDescriptionParamsSchema,
   taskDeleteParamsSchema,
   type TaskStatusSetParams,
   type TaskCreateParams,
-  type TaskCreateFromTitleAndDescriptionParams,
   type TaskDeleteParams,
 } from "../../../domain/schemas";
+
+// Import schemas that haven't been migrated yet
+import {
+  taskCreateFromTitleAndDescriptionParamsSchema,
+  type TaskCreateFromTitleAndDescriptionParams,
+} from "../../../schemas/tasks";
 import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-operation";
 import { createFormattedValidationError } from "../../../utils/zod-error-formatter";
 

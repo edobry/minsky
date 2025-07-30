@@ -32,7 +32,6 @@ import {
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
-  taskCreateFromTitleAndDescriptionParamsSchema,
   taskSpecContentParamsSchema,
   taskDeleteParamsSchema,
   type TaskListParams,
@@ -40,10 +39,15 @@ import {
   type TaskStatusGetParams,
   type TaskStatusSetParams,
   type TaskCreateParams,
-  type TaskCreateFromTitleAndDescriptionParams,
   type TaskSpecContentParams,
   type TaskDeleteParams,
 } from "../../domain/schemas";
+
+// Import schemas that haven't been migrated yet
+import {
+  taskCreateFromTitleAndDescriptionParamsSchema,
+  type TaskCreateFromTitleAndDescriptionParams,
+} from "../../schemas/tasks";
 
 /**
  * List tasks with given parameters

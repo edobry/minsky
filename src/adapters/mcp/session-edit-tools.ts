@@ -10,13 +10,16 @@ import { log } from "../../utils/logger";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";
-import {
-  FileEditSchema,
-  SessionSearchReplaceSchema,
-  SessionFileEdit,
-  SessionSearchReplace,
-} from "../../domain/schemas";
+import { FileEditSchema } from "../../domain/schemas";
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
+
+// Import schemas that haven't been migrated yet
+import {
+  SessionSearchReplaceSchema,
+  SessionFileEditSchema,
+  type SessionSearchReplace,
+  type SessionFileEdit,
+} from "./schemas/common-parameters";
 
 /**
  * Interface for edit file operation - now using shared type

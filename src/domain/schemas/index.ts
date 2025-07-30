@@ -63,13 +63,13 @@ export {
   TaskStatusSchema,
 
   // Task types
-  TaskCreateParameters,
-  TaskUpdateParameters,
-  TaskListParameters,
-  TaskGetParameters,
-  TaskDeleteParameters,
-  TaskSpecParameters,
-  TaskStatusUpdateParameters,
+  type TaskCreateParameters,
+  type TaskUpdateParameters,
+  type TaskListParameters,
+  type TaskGetParameters,
+  type TaskDeleteParameters,
+  type TaskSpecParameters,
+  type TaskStatusUpdateParameters,
 } from "./task-schemas";
 
 export {
