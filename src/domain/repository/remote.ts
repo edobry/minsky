@@ -10,6 +10,10 @@ import {
   gitPullWithTimeout,
   type GitExecOptions,
 } from "../../utils/git-exec";
+import { normalizeRepoName } from "../repo-utils";
+import { MinskyError, getErrorMessage } from "../../errors/index";
+import { log } from "../../utils/logger";
+import type { RepositoryStatus } from "../repository";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -17,6 +21,8 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
+  PRInfo,
+  MergeInfo,
 } from "./index";
 
 // Define a global for process to avoid linting errors
@@ -26,6 +32,7 @@ declare const process: {
     HOME?: string;
     [key: string]: string | undefined;
   };
+  cwd(): string;
 };
 
 const execAsync = promisify(exec);
@@ -354,76 +361,197 @@ Repository: ${this.repoUrl}
    * @returns Result of the pull operation
    */
   async pull(): Promise<Result> {
+    // TODO: Implement remote git pull logic
+    return { success: false, message: "Not implemented" };
+  }
+
+  /**
+   * Create a pull request using prepared merge commit workflow
+   * This creates a PR branch with a merge commit prepared for approval
+   */
+  async createPullRequest(
+    title: string,
+    body: string,
+    sourceBranch: string,
+    baseBranch: string = "main",
+    session?: string
+  ): Promise<PRInfo> {
+    let workdir: string;
+
+    // Determine working directory
+    if (session) {
+      const record = await this.sessionDb.getSession(session);
+      if (!record) {
+        throw new MinskyError(`Session '${session}' not found in database`);
+      }
+      workdir = this.getSessionWorkdir(session);
+    } else {
+      // Use current working directory
+      workdir = process.cwd();
+    }
+
+    // Generate PR branch name from title
+    const prBranchName = this.titleToBranchName(title);
+    const prBranch = `pr/${prBranchName}`;
+
     try {
-      // Validate repository configuration
-      const validation = await this.validate();
-      if (!validation.success) {
-        return validation;
-      }
+      // Ensure we're on the source branch
+      await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
 
-      // Implementation of git pull for remote repositories
-      // 1. Get the current session path
-      // 2. Determine the current branch
-      // 3. Pull from remote repository
-
-      const sessions = await this.sessionDb.listSessions();
-      const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
-
-      if (currentSessions.length === 0) {
-        return {
-          success: false,
-          message: "No active sessions found for this repository",
-        };
-      }
-
-      // For each session with this repository, pull changes
-      for (const session of currentSessions) {
-        const workdir = this.getSessionWorkdir(session.session);
-
+      // Create and checkout the PR branch
+      try {
+        await execGitWithTimeout("branch", `branch ${prBranch}`, { workdir, timeout: 30000 });
+      } catch (err) {
+        // Branch might already exist, try to delete and recreate
         try {
-          // Determine current branch
-          const { stdout: branchOutput } = await execAsync(
-            `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-          );
-          const branch = branchOutput.trim();
-
-          // Pull from remote
-          await gitPullWithTimeout(workdir, branch);
-        } catch (error) {
-          const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-          if ((normalizedError?.message as any).includes("Authentication failed")) {
-            return {
-              success: false,
-              message: "Git authentication failed. Check your credentials or SSH key.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else if ((error as any).message.includes("conflict")) {
-            return {
-              success: false,
-              message: "Pull failed due to conflicts. Resolve conflicts manually.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else {
-            return {
-              success: false,
-              message: `Failed to pull from remote repository: ${(error as any).message}`,
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          }
+          await execGitWithTimeout("branch", `branch -D ${prBranch}`, { workdir, timeout: 30000 });
+          await execGitWithTimeout("branch", `branch ${prBranch}`, { workdir, timeout: 30000 });
+        } catch (deleteErr) {
+          throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err as any)}`);
         }
       }
 
+      // Switch to PR branch
+      await execGitWithTimeout("switch", `switch ${prBranch}`, { workdir, timeout: 30000 });
+
+      // Create commit message for merge commit
+      let commitMessage = title;
+      if (body) {
+        commitMessage += `\n\n${body}`;
+      }
+
+      // Merge source branch INTO PR branch with --no-ff (prepared merge commit)
+      const escapedCommitMessage = commitMessage.replace(/"/g, '\\"');
+      await execGitWithTimeout(
+        "merge",
+        `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
+        { workdir, timeout: 180000 }
+      );
+
+      // Push the PR branch to remote
+      await execGitWithTimeout("push", `push origin ${prBranch} --force`, {
+        workdir,
+        timeout: 30000,
+      });
+
+      // Switch back to source branch
+      await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+
       return {
-        success: true,
-        message: "Successfully pulled changes from remote repository",
+        number: prBranch, // Use branch name as identifier for remote repos
+        url: prBranch, // Use branch name as URL for remote repos
+        state: "open",
+        metadata: {
+          prBranch,
+          baseBranch,
+          sourceBranch,
+          title,
+          body,
+          workdir,
+        },
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
-      return {
-        success: false,
-        message: `Failed to pull from remote repository: ${normalizedError.message}`,
-        error: normalizedError,
-      };
+      // Clean up on error - try to switch back to source branch
+      try {
+        await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+      } catch (cleanupErr) {
+        log.warn("Failed to switch back to source branch after error", { cleanupErr });
+      }
+
+      throw new MinskyError(`Failed to create pull request: ${getErrorMessage(error as any)}`);
     }
+  }
+
+  /**
+   * Merge a pull request using the prepared merge commit workflow
+   * This merges the PR branch into the base branch
+   */
+  async mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo> {
+    let workdir: string;
+    const prBranch = typeof prIdentifier === "string" ? prIdentifier : `pr/${prIdentifier}`;
+
+    // Determine working directory
+    if (session) {
+      const record = await this.sessionDb.getSession(session);
+      if (!record) {
+        throw new MinskyError(`Session '${session}' not found in database`);
+      }
+      workdir = this.getSessionWorkdir(session);
+    } else {
+      workdir = process.cwd();
+    }
+
+    try {
+      // Determine base branch (default to main if not specified)
+      const baseBranch = "main"; // Could be parameterized later
+
+      // Switch to base branch
+      await execGitWithTimeout("switch", `switch ${baseBranch}`, { workdir, timeout: 30000 });
+
+      // Pull latest changes
+      await execGitWithTimeout("pull", `pull origin ${baseBranch}`, { workdir, timeout: 60000 });
+
+      // Merge the PR branch (this should be a fast-forward since PR branch has the prepared merge commit)
+      await execGitWithTimeout("merge", `merge --no-ff ${prBranch}`, { workdir, timeout: 180000 });
+
+      // Get merge information
+      const commitHash = (
+        await execGitWithTimeout("rev-parse", "rev-parse HEAD", { workdir, timeout: 10000 })
+      ).stdout.trim();
+      const mergeDate = new Date().toISOString();
+      const mergedBy = (
+        await execGitWithTimeout("config", "config user.name", { workdir, timeout: 10000 })
+      ).stdout.trim();
+
+      // Push the merge to remote
+      await execGitWithTimeout("push", `push origin ${baseBranch}`, { workdir, timeout: 60000 });
+
+      // Delete the PR branch from remote
+      try {
+        await execGitWithTimeout("push", `push origin --delete ${prBranch}`, {
+          workdir,
+          timeout: 30000,
+        });
+      } catch (deleteErr) {
+        log.warn(`Failed to delete remote PR branch ${prBranch}`, {
+          error: getErrorMessage(deleteErr),
+        });
+      }
+
+      // Delete the local PR branch
+      try {
+        await execGitWithTimeout("branch", `branch -D ${prBranch}`, { workdir, timeout: 30000 });
+      } catch (deleteErr) {
+        log.warn(`Failed to delete local PR branch ${prBranch}`, {
+          error: getErrorMessage(deleteErr),
+        });
+      }
+
+      return {
+        commitHash,
+        mergeDate,
+        mergedBy,
+        metadata: {
+          prBranch,
+          baseBranch,
+          workdir,
+        },
+      };
+    } catch (error) {
+      throw new MinskyError(`Failed to merge pull request: ${getErrorMessage(error as any)}`);
+    }
+  }
+
+  /**
+   * Convert a PR title to a branch name
+   * e.g. "feat: add new feature" -> "feat-add-new-feature"
+   */
+  private titleToBranchName(title: string): string {
+    return title
+      .toLowerCase()
+      .replace(/[\s:/#]+/g, "-") // Replace spaces, colons, slashes, and hashes with dashes
+      .replace(/[^\w-]/g, "")
+      .replace(/--+/g, "-")
+      .replace(/^-|-$/g, ""); // Remove leading and trailing dashes
   }
 }

@@ -7,6 +7,9 @@ import { createSessionProvider, type SessionProviderInterface } from "../session
 import { normalizeRepositoryURI } from "../repository-uri";
 import { GitService } from "../git";
 import { execGitWithTimeout } from "../../utils/git-exec";
+import { MinskyError, getErrorMessage } from "../../errors/index";
+import { log } from "../../utils/logger";
+import { Octokit } from "@octokit/rest";
 import type { RepositoryStatus, ValidationResult } from "../repository";
 import type {
   RepositoryBackend,
@@ -15,6 +18,8 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
+  PRInfo,
+  MergeInfo,
 } from "./index";
 
 const HTTP_NOT_FOUND = 404;
@@ -26,7 +31,11 @@ declare const process: {
   env: {
     XDG_STATE_HOME?: string;
     HOME?: string;
+    GITHUB_TOKEN?: string;
+    GH_TOKEN?: string;
+    [key: string]: string | undefined;
   };
+  cwd(): string;
 };
 
 const execAsync = promisify(exec);
@@ -53,8 +62,8 @@ export class GitHubBackend implements RepositoryBackend {
     this.baseDir = join(xdgStateHome, "minsky");
 
     // Extract GitHub-specific options
-    this.owner = config.github.owner;
-    this.repo = config.github.repo;
+    this.owner = config.github?.owner;
+    this.repo = config.github?.repo;
 
     // Set the repo URL using the provided URL or construct from owner/repo if available
     // Note: We don't embed tokens in the URL, letting Git use the system's credentials
@@ -115,6 +124,7 @@ export class GitHubBackend implements RepositoryBackend {
       // Use GitService's clone method to delegate credential handling to Git
       const result = await this.gitService.clone({
         repoUrl: this.repoUrl,
+        workdir,
         session,
       });
 
@@ -498,5 +508,189 @@ Repository: https://github.com/${this.owner}/${this.repo}
         repo: this.repo,
       },
     };
+  }
+
+  /**
+   * Create a GitHub pull request using the GitHub API
+   * This creates a real GitHub PR from the source branch to the base branch
+   */
+  async createPullRequest(
+    title: string,
+    body: string,
+    sourceBranch: string,
+    baseBranch: string = "main",
+    session?: string
+  ): Promise<PRInfo> {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to create pull requests");
+    }
+
+    let workdir: string;
+
+    // Determine working directory
+    if (session) {
+      const record = await this.sessionDb.getSession(session);
+      if (!record) {
+        throw new MinskyError(`Session '${session}' not found in database`);
+      }
+      workdir = this.getSessionWorkdir(session);
+    } else {
+      // Use current working directory
+      workdir = process.cwd();
+    }
+
+    try {
+      // First, ensure the source branch is pushed to the remote
+      await execGitWithTimeout("push", `push origin ${sourceBranch}`, {
+        workdir,
+        timeout: 60000,
+      });
+
+      // Get GitHub token from environment
+      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      if (!githubToken) {
+        throw new MinskyError(
+          "GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable"
+        );
+      }
+
+      // Create Octokit instance
+      const octokit = new Octokit({
+        auth: githubToken,
+      });
+
+      // Create the pull request
+      const prResponse = await octokit.rest.pulls.create({
+        owner: this.owner,
+        repo: this.repo,
+        title,
+        body,
+        head: sourceBranch,
+        base: baseBranch,
+      });
+
+      const pr = prResponse.data;
+
+      return {
+        number: pr.number,
+        url: pr.html_url,
+        state: pr.state as "open" | "closed" | "merged",
+        metadata: {
+          id: pr.id,
+          node_id: pr.node_id,
+          head_sha: pr.head.sha,
+          base_ref: pr.base.ref,
+          created_at: pr.created_at,
+          updated_at: pr.updated_at,
+          owner: this.owner,
+          repo: this.repo,
+          workdir,
+        },
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("422")) {
+        // Check if it's a "No commits between" error
+        if (error.message.includes("No commits between")) {
+          throw new MinskyError(
+            `No differences found between ${sourceBranch} and ${baseBranch}. Make sure your changes are committed and pushed.`
+          );
+        }
+        // Check if PR already exists
+        if (error.message.includes("pull request already exists")) {
+          throw new MinskyError(
+            `A pull request from ${sourceBranch} to ${baseBranch} already exists.`
+          );
+        }
+      }
+
+      throw new MinskyError(
+        `Failed to create GitHub pull request: ${getErrorMessage(error as any)}`
+      );
+    }
+  }
+
+  /**
+   * Merge a GitHub pull request using the GitHub API
+   * This merges the PR using GitHub's default merge strategy
+   */
+  async mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo> {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to merge pull requests");
+    }
+
+    const prNumber = typeof prIdentifier === "string" ? parseInt(prIdentifier, 10) : prIdentifier;
+    if (isNaN(prNumber)) {
+      throw new MinskyError(`Invalid PR number: ${prIdentifier}`);
+    }
+
+    try {
+      // Get GitHub token from environment
+      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      if (!githubToken) {
+        throw new MinskyError(
+          "GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable"
+        );
+      }
+
+      // Create Octokit instance
+      const octokit = new Octokit({
+        auth: githubToken,
+      });
+
+      // Get the PR details first
+      const prResponse = await octokit.rest.pulls.get({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: prNumber,
+      });
+
+      const pr = prResponse.data;
+
+      if (pr.state !== "open") {
+        throw new MinskyError(`Pull request #${prNumber} is not open (current state: ${pr.state})`);
+      }
+
+      if (!pr.mergeable) {
+        throw new MinskyError(
+          `Pull request #${prNumber} has merge conflicts that must be resolved first`
+        );
+      }
+
+      // Merge the pull request using GitHub's default merge strategy
+      const mergeResponse = await octokit.rest.pulls.merge({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: prNumber,
+        commit_title: `Merge pull request #${prNumber} from ${pr.head.ref}`,
+      });
+
+      const merge = mergeResponse.data;
+
+      return {
+        commitHash: merge.sha,
+        mergeDate: new Date().toISOString(),
+        mergedBy: pr.user?.login || "unknown",
+        metadata: {
+          pr_number: prNumber,
+          pr_url: pr.html_url,
+          merge_method: "merge", // GitHub default
+          merged_at: new Date().toISOString(),
+          owner: this.owner,
+          repo: this.repo,
+          head_ref: pr.head.ref,
+          base_ref: pr.base.ref,
+        },
+      };
+    } catch (error) {
+      if (error instanceof Error && error.message.includes("405")) {
+        throw new MinskyError(
+          `Pull request #${prNumber} cannot be merged. It may have conflicts or branch protection rules preventing the merge.`
+        );
+      }
+
+      throw new MinskyError(
+        `Failed to merge GitHub pull request: ${getErrorMessage(error as any)}`
+      );
+    }
   }
 }
