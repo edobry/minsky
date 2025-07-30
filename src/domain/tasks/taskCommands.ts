@@ -81,8 +81,8 @@ export async function listTasksFromParams(params: TaskListParams): Promise<any[]
     }
 
     if (validParams.all !== true) {
-      // Filter out DONE tasks by default
-      tasks = tasks.filter((task) => task.status !== "DONE");
+      // Filter out DONE and CLOSED tasks by default
+      tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
     }
 
     return tasks;
