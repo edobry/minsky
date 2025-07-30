@@ -12,6 +12,8 @@
 - **Enhanced config show command with comprehensive output**: The `minsky config show` command now displays detailed, user-friendly configuration including authentication status for GitHub and AI providers, session storage details with paths, AI provider configuration with models and authentication status, and GitHub configuration details. Resolves the issue where config output was "way too incomplete" by showing all configured settings instead of just defaults.
 
 ### Fixed
+- **Session Approve Technical Errors**: Eliminated technical git command error output from session approve workflow. Expected git command failures (like checking if remote branches exist) no longer show JSON dumps to users, providing clean output while maintaining debugging capability for troubleshooting.
+
 - **Session Approve Error Output**: Dramatically improved CLI error messages for session approve command by eliminating duplicate and technical error output. Changed base session command to use debug logging instead of user-facing error logs, resulting in clean, single error messages with helpful suggestions instead of JSON dumps, stack traces, and repeated error text.
 
 - **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
