@@ -36,9 +36,38 @@ mockModule("../utils/logger", () => ({
 }));
 
 // Mock the centralized execAsync module at the top level for proper module interception
-let mockExecAsync = createMock();
+let mockExecAsync = createMock(async () => ({ stdout: "", stderr: "" }));
 mockModule("../utils/exec", () => ({
   execAsync: mockExecAsync,
+}));
+
+// Mock child_process to prevent real command execution
+mockModule("child_process", () => ({
+  exec: createMock((command: string, callback: any) => {
+    callback(null, { stdout: "", stderr: "" });
+  }),
+  execSync: createMock(() => ""),
+  spawn: createMock(() => ({
+    on: createMock(),
+    stdout: { on: createMock() },
+    stderr: { on: createMock() },
+  })),
+}));
+
+// Mock filesystem operations to prevent real filesystem access
+mockModule("fs", () => ({
+  existsSync: createMock(() => true),
+  mkdirSync: createMock(),
+  readdirSync: createMock(() => []),
+  accessSync: createMock(),
+}));
+
+mockModule("fs/promises", () => ({
+  access: createMock(async () => undefined),
+  mkdir: createMock(async () => undefined),
+  readdir: createMock(async () => []),
+  writeFile: createMock(async () => undefined),
+  readFile: createMock(async () => ""),
 }));
 
 // Mock the git-exec module to prevent real git execution
@@ -47,6 +76,12 @@ mockModule("../utils/git-exec", () => ({
   gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitMergeWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+}));
+
+// Mock paths module to prevent real path resolution
+mockModule("../utils/paths", () => ({
+  getSessionDir: createMock((session: string) => `/mocked/sessions/${session}`),
+  getSessionsBaseDir: createMock(() => "/mocked/sessions"),
 }));
 
 describe("GitService", () => {
@@ -1137,9 +1172,7 @@ describe("pushFromParams", () => {
 
   test("should push changes successfully", async () => {
     // Mock git push command response
-    mockExecAsync = mock(() => Promise.resolve({ stdout: "main", stderr: "" })) = mock(() =>
-      Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })
-    ); // git push
+    mockExecAsync = mock(() => Promise.resolve({ stdout: "Everything up-to-date", stderr: "" })); // git push
 
     const params = {
       repo: "/test/repo",

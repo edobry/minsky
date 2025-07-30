@@ -160,11 +160,8 @@ describe.skip("Session PR Refresh Functionality", () => {
     it("should error when PR exists but cannot extract description", async () => {
       // Mock PR branch exists but description extraction fails
       mockGitService.execInRepository = mock(() =>
-        Promise.resolve("not-exists")
-      ).mockImplementationOnce(() =>
         Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-      ) = // remote branch check
-        mock(() => Promise.reject(new Error("Git command failed"))); // get commit message fails
+      ); // remote branch check shows PR exists
 
       await expect(
         sessionPrFromParams({
