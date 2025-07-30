@@ -544,7 +544,7 @@
 
 - [x] Explore adding session lint command for pre-commit issue detection [#307](process/tasks/307-explore-adding-session-lint-command-for-pre-commit-issue-detection.md)
 
-- [+] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
+- [x] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
 - [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
@@ -560,7 +560,7 @@
 
 - [x] Investigate and fix task operations hanging issues [#317](process/tasks/317-investigate-and-fix-task-operations-hanging-issues.md)
 
-- [ ] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
+- [x] Fix all linter errors [#318](process/tasks/318-fix-all-linter-errors.md)
 
 - [x] Fix Special Workspace and Main Workspace Synchronization for Task Operations (renamed from 310) [#319](process/tasks/319-fix-special-workspace-and-main-workspace-synchronization-for-task-operations-renamed-from-310-.md)
 
@@ -570,7 +570,7 @@
 
 - [x] Refactor MCP Tools with Type Composition to Eliminate Argument Duplication [#322](process/tasks/322-refactor-mcp-tools-with-type-composition-to-eliminate-argument-duplication.md)
 
-- [-] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
+- [x] Create AI Provider Model Data Fetching System [#323](process/tasks/323-create-ai-provider-model-data-fetching-system.md)
 
 - [ ] Add MCP Client Registration Functionality [#324](process/tasks/324-add-mcp-client-registration-functionality.md)
 
@@ -592,7 +592,7 @@
 
 - [x] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
 
-- [ ] Exclude Content Field from Rules.list Command Output [#345](process/tasks/345-exclude-content-field-from-rules-list-command-output.md)
+- [x] Exclude Content Field from Rules.list Command Output [#345](process/tasks/345-exclude-content-field-from-rules-list-command-output.md)
 
 - [ ] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
 
@@ -603,4 +603,9 @@
 - [ ] Explore Active Sessions Command and Task/Session Equivalence Analysis [#350](process/tasks/350-explore-active-sessions-command-and-task-session-equivalence-analysis.md)
 
 - [x] Improve configuration validation system: integrate proper logging, add strictness controls, improve type safety, and document behavior for unknown config fields [#351](process/tasks/351-improve-configuration-validation-system-integrate-proper-logging-add-strictness-controls-improve-type-safety-and-document-behavior-for-unknown-config-fields.md)
+
 - [ ] Implement session cleanup with validation [#353](process/tasks/353-implement-session-cleanup-with-validation.md)
+
+- [ ] Implement Session Reapply Tool with Fast-Apply Recovery [#354](process/tasks/354-implement-session-reapply-tool-with-fast-apply-recovery.md)
+
+- [+] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [#355](process/tasks/355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
