@@ -436,6 +436,7 @@ User: "312 @Start Task"
 Assistant: [searches for task specification, finds it in special workspace, investigates architectural context, understands complete requirements before starting]
 ```
 
+<<<<<<< HEAD
 ## ⚠️ CRITICAL SECRET PROTECTION PROTOCOL
 
 **🔥 SECURITY CRITICAL: NEVER COMMIT SECRETS TO ANY REPOSITORY UNDER ANY CIRCUMSTANCES 🔥**
@@ -496,6 +497,8 @@ SECURITY ISSUE:
 
 **CRITICAL**: Real credential exposure is a catastrophic security failure requiring immediate system-wide security review.
 
+=======
+>>>>>>> origin/main
 ### Examples of Rule Update Requirements
 
 **Violation Pattern**: Taking corrective action without updating rules

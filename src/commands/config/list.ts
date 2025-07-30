@@ -81,13 +81,13 @@ export function createConfigListCommand(): Command {
 
         if (options.json) {
           const output = {
-            resolved: maskedConfig,
+            resolved,
             metadata,
             sources: metadata.sources || [],
           };
           await Bun.write(Bun.stdout, `${JSON.stringify(output, undefined, 2)}\n`);
         } else {
-          await displayConfigurationSources(maskedConfig, metadata, options.showSecrets || false);
+          await displayConfigurationSources(resolved, metadata, options.showSecrets || false);
         }
       } catch (error) {
         await Bun.write(Bun.stderr, `Failed to load configuration: ${error}\n`);

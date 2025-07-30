@@ -3,6 +3,8 @@
 ## [Unreleased]
 
 ### Added
+- **Task #338 - MCP Temporary File Creation Command**: Created comprehensive issue for implementing a new MCP command `files.createTemp` that creates temporary files for AI and external tool workflows. Includes detailed requirements for security, error handling, customizable parameters (prefix, suffix, content), and integration with existing temporary file utilities.
+
 - **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
 
 - **Recursive Command Nesting Support**: Implemented arbitrary depth command nesting in CLI interface, eliminating "Complex command nesting not yet supported" warnings. Supports unlimited nesting depth with consistent key generation to prevent command collisions.
