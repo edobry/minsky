@@ -4,9 +4,9 @@
 
 IN-PROGRESS
 
-## ⚠️ CRITICAL UPDATE: Multi-Backend Architecture Required
+## ⚠️ DEPENDENCY UPDATE: Multi-Backend Architecture Required
 
-**NEW REQUIREMENT**: Support for multiple concurrent task backends has been identified as essential for migration from local markdown backend to GitHub Issues backend. This significantly expands the scope and complexity of this task.
+**PREREQUISITE**: Task #356 "Implement Multi-Backend Task System Architecture" must be completed before this GitHub Issues backend can be properly integrated. This task now focuses on adapting the existing GitHub Issues implementation to work within the multi-backend architecture.
 
 ### Multi-Backend Architecture Changes Required
 
@@ -247,16 +247,15 @@ Before proceeding with multi-backend implementation:
 ### Updated Scope Assessment
 
 **Original Scope**: Large (8-12 hours)
-**Updated Scope**: Extra Large (20-30 hours)
+**Updated Scope**: Medium (4-8 hours) - Reduced due to dependency on Task #356
 
-The multi-backend requirement significantly increases complexity:
-- Core architecture changes required
-- System-wide ID reference updates needed
-- Migration strategy and tooling required
-- Extensive testing across multiple scenarios
-- Backward compatibility implementation
+The scope has been significantly reduced because:
+- Core multi-backend architecture will be implemented in Task #356
+- This task now focuses on adapting existing GitHub backend implementation
+- System-wide changes are handled by the prerequisite task
+- Less architectural complexity due to foundation being laid separately
 
-This task now requires careful coordination with system architecture to ensure clean implementation without breaking existing functionality.
+This task now requires completion of Task #356 before implementation can begin.
 
 ## Original GitHub Issues Implementation (Completed)
 
@@ -275,22 +274,24 @@ The backend is **functionally complete** and ready for integration once multi-ba
 
 ## Priority
 
-High (increased due to architectural impact)
+Medium (depends on completion of Task #356 first)
 
 ## Summary
 
-Implement GitHub Issues integration as a task backend option AND design/implement multi-backend architecture to support concurrent use of multiple task backends with backend-qualified task IDs.
+Adapt and integrate the existing GitHub Issues backend implementation to work within the multi-backend task system architecture (Task #356), enabling GitHub Issues as a task backend option with backend-qualified task IDs.
 
 ## Description
 
-Currently, Minsky supports markdown and basic GitHub backend for task management. This task involves implementing full GitHub Issues support as a task backend AND creating the infrastructure for multiple concurrent backends with qualified task IDs, enabling users to:
+**PREREQUISITE**: This task depends on Task #356 "Implement Multi-Backend Task System Architecture" and cannot begin until that foundation is complete.
 
-1. Create tasks as GitHub issues with backend-qualified IDs
+Currently, a GitHub Issues backend has been implemented but only works within the single-backend architecture. This task adapts the existing implementation to work within the new multi-backend system, enabling users to:
+
+1. Create tasks as GitHub issues with backend-qualified IDs (`gh:123`)
 2. Update task status by modifying issue state and labels
-3. List and filter tasks from multiple backends simultaneously
+3. List and filter GitHub tasks alongside other backends
 4. Sync task metadata between Minsky and GitHub issues
 5. Support issue assignments, labels, and milestones
-6. Migrate existing tasks to new backend without ID conflicts
+6. Migrate tasks from other backends to GitHub Issues safely
 
 ## Requirements
 
@@ -361,7 +362,7 @@ Currently, Minsky supports markdown and basic GitHub backend for task management
 
 ## Estimated Effort
 
-Extra Large (20-30 hours) - increased due to multi-backend architecture requirements
+Medium (4-8 hours) - reduced scope due to dependency on Task #356 for multi-backend architecture
 
 ## Notes
 
@@ -374,12 +375,10 @@ Extra Large (20-30 hours) - increased due to multi-backend architecture requirem
 
 ## Related Tasks
 
-- #091: Enhance SessionDB with Multiple Backend Support (prerequisite)
+- **#356**: Implement Multi-Backend Task System Architecture (PREREQUISITE - must complete first)
+- #091: Enhance SessionDB with Multiple Backend Support
 - #048: Establish a Rule Library System
-- NEW: Design Multi-Backend Task ID System (prerequisite)
-- NEW: Implement TaskService Multi-Backend Architecture (prerequisite)
-- NEW: Update Session Management for Qualified Task IDs (prerequisite)
-- NEW: Update Git Operations for Backend-Qualified Branches (prerequisite)
+- #283: Separate Task ID Storage from Display Format (foundation for multi-backend)
 
 ## Work Log
 
@@ -393,10 +392,10 @@ Extra Large (20-30 hours) - increased due to multi-backend architecture requirem
     This has been tracked as a separate task #145 for cleanup
   - Created task #146 to fix session PR command import bug discovered during implementation
 
-- 2025-01-[DATE]: Multi-backend architecture analysis completed
-  - Identified need for backend-qualified task IDs to prevent conflicts
+- 2025-01-28: Multi-backend architecture analysis completed and separated into prerequisite task
+  - Identified need for backend-qualified task IDs to prevent conflicts during migration
   - Analyzed system-wide impact on sessions, git operations, file paths
-  - Expanded scope to include full multi-backend architecture design
-  - Updated requirements and implementation plan for comprehensive solution
-  - Identified critical issues and required follow-up tasks
-  - Increased effort estimate due to architectural complexity
+  - Created Task #356 "Implement Multi-Backend Task System Architecture" as prerequisite
+  - Reduced scope of this task to focus on GitHub backend adaptation only
+  - Updated priority and effort estimates to reflect dependency
+  - GitHub backend implementation remains complete and ready for integration
