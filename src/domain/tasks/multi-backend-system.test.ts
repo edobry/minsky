@@ -1,96 +1,17 @@
 import { describe, it, expect, mock } from "bun:test";
 import type { Task } from "./types";
-
-// Enhanced TaskBackend interface with prefix property
-export interface TaskBackend {
-  name: string;
-  prefix: string; // New: Backend-specific prefix for qualified IDs
-  createTask(spec: TaskSpec): Promise<Task>;
-  getTask(taskId: string): Promise<Task | null>;
-  updateTask(taskId: string, updates: Partial<Task>): Promise<Task>;
-  deleteTask(taskId: string): Promise<void>;
-  listTasks(filters?: TaskFilters): Promise<Task[]>;
-  getTaskSpecPath(taskId: string): string;
-  supportsFeature(feature: string): boolean;
-  // New multi-backend methods
-  exportTask(taskId: string): Promise<TaskExportData>;
-  importTask(data: TaskExportData): Promise<Task>;
-  validateLocalId(localId: string): boolean;
-}
-
-// Types for migration and cross-backend operations
-export interface TaskExportData {
-  spec: TaskSpec;
-  metadata: Record<string, unknown>;
-  backend: string;
-  exportedAt: string;
-}
-
-export interface TaskSpec {
-  title: string;
-  description?: string;
-  status?: string;
-  [key: string]: unknown;
-}
-
-export interface TaskFilters {
-  status?: string;
-  backend?: string;
-  [key: string]: unknown;
-}
-
-export interface MigrationResult {
-  success: boolean;
-  sourceTaskId: string;
-  targetTaskId: string;
-  conflicts?: string[];
-  errors?: string[];
-}
-
-export interface CollisionReport {
-  total: number;
-  collisions: TaskCollision[];
-  summary: {
-    byBackend: Record<string, number>;
-    byType: Record<string, number>;
-  };
-}
-
-export interface TaskCollision {
-  localId: string;
-  backends: string[];
-  type: "id_collision" | "spec_mismatch" | "metadata_conflict";
-  details: string;
-}
-
-// Enhanced TaskService with multi-backend routing
-export interface MultiBackendTaskService {
-  // Backend management
-  registerBackend(backend: TaskBackend): void;
-  getBackend(backendName: string): TaskBackend | null;
-  listBackends(): TaskBackend[];
-
-  // Task operations with automatic routing
-  createTask(spec: TaskSpec, backendName?: string): Promise<Task>;
-  getTask(qualifiedTaskId: string): Promise<Task | null>;
-  updateTask(qualifiedTaskId: string, updates: Partial<Task>): Promise<Task>;
-  deleteTask(qualifiedTaskId: string): Promise<void>;
-
-  // Cross-backend operations
-  listAllTasks(filters?: TaskFilters): Promise<Task[]>;
-  searchTasks(query: string, backends?: string[]): Promise<Task[]>;
-
-  // Migration operations
-  migrateTask(sourceId: string, targetBackend: string): Promise<MigrationResult>;
-  detectCollisions(): Promise<CollisionReport>;
-
-  // Backend selection for new tasks
-  selectBackendForNewTask(): TaskBackend;
-}
-
-// Mock implementations for testing
-declare function createMockBackend(name: string, prefix: string): TaskBackend;
-declare function createMultiBackendTaskService(): MultiBackendTaskService;
+import type {
+  TaskBackend,
+  TaskSpec,
+  TaskFilters,
+  TaskExportData,
+  MigrationResult,
+  CollisionReport,
+  TaskCollision,
+  MultiBackendTaskService,
+} from "./multi-backend-service";
+import { createMockBackend } from "./mock-backend-factory";
+import { createMultiBackendTaskService } from "./multi-backend-service";
 
 describe("Multi-Backend Task System", () => {
   describe("TaskBackend Interface", () => {
@@ -166,14 +87,14 @@ describe("Multi-Backend Task System", () => {
         service.registerBackend(ghBackend);
 
         // Mock the getTask method
-        mdBackend.getTask = mock(() => Promise.resolve({ id: "md:123", title: "MD Task" } as Task));
-        ghBackend.getTask = mock(() => Promise.resolve({ id: "gh:456", title: "GH Task" } as Task));
+        mdBackend.getTask = mock(() => Promise.resolve({ id: "md#123", title: "MD Task" } as Task));
+        ghBackend.getTask = mock(() => Promise.resolve({ id: "gh#456", title: "GH Task" } as Task));
 
-        const mdTask = await service.getTask("md:123");
-        const ghTask = await service.getTask("gh:456");
+        const mdTask = await service.getTask("md#123");
+        const ghTask = await service.getTask("gh#456");
 
-        expect(mdTask?.id).toBe("md:123");
-        expect(ghTask?.id).toBe("gh:456");
+        expect(mdTask?.id).toBe("md#123");
+        expect(ghTask?.id).toBe("gh#456");
         expect(mdBackend.getTask).toHaveBeenCalledWith("123");
         expect(ghBackend.getTask).toHaveBeenCalledWith("456");
       });
@@ -196,7 +117,7 @@ describe("Multi-Backend Task System", () => {
       it("should throw error for unknown backend in qualified ID", async () => {
         const service = createMultiBackendTaskService();
 
-        await expect(service.getTask("unknown:123")).rejects.toThrow(
+        await expect(service.getTask("unknown#123")).rejects.toThrow(
           "No backend registered for prefix 'unknown'"
         );
       });
@@ -213,20 +134,20 @@ describe("Multi-Backend Task System", () => {
 
         mdBackend.listTasks = mock(() =>
           Promise.resolve([
-            { id: "md:123", title: "MD Task 1" },
-            { id: "md:124", title: "MD Task 2" },
+            { id: "md#123", title: "MD Task 1" },
+            { id: "md#124", title: "MD Task 2" },
           ] as Task[])
         );
 
         ghBackend.listTasks = mock(() =>
-          Promise.resolve([{ id: "gh:456", title: "GH Task 1" }] as Task[])
+          Promise.resolve([{ id: "gh#456", title: "GH Task 1" }] as Task[])
         );
 
         const allTasks = await service.listAllTasks();
 
         expect(allTasks).toHaveLength(3);
-        expect(allTasks.map((t) => t.id)).toContain("md:123");
-        expect(allTasks.map((t) => t.id)).toContain("gh:456");
+        expect(allTasks.map((t) => t.id)).toContain("md#123");
+        expect(allTasks.map((t) => t.id)).toContain("gh#456");
       });
 
       it("should filter tasks by backend", async () => {
@@ -238,13 +159,13 @@ describe("Multi-Backend Task System", () => {
         service.registerBackend(ghBackend);
 
         mdBackend.listTasks = mock(() =>
-          Promise.resolve([{ id: "md:123", title: "MD Task" }] as Task[])
+          Promise.resolve([{ id: "md#123", title: "MD Task" }] as Task[])
         );
 
         const mdTasks = await service.listAllTasks({ backend: "md" });
 
         expect(mdTasks).toHaveLength(1);
-        expect(mdTasks[0]!.id).toBe("md:123");
+        expect(mdTasks[0]!.id).toBe("md#123");
         expect(mdBackend.listTasks).toHaveBeenCalled();
         expect(ghBackend.listTasks).not.toHaveBeenCalled();
       });
@@ -258,11 +179,11 @@ describe("Multi-Backend Task System", () => {
         service.registerBackend(ghBackend);
 
         mdBackend.listTasks = mock(() =>
-          Promise.resolve([{ id: "md:123", title: "Search Result MD" }] as Task[])
+          Promise.resolve([{ id: "md#123", title: "Search Result MD" }] as Task[])
         );
 
         ghBackend.listTasks = mock(() =>
-          Promise.resolve([{ id: "gh:456", title: "Search Result GH" }] as Task[])
+          Promise.resolve([{ id: "gh#456", title: "Search Result GH" }] as Task[])
         );
 
         const results = await service.searchTasks("Search Result");
@@ -291,14 +212,14 @@ describe("Multi-Backend Task System", () => {
 
         mdBackend.exportTask = mock(() => Promise.resolve(exportData));
         ghBackend.importTask = mock(() =>
-          Promise.resolve({ id: "gh:789", title: "Migrated Task" } as Task)
+          Promise.resolve({ id: "gh#789", title: "Migrated Task" } as Task)
         );
 
-        const result = await service.migrateTask("md:123", "gh");
+        const result = await service.migrateTask("md#123", "gh");
 
         expect(result.success).toBe(true);
-        expect(result.sourceTaskId).toBe("md:123");
-        expect(result.targetTaskId).toBe("gh:789");
+        expect(result.sourceTaskId).toBe("md#123");
+        expect(result.targetTaskId).toBe("gh#789");
         expect(mdBackend.exportTask).toHaveBeenCalledWith("123");
         expect(ghBackend.importTask).toHaveBeenCalledWith(exportData);
       });
@@ -313,7 +234,7 @@ describe("Multi-Backend Task System", () => {
 
         mdBackend.exportTask = mock(() => Promise.reject(new Error("Export failed")));
 
-        const result = await service.migrateTask("md:123", "gh");
+        const result = await service.migrateTask("md#123", "gh");
 
         expect(result.success).toBe(false);
         expect(result.errors).toContain("Export failed");
@@ -330,12 +251,12 @@ describe("Multi-Backend Task System", () => {
         service.registerBackend(ghBackend);
 
         mdBackend.listTasks = mock(() =>
-          Promise.resolve([{ id: "md:123", title: "MD Task" }] as Task[])
+          Promise.resolve([{ id: "md#123", title: "MD Task" }] as Task[])
         );
 
         ghBackend.listTasks = mock(() =>
           Promise.resolve([
-            { id: "gh:123", title: "GH Task" }, // Same local ID
+            { id: "gh#123", title: "GH Task" }, // Same local ID
           ] as Task[])
         );
 
@@ -358,14 +279,14 @@ describe("Multi-Backend Task System", () => {
 
         mdBackend.listTasks = mock(() =>
           Promise.resolve([
-            { id: "md:123", title: "MD Task 1" },
-            { id: "md:124", title: "MD Task 2" },
+            { id: "md#123", title: "MD Task 1" },
+            { id: "md#124", title: "MD Task 2" },
           ] as Task[])
         );
 
         ghBackend.listTasks = mock(() =>
           Promise.resolve([
-            { id: "gh:123", title: "GH Task" }, // Collision with md:123
+            { id: "gh#123", title: "GH Task" }, // Collision with md#123
           ] as Task[])
         );
 
