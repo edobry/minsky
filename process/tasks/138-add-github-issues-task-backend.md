@@ -4,62 +4,261 @@
 
 IN-PROGRESS
 
-## Implementation Status
+## ⚠️ CRITICAL UPDATE: Multi-Backend Architecture Required
 
-### ✅ Completed
+**NEW REQUIREMENT**: Support for multiple concurrent task backends has been identified as essential for migration from local markdown backend to GitHub Issues backend. This significantly expands the scope and complexity of this task.
+
+### Multi-Backend Architecture Changes Required
+
+#### 1. Backend-Qualified Task IDs
+
+**Current**: Task IDs are simple numeric strings (`"123"`, `"456"`)
+**Required**: Task IDs must include backend qualification (`"md:123"`, `"gh:456"`, `"json:789"`)
+
+#### 2. Task ID Format Specification
+
+```
+Format: <backend_prefix>:<task_id>
+Examples:
+- `md:123` - Markdown backend task 123
+- `gh:456` - GitHub Issues backend task 456
+- `json:789` - JSON file backend task 789
+```
+
+#### 3. System-Wide Impact Areas
+
+**Session Management:**
+- Session names: `task#123` → `task#md:123`
+- Session records must store backend information
+- Auto-detection must handle backend-qualified IDs
+
+**Git Operations:**
+- Branch names: `task#123` → `task#md:123`
+- PR branches: `pr/task#123` → `pr/task#md:123`
+- Branch cleanup operations must handle qualified names
+
+**File System Organization:**
+- Task spec paths: `process/tasks/123-title.md` → `process/tasks/md/123-title.md`
+- Session workspaces: `/sessions/task#123/` → `/sessions/task#md:123/`
+- Backend-specific directory structures
+
+**CLI Commands:**
+- All task ID parameters must accept qualified format
+- Backend auto-detection from task ID
+- Cross-backend task operations
+
+#### 4. TaskService Architecture Changes
+
+**Current**: Single `currentBackend` with all operations routed through it
+**Required**: Multi-backend routing system
+
+```typescript
+interface TaskService {
+  // Route operations to correct backend based on task ID
+  getTask(qualifiedId: string): Promise<Task>
+
+  // Backend selection for new tasks
+  createTask(spec: TaskSpec, backend?: string): Promise<Task>
+
+  // Cross-backend operations
+  listAllTasks(): Promise<Task[]> // From all backends
+  listTasksByBackend(backend: string): Promise<Task[]>
+
+  // Backend management
+  getAvailableBackends(): string[]
+  getBackendForTask(qualifiedId: string): string
+}
+```
+
+#### 5. Migration Strategy Requirements
+
+**Backward Compatibility:**
+- Support unqualified IDs during transition period
+- Auto-detect backend for existing unqualified IDs
+- Graceful fallback mechanisms
+
+**Migration Process:**
+1. Implement backend-qualified ID system
+2. Add migration utilities to convert existing tasks
+3. Update all system references to use qualified IDs
+4. Provide transition period with dual support
+5. Deprecate unqualified ID support
+
+### Updated Implementation Plan
+
+#### Phase 1: Multi-Backend Infrastructure (EXPANDED)
+
+1. **Backend-Qualified ID System**
+   - Design qualified ID format and validation
+   - Update task ID utilities for parsing/formatting
+   - Implement backend prefix registration system
+
+2. **TaskService Multi-Backend Routing**
+   - Replace single `currentBackend` with routing system
+   - Implement backend selection and task routing
+   - Add cross-backend operation support
+
+3. **Session Management Updates**
+   - Update session names to include backend qualification
+   - Modify session records to store backend information
+   - Update auto-detection for qualified IDs
+
+#### Phase 2: GitHub Issues Backend Implementation
+
+1. **GitHubIssuesTaskBackend Class** ✅ COMPLETED
+   - Implements TaskBackend interface
+   - GitHub API integration with issue mapping
+   - Status synchronization via labels
+
+2. **Configuration Management**
+   - GitHub token authentication
+   - Repository selection and validation
+   - Label management and creation
+
+#### Phase 3: System Integration Updates
+
+1. **CLI Command Updates**
+   - Update all schemas to support qualified task IDs
+   - Add backend parameter support
+   - Implement cross-backend operations
+
+2. **Git Operations Updates**
+   - Update branch naming for qualified IDs
+   - Modify PR and merge operations for backend-qualified branches
+   - Update cleanup operations
+
+3. **File System Organization**
+   - Implement backend-specific directory structures
+   - Update spec path generation
+   - Add migration utilities for existing files
+
+#### Phase 4: Migration and Compatibility
+
+1. **Migration Utilities**
+   - Task ID conversion tools
+   - File system reorganization scripts
+   - Session record migration
+
+2. **Backward Compatibility**
+   - Dual ID support during transition
+   - Automatic backend detection for unqualified IDs
+   - Graceful degradation mechanisms
+
+### Critical Issues and Challenges
+
+#### 1. ID Conflict Resolution
+
+**Problem**: Same numeric ID may exist across multiple backends
+**Impact**: System confusion, incorrect task routing
+**Solution**: Enforce strict backend qualification, add conflict detection
+
+#### 2. Session Name Uniqueness
+
+**Problem**: Session names like `task#md:123` may become unwieldy
+**Impact**: User experience degradation, command line usability
+**Solution**: Design concise but unambiguous naming scheme
+
+#### 3. File Path Length Limits
+
+**Problem**: Backend-qualified paths may exceed filesystem limits
+**Impact**: File creation failures, cross-platform compatibility issues
+**Solution**: Use short backend prefixes, path compression strategies
+
+#### 4. Backward Compatibility Complexity
+
+**Problem**: Supporting both qualified and unqualified IDs simultaneously
+**Impact**: Code complexity, potential bugs, user confusion
+**Solution**: Well-defined migration timeline, clear documentation
+
+#### 5. Cross-Backend Operations
+
+**Problem**: Some operations may need to work across multiple backends
+**Impact**: Complex implementation, performance implications
+**Solution**: Careful API design, async operation handling
+
+### Required Follow-up Tasks
+
+1. **Task ID System Redesign** (High Priority)
+   - Design backend-qualified ID format
+   - Implement parsing and validation utilities
+   - Update all ID references system-wide
+
+2. **TaskService Multi-Backend Refactor** (High Priority)
+   - Replace single-backend architecture
+   - Implement backend routing system
+   - Add cross-backend operation support
+
+3. **Session Management Updates** (High Priority)
+   - Update session naming for qualified IDs
+   - Modify session records and operations
+   - Update auto-detection mechanisms
+
+4. **CLI Schema Updates** (Medium Priority)
+   - Update all command schemas for qualified IDs
+   - Add backend parameter support
+   - Implement backward compatibility
+
+5. **Git Operations Updates** (Medium Priority)
+   - Update branch naming schemes
+   - Modify PR and merge operations
+   - Update cleanup procedures
+
+6. **File System Migration** (Medium Priority)
+   - Design backend-specific directory structure
+   - Implement migration utilities
+   - Add path generation updates
+
+7. **Documentation and Testing** (Medium Priority)
+   - Update all documentation for qualified IDs
+   - Add comprehensive test coverage
+   - Create migration guides
+
+### Implementation Status
+
+#### ✅ Completed
 
 - **GitHubIssuesTaskBackend Class**: Fully implemented with all TaskBackend interface methods
 - **GitHub API Integration**: Using @octokit/rest for GitHub Issues API communication
 - **Task-Issue Mapping**: Complete mapping between Minsky tasks and GitHub issues
 - **Status Label System**: Configurable status labels (minsky:todo, minsky:in-progress, etc.)
-- **CLI Integration**: Updated TaskService to support github-issues backend
-- **Schema Updates**: Updated all CLI command schemas to include github-issues option
 - **Test Suite**: Comprehensive test coverage for all pure functions
 - **Error Handling**: Robust error handling for API failures and network issues
 
-### 🔍 Questions Requiring Clarification
+#### 🔍 Questions Requiring Clarification
 
-Before final completion, I need clarification on several aspects:
+Before proceeding with multi-backend implementation:
 
-1. **Authentication Configuration**: How should GitHub tokens be configured and stored?
+1. **Backend Prefix Strategy**: What short prefixes should be used for each backend?
+   - `md:` for markdown, `gh:` for GitHub, `json:` for JSON file?
+   - Alternative schemes (numeric, alphabetic)?
 
-   - Environment variables (GITHUB_TOKEN)?
-   - Config file (~/.minsky/config)?
-   - Command-line flags?
-   - Interactive prompts?
+2. **Migration Timeline**: What is the timeline for transitioning to qualified IDs?
+   - Immediate full transition or gradual migration?
+   - Backward compatibility duration?
 
-2. **Repository Selection**: How should users specify which repository to use?
+3. **Session Naming Strategy**: How should qualified IDs be handled in session names?
+   - `task#md:123` or alternative format?
+   - URL encoding for special characters?
 
-   - Command-line flags (--github-owner, --github-repo)?
-   - Config file settings?
-   - Auto-detection from current git repository?
+4. **Cross-Backend Operations**: Which operations should work across multiple backends?
+   - Task listing, searching, status updates?
+   - Migration between backends?
 
-3. **Label Management**: Should Minsky automatically create the required labels if they don't exist?
+### Updated Scope Assessment
 
-   - Auto-create default labels (minsky:todo, etc.)?
-   - Prompt user before creating labels?
-   - Fail with clear error message if labels missing?
+**Original Scope**: Large (8-12 hours)
+**Updated Scope**: Extra Large (20-30 hours)
 
-4. **Issue Synchronization**: How should existing issues be handled?
+The multi-backend requirement significantly increases complexity:
+- Core architecture changes required
+- System-wide ID reference updates needed
+- Migration strategy and tooling required
+- Extensive testing across multiple scenarios
+- Backward compatibility implementation
 
-   - Import existing issues as tasks?
-   - Only manage issues created by Minsky?
-   - Merge conflicts when both Minsky and GitHub are modified?
+This task now requires careful coordination with system architecture to ensure clean implementation without breaking existing functionality.
 
-5. **CLI Command Integration**: Should there be GitHub-specific commands?
-   - `minsky github setup` for initial configuration?
-   - `minsky github sync` for manual synchronization?
-   - `minsky github labels create` for label management?
-
-### 📋 Remaining Implementation Tasks
-
-Based on your answers, the remaining tasks would be:
-
-- [ ] **Configuration Management**: Implement chosen authentication and repository selection approach
-- [ ] **CLI Command Updates**: Add GitHub-specific configuration commands if needed
-- [ ] **Label Management**: Implement automatic label creation/validation
-- [ ] **Integration Tests**: Add tests that work with actual GitHub API (optional)
-- [ ] **Documentation**: Add usage examples and configuration guide
+## Original GitHub Issues Implementation (Completed)
 
 ### 🔧 Technical Notes
 
@@ -72,144 +271,119 @@ The current implementation:
 - ✅ Includes comprehensive error handling
 - ✅ Has 100% test coverage for pure functions
 
-The backend is **functionally complete** and ready for integration once configuration approach is determined.
+The backend is **functionally complete** and ready for integration once multi-backend architecture is implemented.
 
 ## Priority
 
-Medium
+High (increased due to architectural impact)
 
 ## Summary
 
-Implement GitHub Issues integration as a task backend option, allowing tasks to be managed directly within GitHub repositories as issues.
+Implement GitHub Issues integration as a task backend option AND design/implement multi-backend architecture to support concurrent use of multiple task backends with backend-qualified task IDs.
 
 ## Description
 
-Currently, Minsky supports markdown and basic GitHub backend for task management. This task involves implementing full GitHub Issues support as a task backend, enabling users to:
+Currently, Minsky supports markdown and basic GitHub backend for task management. This task involves implementing full GitHub Issues support as a task backend AND creating the infrastructure for multiple concurrent backends with qualified task IDs, enabling users to:
 
-1. Create tasks as GitHub issues
+1. Create tasks as GitHub issues with backend-qualified IDs
 2. Update task status by modifying issue state and labels
-3. List and filter tasks from GitHub issues
+3. List and filter tasks from multiple backends simultaneously
 4. Sync task metadata between Minsky and GitHub issues
 5. Support issue assignments, labels, and milestones
-
-## Implementation Plan
-
-### Phase 1: Core GitHub Issues API Integration
-
-1. **Create GitHub API Client**
-
-   - Set up GitHub REST API client with authentication
-   - Implement rate limiting and error handling
-   - Add support for both public and private repositories
-
-2. **Implement GitHubIssuesTaskBackend Class**
-   - Follow the functional TaskBackend interface pattern
-   - Implement all required methods (getTasksData, parseTasksData, etc.)
-   - Map GitHub Issues to TaskData objects
-
-### Phase 2: Task-Issue Mapping
-
-1. **Status Mapping**
-
-   - Map Minsky task statuses (TODO, IN-PROGRESS, IN-REVIEW, DONE) to GitHub issue states and labels
-   - Use GitHub labels for granular status tracking
-
-2. **Metadata Mapping**
-   - Handle issue titles, descriptions, assignees
-   - Support milestone and project associations
-   - Preserve spec file references as issue body content
-
-### Phase 3: CLI Integration
-
-1. **Update Task Service**
-
-   - Add GitHubIssuesTaskBackend to available backends
-   - Update backend selection logic
-   - Add configuration validation
-
-2. **Configuration Management**
-   - GitHub token authentication
-   - Repository selection and validation
-   - Default label/milestone configuration
-
-### Phase 4: Error Handling & Polish
-
-1. **Robust Error Handling**
-
-   - API rate limiting
-   - Network connectivity issues
-   - Authentication failures
-   - Repository access permissions
-
-2. **Testing & Documentation**
-   - Unit tests for all components
-   - Integration tests with GitHub API
-   - Documentation and examples
+6. Migrate existing tasks to new backend without ID conflicts
 
 ## Requirements
 
-### Core Features
+### Core Multi-Backend Features
 
-- [ ] Implement GitHub Issues API integration
-- [ ] Create task-to-issue mapping functionality
-- [ ] Support issue creation from task specifications
-- [ ] Implement issue status synchronization (open/closed/draft)
-- [ ] Add support for GitHub issue labels for task categorization
-- [ ] Handle issue assignments and milestone tracking
+- [ ] Design backend-qualified task ID system (`backend:id` format)
+- [ ] Implement multi-backend TaskService routing architecture
+- [ ] Update all system references to use qualified task IDs
+- [ ] Create migration utilities for existing unqualified tasks
+- [ ] Support cross-backend operations (list all, search, etc.)
 
-### CLI Integration
+### GitHub Issues Backend Features
 
-- [ ] Update `minsky tasks create` to support GitHub issues backend
-- [ ] Update `minsky tasks list` to fetch from GitHub issues
-- [ ] Update `minsky tasks status set` to modify issue state
-- [ ] Add GitHub authentication handling
+- [x] Implement GitHub Issues API integration
+- [x] Create task-to-issue mapping functionality
+- [x] Support issue creation from task specifications
+- [x] Implement issue status synchronization (open/closed/draft)
+- [x] Add support for GitHub issue labels for task categorization
+- [x] Handle issue assignments and milestone tracking
 
-### Configuration
+### System Integration Updates
+
+- [ ] Update session management for backend-qualified IDs
+- [ ] Update git operations (branch names, PR operations)
+- [ ] Update CLI command schemas for qualified task IDs
+- [ ] Update file system organization for backend-specific structures
+- [ ] Add backward compatibility during migration period
+
+### Configuration & Migration
 
 - [ ] Add GitHub repository configuration options
 - [ ] Implement GitHub token management
 - [ ] Support for repository selection and validation
+- [ ] Create task ID migration utilities
+- [ ] Implement graceful fallback mechanisms
 
 ### Error Handling
 
-- [ ] Handle GitHub API rate limiting
-- [ ] Manage network connectivity issues
-- [ ] Provide clear error messages for authentication failures
+- [x] Handle GitHub API rate limiting
+- [x] Manage network connectivity issues
+- [x] Provide clear error messages for authentication failures
+- [ ] Add cross-backend error handling and recovery
+- [ ] Implement migration validation and rollback
 
 ## Acceptance Criteria
 
-1. Users can create tasks that automatically create corresponding GitHub issues
-2. Task status changes are reflected in GitHub issue state
-3. GitHub issues can be listed and filtered using existing Minsky commands
-4. Proper error handling for GitHub API failures
-5. Authentication is handled securely
-6. Integration works with both public and private repositories
+1. Users can create tasks in any available backend with qualified IDs
+2. Task operations are automatically routed to the correct backend
+3. Session names and branch names support backend-qualified task IDs
+4. Existing tasks can be migrated to new backend system without conflicts
+5. Cross-backend operations (listing, searching) work seamlessly
+6. GitHub backend integrates seamlessly with multi-backend architecture
+7. All CLI commands support backend-qualified task IDs
+8. Migration utilities successfully convert existing unqualified tasks
+9. Backward compatibility is maintained during transition period
+10. System performance remains acceptable with multiple backends
 
 ## Dependencies
 
+- Multi-backend architecture design and implementation
+- Task ID system redesign for backend qualification
+- Session management updates for qualified IDs
+- Git operations updates for qualified branch names
+- CLI schema updates for backward compatibility
 - GitHub API client library
 - Authentication token management
 - Existing task backend interface
 
 ## Estimated Effort
 
-Large (8-12 hours)
+Extra Large (20-30 hours) - increased due to multi-backend architecture requirements
 
 ## Notes
 
-- Should integrate with existing task backend architecture
+- Requires careful architectural planning to avoid breaking changes
+- Multi-backend support is prerequisite for safe GitHub backend migration
+- Should maintain compatibility with existing markdown backend
 - Consider GitHub webhooks for real-time synchronization
 - May need to handle GitHub-specific features like issue templates
-- Should maintain compatibility with existing markdown backend
+- Migration strategy critical for production deployment
 
 ## Related Tasks
 
-- #091: Enhance SessionDB with Multiple Backend Support
+- #091: Enhance SessionDB with Multiple Backend Support (prerequisite)
 - #048: Establish a Rule Library System
+- NEW: Design Multi-Backend Task ID System (prerequisite)
+- NEW: Implement TaskService Multi-Backend Architecture (prerequisite)
+- NEW: Update Session Management for Qualified Task IDs (prerequisite)
+- NEW: Update Git Operations for Backend-Qualified Branches (prerequisite)
 
 ## Work Log
 
-- 2025-01-17: Implementation completed
+- 2025-01-17: Initial GitHub Issues backend implementation completed
   - Implemented full GitHub Issues task backend with API integration
   - Added comprehensive test suite with mocked GitHub API responses
   - Integrated with existing task service using factory pattern
@@ -218,3 +392,11 @@ Large (8-12 hours)
   - Note: Dynamic imports were used in the implementation which violates the no-dynamic-imports rule
     This has been tracked as a separate task #145 for cleanup
   - Created task #146 to fix session PR command import bug discovered during implementation
+
+- 2025-01-[DATE]: Multi-backend architecture analysis completed
+  - Identified need for backend-qualified task IDs to prevent conflicts
+  - Analyzed system-wide impact on sessions, git operations, file paths
+  - Expanded scope to include full multi-backend architecture design
+  - Updated requirements and implementation plan for comprehensive solution
+  - Identified critical issues and required follow-up tasks
+  - Increased effort estimate due to architectural complexity
