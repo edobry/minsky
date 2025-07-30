@@ -1,6 +1,6 @@
 /**
  * CLI Parameter Schemas
- * 
+ *
  * CLI-specific parameter schemas that extend domain schemas to provide
  * standardized parameter validation patterns for CLI commands.
  * This applies the type composition patterns from Tasks #322 and #329.
@@ -80,100 +80,99 @@ export const CliMetaParametersSchema = z.object({
 /**
  * Base CLI parameters that all commands inherit
  */
-export const CliBaseParametersSchema = CliOutputParametersSchema
-  .merge(CliGlobalParametersSchema)
-  .merge(CliMetaParametersSchema);
+export const CliBaseParametersSchema =
+  CliOutputParametersSchema.merge(CliGlobalParametersSchema).merge(CliMetaParametersSchema);
 
 /**
  * CLI task list parameters with CLI-specific extensions
  */
-export const CliTaskListParametersSchema = TaskListParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    status: z.array(TaskStatusSchema).optional().describe("Filter by task status"),
-    completed: AllSchema.describe("Include completed tasks"),
-  });
+export const CliTaskListParametersSchema = TaskListParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  status: z.array(TaskStatusSchema).optional().describe("Filter by task status"),
+  completed: AllSchema.describe("Include completed tasks"),
+});
 
 /**
  * CLI task get parameters with CLI-specific extensions
  */
-export const CliTaskGetParametersSchema = TaskGetParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    section: z.string().optional().describe("Specific section to retrieve"),
-  });
+export const CliTaskGetParametersSchema = TaskGetParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  section: z.string().optional().describe("Specific section to retrieve"),
+});
 
 /**
  * CLI task create parameters with CLI-specific extensions
  */
-export const CliTaskCreateParametersSchema = TaskCreateParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    descriptionPath: z.string().optional().describe("Path to file containing task description"),
-    interactive: z.boolean().default(false).describe("Interactive task creation"),
-  });
+export const CliTaskCreateParametersSchema = TaskCreateParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  descriptionPath: z.string().optional().describe("Path to file containing task description"),
+  interactive: z.boolean().default(false).describe("Interactive task creation"),
+});
 
 /**
  * CLI task update parameters with CLI-specific extensions
  */
-export const CliTaskUpdateParametersSchema = TaskUpdateParametersSchema
-  .merge(CliBaseParametersSchema);
+export const CliTaskUpdateParametersSchema =
+  TaskUpdateParametersSchema.merge(CliBaseParametersSchema);
 
 /**
  * CLI task delete parameters with CLI-specific extensions
  */
-export const CliTaskDeleteParametersSchema = TaskDeleteParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    confirm: z.boolean().default(false).describe("Skip confirmation prompt"),
-  });
+export const CliTaskDeleteParametersSchema = TaskDeleteParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  confirm: z.boolean().default(false).describe("Skip confirmation prompt"),
+});
 
 /**
  * CLI session list parameters with CLI-specific extensions
  */
-export const CliSessionListParametersSchema = SessionListParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    current: z.boolean().default(false).describe("Show only current session"),
-    showPaths: z.boolean().default(false).describe("Show session workspace paths"),
-  });
+export const CliSessionListParametersSchema = SessionListParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  current: z.boolean().default(false).describe("Show only current session"),
+  showPaths: z.boolean().default(false).describe("Show session workspace paths"),
+});
 
 /**
  * CLI session get parameters with CLI-specific extensions
  */
-export const CliSessionGetParametersSchema = SessionGetParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    showPath: z.boolean().default(false).describe("Show session workspace path"),
-  });
+export const CliSessionGetParametersSchema = SessionGetParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  showPath: z.boolean().default(false).describe("Show session workspace path"),
+});
 
 /**
  * CLI session create parameters with CLI-specific extensions
  */
-export const CliSessionCreateParametersSchema = SessionStartParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    autoStart: z.boolean().default(true).describe("Automatically start the session"),
-    clone: z.boolean().default(true).describe("Clone repository into session workspace"),
-  });
+export const CliSessionCreateParametersSchema = SessionStartParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  autoStart: z.boolean().default(true).describe("Automatically start the session"),
+  clone: z.boolean().default(true).describe("Clone repository into session workspace"),
+});
 
 /**
  * CLI session delete parameters with CLI-specific extensions
  */
-export const CliSessionDeleteParametersSchema = SessionDeleteParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    deleteWorkspace: z.boolean().default(false).describe("Also delete session workspace"),
-  });
+export const CliSessionDeleteParametersSchema = SessionDeleteParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  deleteWorkspace: z.boolean().default(false).describe("Also delete session workspace"),
+});
 
 /**
  * CLI session update parameters with CLI-specific extensions
  */
-export const CliSessionUpdateParametersSchema = SessionUpdateParametersSchema
-  .merge(CliBaseParametersSchema)
-  .extend({
-    pull: z.boolean().default(true).describe("Pull latest changes from main branch"),
-  });
+export const CliSessionUpdateParametersSchema = SessionUpdateParametersSchema.merge(
+  CliBaseParametersSchema
+).extend({
+  pull: z.boolean().default(true).describe("Pull latest changes from main branch"),
+});
 
 // ========================
 // CLI COMMAND COMPOSITION PATTERNS
@@ -188,15 +187,15 @@ export function createCliCommandSchema(
   includeBase: boolean = true
 ): z.ZodObject<any> {
   let schema = domainSchema;
-  
+
   if (cliExtensions) {
     schema = schema.extend(cliExtensions);
   }
-  
+
   if (includeBase) {
     schema = schema.merge(CliBaseParametersSchema);
   }
-  
+
   return schema;
 }
 
@@ -218,10 +217,8 @@ export function createCliCrudCommandSchema(
   cliExtensions?: z.ZodRawShape,
   includeForce: boolean = false
 ): z.ZodObject<any> {
-  const extensions = includeForce 
-    ? { ...cliExtensions, force: ForceSchema }
-    : cliExtensions;
-    
+  const extensions = includeForce ? { ...cliExtensions, force: ForceSchema } : cliExtensions;
+
   return createCliCommandSchema(domainCrudSchema, extensions);
 }
 
@@ -242,4 +239,4 @@ export type CliSessionListParameters = z.infer<typeof CliSessionListParametersSc
 export type CliSessionGetParameters = z.infer<typeof CliSessionGetParametersSchema>;
 export type CliSessionCreateParameters = z.infer<typeof CliSessionCreateParametersSchema>;
 export type CliSessionDeleteParameters = z.infer<typeof CliSessionDeleteParametersSchema>;
-export type CliSessionUpdateParameters = z.infer<typeof CliSessionUpdateParametersSchema>; 
+export type CliSessionUpdateParameters = z.infer<typeof CliSessionUpdateParametersSchema>;

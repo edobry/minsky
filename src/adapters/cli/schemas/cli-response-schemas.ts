@@ -1,6 +1,6 @@
 /**
  * CLI Response Schemas and Formatters
- * 
+ *
  * Standardized response formatting for CLI commands that builds on domain response patterns
  * from Tasks #322 and #329. Provides consistent JSON and human-readable output across all CLI commands.
  */
@@ -71,7 +71,7 @@ export function createCliSuccessResponse<T extends Record<string, any>>(
 ): z.infer<typeof CliSuccessResponseSchema> & T {
   const includeTimestamp = options?.includeTimestamp ?? true;
   const timestamp = new Date().toISOString();
-  
+
   return {
     success: true as const,
     ...(includeTimestamp && { timestamp }),
@@ -106,7 +106,7 @@ export function createCliErrorResponse(
 ): z.infer<typeof CliErrorResponseSchema> {
   const includeTimestamp = options?.includeTimestamp ?? true;
   const timestamp = new Date().toISOString();
-  
+
   return {
     success: false as const,
     error,
@@ -187,13 +187,13 @@ export function formatCliOutput<T extends Record<string, any>>(
   }
 
   // Handle error responses
-  if ('success' in response && response.success === false) {
+  if ("success" in response && response.success === false) {
     formatCliError(response as any, options);
     return;
   }
 
   // Handle success responses
-  if ('success' in response && response.success === true) {
+  if ("success" in response && response.success === true) {
     formatCliSuccess(response, options);
     return;
   }
@@ -269,7 +269,7 @@ export function formatCliError(
   if (error.suggestions && error.suggestions.length > 0 && verbosity !== "quiet") {
     log.cliError("");
     log.cliError("💡 Suggestions:");
-    error.suggestions.forEach(suggestion => {
+    error.suggestions.forEach((suggestion) => {
       log.cliError(`  • ${suggestion}`);
     });
   }
@@ -292,10 +292,7 @@ export function formatCliError(
 /**
  * Formats array output in human-readable format
  */
-export function formatArrayOutput(
-  data: any[],
-  options: CliOutputOptions
-): void {
+export function formatArrayOutput(data: any[], options: CliOutputOptions): void {
   const verbosity = getEffectiveVerbosity(options);
 
   if (data.length === 0) {
@@ -306,7 +303,7 @@ export function formatArrayOutput(
   }
 
   // For simple arrays, show as list
-  if (data.every(item => typeof item === "string" || typeof item === "number")) {
+  if (data.every((item) => typeof item === "string" || typeof item === "number")) {
     data.forEach((item, index) => {
       if (verbosity === "quiet") {
         log.cli(String(item));
@@ -329,10 +326,7 @@ export function formatArrayOutput(
 /**
  * Formats object output in human-readable format
  */
-export function formatObjectOutput(
-  data: Record<string, any>,
-  options: CliOutputOptions
-): void {
+export function formatObjectOutput(data: Record<string, any>, options: CliOutputOptions): void {
   const verbosity = getEffectiveVerbosity(options);
 
   for (const [key, value] of Object.entries(data)) {
@@ -346,7 +340,12 @@ export function formatObjectOutput(
     if (typeof value === "object") {
       if (verbosity !== "quiet") {
         log.cli(`${key}:`);
-        log.cli(JSON.stringify(value, null, 2).split('\n').map(line => `  ${line}`).join('\n'));
+        log.cli(
+          JSON.stringify(value, null, 2)
+            .split("\n")
+            .map((line) => `  ${line}`)
+            .join("\n")
+        );
       }
     } else {
       log.cli(`${key}: ${value}`);
@@ -361,10 +360,7 @@ export function formatObjectOutput(
 /**
  * Formats task list output
  */
-export function formatTaskListOutput(
-  tasks: any[],
-  options: CliOutputOptions
-): string {
+export function formatTaskListOutput(tasks: any[], options: CliOutputOptions): string {
   const verbosity = getEffectiveVerbosity(options);
 
   if (tasks.length === 0) {
@@ -372,29 +368,29 @@ export function formatTaskListOutput(
   }
 
   if (verbosity === "quiet") {
-    return tasks.map(task => task.id || task.taskId).join('\n');
+    return tasks.map((task) => task.id || task.taskId).join("\n");
   }
 
-  let output = `Found ${tasks.length} task${tasks.length !== 1 ? 's' : ''}\n\n`;
+  let output = `Found ${tasks.length} task${tasks.length !== 1 ? "s" : ""}\n\n`;
 
-  tasks.forEach(task => {
+  tasks.forEach((task) => {
     const id = task.id || task.taskId;
-    const title = task.title || '(no title)';
-    const status = task.status || 'UNKNOWN';
-    
+    const title = task.title || "(no title)";
+    const status = task.status || "UNKNOWN";
+
     output += `📋 ${id}: ${title}\n`;
     output += `   Status: ${status}\n`;
-    
+
     if (verbosity === "verbose" || verbosity === "debug") {
       if (task.description) {
-        output += `   Description: ${task.description.substring(0, 100)}${task.description.length > 100 ? '...' : ''}\n`;
+        output += `   Description: ${task.description.substring(0, 100)}${task.description.length > 100 ? "..." : ""}\n`;
       }
       if (task.createdAt) {
         output += `   Created: ${task.createdAt}\n`;
       }
     }
-    
-    output += '\n';
+
+    output += "\n";
   });
 
   return output.trim();
@@ -403,10 +399,7 @@ export function formatTaskListOutput(
 /**
  * Formats session list output
  */
-export function formatSessionListOutput(
-  sessions: any[],
-  options: CliOutputOptions
-): string {
+export function formatSessionListOutput(sessions: any[], options: CliOutputOptions): string {
   const verbosity = getEffectiveVerbosity(options);
 
   if (sessions.length === 0) {
@@ -414,19 +407,19 @@ export function formatSessionListOutput(
   }
 
   if (verbosity === "quiet") {
-    return sessions.map(session => session.name || session.id).join('\n');
+    return sessions.map((session) => session.name || session.id).join("\n");
   }
 
-  let output = `Found ${sessions.length} session${sessions.length !== 1 ? 's' : ''}\n\n`;
+  let output = `Found ${sessions.length} session${sessions.length !== 1 ? "s" : ""}\n\n`;
 
-  sessions.forEach(session => {
+  sessions.forEach((session) => {
     const name = session.name || session.id;
-    const status = session.status || 'UNKNOWN';
-    const taskId = session.taskId ? ` (Task: ${session.taskId})` : '';
-    
+    const status = session.status || "UNKNOWN";
+    const taskId = session.taskId ? ` (Task: ${session.taskId})` : "";
+
     output += `🚀 ${name}${taskId}\n`;
     output += `   Status: ${status}\n`;
-    
+
     if (verbosity === "verbose" || verbosity === "debug") {
       if (session.branch) {
         output += `   Branch: ${session.branch}\n`;
@@ -438,8 +431,8 @@ export function formatSessionListOutput(
         output += `   Created: ${session.createdAt}\n`;
       }
     }
-    
-    output += '\n';
+
+    output += "\n";
   });
 
   return output.trim();
@@ -452,4 +445,4 @@ export function formatSessionListOutput(
 export type CliOutputMetadata = z.infer<typeof CliOutputMetadataSchema>;
 export type CliSuccessResponse = z.infer<typeof CliSuccessResponseSchema>;
 export type CliErrorResponse = z.infer<typeof CliErrorResponseSchema>;
-export type CliResponse = z.infer<typeof CliResponseSchema>; 
+export type CliResponse = z.infer<typeof CliResponseSchema>;

@@ -1,6 +1,6 @@
 /**
  * Standardized Task Command Customizations
- * 
+ *
  * Demonstrates how to apply the type composition patterns from Tasks #322 and #329
  * to existing CLI customizations. This replaces the manual parameter definitions
  * with standardized schema-based patterns.
@@ -25,7 +25,7 @@ import {
 
 /**
  * Get standardized task command customizations using type composition patterns
- * 
+ *
  * This demonstrates the migration from manual parameter definitions to
  * schema-based validation and standardized response formatting.
  */
@@ -64,7 +64,7 @@ export function getStandardizedTasksCustomizations(): {
               description: "Suppress non-essential output",
             },
             verbose: {
-              alias: "v", 
+              alias: "v",
               description: "Show verbose output",
             },
             debug: {
@@ -102,10 +102,9 @@ export function getStandardizedTasksCustomizations(): {
               );
 
               // Use standardized formatter
-              formatCliOutput(response, options, (data, opts) => 
+              formatCliOutput(response, options, (data, opts) =>
                 formatTaskListOutput(data.result, opts)
               );
-
             } catch (error) {
               handleStandardizedCliError(error, "tasks.list", options);
             }
@@ -163,7 +162,6 @@ export function getStandardizedTasksCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "tasks.get", options);
             }
@@ -226,7 +224,6 @@ export function getStandardizedTasksCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "tasks.create", options);
             }
@@ -283,7 +280,6 @@ export function getStandardizedTasksCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "tasks.delete", options);
             }
@@ -327,25 +323,25 @@ export function getStandardizedTasksCustomizations(): {
 
 /**
  * Migration guide for applying standardized patterns to existing CLI customizations
- * 
+ *
  * This demonstrates the key changes needed to migrate from manual parameter
  * definitions to the standardized type composition patterns:
- * 
+ *
  * 1. Replace manual parameter definitions with schema-based validation
  * 2. Use standardized response builders and formatters
  * 3. Apply consistent error handling with proper exit codes
  * 4. Include standardized CLI options automatically
  * 5. Use domain schemas for parameter validation
- * 
+ *
  * Benefits of this approach:
  * - Consistent parameter validation across all commands
  * - Standardized response formatting for JSON and human-readable output
  * - Proper error handling with meaningful exit codes
  * - Type safety through Zod schema validation
  * - Reduced code duplication through composable patterns
- * 
+ *
  * Example migration:
- * 
+ *
  * BEFORE (manual):
  * ```typescript
  * "tasks.list": {
@@ -362,7 +358,7 @@ export function getStandardizedTasksCustomizations(): {
  *   }
  * }
  * ```
- * 
+ *
  * AFTER (standardized):
  * ```typescript
  * "tasks.list": {
@@ -374,4 +370,4 @@ export function getStandardizedTasksCustomizations(): {
  *   }
  * }
  * ```
- */ 
+ */

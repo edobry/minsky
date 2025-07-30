@@ -1,6 +1,6 @@
 /**
  * Composable CLI Command Patterns
- * 
+ *
  * High-level composable patterns for creating CLI commands that use standardized
  * parameter validation, response formatting, and error handling. This integrates
  * all the type composition patterns from Tasks #322 and #329.
@@ -43,10 +43,7 @@ import { log } from "../../../utils/logger";
 /**
  * CLI command handler function signature
  */
-export type CliCommandHandler<T> = (
-  params: T,
-  options: CliOutputOptions
-) => Promise<any> | any;
+export type CliCommandHandler<T> = (params: T, options: CliOutputOptions) => Promise<any> | any;
 
 /**
  * CLI command configuration
@@ -73,11 +70,11 @@ export interface CliCommandConfig<T> {
 /**
  * CLI listing command configuration
  */
-export interface CliListingCommandConfig<T> extends Omit<CliCommandConfig<T>, 'formatter'> {
+export interface CliListingCommandConfig<T> extends Omit<CliCommandConfig<T>, "formatter"> {
   /** Custom list formatter */
   listFormatter?: (items: any[], options: CliOutputOptions) => string;
   /** Item type for default formatting */
-  itemType?: 'task' | 'session' | 'generic';
+  itemType?: "task" | "session" | "generic";
 }
 
 /**
@@ -97,41 +94,34 @@ export interface CliCrudCommandConfig<T> extends CliCommandConfig<T> {
 /**
  * Creates a standardized CLI command with full type composition patterns
  */
-export function createStandardizedCliCommand<T>(
-  config: CliCommandConfig<T>
-): Command {
+export function createStandardizedCliCommand<T>(config: CliCommandConfig<T>): Command {
   const command = new Command(config.name);
-  
+
   // Set description and aliases
   command.description(config.description);
   if (config.aliases) {
-    config.aliases.forEach(alias => command.alias(alias));
+    config.aliases.forEach((alias) => command.alias(alias));
   }
 
   // Add examples to help text
   if (config.examples) {
-    const exampleText = config.examples
-      .map(example => `  $ ${example}`)
-      .join('\n');
-    command.addHelpText('after', `\nExamples:\n${exampleText}`);
+    const exampleText = config.examples.map((example) => `  $ ${example}`).join("\n");
+    command.addHelpText("after", `\nExamples:\n${exampleText}`);
   }
 
   // Create the composed schema
-  const composedSchema = config.includeBaseParams !== false
-    ? createCliCommandSchema(config.schema as any)
-    : config.schema;
+  const composedSchema =
+    config.includeBaseParams !== false
+      ? createCliCommandSchema(config.schema as any)
+      : config.schema;
 
   // Set up the command action
   command.action(async (rawParams: unknown) => {
     const startTime = Date.now();
-    
+
     try {
       // Validate parameters
-      const validatedParams = validateCliParameters(
-        composedSchema,
-        rawParams,
-        config.name
-      );
+      const validatedParams = validateCliParameters(composedSchema, rawParams, config.name);
 
       // Extract CLI options
       const options: CliOutputOptions = extractCliOptions(validatedParams);
@@ -152,7 +142,6 @@ export function createStandardizedCliCommand<T>(
 
       // Format and output the result
       formatCliOutput(response, options, config.formatter);
-
     } catch (error) {
       handleStandardizedCliError(error, config.name);
     }
@@ -164,21 +153,17 @@ export function createStandardizedCliCommand<T>(
 /**
  * Creates a standardized CLI listing command
  */
-export function createStandardizedListingCommand<T>(
-  config: CliListingCommandConfig<T>
-): Command {
+export function createStandardizedListingCommand<T>(config: CliListingCommandConfig<T>): Command {
   const command = new Command(config.name);
-  
+
   command.description(config.description);
   if (config.aliases) {
-    config.aliases.forEach(alias => command.alias(alias));
+    config.aliases.forEach((alias) => command.alias(alias));
   }
 
   if (config.examples) {
-    const exampleText = config.examples
-      .map(example => `  $ ${example}`)
-      .join('\n');
-    command.addHelpText('after', `\nExamples:\n${exampleText}`);
+    const exampleText = config.examples.map((example) => `  $ ${example}`).join("\n");
+    command.addHelpText("after", `\nExamples:\n${exampleText}`);
   }
 
   // Create the composed schema for listing
@@ -186,13 +171,9 @@ export function createStandardizedListingCommand<T>(
 
   command.action(async (rawParams: unknown) => {
     const startTime = Date.now();
-    
+
     try {
-      const validatedParams = validateCliParameters(
-        composedSchema,
-        rawParams,
-        config.name
-      );
+      const validatedParams = validateCliParameters(composedSchema, rawParams, config.name);
 
       const options: CliOutputOptions = extractCliOptions(validatedParams);
       const result = await config.handler(validatedParams, options);
@@ -213,7 +194,6 @@ export function createStandardizedListingCommand<T>(
       // Use specialized list formatter
       const formatter = createListFormatter(config.listFormatter, config.itemType);
       formatCliOutput(response, options, formatter);
-
     } catch (error) {
       handleStandardizedCliError(error, config.name);
     }
@@ -225,21 +205,17 @@ export function createStandardizedListingCommand<T>(
 /**
  * Creates a standardized CLI CRUD command
  */
-export function createStandardizedCrudCommand<T>(
-  config: CliCrudCommandConfig<T>
-): Command {
+export function createStandardizedCrudCommand<T>(config: CliCrudCommandConfig<T>): Command {
   const command = new Command(config.name);
-  
+
   command.description(config.description);
   if (config.aliases) {
-    config.aliases.forEach(alias => command.alias(alias));
+    config.aliases.forEach((alias) => command.alias(alias));
   }
 
   if (config.examples) {
-    const exampleText = config.examples
-      .map(example => `  $ ${example}`)
-      .join('\n');
-    command.addHelpText('after', `\nExamples:\n${exampleText}`);
+    const exampleText = config.examples.map((example) => `  $ ${example}`).join("\n");
+    command.addHelpText("after", `\nExamples:\n${exampleText}`);
   }
 
   // Create the composed schema for CRUD operations
@@ -251,16 +227,12 @@ export function createStandardizedCrudCommand<T>(
 
   command.action(async (rawParams: unknown) => {
     const startTime = Date.now();
-    
+
     try {
-      const validatedParams = validateCliParameters(
-        composedSchema,
-        rawParams,
-        config.name
-      );
+      const validatedParams = validateCliParameters(composedSchema, rawParams, config.name);
 
       const options: CliOutputOptions = extractCliOptions(validatedParams);
-      
+
       // Handle force confirmation for destructive operations
       if (config.destructive && !validatedParams.force && !options.quiet) {
         // Note: In a real implementation, you'd want to add confirmation prompts here
@@ -285,7 +257,6 @@ export function createStandardizedCrudCommand<T>(
       }
 
       formatCliOutput(response, options, config.formatter);
-
     } catch (error) {
       handleStandardizedCliError(error, config.name);
     }
@@ -317,34 +288,36 @@ function extractCliOptions(params: any): CliOutputOptions {
  */
 function createListFormatter(
   customFormatter?: (items: any[], options: CliOutputOptions) => string,
-  itemType?: 'task' | 'session' | 'generic'
+  itemType?: "task" | "session" | "generic"
 ) {
   return (data: any, options: CliOutputOptions): string => {
     const items = data.result || [];
-    
+
     if (customFormatter) {
       return customFormatter(items, options);
     }
 
     switch (itemType) {
-      case 'task':
+      case "task":
         return formatTaskListOutput(items, options);
-      case 'session':
+      case "session":
         return formatSessionListOutput(items, options);
       default:
         // Generic formatter
         if (items.length === 0) {
           return getEffectiveVerbosity(options) === "quiet" ? "" : "No items found.";
         }
-        
-        return items.map((item: any, index: number) => {
-          if (typeof item === 'string') {
-            return item;
-          }
-          
-          const name = item.name || item.id || item.title || `Item ${index + 1}`;
-          return getEffectiveVerbosity(options) === "quiet" ? name : `${index + 1}. ${name}`;
-        }).join('\n');
+
+        return items
+          .map((item: any, index: number) => {
+            if (typeof item === "string") {
+              return item;
+            }
+
+            const name = item.name || item.id || item.title || `Item ${index + 1}`;
+            return getEffectiveVerbosity(options) === "quiet" ? name : `${index + 1}. ${name}`;
+          })
+          .join("\n");
     }
   };
 }
@@ -356,24 +329,22 @@ function createListFormatter(
 /**
  * Creates a task list command with standardized patterns
  */
-export function createTaskListCommand(
-  handler: CliCommandHandler<any>
-): Command {
+export function createTaskListCommand(handler: CliCommandHandler<any>): Command {
   return createStandardizedListingCommand({
-    name: 'list',
-    description: 'List tasks with filtering and formatting options',
+    name: "list",
+    description: "List tasks with filtering and formatting options",
     schema: z.object({
       status: z.array(z.string()).optional(),
       all: z.boolean().default(false),
       completed: z.boolean().default(false),
     }),
     handler,
-    itemType: 'task',
-    aliases: ['ls'],
+    itemType: "task",
+    aliases: ["ls"],
     examples: [
-      'minsky tasks list',
-      'minsky tasks list --status TODO,IN-PROGRESS',
-      'minsky tasks list --all --json',
+      "minsky tasks list",
+      "minsky tasks list --status TODO,IN-PROGRESS",
+      "minsky tasks list --all --json",
     ],
   });
 }
@@ -381,21 +352,19 @@ export function createTaskListCommand(
 /**
  * Creates a task get command with standardized patterns
  */
-export function createTaskGetCommand(
-  handler: CliCommandHandler<any>
-): Command {
+export function createTaskGetCommand(handler: CliCommandHandler<any>): Command {
   return createStandardizedCliCommand({
-    name: 'get',
-    description: 'Get a specific task by ID',
+    name: "get",
+    description: "Get a specific task by ID",
     schema: z.object({
       taskId: z.string().min(1, "Task ID is required"),
       section: z.string().optional(),
     }),
     handler,
     examples: [
-      'minsky tasks get 123',
-      'minsky tasks get 123 --section requirements',
-      'minsky tasks get 123 --json',
+      "minsky tasks get 123",
+      "minsky tasks get 123 --section requirements",
+      "minsky tasks get 123 --json",
     ],
   });
 }
@@ -403,12 +372,10 @@ export function createTaskGetCommand(
 /**
  * Creates a task create command with standardized patterns
  */
-export function createTaskCreateCommand(
-  handler: CliCommandHandler<any>
-): Command {
+export function createTaskCreateCommand(handler: CliCommandHandler<any>): Command {
   return createStandardizedCrudCommand({
-    name: 'create',
-    description: 'Create a new task',
+    name: "create",
+    description: "Create a new task",
     schema: z.object({
       title: z.string().min(1, "Task title is required"),
       description: z.string().optional(),
@@ -428,46 +395,39 @@ export function createTaskCreateCommand(
 /**
  * Creates a task delete command with standardized patterns
  */
-export function createTaskDeleteCommand(
-  handler: CliCommandHandler<any>
-): Command {
+export function createTaskDeleteCommand(handler: CliCommandHandler<any>): Command {
   return createStandardizedCrudCommand({
-    name: 'delete',
-    description: 'Delete a task',
+    name: "delete",
+    description: "Delete a task",
     schema: z.object({
       taskId: z.string().min(1, "Task ID is required"),
     }),
     handler,
     destructive: true,
     successMessage: "Task deleted successfully",
-    aliases: ['rm'],
-    examples: [
-      'minsky tasks delete 123',
-      'minsky tasks delete 123 --force',
-    ],
+    aliases: ["rm"],
+    examples: ["minsky tasks delete 123", "minsky tasks delete 123 --force"],
   });
 }
 
 /**
  * Creates a session list command with standardized patterns
  */
-export function createSessionListCommand(
-  handler: CliCommandHandler<any>
-): Command {
+export function createSessionListCommand(handler: CliCommandHandler<any>): Command {
   return createStandardizedListingCommand({
-    name: 'list',
-    description: 'List sessions with filtering and formatting options',
+    name: "list",
+    description: "List sessions with filtering and formatting options",
     schema: z.object({
       current: z.boolean().default(false),
       showPaths: z.boolean().default(false),
     }),
     handler,
-    itemType: 'session',
-    aliases: ['ls'],
+    itemType: "session",
+    aliases: ["ls"],
     examples: [
-      'minsky session list',
-      'minsky session list --current',
-      'minsky session list --show-paths --verbose',
+      "minsky session list",
+      "minsky session list --current",
+      "minsky session list --show-paths --verbose",
     ],
   });
 }
@@ -475,12 +435,10 @@ export function createSessionListCommand(
 /**
  * Creates a session create command with standardized patterns
  */
-export function createSessionCreateCommand(
-  handler: CliCommandHandler<any>
-): Command {
+export function createSessionCreateCommand(handler: CliCommandHandler<any>): Command {
   return createStandardizedCrudCommand({
-    name: 'start',
-    description: 'Create and start a new session',
+    name: "start",
+    description: "Create and start a new session",
     schema: z.object({
       name: z.string().optional(),
       task: z.string().optional(),
@@ -489,11 +447,11 @@ export function createSessionCreateCommand(
     }),
     handler,
     successMessage: "Session created and started successfully",
-    aliases: ['create'],
+    aliases: ["create"],
     examples: [
-      'minsky session start --task 123',
+      "minsky session start --task 123",
       'minsky session start my-session --description "Working on feature X"',
-      'minsky session start --task 123 --no-auto-start',
+      "minsky session start --task 123 --no-auto-start",
     ],
   });
 }
@@ -505,11 +463,8 @@ export function createSessionCreateCommand(
 /**
  * Registers multiple commands to a parent command
  */
-export function registerCommands(
-  parentCommand: Command,
-  commands: Command[]
-): void {
-  commands.forEach(command => {
+export function registerCommands(parentCommand: Command, commands: Command[]): void {
+  commands.forEach((command) => {
     parentCommand.addCommand(command);
   });
 }
@@ -524,9 +479,9 @@ export function createCommandGroup(
 ): Command {
   const group = new Command(name);
   group.description(description);
-  
+
   registerCommands(group, commands);
-  
+
   return group;
 }
 
@@ -534,9 +489,4 @@ export function createCommandGroup(
 // TYPE EXPORTS
 // ========================
 
-export type {
-  CliCommandHandler,
-  CliCommandConfig,
-  CliListingCommandConfig,
-  CliCrudCommandConfig,
-}; 
+export type { CliCommandHandler, CliCommandConfig, CliListingCommandConfig, CliCrudCommandConfig };

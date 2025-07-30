@@ -219,16 +219,16 @@ export class TaskService {
     if (!isValidTaskStatus(status)) {
       throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
     }
-    
+
     // Delegate to the backend's setTaskStatus method which handles auto-commit
     await this.currentBackend.setTaskStatus(id, status);
-    
+
     // Return the updated task
     const task = await this.getTask(id);
     if (!task) {
       throw new Error(`Task with ID ${id} not found after update`);
     }
-    
+
     return task;
   }
 

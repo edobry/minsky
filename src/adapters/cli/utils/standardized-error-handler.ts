@@ -1,6 +1,6 @@
 /**
  * Standardized CLI Error Handler
- * 
+ *
  * Enhanced error handling for CLI commands that builds on domain validation patterns
  * and standardized response formats from Tasks #322 and #329. Provides consistent
  * error handling with proper exit codes and user-friendly messages.
@@ -65,73 +65,91 @@ export interface ErrorCategory {
   exitCode: CliExitCode;
   suggestions: string[];
   recoverable: boolean;
-  logLevel: 'error' | 'warn' | 'info';
+  logLevel: "error" | "warn" | "info";
 }
 
 /**
  * Maps error types to their categories
  */
 export const ERROR_CATEGORIES: Map<string, ErrorCategory> = new Map([
-  ['ValidationError', {
-    exitCode: CliExitCode.VALIDATION_ERROR,
-    suggestions: [
-      'Check your command syntax and try again',
-      'Use --help to see available options',
-      'Verify that all required parameters are provided',
-    ],
-    recoverable: true,
-    logLevel: 'warn',
-  }],
-  ['ResourceNotFoundError', {
-    exitCode: CliExitCode.RESOURCE_NOT_FOUND,
-    suggestions: [
-      'Verify the resource ID exists',
-      'Check your permissions',
-      'Try listing available resources first',
-    ],
-    recoverable: true,
-    logLevel: 'warn',
-  }],
-  ['ServiceUnavailableError', {
-    exitCode: CliExitCode.SERVICE_UNAVAILABLE,
-    suggestions: [
-      'Try again in a few moments',
-      'Check your network connection',
-      'Verify service status and configuration',
-    ],
-    recoverable: true,
-    logLevel: 'error',
-  }],
-  ['FileSystemError', {
-    exitCode: CliExitCode.FILE_SYSTEM_ERROR,
-    suggestions: [
-      'Check file permissions',
-      'Verify the path exists',
-      'Ensure sufficient disk space',
-    ],
-    recoverable: true,
-    logLevel: 'error',
-  }],
-  ['ConfigurationError', {
-    exitCode: CliExitCode.CONFIGURATION_ERROR,
-    suggestions: [
-      'Check your configuration file',
-      'Run: minsky config show',
-      'Verify environment variables are set',
-    ],
-    recoverable: true,
-    logLevel: 'warn',
-  }],
-  ['GitOperationError', {
-    exitCode: CliExitCode.GIT_OPERATION_ERROR,
-    suggestions: [
-      'Check repository status',
-      'Ensure you have Git permissions',
-      'Try: git status to see repository state',
-    ],
-    recoverable: true,
-    logLevel: 'error',
-  }],
+  [
+    "ValidationError",
+    {
+      exitCode: CliExitCode.VALIDATION_ERROR,
+      suggestions: [
+        "Check your command syntax and try again",
+        "Use --help to see available options",
+        "Verify that all required parameters are provided",
+      ],
+      recoverable: true,
+      logLevel: "warn",
+    },
+  ],
+  [
+    "ResourceNotFoundError",
+    {
+      exitCode: CliExitCode.RESOURCE_NOT_FOUND,
+      suggestions: [
+        "Verify the resource ID exists",
+        "Check your permissions",
+        "Try listing available resources first",
+      ],
+      recoverable: true,
+      logLevel: "warn",
+    },
+  ],
+  [
+    "ServiceUnavailableError",
+    {
+      exitCode: CliExitCode.SERVICE_UNAVAILABLE,
+      suggestions: [
+        "Try again in a few moments",
+        "Check your network connection",
+        "Verify service status and configuration",
+      ],
+      recoverable: true,
+      logLevel: "error",
+    },
+  ],
+  [
+    "FileSystemError",
+    {
+      exitCode: CliExitCode.FILE_SYSTEM_ERROR,
+      suggestions: [
+        "Check file permissions",
+        "Verify the path exists",
+        "Ensure sufficient disk space",
+      ],
+      recoverable: true,
+      logLevel: "error",
+    },
+  ],
+  [
+    "ConfigurationError",
+    {
+      exitCode: CliExitCode.CONFIGURATION_ERROR,
+      suggestions: [
+        "Check your configuration file",
+        "Run: minsky config show",
+        "Verify environment variables are set",
+      ],
+      recoverable: true,
+      logLevel: "warn",
+    },
+  ],
+  [
+    "GitOperationError",
+    {
+      exitCode: CliExitCode.GIT_OPERATION_ERROR,
+      suggestions: [
+        "Check repository status",
+        "Ensure you have Git permissions",
+        "Try: git status to see repository state",
+      ],
+      recoverable: true,
+      logLevel: "error",
+    },
+  ],
 ]);
 
 // ========================
@@ -153,10 +171,10 @@ export function validateCliParameters<T>(
     if (error instanceof ZodError) {
       const formattedError = formatZodError(error, `CLI command '${command}'`);
       const cliError = createCliErrorResponse(formattedError, {
-        errorCode: 'VALIDATION_ERROR',
+        errorCode: "VALIDATION_ERROR",
         command,
         exitCode: CliExitCode.VALIDATION_ERROR,
-        suggestions: ERROR_CATEGORIES.get('ValidationError')?.suggestions,
+        suggestions: ERROR_CATEGORIES.get("ValidationError")?.suggestions,
         verbosity: getEffectiveVerbosity(options),
       });
 
@@ -182,11 +200,11 @@ export function handleValidationResult<T>(
   }
 
   const cliError = createCliErrorResponse(result.error, {
-    errorCode: 'VALIDATION_ERROR',
+    errorCode: "VALIDATION_ERROR",
     command,
     exitCode: CliExitCode.VALIDATION_ERROR,
     details: result.details,
-    suggestions: ERROR_CATEGORIES.get('ValidationError')?.suggestions,
+    suggestions: ERROR_CATEGORIES.get("ValidationError")?.suggestions,
     verbosity: getEffectiveVerbosity(options),
   });
 
@@ -211,12 +229,14 @@ export const isDebugMode = (): boolean =>
  */
 export function getErrorCategory(error: Error): ErrorCategory {
   const errorType = error.constructor.name;
-  return ERROR_CATEGORIES.get(errorType) || {
-    exitCode: CliExitCode.GENERAL_ERROR,
-    suggestions: ['Try again or contact support if the problem persists'],
-    recoverable: false,
-    logLevel: 'error',
-  };
+  return (
+    ERROR_CATEGORIES.get(errorType) || {
+      exitCode: CliExitCode.GENERAL_ERROR,
+      suggestions: ["Try again or contact support if the problem persists"],
+      recoverable: false,
+      logLevel: "error",
+    }
+  );
 }
 
 /**
@@ -238,13 +258,15 @@ export function handleStandardizedCliError(
     exitCode: category.exitCode,
     suggestions: category.suggestions,
     verbosity,
-    details: isDebugMode() ? {
-      stack: normalizedError.stack,
-      cause: normalizedError.cause,
-      ...(normalizedError instanceof MinskyError && {
-        context: (normalizedError as any).context,
-      }),
-    } : undefined,
+    details: isDebugMode()
+      ? {
+          stack: normalizedError.stack,
+          cause: normalizedError.cause,
+          ...(normalizedError instanceof MinskyError && {
+            context: (normalizedError as any).context,
+          }),
+        }
+      : undefined,
   });
 
   // Format and display the error
@@ -286,7 +308,7 @@ export function suggestRecoveryActions(error: Error, command?: string): string[]
 
   // Add debug suggestions for recoverable errors
   if (category.recoverable) {
-    suggestions.push('Run with --debug for more detailed error information');
+    suggestions.push("Run with --debug for more detailed error information");
   }
 
   return suggestions;
@@ -303,10 +325,7 @@ export function isRecoverableError(error: Error): boolean {
 /**
  * Creates a user-friendly error message with context
  */
-export function createUserFriendlyErrorMessage(
-  error: Error,
-  context?: string
-): string {
+export function createUserFriendlyErrorMessage(error: Error, context?: string): string {
   let message = error.message;
 
   // Add context if provided
@@ -372,7 +391,7 @@ export function withParameterValidation<T, R>(
 ) {
   return async (rawParams: unknown): Promise<R> => {
     const validatedParams = validateCliParameters(schema, rawParams, command, options);
-    
+
     try {
       return await handler(validatedParams);
     } catch (error) {
@@ -385,4 +404,4 @@ export function withParameterValidation<T, R>(
 // TYPE EXPORTS
 // ========================
 
-export type { CliOutputOptions }; 
+export type { CliOutputOptions };
