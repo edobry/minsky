@@ -217,50 +217,44 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
 
 /**
  * Apply edit pattern using fast-apply providers
- * Replaces broken string-based pattern matching with AI-powered editing
+ * Uses AI-powered editing to replace legacy string-based pattern matching
  */
 async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
-  try {
-    // Import required dependencies
-    const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
-    const { DefaultAIConfigurationService } = await import("../../domain/ai/config-service");
-    const { getConfiguration } = await import("../../domain/configuration");
+  // Import required dependencies
+  const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+  const { getConfiguration } = await import("../../domain/configuration");
 
-    // Get AI configuration
-    const config = getConfiguration();
-    const aiConfig = config.ai;
+  // Get AI configuration
+  const config = getConfiguration();
+  const aiConfig = config.ai;
 
-    if (!aiConfig?.providers) {
-      throw new Error("No AI providers configured for fast-apply editing");
-    }
+  if (!aiConfig?.providers) {
+    throw new Error("No AI providers configured for fast-apply editing");
+  }
 
-    // Find fast-apply capable provider
-    const fastApplyProviders = Object.entries(aiConfig.providers)
-      .filter(
-        ([name, providerConfig]) =>
-          providerConfig?.enabled &&
-          // Check if provider supports fast-apply (morph for now, extendable)
-          name === "morph"
-      )
-      .map(([name]) => name);
+  // Find fast-apply capable provider (currently Morph, extendable to others)
+  const fastApplyProviders = Object.entries(aiConfig.providers)
+    .filter(
+      ([name, providerConfig]) =>
+        providerConfig?.enabled &&
+        name === "morph" // Add other fast-apply providers here as needed
+    )
+    .map(([name]) => name);
 
-    if (fastApplyProviders.length === 0) {
-      // Fallback to the broken implementation for backward compatibility
-      log.warn("No fast-apply providers available, falling back to legacy pattern matching");
-      return applyEditPatternLegacy(originalContent, editContent);
-    }
+  if (fastApplyProviders.length === 0) {
+    throw new Error("No fast-apply providers available. Please configure a fast-apply capable provider like Morph.");
+  }
 
-    const provider = fastApplyProviders[0];
-    log.debug(`Using fast-apply provider: ${provider}`);
+  const provider = fastApplyProviders[0];
+  log.debug(`Using fast-apply provider: ${provider}`);
 
-    // Create AI completion service
-    const configService = new DefaultAIConfigurationService({
-      loadConfiguration: () => Promise.resolve({ resolved: config }),
-    } as any);
-    const completionService = new DefaultAICompletionService(configService);
+  // Create AI completion service
+  const completionService = new DefaultAICompletionService({
+    loadConfiguration: () => Promise.resolve({ resolved: config }),
+  } as any);
 
-    // Create fast-apply prompt
-    const prompt = `Apply the following edit pattern to the original content:
+  // Create fast-apply prompt
+  const prompt = `Apply the following edit pattern to the original content:
 
 Original content:
 \`\`\`
@@ -279,120 +273,25 @@ Instructions:
 - Preserve all formatting, indentation, and structure
 - Do not include explanations or markdown formatting`;
 
-    // Generate the edited content using fast-apply
-    const response = await completionService.complete({
-      prompt,
-      provider,
-      model: provider === "morph" ? "morph-v3-large" : undefined,
-      temperature: 0.1, // Low temperature for precise edits
-      maxTokens: Math.max(originalContent.length * 2, 4000),
-      systemPrompt:
-        "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
-    });
+  // Generate the edited content using fast-apply
+  const response = await completionService.complete({
+    prompt,
+    provider,
+    model: provider === "morph" ? "morph-v3-large" : undefined,
+    temperature: 0.1, // Low temperature for precise edits
+    maxTokens: Math.max(originalContent.length * 2, 4000),
+    systemPrompt:
+      "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
+  });
 
-    const result = response.content.trim();
+  const result = response.content.trim();
 
-    // Log usage for monitoring
-    log.debug(`Fast-apply edit completed using ${provider}`, {
-      tokensUsed: response.usage.totalTokens,
-      originalLength: originalContent.length,
-      resultLength: result.length,
-    });
-
-    return result;
-  } catch (error) {
-    log.warn(
-      `Fast-apply edit failed, falling back to legacy pattern matching: ${error instanceof Error ? error.message : String(error)}`
-    );
-
-    // Fallback to legacy implementation
-    return applyEditPatternLegacy(originalContent, editContent);
-  }
-}
-
-/**
- * Legacy pattern matching implementation (fallback)
- * Original broken implementation kept for emergency fallback
- */
-function applyEditPatternLegacy(originalContent: string, editContent: string): string {
-  // If no existing code markers, return the edit content as-is
-  if (!editContent.includes("// ... existing code ...")) {
-    return editContent;
-  }
-
-  // Split the edit content by the existing code marker
-  const marker = "// ... existing code ...";
-  const editParts = editContent.split(marker);
-
-  // If we only have one part, something's wrong
-  if (editParts.length < 2) {
-    throw new Error("Invalid edit format: existing code marker found but no content sections");
-  }
-
-  let result = originalContent;
-
-  // Process each pair of before/after content around the markers
-  for (let i = 0; i < editParts.length - 1; i++) {
-    const beforeContent = editParts[i]?.trim() || "";
-    const afterContent = editParts[i + 1]?.trim() || "";
-
-    // Find where to apply this edit
-    if (i === 0 && beforeContent) {
-      // First section - match from the beginning
-      const startIndex = result.indexOf(beforeContent);
-      if (startIndex === -1) {
-        throw new Error(`Could not find content to match: "${beforeContent.substring(0, 50)}..."`);
-      }
-
-      // Find the end of the after content
-      let endIndex = result.length;
-      if (i < editParts.length - 2) {
-        // There's another edit section, find where it starts
-        const nextBefore = editParts[i + 2]?.trim() || "";
-        const nextStart = result.indexOf(nextBefore, startIndex + beforeContent.length);
-        if (nextStart !== -1) {
-          endIndex = nextStart;
-        }
-      } else if (afterContent) {
-        // Last section with after content
-        const afterIndex = result.lastIndexOf(afterContent);
-        if (afterIndex !== -1) {
-          endIndex = afterIndex + afterContent.length;
-        }
-      }
-
-      // Apply the edit
-      result = `${result.substring(0, startIndex) + beforeContent}\n${result.substring(endIndex)}`;
-    } else if (i === editParts.length - 2 && !afterContent) {
-      // Last section with no after content - append
-      result = `${result}\n${beforeContent}`;
-    } else {
-      // Middle sections - need to find and replace between markers
-      // This is a more complex case that needs careful handling
-      // For now, we'll do a simple implementation
-      const searchStart = beforeContent || "";
-      const searchEnd = afterContent || "";
-
-      if (searchStart) {
-        const startIdx = result.indexOf(searchStart);
-        if (startIdx === -1) {
-          throw new Error(`Could not find content to match: "${searchStart.substring(0, 50)}..."`);
-        }
-
-        let endIdx = result.length;
-        if (searchEnd) {
-          const tempEndIdx = result.indexOf(searchEnd, startIdx + searchStart.length);
-          if (tempEndIdx !== -1) {
-            endIdx = tempEndIdx + searchEnd.length;
-          }
-        }
-
-        result = `${result.substring(0, startIdx) + searchStart}\n${
-          searchEnd
-        }${endIdx < result.length ? result.substring(endIdx) : ""}`;
-      }
-    }
-  }
+  // Log usage for monitoring
+  log.debug(`Fast-apply edit completed using ${provider}`, {
+    tokensUsed: response.usage.totalTokens,
+    originalLength: originalContent.length,
+    resultLength: result.length,
+  });
 
   return result;
 }
