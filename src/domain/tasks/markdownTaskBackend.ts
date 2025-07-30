@@ -9,6 +9,7 @@ import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 // @ts-ignore - matter is a third-party library
 import matter from "gray-matter";
+import { createGitService, type GitServiceInterface } from "../git";
 
 import type {
   TaskBackend,
@@ -151,14 +152,96 @@ export class MarkdownTaskBackend implements TaskBackend {
       throw new Error(`Task with id ${id} not found`);
     }
 
-    // Convert string status to TaskStatus type
-    task.status = status as TaskStatus;
+    // Store previous status for commit message
+    const previousStatus = task.status;
 
-    const updatedContent = this.formatTasks(tasks);
+    // Set up git operations for stash/commit/push flow
+    const gitService = createGitService();
+    let hasStashedChanges = false;
 
-    const saveResult = await this.saveTasksData(updatedContent);
-    if (!saveResult.success) {
-      throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
+    try {
+      // Check for uncommitted changes and stash them
+      const workdir = this.getWorkspacePath();
+      const hasUncommittedChanges = await gitService.hasUncommittedChanges(workdir);
+      if (hasUncommittedChanges) {
+        log.cli("📦 Stashing uncommitted changes...");
+        log.debug("Stashing uncommitted changes for task status update", { workdir });
+
+        const stashResult = await gitService.stashChanges(workdir);
+        hasStashedChanges = stashResult.stashed;
+
+        if (hasStashedChanges) {
+          log.cli("✅ Changes stashed successfully");
+        }
+        log.debug("Changes stashed", { stashed: hasStashedChanges });
+      }
+    } catch (statusError) {
+      log.debug("Could not check/stash git status before task status update", {
+        error: statusError,
+      });
+    }
+
+    try {
+      // Convert string status to TaskStatus type
+      task.status = status as TaskStatus;
+
+      const updatedContent = this.formatTasks(tasks);
+
+      const saveResult = await this.saveTasksData(updatedContent);
+      if (!saveResult.success) {
+        throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
+      }
+
+      // Commit and push the changes
+      try {
+        const workdir = this.getWorkspacePath();
+
+        // Check if there are changes to commit
+        const hasChangesToCommit = await gitService.hasUncommittedChanges(workdir);
+        if (hasChangesToCommit) {
+          log.cli("💾 Committing task status change...");
+
+          // Stage all changes
+          await gitService.execInRepository(workdir, "git add -A");
+
+          // Commit with conventional commit message
+          const commitMessage = `chore(#${id}): update task status ${previousStatus} → ${status}`;
+          await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
+
+          log.cli("📤 Pushing changes...");
+
+          // Push changes
+          await gitService.execInRepository(workdir, "git push");
+
+          log.cli("✅ Changes committed and pushed successfully");
+          log.debug("Task status change committed and pushed", { taskId: id, status });
+        }
+      } catch (commitError) {
+        log.warn("Failed to commit task status change", {
+          taskId: id,
+          error: commitError,
+        });
+        log.cli(`⚠️ Warning: Failed to commit changes: ${commitError}`);
+      }
+    } finally {
+      // Restore stashed changes if we stashed them
+      if (hasStashedChanges) {
+        try {
+          log.cli("📂 Restoring stashed changes...");
+          log.debug("Restoring stashed changes after task status update");
+
+          const workdir = this.getWorkspacePath();
+          await gitService.popStash(workdir);
+
+          log.cli("✅ Stashed changes restored successfully");
+          log.debug("Stashed changes restored");
+        } catch (popError) {
+          log.warn("Failed to restore stashed changes", {
+            error: popError,
+          });
+          log.cli(`⚠️ Warning: Failed to restore stashed changes: ${popError}`);
+        }
+      }
     }
   }
 
