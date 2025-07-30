@@ -12,6 +12,9 @@ All notable changes to this project will be documented in this file.
   - Added security notices when credentials are masked
   - Consistent masking across CLI and MCP interfaces
 
+### Fixed
+- **CLI Module Loading Error**: Fixed Bun runtime error "export 'TaskDeleteParameters' not found" when running CLI commands. Corrected type-only exports in domain schemas index by adding `type` keyword to TypeScript type exports, importing schemas/types separately for backward compatibility aliases, and updating imports in files using non-migrated schemas.
+
 ### Added
 - **Task #350 - Active Sessions Command and Task/Session Equivalence Analysis**: Created comprehensive task specification to explore adding a command for listing "active sessions" and analyze its relationship to the ongoing Task #229 task/session equivalence exploration. Investigates potential redundancy scenarios and defines criteria for active sessions in current vs future architecture where task/session equivalence may be implemented.
 
