@@ -604,8 +604,8 @@
 
 - [x] Improve configuration validation system: integrate proper logging, add strictness controls, improve type safety, and document behavior for unknown config fields [#351](process/tasks/351-improve-configuration-validation-system-integrate-proper-logging-add-strictness-controls-improve-type-safety-and-document-behavior-for-unknown-config-fields.md)
 
-- [ ] Implement session cleanup with validation [#353](process/tasks/353-implement-session-cleanup-with-validation.md)
+- [+] Implement session cleanup with validation [#353](process/tasks/353-implement-session-cleanup-with-validation.md)
 
 - [ ] Implement Session Reapply Tool with Fast-Apply Recovery [#354](process/tasks/354-implement-session-reapply-tool-with-fast-apply-recovery.md)
 
-- [+] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [#355](process/tasks/355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
+- [x] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [#355](process/tasks/355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
