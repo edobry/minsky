@@ -201,4 +201,104 @@ describe("Rules Commands", () => {
       }
     });
   });
+
+  describe("rules.list", () => {
+    test("should be registered in command registry", () => {
+      const command = sharedCommandRegistry.getCommand("rules.list");
+      expect(command).toBeDefined();
+      expect(command?.name).toBe("list");
+    });
+
+    test("should exclude content field from returned rules", async () => {
+      // Mock RuleService to return rules with content
+      const mockRules = [
+        {
+          id: "test-rule-1",
+          name: "Test Rule 1",
+          description: "A test rule",
+          content: "This is the rule content that should be excluded",
+          format: "cursor" as const,
+          path: "/mock/path/test-rule-1.mdc",
+          tags: ["test"],
+          globs: ["*.ts"],
+        },
+        {
+          id: "test-rule-2",
+          name: "Test Rule 2",
+          description: "Another test rule",
+          content: "Another rule content that should be excluded",
+          format: "generic" as const,
+          path: "/mock/path/test-rule-2.mdc",
+        },
+      ];
+
+      // Mock the RuleService
+      const { RuleService } = await import("../../../domain/rules");
+      const mockListRules = mock(() => Promise.resolve(mockRules));
+      RuleService.prototype.listRules = mockListRules;
+
+      const command = sharedCommandRegistry.getCommand("rules.list");
+      expect(command).toBeDefined();
+
+      if (command) {
+        const result = await command.execute({
+          format: undefined,
+          tag: undefined,
+          json: true,
+          debug: false,
+        });
+
+        expect(result.success).toBe(true);
+        expect(result.rules).toBeDefined();
+        expect(Array.isArray(result.rules)).toBe(true);
+        expect(result.rules).toHaveLength(2);
+
+        // Verify that content field is excluded from all rules
+        for (const rule of result.rules) {
+          expect(rule).not.toHaveProperty("content");
+          expect(rule).toHaveProperty("id");
+          expect(rule).toHaveProperty("name");
+          expect(rule).toHaveProperty("description");
+          expect(rule).toHaveProperty("format");
+          expect(rule).toHaveProperty("path");
+        }
+
+        // Verify specific rule properties are preserved
+        expect(result.rules[0].id).toBe("test-rule-1");
+        expect(result.rules[0].name).toBe("Test Rule 1");
+        expect(result.rules[0].tags).toEqual(["test"]);
+        expect(result.rules[0].globs).toEqual(["*.ts"]);
+
+        expect(result.rules[1].id).toBe("test-rule-2");
+        expect(result.rules[1].name).toBe("Test Rule 2");
+      }
+    });
+
+    test("should pass through filtering parameters to domain service", async () => {
+      const mockRules = [];
+
+      const { RuleService } = await import("../../../domain/rules");
+      const mockListRules = mock(() => Promise.resolve(mockRules));
+      RuleService.prototype.listRules = mockListRules;
+
+      const command = sharedCommandRegistry.getCommand("rules.list");
+      expect(command).toBeDefined();
+
+      if (command) {
+        await command.execute({
+          format: "cursor",
+          tag: "test-tag",
+          json: true,
+          debug: true,
+        });
+
+        // Verify that the filtering parameters were passed correctly
+        expect(mockListRules).toHaveBeenCalledWith({
+          format: "cursor",
+          tag: "test-tag",
+          debug: true,
+        });
+      }
+    });
+  });
 });

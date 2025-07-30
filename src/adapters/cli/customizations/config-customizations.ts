@@ -83,9 +83,15 @@ function formatFlattenedConfiguration(resolved: any): string {
         }
       } else if (
         typeof value === "string" &&
-        (fullKey.includes("token") || fullKey.includes("password"))
+        (fullKey.includes("token") ||
+          fullKey.includes("password") ||
+          fullKey.includes("apiKey") ||
+          fullKey.includes("api_key") ||
+          fullKey.includes("connectionString") ||
+          fullKey.includes("secret") ||
+          value.includes("(configured)"))
       ) {
-        // Hide sensitive values
+        // Enhanced credential detection - these should already be masked from the MCP command
         result.push(`${fullKey}=*** (hidden)`);
       } else {
         result.push(`${fullKey}=${value}`);
@@ -131,6 +137,12 @@ export function getConfigCustomizations(): {
               } else {
                 // For config list, show flattened key=value pairs
                 output += formatFlattenedConfiguration(result.resolved);
+              }
+
+              // Add security notice if credentials are masked
+              if (result.credentialsMasked) {
+                output +=
+                  "\n\n⚠️  Credentials are masked for security. Use --show-secrets to reveal actual values.";
               }
 
               log.cli(output);
