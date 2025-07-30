@@ -358,7 +358,7 @@
 
 - [ ] Design Containerized Session Workspace Architecture [#190](process/tasks/190-design-containerized-session-workspace-architecture.md)
 
-- [!] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md) - OBSOLETE: Special workspace removed
+- [!] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/193-enhance-task-operations-synchronization-across-workspaces.md)
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [#194](process/tasks/194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
@@ -478,7 +478,7 @@
 
 - [x] Eliminate all testing-boundaries violations across the test suite [#272](process/tasks/272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
-- [!] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md) - OBSOLETE: Special workspace removed
+- [!] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/273-resolve-workspace-architecture-inconsistencies-and-utilize-special-workspace-system.md)
 
 - [x] Fix test isolation issues causing global state interference [#269](process/tasks/269-fix-test-isolation-issues-causing-global-state-interference.md)
 
@@ -548,7 +548,7 @@
 
 - [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
-- [!] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md) - OBSOLETE: Special workspace removed
+- [!] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
 - [x] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [#312](process/tasks/312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
@@ -587,3 +587,5 @@
 - [ ] Apply Type Composition Patterns to CLI Adapters [#330](process/tasks/330-apply-type-composition-patterns-to-cli-adapters.md)
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
+
+- [ ] Create ESLint rule to forbid real filesystem operations in tests [#332](process/tasks/332-create-eslint-rule-to-forbid-real-filesystem-operations-in-tests.md)
