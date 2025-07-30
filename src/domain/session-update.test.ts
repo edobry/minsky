@@ -26,7 +26,13 @@ describe("updateSessionFromParams", () => {
     // Create fresh mocks for each test
     mockGitService = {
       getSessionWorkdir: createMock(() => "/mock/session/workdir"),
-      execInRepository: createMock(() => ""),
+      execInRepository: createMock((workdir, command) => {
+        // Return different values based on the git command
+        if ((command as string).includes("rev-list --left-right --count")) {
+          return Promise.resolve("0\t1"); // 0 commits ahead, 1 behind origin (needs update)
+        }
+        return Promise.resolve("");
+      }),
       stashChanges: createMock(() => Promise.resolve()),
       pullLatest: createMock(() => Promise.resolve()),
       mergeBranch: createMock(() => Promise.resolve({ conflicts: false })),

@@ -51,8 +51,8 @@ describe("Session Git Clone Bug Regression Test", () => {
       clone: cloneSpy,
     });
 
-    // Add branch method not covered by centralized factory
-    (mockGitService as any).branch = branchSpy;
+    // Add branchWithoutSession method not covered by centralized factory
+    (mockGitService as any).branchWithoutSession = branchSpy;
 
     const mockTaskService = createMockTaskService();
 
@@ -126,7 +126,6 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     const mockGitService = createMockGitService({
       clone: cloneSpy,
-      branch: branchSpy,
     });
 
     const mockTaskService = createMockTaskService();
