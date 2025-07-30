@@ -1,4 +1,4 @@
-# Task #345: Exclude Content Field from Rules.list Command Output
+# Exclude Content Field from Rules.list Command Output
 
 ## Context
 
