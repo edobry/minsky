@@ -78,7 +78,7 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [x] Add backend selection for new task creation (selectBackendForNewTask)
 - [x] Create migration utilities between backends with collision tracking (migrateTask, detectCollisions)
 
-### Phase 3: System Integration (High Priority) 🚧 **NEXT PHASE**
+### Phase 3: System Integration (High Priority) 🔄 **IN PROGRESS**
 
 #### 3.1 Session Management Updates
 - [ ] Update session naming to support qualified IDs (`task-md#123`)
@@ -87,12 +87,27 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [ ] Update session path resolution for backend-qualified directories
 - [ ] Ensure backward compatibility with existing sessions
 
-#### 3.2 Git Operations Updates ✅ **ARCHITECTURE SOLVED**
+#### 3.2 Git Operations Updates 🟡 **PARTIALLY COMPLETE**
 - [x] **CRITICAL**: Design git-compatible branch naming strategy (colons `:` are forbidden in git branch names)
 - [x] Use unified format for branches: `task-md#123` everywhere (git-compatible)
 - [x] Implement conversion utilities between task IDs and session names (taskIdToSessionName, sessionNameToTaskId)
 - [ ] Update PR preparation and merge operations for new branch format
 - [ ] Update branch cleanup operations for qualified names
+- [ ] Test git workflows with qualified session names
+
+#### 3.3 Backend Integration Updates
+- [ ] Update existing MarkdownTaskBackend to implement new TaskBackend interface
+- [ ] Add prefix property ("md") to MarkdownTaskBackend
+- [ ] Implement export/import methods for migration support
+- [ ] Test multi-backend service with real backends (not just mocks)
+- [ ] Validate backend registration and routing with existing task service
+
+#### 3.4 Migration & CLI Integration
+- [ ] Create migration CLI command for existing tasks
+- [ ] Update CLI schemas to support qualified IDs (leverage Task #329)
+- [ ] Add backend parameter to relevant task commands
+- [ ] Implement collision detection workflow for user migration
+- [ ] Add progress reporting and rollback capabilities
 - [ ] Update git command integrations throughout the system
 - [ ] Ensure git operations work with both qualified and legacy IDs
 
@@ -319,17 +334,29 @@ Extra Large
 - **Task #329 schema libraries provide the foundation for CLI command schema updates**
 - **Git branch naming must avoid colons and other forbidden characters**
 
-## 🚀 NEXT STEPS
+## 🚀 CURRENT STATUS & REMAINING WORK
 
-**Phase 2: Multi-Backend System Implementation**
-1. **Implement mock factories** for test-driven development
-2. **Build MultiBackendTaskService** with routing logic and backend registration
-3. **Add collision detection** with manual reconciliation reporting
-4. **Create migration utilities** with collision tracking
+**✅ PHASES 1 & 2 COMPLETE (67/67 tests passing)**
+- Unified Task ID System with comprehensive migration support
+- Multi-Backend Service with routing, collision detection, and cross-backend operations
+- Complete mock testing framework for test-driven development
+- Git-compatible architecture design with unified format everywhere
 
-**Phase 3: System Integration**
-5. **Update session management** to use unified task ID format
-6. **Leverage Task #329** domain-wide schemas for CLI updates
-7. **Update git operations** for new session naming
+**🔄 PHASE 3: SYSTEM INTEGRATION (CURRENT FOCUS)**
 
-The foundation is solid with 44/44 tests passing and clean architecture established!
+### **Priority 1: Core Integration**
+1. **Session Management Integration** - Update session naming and metadata for qualified IDs
+2. **Git Operations Completion** - Finalize PR/merge operations with new format
+3. **CLI Schema Updates** - Leverage Task #329 infrastructure for command updates
+
+### **Priority 2: Backend & Migration**  
+4. **Backend Integration** - Update existing MarkdownTaskBackend with new interface
+5. **Migration Tools** - User-facing CLI commands for task migration
+6. **Integration Testing** - End-to-end workflows with real backends
+
+### **Priority 3: Polish & Documentation**
+7. **Performance Testing** - Ensure no regressions with qualified IDs
+8. **User Documentation** - Migration guides and new workflow documentation
+9. **Error Handling** - Comprehensive error scenarios and recovery
+
+**The architectural foundation is solid - Phase 3 focuses on integration and user experience.**
