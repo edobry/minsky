@@ -319,10 +319,34 @@ export class ConfigurationLoader {
         data: result.data,
       };
     } else {
+      // Filter out "unrecognized key" errors and turn them into warnings
+      const criticalIssues = result.error.issues.filter(issue => 
+        !(issue.code === 'unrecognized_keys' || 
+          (issue.message && issue.message.includes('Unrecognized key')))
+      );
+
+      // If only unrecognized key errors, treat as success with warnings
+      if (criticalIssues.length === 0) {
+        // Log warnings for unrecognized keys
+        const warnings = result.error.issues.map(issue => {
+          const path = issue.path?.length > 0 ? issue.path.join('.') : 'root';
+          return `Warning: Unknown configuration field at ${path}: ${issue.message}`;
+        });
+        
+        // Print warnings to stderr
+        warnings.forEach(warning => console.warn(warning));
+
+        // Return success with the original config data (typed as Configuration)
+        return {
+          success: true,
+          data: config as any, // We know it's valid except for unknown keys
+        };
+      }
+
       return {
         success: false,
         error: result.error,
-        issues: result.error.issues,
+        issues: criticalIssues,
       };
     }
   }

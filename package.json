@@ -14,7 +14,9 @@
     "test": "bun test",
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
-    "validate-commit": "bun scripts/validate-commit-message.ts"
+    "validate-commit": "bun scripts/validate-commit-message.ts",
+    "secrets:gitleaks": "gitleaks detect --source . --verbose",
+    "secrets:scan": "gitleaks detect --source . --verbose"
   },
   "bin": {
     "minsky": "./src/cli.ts"

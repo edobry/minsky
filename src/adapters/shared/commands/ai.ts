@@ -134,11 +134,10 @@ export function registerAiCommands(): void {
           exit(1);
         }
 
-        // Create AI completion service with proper configuration service
-        const mockConfigService = {
-          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
-        };
-        const completionService = new DefaultAICompletionService(mockConfigService);
+        const configService = new DefaultAIConfigurationService({
+          loadConfiguration: () => Promise.resolve({ resolved: config }),
+        } as any);
+        const completionService = new DefaultAICompletionService(configService);
 
         const request = {
           prompt,
@@ -437,6 +436,7 @@ export function registerAiCommands(): void {
               }
             } else {
               if (!json) log.cliWarn(`⚠ ${providerName} not configured (missing API key)`);
+              if (!json) log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
             }
 
             validationResults.providers.push(providerResult);
@@ -456,6 +456,7 @@ export function registerAiCommands(): void {
 
             for (const warning of result.warnings) {
               log.cliWarn(`  - ${warning.field}: ${warning.message}`);
+              log.cliWarning(`  - ${warning.field}: ${warning.message}`);
             }
             exit(1);
           }
