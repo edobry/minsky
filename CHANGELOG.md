@@ -16,6 +16,13 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **CLI Module Loading Error**: Fixed Bun runtime error "export 'TaskDeleteParameters' not found" when running CLI commands. Corrected type-only exports in domain schemas index by adding `type` keyword to TypeScript type exports, importing schemas/types separately for backward compatibility aliases, and updating imports in files using non-migrated schemas.
 
+- **Session Approve Error Messages**: Fixed redundant and unfriendly error output from `session approve` command when linting issues occur
+  - Removed duplicate error handling code between wrapper and implementation functions
+  - Eliminated redundant "Warning: Failed to commit task status update:" messages
+  - Removed unfriendly JSON metadata from error output (e.g., `{"taskId":"342","error":{"name":"MinskyError"}}`)
+  - Now shows clean, single error message for linting issues instead of duplicate messages
+  - Improved user experience with clearer error handling flow
+
 ### Added
 
 - **Git Conflict Detection Command with Structured Output** (#342): Implemented comprehensive conflict detection system with JSON/text output:
