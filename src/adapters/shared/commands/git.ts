@@ -403,7 +403,7 @@ export function registerGitCommands(): void {
     name: "conflicts",
     description: "Detect and report merge conflicts in structured format",
     parameters: conflictsCommandParams,
-    execute: async (params, _context) => {
+    execute: async (params, context) => {
       log.debug("Executing git.conflicts command", { params });
 
       const result = await conflictsFromParams({
