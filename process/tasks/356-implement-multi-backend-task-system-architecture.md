@@ -50,7 +50,7 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 
 #### 2.2 Git Operations Updates
 - [ ] **CRITICAL**: Design git-compatible branch naming strategy (colons `:` are forbidden in git branch names)
-- [ ] Use alternative format for branches: `task-md-123` instead of `task#md:123`
+- [ ] Use alternative format for branches: `task-md#123` instead of `task#md:123`
 - [ ] Implement branch name conversion utilities between session names and git branch names
 - [ ] Update PR preparation and merge operations for new branch format
 - [ ] Update branch cleanup operations for qualified names
@@ -119,21 +119,17 @@ type BackendQualifiedId = `${BackendPrefix}:${string}`;
 
 ```typescript
 // Session names: task#md:123 (for display/storage)
-// Git branch names: task-md-123 (git-compatible)
-// PR branch names: pr/task-md-123
+// Git branch names: task-md#123 (git-compatible)
+// PR branch names: pr/task-md#123
 
 function sessionNameToBranchName(sessionName: string): string {
-  // Convert task#md:123 → task-md-123
-  return sessionName.replace('#', '-').replace(':', '-');
+  // Convert task#md:123 → task-md#123
+  return sessionName.replace(':', '-');
 }
 
 function branchNameToSessionName(branchName: string): string {
-  // Convert task-md-123 → task#md:123
-  const parts = branchName.split('-');
-  if (parts.length >= 3 && parts[0] === 'task') {
-    return `task#${parts[1]}:${parts.slice(2).join('-')}`;
-  }
-  return branchName;
+  // Convert task-md#123 → task#md:123
+  return branchName.replace('-', ':');
 }
 ```
 
