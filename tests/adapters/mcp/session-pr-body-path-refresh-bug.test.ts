@@ -11,6 +11,7 @@
 
 import { describe, test, expect, mock, beforeEach, afterEach } from "bun:test";
 import { writeFile, mkdir, rm, readFile } from "fs/promises";
+import { existsSync } from "fs";
 import { join, resolve } from "path";
 
 describe("Session PR Body Content Bug Fix", () => {
@@ -21,8 +22,11 @@ describe("Session PR Body Content Bug Fix", () => {
   beforeEach(async () => {
     await mkdir(testDir, { recursive: true });
     await writeFile(testBodyPath, newBodyContent);
-    // Ensure file is fully written and synced
-    await new Promise(resolve => setTimeout(resolve, 50));
+    // Force filesystem sync by reading back the file to ensure it's fully written
+    const verifyContent = await readFile(testBodyPath, "utf-8");
+    if (verifyContent !== newBodyContent) {
+      throw new Error(`File content verification failed in beforeEach`);
+    }
   });
 
   afterEach(async () => {
@@ -159,9 +163,11 @@ describe("Session PR Body Content Bug Fix", () => {
       expect(filePath).toBe(testBodyPath); // Should be absolute already
 
       try {
-        // Add a small delay to ensure file write is complete
-        await new Promise(resolve => setTimeout(resolve, 10));
-        
+        // Verify file exists and is readable before proceeding
+        if (!existsSync(filePath)) {
+          throw new Error(`File does not exist: ${filePath}`);
+        }
+
         const fileContent = await readFile(filePath, "utf-8");
         expect(fileContent).toBeDefined();
         expect(typeof fileContent).toBe("string");

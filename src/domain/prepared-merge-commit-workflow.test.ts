@@ -182,13 +182,13 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // This test demonstrates that sessionPrFromParams should use dependency injection
       // to call preparePr, but currently it calls preparePrFromParams statically.
       // This is an architectural limitation that requires a larger refactor.
-      
+
       // For now, we'll skip this test as it requires global state mutation to mock,
       // which violates the no-dynamic-imports rule and proper DI principles.
-      
+
       // TODO: Refactor sessionPrFromParams to accept preparePr as a dependency
       // so that it can be properly mocked without global state mutation.
-      
+
       expect(true).toBe(true); // Placeholder assertion
     });
   });

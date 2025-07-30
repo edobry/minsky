@@ -111,9 +111,7 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should create new PR when no existing PR and title provided", async () => {
       // Mock PR branch doesn't exist
-      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")) = mock(() =>
-        Promise.resolve("")
-      ); // remote branch check (empty = doesn't exist)
+      mockGitService.execInRepository = mock(() => Promise.resolve("")); // remote branch check (empty = doesn't exist)
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({
@@ -141,9 +139,7 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should error when no existing PR and no title provided", async () => {
       // Mock PR branch doesn't exist
-      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")) = mock(() =>
-        Promise.resolve("")
-      ); // remote branch check (empty = doesn't exist)
+      mockGitService.execInRepository = mock(() => Promise.resolve("")); // remote branch check (empty = doesn't exist)
 
       await expect(
         sessionPrFromParams({
