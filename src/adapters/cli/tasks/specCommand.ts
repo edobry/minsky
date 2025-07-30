@@ -4,7 +4,7 @@
 import { Command } from "commander";
 import { log } from "../../../utils/logger";
 import { getTaskSpecContentFromParams, normalizeTaskId } from "../../../domain/tasks";
-import type { TaskSpecContentParams } from "../../../schemas/tasks";
+import type { TaskSpecParameters } from "../../../domain/schemas";
 import { ValidationError } from "../../../errors/index";
 import {
   addRepoOptions,
@@ -58,10 +58,14 @@ export function createSpecCommand(): Command {
       const normalizedParams = normalizeTaskParams(options);
 
       // Convert CLI options to domain parameters
-      const params: TaskSpecContentParams = {
+      const params: TaskSpecParameters = {
         ...normalizedParams,
         taskId: normalizedTaskId,
         section: options.section,
+        debug: false,
+        format: options.json ? "json" : "text",
+        quiet: false,
+        force: false,
       };
 
       // Call the domain function

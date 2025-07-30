@@ -43,7 +43,7 @@ import {
   type TaskCreateFromTitleAndDescriptionParams,
   type TaskSpecContentParams,
   type TaskDeleteParams,
-} from "../../schemas/tasks";
+} from "../../domain/schemas";
 
 /**
  * List tasks with given parameters

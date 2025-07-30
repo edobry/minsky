@@ -1,4 +1,4 @@
-import type { SessionGetParams } from "../../schemas/session";
+import type { SessionGetParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { Session, SessionProviderInterface, SessionDependencies } from "../types";
@@ -10,7 +10,7 @@ import { ResourceNotFoundError, ValidationError } from "../../errors/index";
  * Now includes auto-detection capabilities via unified session context resolver
  */
 export async function sessionGet(
-  params: SessionGetParams,
+  params: SessionGetParameters,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
   }

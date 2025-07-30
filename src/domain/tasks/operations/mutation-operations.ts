@@ -14,7 +14,7 @@ import {
   type TaskCreateParams,
   type TaskCreateFromTitleAndDescriptionParams,
   type TaskDeleteParams,
-} from "../../../schemas/tasks";
+} from "../../../domain/schemas";
 import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-operation";
 import { createFormattedValidationError } from "../../../utils/zod-error-formatter";
 
