@@ -153,8 +153,14 @@ describe("Session PR Body Content Bug Fix", () => {
       // Test the actual file reading logic that works with --body-path
       const filePath = resolve(testBodyPath);
 
+      // Verify file exists first
+      expect(filePath).toBe(testBodyPath); // Should be absolute already
+
       const fileContent = await readFile(filePath, "utf-8");
-      const content = typeof fileContent === "string" ? fileContent : fileContent.toString();
+      expect(fileContent).toBeDefined();
+
+      const content = fileContent.toString();
+      expect(typeof content).toBe("string");
 
       expect(content).toBe(newBodyContent);
       expect(content.trim()).not.toBe("");
