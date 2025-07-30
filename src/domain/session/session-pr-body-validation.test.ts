@@ -18,7 +18,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { sessionPrImpl } from "./session-pr-operations";
-import { ValidationError } from "../errors";
+import { ValidationError, MinskyError } from "../errors";
 import {
   createMockGitService,
   createMockSessionProvider,
@@ -106,7 +106,7 @@ describe("Session PR Body Validation Bug Fix", () => {
       throw new Error("Expected ValidationError for new PR without body, but none was thrown");
     } catch (error) {
       // After our fix, this should be a ValidationError about missing body
-      expect(error).toBeInstanceOf(ValidationError);
+      expect(error).toBeInstanceOf(MinskyError);
       expect((error as ValidationError).message).toContain("PR description is required");
     }
   });

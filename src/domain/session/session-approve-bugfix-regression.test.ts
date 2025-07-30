@@ -217,6 +217,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         getSessionByTaskId: () =>
           Promise.resolve({
             session: "test-session",
+            repoName: "test-repo",
             repoUrl: "/test/repo",
             taskId: "123",
             createdAt: new Date().toISOString(),
@@ -224,6 +225,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         getSession: () =>
           Promise.resolve({
             session: "test-session",
+            repoName: "test-repo",
             repoUrl: "/test/repo",
             taskId: "123",
             createdAt: new Date().toISOString(),
@@ -282,6 +284,13 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Mock task service to prevent early exit for DONE tasks
       const mockTaskService = {
         getTaskStatus: mock(() => Promise.resolve("IN-PROGRESS")), // Ensure task is not DONE
+        getTask: mock(() =>
+          Promise.resolve({
+            id: "123",
+            title: "Test Task",
+            status: "IN-PROGRESS",
+          })
+        ), // Add missing getTask method
       };
 
       const mockSessionDB = createMockSessionProvider({
