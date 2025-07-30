@@ -4,6 +4,20 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- **Task #356**: Comprehensive multi-backend task system architecture design
+  - Created new task for implementing backend-qualified task IDs (`md:123`, `gh:456`, `json:789`)
+  - Designed architecture to prevent ID conflicts during backend migration
+  - Comprehensive analysis of system-wide impact on sessions, git operations, file paths
+  - Phased implementation plan with backward compatibility strategy
+
+### Changed
+- **Task #138**: Updated GitHub Issues backend task to depend on multi-backend architecture
+  - Reduced scope from Extra Large (20-30h) to Medium (4-8h) by separating concerns
+  - Updated to focus on adapting existing GitHub backend to multi-backend system
+  - Made prerequisite dependency on Task #356 explicit
+  - GitHub backend implementation remains complete and ready for integration
+
 ### Security
 
 - **CRITICAL FIX**: Fixed security vulnerability in config list command that exposed API keys and GitHub tokens in plain text (#337)
