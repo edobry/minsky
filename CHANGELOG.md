@@ -15,6 +15,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Git Conflict Detection Command with Structured Output** (#342): Implemented comprehensive conflict detection system with JSON/text output:
+  - Added `minsky git conflicts` command for detecting merge conflicts in repositories
+  - Added `minsky session conflicts` command for session workspace conflict scanning
+  - Support for file pattern filtering (e.g., `*.ts`) and configurable context lines
+  - Structured JSON output with conflict block details, line numbers, and content
+  - Text output mode for human-readable conflict summaries
+  - Reuses existing `analyzeConflictRegions` logic for consistency
+  - Auto-detection of current session context when no session specified
+  - Proper integration with shared command registry and CLI/MCP interfaces
+
 - **Domain-Wide Schema Libraries for Cross-Interface Type Composition** (#329): Implemented comprehensive schema architecture that extends Task #322's type composition patterns to work across CLI, MCP, and future API interfaces:
 
   - Created modular schema libraries in `src/domain/schemas/` covering tasks, sessions, files, and common types
