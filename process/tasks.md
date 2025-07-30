@@ -603,3 +603,4 @@
 - [ ] Explore Active Sessions Command and Task/Session Equivalence Analysis [#350](process/tasks/350-explore-active-sessions-command-and-task-session-equivalence-analysis.md)
 
 - [+] Improve configuration validation system: integrate proper logging, add strictness controls, improve type safety, and document behavior for unknown config fields [#351](process/tasks/351-improve-configuration-validation-system-integrate-proper-logging-add-strictness-controls-improve-type-safety-and-document-behavior-for-unknown-config-fields.md)
+- [ ] Implement session cleanup with validation [#353](process/tasks/353-implement-session-cleanup-with-validation.md)
