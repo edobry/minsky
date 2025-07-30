@@ -322,11 +322,11 @@ Currently, a GitHub Issues backend has been implemented but only works within th
 
 ### Configuration & Migration
 
-- [ ] Add GitHub repository configuration options
-- [ ] Implement GitHub token management
-- [ ] Support for repository selection and validation
-- [ ] Create task ID migration utilities
-- [ ] Implement graceful fallback mechanisms
+- [x] Add GitHub repository configuration options
+- [x] Implement GitHub token management
+- [x] Support for repository selection and validation
+- [ ] Create task ID migration utilities (depends on Task 161 Phase 0)
+- [x] Implement graceful fallback mechanisms
 
 ### Error Handling
 
@@ -399,3 +399,27 @@ Medium (4-8 hours) - reduced scope due to dependency on Task #356 for multi-back
   - Reduced scope of this task to focus on GitHub backend adaptation only
   - Updated priority and effort estimates to reflect dependency
   - GitHub backend implementation remains complete and ready for integration
+
+- 2025-01-28: Production readiness improvements completed (while awaiting Task 161 Phase 0)
+  - **Documentation Package**: Created comprehensive GitHub Issues backend setup guide
+    - Setup instructions with step-by-step GitHub token configuration
+    - Usage examples for basic task operations and session workflows
+    - Troubleshooting guide for common authentication and connectivity issues
+    - Best practices for security, team collaboration, and performance
+    - Migration guide from other backends and hybrid workflow strategies
+  - **CLI Enhancements**: Added GitHub-specific CLI commands for validation and testing
+    - `minsky github test` command for connectivity and authentication testing
+    - `minsky github status` command for configuration validation and diagnostics
+    - Enhanced error messages with specific troubleshooting guidance
+    - Verbose output options for detailed debugging information
+  - **Integration Tests**: Created GitHub API integration test suite (separate from main tests)
+    - Tests GitHub API connectivity, authentication, and repository access
+    - Tests issue creation, label management, and status updates
+    - Tests rate limiting handling and error scenarios
+    - Automatic test cleanup to avoid repository pollution
+    - Configurable test repository and comprehensive test coverage
+    - **Note**: Integration tests are isolated and must be run explicitly with real GitHub token
+  - **Architectural Clarity**: Enhanced GitHub Issues backend to properly error when incompatible
+    - Clear error message explaining repository backend requirements
+    - Integration with Task 161 Phase 0 repository backend auto-detection work
+    - Prepared for seamless integration once repository backend architecture is complete

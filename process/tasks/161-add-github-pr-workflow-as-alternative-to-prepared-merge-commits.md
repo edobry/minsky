@@ -22,9 +22,103 @@ This task proposes adding a GitHub PR workflow that automatically selects the ap
 1. **Prepared Merge Commit Workflow**: Used for local/remote Git repositories (platform-agnostic)
 2. **GitHub PR Workflow**: Used for GitHub repositories (leverages GitHub platform features)
 
+**CRITICAL DISCOVERY**: During Task #138 implementation, we discovered that repository backends exist but are not integrated into the configuration system. Task backends (like GitHub Issues) are incorrectly parsing git remotes directly instead of receiving repository information from repository backends. This violates the intended architecture where repository backends should provide repository information to task backends.
+
+This architectural gap must be resolved before implementing the PR workflow, as the workflow selection depends on knowing which repository backend is active.
+
 ## Requirements
 
-### 1. Repository Backend Integration
+### Phase 0: Repository Backend Integration (FOUNDATIONAL)
+
+**Problem**: Repository backends exist but aren't integrated with the configuration system or task backends. The current GitHub Issues task backend incorrectly parses git remotes directly, violating the intended architecture.
+
+**Solution**: Implement repository backend auto-detection and integration using the KISS principle.
+
+#### 0.1. Repository Backend Auto-Detection
+
+**Simple auto-detection based on immediate git remote URL (no complex chaining):**
+
+```typescript
+function detectRepositoryBackend(workdir: string): RepositoryBackendType {
+  const remote = execSync('git remote get-url origin', { cwd: workdir });
+  
+  if (remote.includes('github.com')) return 'github';
+  if (remote.includes('gitlab.com')) return 'gitlab';  
+  return remote.startsWith('/') ? 'local' : 'remote';
+}
+```
+
+**Design Rationale**: 
+- **KISS Principle**: No complex remote chaining or configuration
+- **Follows Git Conventions**: Uses standard `origin` remote
+- **Team Consistency**: Same remote = same backend for everyone
+- **Natural Workflow**: Follows patterns developers already know
+
+#### 0.2. Repository Backend Integration with Task Services
+
+**Current Problem**:
+```typescript
+// WRONG: Task backends parsing git remotes directly
+githubConfig = getGitHubBackendConfig(backendConfig.workspacePath);
+```
+
+**Correct Architecture**:
+```typescript
+// RIGHT: Task backends getting repo info from repository backends  
+repositoryBackend = detectAndCreateRepositoryBackend(workdir);
+githubConfig = repositoryBackend.getGitHubInfo();
+```
+
+**Implementation**:
+1. **TaskService Integration**: TaskService detects repository backend and creates instance
+2. **Repository Info Propagation**: Task backends receive repository information from repository backend
+3. **Remove Direct Git Parsing**: Eliminate git remote auto-detection from task backends
+
+#### 0.3. Task Backend Compatibility Validation
+
+**Compatibility Matrix**:
+- **GitHub Issues Task Backend**: Requires GitHub repository backend
+- **Markdown Task Backend**: Compatible with any repository backend
+- **JSON File Task Backend**: Compatible with any repository backend
+
+**Validation Logic**:
+```typescript
+function validateTaskBackendCompatibility(repoBackend: string, taskBackend: string) {
+  if (taskBackend === 'github-issues' && repoBackend !== 'github') {
+    throw new Error(
+      'GitHub Issues task backend requires GitHub repository backend. ' +
+      'Current repository backend: ' + repoBackend
+    );
+  }
+}
+```
+
+**Session Behavior**: 
+- **Existing sessions** with local remotes cannot use GitHub Issues backend (correct behavior)
+- **New sessions** created with GitHub repository backend will work with GitHub Issues
+- **No migration needed**: Clean separation, no configuration complexity
+
+#### 0.4. Backend Change Handling
+
+**Remote URL Changes**: When repository remote changes (e.g., GitHub→GitLab):
+- Repository backend auto-detection updates automatically
+- Task backend compatibility re-validated
+- **Task Freezing**: Tasks may become read-only when source backend unavailable (see Task #356)
+- **Graceful Degradation**: Clear error messages for incompatible combinations
+
+#### 0.5. Repository vs Task Backend Separation
+
+**Clear Architectural Separation**:
+- **Repository Backend**: Where code lives (GitHub, GitLab, local)
+- **Task Backend**: Where tasks live (GitHub Issues, markdown, JSON)
+- **Independence**: Task backend choice independent of repository backend (where compatible)
+
+**Benefits**:
+- **Future GitHub Enterprise**: Auto-detects GitHub backend regardless of domain
+- **Future GitLab Issues**: GitLab repository backend + GitLab Issues task backend
+- **Mixed Workflows**: GitHub repository + local markdown tasks (valid combination)
+
+### 1. Repository Backend Interface Extension
 
 - **Automatic Workflow Selection**: Repository backend determines the appropriate PR workflow
   - **LocalGitBackend/RemoteGitBackend**: Use prepared merge commit workflow
@@ -156,6 +250,14 @@ minsky session approve
 
 ## Implementation Steps
 
+### Phase 0: Repository Backend Integration (FOUNDATIONAL)
+
+1. **Repository Backend Auto-Detection**: Implement simple remote URL detection (no chaining)
+2. **TaskService Integration**: Integrate repository backend detection and instantiation
+3. **Task Backend Compatibility**: Add validation for task/repository backend combinations
+4. **GitHub Issues Backend Fix**: Remove direct git remote parsing, use repository backend
+5. **Session Validation**: Ensure existing sessions error gracefully with incompatible backends
+
 ### Phase 1: Repository Backend Interface Extension
 
 1. **Extend RepositoryBackend Interface**: Add PR workflow methods to the base interface
@@ -178,6 +280,16 @@ minsky session approve
 4. **Basic Validation**: Validate PR titles and ensure branches exist
 
 ## Verification
+
+### Phase 0: Repository Backend Integration
+
+- [ ] Repository backend auto-detection works for GitHub, GitLab, local, and remote repositories
+- [ ] TaskService creates appropriate repository backend instance based on detection
+- [ ] GitHub Issues task backend receives repository info from GitHub repository backend (no direct git parsing)
+- [ ] Task backend compatibility validation prevents incompatible combinations
+- [ ] Existing sessions with local remotes error gracefully when attempting to use GitHub Issues backend
+- [ ] New sessions created with GitHub repository backend work correctly with GitHub Issues task backend
+- [ ] Clear error messages provided for all incompatible backend combinations
 
 ### Core Functionality
 
@@ -208,10 +320,15 @@ minsky session approve
 
 ## Dependencies
 
-- **Task #014**: Repository backend support (GitHub backend)
-- **Task #138**: GitHub Issues support (GitHub API authentication)
-- **Task #025**: Prepared merge commit workflow (existing behavior)
-- **Task #144**: Fixed prepared merge commit implementation
+- **Task #014**: Repository backend support (GitHub backend) - **PARTIALLY COMPLETE**
+  - ✅ Repository backend implementations exist
+  - ❌ Repository backend configuration integration (addressed in Phase 0)
+- **Task #138**: GitHub Issues support (GitHub API authentication) - **COMPLETE WITH ARCHITECTURAL FIX**
+  - ✅ GitHub Issues task backend exists
+  - ❌ Currently parses git remotes directly (fixed in Phase 0)
+- **Task #025**: Prepared merge commit workflow (existing behavior) - **COMPLETE**
+- **Task #144**: Fixed prepared merge commit implementation - **COMPLETE**
+- **Task #356**: Multi-backend task system architecture (task freezing behavior) - **REFERENCED**
 
 ## Benefits
 
@@ -244,3 +361,31 @@ This task provides **automatic workflow selection** based on repository type, el
 3. **Seamless experience** where the same commands work with any repository type
 
 The implementation maintains the session-first, task-oriented approach while automatically leveraging the most appropriate workflow for each repository backend.
+
+### Critical Architectural Foundation (Phase 0)
+
+**Discovery**: During Task #138 implementation, we identified that repository backends exist but are not properly integrated with the configuration system. Task backends were incorrectly parsing git remotes directly instead of receiving repository information from repository backends.
+
+**Design Decisions**:
+
+1. **Simple Auto-Detection (KISS)**: Repository backend determined by immediate git remote URL only
+   - No complex chaining or configuration required
+   - Follows standard git conventions (origin remote)
+   - Natural workflow that developers already understand
+
+2. **Clean Architecture Separation**:
+   - **Repository Backend**: Where code lives (GitHub, GitLab, local)
+   - **Task Backend**: Where tasks live (GitHub Issues, markdown, JSON)
+   - **Compatibility Validation**: Some combinations require specific pairings
+
+3. **Session Behavior**:
+   - Existing sessions with local remotes cannot use GitHub Issues (correct behavior)
+   - New sessions created with appropriate repository backend enable full functionality
+   - No complex migration needed - clean separation principle
+
+4. **Graceful Degradation**:
+   - Clear error messages for incompatible backend combinations
+   - Task freezing when repository backend changes (see Task #356)
+   - Backward compatibility maintained for all existing workflows
+
+This foundational work (Phase 0) is essential before implementing the PR workflow features, as the workflow selection mechanism depends on proper repository backend integration.

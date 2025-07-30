@@ -264,7 +264,7 @@
 
 - [ ] Task: Implement Todoist Backend Integration [#137](process/tasks/137-task-implement-todoist-backend-integration.md)
 
-- [+] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
+- [x] Add GitHub Issues Support as Task Backend [#138](process/tasks/138-add-github-issues-support-as-task-backend.md)
 
 - [x] Add Session Context Autodetection [#139](process/tasks/139-add-session-context-autodetection.md)
 
@@ -613,3 +613,5 @@
 - [+] Implement Multi-Backend Task System Architecture [#356](process/tasks/356-implement-multi-backend-task-system-architecture.md)
 
 - [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
+
+- [ ] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)

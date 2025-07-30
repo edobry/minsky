@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
   - Includes detailed requirements, GitHub API integration strategy, and backwards compatibility preservation
   - Enables comprehensive PR management workflow within Minsky CLI ecosystem
 
-- **Task #310**: PR approval and merge decoupling exploration
+- **Task #358**: PR approval and merge decoupling exploration
   - Created foundational task to explore separating PR approval from merge operations
   - Analyzes current coupling in session approve command and repository backends
   - Proposes enhanced repository backend interface with separate approval/merge methods
