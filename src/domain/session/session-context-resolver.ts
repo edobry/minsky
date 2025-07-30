@@ -8,7 +8,7 @@
 
 import { log } from "../../utils/logger";
 import { ValidationError, ResourceNotFoundError, getErrorMessage } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import { getCurrentSession, getCurrentSessionContext } from "../workspace";
 import type { SessionProviderInterface } from "../session";
 import { createSessionProvider } from "../session";

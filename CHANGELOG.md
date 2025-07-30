@@ -1,6 +1,16 @@
 # Changelog
 
+All notable changes to this project will be documented in this file.
+
 ## [Unreleased]
+
+### Security
+- **CRITICAL FIX**: Fixed security vulnerability in config list command that exposed API keys and GitHub tokens in plain text (#337)
+  - Added credential masking by default for all sensitive values
+  - Added `--show-secrets` flag for intentional credential exposure with security warning
+  - Applied comprehensive credential detection (API keys, tokens, connection strings, secrets)
+  - Added security notices when credentials are masked
+  - Consistent masking across CLI and MCP interfaces
 
 ### Added
 - **Task #350 - Active Sessions Command and Task/Session Equivalence Analysis**: Created comprehensive task specification to explore adding a command for listing "active sessions" and analyze its relationship to the ongoing Task #229 task/session equivalence exploration. Investigates potential redundancy scenarios and defines criteria for active sessions in current vs future architecture where task/session equivalence may be implemented.

@@ -1,4 +1,4 @@
-import type { SessionStartParams } from "../../schemas/session";
+import type { SessionStartParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { TaskService } from "../../tasks";
@@ -15,7 +15,7 @@ import * as WorkspaceUtils from "../../workspace";
  * Using proper dependency injection for better testability
  */
 export async function sessionStart(
-  params: SessionStartParams,
+  params: SessionStartParameters,
   depsInput?: SessionCreateDependencies
 ): Promise<Session> {
   // Validate parameters using Zod schema (already done by type)
@@ -27,7 +27,7 @@ export async function sessionStart(
     branch,
     noStatusUpdate,
     quiet,
-    json,
+    format,
     skipInstall,
     packageManager,
   } = params;

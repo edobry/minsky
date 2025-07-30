@@ -1,4 +1,4 @@
-import type { SessionDeleteParams } from "../../schemas/session";
+import type { SessionDeleteParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { SessionProviderInterface, SessionDependencies } from "../types";
 
@@ -7,7 +7,7 @@ import { SessionProviderInterface, SessionDependencies } from "../types";
  * Using proper dependency injection for better testability
  */
 export async function sessionDelete(
-  params: SessionDeleteParams,
+  params: SessionDeleteParameters,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
   }
