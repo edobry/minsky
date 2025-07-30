@@ -24,6 +24,12 @@ All notable changes to this project will be documented in this file.
 
 - **CLI Module Loading Error**: Fixed Bun runtime error "export 'TaskDeleteParameters' not found" when running CLI commands. Corrected type-only exports in domain schemas index by adding `type` keyword to TypeScript type exports, importing schemas/types separately for backward compatibility aliases, and updating imports in files using non-migrated schemas.
 
+- **Session Conflicts Error Output**: Fixed unfriendly error output from `session conflicts` command that displayed empty objects and confusing metadata
+  - Removed unfriendly "Error scanning session for conflicts" logs with empty `{"error":{},"params":{},"options":{"format":"json","context":3}}`
+  - Only log meaningful context when it adds value beyond the error message itself
+  - Suppress intermediate error logs when using default parameters
+  - Maintain helpful logging when custom parameters are provided
+
 - **Session Approve Error Messages**: Fixed redundant and unfriendly error output from `session approve` command when linting issues occur
   - Removed duplicate error handling code between wrapper and implementation functions
   - Eliminated redundant "Warning: Failed to commit task status update:" messages
