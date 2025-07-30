@@ -24,12 +24,15 @@ This task proposes adding a GitHub PR workflow that automatically selects the ap
 
 ## Requirements
 
-### 1. Repository Backend Integration
+### 1. Repository Backend PR Interface Extension
 
+**Migrate existing session PR logic to repository backends:**
+
+- **Current Issue**: Session commands contain PR workflow logic that should be in repository backends
+- **Solution**: Move `session pr` and `session approve` logic into repository backend implementations
 - **Automatic Workflow Selection**: Repository backend determines the appropriate PR workflow
   - **LocalGitBackend/RemoteGitBackend**: Use prepared merge commit workflow
   - **GitHubBackend**: Use GitHub PR workflow
-- **Repository Backend Interface**: Extend the repository backend interface to include PR workflow methods
 - **No Manual Configuration**: Workflow selection is automatic based on repository type
 
 ### 2. Repository Backend Interface Extension
@@ -66,53 +69,28 @@ interface MergeInfo {
 **GitHub Backend PR Creation:**
 
 1. **Create GitHub PR**: Create PR directly from feature branch to base branch using GitHub API
-2. **Task Status Update**: Update task status to IN-REVIEW
-3. **PR Metadata Storage**: Store GitHub PR information in task metadata
+2. **Return PR Information**: Return GitHub PR metadata
 
 **Local/Remote Backend PR Creation:**
 
 1. **Prepared Merge Commit**: Create PR branch with prepared merge commit (existing behavior)
-2. **Task Status Update**: Update task status to IN-REVIEW
-3. **PR Metadata Storage**: Store prepared merge commit information in task metadata
+2. **Return PR Information**: Return prepared merge commit metadata
 
 ### 3. Backend-Specific Approval Workflows
 
-**GitHub Backend Approval (`session approve` with GitHub repository):**
+**GitHub Backend Approval:**
 
 1. **Merge via GitHub API**: Use GitHub's default merge strategy
-2. **Task Status Update**: Update task status to DONE
-3. **Metadata Update**: Store GitHub merge information in task metadata
+2. **Return Merge Information**: Return GitHub merge metadata
 
-**Local/Remote Backend Approval (`session approve` with local/remote repository):**
+**Local/Remote Backend Approval:**
 
 1. **Fast-Forward Merge**: Merge prepared merge commit to main branch (existing behavior)
 2. **Push Changes**: Push updated main branch to remote
 3. **Branch Cleanup**: Delete PR branch after merge
-4. **Task Status Update**: Update task status to DONE
-5. **Metadata Update**: Store merge commit information in task metadata
+4. **Return Merge Information**: Return merge commit metadata
 
-### 4. Enhanced Task Metadata
-
-**Extend task metadata to support both workflows:**
-
-```yaml
----
-# Existing prepared merge commit fields
-merge_info:
-  commit_hash: abc123...
-  merge_date: 2023-06-15T14:32:00Z
-  merged_by: username
-
-# New GitHub PR fields
-github_pr:
-  pr_number: 123
-  pr_url: https://github.com/org/repo/pull/123
-  created_at: 2023-06-15T14:30:00Z
-  merged_at: 2023-06-15T14:35:00Z
----
-```
-
-### 5. Command Line Interface
+### 4. Command Line Interface
 
 **Unified session commands (workflow automatically determined by repository backend):**
 
@@ -130,6 +108,14 @@ minsky session approve
 - `--title`: PR title (for GitHub) or merge commit title (for local/remote)
 - `--body`: PR body (for GitHub) or merge commit body (for local/remote)
 
+### 5. Command Audit and Migration
+
+**Audit existing commands for repository backend logic:**
+
+- Review all session and git commands for logic that belongs in repository backends
+- Migrate appropriate logic from command layer to repository backend layer
+- Ensure commands delegate to repository backends rather than implementing Git operations directly
+
 ### 6. Authentication Integration
 
 **Reuse existing GitHub authentication** from Task #138:
@@ -146,7 +132,6 @@ minsky session approve
 - Local/Remote Git repositories continue using prepared merge commit workflow
 - GitHub repositories automatically use GitHub PR workflow when configured
 - No breaking changes to existing functionality
-- Existing task metadata format remains compatible
 
 **Automatic behavior:**
 
@@ -159,18 +144,25 @@ minsky session approve
 ### Phase 1: Repository Backend Interface Extension
 
 1. **Extend RepositoryBackend Interface**: Add PR workflow methods to the base interface
-2. **Local/Remote Backend Implementation**: Implement PR methods using existing prepared merge commit logic
-3. **GitHub Backend Enhancement**: Add PR creation/merge capabilities to existing GitHub backend (Task #014)
+2. **Local/Remote Backend Implementation**: Migrate existing session PR logic to local/remote backends
+3. **GitHub Backend Enhancement**: Add PR creation/merge capabilities to existing GitHub backend
 4. **GitHub API Integration**: Implement GitHub REST API client for PR operations
 
-### Phase 2: Session Command Integration
+### Phase 2: Session Command Migration
 
-1. **Backend-Aware Commands**: Update session commands to call repository backend PR methods
-2. **Unified Interface**: Single `session pr` and `session approve` interface that works with any backend
-3. **Option Filtering**: GitHub-specific options only available when using GitHub backend
-4. **Task Metadata**: Extend task metadata schema for both workflow types
+1. **Backend-Aware Commands**: Update session commands to delegate to repository backend PR methods
+2. **Command Logic Migration**: Move PR workflow logic from session commands to repository backends
+3. **Unified Interface**: Single `session pr` and `session approve` interface that works with any backend
+4. **Option Filtering**: GitHub-specific options only available when using GitHub backend
 
-### Phase 3: Basic Error Handling
+### Phase 3: Command Audit and Cleanup
+
+1. **Command Audit**: Review all session and git commands for repository backend logic
+2. **Logic Migration**: Move appropriate logic from commands to repository backends
+3. **Command Simplification**: Simplify commands to delegate to repository backends
+4. **Interface Consistency**: Ensure consistent repository backend interface usage
+
+### Phase 4: Basic Error Handling
 
 1. **GitHub API Errors**: Handle basic GitHub API failures gracefully
 2. **Authentication Errors**: Provide clear messages for auth failures
@@ -183,22 +175,24 @@ minsky session approve
 
 - [ ] GitHub repositories automatically use GitHub PR workflow with `session pr`
 - [ ] Local/Remote repositories continue using prepared merge commit workflow with `session pr`
-- [ ] Task metadata includes appropriate information for each workflow type
-- [ ] GitHub default merge strategy works correctly
-
-### Backend Integration
-
 - [ ] Repository backend interface extended with PR workflow methods
 - [ ] GitHub backend implements PR creation and merging via GitHub API
 - [ ] Local/Remote backends implement PR methods using existing prepared merge logic
 - [ ] Automatic workflow selection based on repository backend type
+
+### Command Migration
+
+- [ ] Session commands delegate to repository backend PR methods
+- [ ] Existing session PR logic migrated to local/remote repository backends
+- [ ] Commands simplified to use repository backend interface
+- [ ] All Git operations moved to appropriate repository backends
 
 ### Integration and Compatibility
 
 - [ ] Existing prepared merge commit workflow unchanged for local/remote repositories
 - [ ] Seamless workflow selection based on repository type
 - [ ] GitHub backend integration works with existing authentication
-- [ ] Task metadata backward compatibility maintained
+- [ ] Backward compatibility maintained for all existing functionality
 
 ### Error Handling
 
@@ -208,10 +202,9 @@ minsky session approve
 
 ## Dependencies
 
-- **Task #014**: Repository backend support (GitHub backend)
-- **Task #138**: GitHub Issues support (GitHub API authentication)
-- **Task #025**: Prepared merge commit workflow (existing behavior)
-- **Task #144**: Fixed prepared merge commit implementation
+- **Task #014**: Repository backend support (GitHub backend) - **COMPLETE**
+- **Task #025**: Prepared merge commit workflow (existing behavior) - **COMPLETE**
+- **Task #144**: Fixed prepared merge commit implementation - **COMPLETE**
 
 ## Benefits
 
@@ -244,3 +237,5 @@ This task provides **automatic workflow selection** based on repository type, el
 3. **Seamless experience** where the same commands work with any repository type
 
 The implementation maintains the session-first, task-oriented approach while automatically leveraging the most appropriate workflow for each repository backend.
+
+**Key Architectural Principle**: Repository backends encapsulate all repository-specific operations, including PR workflows. Session commands delegate to repository backends rather than implementing Git operations directly.
