@@ -1,5 +1,8 @@
 import { describe, test, expect } from "bun:test";
-import { preparePrFromParams } from "./git";
+import {
+  createPreparedMergeCommitPR,
+  type PreparedMergeCommitOptions,
+} from "./git/prepared-merge-commit-workflow";
 import { createMock } from "../utils/test-utils/mocking";
 
 describe("Session PR Command Branch Behavior", () => {
@@ -69,11 +72,13 @@ describe("Session PR Command Branch Behavior", () => {
     };
 
     // Execute preparePr which is called by session pr
-    await preparePrFromParams({
-      session: "task#228",
+    await createPreparedMergeCommitPR({
       title: "Test PR",
-      body: "Test body",
+      body: "Test PR body",
+      sourceBranch: sessionBranch,
       baseBranch: "main",
+      workdir: "/test/repo",
+      session: "task#228",
     });
 
     // Verify the correct sequence of git commands
@@ -152,11 +157,13 @@ describe("Session PR Command Branch Behavior", () => {
 
     // Expect the function to throw an error when switch-back fails
     await expect(async () => {
-      await preparePrFromParams({
-        session: "task#228",
+      await createPreparedMergeCommitPR({
         title: "Test PR",
-        body: "Test body",
+        body: "Test PR body",
+        sourceBranch: sessionBranch,
         baseBranch: "main",
+        workdir: "/test/repo",
+        session: "task#228",
       });
     }).toThrow(/Failed to switch back to session branch/);
   });
