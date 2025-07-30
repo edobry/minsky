@@ -43,7 +43,7 @@ All notable changes to this project will be documented in this file.
   - Auto-detection of current session context when no session specified
   - Proper integration with shared command registry and CLI/MCP interfaces
 
-- **Task #350 - Active Sessions Command and Task/Session Equivalence Analysis**: Created comprehensive task specification to explore adding a command for listing "active sessions" and analyze its relationship to the ongoing Task #229 task/session equivalence exploration. Investigates potential redundancy scenarios and defines criteria for active sessions in current vs future architecture where task/session equivalence may be implemented.
+- **Task #350 - Active Sessions Command and Task/Session Equivalence Analysis**: Created comprehensive task specification to explore adding a command for listing "active sessions" and analyze its relationship to the completed Task #229 task/session equivalence implementation. Updated specification to reflect that mandatory task-session association is now implemented, making the core question whether `minsky tasks list --status IN_PROGRESS` is functionally equivalent to "active sessions" or if session-specific information justifies a separate command.
 
 - **Task #338 - MCP Temporary File Creation Command**: Created comprehensive issue for implementing a new MCP command `files.createTemp` that creates temporary files for AI and external tool workflows. Includes detailed requirements for security, error handling, customizable parameters (prefix, suffix, content), and integration with existing temporary file utilities.
 
