@@ -5,12 +5,14 @@
 The config list command currently shows raw key-value pairs with many null/empty values, making it difficult to read and understand actual configuration.
 
 CURRENT ISSUES:
+
 - Shows (null) and (empty array) for every unconfigured option
 - Flat key=value format is hard to scan
 - No filtering or organization of output
 - Overwhelming amount of irrelevant information
 
 IMPROVEMENTS NEEDED:
+
 - Filter out (null) and (empty array) values by default
 - Add --include-defaults flag to show everything when needed
 - Improve formatting to be more readable (structured sections like config show)

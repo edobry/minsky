@@ -59,6 +59,9 @@ export {
   createSessionInspectCommand,
 } from "./workflow-commands";
 
+// Import conflicts command
+import { createSessionConflictsCommand } from "./conflicts-command";
+
 // Import workflow factory functions for internal use
 import {
   createSessionApproveCommand,
@@ -100,6 +103,9 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     approve: createSessionApproveCommand(deps),
     pr: createSessionPrCommand(deps),
     inspect: createSessionInspectCommand(deps),
+
+    // Utility commands
+    conflicts: createSessionConflictsCommand(deps),
   };
 }
 
@@ -120,6 +126,7 @@ export async function setupSessionCommandRegistry(
   registry.register("session.approve", commands.approve);
   registry.register("session.pr", commands.pr);
   registry.register("session.inspect", commands.inspect);
+  registry.register("session.conflicts", commands.conflicts);
 
   return registry;
 }

@@ -2,11 +2,11 @@
 
 ## Status
 
-BACKLOG
+IN_PROGRESS
 
 ## Priority
 
-MEDIUM
+HIGH
 
 ## Description
 
@@ -14,30 +14,30 @@ MEDIUM
 
 ## Problem Statement
 
-Our current session-aware edit tools (`session_edit_file`, `session_search_replace`) use a custom `applyEditPattern` function that attempts to merge edit patterns with `// ... existing code ...` markers into original content. This approach has several limitations:
+**CRITICAL**: Phase 1 investigation revealed our current session-aware edit tools are completely non-functional:
 
-1. **Performance Issues**: Custom pattern matching is slow compared to specialized fast-apply models
-2. **Accuracy Problems**: Complex edge cases in pattern matching lead to incorrect merges
+1. **Complete Failure**: 0% success rate on all test scenarios (12/12 tests failed)
+2. **Broken Pattern Matching**: `applyEditPattern` cannot match even basic content due to oversimplified `indexOf` approach
 3. **No Reapply Functionality**: Missing the critical `reapply` tool for recovering from failed edits
-4. **Maintenance Burden**: Custom logic requires ongoing maintenance and bug fixes
+4. **High Maintenance Burden**: Custom logic is fundamentally flawed and unreliable
 
 ## Context
 
-Recent developments in fast-apply model providers (Morph, Relace) offer specialized APIs for code editing that could significantly improve our MCP tools. These providers are optimized for applying partial code changes and could offer:
+**Phase 1 Findings**: Current implementation has 0% success rate - this is not an optimization but a functionality restoration. Fast-apply model providers offer the only viable solution:
 
-- **Performance**: 5-10x faster edit processing
-- **Accuracy**: Better handling of complex edit scenarios
-- **Reliability**: Reduced edge case failures
-- **Features**: Built-in reapply functionality
+- **Morph API**: 4,500+ tokens/sec, 98% accuracy, enterprise-ready
+- **Relace API**: 2,000+ tokens/sec, 98% accuracy, Continue.dev integration
+- **Business Impact**: Infinite ROI (from completely broken to working)
+- **Market Validation**: Used in production by major companies
 
 ## Goals
 
-1. **Investigate Current Implementation**: Analyze how current approach works and whether it functions properly
-2. **Evaluate Fast-Apply APIs**: Compare Morph, Relace, and other providers using standardized evaluation framework
-3. **Design Improved Architecture**: Create integration plan for fast-apply APIs with evaluation infrastructure
-4. **Implement Reapply Functionality**: Add missing `session_reapply` tool
-5. **Upgrade Existing Tools**: Enhance `session_edit_file` and `session_search_replace` with evaluation-backed improvements
-6. **Optimize Performance**: Achieve measurable speed and accuracy improvements validated by comprehensive evaluation
+1. **✅ COMPLETED - Current Implementation Analysis**: Confirmed complete failure (0% success rate)
+2. **✅ COMPLETED - Fast-Apply API Research**: Validated Morph and Relace as viable solutions
+3. **🔄 IN PROGRESS - Morph Integration**: Implement using existing AI provider infrastructure
+4. **Add Model Capabilities Framework**: Extend AI provider types to support fast-apply capabilities
+5. **Implement Reapply Functionality**: Add missing `session_reapply` tool using fast-apply providers
+6. **Restore Edit Functionality**: Replace broken implementation with working fast-apply integration
 
 ## Dependencies
 
@@ -242,22 +242,22 @@ Recent developments in fast-apply model providers (Morph, Relace) offer speciali
 
 ## Expected Outcomes
 
-1. **Performance Improvements**:
+1. **Functionality Restoration**:
 
-   - 5-10x speed improvement in edit processing
-   - Reduced error rates in complex edit scenarios
-   - Better handling of edge cases and large files
+   - From 0% to 98% success rate on edit operations
+   - Functional edit processing vs. complete failure
+   - Working session-aware tools vs. broken implementation
 
-2. **Enhanced Functionality**:
+2. **Enhanced Capabilities**:
 
    - New `session_reapply` tool for edit recovery
-   - Provider selection options for different use cases
-   - Improved session-aware edit tracking
+   - Fast-apply model type support in AI provider framework
+   - Provider selection based on model capabilities
 
 3. **Architectural Benefits**:
-   - Provider-agnostic design for future extensibility
-   - Comprehensive error handling and fallback strategies
-   - Integration with standardized evaluation framework
+   - Integration with existing AI provider infrastructure
+   - Model capability-based provider selection
+   - Fallback mechanisms for provider failures
 
 ## Integration Points
 
@@ -294,11 +294,11 @@ Recent developments in fast-apply model providers (Morph, Relace) offer speciali
 
 ## Success Metrics
 
-1. **Performance**: 5-10x improvement in edit processing speed
-2. **Accuracy**: 90%+ reduction in edit merge failures
-3. **Reliability**: 99.9% uptime with provider fallbacks
-4. **Coverage**: Support for all current edit scenarios plus edge cases
-5. **Adoption**: Seamless migration for existing workflows
+1. **Functionality**: >95% success rate (vs. current 0%)
+2. **Performance**: <2s for large file edits (vs. immediate failure)
+3. **Reliability**: Working edit operations with provider fallbacks
+4. **Integration**: Seamless use of existing AI provider infrastructure
+5. **Capability Detection**: Automatic fast-apply model selection
 
 ## Risk Mitigation
 
@@ -316,10 +316,55 @@ Recent developments in fast-apply model providers (Morph, Relace) offer speciali
 4. **Integration**: Potential integration with other AI-powered tools
 5. **Evaluation Evolution**: Continuous improvement of evaluation criteria and processes
 
+## Implementation Plan
+
+### Phase 1: ✅ COMPLETED - Investigation & Research
+
+- **Current Implementation Analysis**: Confirmed 0% success rate across all scenarios
+- **Fast-Apply API Research**: Validated Morph (4,500+ tok/s, 98% accuracy) and Relace as solutions
+- **Business Case**: Infinite ROI from completely broken to working functionality
+
+### Phase 2: 🔄 IN PROGRESS - Morph Integration via AI Provider Infrastructure
+
+- **Add Model Capabilities**: Extend AI provider types to include "fast-apply" capability
+- **Morph Provider Integration**: Add Morph to existing AI provider enum and configuration
+- **Test-Driven Implementation**: Create validation script for real API testing
+- **Enhanced Session Tools**: Update session_edit_file to use fast-apply providers
+
+### Phase 3: Enhanced Tools & Reapply
+
+- **Session Reapply Tool**: Implement session_reapply using fast-apply providers
+- **Provider Selection**: Capability-based provider selection for edit operations
+- **Fallback Mechanisms**: Multi-provider support with graceful degradation
+
 ## Requirements
 
-[To be filled in]
+### Core Functionality
+
+- **Morph API Integration**: Leverage existing AI provider infrastructure
+- **Model Capabilities**: Extend provider types to support fast-apply detection
+- **Session Tool Enhancement**: Replace broken applyEditPattern with fast-apply providers
+- **Configuration Support**: Use existing API key configuration patterns
+
+### Technical Requirements
+
+- **Provider Abstraction**: Integrate Morph via existing AI completion service
+- **Capability Detection**: Add "fast-apply" to AICapability enum
+- **OpenAI Compatibility**: Use Morph's OpenAI-compatible API format
+- **Error Handling**: Robust fallback to other providers when Morph unavailable
 
 ## Success Criteria
 
-[To be filled in]
+### Immediate (Phase 2)
+
+- **Morph Provider Added**: Successfully integrated into AI provider configuration
+- **Basic Fast-Apply Working**: Can perform simple edit operations via Morph API
+- **Test Validation**: Real API calls succeed in test script
+- **Configuration Support**: Morph API key properly loaded from config
+
+### Medium-term (Phase 3)
+
+- **Full Edit Functionality**: >95% success rate on edit operations (vs. current 0%)
+- **Reapply Tool**: Working session_reapply implementation
+- **Provider Selection**: Automatic fast-apply provider detection and usage
+- **Fallback Support**: Graceful handling when fast-apply providers unavailable

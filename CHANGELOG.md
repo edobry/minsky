@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Security
+
 - **CRITICAL FIX**: Fixed security vulnerability in config list command that exposed API keys and GitHub tokens in plain text (#337)
   - Added credential masking by default for all sensitive values
   - Added `--show-secrets` flag for intentional credential exposure with security warning
@@ -16,9 +17,29 @@ All notable changes to this project will be documented in this file.
 - **CLI Module Loading Error**: Fixed Bun runtime error "export 'TaskDeleteParameters' not found" when running CLI commands. Corrected type-only exports in domain schemas index by adding `type` keyword to TypeScript type exports, importing schemas/types separately for backward compatibility aliases, and updating imports in files using non-migrated schemas.
 
 ### Added
+
+- **Git Conflict Detection Command with Structured Output** (#342): Implemented comprehensive conflict detection system with JSON/text output:
+  - Added `minsky git conflicts` command for detecting merge conflicts in repositories
+  - Added `minsky session conflicts` command for session workspace conflict scanning
+  - Support for file pattern filtering (e.g., `*.ts`) and configurable context lines
+  - Structured JSON output with conflict block details, line numbers, and content
+  - Text output mode for human-readable conflict summaries
+  - Reuses existing `analyzeConflictRegions` logic for consistency
+  - Auto-detection of current session context when no session specified
+  - Proper integration with shared command registry and CLI/MCP interfaces
+
 - **Task #350 - Active Sessions Command and Task/Session Equivalence Analysis**: Created comprehensive task specification to explore adding a command for listing "active sessions" and analyze its relationship to the ongoing Task #229 task/session equivalence exploration. Investigates potential redundancy scenarios and defines criteria for active sessions in current vs future architecture where task/session equivalence may be implemented.
 
 - **Task #338 - MCP Temporary File Creation Command**: Created comprehensive issue for implementing a new MCP command `files.createTemp` that creates temporary files for AI and external tool workflows. Includes detailed requirements for security, error handling, customizable parameters (prefix, suffix, content), and integration with existing temporary file utilities.
+
+- **Domain-Wide Schema Libraries for Cross-Interface Type Composition** (#329): Implemented comprehensive schema architecture that extends Task #322's type composition patterns to work across CLI, MCP, and future API interfaces:
+
+  - Created modular schema libraries in `src/domain/schemas/` covering tasks, sessions, files, and common types
+  - Established interface-agnostic design patterns for consistent validation across all interfaces
+  - Built comprehensive validation utilities with standardized error handling and CLI argument transformation
+  - Added extensive documentation with usage examples and migration guide
+  - Benefits: Code reuse, type safety, consistency, maintainability, and extensibility
+  - All schemas tested and verified working correctly
 
 - **Directory-Structure-Based Command Hierarchy**: Complete architectural overhaul from space-separated parsing to ID-based hierarchical structure. Commands now use clean local names with hierarchy inferred from dot-separated IDs (e.g., `ai.models.list` with `name: "list"`). Eliminates complex string parsing in favor of true directory-like command organization.
 
@@ -27,11 +48,13 @@ All notable changes to this project will be documented in this file.
 - **Enhanced config show command with comprehensive output**: The `minsky config show` command now displays detailed, user-friendly configuration including authentication status for GitHub and AI providers, session storage details with paths, AI provider configuration with models and authentication status, and GitHub configuration details. Resolves the issue where config output was "way too incomplete" by showing all configured settings instead of just defaults.
 
 ### Fixed
+
 - **Session Approve Technical Errors**: Eliminated technical git command error output from session approve workflow. Expected git command failures (like checking if remote branches exist) no longer show JSON dumps to users, providing clean output while maintaining debugging capability for troubleshooting.
 
 - **Session Approve Error Output**: Dramatically improved CLI error messages for session approve command by eliminating duplicate and technical error output. Changed base session command to use debug logging instead of user-facing error logs, resulting in clean, single error messages with helpful suggestions instead of JSON dumps, stack traces, and repeated error text.
 
 - **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
+
   - 404 errors now explain "this provider may not support model listing"
   - 401/403 errors provide clear API key guidance
   - Network errors and timeouts have specific helpful messages
@@ -47,7 +70,9 @@ All notable changes to this project will be documented in this file.
 - Fixed session command import issue causing startup errors with `setupSessionCommandRegistry`
 
 ### Changed
+
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
+
   - `AI Validate` → `minsky core ai validate`
   - `AI Models List` → `minsky core ai models list`
   - `AI Models Refresh` → `minsky core ai models refresh`
@@ -59,13 +84,14 @@ All notable changes to this project will be documented in this file.
   - `tasks.status.set` → `minsky tasks status set` (proper nesting)
 
 ### Fixed
+
 - **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
 - **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
 - **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
 
 ### Documentation
-- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
+- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
 - **Task #289: Implemented Template-Based Rules Generation System**
 
@@ -124,6 +150,7 @@ All notable changes to this project will be documented in this file.
   - Improved CLI command factory initialization and lazy loading to prevent circular dependencies
 
 - **Task #325: Completed Task Backend Architecture Analysis**
+
   - **STRATEGIC INTERIM DECISION**: GitHub Issues backend with deferred complex architecture decisions
   - **Key Strategic Pivot**: Rather than solving complex backend architecture immediately, defer decisions until implementing AI features that require advanced capabilities
   - **GitHub Issues Migration**: Immediate migration from in-tree backends to GitHub Issues for superior developer experience

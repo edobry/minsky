@@ -590,7 +590,7 @@
 
 - [x] Implement Pre-Commit Secret Scanning with Husky [#341](process/tasks/341-implement-pre-commit-secret-scanning-with-husky.md)
 
-- [ ] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
+- [x] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
 
 - [ ] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
 
@@ -599,3 +599,5 @@
 - [ ] Analyze Cursor Chat History to Understand Agent OODA Loop Logic [#349](process/tasks/349-analyze-cursor-chat-history-to-understand-agent-ooda-loop-logic.md)
 
 - [ ] Explore Active Sessions Command and Task/Session Equivalence Analysis [#350](process/tasks/350-explore-active-sessions-command-and-task-session-equivalence-analysis.md)
+
+- [+] Improve configuration validation system: integrate proper logging, add strictness controls, improve type safety, and document behavior for unknown config fields [#351](process/tasks/351-improve-configuration-validation-system-integrate-proper-logging-add-strictness-controls-improve-type-safety-and-document-behavior-for-unknown-config-fields.md)
