@@ -192,13 +192,6 @@ describe("Real-World Workflow Testing", () => {
         dbFilePath: testJsonPath,
       });
 
-      // Debug: Check which backend is selected
-      console.log("Current backend name:", (taskService as any).currentBackend?.name);
-      console.log(
-        "Available backends:",
-        (taskService as any).backends?.map((b: any) => b.name)
-      );
-
       // 2. Create tasks via service
       const task1 = await taskService.createTaskFromTitleAndDescription(
         "Service Task 1",

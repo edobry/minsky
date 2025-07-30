@@ -156,7 +156,7 @@ describe("Session Approval Error Handling Fix", () => {
 
         // Should have clear structure: error + explanation + options
         expect(message).toContain("❌ Task not found:");
-        expect(message).toContain("The specified task does not exist.");
+        expect(message).toContain("The specified task does not exist");
         expect(message).toContain("💡 Available options:");
 
         // Should provide actionable guidance

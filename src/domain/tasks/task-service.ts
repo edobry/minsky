@@ -28,8 +28,6 @@ export class TaskService {
     // Support both 'backend' and 'backendType' for backwards compatibility
     const selectedBackendType = backend || backendType || "markdown";
 
-    console.log("Debug TaskService constructor:", { backend, backendType, selectedBackendType });
-
     // Initialize backends
     if (selectedBackendType === "json") {
       this.backends = [
@@ -51,12 +49,6 @@ export class TaskService {
 
     // Set current backend
     const currentBackendName = selectedBackendType === "json" ? "json-file" : selectedBackendType;
-    console.log(
-      "Looking for backend:",
-      currentBackendName,
-      "Available:",
-      this.backends.map((b) => b.name)
-    );
     const selectedBackend = this.backends.find((b) => b.name === currentBackendName);
     if (!selectedBackend) {
       throw new Error(
@@ -64,7 +56,6 @@ export class TaskService {
       );
     }
     this.currentBackend = selectedBackend;
-    console.log("Selected backend:", this.currentBackend.name);
   }
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
