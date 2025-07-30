@@ -584,7 +584,7 @@
 
 - [x] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
-- [ ] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
+- [+] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
@@ -594,7 +594,7 @@
 
 - [x] Exclude Content Field from Rules.list Command Output [#345](process/tasks/345-exclude-content-field-from-rules-list-command-output.md)
 
-- [x] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
+- [ ] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
 
 - [ ] Analyze Command Registration Architecture for Simplification [#348](process/tasks/348-analyze-command-registration-architecture-for-simplification.md)
 
