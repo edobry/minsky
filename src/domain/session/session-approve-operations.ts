@@ -10,7 +10,7 @@ import {
   createCommandFailureMessage,
   createErrorContext,
 } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
@@ -76,7 +76,7 @@ export async function approveSessionImpl(
       log.cli("🔍 Resolving session from task ID...");
     }
 
-    const taskIdToUse = taskIdSchema.parse(params.task);
+    const taskIdToUse = TaskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
     // **BUG FIX**: Validate task existence BEFORE checking for session

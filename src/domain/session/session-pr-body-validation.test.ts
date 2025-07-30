@@ -24,6 +24,7 @@ import {
   createMockSessionProvider,
   createMockTaskService,
 } from "../../utils/test-utils/dependencies";
+import { MinskyError } from "../../errors";
 
 /**
  * Session PR Body Validation Bug Fix Tests

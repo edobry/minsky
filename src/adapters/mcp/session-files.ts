@@ -8,23 +8,19 @@ import { createSessionProvider, type SessionProviderInterface } from "../../doma
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { FileOperationResponse } from "../../types/semantic-errors";
 import {
-  SessionFileReadSchema,
-  SessionFileWriteSchema,
-  SessionDirectoryListSchema,
-  SessionFileExistsSchema,
-  SessionFileDeleteSchema,
-  SessionFileMoveSchema,
-  SessionFileRenameSchema,
-  SessionDirectoryCreateSchema,
-  SessionGrepSearchSchema,
-  type SessionFileRead,
-  type SessionFileWrite,
-  type SessionDirectoryList,
-  type FileOperationResponse as SharedFileOperationResponse,
-} from "./schemas/common-parameters";
-import { createFileOperationResponse, createErrorResponse } from "./schemas/common-responses";
+  FileReadSchema,
+  FileWriteSchema,
+  DirectoryListSchema,
+  FileExistsSchema,
+  FileDeleteSchema,
+  FileMoveSchema,
+  FileRenameSchema,
+  DirectoryCreateSchema,
+  GrepSearchSchema,
+  FileOperationResponse,
+} from "../../domain/schemas";
+import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 
 /**
  * Utility function to process file content with line range support
@@ -246,7 +242,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.move_file",
     description: "Move a file from one location to another within a session workspace",
-    parameters: SessionFileMoveSchema,
+    parameters: FileMoveSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const sourceResolvedPath = await pathResolver.resolvePath(
@@ -313,7 +309,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           targetResolvedPath
         );
 
-        return createFileOperationResponse(
+        return createSuccessResponse(
           {
             path: args.targetPath,
             session: args.sessionName,
@@ -354,7 +350,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.rename_file",
     description: "Rename a file within a session workspace",
-    parameters: SessionFileRenameSchema,
+    parameters: FileRenameSchema,
     handler: async (args): Promise<FileOperationResponse> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -414,7 +410,7 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           targetResolvedPath
         );
 
-        return createFileOperationResponse(
+        return createSuccessResponse(
           {
             path: targetPath,
             session: args.sessionName,

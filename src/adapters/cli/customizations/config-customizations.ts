@@ -92,7 +92,7 @@ function formatFlattenedConfiguration(resolved: any): string {
           value.includes("(configured)"))
       ) {
         // Enhanced credential detection - these should already be masked from the MCP command
-        result.push(`${fullKey}=${value}`);
+        result.push(`${fullKey}=*** (hidden)`);
       } else {
         result.push(`${fullKey}=${value}`);
       }

@@ -1,4 +1,4 @@
-import type { SessionListParams } from "../../schemas/session";
+import type { SessionListParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { Session, SessionProviderInterface, SessionDependencies } from "../types";
 
@@ -7,7 +7,7 @@ import { Session, SessionProviderInterface, SessionDependencies } from "../types
  * Using proper dependency injection for better testability
  */
 export async function sessionList(
-  params: SessionListParams,
+  params: SessionListParameters,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
   }

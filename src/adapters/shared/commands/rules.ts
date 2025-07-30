@@ -285,9 +285,12 @@ export function registerRulesCommands(): void {
           debug: params.debug,
         });
 
+        // Transform rules to exclude content field for better usability
+        const rulesWithoutContent = rules.map(({ content, ...rule }) => rule);
+
         return {
           success: true,
-          rules,
+          rules: rulesWithoutContent,
         };
       } catch (error) {
         log.error("Failed to list rules", {

@@ -25,6 +25,8 @@ All notable changes to this project will be documented in this file.
   - Auto-detection of current session context when no session specified
   - Proper integration with shared command registry and CLI/MCP interfaces
 
+- **Task #350 - Active Sessions Command and Task/Session Equivalence Analysis**: Created comprehensive task specification to explore adding a command for listing "active sessions" and analyze its relationship to the ongoing Task #229 task/session equivalence exploration. Investigates potential redundancy scenarios and defines criteria for active sessions in current vs future architecture where task/session equivalence may be implemented.
+
 - **Task #338 - MCP Temporary File Creation Command**: Created comprehensive issue for implementing a new MCP command `files.createTemp` that creates temporary files for AI and external tool workflows. Includes detailed requirements for security, error handling, customizable parameters (prefix, suffix, content), and integration with existing temporary file utilities.
 
 - **Domain-Wide Schema Libraries for Cross-Interface Type Composition** (#329): Implemented comprehensive schema architecture that extends Task #322's type composition patterns to work across CLI, MCP, and future API interfaces:
@@ -43,6 +45,10 @@ All notable changes to this project will be documented in this file.
 - **Enhanced config show command with comprehensive output**: The `minsky config show` command now displays detailed, user-friendly configuration including authentication status for GitHub and AI providers, session storage details with paths, AI provider configuration with models and authentication status, and GitHub configuration details. Resolves the issue where config output was "way too incomplete" by showing all configured settings instead of just defaults.
 
 ### Fixed
+
+- **Session Approve Technical Errors**: Eliminated technical git command error output from session approve workflow. Expected git command failures (like checking if remote branches exist) no longer show JSON dumps to users, providing clean output while maintaining debugging capability for troubleshooting.
+
+- **Session Approve Error Output**: Dramatically improved CLI error messages for session approve command by eliminating duplicate and technical error output. Changed base session command to use debug logging instead of user-facing error logs, resulting in clean, single error messages with helpful suggestions instead of JSON dumps, stack traces, and repeated error text.
 
 - **AI Models Commands Error Handling**: Resolved "DefaultAIConfigurationService is not defined" and "DefaultModelCacheService is not defined" errors by adding missing imports. Improved error messages with user-friendly explanations instead of technical JSON dumps:
 
@@ -1717,3 +1723,29 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
   - Requires evidence-based language instead of claim-based assertions
+
+## [Task #341] - 2025-07-29
+
+### 🔒 SECURITY: Critical Secret Scanning Implementation
+
+#### Added
+- **Pre-commit secret scanning** with dual-layer protection (Gitleaks + Secretlint)
+- **Comprehensive secret detection** for OpenAI, GitHub, Anthropic, AWS, GCP, Slack, NPM tokens
+- **Enhanced `.husky/pre-commit`** hook with security-first execution order
+- **Developer tools**: `secrets:scan` and `secrets:gitleaks` npm scripts
+- **Security documentation** in README with best practices and usage guidelines
+- **Configuration files**: `.secretlintrc.json`, `.secretlintignore` for customization
+
+#### Security Impact
+- **Prevents catastrophic credential exposure** (addresses critical near-miss incident)
+- **Blocks commits containing real secrets** with clear error messages and remediation guidance
+- **Zero tolerance enforcement** for real credentials in repository
+- **Fast performance** (<2 seconds) maintains developer workflow efficiency
+
+#### Technical Details
+- **Gitleaks** (Go binary): Primary scanner with comprehensive built-in rules
+- **Secretlint** (TypeScript): Secondary scanner integrated with npm ecosystem
+- **Multi-pattern detection**: API keys, tokens, private keys, basic auth, environment variables
+- **Backwards compatible**: Preserves existing variable naming and ESLint checks
+
+This implementation successfully addresses **Task #341: Implement Pre-Commit Secret Scanning with Husky** and establishes robust security measures to prevent future credential exposure incidents.

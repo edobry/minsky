@@ -434,7 +434,7 @@
 
 - [x] Complete configuration system standardization and cleanup [#245](process/tasks/245-complete-configuration-system-standardization-and-cleanup.md)
 
-- [+] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
+- [ ] Investigate and Improve Session-Aware Edit/Reapply MCP Tools with Fast-Apply APIs [#249](process/tasks/249-investigate-and-improve-session-aware-edit-reapply-mcp-tools-with-fast-apply-apis.md)
 
 - [ ] Investigate and Implement Session-Aware Code Search MCP Tools with Fast Retrieval APIs [#250](process/tasks/250-investigate-and-implement-session-aware-code-search-mcp-tools-with-fast-retrieval-apis.md)
 
@@ -582,24 +582,20 @@
 
 - [x] Extend type composition refactoring to other MCP command domains [#328](process/tasks/328-extend-type-composition-refactoring-to-other-mcp-command-domains.md)
 
-- [+] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
+- [x] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
 - [ ] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
-- [+] Categorize and audit rule templates for redundancy analysis [#336](process/tasks/336-categorize-and-audit-rule-templates-for-redundancy-analysis.md)
+- [x] Implement Pre-Commit Secret Scanning with Husky [#341](process/tasks/341-implement-pre-commit-secret-scanning-with-husky.md)
 
-- [-] URGENT: Fix security vulnerability in config list command [#337](process/tasks/337-urgent-fix-security-vulnerability-in-config-list-command.md)
+- [ ] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
 
-- [ ] Improve config list command user experience [#338](process/tasks/338-improve-config-list-command-user-experience.md)
+- [ ] Move AI Commands from Core to AI Category [#347](process/tasks/347-move-ai-commands-from-core-to-ai-category.md)
 
-- [ ] Add configuration management subcommands [#339](process/tasks/339-add-configuration-management-subcommands.md)
+- [ ] Analyze Command Registration Architecture for Simplification [#348](process/tasks/348-analyze-command-registration-architecture-for-simplification.md)
 
-- [ ] Update documentation for enhanced configuration system [#340](process/tasks/340-update-documentation-for-enhanced-configuration-system.md)
+- [ ] Analyze Cursor Chat History to Understand Agent OODA Loop Logic [#349](process/tasks/349-analyze-cursor-chat-history-to-understand-agent-ooda-loop-logic.md)
 
-- [+] Move AI commands from CORE category to dedicated AI category for better UX and discoverability [#341](process/tasks/341-move-ai-commands-from-core-category-to-dedicated-ai-category-for-better-ux-and-discoverability.md)
-
-- [-] Fix configuration validation to ignore unknown fields [#342](process/tasks/342-fix-configuration-validation-to-ignore-unknown-fields.md)
-
-- [-] Fix configuration validation to ignore unknown fields [#343](process/tasks/343-fix-configuration-validation-to-ignore-unknown-fields.md)
+- [ ] Explore Active Sessions Command and Task/Session Equivalence Analysis [#350](process/tasks/350-explore-active-sessions-command-and-task-session-equivalence-analysis.md)

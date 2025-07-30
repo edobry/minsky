@@ -9,21 +9,16 @@ import { createSessionProvider, type SessionProviderInterface } from "../../doma
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import {
-  SessionFileReadSchema,
-  SessionFileOperationSchema,
-  SessionFileWriteSchema,
-  SessionDirectoryListSchema,
-  SessionFileExistsSchema,
-  SessionFileDeleteSchema,
-  SessionDirectoryCreateSchema,
-  SessionGrepSearchSchema,
-} from "./schemas/common-parameters";
-import {
-  createFileReadResponse,
-  createErrorResponse,
-  createFileOperationResponse,
-  //   createDirectoryListResponse,
-} from "./schemas/common-responses";
+  FileReadSchema,
+  BaseFileOperationSchema,
+  FileWriteSchema,
+  DirectoryListSchema,
+  FileExistsSchema,
+  FileDeleteSchema,
+  DirectoryCreateSchema,
+  GrepSearchSchema,
+} from "../../domain/schemas";
+import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 
 /**
  * Session path resolver class for enforcing workspace boundaries
@@ -172,7 +167,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.read_file",
     description: "Read a file within a session workspace with optional line range support",
-    parameters: SessionFileReadSchema,
+    parameters: FileReadSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -181,7 +176,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
         const rawContent = await readFile(resolvedPath, "utf8");
 
         // Process content with line range support
-        const processed = processFileContentWithLineRange(rawContent, {
+        const processed = processFileContentWithLineRange(rawContent as string, {
           startLine: args.start_line_one_indexed,
           endLine: args.end_line_one_indexed_inclusive,
           shouldReadEntireFile: args.should_read_entire_file,
@@ -202,7 +197,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           totalLines: processed.totalLines,
         });
 
-        return createFileReadResponse(
+        return createSuccessResponse(
           {
             path: args.path,
             session: args.sessionName,
@@ -242,7 +237,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.write_file",
     description: "Write content to a file within a session workspace",
-    parameters: SessionFileWriteSchema,
+    parameters: FileWriteSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -268,7 +263,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           createdDirs: args.createDirs,
         });
 
-        return createFileOperationResponse(
+        return createSuccessResponse(
           {
             path: args.path,
             session: args.sessionName,
@@ -299,7 +294,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.list_directory",
     description: "List contents of a directory within a session workspace",
-    parameters: SessionDirectoryListSchema,
+    parameters: DirectoryListSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -336,7 +331,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           directoryCount: directories.length,
         });
 
-        return createDirectoryListResponse(
+        return createSuccessResponse(
           {
             path: args.path,
             session: args.sessionName,
@@ -368,7 +363,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.file_exists",
     description: "Check if a file or directory exists within a session workspace",
-    parameters: SessionFileExistsSchema,
+    parameters: FileExistsSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -433,7 +428,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.delete_file",
     description: "Delete a file within a session workspace",
-    parameters: SessionFileDeleteSchema,
+    parameters: FileDeleteSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -487,7 +482,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.create_directory",
     description: "Create a directory within a session workspace",
-    parameters: SessionDirectoryCreateSchema,
+    parameters: DirectoryCreateSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -534,7 +529,7 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
   commandMapper.addCommand({
     name: "session.grep_search",
     description: "Search for patterns in files within a session workspace using regex",
-    parameters: SessionGrepSearchSchema,
+    parameters: GrepSearchSchema,
     handler: async (args): Promise<Record<string, any>> => {
       try {
         const sessionWorkspacePath = await pathResolver.getSessionWorkspacePath(args.sessionName);

@@ -11,12 +11,12 @@ import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";
 import {
-  SessionFileEditSchema,
+  FileEditSchema,
   SessionSearchReplaceSchema,
-  type SessionFileEdit,
-  type SessionSearchReplace,
-} from "./schemas/common-parameters";
-import { createFileOperationResponse, createErrorResponse } from "./schemas/common-responses";
+  SessionFileEdit,
+  SessionSearchReplace,
+} from "../../domain/schemas";
+import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
 
 /**
  * Interface for edit file operation - now using shared type
@@ -38,7 +38,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
   commandMapper.addCommand({
     name: "session.edit_file",
     description: "Edit a file within a session workspace using a diff-like format",
-    parameters: SessionFileEditSchema,
+    parameters: FileEditSchema,
     handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
@@ -90,7 +90,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           contentLength: finalContent.length,
         });
 
-        return createFileOperationResponse(
+        return createSuccessResponse(
           {
             path: args.path,
             session: args.sessionName,
@@ -159,7 +159,7 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
           replaceLength: args.replace.length,
         });
 
-        return createFileOperationResponse(
+        return createSuccessResponse(
           {
             path: args.path,
             session: args.sessionName,
