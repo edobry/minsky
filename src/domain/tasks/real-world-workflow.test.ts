@@ -176,15 +176,15 @@ describe("Real-World Workflow Testing", () => {
       });
 
       // 2. Create tasks via service
-      const task1 = await taskService.createTask({
-        title: "Service Task 1",
-        description: "Created via TaskService",
-      });
+      const task1 = await taskService.createTaskFromTitleAndDescription(
+        "Service Task 1",
+        "Created via TaskService"
+      );
 
-      const task2 = await taskService.createTask({
-        title: "Service Task 2",
-        description: "Another service task",
-      });
+      const task2 = await taskService.createTaskFromTitleAndDescription(
+        "Service Task 2",
+        "Another service task"
+      );
 
       // 3. List all tasks
       const allTasks = await taskService.getAllTasks();
