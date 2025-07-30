@@ -1803,3 +1803,16 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **Backwards compatible**: Preserves existing variable naming and ESLint checks
 
 This implementation successfully addresses **Task #341: Implement Pre-Commit Secret Scanning with Husky** and establishes robust security measures to prevent future credential exposure incidents.
+
+### Added
+
+### Changed
+- **Task Management**: Reconciled duplicate tasks #318 and #320 for linter error fixes
+  - Closed task #318 as duplicate of #320
+  - Enhanced task #320 as primary task with specific requirements for Jest→Bun conversion and 'as unknown' cleanup
+  - Updated task tracking to reflect consolidation
+
+### Fixed
+- Auto-fixed formatting issues in status-commands.ts during commit process
+
+### Removed
