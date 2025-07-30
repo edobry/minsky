@@ -597,3 +597,5 @@
 - [ ] Analyze Command Registration Architecture for Simplification [#348](process/tasks/348-analyze-command-registration-architecture-for-simplification.md)
 
 - [ ] Analyze Cursor Chat History to Understand Agent OODA Loop Logic [#349](process/tasks/349-analyze-cursor-chat-history-to-understand-agent-ooda-loop-logic.md)
+
+- [ ] Explore Active Sessions Command and Task/Session Equivalence Analysis [#350](process/tasks/350-explore-active-sessions-command-and-task-session-equivalence-analysis.md)
