@@ -138,12 +138,24 @@ describe("Session Approve Workflow", () => {
         taskService: mockTaskService,
         sessionDB: mockSessionDB,
         workspaceUtils: mockWorkspaceUtils,
+        createRepositoryBackend: mock((sessionRecord: any) =>
+          Promise.resolve({
+            getType: () => "local",
+            mergePullRequest: mock(() =>
+              Promise.resolve({
+                commitHash: "abc123commit",
+                mergeDate: new Date(),
+                mergedBy: "test-user",
+              })
+            ),
+          })
+        ),
       }
     );
 
     // Verify results (fixed interface expectations)
     expect(result.session).toBe("test-session"); // Fixed: expect 'session' property
-    expect(result.commitHash).toBe("abc123");
+    expect(result.commitHash).toBe("abc123commit");
     expect(result.mergeDate).toBeDefined();
     expect(result.mergedBy).toBe("test-user");
     expect(result.taskId).toBe("task025");
@@ -166,6 +178,18 @@ describe("Session Approve Workflow", () => {
           taskService: mockTaskService,
           sessionDB: mockSessionDB,
           workspaceUtils: mockWorkspaceUtils,
+          createRepositoryBackend: mock((sessionRecord: any) =>
+            Promise.resolve({
+              getType: () => "local",
+              mergePullRequest: mock(() =>
+                Promise.resolve({
+                  commitHash: "abc123commit",
+                  mergeDate: new Date(),
+                  mergedBy: "test-user",
+                })
+              ),
+            })
+          ),
         }
       )
     ).rejects.toThrow();
@@ -188,11 +212,17 @@ describe("Session Approve Workflow", () => {
           taskService: mockTaskService,
           sessionDB: mockSessionDB,
           workspaceUtils: mockWorkspaceUtils,
+          createRepositoryBackend: mock((sessionRecord: any) =>
+            Promise.resolve({
+              getType: () => "local",
+              mergePullRequest: mock(() => Promise.reject(new Error("Git command failed"))),
+            })
+          ),
         }
       )
     ).rejects.toThrow("Git command failed");
 
-    // Verify the failing method was called
-    expectToHaveBeenCalled(failingExecSpy);
+    // Note: With repository backend mock, git service methods are not directly called
+    // The error propagates from the mocked repository backend instead
   });
 });
