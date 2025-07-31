@@ -498,6 +498,23 @@ The task exists but has no associated session to approve.
       }
     }
 
+    // Clean up local branches after successful merge
+    if (isNewlyApproved) {
+      try {
+        await cleanupLocalBranches(
+          deps.gitService,
+          workingDirectory,
+          prBranch,
+          sessionNameToUse,
+          taskId
+        );
+        log.debug("Successfully cleaned up local branches after merge");
+      } catch (cleanupError) {
+        // Log but don't fail the operation if cleanup fails
+        log.debug(`Branch cleanup failed (non-critical): ${getErrorMessage(cleanupError)}`);
+      }
+    }
+
     return mergeInfo;
   } catch (error) {
     // If there's an error during approval, try to restore stashed changes

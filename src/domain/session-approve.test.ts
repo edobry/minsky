@@ -539,7 +539,7 @@ describe("Session Approve", () => {
   // Bug: Missing branch cleanup after successful merge
   // Current implementation doesn't clean up local branches after merge
   // Expected behavior: Delete both local PR branch and task branch after successful merge
-  describe.skip("branch cleanup after successful merge", () => {
+  describe("branch cleanup after successful merge", () => {
     test("should delete local PR branch and task branch after successful merge", async () => {
       // Create trackable spies for methods we need to verify
       let getSessionSpy = createMock();

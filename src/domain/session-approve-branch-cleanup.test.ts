@@ -18,7 +18,7 @@ mock.module("../utils/logger", () => ({
 // Set up automatic mock cleanup
 setupTestMocks();
 
-describe.skip("Session Approve Branch Cleanup", () => {
+describe("Session Approve Branch Cleanup", () => {
   // Bug: Missing branch cleanup after successful merge
   // Current implementation doesn't clean up local branches after merge
   // Expected behavior: Delete both local PR branch and task branch after successful merge
@@ -278,6 +278,7 @@ describe.skip("Session Approve Branch Cleanup", () => {
 
     const mockTaskService = {
       setTaskStatus: createMock(() => Promise.resolve()),
+      getTaskStatus: createMock(() => Promise.resolve("DONE")), // Task is already completed
       getBackendForTask: createMock(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
