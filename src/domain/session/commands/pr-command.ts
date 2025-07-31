@@ -87,8 +87,9 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
     let bodyContent = body;
     if (!bodyContent && bodyPath) {
       try {
-        bodyContent = await readFile(bodyPath, "utf-8");
-        if (debug) {
+        const fileContent = await readFile(bodyPath, "utf-8");
+        bodyContent = typeof fileContent === "string" ? fileContent : fileContent.toString();
+        if (debug && bodyContent) {
           log.debug("Read body content from file", { bodyPath, contentLength: bodyContent.length });
         }
       } catch (error) {

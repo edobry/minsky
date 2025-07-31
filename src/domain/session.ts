@@ -1319,6 +1319,7 @@ export async function approveSessionFromParams(
     };
     workspaceUtils?: any;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
+    createRepositoryBackend?: (sessionRecord: any) => Promise<any>;
   }
 ): Promise<{
   session: string;

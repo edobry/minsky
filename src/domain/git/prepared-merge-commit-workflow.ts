@@ -202,8 +202,8 @@ export async function mergePreparedMergeCommitPR(
     // Pull latest changes
     await gitExec("pull", `pull origin ${baseBranch}`, { workdir, timeout: 60000 });
 
-    // Merge the PR branch (this should be a fast-forward since PR branch has the prepared merge commit)
-    await gitExec("merge", `merge --no-ff ${prBranch}`, { workdir, timeout: 180000 });
+    // Fast-forward merge the PR branch (since it contains the prepared merge commit)
+    await gitExec("merge", `merge --ff-only ${prBranch}`, { workdir, timeout: 180000 });
 
     // Get merge information
     const commitHash = (

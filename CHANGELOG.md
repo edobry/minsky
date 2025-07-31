@@ -4,7 +4,26 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Session Approve Display**: Fixed "Session: Unknown" display in session approval command output
+  - Corrected property access in session approval formatter from `result.result` to `result.data`
+  - Session name now displays correctly instead of showing "Unknown"
+  - Aligns formatter with actual data structure returned by approval operations
+
+- **Session Approve Merge Strategy**: Fixed session approve creating new merge commits instead of fast-forwarding to prepared merge commits
+  - Changed prepared-merge-commit-workflow to use `--ff-only` instead of `--no-ff` during approval
+  - Resolves "Merge commits into main must use conventional commit format" validation errors
+  - Session approve now correctly fast-forwards to the prepared merge commit as designed
+  - Aligns implementation with documented prepared merge commit workflow specification
+
+- **Session Approve Workflow**: Resolved `posix_spawn '/bin/sh'` error in session approve command
+  - Fixed path inconsistency between LocalGitBackend and SessionDB that caused git operations to fail
+  - LocalGitBackend now uses consistent session workspace path structure without repoName component
+  - Added comprehensive test suite with proper test-driven development approach
+  - Session approve operations now work correctly for all session types
+
 ### Added
+<<<<<<< HEAD
 - **Task #360**: Session outdated detection and display system ✅ **IMPLEMENTED**
   - **Session Sync Status Tracking**: Extended SessionRecord and Session interfaces with sync status fields for comprehensive outdated detection
   - **Git Service Extensions**: Added new git methods for commit comparison, merge base detection, and main branch identification
@@ -16,8 +35,18 @@ All notable changes to this project will be documented in this file.
   - **CLI Integration**: Complete command registration, parameter schemas, and custom output formatters
   - **Visual Indicators**: Color-coded severity indicators (🔴 ancient, 🟠 very-stale, 🟡 stale, ✅ current) for immediate status recognition
   - **Foundation for Automation**: Provides infrastructure for future automated sync workflow from Task #361
+=======
+- **Task #361**: Session outdated detection and display system
+  - Created interim solution for detecting when sessions become outdated after PR merges to main
+  - Implements sync status tracking with severity levels (current, stale, very-stale, ancient)
+  - Adds `session outdated` command to list all outdated sessions with filtering options
+  - Enhances `session get` and `session list` commands to display sync status indicators
+  - Provides timestamp and commit-based detection mechanisms for accuracy
+  - Includes visual indicators and detailed information about missing main branch changes
+  - Serves as foundation for future automated sync workflow from Task #361
+>>>>>>> origin/main
 
-- **Task #361**: Automated session sync workflow exploration  
+- **Task #361**: Automated session sync workflow exploration
   - Created comprehensive exploration task for event-driven session synchronization
   - Introduces concept of system-generated work items distinct from user tasks
   - Defines AI-enhanced session relationship detection and conflict prediction
@@ -1875,3 +1904,15 @@ This implementation successfully addresses **Task #341: Implement Pre-Commit Sec
 - Auto-fixed formatting issues in status-commands.ts during commit process
 
 ### Removed
+
+## 2025-01-24
+
+### feat(#161): Complete repository backend delegation with robust uncommitted changes handling
+
+- **COMPLETE**: Task #161 repository backend delegation fully implemented
+- **CRITICAL FIX**: Added comprehensive auto-stash/restore logic to prevent git checkout conflicts
+- **ARCHITECTURE**: Repository backends now properly handle PR workflow operations
+- **TESTING**: 5 comprehensive test scenarios cover all uncommitted changes edge cases
+- **INTEGRATION**: Seamless integration with Task #359 subcommand structure
+
+Repository backend PR workflow delegation now works reliably regardless of uncommitted changes state.
