@@ -87,13 +87,16 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [x] Update session path resolution for backend-qualified directories
 - [x] Ensure backward compatibility with existing sessions
 
-#### 3.2 Git Operations Updates 🟡 **PARTIALLY COMPLETE**
+#### 3.2 Git Operations Updates ✅ **COMPLETE**
 - [x] **CRITICAL**: Design git-compatible branch naming strategy (colons `:` are forbidden in git branch names)
 - [x] Use unified format for branches: `task-md#123` everywhere (git-compatible)
 - [x] Implement conversion utilities between task IDs and session names (taskIdToSessionName, sessionNameToTaskId)
-- [ ] Update PR preparation and merge operations for new branch format
-- [ ] Update branch cleanup operations for qualified names
-- [ ] Test git workflows with qualified session names
+- [x] Update PR preparation and merge operations for new branch format
+- [x] Update branch cleanup operations for qualified names
+- [x] Test git workflows with qualified session names
+- [x] Enhanced session auto-repair with multi-backend integration
+- [x] Automatic migration from legacy task ID formats in git operations
+- [x] Comprehensive testing framework for git multi-backend integration
 
 #### 3.3 Backend Integration Updates
 - [ ] Update existing MarkdownTaskBackend to implement new TaskBackend interface
@@ -338,28 +341,28 @@ Extra Large
 
 ## 🚀 CURRENT STATUS & REMAINING WORK
 
-**✅ PHASES 1, 2 & 3.1 COMPLETE (140+ tests passing)**
+**✅ PHASES 1, 2, 3.1 & 3.2 COMPLETE (180+ tests passing)**
 - Unified Task ID System with comprehensive migration support (44 tests)
 - Multi-Backend Service with routing, collision detection, and cross-backend operations (23 tests)
 - Session Management Integration with multi-backend naming and backward compatibility (38 tests)
 - Bulk Session Migration System with CLI commands and comprehensive testing (35+ tests)
+- Git Operations Integration with multi-backend session and task ID handling (40+ tests)
 - Complete mock testing framework for test-driven development
 - Git-compatible architecture design with unified format everywhere
 
 **🔄 PHASE 3: SYSTEM INTEGRATION (CURRENT FOCUS)**
 
 ### **Priority 1: Remaining Core Integration**
-1. **Git Operations Completion** - Finalize PR/merge operations with new format
-2. **CLI Schema Updates** - Leverage Task #329 infrastructure for command updates
+1. **CLI Schema Updates** - ✅ **PARTIALLY COMPLETE** - Leverage Task #329 infrastructure for command updates
 
 ### **Priority 2: Backend & Migration**  
-3. **Backend Integration** - Update existing MarkdownTaskBackend with new interface
-4. **Migration Tools** - ✅ **COMPLETE** - User-facing CLI commands for task migration
-5. **Integration Testing** - End-to-end workflows with real backends
+2. **Backend Integration** - Update existing MarkdownTaskBackend with new interface
+3. **Migration Tools** - ✅ **COMPLETE** - User-facing CLI commands for task migration
+4. **Integration Testing** - End-to-end workflows with real backends
 
 ### **Priority 3: Polish & Documentation**
-6. **Performance Testing** - Ensure no regressions with qualified IDs
-7. **User Documentation** - Migration guides and new workflow documentation
-8. **Error Handling** - Comprehensive error scenarios and recovery
+5. **Performance Testing** - Ensure no regressions with qualified IDs
+6. **User Documentation** - Migration guides and new workflow documentation
+7. **Error Handling** - Comprehensive error scenarios and recovery
 
 **The architectural foundation is rock-solid - Phase 3 focuses on integration and user experience.**
