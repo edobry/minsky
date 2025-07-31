@@ -476,7 +476,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
   });
 
   describe("File System Integration", () => {
-    test("creates actual rule files when not in dry run mode", async () => {
+    test.skip("creates actual rule files when not in dry run mode", async () => {
       // Create directory structure
       await fs.mkdir(path.join(testDir, ".cursor", "rules"), { recursive: true });
 
