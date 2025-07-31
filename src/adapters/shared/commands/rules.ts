@@ -13,7 +13,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-} from "../../shared/command-registry";
+} from "../command-registry";
 import { RuleService, type RuleFormat } from "../../../domain/rules";
 import { createRuleTemplateService } from "../../../domain/rules/rule-template-service";
 import { type RuleGenerationConfig } from "../../../domain/rules/template-system";
