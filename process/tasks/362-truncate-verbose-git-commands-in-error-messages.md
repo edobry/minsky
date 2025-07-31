@@ -1,50 +1,54 @@
-# Fix Session Approve Creating Merge Commits Instead of Fast-Forward
+# Truncate Verbose Git Commands in Error Messages
 
 ## Context
 
-The session approve workflow was incorrectly trying to create new merge commits instead of fast-forwarding to prepared merge commits, causing failure with conventional commit message validation.
+Git commands in error messages can become extremely verbose, making error messages difficult to read and debug. This is particularly problematic with:
 
-**Error Observed:**
+- Long session workspace paths (e.g., `/Users/edobry/.local/state/minsky/sessions/task362/some/deep/path/to/file.ts`)
+- Complex git commands with multiple arguments and flags
+- Clone URLs with authentication tokens or long repository names
+
+**Current Examples of Verbose Error Messages:**
 ```
-❌ Invalid commit message:
-Merge commits into main must use conventional commit format. Use squash merge or reword the commit message.
+Git clone failed: Command failed with exit code 128
 
-Commit message: "Merge branch 'pr/task335'"
+Command: git -C /Users/edobry/.local/state/minsky/sessions/task362/very/long/workspace/path clone https://github.com/very-long-org-name/very-long-repository-name-with-many-words.git /Users/edobry/.local/state/minsky/sessions/task362/very/long/workspace/path/destination
+Working directory: /Users/edobry/.local/state/minsky/sessions/task362/very/long/workspace/path
+Execution time: 5432ms
 ```
-
-**Root Cause:**
-The `mergePreparedMergeCommitPR` function in `src/domain/git/prepared-merge-commit-workflow.ts` was using `git merge --no-ff` instead of `git merge --ff-only`.
 
 ## Problem
 
-The prepared merge commit workflow is designed to:
+The current git error handling in several places includes full commands without truncation:
 
-1. **`session pr`** creates a PR branch with a prepared merge commit (using `--no-ff` to merge feature → PR branch)
-2. **`session approve`** should fast-forward main to that prepared commit (using `--ff-only`)
+1. **`src/utils/git-exec.ts:115`** - Direct error message construction with `Command: ${fullCommand}`
+2. **`src/utils/git-exec.ts:80,105`** - Context passed to enhanced error templates includes full command
+3. **Enhanced error templates** - May suggest verbose retry commands
 
-But the approval step was incorrectly using `--no-ff`, trying to create a brand new merge commit instead of fast-forwarding to the existing prepared merge commit.
+This makes error messages unwieldy and harder to parse, especially in development environments with long paths.
 
 ## Solution
 
-Changed line 206 in `src/domain/git/prepared-merge-commit-workflow.ts`:
+Implement a command truncation utility that:
 
-```typescript
-// FROM (incorrect):
-await gitExec("merge", `merge --no-ff ${prBranch}`, { workdir, timeout: 180000 });
+1. **Truncates long paths** to show only relevant parts (e.g., `...sessions/task362/src/file.ts`)
+2. **Limits overall command length** with intelligent truncation
+3. **Preserves essential information** (operation, key arguments, error details)
+4. **Maintains readability** while providing enough context for debugging
 
-// TO (correct):
-await gitExec("merge", `merge --ff-only ${prBranch}`, { workdir, timeout: 180000 });
-```
+## Implementation Plan
 
-## Verification
+1. Create a `truncateGitCommand()` utility function
+2. Apply truncation in `git-exec.ts` error handling
+3. Update enhanced error templates to use truncated commands
+4. Add tests to verify truncation behavior
+5. Ensure important debugging information is preserved
 
-- ✅ Prepared merge commit workflow tests pass
-- ✅ Session approval operations tests pass
-- ✅ Fix aligns with existing test expectations (many tests already expected `--ff-only`)
-- ✅ Commit message validation will no longer block session approve
+## Acceptance Criteria
 
-## Status
-
-**COMPLETED** ✅ - Fix committed and ready for use.
-
-The session approve workflow now correctly fast-forwards to prepared merge commits instead of creating invalid new merge commits.
+- [ ] Git commands in error messages are truncated to reasonable length (≤150 chars)
+- [ ] Essential information (operation, key files, error type) is preserved
+- [ ] Long paths are intelligently shortened (show relevant parts)
+- [ ] Error messages remain actionable and debuggable
+- [ ] Tests verify truncation behavior with various command types
+- [ ] No regression in error message usefulness
