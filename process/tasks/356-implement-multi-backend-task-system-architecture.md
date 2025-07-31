@@ -346,20 +346,21 @@ Extra Large
 
 ## 🚀 CURRENT STATUS & REMAINING WORK
 
-**✅ PHASES 1, 2, 3.1, 3.2 & 3.5 COMPLETE (210+ tests passing)**
+**✅ PHASES 1, 2, 3.1, 3.2, 3.5 & 3.6 COMPLETE (210+ tests passing)**
 - Unified Task ID System with comprehensive migration support (44 tests)
 - Multi-Backend Service with routing, collision detection, and cross-backend operations (23 tests)
 - Session Management Integration with multi-backend naming and backward compatibility (38 tests)
 - Bulk Session Migration System with CLI commands and comprehensive testing (35+ tests)
 - Git Operations Integration with multi-backend session and task ID handling (40+ tests)
 - Backend Integration with real MarkdownTaskBackend multi-backend compatibility (30+ tests)
+- CLI Schema Integration with Task #329 infrastructure for seamless multi-backend validation
 - Complete mock testing framework for test-driven development
 - Git-compatible architecture design with unified format everywhere
 
 **🔄 PHASE 3: SYSTEM INTEGRATION (FINAL PHASE)**
 
 ### **Priority 1: Remaining Integration**
-1. **CLI Schema Updates** - ✅ **PARTIALLY COMPLETE** - Leverage Task #329 infrastructure for command updates
+1. **CLI Schema Updates** - ✅ **COMPLETE** - Full multi-backend support with Task #329 infrastructure
 
 ### **Priority 2: Polish & Documentation** 
 2. **Performance Testing** - Ensure no regressions with qualified IDs
