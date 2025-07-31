@@ -178,3 +178,15 @@ VERIFICATION COMPLETE:
   - Before any completion claim, systematically check each requirement against actual implementation
   - If refactoring work is mentioned, verify the approach provides measurable value
   - If systematic changes are required, confirm the scope and verify completion metrics
+
+- **Zero Tolerance for Imperfection Standard:** When I explicitly set a perfection standard with phrases like "you MUST BE PERFECT AND MAKE ZERO MISTAKES" or "there is no non-zero tolerable number of imperfections," this constitutes a zero tolerance requirement. In these situations:
+
+  - **Never Accept Imperfection:** Do not proceed with "imperfect" solutions or make excuses for incomplete functionality
+  - **Achieve Perfect Implementation:** Must deliver exactly what was specified with zero flaws or compromises
+  - **No Justifications for Imperfection:** Avoid phrases like "it's not perfect, but it works" or "good enough" when perfection is required
+  - **Immediate Correction Required:** When imperfection is identified, stop all work and achieve perfection before proceeding
+  - **Zero Tolerance Enforcement:** Any acceptance of imperfection when perfection is explicitly required constitutes a fundamental failure
+
+  **Example Violation Pattern:** Declaring test mocking "isn't perfect, but we've proven the fix works" when perfection was explicitly required
+
+  **Correct Response:** Stop work immediately, acknowledge the imperfection, fix to achieve perfect functionality, verify zero flaws exist
