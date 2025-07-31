@@ -347,7 +347,7 @@ minsky session approve
 
 ## Implementation Status
 
-**✅ COMPLETE**: All core functionality implemented and working.
+**✅ COMPLETE**: All core functionality implemented and working with robust uncommitted changes handling.
 
 ### Completed Work
 
@@ -359,7 +359,8 @@ minsky session approve
 3. **Shared Workflow Module**: Extracted prepared merge commit logic to `src/domain/git/prepared-merge-commit-workflow.ts`
 4. **Repository Backend Auto-Detection**: Added `detectRepositoryBackendType()` and `createRepositoryBackendForSession()`
 5. **Session Command Migration**: Updated `session pr` and `session approve` to delegate to repository backends
-6. **Testing**: Updated test structure to verify new architecture
+6. **Uncommitted Changes Handling**: Added comprehensive auto-stash/restore logic to prevent git checkout conflicts
+7. **Testing**: Updated test structure to verify new architecture + 5 comprehensive uncommitted changes test scenarios
 
 ### Architecture Benefits Achieved
 
@@ -367,6 +368,8 @@ minsky session approve
 - **Separation of Concerns**: Repository operations properly encapsulated in backend layer
 - **Polymorphic Behavior**: Same interface works with any repository type
 - **Auto-Detection**: Workflow automatically selected based on git remote URL
+- **Robust Execution**: Auto-stash/restore prevents git checkout conflicts with uncommitted changes
+- **Comprehensive Error Handling**: Graceful handling of all git and GitHub API failure scenarios
 - **Backward Compatibility**: Existing functionality preserved while adding new capabilities
 
 ## Dependencies
