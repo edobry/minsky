@@ -11,6 +11,7 @@ import { formatTaskIdForDisplay } from "../../../domain/tasks/task-id-utils";
 
 /**
  * Format session details for human-readable output
+ * TASK 360: Enhanced with sync status information for outdated session detection
  */
 export function formatSessionDetails(session: Record<string, any>): void {
   if (!session) return;
@@ -19,27 +20,89 @@ export function formatSessionDetails(session: Record<string, any>): void {
   log.cli("📄 Session Details:");
   log.cli("");
 
-  if (session.id) log.cli(`   ID: ${session.id}`);
-  if (session.name) log.cli(`   Name: ${session.name}`);
-  if (session.status) log.cli(`   Status: ${session.status}`);
+  if (session.session) log.cli(`   Session: ${session.session}`);
   if (session.taskId) log.cli(`   Task ID: ${formatTaskIdForDisplay(session.taskId)}`);
-  if (session.branchName) log.cli(`   Branch: ${session.branchName}`);
-  if (session.workspacePath) log.cli(`   Workspace: ${session.workspacePath}`);
-  if (session.repoUrl) log.cli(`   Repository: ${session.repoUrl}`);
+  if (session.repoName) log.cli(`   Repository: ${session.repoName}`);
+  if (session.branch) log.cli(`   Branch: ${session.branch}`);
   if (session.createdAt) {
     const date = new Date(session.createdAt);
     log.cli(`   Created: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
   }
-  if (session.lastUpdated) {
-    const date = new Date(session.lastUpdated);
-    log.cli(`   Updated: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
+
+  // TASK 360: Display sync status information if available
+  if (session.syncStatus) {
+    log.cli("");
+    displaySyncStatusSection(session.syncStatus);
   }
 
   log.cli("");
 }
 
 /**
+ * Display sync status section for session details
+ * TASK 360: New section for outdated session information
+ */
+function displaySyncStatusSection(syncStatus: any): void {
+  if (!syncStatus.isOutdated) {
+    log.cli("✅ Session Status: Up to date with main");
+    return;
+  }
+
+  // Display outdated warning with severity
+  const severityIcon = getSeverityIcon(syncStatus.severity);
+  const daysSuffix = syncStatus.daysBehind === 1 ? "day" : "days";
+  const commitsSuffix = syncStatus.commitsBehind === 1 ? "commit" : "commits";
+
+  log.cli(
+    `${severityIcon} OUTDATED: ${syncStatus.commitsBehind} ${commitsSuffix} behind main (${syncStatus.daysBehind} ${daysSuffix} old)`
+  );
+
+  if (syncStatus.lastMainCommitDate) {
+    const date = new Date(syncStatus.lastMainCommitDate);
+    log.cli(
+      `   Last main sync: ${syncStatus.lastMainCommit?.substring(0, 8)} (${date.toLocaleDateString()})`
+    );
+  }
+
+  if (syncStatus.sessionLastUpdate) {
+    const date = new Date(syncStatus.sessionLastUpdate);
+    log.cli(`   Last updated: ${date.toLocaleDateString()}`);
+  }
+
+  log.cli(`   Severity: ${syncStatus.severity?.toUpperCase()}`);
+
+  // Display recent main changes if available
+  if (syncStatus.recentChanges && Array.isArray(syncStatus.recentChanges)) {
+    log.cli("");
+    log.cli("Recent main changes:");
+    syncStatus.recentChanges.forEach((commit: any) => {
+      const date = new Date(commit.date);
+      const shortHash = commit.hash?.substring(0, 7) || "unknown";
+      log.cli(`   - ${shortHash}: ${commit.message} (${date.toLocaleDateString()})`);
+    });
+  }
+}
+
+/**
+ * Get severity icon for sync status display
+ * TASK 360: Visual indicators for different outdated levels
+ */
+function getSeverityIcon(severity: string): string {
+  switch (severity) {
+    case "ancient":
+      return "🔴";
+    case "very-stale":
+      return "🟠";
+    case "stale":
+      return "🟡";
+    default:
+      return "⚠️";
+  }
+}
+
+/**
  * Format session summary for list views
+ * TASK 360: Enhanced with sync status display support
  */
 export function formatSessionSummary(session: Record<string, any>): void {
   if (!session) return;
@@ -49,8 +112,10 @@ export function formatSessionSummary(session: Record<string, any>): void {
   const taskId = session.taskId ? ` (task: ${formatTaskIdForDisplay(session.taskId)})` : "";
   const branchName = session.branch ? ` [${session.branch}]` : "";
 
-  // Sessions don't have status - that's a task concept
-  log.cli(`${sessionName}${taskId}${branchName}`);
+  // TASK 360: Add sync status display if available
+  const syncStatus = session.syncStatusDisplay ? ` ${session.syncStatusDisplay}` : "";
+
+  log.cli(`${sessionName}${taskId}${branchName}${syncStatus}`);
 }
 
 /**

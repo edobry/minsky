@@ -54,6 +54,18 @@ const execAsync = promisify(exec);
 type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
 
 /**
+ * Git commit information
+ * TASK 360: Added for sync status detection
+ */
+export interface GitCommit {
+  hash: string;
+  message: string;
+  author: string;
+  date: Date;
+  timestamp: number;
+}
+
+/**
  * Interface for git service operations
  * This defines the contract for git-related functionality
  */
@@ -176,6 +188,42 @@ export interface GitServiceInterface {
       autoResolveConflicts?: boolean;
     }
   ): Promise<SmartUpdateResult>;
+
+  // TASK 360: Sync status detection methods
+  /**
+   * Get the latest commit from the main branch
+   */
+  getLatestMainCommit(repoPath: string): Promise<GitCommit>;
+
+  /**
+   * Get the merge base between two branches
+   */
+  getMergeBase(repoPath: string, branch1: string, branch2: string): Promise<string>;
+
+  /**
+   * Get commits between two references
+   */
+  getCommitsBetween(repoPath: string, fromRef: string, toRef: string): Promise<GitCommit[]>;
+
+  /**
+   * Get the number of commits between two references
+   */
+  getCommitCount(repoPath: string, range: string): Promise<number>;
+
+  /**
+   * Get commit date for a specific commit hash
+   */
+  getCommitDate(repoPath: string, commitHash: string): Promise<Date>;
+
+  /**
+   * Get commits since a specific date
+   */
+  getCommitsSince(repoPath: string, since: Date, branch?: string): Promise<GitCommit[]>;
+
+  /**
+   * Get the main/default branch name for a repository
+   */
+  getMainBranch(repoPath: string): Promise<string>;
 }
 
 // Define PrTestDependencies first so PrDependencies can extend it
@@ -948,6 +996,130 @@ export class GitService implements GitServiceInterface {
       baseBranch,
       options as unknown
     );
+  }
+
+  // TASK 360: Sync status detection methods implementation
+
+  /**
+   * Get the latest commit from the main branch
+   */
+  async getLatestMainCommit(repoPath: string): Promise<GitCommit> {
+    const mainBranch = await this.getMainBranch(repoPath);
+    const { stdout } = await execAsync(
+      `git -C ${repoPath} log -1 --format="%H|%s|%an|%ct" ${mainBranch}`
+    );
+    const parts = stdout.trim().split("|");
+    const [hash, message, author, timestamp] = parts;
+    return {
+      hash: hash || "",
+      message: message || "",
+      author: author || "",
+      date: new Date(parseInt(timestamp || "0") * 1000),
+      timestamp: parseInt(timestamp || "0"),
+    };
+  }
+
+  /**
+   * Get the merge base between two branches
+   */
+  async getMergeBase(repoPath: string, branch1: string, branch2: string): Promise<string> {
+    const { stdout } = await execAsync(`git -C ${repoPath} merge-base ${branch1} ${branch2}`);
+    return stdout.trim();
+  }
+
+  /**
+   * Get commits between two references
+   */
+  async getCommitsBetween(repoPath: string, fromRef: string, toRef: string): Promise<GitCommit[]> {
+    const { stdout } = await execAsync(
+      `git -C ${repoPath} log --format="%H|%s|%an|%ct" ${fromRef}..${toRef}`
+    );
+    if (!stdout.trim()) return [];
+
+    return stdout
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const parts = line.split("|");
+        const [hash, message, author, timestamp] = parts;
+        return {
+          hash: hash || "",
+          message: message || "",
+          author: author || "",
+          date: new Date(parseInt(timestamp || "0") * 1000),
+          timestamp: parseInt(timestamp || "0"),
+        };
+      });
+  }
+
+  /**
+   * Get the number of commits between two references
+   */
+  async getCommitCount(repoPath: string, range: string): Promise<number> {
+    const { stdout } = await execAsync(`git -C ${repoPath} rev-list --count ${range}`);
+    return parseInt(stdout.trim());
+  }
+
+  /**
+   * Get commit date for a specific commit hash
+   */
+  async getCommitDate(repoPath: string, commitHash: string): Promise<Date> {
+    const { stdout } = await execAsync(`git -C ${repoPath} log -1 --format="%ct" ${commitHash}`);
+    return new Date(parseInt(stdout.trim()) * 1000);
+  }
+
+  /**
+   * Get commits since a specific date
+   */
+  async getCommitsSince(repoPath: string, since: Date, branch?: string): Promise<GitCommit[]> {
+    const branchRef = branch || (await this.getMainBranch(repoPath));
+    const sinceDate = Math.floor(since.getTime() / 1000);
+    const { stdout } = await execAsync(
+      `git -C ${repoPath} log --format="%H|%s|%an|%ct" --since=${sinceDate} ${branchRef}`
+    );
+    if (!stdout.trim()) return [];
+
+    return stdout
+      .trim()
+      .split("\n")
+      .map((line) => {
+        const parts = line.split("|");
+        const [hash, message, author, timestamp] = parts;
+        return {
+          hash: hash || "",
+          message: message || "",
+          author: author || "",
+          date: new Date(parseInt(timestamp || "0") * 1000),
+          timestamp: parseInt(timestamp || "0"),
+        };
+      });
+  }
+
+  /**
+   * Get the main/default branch name for a repository
+   */
+  async getMainBranch(repoPath: string): Promise<string> {
+    try {
+      // First try to get the default branch from remote
+      const { stdout } = await execAsync(
+        `git -C ${repoPath} symbolic-ref refs/remotes/origin/HEAD`
+      );
+      return stdout.trim().replace("refs/remotes/origin/", "");
+    } catch {
+      // Fallback to common main branch names
+      try {
+        await execAsync(`git -C ${repoPath} rev-parse --verify main`);
+        return "main";
+      } catch {
+        try {
+          await execAsync(`git -C ${repoPath} rev-parse --verify master`);
+          return "master";
+        } catch {
+          // Last resort: get current branch
+          return await this.getCurrentBranch(repoPath);
+        }
+      }
+    }
   }
 }
 
