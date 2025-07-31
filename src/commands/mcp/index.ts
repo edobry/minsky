@@ -29,6 +29,7 @@ const INSPECTOR_PORT = 5173;
 // Import adapter-based tool registrations
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
+import { setupConfiguration } from "../../config-setup";
 
 /**
  * Enhanced error information from MCP inspector
@@ -209,6 +210,11 @@ export function createMCPCommand(): Command {
     )
     .action(async (options) => {
       try {
+        // Initialize configuration system first (like CLI does)
+        log.debug("[MCP] Initializing configuration system");
+        await setupConfiguration();
+        log.debug("[MCP] Configuration system initialized");
+
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
 
@@ -293,7 +299,12 @@ export function createMCPCommand(): Command {
 
         registerSessionFileTools(commandMapper);
         registerSessionEditTools(commandMapper);
-        registerGitTools(commandMapper);
+
+        // TEMPORARILY DISABLE git tools during MCP startup to fix hanging issue
+        // The git command registration causes circular dependency hangs during MCP startup
+        // TODO: Fix the circular dependency in createGitService and re-enable
+        // registerGitTools(commandMapper);
+
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
 

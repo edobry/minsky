@@ -12,7 +12,6 @@ import {
   createMergeConflictErrorMessage,
 } from "../errors/enhanced-error-templates";
 import { MinskyError } from "../errors/index";
-import { truncateGitCommand, truncateWorkingDirectory } from "./command-truncation";
 
 const execAsync = promisify(exec);
 
@@ -78,7 +77,7 @@ export async function execGitWithTimeout(
     if ((error as any)?.killed && (error as any)?.signal === "SIGTERM") {
       const errorMessage = createGitTimeoutErrorMessage(operation, timeout, workdir, [
         ...context,
-        { label: "Command", value: truncateGitCommand(fullCommand) },
+        { label: "Command", value: fullCommand },
         { label: "Execution time", value: `${executionTimeMs}ms` },
       ]);
       throw new MinskyError(errorMessage);
@@ -103,7 +102,7 @@ export async function execGitWithTimeout(
         workdir,
         [
           ...context,
-          { label: "Command", value: truncateGitCommand(fullCommand) },
+          { label: "Command", value: fullCommand },
           { label: "Execution time", value: `${executionTimeMs}ms` },
         ]
       );
@@ -113,7 +112,7 @@ export async function execGitWithTimeout(
     // Re-throw other errors with additional context
     const errorMessage = (error as any)?.message || "Unknown git command error";
     const enhancedError = new MinskyError(
-      `Git ${operation} failed: ${errorMessage}\n\nCommand: ${truncateGitCommand(fullCommand)}\nWorking directory: ${truncateWorkingDirectory(workdir || (process as any).cwd())}\nExecution time: ${executionTimeMs}ms`
+      `Git ${operation} failed: ${errorMessage}\n\nCommand: ${fullCommand}\nWorking directory: ${workdir || (process as any).cwd()}\nExecution time: ${executionTimeMs}ms`
     );
 
     throw enhancedError;
