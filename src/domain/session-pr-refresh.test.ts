@@ -177,16 +177,15 @@ describe.skip("Session PR Refresh Functionality", () => {
   describe("Title/Body Extraction", () => {
     it("should correctly parse commit message with title and body", async () => {
       // Mock PR branch exists with multi-line commit message
-      mockGitService.execInRepository = mock(() =>
-        Promise.resolve("not-exists")
-      ).mockImplementationOnce(() =>
-        Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-      ) = // remote branch check
-        mock(() =>
+      const execMock = mock(() => Promise.resolve("not-exists"))
+        .mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
+        .mockImplementationOnce(() =>
           Promise.resolve(
             "feat(#231): Add new feature\n\nThis is the detailed description\nwith multiple lines"
           )
         ); // get commit message
+
+      mockGitService.execInRepository = execMock;
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({
@@ -207,12 +206,11 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should handle commit message with title only", async () => {
       // Mock PR branch exists with single-line commit message
-      mockGitService.execInRepository = mock(() =>
-        Promise.resolve("not-exists")
-      ).mockImplementationOnce(() =>
-        Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-      ) = // remote branch check
-        mock(() => Promise.resolve("feat(#231): Simple title only")); // get commit message
+      const execMock = mock(() => Promise.resolve("not-exists"))
+        .mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
+        .mockImplementationOnce(() => Promise.resolve("feat(#231): Simple title only")); // get commit message
+
+      mockGitService.execInRepository = execMock;
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({
