@@ -48,17 +48,26 @@ const mockTask: Task = {
 };
 
 // Create a default implementation for getTask that works for all tests
-const defaultGetTaskMock = (id: unknown) =>
-  Promise.resolve(
-    id === `#${TEST_VALUE}` || id === `${TEST_VALUE}` || id === String(TEST_VALUE) ? mockTask : null
+const defaultGetTaskMock = (id: unknown) => {
+  const taskIdStr = String(TEST_VALUE);
+  const taskIdWithHash = `#${TEST_VALUE}`;
+
+  return Promise.resolve(
+    id === taskIdWithHash || id === taskIdStr || id === TEST_VALUE ? mockTask : null
   );
+};
 
 const mockTaskService = {
   listTasks: createMock(() => Promise.resolve([mockTask])),
   getTask: createMock(defaultGetTaskMock),
-  getTaskStatus: createMock((id: unknown) =>
-    Promise.resolve(id === `#${TEST_VALUE}` || id === `${TEST_VALUE}` ? TASK_STATUS.TODO : null)
-  ),
+  getTaskStatus: createMock((id: unknown) => {
+    const taskIdStr = String(TEST_VALUE);
+    const taskIdWithHash = `#${TEST_VALUE}`;
+
+    return Promise.resolve(
+      id === taskIdWithHash || id === taskIdStr || id === TEST_VALUE ? TASK_STATUS.TODO : null
+    );
+  }),
   setTaskStatus: createMock(() => Promise.resolve()),
   backends: [],
   currentBackend: {},
@@ -68,7 +77,7 @@ const mockTaskService = {
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
 const mockResolveMainWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = createMock(() => mockTaskService);
+const mockCreateTaskService = createMock(() => Promise.resolve(mockTaskService));
 
 // Type assertion for mock dependencies
 const mockDeps = {
@@ -76,7 +85,7 @@ const mockDeps = {
   resolveMainWorkspacePath: mockResolveMainWorkspacePath,
   createTaskService: mockCreateTaskService,
   resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path")),
-} as any; // Cast to any to avoid TypeScript errors with the deps parameter
+};
 
 describe("interface-agnostic task functions", () => {
   // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
@@ -181,6 +190,9 @@ describe("interface-agnostic task functions", () => {
 
   describe("getTaskStatusFromParams", () => {
     test("should get task status with valid parameters", async () => {
+      // Reset the mock before this test to ensure clean state
+      mockTaskService.getTask = createMock(defaultGetTaskMock);
+
       const params = {
         taskId: `#${TEST_VALUE}`,
         backend: "markdown",
