@@ -546,7 +546,7 @@
 
 - [x] Add validation to session PR title argument to prevent body content in title [#308](process/tasks/308-add-validation-to-session-pr-title-argument-to-prevent-body-content-in-title.md)
 
-- [+] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
+- [x] Improve file operation tools: auto-create directories and semantic error messages [#309](process/tasks/309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
 - [!] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/310-fix-special-workspace-and-main-workspace-synchronization-for-task-operations.md)
 
@@ -616,4 +616,4 @@
 
 - [ ] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
 
-- [ ] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
+- [+] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
