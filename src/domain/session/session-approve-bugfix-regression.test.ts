@@ -85,11 +85,13 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Mock repository backend to avoid filesystem validation
       const mockRepositoryBackend: RepositoryBackend = {
         getType: mock(() => "local"),
-        mergePullRequest: mock(() => Promise.resolve({
-          commitHash: "abc123def456",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-        } as MergeInfo)),
+        mergePullRequest: mock(() =>
+          Promise.resolve({
+            commitHash: "abc123def456",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+          } as MergeInfo)
+        ),
       } as any;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -274,12 +276,14 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Mock repository backend for "already merged" scenario
       const mockRepositoryBackend: RepositoryBackend = {
         getType: mock(() => "local"),
-        mergePullRequest: mock(() => Promise.resolve({
-          commitHash: "abc123def456",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-          // This represents an "already merged" scenario
-        } as MergeInfo)),
+        mergePullRequest: mock(() =>
+          Promise.resolve({
+            commitHash: "abc123def456",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+            // This represents an "already merged" scenario
+          } as MergeInfo)
+        ),
       } as any;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));

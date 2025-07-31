@@ -1,12 +1,12 @@
 /**
  * Test for Session Database BaseDir Bug
- * 
+ *
  * Bug reproduction test for the issue where session approve fails with:
  * "ENOENT: no such file or directory, posix_spawn '/bin/sh'"
- * 
- * Root Cause: Session database has incorrect baseDir that includes '/git' 
+ *
+ * Root Cause: Session database has incorrect baseDir that includes '/git'
  * leading to wrong session workspace path construction.
- * 
+ *
  * Steps to reproduce:
  * 1. Session database has baseDir: "/Users/edobry/.local/state/minsky/git"
  * 2. Session approve tries to get session workspace directory
@@ -34,7 +34,9 @@ describe("Session Database BaseDir Bug", () => {
       const workdir = options.workdir;
       // Simulate posix_spawn error when trying to use non-existent directory with wrong path structure
       if (workdir && workdir.includes("/wrong-component/sessions/")) {
-        throw new Error("Git switch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'");
+        throw new Error(
+          "Git switch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'"
+        );
       }
       return Promise.resolve({ stdout: "", stderr: "", command, workdir, executionTimeMs: 1 });
     });
@@ -71,31 +73,33 @@ describe("Session Database BaseDir Bug", () => {
       createdAt: new Date().toISOString(),
     };
 
-    mockSessionDB.getSessionByTaskId.mockImplementation(() => Promise.resolve(sessionRecord));
-    mockSessionDB.getSession.mockImplementation(() => Promise.resolve(sessionRecord));
-    
+    mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(sessionRecord));
+    mockSessionDB.getSession = mock(() => Promise.resolve(sessionRecord));
+
     // Mock the incorrect baseDir behavior that causes the bug
     // This simulates the session database having wrong baseDir with extra path components
-    mockSessionDB.getSessionWorkdir.mockImplementation(() => {
+    mockSessionDB.getSessionWorkdir = mock(() => {
       // This returns the WRONG path that causes posix_spawn error
       return Promise.resolve("/test/minsky/wrong-component/sessions/task335");
     });
 
     // Mock repository backend that uses git operations
-    const mockCreateRepositoryBackend = mock(() => Promise.resolve({
-      getType: () => "local",
-      mergePullRequest: mock((prIdentifier: string, sessionName: string) => {
-        // This simulates the git operations that fail due to wrong workspace path
-        return mockExecGitWithTimeout("switch", "switch main", {
-          workdir: "/test/minsky/wrong-component/sessions/task335",
-          timeout: 30000
-        }).then(() => ({
-          commitHash: "abc123",
-          mergeDate: new Date().toISOString(),
-          mergedBy: "test-user",
-        }));
-      }),
-    }));
+    const mockCreateRepositoryBackend = mock(() =>
+      Promise.resolve({
+        getType: () => "local",
+        mergePullRequest: mock((prIdentifier: string, sessionName: string) => {
+          // This simulates the git operations that fail due to wrong workspace path
+          return mockExecGitWithTimeout("switch", "switch main", {
+            workdir: "/test/minsky/wrong-component/sessions/task335",
+            timeout: 30000,
+          }).then(() => ({
+            commitHash: "abc123",
+            mergeDate: new Date().toISOString(),
+            mergedBy: "test-user",
+          }));
+        }),
+      })
+    );
 
     // This should fail with the exact posix_spawn error we're seeing
     await expect(
@@ -108,7 +112,9 @@ describe("Session Database BaseDir Bug", () => {
           createRepositoryBackend: mockCreateRepositoryBackend,
         }
       )
-    ).rejects.toThrow("Git switch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'");
+    ).rejects.toThrow(
+      "Git switch failed: ENOENT: no such file or directory, posix_spawn '/bin/sh'"
+    );
   });
 
   it("should succeed when session database has correct baseDir", async () => {
@@ -121,30 +127,38 @@ describe("Session Database BaseDir Bug", () => {
       createdAt: new Date().toISOString(),
     };
 
-    mockSessionDB.getSessionByTaskId.mockImplementation(() => Promise.resolve(sessionRecord));
-    mockSessionDB.getSession.mockImplementation(() => Promise.resolve(sessionRecord));
-    
+    mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(sessionRecord));
+    mockSessionDB.getSession = mock(() => Promise.resolve(sessionRecord));
+
     // Mock the correct baseDir behavior
-    mockSessionDB.getSessionWorkdir.mockImplementation(() => {
+    mockSessionDB.getSessionWorkdir = mock(() => {
       // This returns the CORRECT path without extra components
       return Promise.resolve("/test/minsky/sessions/task335");
     });
 
     // Mock successful git operations with correct path
-    const mockSuccessfulExecGit = mock(() => Promise.resolve({
-      stdout: "", stderr: "", command: "switch main", 
-      workdir: "/test/minsky/sessions/task335", 
-      executionTimeMs: 1
-    }));
+    const mockSuccessfulExecGit = mock(() =>
+      Promise.resolve({
+        stdout: "",
+        stderr: "",
+        command: "switch main",
+        workdir: "/test/minsky/sessions/task335",
+        executionTimeMs: 1,
+      })
+    );
 
-    const mockCreateRepositoryBackend = mock(() => Promise.resolve({
-      getType: () => "local",
-      mergePullRequest: mock(() => Promise.resolve({
-        commitHash: "abc123",
-        mergeDate: new Date().toISOString(),
-        mergedBy: "test-user",
-      })),
-    }));
+    const mockCreateRepositoryBackend = mock(() =>
+      Promise.resolve({
+        getType: () => "local",
+        mergePullRequest: mock(() =>
+          Promise.resolve({
+            commitHash: "abc123",
+            mergeDate: new Date().toISOString(),
+            mergedBy: "test-user",
+          })
+        ),
+      })
+    );
 
     // This should succeed without posix_spawn errors
     const result = await approveSessionImpl(
@@ -164,11 +178,11 @@ describe("Session Database BaseDir Bug", () => {
   it("should demonstrate the path construction difference that causes the bug", () => {
     // Create two session database states to show the difference
     const correctState: SessionDbState = initializeSessionDbState({
-      baseDir: "/test/minsky" // Correct baseDir
+      baseDir: "/test/minsky", // Correct baseDir
     });
 
     const incorrectState: SessionDbState = initializeSessionDbState({
-      baseDir: "/test/minsky/wrong" // Bug - includes extra component
+      baseDir: "/test/minsky/wrong", // Bug - includes extra component
     });
 
     const sessionRecord: SessionRecord = {
@@ -197,13 +211,13 @@ describe("Session Database BaseDir Bug", () => {
 
   it("should demonstrate the LocalGitBackend vs SessionDB path inconsistency", async () => {
     // This test shows the REAL bug: LocalGitBackend and SessionDB use different path structures
-    
+
     // Session database path (what session dir command returns)
     const mockBaseDir = "/test/minsky";
     const sessionState: SessionDbState = initializeSessionDbState({
-      baseDir: mockBaseDir
+      baseDir: mockBaseDir,
     });
-    
+
     const sessionRecord: SessionRecord = {
       session: "test-session",
       repoUrl: "/test/repo",
@@ -211,25 +225,30 @@ describe("Session Database BaseDir Bug", () => {
       taskId: "123",
       createdAt: new Date().toISOString(),
     };
-    
+
     sessionState.sessions = [sessionRecord];
     const sessionDbPath = getSessionWorkdirFn(sessionState, "test-session");
-    
+
     // LocalGitBackend path BEFORE fix (what caused the bug)
     // This simulates the old getSessionWorkdir that included repoName
-    const localGitBackendPathOld = join(mockBaseDir, sessionRecord.repoName, "sessions", "test-session");
-    
+    const localGitBackendPathOld = join(
+      mockBaseDir,
+      sessionRecord.repoName,
+      "sessions",
+      "test-session"
+    );
+
     // LocalGitBackend path AFTER fix (what it should be now)
     const localGitBackendPathFixed = join(mockBaseDir, "sessions", "test-session");
-    
+
     // Show the inconsistency that caused the bug
     expect(sessionDbPath).toBe("/test/minsky/sessions/test-session");
     expect(localGitBackendPathOld).toBe("/test/minsky/test-repo/sessions/test-session");
     expect(localGitBackendPathFixed).toBe("/test/minsky/sessions/test-session");
-    
+
     // The old paths were different (causing posix_spawn error)
     expect(sessionDbPath).not.toBe(localGitBackendPathOld);
-    
+
     // The fixed paths should be the same (fixing the bug)
     expect(sessionDbPath).toBe(localGitBackendPathFixed);
   });

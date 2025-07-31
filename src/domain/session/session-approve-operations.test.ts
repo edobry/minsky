@@ -24,11 +24,13 @@ describe("Session Approval Repository Backend Bug", () => {
 
     mockRepositoryBackend = {
       getType: mock(() => "local"),
-      mergePullRequest: mock(() => Promise.resolve({
-        commitHash: "abc123",
-        mergeDate: "2025-07-30T23:14:24.213Z",
-        mergedBy: "Test User",
-      })),
+      mergePullRequest: mock(() =>
+        Promise.resolve({
+          commitHash: "abc123",
+          mergeDate: "2025-07-30T23:14:24.213Z",
+          mergedBy: "Test User",
+        })
+      ),
     } as any;
 
     mockTaskService = {
@@ -51,7 +53,7 @@ describe("Session Approval Repository Backend Bug", () => {
    * 3. Instead of using session's LOCAL config, it re-detects backend from git remote
    * 4. This causes wrong backend type to be used (GitHub instead of LOCAL)
    */
-    it("should use session's stored repository configuration instead of re-detecting backend type", async () => {
+  it("should use session's stored repository configuration instead of re-detecting backend type", async () => {
     // Arrange: Session was created with LOCAL repository configuration
     const localSessionRecord: SessionRecord = {
       session: "task335",
@@ -64,16 +66,18 @@ describe("Session Approval Repository Backend Bug", () => {
     };
 
     // Configure mock session database
-    (mockSessionDB.getSessionByTaskId as any).mockResolvedValue(localSessionRecord);
-    (mockSessionDB.getSession as any).mockResolvedValue(localSessionRecord);
+    mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(localSessionRecord));
+    mockSessionDB.getSession = mock(() => Promise.resolve(localSessionRecord));
 
     // Configure mock repository backend for LOCAL type
-    (mockRepositoryBackend.getType as any).mockReturnValue("local");
-    (mockRepositoryBackend.mergePullRequest as any).mockResolvedValue({
-      commitHash: "abc123def456",
-      mergeDate: "2025-07-30T23:14:24.213Z",
-      mergedBy: "John Doe",
-    });
+    mockRepositoryBackend.getType = mock(() => "local");
+    mockRepositoryBackend.mergePullRequest = mock(() =>
+      Promise.resolve({
+        commitHash: "abc123def456",
+        mergeDate: "2025-07-30T23:14:24.213Z",
+        mergedBy: "John Doe",
+      })
+    );
 
     // Track the arguments passed to repository backend creation
     let capturedSessionRecord: SessionRecord | undefined;
@@ -128,16 +132,18 @@ describe("Session Approval Repository Backend Bug", () => {
     };
 
     // Configure mock session database
-    (mockSessionDB.getSessionByTaskId as any).mockResolvedValue(githubSessionRecord);
-    (mockSessionDB.getSession as any).mockResolvedValue(githubSessionRecord);
+    mockSessionDB.getSessionByTaskId = mock(() => Promise.resolve(githubSessionRecord));
+    mockSessionDB.getSession = mock(() => Promise.resolve(githubSessionRecord));
 
     // Configure mock repository backend for GitHub type
-    (mockRepositoryBackend.getType as any).mockReturnValue("github");
-    (mockRepositoryBackend.mergePullRequest as any).mockResolvedValue({
-      commitHash: "abc123def456",
-      mergeDate: "2025-07-30T23:14:24.213Z",
-      mergedBy: "GitHub Merge",
-    });
+    mockRepositoryBackend.getType = mock(() => "github");
+    mockRepositoryBackend.mergePullRequest = mock(() =>
+      Promise.resolve({
+        commitHash: "abc123def456",
+        mergeDate: "2025-07-30T23:14:24.213Z",
+        mergedBy: "GitHub Merge",
+      })
+    );
 
     // Track the arguments passed to repository backend creation
     let capturedSessionRecord: SessionRecord | undefined;

@@ -15,10 +15,10 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     tempDir = join("/tmp", `test-multi-backend-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
     await fs.mkdir(join(tempDir, "process"), { recursive: true });
-    
+
     // Initialize backends
     markdownBackend = new MarkdownTaskBackend(tempDir);
-    
+
     // Initialize service with real backend
     service = new MultiBackendTaskServiceImpl();
     service.registerBackend(markdownBackend);
@@ -53,10 +53,13 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
   describe("Task Operations via MultiBackendTaskService", () => {
     it("should create tasks with qualified IDs", async () => {
-      const task = await service.createTask({
-        title: "Multi-Backend Test Task",
-        description: "Created via service",
-      }, "md");
+      const task = await service.createTask(
+        {
+          title: "Multi-Backend Test Task",
+          description: "Created via service",
+        },
+        "md"
+      );
 
       expect(task.id).toMatch(/^md#\d+$/);
       expect(task.title).toBe("Multi-Backend Test Task");
@@ -64,9 +67,12 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     });
 
     it("should retrieve tasks via qualified IDs", async () => {
-      const createdTask = await service.createTask({
-        title: "Retrieve Test",
-      }, "md");
+      const createdTask = await service.createTask(
+        {
+          title: "Retrieve Test",
+        },
+        "md"
+      );
 
       const retrievedTask = await service.getTask(createdTask.id);
       expect(retrievedTask).not.toBeNull();
@@ -75,10 +81,13 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     });
 
     it("should update tasks via service", async () => {
-      const task = await service.createTask({
-        title: "Original Title",
-        status: TASK_STATUS.TODO,
-      }, "md");
+      const task = await service.createTask(
+        {
+          title: "Original Title",
+          status: TASK_STATUS.TODO,
+        },
+        "md"
+      );
 
       const updatedTask = await service.updateTask(task.id, {
         title: "Updated Title",
@@ -92,9 +101,9 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
     it("should delete tasks via service", async () => {
       const task = await service.createTask({ title: "To Delete" }, "md");
-      
+
       await service.deleteTask(task.id);
-      
+
       const deletedTask = await service.getTask(task.id);
       expect(deletedTask).toBeNull();
     });
@@ -105,8 +114,8 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
       const allTasks = await service.listAllTasks();
       expect(allTasks).toHaveLength(2);
-      
-      allTasks.forEach(task => {
+
+      allTasks.forEach((task) => {
         expect(task.id).toMatch(/^md#\d+$/);
       });
 
@@ -133,7 +142,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
     it("should route unqualified IDs to default backend", async () => {
       const task = await service.createTask({ title: "Default Backend Test" }, "md");
-      
+
       // Should retrieve with unqualified ID
       const retrieved = await service.getTask("1");
       expect(retrieved).not.toBeNull();
@@ -166,4 +175,4 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
       expect(results[0]?.title).toBe("Searchable Task");
     });
   });
-}); 
+});

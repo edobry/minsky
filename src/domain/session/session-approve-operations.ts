@@ -68,7 +68,7 @@ async function createRepositoryBackendFromSession(
     }
   }
 
-    const config: RepositoryBackendConfig = {
+  const config: RepositoryBackendConfig = {
     type: backendType,
     repoUrl: sessionRecord.repoUrl,
   };
@@ -331,7 +331,8 @@ The task exists but has no associated session to approve.
     }
 
     // Create repository backend from session record's stored configuration
-    const createBackendFn = depsInput?.createRepositoryBackend || createRepositoryBackendFromSession;
+    const createBackendFn =
+      depsInput?.createRepositoryBackend || createRepositoryBackendFromSession;
     const repositoryBackend = await createBackendFn(sessionRecord);
     const backendType = repositoryBackend.getType();
 

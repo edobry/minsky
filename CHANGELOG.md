@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- **Session Approve Workflow**: Resolved `posix_spawn '/bin/sh'` error in session approve command
+  - Fixed path inconsistency between LocalGitBackend and SessionDB that caused git operations to fail
+  - LocalGitBackend now uses consistent session workspace path structure without repoName component
+  - Added comprehensive test suite with proper test-driven development approach
+  - Session approve operations now work correctly for all session types
+
 ### Added
 - **Task #361**: Session outdated detection and display system
   - Created interim solution for detecting when sessions become outdated after PR merges to main
@@ -1879,9 +1886,8 @@ This implementation successfully addresses **Task #341: Implement Pre-Commit Sec
 
 - **COMPLETE**: Task #161 repository backend delegation fully implemented
 - **CRITICAL FIX**: Added comprehensive auto-stash/restore logic to prevent git checkout conflicts
-- **ARCHITECTURE**: Repository backends now properly handle PR workflow operations  
+- **ARCHITECTURE**: Repository backends now properly handle PR workflow operations
 - **TESTING**: 5 comprehensive test scenarios cover all uncommitted changes edge cases
 - **INTEGRATION**: Seamless integration with Task #359 subcommand structure
 
 Repository backend PR workflow delegation now works reliably regardless of uncommitted changes state.
-
