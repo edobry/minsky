@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Session Approve Merge Strategy**: Fixed session approve creating new merge commits instead of fast-forwarding to prepared merge commits
+  - Changed prepared-merge-commit-workflow to use `--ff-only` instead of `--no-ff` during approval
+  - Resolves "Merge commits into main must use conventional commit format" validation errors
+  - Session approve now correctly fast-forwards to the prepared merge commit as designed
+  - Aligns implementation with documented prepared merge commit workflow specification
+
 - **Session Approve Workflow**: Resolved `posix_spawn '/bin/sh'` error in session approve command
   - Fixed path inconsistency between LocalGitBackend and SessionDB that caused git operations to fail
   - LocalGitBackend now uses consistent session workspace path structure without repoName component
