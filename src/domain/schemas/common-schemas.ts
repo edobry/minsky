@@ -24,7 +24,8 @@ export const TaskIdSchema = z
       return isQualifiedTaskId(value) || isLegacyTaskId(value);
     },
     {
-      message: "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+      message:
+        "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
     }
   );
 
@@ -55,7 +56,11 @@ export const NormalizedTaskIdSchema = z
   .min(1, "Task ID cannot be empty")
   .transform((value, ctx) => {
     // Import here to avoid circular dependencies
-    const { migrateUnqualifiedTaskId, isQualifiedTaskId, isLegacyTaskId } = require("../tasks/unified-task-id");
+    const {
+      migrateUnqualifiedTaskId,
+      isQualifiedTaskId,
+      isLegacyTaskId,
+    } = require("../tasks/unified-task-id");
 
     if (isQualifiedTaskId(value)) {
       return value; // Already qualified
