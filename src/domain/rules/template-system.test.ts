@@ -59,9 +59,16 @@ mock.module("./command-generator", () => {
 mock.module("../../adapters/shared/command-registry", () => {
   return {
     CommandCategory: {
-      TASKS: "TASKS",
+      CORE: "CORE",
       GIT: "GIT",
+      TASKS: "TASKS",
       SESSION: "SESSION",
+      SESSIONDB: "SESSIONDB",
+      RULES: "RULES",
+      INIT: "INIT",
+      CONFIG: "CONFIG",
+      DEBUG: "DEBUG",
+      AI: "AI",
     },
     sharedCommandRegistry: {
       getCommand: mock(),
