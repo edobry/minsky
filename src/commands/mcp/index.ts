@@ -210,11 +210,6 @@ export function createMCPCommand(): Command {
     )
     .action(async (options) => {
       try {
-        // Initialize configuration system first (like CLI does)
-        log.debug("[MCP] Initializing configuration system");
-        await setupConfiguration();
-        log.debug("[MCP] Configuration system initialized");
-
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
 
