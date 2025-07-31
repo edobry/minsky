@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **MCP Server Schema Exports**: Fixed MCP server startup error due to missing schema exports
+  - Added `QualifiedTaskIdSchema` for multi-backend task operations with backend prefixes
+  - Added `NormalizedTaskIdSchema` for legacy ID migration and backend qualification
+  - Added corresponding TypeScript type exports (`QualifiedTaskId`, `NormalizedTaskId`)
+  - Resolves startup error: "Export named 'QualifiedTaskIdSchema' not found in module"
+  - MCP server now starts successfully with `minsky mcp start --with-inspector --http`
+
 - **Session Approve Display**: Fixed "Session: Unknown" display in session approval command output
   - Corrected property access in session approval formatter from `result.result` to `result.data`
   - Session name now displays correctly instead of showing "Unknown"
