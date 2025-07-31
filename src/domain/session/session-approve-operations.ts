@@ -271,8 +271,11 @@ The task exists but has no associated session to approve.
       log.cli("🔍 Auto-detecting repository backend...");
     }
 
-    // Create repository backend based on current repository
-    const repositoryBackend = await createRepositoryBackendForSession(workingDirectory);
+    // Create repository backend using dependency injection or fallback to session detection
+    const createBackendFn =
+      depsInput?.createRepositoryBackend ||
+      (() => createRepositoryBackendForSession(workingDirectory));
+    const repositoryBackend = await createBackendFn(sessionRecord);
     const backendType = repositoryBackend.getType();
 
     if (!params.json) {

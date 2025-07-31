@@ -34,20 +34,12 @@ const INTEGRATION_CONFIG = {
   apiTimeout: 10000,
 };
 
-describe("GitHub Issues Backend Integration Tests", { timeout: 30000 }, () => {
+describe.skipIf(!INTEGRATION_CONFIG.token)("GitHub Issues Backend Integration Tests", () => {
   let backend: TaskBackend;
   let octokit: Octokit;
   let createdIssueNumbers: number[] = [];
 
   beforeAll(async () => {
-    // Verify test prerequisites
-    if (!INTEGRATION_CONFIG.token) {
-      throw new Error(
-        "GITHUB_TOKEN environment variable is required for integration tests.\n" +
-          'Set it with: export GITHUB_TOKEN="your_token_here"'
-      );
-    }
-
     console.log("🔍 Setting up GitHub Issues backend integration tests...");
     console.log(`   Repository: ${INTEGRATION_CONFIG.owner}/${INTEGRATION_CONFIG.repo}`);
     console.log(`   Test prefix: ${INTEGRATION_CONFIG.testPrefix}`);
