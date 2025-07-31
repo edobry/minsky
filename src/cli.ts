@@ -12,10 +12,7 @@ import { log } from "./utils/logger";
 import { exit } from "./utils/process";
 import { registerAllSharedCommands } from "./adapters/shared/commands/index";
 import { createMCPCommand } from "./commands/mcp/index";
-import {
-  setupCommonCommandCustomizations,
-  registerAllCommands,
-} from "./adapters/cli/cli-command-factory";
+import { initializeCliCommands } from "./adapters/cli/cli-command-factory";
 import { validateProcess } from "./schemas/runtime";
 import { validateError, getErrorMessage, getErrorStack } from "./schemas/error";
 
@@ -30,14 +27,15 @@ export const cli = new Command("minsky")
  * Create the CLI command structure
  */
 export async function createCli(): Promise<Command> {
-  // Setup common command customizations with the CLI instance
-  setupCommonCommandCustomizations(cli);
-
   // Register all shared commands
   await registerAllSharedCommands();
 
-  // Register all commands via CLI command factory (which applies customizations)
-  registerAllCommands(cli);
+  // Initialize CLI with standardized type composition patterns (includes customizations and registration)
+  initializeCliCommands(cli, {
+    enableSchemaValidation: true,
+    useStandardizedFormatting: true,
+    useStandardizedErrorHandling: true,
+  });
 
   // Add MCP command (this is not yet migrated to shared commands)
   cli.addCommand(await createMCPCommand());

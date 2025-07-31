@@ -12,10 +12,7 @@ import {
   createCliListingCommandSchema,
   createCliCrudCommandSchema,
 } from "../schemas/cli-parameter-schemas";
-import {
-  createCliSuccessResponse,
-  formatCliOutput,
-} from "../schemas/cli-response-schemas";
+import { createCliSuccessResponse, formatCliOutput } from "../schemas/cli-response-schemas";
 import {
   validateCliParameters,
   handleStandardizedCliError,
@@ -76,12 +73,19 @@ const RulesUpdateParametersSchema = z.object({
 /**
  * CLI rules parameter schemas with standardized CLI options
  */
-export const CliRulesListParametersSchema = createCliListingCommandSchema(RulesListParametersSchema);
+export const CliRulesListParametersSchema =
+  createCliListingCommandSchema(RulesListParametersSchema);
 export const CliRulesGetParametersSchema = createCliCommandSchema(RulesGetParametersSchema);
-export const CliRulesGenerateParametersSchema = createCliCommandSchema(RulesGenerateParametersSchema);
-export const CliRulesCreateParametersSchema = createCliCrudCommandSchema(RulesCreateParametersSchema);
+export const CliRulesGenerateParametersSchema = createCliCommandSchema(
+  RulesGenerateParametersSchema
+);
+export const CliRulesCreateParametersSchema = createCliCrudCommandSchema(
+  RulesCreateParametersSchema
+);
 export const CliRulesSearchParametersSchema = createCliCommandSchema(RulesSearchParametersSchema);
-export const CliRulesUpdateParametersSchema = createCliCrudCommandSchema(RulesUpdateParametersSchema);
+export const CliRulesUpdateParametersSchema = createCliCrudCommandSchema(
+  RulesUpdateParametersSchema
+);
 
 /**
  * Get standardized rules command customizations using type composition patterns
@@ -250,9 +254,9 @@ export function getStandardizedRulesCustomizations(): {
                 }
 
                 output += "\n📄 Content:\n";
-                output += "─".repeat(50) + "\n";
+                output += `${"─".repeat(50)}\n`;
                 output += rule.content || "";
-                output += "\n" + "─".repeat(50) + "\n";
+                output += `\n${"─".repeat(50)}\n`;
 
                 return output;
               });
@@ -607,4 +611,4 @@ export function getStandardizedRulesCustomizations(): {
  * minsky rules create new-rule --content "Rule content" --tags "validation,types"
  * minsky rules search --query "validation" --tag "typescript"
  * ```
- */ 
+ */

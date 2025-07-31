@@ -6,14 +6,8 @@
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
-import {
-  CliBaseParametersSchema,
-  createCliCommandSchema,
-} from "../schemas/cli-parameter-schemas";
-import {
-  createCliSuccessResponse,
-  formatCliOutput,
-} from "../schemas/cli-response-schemas";
+import { CliBaseParametersSchema, createCliCommandSchema } from "../schemas/cli-parameter-schemas";
+import { createCliSuccessResponse, formatCliOutput } from "../schemas/cli-response-schemas";
 import {
   validateCliParameters,
   handleStandardizedCliError,
@@ -108,7 +102,7 @@ export function getStandardizedConfigCustomizations(): {
 
                 // Format configuration display
                 let output = "📋 CONFIGURATION SOURCES\n";
-                output += "=".repeat(50) + "\n\n";
+                output += `${"=".repeat(50)}\n\n`;
 
                 if (data.result.resolved) {
                   // Display each configuration section
@@ -197,7 +191,7 @@ export function getStandardizedConfigCustomizations(): {
 
                 // Format comprehensive configuration display
                 let output = "📋 CURRENT CONFIGURATION\n";
-                output += "=".repeat(50) + "\n\n";
+                output += `${"=".repeat(50)}\n\n`;
 
                 const config = data.result;
 
@@ -288,4 +282,4 @@ export function getStandardizedConfigCustomizations(): {
  * minsky config show --verbose
  * minsky config list --show-secrets --quiet
  * ```
- */ 
+ */

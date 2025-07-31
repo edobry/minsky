@@ -12,9 +12,9 @@ import {
   getConfigCustomizations,
   getSessiondbCustomizations,
 } from "../customizations/config-customizations";
-import { 
-  setupStandardizedCommandCustomizations, 
-  type StandardizedCliSetupConfig 
+import {
+  setupStandardizedCommandCustomizations,
+  type StandardizedCliSetupConfig,
 } from "../integrations/standardized-cli-setup";
 
 /**
@@ -52,7 +52,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
  * patterns from Task #335.
  */
 export function initializeCliCommands(
-  program: Command, 
+  program: Command,
   config?: Partial<CliFactoryConfig & StandardizedCliSetupConfig>
 ): void {
   // Initialize the factory
@@ -67,10 +67,13 @@ export function initializeCliCommands(
 
 /**
  * DEPRECATED: Initialize CLI commands with legacy patterns
- * 
+ *
  * @deprecated Use initializeCliCommands() instead, which uses standardized patterns
  */
-export function initializeCliCommandsLegacy(program: Command, config?: Partial<CliFactoryConfig>): void {
+export function initializeCliCommandsLegacy(
+  program: Command,
+  config?: Partial<CliFactoryConfig>
+): void {
   // Initialize the factory
   cliFactory.initialize(config);
 
