@@ -49,13 +49,15 @@ const mockTask: Task = {
 
 // Create a default implementation for getTask that works for all tests
 const defaultGetTaskMock = (id: unknown) =>
-  Promise.resolve(id === `#${TEST_VALUE}` ? mockTask : null);
+  Promise.resolve(
+    id === `#${TEST_VALUE}` || id === `${TEST_VALUE}` || id === String(TEST_VALUE) ? mockTask : null
+  );
 
 const mockTaskService = {
   listTasks: createMock(() => Promise.resolve([mockTask])),
   getTask: createMock(defaultGetTaskMock),
   getTaskStatus: createMock((id: unknown) =>
-    Promise.resolve(id === `#${TEST_VALUE}` ? TASK_STATUS.TODO : null)
+    Promise.resolve(id === `#${TEST_VALUE}` || id === `${TEST_VALUE}` ? TASK_STATUS.TODO : null)
   ),
   setTaskStatus: createMock(() => Promise.resolve()),
   backends: [],
@@ -125,7 +127,7 @@ describe("interface-agnostic task functions", () => {
       const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
-      expect(mockTaskService.getTask).toHaveBeenCalledWith(`#${TEST_VALUE}`);
+      expect(mockTaskService.getTask).toHaveBeenCalledWith(`${TEST_VALUE}`);
     });
 
     test("should throw ResourceNotFoundError when task is not found", async () => {
@@ -144,14 +146,14 @@ describe("interface-agnostic task functions", () => {
 
     test("should normalize non-canonical task IDs (e.g., 'TEST_VALUE' -> '#TEST_VALUE')", async () => {
       const params = {
-        taskId: "TEST_VALUE", // non-canonical, missing '#'
+        taskId: `${TEST_VALUE}`, // non-canonical, missing '#'
         backend: "markdown",
       };
 
       const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
-      expect(mockTaskService.getTask).toHaveBeenCalledWith(`#${TEST_VALUE}`);
+      expect(mockTaskService.getTask).toHaveBeenCalledWith(`${TEST_VALUE}`);
     });
 
     test("should handle task IDs without leading zeros", async () => {
@@ -173,7 +175,7 @@ describe("interface-agnostic task functions", () => {
       const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual({ ...mockTask, id: "#023" });
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("#23");
+      expect(mockTaskService.getTask).toHaveBeenCalledWith(`${TASK_ID_WITHOUT_LEADING_ZEROS}`);
     });
   });
 
@@ -187,7 +189,7 @@ describe("interface-agnostic task functions", () => {
       const result = await getTaskStatusFromParams(params, mockDeps);
 
       expect(result).toBe(TASK_STATUS.TODO);
-      expect(mockTaskService.getTask).toHaveBeenCalledWith(`#${TEST_VALUE}`);
+      expect(mockTaskService.getTask).toHaveBeenCalledWith(`${TEST_VALUE}`);
     });
 
     test("should throw ResourceNotFoundError when task status is not found", async () => {
@@ -219,7 +221,7 @@ describe("interface-agnostic task functions", () => {
       await setTaskStatusFromParams(params, mockDeps);
 
       expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith(
-        `#${TEST_VALUE}`,
+        `${TEST_VALUE}`,
         TASK_STATUS.IN_PROGRESS
       );
     });

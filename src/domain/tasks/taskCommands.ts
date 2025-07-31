@@ -55,14 +55,17 @@ export async function listTasksFromParams(
   params: TaskListParams,
   deps?: {
     createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<any[]> {
   try {
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Use current directory as workspace path (simplified architecture)
-    const workspacePath = process.cwd();
+    // Use dependency injection for workspace path resolution
+    const resolveMainWorkspacePath =
+      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
+    const workspacePath = await resolveMainWorkspacePath();
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -104,14 +107,17 @@ export async function getTaskFromParams(
   params: TaskGetParams,
   deps?: {
     createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<any> {
   try {
     // Validate params with Zod schema
     const validParams = taskGetParamsSchema.parse(params);
 
-    // Use current directory as workspace path (simplified architecture)
-    const workspacePath = process.cwd();
+    // Use dependency injection for workspace path resolution
+    const resolveMainWorkspacePath =
+      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
+    const workspacePath = await resolveMainWorkspacePath();
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -151,6 +157,7 @@ export async function getTaskStatusFromParams(
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
     createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<string> {
   try {
@@ -175,8 +182,10 @@ export async function getTaskStatusFromParams(
       repo: validParams.repo,
     });
 
-    // Use current directory as workspace path (simplified architecture)
-    const workspacePath = process.cwd();
+    // Use dependency injection for workspace path resolution
+    const resolveMainWorkspacePath =
+      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
+    const workspacePath = await resolveMainWorkspacePath();
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
