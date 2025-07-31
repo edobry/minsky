@@ -7,7 +7,6 @@
 import { Command } from "commander";
 import { log } from "../../../../utils/logger";
 import { handleCliError, outputResult } from "../../../cli/utils/index";
-import { validateCliParameters } from "../../../cli/utils/standardized-error-handler";
 import {
   sharedCommandRegistry,
   type CommandExecutionContext,
@@ -155,31 +154,8 @@ export class CommandGeneratorCore {
         // Normalize parameters
         const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
 
-        // Apply schema validation if parameterSchema is provided (Task #335)
-        let validatedParams = normalizedParams;
-        if (options.parameterSchema) {
-          try {
-            validatedParams = validateCliParameters(
-              options.parameterSchema,
-              normalizedParams,
-              commandDef.id,
-              {
-                json: !!rawParameters.json,
-                quiet: !!rawParameters.quiet,
-                verbose: !!rawParameters.verbose,
-                debug: !!rawParameters.debug,
-                format: context.format as "json" | "text" | "yaml" | "table",
-              }
-            );
-            log.debug(`Schema validation passed for command: ${commandDef.id}`);
-          } catch (error) {
-            log.debug(`Schema validation failed for command: ${commandDef.id}`, error);
-            throw error; // This will be caught by the outer try-catch and handled by handleCliError
-          }
-        }
-
-        // Execute the command with validated parameters and context
-        const result = await commandDef.execute(validatedParams, context);
+        // Execute the command with parameters and context
+        const result = await commandDef.execute(normalizedParams, context);
 
         // Handle output
         this.handleCommandOutput(result, commandDef, options, context);

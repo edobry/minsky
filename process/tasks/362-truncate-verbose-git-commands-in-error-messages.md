@@ -39,7 +39,7 @@ await gitExec("merge", `merge --ff-only ${prBranch}`, { workdir, timeout: 180000
 ## Verification
 
 - ✅ Prepared merge commit workflow tests pass
-- ✅ Session approval operations tests pass  
+- ✅ Session approval operations tests pass
 - ✅ Fix aligns with existing test expectations (many tests already expected `--ff-only`)
 - ✅ Commit message validation will no longer block session approve
 

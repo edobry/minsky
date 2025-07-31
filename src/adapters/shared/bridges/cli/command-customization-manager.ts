@@ -3,10 +3,8 @@
  *
  * Manages customization options for CLI commands and categories.
  * Extracted from cli-bridge.ts as part of modularization effort.
- * Extended with schema-based validation support from Task #335.
  */
 import { CommandCategory } from "../../command-registry";
-import { ZodSchema } from "zod";
 
 /**
  * Options for customizing a CLI command
@@ -16,8 +14,6 @@ export interface CliCommandOptions {
   useFirstRequiredParamAsArgument?: boolean;
   /** Custom parameter mapping options */
   parameters?: Record<string, ParameterMappingOptions>;
-  /** Zod schema for parameter validation (Task #335 extension) */
-  parameterSchema?: ZodSchema<any>;
   /** Custom help text */
   helpText?: string;
   /** Command aliases */
