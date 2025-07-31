@@ -38,7 +38,7 @@ import * as WorkspaceUtils from "./workspace";
 import { SessionDbAdapter } from "./session/session-db-adapter";
 import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
-import { approveSessionImpl } from "./session/session-approve-operations";
+import { approveSessionOnly } from "./session/session-approve-only-operations";
 import { sessionCommit } from "./session/session-commands";
 import { execGitWithTimeout } from "../utils/git-exec";
 import type { SessionRecord } from "./session/session-db";
@@ -1298,7 +1298,10 @@ export async function sessionPrFromParams(
 }
 
 /**
- * Approves and merges a session PR branch
+ * ⚠️  SECURITY UPDATE (Task #358): Approves a session PR branch (DOES NOT MERGE)
+ * 
+ * This function now only performs approval. Use 'session merge' separately to merge.
+ * This prevents unauthorized merges and ensures proper code review workflow.
  */
 export async function approveSessionFromParams(
   params: {
@@ -1306,32 +1309,28 @@ export async function approveSessionFromParams(
     task?: string;
     repo?: string;
     json?: boolean;
-    noStash?: boolean;
-  },
-  depsInput?: {
-    sessionDB?: SessionProviderInterface;
-    gitService?: GitServiceInterface;
-    taskService?: {
-      setTaskStatus?: (taskId: string, status: string) => Promise<any>;
-      getTaskStatus?: (taskId: string) => Promise<string | undefined>;
-      getBackendForTask?: (taskId: string) => Promise<any>;
-      getTask?: (taskId: string) => Promise<any>;
-    };
-    workspaceUtils?: any;
-    getCurrentSession?: (repoPath: string) => Promise<string | null>;
+    reviewComment?: string;
   }
 ): Promise<{
-  session: string;
-  commitHash: string;
-  mergeDate: string;
-  mergedBy: string;
-  baseBranch: string;
-  prBranch: string;
+  sessionName: string;
   taskId?: string;
-  isNewlyApproved: boolean;
+  prBranch?: string;
+  approvalInfo: {
+    reviewId: number | string;
+    approvedBy: string;
+    approvedAt: string;
+    prNumber?: string;
+  };
+  wasAlreadyApproved: boolean;
 }> {
-  // Delegate to the new implementation with automatic stash handling
-  return await approveSessionImpl(params, depsInput);
+  // SECURITY: Use new approve-only operation
+  return await approveSessionOnly({
+    session: params.session,
+    task: params.task,
+    repo: params.repo,
+    json: params.json,
+    reviewComment: params.reviewComment,
+  });
 }
 
 /**

@@ -3,7 +3,7 @@ import { mergeSessionOnly } from "../../session-merge-only-operations";
 
 /**
  * Session merge subcommand (Task #358)
- * 
+ *
  * Merges an approved session PR. Requires the session to be approved first.
  */
 export const mergeSessionSubcommand: CommandExecutionHandler = async (params) => {
@@ -21,7 +21,7 @@ export const mergeSessionSubcommand: CommandExecutionHandler = async (params) =>
       session: sessionId,
       json,
     });
-    
+
     return {
       success: true,
       message: "Session PR merged successfully",

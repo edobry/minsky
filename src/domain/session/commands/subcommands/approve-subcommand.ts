@@ -3,7 +3,7 @@ import { approveSessionOnly } from "../../session-approve-only-operations";
 
 /**
  * Session approve subcommand (Task #358 - Updated)
- * 
+ *
  * Now performs approve-only operation. Use 'session merge' to merge after approval.
  */
 export const approveSessionSubcommand: CommandExecutionHandler = async (params) => {
@@ -23,7 +23,7 @@ export const approveSessionSubcommand: CommandExecutionHandler = async (params) 
       json,
       reviewComment,
     });
-    
+
     return {
       success: true,
       message: "Session PR approved successfully (use 'session merge' to merge)",

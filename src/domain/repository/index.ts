@@ -255,10 +255,7 @@ export interface RepositoryBackend {
    * @param reviewComment - Optional review comment to include with approval
    * @returns Promise<ApprovalInfo> - Information about the approval operation
    */
-  approvePullRequest(
-    prIdentifier: string | number, 
-    reviewComment?: string
-  ): Promise<ApprovalInfo>;
+  approvePullRequest(prIdentifier: string | number, reviewComment?: string): Promise<ApprovalInfo>;
 
   /**
    * NEW: Check approval status of a pull request (Task #358)
@@ -270,9 +267,7 @@ export interface RepositoryBackend {
    * @param prIdentifier - PR number/ID or branch name depending on backend
    * @returns Promise<ApprovalStatus> - Current approval state and merge eligibility
    */
-  getPullRequestApprovalStatus(
-    prIdentifier: string | number
-  ): Promise<ApprovalStatus>;
+  getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus>;
 }
 
 /**

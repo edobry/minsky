@@ -1,6 +1,6 @@
 /**
  * Session Approve-Only Operations (Task #358)
- * 
+ *
  * This module implements the new approve-only workflow that separates
  * PR approval from PR merging, enabling standard collaborative workflows.
  */
@@ -35,13 +35,13 @@ export interface SessionApproveOnlyResult {
 
 /**
  * Approve a session's PR without merging (Task #358)
- * 
+ *
  * This function:
  * 1. Validates the session has a PR branch
  * 2. Checks if already approved
  * 3. Calls repositoryBackend.approvePullRequest()
  * 4. Updates session record with prApproved: true
- * 
+ *
  * Does NOT merge the PR - that's a separate operation.
  */
 export async function approveSessionOnly(
@@ -50,7 +50,6 @@ export async function approveSessionOnly(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<SessionApproveOnlyResult> {
-  
   if (!params.json) {
     log.cli("🔍 Starting session approval (approve-only mode)...");
   }
@@ -60,13 +59,13 @@ export async function approveSessionOnly(
 
   // Resolve session name
   let sessionNameToUse = params.session;
-  
+
   if (params.task && !sessionNameToUse) {
     const sessionByTask = await sessionDB.getSessionByTaskId(params.task);
     if (!sessionByTask) {
       throw new ResourceNotFoundError(
         `No session found for task ${params.task}`,
-        "session", 
+        "session",
         params.task
       );
     }
@@ -108,9 +107,9 @@ export async function approveSessionOnly(
         reviewId: "already-approved",
         approvedBy: "unknown", // We don't track who approved previously
         approvedAt: new Date().toISOString(),
-        prNumber: sessionRecord.prBranch
+        prNumber: sessionRecord.prBranch,
       },
-      wasAlreadyApproved: true
+      wasAlreadyApproved: true,
     };
   }
 
@@ -134,7 +133,7 @@ export async function approveSessionOnly(
 
   // Update session record with approval
   await sessionDB.updateSession(sessionNameToUse, {
-    prApproved: true
+    prApproved: true,
   });
 
   if (!params.json) {
@@ -147,6 +146,6 @@ export async function approveSessionOnly(
     taskId: sessionRecord.taskId,
     prBranch: sessionRecord.prBranch,
     approvalInfo,
-    wasAlreadyApproved: false
+    wasAlreadyApproved: false,
   };
 }

@@ -1,6 +1,6 @@
 /**
  * Session Merge-Only Operations (Task #358)
- * 
+ *
  * This module implements the new merge-only workflow that requires
  * PR approval before allowing merge, enabling standard collaborative workflows.
  */
@@ -10,6 +10,48 @@ import { MinskyError, ValidationError, ResourceNotFoundError } from "../../error
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
 import { createRepositoryBackendForSession } from "./repository-backend-detection";
 import type { MergeInfo } from "../repository/index";
+import type { SessionRecord } from "./types";
+
+/**
+ * CRITICAL: Validate that a session is approved before allowing merge
+ * 
+ * This function enforces the approval requirement across all merge operations.
+ * NO MERGE SHOULD EVER BYPASS THIS VALIDATION.
+ */
+export function validateSessionApprovedForMerge(sessionRecord: SessionRecord, sessionName: string): void {
+  // Check 1: PR branch must exist
+  if (!sessionRecord.prBranch) {
+    throw new ValidationError(
+      `❌ MERGE REJECTED: Session "${sessionName}" has no PR branch.\n` +
+      `   Create a PR first with 'minsky session pr'`
+    );
+  }
+
+  // Check 2: PR must be explicitly approved
+  if (!sessionRecord.prApproved) {
+    throw new ValidationError(
+      `❌ MERGE REJECTED: Session "${sessionName}" PR must be approved before merging.\n` +
+      `   Use 'minsky session approve' first to approve the PR.\n` +
+      `   This validation prevents unauthorized merges and ensures proper code review.`
+    );
+  }
+
+  // Check 3: Explicit boolean check (not just truthy)
+  if (sessionRecord.prApproved !== true) {
+    throw new ValidationError(
+      `❌ MERGE REJECTED: Invalid approval state for session "${sessionName}".\n` +
+      `   prApproved value: ${sessionRecord.prApproved} (type: ${typeof sessionRecord.prApproved})\n` +
+      `   Expected: true (boolean)\n` +
+      `   The approval state must be explicitly set to true.`
+    );
+  }
+
+  log.debug("Session approval validation passed", {
+    sessionName,
+    prBranch: sessionRecord.prBranch,
+    prApproved: sessionRecord.prApproved
+  });
+}
 
 /**
  * Parameters for session merge operation
@@ -33,13 +75,13 @@ export interface SessionMergeOnlyResult {
 
 /**
  * Merge a session's approved PR (Task #358)
- * 
+ *
  * This function:
  * 1. Validates the session has a PR branch
  * 2. Validates the PR is approved (prApproved: true)
  * 3. Calls repositoryBackend.mergePullRequest()
  * 4. Updates session record (could add prMerged: true if needed)
- * 
+ *
  * Requires the PR to be approved first via session approve.
  */
 export async function mergeSessionOnly(
@@ -48,7 +90,6 @@ export async function mergeSessionOnly(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<SessionMergeOnlyResult> {
-  
   if (!params.json) {
     log.cli("🔄 Starting session merge (merge-only mode)...");
   }
@@ -58,13 +99,13 @@ export async function mergeSessionOnly(
 
   // Resolve session name
   let sessionNameToUse = params.session;
-  
+
   if (params.task && !sessionNameToUse) {
     const sessionByTask = await sessionDB.getSessionByTaskId(params.task);
     if (!sessionByTask) {
       throw new ResourceNotFoundError(
         `No session found for task ${params.task}`,
-        "session", 
+        "session",
         params.task
       );
     }
@@ -85,19 +126,9 @@ export async function mergeSessionOnly(
     );
   }
 
-  // Validate session has a PR branch
-  if (!sessionRecord.prBranch) {
-    throw new ValidationError(
-      `Session "${sessionNameToUse}" has no PR branch. Create a PR first with 'minsky session pr'`
-    );
-  }
-
-  // Validate PR is approved
-  if (!sessionRecord.prApproved) {
-    throw new ValidationError(
-      `Session "${sessionNameToUse}" PR must be approved before merging. Use 'minsky session approve' first`
-    );
-  }
+  // CRITICAL SECURITY VALIDATION: Use centralized approval validation
+  // This ensures consistent security enforcement across all merge operations
+  validateSessionApprovedForMerge(sessionRecord, sessionNameToUse);
 
   // Create repository backend for this session
   const workingDirectory = params.repo || sessionRecord.repoUrl || process.cwd();
@@ -126,6 +157,6 @@ export async function mergeSessionOnly(
     session: sessionNameToUse,
     taskId: sessionRecord.taskId,
     prBranch: sessionRecord.prBranch,
-    mergeInfo
+    mergeInfo,
   };
 }

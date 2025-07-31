@@ -1,6 +1,6 @@
 /**
  * Types for PR Approval and Merge Decoupling
- * 
+ *
  * Defines the new interfaces needed to separate PR approval from merging
  * as outlined in Task #358.
  */
@@ -173,11 +173,7 @@ export class AlreadyApprovedError extends ApprovalError {
 
 export class PullRequestNotFoundError extends ApprovalError {
   constructor(prIdentifier: string | number) {
-    super(
-      `Pull request ${prIdentifier} not found`,
-      prIdentifier,
-      "PR_NOT_FOUND"
-    );
+    super(`Pull request ${prIdentifier} not found`, prIdentifier, "PR_NOT_FOUND");
     this.name = "PullRequestNotFoundError";
   }
 }
