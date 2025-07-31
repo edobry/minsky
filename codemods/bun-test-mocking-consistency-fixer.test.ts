@@ -169,7 +169,7 @@ describe("Bun Test Mocking Consistency Fixer", () => {
     });
 
     test("should handle file processing errors gracefully", () => {
-      const results = fixMockingConsistency(["/nonexistent/file.test.ts"]);
+      const results = fixMockingConsistency(["/tmp/nonexistent-test-file.ts"]);
 
       expect(results.length).toBe(1);
       expect(results[0].changed).toBe(false);
