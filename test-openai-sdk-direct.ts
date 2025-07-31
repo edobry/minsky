@@ -14,7 +14,7 @@ async function testOpenAISDKDirect() {
   try {
     console.log("📋 **Step 1: Create Morph model using OpenAI SDK**");
 
-    const morphApiKey = "sk-S-E_EIrfm3MSanIWZDOVDOo-O8ABFsrzlgo1MtaXmLzYBRNz";
+    const morphApiKey = "sk-proj-xxx...xxxxx";
     const morphBaseURL = "https://api.morphllm.com/v1";
     const morphModel = "morph-v3-large";
 
