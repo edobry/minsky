@@ -4,7 +4,7 @@
  * Commands for session workflow operations (approve, pr, inspect).
  * Extracted from session.ts as part of modularization effort.
  *
- * TASK 359: Replaced single "session pr" with subcommands (create, list, get)
+ * Replaced single "session pr" with subcommands (create, list, get)
  */
 import { z } from "zod";
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
@@ -87,7 +87,7 @@ export class SessionInspectCommand extends BaseSessionCommand<any, any> {
   }
 }
 
-// TASK 359: Export the new PR subcommand classes
+// Export the new PR subcommand classes
 export { SessionPrCreateCommand, SessionPrListCommand, SessionPrGetCommand };
 
 /**
@@ -99,5 +99,5 @@ export const createSessionApproveCommand = (deps?: SessionCommandDependencies) =
 export const createSessionInspectCommand = (deps?: SessionCommandDependencies) =>
   new SessionInspectCommand(deps);
 
-// TASK 359: Export the new PR subcommand factory functions
+// Export the new PR subcommand factory functions
 export { createSessionPrCreateCommand, createSessionPrListCommand, createSessionPrGetCommand };

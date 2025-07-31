@@ -55,7 +55,7 @@ export {
   SessionInspectCommand,
   createSessionApproveCommand,
   createSessionInspectCommand,
-  // TASK 359: Export new PR subcommands instead of single SessionPrCommand
+  // Export new PR subcommands instead of single SessionPrCommand
   SessionPrCreateCommand,
   SessionPrListCommand,
   SessionPrGetCommand,
@@ -71,7 +71,7 @@ import { createSessionConflictsCommand } from "./conflicts-command";
 import {
   createSessionApproveCommand,
   createSessionInspectCommand,
-  // TASK 359: Import new PR subcommand factories
+  // Import new PR subcommand factories
   createSessionPrCreateCommand,
   createSessionPrListCommand,
   createSessionPrGetCommand,
@@ -93,7 +93,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
   const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
 
-  // TASK 359: Updated to use PR subcommands instead of single pr command
+  // Updated to use PR subcommands instead of single pr command
   const {
     createSessionApproveCommand,
     createSessionInspectCommand,
@@ -117,7 +117,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     approve: createSessionApproveCommand(deps),
     inspect: createSessionInspectCommand(deps),
 
-    // TASK 359: PR subcommands replace single pr command
+    // PR subcommands replace single pr command
     prCreate: createSessionPrCreateCommand(deps),
     prList: createSessionPrListCommand(deps),
     prGet: createSessionPrGetCommand(deps),
@@ -145,7 +145,7 @@ export async function setupSessionCommandRegistry(
   registry.register("session.inspect", commands.inspect);
   registry.register("session.conflicts", commands.conflicts);
 
-  // TASK 359: Register PR subcommands instead of single session.pr
+  // Register PR subcommands instead of single session.pr
   registry.register("session.pr.create", commands.prCreate);
   registry.register("session.pr.list", commands.prList);
   registry.register("session.pr.get", commands.prGet);

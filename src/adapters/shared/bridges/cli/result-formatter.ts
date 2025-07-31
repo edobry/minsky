@@ -115,12 +115,23 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         }
         break;
 
-      case "session.pr":
+      // Updated to handle PR subcommands
+      case "session.pr.create":
         if ("prBranch" in result) {
           formatSessionPrDetails(result);
         } else {
           this.formatGenericObject(result);
         }
+        break;
+
+      case "session.pr.list":
+        // List command handles its own formatting in the command class
+        this.formatGenericObject(result);
+        break;
+
+      case "session.pr.get":
+        // Get command handles its own formatting in the command class
+        this.formatGenericObject(result);
         break;
 
       case "session.approve":
