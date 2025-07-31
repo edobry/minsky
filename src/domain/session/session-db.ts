@@ -32,7 +32,7 @@ export interface PullRequestGitHubInfo {
 
 /**
  * Pull request information for session records
- * Added for Task 359 to support pr list/get subcommands
+ * Added to support pr list/get subcommands
  */
 export interface PullRequestInfo {
   // Core PR Information
@@ -89,7 +89,6 @@ export interface SessionRecord {
     createdAt?: string; // When PR branch was created
     mergedAt?: string; // When merged (for cleanup)
   };
-  // New field for Task 359 - enhanced PR tracking
   pullRequest?: PullRequestInfo;
 }
 
@@ -133,7 +132,7 @@ export function getSessionFn(state: SessionDbState, sessionName: string): Sessio
 export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
   const normalizedTaskId = taskId.replace(/^#/, "");
-  return state.sessions.find((s) => s.taskId.replace(/^#/, "") === normalizedTaskId) || null;
+  return state.sessions.find((s) => s.taskId?.replace(/^#/, "") === normalizedTaskId) || null;
 }
 
 /**

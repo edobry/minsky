@@ -258,7 +258,7 @@ export const sessionInspectCommandParams = {
 };
 
 /**
- * Session PR Create command parameters (Task 359)
+ * Session PR Create command parameters
  * Replaces the current session PR command
  */
 export const sessionPrCreateCommandParams = {
@@ -308,7 +308,7 @@ export const sessionPrCreateCommandParams = {
 };
 
 /**
- * Session PR List command parameters (Task 359)
+ * Session PR List command parameters
  * Lists all PRs associated with sessions
  */
 export const sessionPrListCommandParams = {
@@ -334,7 +334,7 @@ export const sessionPrListCommandParams = {
 };
 
 /**
- * Session PR Get command parameters (Task 359)
+ * Session PR Get command parameters
  * Gets detailed information about a specific PR
  */
 export const sessionPrGetCommandParams = {

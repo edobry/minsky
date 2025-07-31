@@ -1,6 +1,6 @@
 /**
  * Session PR Subcommand CLI Commands
- * Task 359: Restructure session pr command with explicit subcommands
+ * Restructure session pr command with explicit subcommands
  */
 
 import { z } from "zod";

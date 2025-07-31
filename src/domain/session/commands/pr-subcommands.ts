@@ -1,6 +1,6 @@
 /**
  * Session PR Subcommands Implementation
- * Task 359: Restructure session pr command with explicit subcommands
+ * Restructure session pr command with explicit subcommands
  */
 
 import type { SessionRecord, PullRequestInfo } from "../session-db";

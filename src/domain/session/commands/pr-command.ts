@@ -69,6 +69,14 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
           baseBranch: baseBranch || "main",
           title: existingPr.title,
           body: existingPr.body,
+          // Include session information in the result for CLI formatting
+          session: {
+            session: sessionRecord.session,
+            taskId: sessionRecord.taskId,
+            repoName: sessionRecord.repoName,
+            branch: sessionRecord.branch,
+          },
+          sessionName: sessionRecord.session, // Alternative property name for formatter compatibility
         };
       }
     }
@@ -84,7 +92,17 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       debug,
     });
 
-    return result;
+    // Include session information in the result for CLI formatting
+    return {
+      ...result,
+      session: {
+        session: sessionRecord.session,
+        taskId: sessionRecord.taskId,
+        repoName: sessionRecord.repoName,
+        branch: sessionRecord.branch,
+      },
+      sessionName: sessionRecord.session, // Alternative property name for formatter compatibility
+    };
   } catch (error) {
     // If error is about missing session requirements, provide better user guidance
     if (error instanceof ValidationError) {

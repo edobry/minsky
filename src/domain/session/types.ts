@@ -34,7 +34,6 @@ export interface SessionRecord {
     createdAt?: string; // When PR branch was created
     mergedAt?: string; // When merged (for cleanup)
   };
-  // New field for Task 359 - enhanced PR tracking
   pullRequest?: PullRequestInfo;
 }
 
@@ -69,7 +68,6 @@ export interface Session {
     createdAt?: string;
     mergedAt?: string;
   };
-  // New field for Task 359 - enhanced PR tracking
   pullRequest?: PullRequestInfo;
 }
 
@@ -205,4 +203,12 @@ export interface SessionPrResult {
   baseBranch: string;
   title?: string;
   body?: string;
+  // Session information for CLI formatting
+  session?: {
+    session: string;
+    taskId?: string;
+    repoName?: string;
+    branch?: string;
+  };
+  sessionName?: string; // Alternative property name for formatter compatibility
 }

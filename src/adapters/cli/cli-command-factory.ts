@@ -423,7 +423,8 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           },
         },
       },
-      "session.pr": {
+      // Replaced session.pr with subcommands
+      "session.pr.create": {
         useFirstRequiredParamAsArgument: false,
         parameters: {
           // === CORE PARAMETERS (Always visible) ===
@@ -464,6 +465,55 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           },
           skipConflictCheck: {
             description: "Skip proactive conflict detection (use with --advanced)",
+          },
+        },
+      },
+      // New PR subcommands
+      "session.pr.list": {
+        useFirstRequiredParamAsArgument: false,
+        parameters: {
+          session: {
+            description: "Filter PRs by specific session name",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID",
+          },
+          status: {
+            description: "Filter by PR status",
+          },
+          repo: {
+            description: "Repository path",
+          },
+          json: {
+            description: "Output in JSON format",
+          },
+          verbose: {
+            description: "Show detailed PR information",
+          },
+        },
+      },
+      "session.pr.get": {
+        useFirstRequiredParamAsArgument: false,
+        parameters: {
+          sessionName: {
+            description: "Session name to look up PR for (positional)",
+          },
+          name: {
+            description: "Session name",
+          },
+          task: {
+            alias: "t",
+            description: "Task ID",
+          },
+          repo: {
+            description: "Repository path",
+          },
+          json: {
+            description: "Output in JSON format",
+          },
+          content: {
+            description: "Include PR description and diff content",
           },
         },
       },
