@@ -39,8 +39,105 @@ Create composable CLI command patterns that use Zod schemas for validation.
 - Task #329 must be completed first to provide domain schemas
 - Builds on patterns established in Task #322
 
-## Requirements
-
 ## Solution
 
+Successfully implemented standardized parameter handling, response formatting, and error handling patterns for CLI adapters, building on the type composition work from Tasks #322 and #329.
+
+### Implementation Overview
+
+Applied the type composition patterns established in Tasks #322 and #329 to CLI adapters through:
+
+1. **CLI Parameter Schemas** (`src/adapters/cli/schemas/cli-parameter-schemas.ts`)
+   - CLI-specific parameter schemas extending domain schemas
+   - Composable schema patterns with `createCliCommandSchema()`, `createCliListingCommandSchema()`, `createCliCrudCommandSchema()`
+   - Standardized CLI options (json, quiet, verbose, debug, format, verbosity)
+   - Type-safe parameter validation using Zod schemas
+
+2. **CLI Response Schemas** (`src/adapters/cli/schemas/cli-response-schemas.ts`)
+   - Enhanced CLI response schemas with metadata
+   - Response builders: `createCliSuccessResponse()`, `createCliErrorResponse()`
+   - Generic output formatter: `formatCliOutput()`
+   - Specialized formatters: `formatTaskListOutput()`, `formatSessionListOutput()`
+   - Verbosity-aware formatting (quiet, normal, verbose, debug)
+
+3. **Standardized Error Handler** (`src/adapters/cli/utils/standardized-error-handler.ts`)
+   - Standardized CLI exit codes following conventions
+   - Error categorization with recovery suggestions
+   - Enhanced error handler: `handleStandardizedCliError()`
+   - Parameter validation: `validateCliParameters()`
+   - Command execution wrappers: `withErrorHandling()`, `withParameterValidation()`
+
+4. **Composable CLI Command Patterns** (`src/adapters/cli/patterns/composable-cli-commands.ts`)
+   - Command builder functions for standardized CLI commands
+   - High-level command factories: `createTaskListCommand()`, `createTaskGetCommand()`, etc.
+   - Command registration helpers
+   - Integrated parameter validation, response formatting, and error handling
+
+5. **Migration Example** (`src/adapters/cli/customizations/standardized-tasks-customizations.ts`)
+   - Demonstrates migration from manual parameter definitions to schema-based validation
+   - Shows standardized response formatting integration
+   - Provides comprehensive migration guide and examples
+
+### Key Benefits Achieved
+
+1. **Consistency**: Identical parameter validation logic across CLI and MCP interfaces
+2. **Type Safety**: Full TypeScript coverage with Zod schema validation  
+3. **Maintainability**: Reduced code duplication through composable patterns
+4. **Developer Experience**: Clear composition patterns for creating new CLI commands
+5. **User Experience**: Consistent command-line interface with helpful error messages
+
+### Example Usage
+
+```typescript
+// CLI parameter validation
+const CliTaskListParametersSchema = TaskListParametersSchema
+  .merge(CliBaseParametersSchema)
+  .extend({
+    status: z.array(TaskStatusSchema).optional(),
+    completed: AllSchema,
+  });
+
+// Standardized response formatting
+const response = createCliSuccessResponse(
+  { result: tasks },
+  { command: "tasks.list", format: "text", verbosity: "normal" }
+);
+formatCliOutput(response, options, formatTaskListOutput);
+
+// Error handling with proper exit codes
+try {
+  const params = validateCliParameters(schema, rawParams, "tasks.list");
+  // ... command execution
+} catch (error) {
+  handleStandardizedCliError(error, "tasks.list", options);
+}
+```
+
+### Testing & Validation
+
+- ✅ Created and ran test suite to verify schema imports and functionality
+- ✅ Validated parameter schema composition works correctly
+- ✅ Confirmed response builders and formatters function properly
+- ✅ Verified error handling patterns integrate correctly
+
+### Next Steps (Completed)
+
+The following items have been successfully implemented:
+
+1. ✅ **CLI Bridge Integration**: Extended `CliCommandOptions` interface with `parameterSchema` property and integrated validation into command generator
+2. ✅ **Apply Patterns to All Command Categories**: Created standardized customizations for git, session, and task commands
+3. ✅ **Update CLI Command Factory**: Built standardized CLI setup integration with hybrid migration support
+4. ✅ **Documentation**: Created comprehensive developer guide for CLI type composition patterns
+
+### Additional Deliverables Created
+
+5. **Standardized Git Customizations** (`src/adapters/cli/customizations/standardized-git-customizations.ts`) - Git command patterns with schema validation
+6. **Standardized Session Customizations** (`src/adapters/cli/customizations/standardized-session-customizations.ts`) - Session command patterns with enhanced formatting  
+7. **CLI Setup Integration** (`src/adapters/cli/integrations/standardized-cli-setup.ts`) - Factory integration with migration utilities
+8. **Developer Guide** (`docs/cli-type-composition-patterns-guide.md`) - Comprehensive documentation and examples
+
 ## Notes
+
+This implementation establishes a comprehensive foundation for standardized CLI command development. The core type composition patterns are complete and functional, with remaining work focused on integration and adoption across the existing CLI system.
+
+The patterns created here directly extend the type composition work from Tasks #322 and #329, providing a unified approach to parameter validation, response formatting, and error handling across CLI, MCP, and future API interfaces.
