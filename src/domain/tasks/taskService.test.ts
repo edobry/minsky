@@ -291,29 +291,58 @@ describe("TaskService", () => {
       expect(task.specPath).not.toMatch(/temp/);
     });
 
-    test("integration: should create task with proper spec path using controlled backend", async () => {
-      // Simplified integration test to avoid temp directory conflicts
-      const taskService = new TaskService({
-        backend: "mock",
-        customBackends: [createMockBackend()],
-        workspacePath: "/controlled/workspace", // Use controlled path to avoid temp dir issues
-      });
+    test("integration: should create task with proper spec path using real backend", async () => {
+      // Integration test with real file operations to verify the fix
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const os = await import("os");
 
-      const title = "Integration test task";
-      const description = "This task tests the integration without temp directory conflicts.";
+      // Create a temporary workspace
+      const tempWorkspace = await fs.mkdtemp(path.join(os.tmpdir(), "minsky-test-"));
 
-      const task = await taskService.createTaskFromTitleAndDescription(title, description);
+      try {
+        // Create required directory structure and tasks.md file
+        const processDir = path.join(tempWorkspace, "process");
+        await fs.mkdir(processDir, { recursive: true });
+        const tasksFile = path.join(processDir, "tasks.md");
+        await fs.writeFile(tasksFile, "# Tasks\n\n## Active Tasks\n\n", "utf-8");
 
-      // Verify the spec path is correct (not a temporary path)
-      expect(task.specPath).not.toMatch(/\/tmp\//);
-      expect(task.specPath).not.toMatch(/\/var\/folders\//);
-      expect(task.specPath).not.toMatch(/temp/);
+        // Create a real TaskService with the markdown backend
+        const realTaskService = new TaskService({
+          workspacePath: tempWorkspace,
+          backend: "markdown",
+        });
 
-      // Verify task properties are set correctly
-      expect(task.title).toBe(title);
-      expect(task.description).toBe(description);
-      expect(task.status).toBe("TODO");
-      expect(task.id).toBeDefined();
+        const title = "Integration test task";
+        const description = "This task tests the real file operations.";
+
+        const task = await realTaskService.createTaskFromTitleAndDescription(title, description);
+
+        // Verify the spec path is correct (not a temporary path)
+        expect(task.specPath).not.toMatch(/\/tmp\//);
+        expect(task.specPath).not.toMatch(/\/var\/folders\//);
+        expect(task.specPath).toMatch(/^process\/tasks\/\d+-[\w-]+\.md$/);
+
+        // Verify the file actually exists at the proper location
+        const fullSpecPath = path.join(tempWorkspace, task.specPath || "");
+        const accessResult = await fs
+          .access(fullSpecPath)
+          .then(() => null)
+          .catch((err) => err);
+        expect(accessResult).toBeNull(); // File access succeeded
+
+        // Verify the file content
+        const fileContent = await fs.readFile(fullSpecPath, "utf-8");
+        expect(fileContent).toContain(title);
+        expect(fileContent).toContain(description);
+      } finally {
+        // Clean up the temporary workspace
+        try {
+          await fs.rm(tempWorkspace, { recursive: true, force: true });
+        } catch (error) {
+          // Ignore cleanup errors
+        }
+      }
     });
   });
 

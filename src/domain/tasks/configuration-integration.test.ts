@@ -40,11 +40,6 @@ mock.module("fs", () => ({
   promises: mockFs,
 }));
 
-// Mock os module
-mock.module("os", () => ({
-  tmpdir: mock(() => "/mock/tmp"),
-}));
-
 // Mock path module
 mock.module("path", () => ({
   join: mock((...parts: string[]) => parts.join("/")),
