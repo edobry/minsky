@@ -7,6 +7,62 @@ import { join } from "path";
 import { getMinskyStateDir } from "../../utils/paths";
 
 /**
+ * PR commit information
+ */
+export interface PullRequestCommit {
+  sha: string;
+  message: string;
+  author: string;
+  date: string;
+}
+
+/**
+ * GitHub-specific PR information
+ */
+export interface PullRequestGitHubInfo {
+  id: number; // GitHub PR ID
+  nodeId: string; // GitHub GraphQL node ID
+  htmlUrl: string; // Web URL
+  author: string; // GitHub username
+  assignees?: string[]; // GitHub usernames
+  reviewers?: string[]; // GitHub usernames
+  labels?: string[]; // Label names
+  milestone?: string; // Milestone title
+}
+
+/**
+ * Pull request information for session records
+ * Added for Task 359 to support pr list/get subcommands
+ */
+export interface PullRequestInfo {
+  // Core PR Information
+  number: number;
+  url: string;
+  title: string;
+  state: "open" | "closed" | "merged" | "draft";
+
+  // Timestamps
+  createdAt: string; // ISO timestamp
+  updatedAt: string; // ISO timestamp
+  mergedAt?: string; // ISO timestamp when merged
+
+  // GitHub-specific information
+  github?: PullRequestGitHubInfo;
+
+  // Content information (for pr get command)
+  body?: string; // PR description
+  commits?: PullRequestCommit[];
+  filesChanged?: string[]; // List of file paths
+
+  // Branch information
+  headBranch: string; // Source branch (e.g., "pr/task359")
+  baseBranch: string; // Target branch (e.g., "main")
+
+  // Metadata
+  lastSynced: string; // When this info was last updated from GitHub API
+}
+
+/**
  * Session record structure
  */
 export interface SessionRecord {
@@ -14,8 +70,18 @@ export interface SessionRecord {
   repoName: string;
   repoUrl: string;
   createdAt: string;
-  taskId: string;
-  branch: string;
+  taskId?: string;
+  branch?: string;
+  backendType?: "local" | "remote" | "github"; // Added for repository backend support
+  github?: {
+    owner?: string;
+    repo?: string;
+    token?: string;
+  };
+  remote?: {
+    authMethod?: "ssh" | "https" | "token";
+    depth?: number;
+  };
   prState?: {
     branchName: string;
     exists: boolean;
@@ -23,6 +89,8 @@ export interface SessionRecord {
     createdAt?: string; // When PR branch was created
     mergedAt?: string; // When merged (for cleanup)
   };
+  // New field for Task 359 - enhanced PR tracking
+  pullRequest?: PullRequestInfo;
 }
 
 /**
