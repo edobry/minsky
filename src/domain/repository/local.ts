@@ -5,6 +5,15 @@ import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { execGitWithTimeout, gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
+import { normalizeRepoName } from "../repo-utils";
+import { MinskyError, getErrorMessage } from "../../errors/index";
+import { log } from "../../utils/logger";
+import {
+  createPreparedMergeCommitPR,
+  mergePreparedMergeCommitPR,
+  type PreparedMergeCommitOptions,
+  type PreparedMergeCommitMergeOptions,
+} from "../git/prepared-merge-commit-workflow";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -12,6 +21,8 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
+  PRInfo,
+  MergeInfo,
 } from "./index";
 
 // Define a global for process to avoid linting errors
@@ -21,6 +32,7 @@ declare const process: {
     HOME?: string;
     [key: string]: string | undefined;
   };
+  cwd(): string;
 };
 
 const execAsync = promisify(exec);
@@ -213,13 +225,117 @@ export class LocalGitBackend implements RepositoryBackend {
     return { success: true, message: "Repository is valid" };
   }
 
-  async push(): Promise<Result> {
-    // TODO: Implement local git push logic
-    return { success: false, message: "Not implemented" };
+  async push(branch?: string): Promise<any> {
+    try {
+      // Use the base repository directory (not session-specific)
+      const workdir = this.repoUrl;
+
+      // Build push command with optional branch
+      let pushCommand = "push";
+      if (branch) {
+        pushCommand += ` origin ${branch}`;
+      }
+
+      await execGitWithTimeout("push", pushCommand, {
+        workdir,
+        timeout: 60000,
+      });
+      return { success: true, message: "Push completed successfully" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: `Push failed: ${errorMessage}`,
+      };
+    }
   }
 
-  async pull(): Promise<Result> {
-    // TODO: Implement local git pull logic
-    return { success: false, message: "Not implemented" };
+  async pull(branch?: string): Promise<any> {
+    try {
+      // Use the base repository directory (not session-specific)
+      const workdir = this.repoUrl;
+
+      // Build pull command with optional branch
+      let pullCommand = "pull";
+      if (branch) {
+        pullCommand += ` origin ${branch}`;
+      }
+
+      await execGitWithTimeout("pull", pullCommand, {
+        workdir,
+        timeout: 60000,
+      });
+      return { success: true, message: "Pull completed successfully" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: `Pull failed: ${errorMessage}`,
+      };
+    }
+  }
+
+  /**
+   * Create a pull request using prepared merge commit workflow
+   * This creates a PR branch with a merge commit prepared for approval
+   */
+  async createPullRequest(
+    title: string,
+    body: string,
+    sourceBranch: string,
+    baseBranch: string = "main",
+    session?: string
+  ): Promise<PRInfo> {
+    let workdir: string;
+
+    // Determine working directory
+    if (session) {
+      const record = await this.sessionDb.getSession(session);
+      if (!record) {
+        throw new MinskyError(`Session '${session}' not found in database`);
+      }
+      workdir = this.getSessionWorkdir(session);
+    } else {
+      // Use current working directory
+      workdir = process.cwd();
+    }
+
+    const options: PreparedMergeCommitOptions = {
+      title,
+      body,
+      sourceBranch,
+      baseBranch,
+      workdir,
+      session,
+    };
+
+    return await createPreparedMergeCommitPR(options);
+  }
+
+  /**
+   * Merge a pull request using the prepared merge commit workflow
+   * This merges the PR branch into the base branch
+   */
+  async mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo> {
+    let workdir: string;
+
+    // Determine working directory
+    if (session) {
+      const record = await this.sessionDb.getSession(session);
+      if (!record) {
+        throw new MinskyError(`Session '${session}' not found in database`);
+      }
+      workdir = this.getSessionWorkdir(session);
+    } else {
+      workdir = process.cwd();
+    }
+
+    const options: PreparedMergeCommitMergeOptions = {
+      prIdentifier,
+      workdir,
+      session,
+    };
+
+    return await mergePreparedMergeCommitPR(options);
   }
 }

@@ -29,14 +29,14 @@ The complete AI completion backend has been implemented in session workspace tas
 - `minsky ai` CLI command - **NOT IMPLEMENTED**
 - Provider implementations (OpenAI, Anthropic, Google) - **NOT IMPLEMENTED**
 - Unit tests - **NOT IMPLEMENTED**
-- Error handling integration - **NOT IMPLEMENTED**
-=======
-**✅ Core Services:**
+- # Error handling integration - **NOT IMPLEMENTED**
+
+  **✅ Core Services:**
 
 - `AICompletionService` - Multi-provider completion service using Vercel AI SDK
 - `AIConfigurationService` - Configuration management with environment variables
 - Custom AI error classes extending Minsky's base error system
->>>>>>> main
+  > > > > > > > main
 
 **✅ Provider Support:**
 
@@ -47,6 +47,7 @@ The complete AI completion backend has been implemented in session workspace tas
 **✅ Features:**
 
 <<<<<<< HEAD
+
 ### **Why Not LiteLLM?**
 
 - **High latency overhead**: Benchmarks show significant performance degradation
@@ -61,8 +62,7 @@ The complete AI completion backend has been implemented in session workspace tas
 - **Active Development**: Regular updates, good documentation
 - **Multi-modal Ready**: Built-in support for text, images, structured outputs
 - **Streaming Optimized**: Perfect for real-time UI interactions
-- **Tool Calling**: Native support for function calling across providers
-=======
+- # **Tool Calling**: Native support for function calling across providers
 - Streaming and non-streaming completions
 - Tool calling with function execution
 - Usage tracking with cost calculation
@@ -71,7 +71,8 @@ The complete AI completion backend has been implemented in session workspace tas
 - Structured output generation
 
 **✅ CLI Interface:**
->>>>>>> main
+
+> > > > > > > main
 
 - `minsky ai chat` - Interactive chat sessions
 - `minsky ai complete` - Single completions
@@ -87,6 +88,7 @@ The complete AI completion backend has been implemented in session workspace tas
 - > 90% test coverage
 
 <<<<<<< HEAD
+
 1. **Install and Configure Vercel AI SDK**
 
    ```bash
@@ -109,9 +111,8 @@ The complete AI completion backend has been implemented in session workspace tas
 
    - Integrate with Minsky's error system (`src/errors/`)
    - Provider-specific error mapping
-   - Request/response logging
-=======
-**✅ Documentation:**
+   - # Request/response logging
+     **✅ Documentation:**
 
 - Complete implementation documentation
 - Usage examples and configuration guide
@@ -119,7 +120,8 @@ The complete AI completion backend has been implemented in session workspace tas
 ## Technology Choice Confirmed
 
 After comprehensive research, **Vercel AI SDK** confirmed as optimal choice:
->>>>>>> main
+
+> > > > > > > main
 
 **✅ Advantages:**
 
@@ -132,6 +134,7 @@ After comprehensive research, **Vercel AI SDK** confirmed as optimal choice:
 **❌ Alternatives Rejected:**
 
 <<<<<<< HEAD
+
 ### **Phase 3: Production Features (Future)**
 
 - **Caching Layer**: Response caching with TTL
@@ -207,12 +210,11 @@ interface ProviderAdapter {
 - [ ] **Configuration integration** using existing Minsky config patterns
 - [ ] **Error handling** following Minsky error patterns
 - [ ] **Unit tests** with >80% coverage for core functionality
-- [ ] **Documentation** for basic usage and configuration
-=======
+- [ ] # **Documentation** for basic usage and configuration
 - **LiteLLM**: Added latency overhead, production stability concerns
 - **llm-exe**: Wrong scope (application framework vs SDK)
 - **Direct SDKs**: Inconsistent APIs across providers requiring custom abstraction
->>>>>>> main
+  > > > > > > > main
 
 ## Dependencies
 
@@ -347,9 +349,8 @@ The implementation provides strong extension points for other AI features:
 2. Install Vercel AI SDK and provider packages
 3. Implement basic `AICompletionService` with OpenAI provider
 4. Add CLI command structure
-5. Write unit tests for core functionality
-=======
-**Estimated Effort:** Large (3-4 weeks) - **Phase 1 Complete**
-**Risk Level:** Low (well-tested implementation ready for integration)
-**Blocking:** None (ready for integration)
->>>>>>> main
+5. # Write unit tests for core functionality
+   **Estimated Effort:** Large (3-4 weeks) - **Phase 1 Complete**
+   **Risk Level:** Low (well-tested implementation ready for integration)
+   **Blocking:** None (ready for integration)
+   > > > > > > > main

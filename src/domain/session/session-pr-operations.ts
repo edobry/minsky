@@ -5,9 +5,9 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import type { SessionPrParams } from "../../schemas/session";
+import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
-import { type GitServiceInterface, preparePrFromParams } from "../git";
+import { type GitServiceInterface } from "../git";
 import { TASK_STATUS, TaskService } from "../tasks";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
@@ -16,6 +16,7 @@ import {
   updatePrStateOnCreation,
   extractPrDescription,
 } from "./session-update-operations";
+import { createRepositoryBackendForSession } from "./repository-backend-detection";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
@@ -24,10 +25,10 @@ export interface SessionPrDependencies {
 
 /**
  * Implementation of session PR creation operation
- * Extracted from session.ts for better maintainability
+ * Updated to use repository backends for automatic workflow selection
  */
 export async function sessionPrImpl(
-  params: SessionPrParams,
+  params: SessionPRParameters,
   deps: SessionPrDependencies
 ): Promise<{
   prBranch: string;
@@ -38,8 +39,8 @@ export async function sessionPrImpl(
   // STEP 0: Validate parameters using schema
   try {
     // Import schema here to avoid circular dependency issues
-    const { sessionPrParamsSchema } = await import("../../schemas/session");
-    sessionPrParamsSchema.parse(params);
+    const { SessionPRParametersSchema } = await import("../../domain/schemas");
+    SessionPRParametersSchema.parse(params);
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
       // Extract the validation error message
@@ -69,9 +70,15 @@ export async function sessionPrImpl(
     );
   }
 
-  // STEP 3: Verify we're in a session directory (no branch format restriction)
-  // The session name will be detected from the directory path or provided explicitly
-  // Both task#XXX and named sessions are supported
+  // STEP 3: Determine session name from directory or explicit parameter
+  const pathParts = currentDir.split("/");
+  const sessionsIndex = pathParts.indexOf("sessions");
+  const sessionName =
+    params.session || (sessionsIndex >= 0 ? pathParts[sessionsIndex + 1] : undefined);
+
+  if (!sessionName) {
+    throw new MinskyError("Could not determine session name from current directory or parameters");
+  }
 
   // STEP 4: Check for uncommitted changes
   const hasUncommittedChanges = await deps.gitService.hasUncommittedChanges(currentDir);
@@ -80,7 +87,7 @@ export async function sessionPrImpl(
     let statusInfo = "";
     try {
       const status = await deps.gitService.getStatus(currentDir);
-      const changes = [];
+      const changes: string[] = [];
 
       if (status.modified.length > 0) {
         changes.push(`📝 Modified files (${status.modified.length}):`);
@@ -99,205 +106,63 @@ export async function sessionPrImpl(
 
       statusInfo = changes.length > 0 ? changes.join("\n") : "No detailed changes available";
     } catch (statusError) {
-      statusInfo = "Unable to get detailed status.";
+      statusInfo = "Could not retrieve file status";
     }
 
     throw new MinskyError(
-      `
-🚫 Cannot create PR with uncommitted changes
-
-You have uncommitted changes in your session workspace that need to be committed first.
-
-Current changes:
-${statusInfo}
-
-To fix this, run one of the following:
-
-📝 Commit your changes:
-   git add .
-   git commit -m "Your commit message"
-
-📦 Or stash your changes temporarily:
-   git stash
-
-💡 Then try creating the PR again:
-   minsky session pr --title "your title"
-
-Need help? Run 'git status' to see what files have changed.
-      `.trim()
+      `Cannot create PR with uncommitted changes. Please commit your changes first.\n\n${statusInfo}\n\n💡 To commit your changes:\n   git add -A\n   git commit -m "Your commit message"`
     );
   }
 
-  // Handle body content - read from file if bodyPath is provided
-  let bodyContent: string | undefined = params.body;
+  // STEP 5: Load PR title and body
+  let titleToUse = params.title;
+  let bodyToUse = params.body;
+
+  // Load body from file if specified
   if (params.bodyPath) {
     try {
-      // Resolve relative paths relative to current working directory
-      const filePath = require("path").resolve(params.bodyPath);
-      const fileContent = await readFile(filePath, "utf-8");
-      bodyContent = typeof fileContent === "string" ? fileContent : fileContent.toString();
-
-      if (!bodyContent.trim()) {
-        throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
-      }
-
-      log.debug(`Read PR body from file: ${filePath}`, {
-        fileSize: bodyContent.length,
-        bodyPath: params.bodyPath,
-      });
+      const fileContent = await readFile(params.bodyPath, "utf-8");
+      bodyToUse = fileContent.toString();
+      log.debug("Loaded PR body from file", { bodyPath: params.bodyPath });
     } catch (error) {
-      if (error instanceof ValidationError) {
-        throw error;
-      }
-
-      const errorMessage = getErrorMessage(error);
-      if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
-        throw new ValidationError(`Body file not found: ${params.bodyPath}`);
-      } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
-        throw new ValidationError(`Permission denied reading body file: ${params.bodyPath}`);
-      } else {
-        throw new ValidationError(`Failed to read body file: ${params.bodyPath}. ${errorMessage}`);
-      }
+      throw new MinskyError(`Failed to read PR body from file: ${getErrorMessage(error)}`);
     }
   }
 
-  // Determine the session name
-  let sessionName = params.session;
-
-  // If no session name provided but task ID is, try to find the session by task ID
-  if (!sessionName && params.task) {
-    const taskId = params.task;
-    const sessionRecord = await deps.sessionDB.getSessionByTaskId(taskId);
-    if (sessionRecord) {
-      sessionName = sessionRecord.session;
-    } else {
-      throw new MinskyError(`No session found for task ID ${taskId}`);
-    }
-  }
-
-  // If still no session name, try to detect from current directory
-  if (!sessionName) {
+  // Enhanced validation and description extraction for missing title/body
+  if (!titleToUse || !bodyToUse) {
     try {
-      // Extract session name from path - assuming standard path format
-      const pathParts = currentDir.split("/");
-      const sessionsIndex = pathParts.indexOf("sessions");
-      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-        sessionName = pathParts[sessionsIndex + 1];
+      const prDescription = await extractPrDescription(sessionName, deps.gitService, currentDir);
+
+      if (prDescription) {
+        titleToUse = titleToUse || prDescription.title;
+        bodyToUse = bodyToUse || prDescription.body;
       }
     } catch (error) {
-      // If detection fails, throw error
-      throw new MinskyError(
-        "Could not detect session from current directory. Please specify a session name or task ID."
-      );
+      log.debug("Could not extract existing PR description", { error: getErrorMessage(error) });
     }
 
-    if (!sessionName) {
+    if (!titleToUse) {
       throw new MinskyError(
-        "Could not detect session from current directory. Please specify a session name or task ID."
+        `
+⚠️  Missing PR Title
+
+Please provide a title for your pull request:
+
+📋 Examples:
+   minsky session pr --title "feat: Add new feature"
+   minsky session pr --title "fix: Bug fix" 
+   minsky session pr --title "docs: Update documentation"
+
+💡 Or use conventional commit format with task ID:
+   minsky session pr --title "feat(#123): Add user authentication"
+   minsky session pr --title "fix(#456): Resolve API timeout issue"
+      `.trim()
       );
     }
   }
 
-  log.debug(`Creating PR for session: ${sessionName}`, {
-    session: sessionName,
-    title: params.title,
-    hasBody: !!bodyContent,
-    bodySource: params.bodyPath ? "file" : params.body ? "parameter" : "none",
-    baseBranch: params.baseBranch,
-  });
-
-  // STEP 4.5: PR Branch Detection and Title/Body Handling
-  // This implements the new refresh functionality
-  const prBranchExists = await checkPrBranchExistsOptimized(
-    sessionName,
-    deps.gitService,
-    currentDir,
-    deps.sessionDB
-  );
-
-  let titleToUse = params.title;
-  let bodyToUse = bodyContent;
-
-  if (!titleToUse && prBranchExists) {
-    // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
-    const hasNewBodyContent = !!(params.body || params.bodyPath);
-
-    if (hasNewBodyContent) {
-      log.cli("🔄 Refreshing existing PR (reusing title, using new body)...");
-    } else {
-      log.cli("🔄 Refreshing existing PR (reusing title and body)...");
-    }
-
-    const existingDescription = await extractPrDescription(
-      sessionName,
-      deps.gitService,
-      currentDir
-    );
-    if (existingDescription) {
-      titleToUse = existingDescription.title;
-      // Only reuse existing body if user didn't provide new body content
-      if (!hasNewBodyContent) {
-        bodyToUse = existingDescription.body;
-      }
-      log.cli(`📝 Reusing existing title: "${titleToUse}"`);
-      if (hasNewBodyContent) {
-        log.cli(`📝 Using new body content from ${params.bodyPath ? "--body-path" : "--body"}`);
-      }
-    } else {
-      // Fallback if we can't extract description
-      throw new MinskyError(
-        `PR branch pr/${sessionName} exists but could not extract existing title/body. Please provide --title explicitly.`
-      );
-    }
-  } else if (!titleToUse && !prBranchExists) {
-    // Case: No PR + no title → Error (need title for first creation)
-    throw new MinskyError(
-      `PR branch pr/${sessionName} doesn't exist. Please provide --title for initial PR creation.`
-    );
-  } else if (titleToUse && prBranchExists) {
-    // Case: Existing PR + new title → Use new title/body (update)
-    const hasNewBodyContent = !!(params.body || params.bodyPath);
-    if (hasNewBodyContent) {
-      log.cli("📝 Updating existing PR with new title and body...");
-    } else {
-      log.cli("📝 Updating existing PR with new title (keeping existing body)...");
-      // If no new body provided, try to keep existing body
-      const existingDescription = await extractPrDescription(
-        sessionName,
-        deps.gitService,
-        currentDir
-      );
-      if (existingDescription && !bodyToUse) {
-        bodyToUse = existingDescription.body;
-        log.cli("📝 Preserving existing PR body");
-      }
-    }
-  } else if (titleToUse && !prBranchExists) {
-    // Case: No PR + title → Normal creation flow
-    log.cli("✨ Creating new PR...");
-  }
-
-  // STEP 4.6: Conditional body/bodyPath validation
-  // For new PR creation, we need either body or bodyPath (unless we extracted from existing)
-  if (!bodyToUse && !params.bodyPath && (!prBranchExists || !titleToUse)) {
-    // Only require body/bodyPath when:
-    // 1. No existing PR to reuse from (prBranchExists=false), OR
-    // 2. Existing PR but new title provided (titleToUse=true) indicating update
-    if (!prBranchExists) {
-      // BUG FIX: Require body/bodyPath for new PRs instead of just showing a tip
-      throw new ValidationError(
-        `PR description is required for new pull requests. Please provide one of:
-  --body <text>       Direct PR body text
-  --body-path <path>  Path to file containing PR body
-
-Example:
-  minsky session pr --title "feat: Add new feature" --body "This PR adds..."
-  minsky session pr --title "fix: Bug fix" --body-path process/tasks/189/pr.md`
-      );
-    }
-  }
-
-  // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
+  // STEP 6: Enhanced session update with conflict detection (unless --skip-update is specified)
   if (!params.skipUpdate) {
     log.cli("🔍 Checking for conflicts before PR creation...");
 
@@ -337,34 +202,63 @@ Example:
     log.cli("⏭️  Skipping session update (--skip-update specified)");
   }
 
-  // STEP 6: Now proceed with PR creation
-  const result = await preparePrFromParams({
-    session: sessionName,
-    title: titleToUse,
-    body: bodyToUse,
-    baseBranch: params.baseBranch,
-    debug: params.debug,
-  });
+  // STEP 7: Create repository backend and delegate PR creation
+  try {
+    log.cli("🔍 Auto-detecting repository backend...");
 
-  // Update PR state cache after successful creation
-  await updatePrStateOnCreation(sessionName, deps.sessionDB);
+    // Create repository backend based on current repository
+    const repositoryBackend = await createRepositoryBackendForSession(currentDir);
+    const backendType = repositoryBackend.getType();
 
-  // Update task status to IN-REVIEW if associated with a task
-  if (!params.noStatusUpdate) {
-    const sessionRecord = await deps.sessionDB.getSession(sessionName);
-    if (sessionRecord?.taskId) {
-      try {
-        const taskService = new TaskService({
-          workspacePath: process.cwd(),
-          backend: "markdown",
-        });
-        await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-        log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
-      } catch (error) {
-        log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
+    log.cli(`📦 Using ${backendType} repository backend`);
+
+    // Use repository backend to create pull request
+    const baseBranch = params.baseBranch || "main";
+    const prInfo = await repositoryBackend.createPullRequest(
+      titleToUse,
+      bodyToUse || "",
+      currentBranch,
+      baseBranch,
+      sessionName
+    );
+
+    log.cli(`✅ Pull request created successfully!`);
+
+    if (backendType === "github") {
+      log.cli(`🔗 GitHub PR: ${prInfo.url}`);
+      log.cli(`📝 PR #${prInfo.number}: ${titleToUse}`);
+    } else {
+      log.cli(`🌿 PR branch: ${prInfo.number}`);
+      log.cli(`📝 Prepared merge commit ready for approval`);
+    }
+
+    // Update PR state cache after successful creation
+    await updatePrStateOnCreation(sessionName, deps.sessionDB);
+
+    // Update task status to IN-REVIEW if associated with a task
+    if (!params.noStatusUpdate) {
+      const sessionRecord = await deps.sessionDB.getSession(sessionName);
+      if (sessionRecord?.taskId) {
+        try {
+          const taskService = new TaskService({
+            workspacePath: process.cwd(),
+            backend: "markdown",
+          });
+          await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
+          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+        } catch (error) {
+          log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
+        }
       }
     }
-  }
 
-  return result;
+    return {
+      prBranch: typeof prInfo.number === "string" ? prInfo.number : `pr/${prInfo.number}`,
+      baseBranch,
+      title: titleToUse,
+      body: bodyToUse,
+    };
+  } catch (error) {
+    throw new MinskyError(`Failed to create pull request: ${getErrorMessage(error as any)}`);
+  }
 }

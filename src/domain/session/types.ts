@@ -1,6 +1,7 @@
 import type { TaskServiceInterface } from "../tasks";
 import type { GitServiceInterface } from "../git";
 import type { WorkspaceUtilsInterface } from "../workspace";
+import type { PullRequestInfo } from "./session-db";
 
 /**
  * Core session record interface
@@ -26,6 +27,14 @@ export interface SessionRecord {
     depth?: number;
   };
   branch?: string; // Branch property is already part of the interface
+  prState?: {
+    branchName: string;
+    exists: boolean;
+    lastChecked: string; // ISO timestamp
+    createdAt?: string; // When PR branch was created
+    mergedAt?: string; // When merged (for cleanup)
+  };
+  pullRequest?: PullRequestInfo;
 }
 
 /**
@@ -52,6 +61,14 @@ export interface Session {
     authMethod?: "ssh" | "https" | "token";
     depth?: number;
   };
+  prState?: {
+    branchName: string;
+    exists: boolean;
+    lastChecked: string;
+    createdAt?: string;
+    mergedAt?: string;
+  };
+  pullRequest?: PullRequestInfo;
 }
 
 /**
@@ -186,4 +203,12 @@ export interface SessionPrResult {
   baseBranch: string;
   title?: string;
   body?: string;
+  // Session information for CLI formatting
+  session?: {
+    session: string;
+    taskId?: string;
+    repoName?: string;
+    branch?: string;
+  };
+  sessionName?: string; // Alternative property name for formatter compatibility
 }

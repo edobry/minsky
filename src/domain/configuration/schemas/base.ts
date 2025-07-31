@@ -90,9 +90,9 @@ export const enumSchemas = {
   }),
 
   // AI providers
-  aiProvider: z.enum(["openai", "anthropic", "google", "cohere", "mistral"], {
+  aiProvider: z.enum(["openai", "anthropic", "google", "cohere", "mistral", "morph"], {
     errorMap: () => ({
-      message: "AI provider must be one of: openai, anthropic, google, cohere, mistral",
+      message: "AI provider must be one of: openai, anthropic, google, cohere, mistral, morph",
     }),
   }),
 

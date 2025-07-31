@@ -1119,3 +1119,116 @@ Sessions provide complete workspace isolation:
 - **Extensibility**: New interfaces can be added without changing domain logic
 - **Type Safety**: Full TypeScript support with runtime validation
 - **Maintainability**: Clear separation of concerns makes the codebase easier to understand and modify
+<<<<<<< HEAD
+
+
+## 🔒 Security: Secret Scanning
+
+This project includes **critical security measures** to prevent credential exposure:
+
+### Pre-Commit Secret Scanning
+
+**Gitleaks** automatically scans for secrets before every commit and blocks dangerous commits.
+
+### Protected Secret Types
+
+- **OpenAI API Keys** (`sk-proj-`, `sk-`)
+- **GitHub Personal Access Tokens** (`github_pat_`, `ghp_`)
+- **Anthropic API Keys** (`sk-ant-`)
+- **AWS Access Keys** (`AKIA`, `ASIA`)
+- **Google/GCP API Keys** (`AIza`)
+- **Slack Bot Tokens** (`xoxb-`)
+- **NPM Tokens** (`npm_`)
+- **Private Keys** (SSH, SSL, etc.)
+- **Basic Auth credentials** in URLs
+
+### Setup Requirements
+
+**Install gitleaks:**
+```bash
+# macOS
+brew install gitleaks
+
+# Linux
+apt install gitleaks
+# or download from: https://github.com/gitleaks/gitleaks/releases
+```
+
+### Manual Scanning Commands
+
+```bash
+# Scan entire repository
+bun run secrets:scan
+
+# Scan with full gitleaks options
+bun run secrets:gitleaks
+
+# Scan staged files only (pre-commit simulation)
+gitleaks protect --staged --source .
+```
+
+### ⚠️ Important Security Notes
+
+- **Commits are BLOCKED** if secrets are detected
+- **Use placeholder values** in documentation: `sk-proj-xxx...xxxxx`
+- **Never disable** secret scanning for convenience
+- **Real credentials** should NEVER be committed to any repository
+- **Missing gitleaks** will show warning but not block commits (temporary)
+
+This system prevented a **critical security incident** where real API keys were nearly committed to the repository.
+
+
+## 🔒 Security: Secret Scanning
+
+This project includes **critical security measures** to prevent credential exposure:
+
+### Pre-Commit Secret Scanning
+
+**Gitleaks** automatically scans for secrets before every commit and blocks dangerous commits.
+
+### Protected Secret Types
+
+- **OpenAI API Keys** (`sk-proj-`, `sk-`)
+- **GitHub Personal Access Tokens** (`github_pat_`, `ghp_`)
+- **Anthropic API Keys** (`sk-ant-`)
+- **AWS Access Keys** (`AKIA`, `ASIA`)
+- **Google/GCP API Keys** (`AIza`)
+- **Slack Bot Tokens** (`xoxb-`)
+- **NPM Tokens** (`npm_`)
+- **Private Keys** (SSH, SSL, etc.)
+- **Basic Auth credentials** in URLs
+
+### Setup Requirements
+
+**Install gitleaks:**
+```bash
+# macOS
+brew install gitleaks
+
+# Linux
+apt install gitleaks
+# or download from: https://github.com/gitleaks/gitleaks/releases
+```
+
+### Manual Scanning Commands
+
+```bash
+# Scan entire repository
+bun run secrets:scan
+
+# Scan with full gitleaks options
+bun run secrets:gitleaks
+
+# Scan staged files only (pre-commit simulation)
+gitleaks protect --staged --source .
+```
+
+### ⚠️ Important Security Notes
+
+- **Commits are BLOCKED** if secrets are detected
+- **Use placeholder values** in documentation: `sk-proj-xxx...xxxxx`
+- **Never disable** secret scanning for convenience
+- **Real credentials** should NEVER be committed to any repository
+- **Missing gitleaks** will show warning but not block commits (temporary)
+
+This system prevented a **critical security incident** where real API keys were nearly committed to the repository.

@@ -70,16 +70,16 @@ describe("Session Approve - Bug Regression Tests", () => {
           }),
       });
 
-      const mockTaskService = createMockTaskService({
-        getTask: () =>
+      const mockTaskService = {
+        getTaskStatus: mock(() => Promise.resolve("IN-PROGRESS")), // Ensure task is not DONE
+        getTask: mock(() =>
           Promise.resolve({
-            id: "#123",
+            id: "123",
             title: "Test Task",
-            status: "TODO",
-          }),
-        setTaskStatus: mock(() => Promise.resolve()),
-        getTaskStatus: () => Promise.resolve("TODO"),
-      });
+            status: "IN-PROGRESS",
+          })
+        ), // Add missing getTask method
+      };
 
       // Act: Run session approve with uncommitted changes
       await approveSessionImpl(

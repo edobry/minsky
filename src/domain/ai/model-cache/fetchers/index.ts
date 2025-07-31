@@ -6,6 +6,7 @@
 
 export { OpenAIModelFetcher } from "./openai-fetcher";
 export { AnthropicModelFetcher } from "./anthropic-fetcher";
+export { MorphModelFetcher } from "./morph-fetcher";
 
 // Re-export types for convenience
 export type {

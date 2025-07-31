@@ -9,7 +9,7 @@ import {
   getErrorMessage,
   createCommandFailureMessage,
 } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
@@ -88,7 +88,7 @@ export async function sessionReviewImpl(
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
-    const taskIdToUse = taskIdSchema.parse(params.task);
+    const taskIdToUse = TaskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
     // Get session by task ID

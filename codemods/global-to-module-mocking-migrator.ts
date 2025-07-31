@@ -32,11 +32,7 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
   constructor(options: CodemodOptions = {}) {
     super({
       includePatterns: ["**/*.test.ts", "**/*.spec.ts"],
-      excludePatterns: [
-        "**/node_modules/**", 
-        "**/codemods/**",
-        "**/*.d.ts"
-      ],
+      excludePatterns: ["**/node_modules/**", "**/codemods/**", "**/*.d.ts"],
       ...options,
     });
   }
@@ -48,12 +44,15 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
 
     for (const sourceFile of sourceFiles) {
       const spyOnPatterns = this.findSpyOnPatterns(sourceFile);
-      
+
       for (const pattern of spyOnPatterns) {
         this.addIssue({
           file: sourceFile.getFilePath(),
           line: pattern.variableDeclaration.getStartLineNumber(),
-          column: pattern.variableDeclaration.getStart() - pattern.variableDeclaration.getStartLinePos() + 1,
+          column:
+            pattern.variableDeclaration.getStart() -
+            pattern.variableDeclaration.getStartLinePos() +
+            1,
           description: `Global mocking pattern: ${pattern.variable} = spyOn(${pattern.module}, "${pattern.method}")`,
           context: pattern.variableDeclaration.getFullText().trim(),
           severity: "warning",
@@ -71,23 +70,23 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
 
   protected fixIssues(): void {
     this.log("🔧 Starting global-to-module mocking transformation...");
-    
+
     const sourceFiles = this.project.getSourceFiles();
-    
+
     for (const sourceFile of sourceFiles) {
       const patterns = this.findSpyOnPatterns(sourceFile);
-      
+
       if (patterns.length > 0) {
         this.log(`📁 ${sourceFile.getBaseName()}: Found ${patterns.length} patterns`);
-        
+
         // Add mock import if needed
         this.ensureMockImport(sourceFile);
-        
+
         // Transform each pattern
         for (const pattern of patterns) {
           this.transformPattern(sourceFile, pattern);
         }
-        
+
         this.recordFix(sourceFile.getFilePath());
       }
     }
@@ -101,7 +100,7 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
 
     // Find variable declarations with spyOn
     const variableDeclarations = sourceFile.getDescendantsOfKind(SyntaxKind.VariableDeclaration);
-    
+
     for (const varDecl of variableDeclarations) {
       const initializer = varDecl.getInitializer();
       if (!initializer) continue;
@@ -117,7 +116,7 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
           variableDeclaration: varDecl,
           spyOnCalls: [spyOnInfo.callExpression],
         };
-        
+
         spyOnMap.set(variable, pattern);
         patterns.push(pattern);
       }
@@ -125,15 +124,15 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
 
     // Find mockImplementation calls for each spyOn variable
     const callExpressions = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression);
-    
+
     for (const callExpr of callExpressions) {
       const expression = callExpr.getExpression();
-      
+
       if (expression.getKind() === SyntaxKind.PropertyAccessExpression) {
         const propAccess = expression.asKindOrThrow(SyntaxKind.PropertyAccessExpression);
         const object = propAccess.getExpression().getText();
         const property = propAccess.getName();
-        
+
         if (property === "mockImplementation" && spyOnMap.has(object)) {
           spyOnMap.get(object)!.mockImplementations.push(callExpr);
         }
@@ -143,12 +142,14 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
     return patterns;
   }
 
-  private extractSpyOnInfo(node: any): { module: string; method: string; callExpression: CallExpression } | null {
+  private extractSpyOnInfo(
+    node: any
+  ): { module: string; method: string; callExpression: CallExpression } | null {
     if (node.getKind() !== SyntaxKind.CallExpression) return null;
-    
+
     const callExpr = node as CallExpression;
     const expression = callExpr.getExpression();
-    
+
     if (expression.getText() === "spyOn") {
       const args = callExpr.getArguments();
       if (args.length >= 2) {
@@ -157,19 +158,18 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
         return { module, method, callExpression: callExpr };
       }
     }
-    
+
     return null;
   }
 
   private ensureMockImport(sourceFile: SourceFile): void {
     const bunTestImport = sourceFile
       .getImportDeclarations()
-      .find(imp => imp.getModuleSpecifierValue() === "bun:test");
-    
+      .find((imp) => imp.getModuleSpecifierValue() === "bun:test");
+
     if (bunTestImport) {
-      const mockImport = bunTestImport.getNamedImports()
-        .find(imp => imp.getName() === "mock");
-      
+      const mockImport = bunTestImport.getNamedImports().find((imp) => imp.getName() === "mock");
+
       if (!mockImport) {
         bunTestImport.addNamedImport("mock");
       }
@@ -185,24 +185,24 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
 
     // Add mock.module call at top of describe block
     this.addMockModuleCall(sourceFile, mockModuleCall);
-    
+
     // Remove variable declaration statement
     const varStatement = pattern.variableDeclaration.getVariableStatement();
     if (varStatement) {
       varStatement.remove();
     }
-    
+
     // Remove mockImplementation calls
-    pattern.mockImplementations.forEach(call => {
+    pattern.mockImplementations.forEach((call) => {
       const statement = call.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
       if (statement) {
         statement.remove();
       }
     });
-    
+
     // TODO: Remove beforeEach/afterEach cleanup logic
     // TODO: Handle multiple spyOn calls for same variable
-    
+
     this.log(`✅ Transformed ${pattern.variable} from global to module mocking`);
   }
 
@@ -219,9 +219,10 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
 
   private addMockModuleCall(sourceFile: SourceFile, mockCall: string): void {
     // Find the first describe block and add mock.module before it
-    const describes = sourceFile.getDescendantsOfKind(SyntaxKind.CallExpression)
-      .filter(call => call.getExpression().getText() === "describe");
-    
+    const describes = sourceFile
+      .getDescendantsOfKind(SyntaxKind.CallExpression)
+      .filter((call) => call.getExpression().getText() === "describe");
+
     if (describes.length > 0) {
       const firstDescribe = describes[0];
       const statement = firstDescribe.getFirstAncestorByKind(SyntaxKind.ExpressionStatement);
@@ -235,4 +236,4 @@ export class GlobalToModuleMockingMigrator extends CodemodBase {
 }
 
 // Export for CLI usage
-export default GlobalToModuleMockingMigrator; 
+export default GlobalToModuleMockingMigrator;

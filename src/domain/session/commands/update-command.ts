@@ -1,4 +1,4 @@
-import type { SessionUpdateParams } from "../../../schemas/session";
+import type { SessionUpdateParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { getCurrentSession } from "../../workspace";
@@ -17,7 +17,7 @@ import { log } from "../../../utils/logger";
  * Using proper dependency injection for better testability
  */
 export async function updateSessionFromParams(
-  params: SessionUpdateParams,
+  params: SessionUpdateParameters,
   depsInput?: {
     sessionDB?: SessionProviderInterface;
     gitService?: any;

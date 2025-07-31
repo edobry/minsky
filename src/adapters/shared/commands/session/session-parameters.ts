@@ -256,3 +256,101 @@ export const sessionPrCommandParams = {
 export const sessionInspectCommandParams = {
   json: commonSessionParams.json,
 };
+
+/**
+ * Session PR Create command parameters
+ * Replaces the current session PR command
+ */
+export const sessionPrCreateCommandParams = {
+  title: {
+    schema: z.string(),
+    description: "PR title",
+    required: false,
+  },
+  body: {
+    schema: z.string(),
+    description: "PR body content",
+    required: false,
+  },
+  bodyPath: {
+    schema: z.string(),
+    description: "Path to file containing PR body",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  noStatusUpdate: {
+    schema: z.boolean(),
+    description: "Skip updating task status",
+    required: false,
+    defaultValue: false,
+  },
+  debug: commonSessionParams.debug,
+  skipUpdate: {
+    schema: z.boolean(),
+    description: "Skip session update before PR",
+    required: false,
+    defaultValue: false,
+  },
+  autoResolveDeleteConflicts: {
+    schema: z.boolean(),
+    description: "Automatically resolve delete conflicts",
+    required: false,
+    defaultValue: false,
+  },
+  skipConflictCheck: {
+    schema: z.boolean(),
+    description: "Skip conflict detection",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Session PR List command parameters
+ * Lists all PRs associated with sessions
+ */
+export const sessionPrListCommandParams = {
+  session: {
+    schema: z.string(),
+    description: "Filter PRs by specific session name",
+    required: false,
+  },
+  task: commonSessionParams.task,
+  status: {
+    schema: z.enum(["open", "closed", "merged", "draft"]),
+    description: "Filter by PR status",
+    required: false,
+  },
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  verbose: {
+    schema: z.boolean(),
+    description: "Show detailed PR information",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Session PR Get command parameters
+ * Gets detailed information about a specific PR
+ */
+export const sessionPrGetCommandParams = {
+  sessionName: {
+    schema: z.string(),
+    description: "Session name to look up PR for (positional)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  content: {
+    schema: z.boolean(),
+    description: "Include PR description and diff content",
+    required: false,
+    defaultValue: false,
+  },
+};

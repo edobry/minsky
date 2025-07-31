@@ -6,7 +6,7 @@
  */
 
 import { generateText, streamText, generateObject, LanguageModel } from "ai";
-import { openai } from "@ai-sdk/openai";
+import { openai, createOpenAI } from "@ai-sdk/openai";
 import { anthropic } from "@ai-sdk/anthropic";
 import { google } from "@ai-sdk/google";
 
@@ -121,7 +121,10 @@ export class DefaultAICompletionService implements AICompletionService {
         },
       };
     } catch (error) {
-      log.error("AI completion failed", { error, request });
+      // Log at debug level - the error will be re-thrown and handled with user-friendly messages
+      log.systemDebug(
+        `AI completion failed for provider ${request.provider}: ${error instanceof Error ? error.message : String(error)}`
+      );
       throw this.transformError(error, request.provider, request.model);
     }
   }
@@ -218,7 +221,10 @@ export class DefaultAICompletionService implements AICompletionService {
 
       return allModels;
     } catch (error) {
-      log.error("Failed to get available models", { error, provider });
+      // Log at debug level - this is expected when providers aren't configured
+      log.systemDebug(
+        `Failed to get available models for provider ${provider}: ${error instanceof Error ? error.message : String(error)}`
+      );
       return [];
     }
   }
@@ -345,6 +351,16 @@ export class DefaultAICompletionService implements AICompletionService {
         });
         break;
 
+      case "morph": {
+        // Morph is OpenAI-compatible, so use createOpenAI to create a custom provider
+        const morphProvider = createOpenAI({
+          apiKey: providerConfig.apiKey,
+          baseURL: providerConfig.baseURL || "https://api.morphllm.com/v1",
+        });
+        model = (morphProvider as any)(resolvedModel); // Use the actual model name (e.g., morph-v3-large)
+        break;
+      }
+
       default:
         throw new AIProviderError(
           `Unsupported provider: ${resolvedProvider}`,
@@ -366,6 +382,7 @@ export class DefaultAICompletionService implements AICompletionService {
       openai: "gpt-4o",
       anthropic: "claude-3-5-sonnet-20241022",
       google: "gemini-1.5-pro-latest",
+      morph: "morph-v3-large",
     };
 
     return defaultModels[provider] || "gpt-4o";

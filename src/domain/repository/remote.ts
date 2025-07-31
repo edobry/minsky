@@ -4,12 +4,17 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
+import { execGitWithTimeout, gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
+import { normalizeRepoName } from "../repo-utils";
+import { MinskyError, getErrorMessage } from "../../errors/index";
+import { log } from "../../utils/logger";
+import type { RepositoryStatus } from "../repository";
 import {
-  execGitWithTimeout,
-  gitPushWithTimeout,
-  gitPullWithTimeout,
-  type GitExecOptions,
-} from "../../utils/git-exec";
+  createPreparedMergeCommitPR,
+  mergePreparedMergeCommitPR,
+  type PreparedMergeCommitOptions,
+  type PreparedMergeCommitMergeOptions,
+} from "../git/prepared-merge-commit-workflow";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -17,6 +22,8 @@ import type {
   BranchResult,
   Result,
   RepoStatus,
+  PRInfo,
+  MergeInfo,
 } from "./index";
 
 // Define a global for process to avoid linting errors
@@ -26,6 +33,7 @@ declare const process: {
     HOME?: string;
     [key: string]: string | undefined;
   };
+  cwd(): string;
 };
 
 const execAsync = promisify(exec);
@@ -286,9 +294,10 @@ Repository: ${this.repoUrl}
 
   /**
    * Push changes to remote repository
+   * @param branch Optional branch to push (defaults to current branch)
    * @returns Result of the push operation
    */
-  async push(): Promise<Result> {
+  async push(branch?: string): Promise<any> {
     try {
       // Validate repository configuration
       const validation = await this.validate();
@@ -317,14 +326,17 @@ Repository: ${this.repoUrl}
         const workdir = this.getSessionWorkdir(session.session);
 
         try {
-          // Determine current branch
-          const { stdout: branchOutput } = await execAsync(
-            `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-          );
-          const branch = branchOutput.trim();
+          // Determine current branch or use provided branch
+          let targetBranch = branch;
+          if (!targetBranch) {
+            const { stdout: branchOutput } = await execAsync(
+              `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+            );
+            targetBranch = branchOutput.trim();
+          }
 
           // Push to remote
-          await gitPushWithTimeout("origin", branch, { workdir });
+          await execGitWithTimeout("push", `push origin ${targetBranch}`, { workdir });
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {
@@ -351,9 +363,10 @@ Repository: ${this.repoUrl}
 
   /**
    * Pull changes from remote repository
+   * @param branch Optional branch to pull (defaults to current branch)
    * @returns Result of the pull operation
    */
-  async pull(): Promise<Result> {
+  async pull(branch?: string): Promise<any> {
     try {
       // Validate repository configuration
       const validation = await this.validate();
@@ -361,11 +374,7 @@ Repository: ${this.repoUrl}
         return validation;
       }
 
-      // Implementation of git pull for remote repositories
-      // 1. Get the current session path
-      // 2. Determine the current branch
-      // 3. Pull from remote repository
-
+      // Get all sessions for this repository
       const sessions = await this.sessionDb.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
@@ -381,49 +390,102 @@ Repository: ${this.repoUrl}
         const workdir = this.getSessionWorkdir(session.session);
 
         try {
-          // Determine current branch
-          const { stdout: branchOutput } = await execAsync(
-            `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-          );
-          const branch = branchOutput.trim();
+          // Determine current branch or use provided branch
+          let targetBranch = branch;
+          if (!targetBranch) {
+            const { stdout: branchOutput } = await execAsync(
+              `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+            );
+            targetBranch = branchOutput.trim();
+          }
 
           // Pull from remote
-          await gitPullWithTimeout(workdir, branch);
+          await execGitWithTimeout("pull", `pull origin ${targetBranch}`, { workdir });
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {
             return {
               success: false,
-              message: "Git authentication failed. Check your credentials or SSH key.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else if ((error as any).message.includes("conflict")) {
-            return {
-              success: false,
-              message: "Pull failed due to conflicts. Resolve conflicts manually.",
-              error: error instanceof Error ? error : new Error(String(error)),
-            };
-          } else {
-            return {
-              success: false,
-              message: `Failed to pull from remote repository: ${(error as any).message}`,
-              error: error instanceof Error ? error : new Error(String(error)),
+              error: new Error(
+                "Authentication failed during pull operation. Please check your credentials."
+              ),
             };
           }
+          throw normalizedError;
         }
       }
 
-      return {
-        success: true,
-        message: "Successfully pulled changes from remote repository",
-      };
+      return { success: true, message: "Pull completed successfully" };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error));
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return {
         success: false,
-        message: `Failed to pull from remote repository: ${normalizedError.message}`,
-        error: normalizedError,
+        error: new Error(`Failed to pull changes: ${normalizedError.message}`),
       };
     }
+  }
+
+  /**
+   * Create a pull request using prepared merge commit workflow
+   * This creates a PR branch with a merge commit prepared for approval
+   */
+  async createPullRequest(
+    title: string,
+    body: string,
+    sourceBranch: string,
+    baseBranch: string = "main",
+    session?: string
+  ): Promise<PRInfo> {
+    let workdir: string;
+
+    // Determine working directory
+    if (session) {
+      const record = await this.sessionDb.getSession(session);
+      if (!record) {
+        throw new MinskyError(`Session '${session}' not found in database`);
+      }
+      workdir = this.getSessionWorkdir(session);
+    } else {
+      // Use current working directory
+      workdir = process.cwd();
+    }
+
+    const options: PreparedMergeCommitOptions = {
+      title,
+      body,
+      sourceBranch,
+      baseBranch,
+      workdir,
+      session,
+    };
+
+    return await createPreparedMergeCommitPR(options);
+  }
+
+  /**
+   * Merge a pull request using the prepared merge commit workflow
+   * This merges the PR branch into the base branch
+   */
+  async mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo> {
+    let workdir: string;
+
+    // Determine working directory
+    if (session) {
+      const record = await this.sessionDb.getSession(session);
+      if (!record) {
+        throw new MinskyError(`Session '${session}' not found in database`);
+      }
+      workdir = this.getSessionWorkdir(session);
+    } else {
+      workdir = process.cwd();
+    }
+
+    const options: PreparedMergeCommitMergeOptions = {
+      prIdentifier,
+      workdir,
+      session,
+    };
+
+    return await mergePreparedMergeCommitPR(options);
   }
 }

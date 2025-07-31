@@ -145,7 +145,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
     // Check if user cancelled
     if (isCancel(selectedStatus)) {
       cancel("Operation cancelled");
-      process.exit(0);
+      throw new ValidationError("Operation cancelled by user");
     }
 
     return selectedStatus as string;

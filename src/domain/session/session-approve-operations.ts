@@ -10,7 +10,7 @@ import {
   createCommandFailureMessage,
   createErrorContext,
 } from "../../errors/index";
-import { taskIdSchema } from "../../schemas/common";
+import { TaskIdSchema } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
@@ -24,6 +24,7 @@ import {
 import * as WorkspaceUtils from "../workspace";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
 import { updatePrStateOnMerge } from "./session-update-operations";
+import { createRepositoryBackendForSession } from "./repository-backend-detection";
 
 /**
  * Approves a session by merging its PR branch into the main branch
@@ -76,7 +77,7 @@ export async function approveSessionImpl(
       log.cli("🔍 Resolving session from task ID...");
     }
 
-    const taskIdToUse = taskIdSchema.parse(params.task);
+    const taskIdToUse = TaskIdSchema.parse(params.task);
     taskId = taskIdToUse;
 
     // **BUG FIX**: Validate task existence BEFORE checking for session
@@ -258,8 +259,25 @@ The task exists but has no associated session to approve.
   // Track whether we stashed changes for restoration logic
   let hasStashedChanges = false;
 
+  // Initialize merge tracking variables
+  let isNewlyApproved = true;
+  let commitHash: string = "";
+  let mergeDate: string = "";
+  let mergedBy: string = "";
+
   try {
-    // Execute git commands to merge the PR branch in the main repository
+    // Use repository backend to handle merging instead of direct git commands
+    if (!params.json) {
+      log.cli("🔍 Auto-detecting repository backend...");
+    }
+
+    // Create repository backend based on current repository
+    const repositoryBackend = await createRepositoryBackendForSession(workingDirectory);
+    const backendType = repositoryBackend.getType();
+
+    if (!params.json) {
+      log.cli(`📦 Using ${backendType} repository backend for merge`);
+    }
 
     // Check for uncommitted changes and automatically stash them if needed
     if (!params.noStash) {
@@ -287,172 +305,53 @@ The task exists but has no associated session to approve.
       }
     }
 
-    // First, check out the base branch
-    if (!params.json) {
-      log.cli("🔄 Switching to base branch...");
-    }
-
-    await deps.gitService.execInRepository(workingDirectory, `git checkout ${baseBranch}`);
-
-    // Fetch latest changes
-    if (!params.json) {
-      log.cli("📡 Fetching latest changes...");
-    }
-    await deps.gitService.execInRepository(workingDirectory, "git fetch origin");
-
-    // Check if the PR branch has already been merged
-    let isNewlyApproved = true;
-    let commitHash: string = "";
-    let mergeDate: string = "";
-    let mergedBy: string = "";
-
-    // First, check if the PR branch exists locally
-    let prBranchExists = false;
-    try {
-      await deps.gitService.execInRepository(
-        workingDirectory,
-        `git show-ref --verify --quiet refs/heads/${prBranch}`
-      );
-      prBranchExists = true;
-    } catch (error) {
-      // PR branch doesn't exist locally, it might have been already merged and cleaned up
-      prBranchExists = false;
-    }
-
-    if (prBranchExists) {
-      // Get the commit hash of the PR branch
-      const _prBranchCommitHash = (
-        await deps.gitService.execInRepository(workingDirectory, `git rev-parse ${prBranch}`)
-      ).trim();
-
-      // Attempt the merge - this is where we need to fail fast on errors
-      if (!params.json) {
-        log.cli(`🔀 Merging PR branch ${prBranch}...`);
-      }
-
-      try {
-        await deps.gitService.execInRepository(workingDirectory, `git merge --ff-only ${prBranch}`);
-
-        // If merge succeeds, it's newly approved
-        isNewlyApproved = true;
-
-        // Get commit hash and date for the new merge
-        commitHash = (
-          await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
-        ).trim();
-        mergeDate = new Date().toISOString();
-        mergedBy = (
-          await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-        ).trim();
-
-        // Push the changes
-        await deps.gitService.execInRepository(workingDirectory, `git push origin ${baseBranch}`);
-
-        // Delete the PR branch from remote only if it exists there
-        try {
-          // Check if remote branch exists first
-          // This is expected to fail if the branch doesn't exist, which is normal
-          await deps.gitService.execInRepository(
-            workingDirectory,
-            `git show-ref --verify --quiet refs/remotes/origin/${prBranch}`
-          );
-          // If it exists, delete it
-          await deps.gitService.execInRepository(
-            workingDirectory,
-            `git push origin --delete ${prBranch}`
-          );
-        } catch (error) {
-          // Remote branch doesn't exist, which is fine - just log it
-          log.debug(`Remote PR branch ${prBranch} doesn't exist, skipping deletion`);
-        }
-
-        // Clean up local branches after successful merge
-        await cleanupLocalBranches(
-          deps.gitService,
-          workingDirectory,
-          prBranch,
-          sessionNameToUse,
-          taskId
-        );
-
-        // Update PR state to reflect merge
-        await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
-      } catch (mergeError) {
-        // Merge failed - check if it's because already merged or a real error
-        const errorMessage = getErrorMessage(mergeError as Error);
-
-        if (
-          errorMessage.includes("Already up to date") ||
-          errorMessage.includes("nothing to commit")
-        ) {
-          // PR branch has already been merged - this is OK, continue processing
-          isNewlyApproved = false;
-          log.debug(`PR branch ${prBranch} has already been merged`);
-
-          // Update PR state to reflect it's already merged
-          await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
-
-          // Get current HEAD info for already merged case
-          commitHash = (
-            await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
-          ).trim();
-
-          // For already merged PRs, try to get the merge commit info
-          try {
-            const mergeCommitInfo = await deps.gitService.execInRepository(
-              workingDirectory,
-              `git log --merges --oneline --grep="Merge.*${prBranch}" -n 1 --format="%H|%ai|%an"`
-            );
-            if (mergeCommitInfo.trim()) {
-              const parts = mergeCommitInfo.trim().split("|");
-              if (parts.length >= 3 && parts[0] && parts[1] && parts[2]) {
-                commitHash = parts[0];
-                mergeDate = new Date(parts[1]).toISOString();
-                mergedBy = parts[2];
-              } else {
-                // Fallback to current HEAD info if format is unexpected
-                mergeDate = new Date().toISOString();
-                mergedBy = (
-                  await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-                ).trim();
-              }
-            } else {
-              // Fallback to current HEAD info if we can't find the merge commit
-              mergeDate = new Date().toISOString();
-              mergedBy = (
-                await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-              ).trim();
-            }
-          } catch (error) {
-            // Fallback to current HEAD info
-            mergeDate = new Date().toISOString();
-            mergedBy = (
-              await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-            ).trim();
-          }
-        } else {
-          // CRITICAL: Any other merge error should FAIL FAST and NOT continue
-          // This prevents leaving the repository in an inconsistent state
-          throw mergeError;
-        }
-      }
+    // Determine PR identifier based on backend type
+    let prIdentifier: string | number;
+    if (backendType === "github") {
+      // For GitHub, we need to find the actual PR number
+      // For now, use the branch name as identifier (could be enhanced later)
+      prIdentifier = prBranch;
     } else {
-      // PR branch doesn't exist locally, assuming already merged and cleaned up
-      isNewlyApproved = false;
-      log.debug(`PR branch ${prBranch} doesn't exist locally, assuming already merged`);
-
-      // Get current HEAD info
-      commitHash = (
-        await deps.gitService.execInRepository(workingDirectory, "git rev-parse HEAD")
-      ).trim();
-      mergeDate = new Date().toISOString();
-      mergedBy = (
-        await deps.gitService.execInRepository(workingDirectory, "git config user.name")
-      ).trim();
+      // For local/remote backends, use the PR branch name
+      prIdentifier = prBranch;
     }
 
-    // The merge logic has been moved inside the try block above
-    // No need for separate isNewlyApproved check here
+    if (!params.json) {
+      log.cli(`🔀 Merging pull request using ${backendType} backend...`);
+    }
+
+    // Use repository backend to merge the pull request
+    const mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+
+    // Extract merge information from repository backend response
+    commitHash = mergeResult.commitHash;
+    mergeDate = mergeResult.mergeDate;
+    mergedBy = mergeResult.mergedBy;
+    isNewlyApproved = true;
+
+    if (!params.json) {
+      if (backendType === "github") {
+        log.cli(`✅ GitHub PR merged successfully!`);
+        log.cli(`📝 Commit: ${commitHash.substring(0, 8)}...`);
+      } else {
+        log.cli(`✅ PR branch merged successfully!`);
+        log.cli(`📝 Merge commit: ${commitHash.substring(0, 8)}...`);
+      }
+    }
+
+    log.debug("Repository backend merge completed", {
+      backendType,
+      commitHash,
+      mergeDate,
+      mergedBy,
+      prBranch,
+      baseBranch,
+    });
+
+    // Update PR state to reflect merge
+    await updatePrStateOnMerge(sessionNameToUse, deps.sessionDB);
+
+    // Continue with existing cleanup and task status logic...
 
     // Create merge info
     const mergeInfo = {
@@ -525,11 +424,8 @@ The task exists but has no associated session to approve.
                       "✅ The task is marked as DONE - you can fix linting issues separately"
                     );
                   }
-                  log.warn("Task status commit failed due to pre-commit checks", {
-                    taskId,
-                    errors: errorCount,
-                    warnings: warningCount,
-                  });
+                  // Log the warning without JSON metadata for cleaner output
+                  log.warn("Task status commit failed due to pre-commit checks");
                   // Re-throw to fail the command - linting issues should block session approval
                   throw new MinskyError(
                     `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`

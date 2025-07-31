@@ -11,6 +11,12 @@ import { getDefaultConfiguration, defaultsSourceMetadata } from "./sources/defau
 import { getProjectConfiguration, projectSourceMetadata } from "./sources/project";
 import { getUserConfiguration, userSourceMetadata } from "./sources/user";
 import { getEnvironmentConfiguration, environmentSourceMetadata } from "./sources/environment";
+import { log } from "../../utils/logger";
+
+/**
+ * Configuration type that preserves known fields but allows additional unknown ones
+ */
+type ConfigurationWithUnknown = Configuration & Record<string, unknown>;
 
 /**
  * Configuration source metadata
@@ -319,10 +325,71 @@ export class ConfigurationLoader {
         data: result.data,
       };
     } else {
+      // Get validation configuration from the config (with fallback defaults)
+      const validationConfig = {
+        strictMode: config.validation?.strictMode ?? false,
+        warnOnUnknown: config.validation?.warnOnUnknown ?? true,
+        includePathInWarnings: config.validation?.includePathInWarnings ?? true,
+        includeCodeInWarnings: config.validation?.includeCodeInWarnings ?? false,
+      };
+
+      // Filter out "unrecognized key" errors based on strictMode setting
+      const unrecognizedKeyIssues = result.error.issues.filter(
+        (issue) =>
+          issue.code === "unrecognized_keys" ||
+          (issue.message && issue.message.includes("Unrecognized key"))
+      );
+
+      const criticalIssues = result.error.issues.filter(
+        (issue) =>
+          !(
+            issue.code === "unrecognized_keys" ||
+            (issue.message && issue.message.includes("Unrecognized key"))
+          )
+      );
+
+      // Handle unrecognized keys based on validation configuration
+      if (unrecognizedKeyIssues.length > 0) {
+        if (validationConfig.strictMode) {
+          // In strict mode, treat unrecognized keys as errors
+          return {
+            success: false,
+            error: result.error,
+            issues: result.error.issues,
+          };
+        } else if (validationConfig.warnOnUnknown) {
+          // Log warnings for unrecognized keys using structured logging
+          unrecognizedKeyIssues.forEach((issue) => {
+            const path = issue.path?.length > 0 ? issue.path.join(".") : "root";
+            const logData: Record<string, any> = {
+              message: issue.message,
+            };
+
+            if (validationConfig.includePathInWarnings) {
+              logData.path = path;
+            }
+
+            if (validationConfig.includeCodeInWarnings) {
+              logData.code = issue.code;
+            }
+
+            log.warn("Unknown configuration field detected", logData);
+          });
+        }
+      }
+
+      // If only unrecognized key errors and not in strict mode, treat as success
+      if (criticalIssues.length === 0 && !validationConfig.strictMode) {
+        return {
+          success: true,
+          data: config as ConfigurationWithUnknown,
+        };
+      }
+
       return {
         success: false,
         error: result.error,
-        issues: result.error.issues,
+        issues: criticalIssues.length > 0 ? criticalIssues : result.error.issues,
       };
     }
   }

@@ -15,7 +15,7 @@ import {
   type TaskGetParams,
   type TaskStatusGetParams,
   type TaskSpecContentParams,
-} from "../../../schemas/tasks";
+} from "../../../domain/schemas";
 import { BaseTaskOperation, type TaskOperationDependencies } from "./base-task-operation";
 
 /**
