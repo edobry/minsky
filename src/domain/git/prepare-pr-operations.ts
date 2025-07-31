@@ -10,6 +10,10 @@ import {
   gitPushWithTimeout,
   type GitExecOptions,
 } from "../../utils/git-exec";
+import {
+  SessionMultiBackendIntegration,
+  SessionBackwardCompatibility,
+} from "../session/multi-backend-integration";
 
 const execAsync = promisify(exec);
 
@@ -142,9 +146,13 @@ export async function preparePrImpl(
             const repoUrl = await deps.execInRepository(currentDir, "git remote get-url origin");
             const repoName = normalizeRepoName(repoUrl.trim());
 
-            // Extract task ID from session name if it follows the task#N pattern
-            const taskIdMatch = options.session.match(/^task#(\d+)$/);
-            const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+            // Extract task ID from session name using multi-backend integration
+            const extractedTaskId = SessionMultiBackendIntegration.extractTaskIdFromSessionName(
+              options.session
+            );
+            const taskId = extractedTaskId
+              ? SessionBackwardCompatibility.toStorageFormat(extractedTaskId)
+              : undefined;
 
             // Create session record
             const newSessionRecord: SessionRecord = {
@@ -156,9 +164,14 @@ export async function preparePrImpl(
               branch: options.session,
             };
 
+            // Enhance with backend information if task ID was extracted
+            const enhancedRecord = taskId
+              ? SessionMultiBackendIntegration.enhanceSessionRecord(newSessionRecord)
+              : newSessionRecord;
+
             // Register the session
-            await deps.sessionDb.addSession(newSessionRecord);
-            record = newSessionRecord;
+            await deps.sessionDb.addSession(enhancedRecord);
+            record = enhancedRecord;
 
             log.debug("Successfully registered orphaned session in preparePr", {
               session: options.session,
