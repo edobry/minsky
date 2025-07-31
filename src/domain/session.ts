@@ -41,32 +41,7 @@ import { resolveSessionContextWithFeedback } from "./session/session-context-res
 import { approveSessionImpl } from "./session/session-approve-operations";
 import { sessionCommit } from "./session/session-commands";
 import { execGitWithTimeout } from "../utils/git-exec";
-
-export interface SessionRecord {
-  session: string;
-  repoName: string;
-  repoUrl: string;
-  createdAt: string;
-  taskId?: string;
-  backendType?: "local" | "remote" | "github"; // Added for repository backend support
-  github?: {
-    owner?: string;
-    repo?: string;
-    token?: string;
-  };
-  remote?: {
-    authMethod?: "ssh" | "https" | "token";
-    depth?: number;
-  };
-  branch?: string; // Branch property is already part of the interface
-  prState?: {
-    branchName: string;
-    exists: boolean;
-    lastChecked: string; // ISO timestamp
-    createdAt?: string; // When PR branch was created
-    mergedAt?: string; // When merged (for cleanup)
-  };
-}
+import type { SessionRecord } from "./session/session-db";
 
 export interface Session {
   session: string;

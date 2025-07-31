@@ -52,11 +52,16 @@ import { createSessionDeleteCommand, createSessionUpdateCommand } from "./manage
 // Workflow commands (re-export)
 export {
   SessionApproveCommand,
-  SessionPrCommand,
   SessionInspectCommand,
   createSessionApproveCommand,
-  createSessionPrCommand,
   createSessionInspectCommand,
+  // TASK 359: Export new PR subcommands instead of single SessionPrCommand
+  SessionPrCreateCommand,
+  SessionPrListCommand,
+  SessionPrGetCommand,
+  createSessionPrCreateCommand,
+  createSessionPrListCommand,
+  createSessionPrGetCommand,
 } from "./workflow-commands";
 
 // Import conflicts command
@@ -65,8 +70,11 @@ import { createSessionConflictsCommand } from "./conflicts-command";
 // Import workflow factory functions for internal use
 import {
   createSessionApproveCommand,
-  createSessionPrCommand,
   createSessionInspectCommand,
+  // TASK 359: Import new PR subcommand factories
+  createSessionPrCreateCommand,
+  createSessionPrListCommand,
+  createSessionPrGetCommand,
 } from "./workflow-commands";
 
 // Factory for creating all session commands
@@ -85,8 +93,14 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
   const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
 
-  const { createSessionApproveCommand, createSessionPrCommand, createSessionInspectCommand } =
-    workflowCommands;
+  // TASK 359: Updated to use PR subcommands instead of single pr command
+  const {
+    createSessionApproveCommand,
+    createSessionInspectCommand,
+    createSessionPrCreateCommand,
+    createSessionPrListCommand,
+    createSessionPrGetCommand,
+  } = workflowCommands;
 
   return {
     // Basic commands
@@ -101,8 +115,12 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
     // Workflow commands
     approve: createSessionApproveCommand(deps),
-    pr: createSessionPrCommand(deps),
     inspect: createSessionInspectCommand(deps),
+
+    // TASK 359: PR subcommands replace single pr command
+    prCreate: createSessionPrCreateCommand(deps),
+    prList: createSessionPrListCommand(deps),
+    prGet: createSessionPrGetCommand(deps),
 
     // Utility commands
     conflicts: createSessionConflictsCommand(deps),
@@ -124,9 +142,13 @@ export async function setupSessionCommandRegistry(
   registry.register("session.delete", commands.delete);
   registry.register("session.update", commands.update);
   registry.register("session.approve", commands.approve);
-  registry.register("session.pr", commands.pr);
   registry.register("session.inspect", commands.inspect);
   registry.register("session.conflicts", commands.conflicts);
+
+  // TASK 359: Register PR subcommands instead of single session.pr
+  registry.register("session.pr.create", commands.prCreate);
+  registry.register("session.pr.list", commands.prList);
+  registry.register("session.pr.get", commands.prGet);
 
   return registry;
 }
