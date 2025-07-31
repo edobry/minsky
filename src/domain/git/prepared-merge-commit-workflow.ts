@@ -45,8 +45,31 @@ export async function createPreparedMergeCommitPR(
   // Generate PR branch name from title
   const prBranchName = titleToBranchName(title);
   const prBranch = `pr/${prBranchName}`;
+  
+  let stashCreated = false;
+  const stashName = `prepared-merge-${Date.now()}`;
 
   try {
+    // Check for uncommitted changes before any git operations
+    let hasUncommittedChanges = false;
+    try {
+      const statusResult = await gitExec("status", "status --porcelain", { workdir, timeout: 30000 });
+      hasUncommittedChanges = statusResult.stdout.trim().length > 0;
+    } catch (statusErr) {
+      // If we can't check status, proceed cautiously
+      console.warn("Could not check git status, proceeding with potential uncommitted changes");
+    }
+    
+    // Stash uncommitted changes if they exist
+    if (hasUncommittedChanges) {
+      try {
+        await gitExec("stash-push", `stash push -m "${stashName}"`, { workdir, timeout: 30000 });
+        stashCreated = true;
+      } catch (stashErr) {
+        throw new MinskyError(`Failed to stash uncommitted changes: ${getErrorMessage(stashErr as any)}`);
+      }
+    }
+
     // Ensure we're on the source branch
     await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
 
@@ -88,6 +111,21 @@ export async function createPreparedMergeCommitPR(
     // Switch back to source branch
     await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
 
+    // Restore stashed changes if we created a stash
+    if (stashCreated) {
+      try {
+        const stashListResult = await gitExec("stash-list", "stash list", { workdir, timeout: 30000 });
+        if (stashListResult.stdout.includes(stashName)) {
+          await gitExec("stash-pop", `stash pop "stash@{0}"`, { workdir, timeout: 30000 });
+        }
+      } catch (stashRestoreErr) {
+        log.warn("Failed to restore stashed changes, but PR was created successfully", { 
+          stashName, 
+          error: getErrorMessage(stashRestoreErr as any) 
+        });
+      }
+    }
+
     return {
       number: prBranch, // Use branch name as identifier for local/remote repos
       url: prBranch, // Use branch name as URL for local/remote repos
@@ -108,6 +146,21 @@ export async function createPreparedMergeCommitPR(
       await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
     } catch (cleanupErr) {
       log.warn("Failed to switch back to source branch after error", { cleanupErr });
+    }
+
+    // Restore stashed changes if we created a stash
+    if (stashCreated) {
+      try {
+        const stashListResult = await gitExec("stash-list", "stash list", { workdir, timeout: 30000 });
+        if (stashListResult.stdout.includes(stashName)) {
+          await gitExec("stash-pop", `stash pop "stash@{0}"`, { workdir, timeout: 30000 });
+        }
+      } catch (stashRestoreErr) {
+        log.warn("Failed to restore stashed changes after error", { 
+          stashName, 
+          error: getErrorMessage(stashRestoreErr as any) 
+        });
+      }
     }
 
     throw new MinskyError(
