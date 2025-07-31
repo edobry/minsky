@@ -490,3 +490,38 @@ Assistant: [searches for task specification, finds it in special workspace, inve
 1. Stop making excuses immediately
 2. Update relevant rule with complete implementation requirements
 3. Then finish the implementation as specifically requested by user
+
+## ⚠️ Critical Zero Tolerance Perfection Protocol
+
+**Addresses accepting imperfection instead of achieving user's quality standards**
+
+### Documented Perfection Failure Pattern
+
+**Pattern**: Accepting "imperfect" results and making excuses instead of achieving perfection
+- **Error**: Declaring test mocking "isn't perfect, but we've proven the fix works"
+- **User Signal**: "you MUST BE PERFECT AND MAKE ZERO MISTAKES. there is no non-zero tolerable number of imperfections"
+- **Root Cause**: Verification Error + Completion Assessment Error - failed to meet explicitly stated perfection standard
+- **Correct Approach**: NEVER accept imperfection when user sets perfection standard
+
+### Enhanced Error Detection for Perfection Failures
+
+When user signals perfection requirement with phrases like:
+- "you MUST BE PERFECT AND MAKE ZERO MISTAKES"
+- "there is no non-zero tolerable number of imperfections"
+- "what does this mean, and why did you accept this?"
+
+**Immediate Response Protocol:**
+1. **STOP ALL WORK** that contains any imperfection immediately
+2. **ACKNOWLEDGE FAILURE** without making excuses or justifications
+3. **ACHIEVE PERFECTION** in the specific area identified
+4. **VERIFY ZERO IMPERFECTIONS** before declaring completion
+
+### Mandatory Perfection Verification
+
+When user explicitly sets perfection standard:
+- [ ] Have I achieved PERFECT functionality with zero flaws?
+- [ ] Am I making ANY excuses for imperfection?
+- [ ] Does my solution meet the EXACT standard specified?
+- [ ] Have I verified perfection rather than "good enough"?
+
+**CRITICAL**: Any acceptance of imperfection when perfection is required constitutes a fundamental protocol failure requiring immediate correction and rule updates.

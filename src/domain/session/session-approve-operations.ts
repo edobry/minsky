@@ -58,14 +58,13 @@ async function createRepositoryBackendFromSession(
         break;
     }
   } else {
-    // Auto-detect based on repoUrl format when backendType not set
-    if (sessionRecord.repoUrl.includes("github.com")) {
-      backendType = RepositoryBackendType.GITHUB;
-    } else if (sessionRecord.repoUrl.startsWith("http")) {
-      backendType = RepositoryBackendType.REMOTE;
-    } else {
-      // Local file path
+    // Infer backend type from repoUrl format for backward compatibility
+    if (sessionRecord.repoUrl.startsWith("/") || sessionRecord.repoUrl.startsWith("file://")) {
       backendType = RepositoryBackendType.LOCAL;
+    } else if (sessionRecord.repoUrl.includes("github.com")) {
+      backendType = RepositoryBackendType.GITHUB;
+    } else {
+      backendType = RepositoryBackendType.REMOTE;
     }
   }
 

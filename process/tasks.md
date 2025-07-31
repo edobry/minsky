@@ -584,11 +584,7 @@
 
 - [x] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
-<<<<<<< Updated upstream
 - [x] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
-=======
-- [-] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
->>>>>>> Stashed changes
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 

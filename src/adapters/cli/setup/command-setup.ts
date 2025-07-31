@@ -1,7 +1,6 @@
 /**
  * CLI Command Setup and Initialization
  * @migrated Extracted from cli-command-factory.ts for focused responsibility
- * @deprecated Use standardized CLI setup from integrations/standardized-cli-setup.ts instead
  */
 import { Command } from "commander";
 import { cliFactory, type CliFactoryConfig } from "../core/cli-command-factory-core";
@@ -12,14 +11,9 @@ import {
   getConfigCustomizations,
   getSessiondbCustomizations,
 } from "../customizations/config-customizations";
-import {
-  setupStandardizedCommandCustomizations,
-  type StandardizedCliSetupConfig,
-} from "../integrations/standardized-cli-setup";
 
 /**
- * DEPRECATED: Helper function to setup legacy CLI command customizations
- * @deprecated Use setupStandardizedCommandCustomizations from integrations/standardized-cli-setup.ts instead
+ * Helper function to setup common CLI command customizations
  * @param program Optional Command instance to apply customizations to
  */
 export function setupCommonCommandCustomizations(program?: Command): void {
@@ -28,7 +22,7 @@ export function setupCommonCommandCustomizations(program?: Command): void {
     cliFactory.initialize();
   }
 
-  // Apply all category customizations (legacy patterns)
+  // Apply all category customizations
   const tasksConfig = getTasksCustomizations();
   cliFactory.customizeCategory(tasksConfig.category, tasksConfig.options);
 
@@ -46,38 +40,15 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 }
 
 /**
- * Initialize the CLI command system with standardized type composition patterns
+ * Initialize the CLI command system with proper customizations
  *
- * This is the recommended way to set up the CLI system using the standardized
- * patterns from Task #335.
+ * This is the recommended way to set up the CLI system.
  */
-export function initializeCliCommands(
-  program: Command,
-  config?: Partial<CliFactoryConfig & StandardizedCliSetupConfig>
-): void {
+export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {
   // Initialize the factory
   cliFactory.initialize(config);
 
-  // Setup standardized customizations using type composition patterns
-  setupStandardizedCommandCustomizations(program, config);
-
-  // Register all commands in the program
-  cliFactory.registerAllCommands(program);
-}
-
-/**
- * DEPRECATED: Initialize CLI commands with legacy patterns
- *
- * @deprecated Use initializeCliCommands() instead, which uses standardized patterns
- */
-export function initializeCliCommandsLegacy(
-  program: Command,
-  config?: Partial<CliFactoryConfig>
-): void {
-  // Initialize the factory
-  cliFactory.initialize(config);
-
-  // Setup legacy customizations (for backwards compatibility only)
+  // Setup common customizations
   setupCommonCommandCustomizations(program);
 
   // Register all commands in the program
