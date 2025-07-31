@@ -1,3 +1,5 @@
+# feat(#360): Implement session outdated detection and display system
+
 ## Summary
 
 This PR implements a comprehensive session outdated detection and display system for Minsky CLI, providing users with visibility into when their development sessions fall behind the main branch. The system tracks both timestamp-based and commit-based outdated status with severity levels and visual indicators.

@@ -30,19 +30,6 @@ All notable changes to this project will be documented in this file.
   - Session approve operations now work correctly for all session types
 
 ### Added
-<<<<<<< HEAD
-- **Task #360**: Session outdated detection and display system ✅ **IMPLEMENTED**
-  - **Session Sync Status Tracking**: Extended SessionRecord and Session interfaces with sync status fields for comprehensive outdated detection
-  - **Git Service Extensions**: Added new git methods for commit comparison, merge base detection, and main branch identification
-  - **Sync Status Computation**: Implemented timestamp-based and commit-based detection with severity classification (current, stale, very-stale, ancient)
-  - **Enhanced Session Get Command**: Added sync status display with visual indicators, commit details, and recent main changes
-  - **New `session outdated` Command**: Lists all outdated sessions with filtering by severity and sorting by commits/days behind
-  - **Session List Enhancement**: Added `--show-sync-status` flag to display sync indicators inline with session listings
-  - **Batch Sync Commands**: Implemented `session check-sync` for batch status checking and `session sync-summary` for overview
-  - **CLI Integration**: Complete command registration, parameter schemas, and custom output formatters
-  - **Visual Indicators**: Color-coded severity indicators (🔴 ancient, 🟠 very-stale, 🟡 stale, ✅ current) for immediate status recognition
-  - **Foundation for Automation**: Provides infrastructure for future automated sync workflow from Task #361
-=======
 - **Task #361**: Session outdated detection and display system
   - Created interim solution for detecting when sessions become outdated after PR merges to main
   - Implements sync status tracking with severity levels (current, stale, very-stale, ancient)
@@ -51,7 +38,6 @@ All notable changes to this project will be documented in this file.
   - Provides timestamp and commit-based detection mechanisms for accuracy
   - Includes visual indicators and detailed information about missing main branch changes
   - Serves as foundation for future automated sync workflow from Task #361
->>>>>>> origin/main
 
 - **Task #361**: Automated session sync workflow exploration
   - Created comprehensive exploration task for event-driven session synchronization

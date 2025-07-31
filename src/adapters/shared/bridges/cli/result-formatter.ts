@@ -115,26 +115,6 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         }
         break;
 
-      case "session.outdated":
-        if ("outdatedSessions" in result) {
-          this.formatSessionOutdatedResult(result);
-        } else {
-          this.formatGenericObject(result);
-        }
-        break;
-
-      case "session.check-sync":
-        if ("checkedSessions" in result) {
-          this.formatSessionCheckSyncResult(result);
-        } else {
-          this.formatGenericObject(result);
-        }
-        break;
-
-      case "session.sync-summary":
-        this.formatSessionSyncSummaryResult(result);
-        break;
-
       // Updated to handle PR subcommands
       case "session.pr.create":
         if ("prBranch" in result) {
@@ -199,39 +179,6 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     } else {
       log.cli("No sessions found.");
     }
-  }
-
-  /**
-   * Format session outdated results
-   * TASK 360: Formatter for session outdated command
-   */
-  private formatSessionOutdatedResult(result: any): void {
-    const {
-      formatOutdatedSessionsResult,
-    } = require("../../../../domain/session/commands/outdated-command");
-    formatOutdatedSessionsResult(result);
-  }
-
-  /**
-   * Format session check-sync results
-   * TASK 360: Formatter for session check-sync command
-   */
-  private formatSessionCheckSyncResult(result: any): void {
-    const {
-      formatCheckSyncResult,
-    } = require("../../../../domain/session/commands/check-sync-command");
-    // Extract verbose flag from the original parameters if available
-    const verbose = result.verbose || false;
-    formatCheckSyncResult(result, verbose);
-  }
-
-  /**
-   * Format session sync-summary results
-   * TASK 360: Formatter for session sync-summary command
-   */
-  private formatSessionSyncSummaryResult(result: any): void {
-    const { formatSyncSummary } = require("../../../../domain/session/commands/check-sync-command");
-    formatSyncSummary(result);
   }
 
   /**

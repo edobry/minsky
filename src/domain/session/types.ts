@@ -4,41 +4,10 @@ import type { WorkspaceUtilsInterface } from "../workspace";
 import type { PullRequestInfo } from "./session-db";
 
 /**
- * Sync status severity levels for outdated sessions
- */
-export type SyncSeverity = "current" | "stale" | "very-stale" | "ancient";
-
-/**
- * Sync status information for session outdated detection
- */
-export interface SyncStatus {
-  lastMainSync?: string; // Last commit hash from main that was synced
-  lastMainSyncTimestamp?: Date; // When that sync occurred
-  lastUpdateTimestamp?: Date; // When session was last updated
-  isOutdated?: boolean; // Computed field: main has newer commits
-  mainCommitsBehind?: number; // How many commits behind main
-  lastChecked?: Date; // When sync status was last calculated
-}
-
-/**
- * Detailed sync status information with severity classification
- */
-export interface SyncStatusInfo {
-  isOutdated: boolean;
-  commitsBehind: number;
-  lastMainCommit: string;
-  lastMainCommitDate: Date;
-  sessionLastUpdate: Date;
-  daysBehind: number;
-  severity: SyncSeverity;
-}
-
-/**
  * Core session record interface
  *
  * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
- * TASK 360: Added sync status tracking for outdated session detection.
  */
 export interface SessionRecord {
   session: string;
@@ -66,7 +35,6 @@ export interface SessionRecord {
     mergedAt?: string; // When merged (for cleanup)
   };
   pullRequest?: PullRequestInfo;
-  syncStatus?: SyncStatus; // TASK 360: Sync tracking for outdated detection
 }
 
 /**
@@ -74,7 +42,6 @@ export interface SessionRecord {
  *
  * TASK 283: Task IDs are stored in plain format (e.g., "283") without # prefix.
  * Use formatTaskIdForDisplay() from task-id-utils.ts when displaying to users.
- * TASK 360: Added sync status tracking for outdated session detection.
  */
 export interface Session {
   session: string;
@@ -102,13 +69,11 @@ export interface Session {
     mergedAt?: string;
   };
   pullRequest?: PullRequestInfo;
-  syncStatus?: SyncStatus; // TASK 360: Sync tracking for outdated detection
 }
 
 /**
  * Interface for session database operations
  * This defines the contract for session management functionality
- * TASK 360: Added sync status management methods.
  */
 export interface SessionProviderInterface {
   /**
@@ -150,22 +115,6 @@ export interface SessionProviderInterface {
    * Get the working directory for a session
    */
   getSessionWorkdir(sessionName: string): Promise<string>;
-
-  // TASK 360: Sync status management methods
-  /**
-   * Update sync status for a session
-   */
-  updateSyncStatus(sessionId: string, status: SyncStatusInfo): Promise<void>;
-
-  /**
-   * Get sync status for a session
-   */
-  getSyncStatus(sessionId: string): Promise<SyncStatusInfo | null>;
-
-  /**
-   * Get all outdated sessions filtered by severity
-   */
-  getOutdatedSessions(severity?: SyncSeverity): Promise<SessionRecord[]>;
 }
 
 /**

@@ -13,13 +13,12 @@ import {
 import { log } from "../../utils/logger";
 import { extractPrDescription } from "../session-update-operations";
 import { readFile } from "fs/promises";
-import { updateSessionFromParams } from "../../session";
 
 /**
  * Prepares a PR for a session based on parameters
  */
 export async function sessionPr(params: SessionPRParameters): Promise<SessionPrResult> {
-  const { session, task, repo, title, body, bodyPath, debug, skipUpdate } = params;
+  const { session, task, repo, title, body, bodyPath, debug } = params;
 
   // Set default values for properties not in new schema
   const baseBranch = "main"; // Default base branch
@@ -87,9 +86,8 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
     let bodyContent = body;
     if (!bodyContent && bodyPath) {
       try {
-        const fileContent = await readFile(bodyPath, "utf-8");
-        bodyContent = typeof fileContent === "string" ? fileContent : fileContent.toString();
-        if (debug && bodyContent) {
+        bodyContent = await readFile(bodyPath, "utf-8");
+        if (debug) {
           log.debug("Read body content from file", { bodyPath, contentLength: bodyContent.length });
         }
       } catch (error) {
@@ -99,51 +97,6 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
           bodyPath
         );
       }
-    }
-
-    // BUG FIX: Update session with latest main before creating PR (unless skipUpdate=true)
-    if (!skipUpdate) {
-      if (debug) {
-        log.debug("Updating session with latest main before creating PR", {
-          sessionName: resolvedContext.sessionName,
-          skipUpdate,
-        });
-      }
-
-      try {
-        await updateSessionFromParams(
-          {
-            name: resolvedContext.sessionName,
-            task,
-            repo,
-            // Use sensible defaults for session update
-            noStash: false,
-            noPush: false,
-            force: false,
-            skipConflictCheck: false,
-            autoResolveDeleteConflicts: false,
-            dryRun: false,
-            skipIfAlreadyMerged: true, // Skip if already merged to avoid unnecessary work
-          },
-          {
-            sessionDB,
-            gitService,
-          }
-        );
-
-        if (debug) {
-          log.debug("Session updated successfully before PR creation");
-        }
-      } catch (error) {
-        // If session update fails, provide helpful error message
-        throw new MinskyError(
-          `Failed to update session before creating PR: ${getErrorMessage(error)}. ` +
-            "You can skip the session update using --skip-update flag if needed.",
-          error
-        );
-      }
-    } else if (debug) {
-      log.debug("Skipping session update due to skipUpdate=true");
     }
 
     // Prepare PR using git domain function

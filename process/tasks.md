@@ -618,7 +618,7 @@
 
 - [x] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
 
-- [+] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
+- [x] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
 
 - [ ] Explore Automated Session Sync Workflow on PR Merge [#361](process/tasks/361-explore-automated-session-sync-workflow-on-pr-merge.md)
 
