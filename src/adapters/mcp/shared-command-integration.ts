@@ -143,22 +143,50 @@ export function registerSharedCommandsWithMcp(
         description,
         parameters: convertParametersToZodSchema(command.parameters),
         handler: async (args: any, projectContext?: any) => {
-          // Create execution context for shared command
-          const context: CommandExecutionContext = {
-            interface: "mcp",
-            debug: args?.debug || false,
-            format: "json", // MCP always returns JSON format
-          };
+          const startTime = Date.now();
+          log.debug(`[MCP] Starting command execution: ${command.id}`, { args });
 
-          // Convert MCP args to expected parameter format, filtering out the json parameter
-          // since MCP always returns JSON regardless of this parameter
-          const filteredArgs = { ...args };
-          delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
+          try {
+            // Create execution context for shared command
+            const context: CommandExecutionContext = {
+              interface: "mcp",
+              debug: args?.debug || false,
+              format: "json", // MCP always returns JSON format
+            };
+            log.debug(`[MCP] Created execution context: ${command.id}`, { context });
 
-          const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            // Convert MCP args to expected parameter format, filtering out the json parameter
+            // since MCP always returns JSON regardless of this parameter
+            const filteredArgs = { ...args };
+            delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
+            log.debug(`[MCP] Filtered args: ${command.id}`, { filteredArgs });
 
-          // Execute the shared command
-          return await command.execute(parameters, context);
+            const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
+
+            // Execute the shared command with timeout
+            log.debug(`[MCP] About to execute command: ${command.id}`);
+            const result = await Promise.race([
+              command.execute(parameters, context),
+              new Promise((_, reject) =>
+                setTimeout(
+                  () => reject(new Error(`Command ${command.id} timed out after 30 seconds`)),
+                  30000
+                )
+              ),
+            ]);
+
+            const duration = Date.now() - startTime;
+            log.debug(`[MCP] Command completed: ${command.id}`, { duration });
+            return result;
+          } catch (error) {
+            const duration = Date.now() - startTime;
+            log.error(`[MCP] Command failed: ${command.id}`, {
+              error: error instanceof Error ? error.message : String(error),
+              duration,
+            });
+            throw error;
+          }
         },
       });
     });

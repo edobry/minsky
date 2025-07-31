@@ -285,7 +285,9 @@ export function createMCPCommand(): Command {
         registerDebugTools(commandMapper);
 
         // Register main application tools
+        log.debug("[MCP] About to register task tools");
         registerTaskTools(commandMapper);
+        log.debug("[MCP] About to register session tools");
         registerSessionTools(commandMapper);
         registerSessionWorkspaceTools(commandMapper);
 

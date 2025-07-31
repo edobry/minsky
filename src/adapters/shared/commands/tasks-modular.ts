@@ -21,22 +21,37 @@ export class ModularTasksCommandManager {
   registerAllCommands(): void {
     // Register a basic tasks command using require to avoid circular dependencies
     try {
+      log.debug("[ModularTasksCommandManager] Starting registerAllCommands");
+
+      log.debug("[ModularTasksCommandManager] Requiring crud-commands");
       const { createTasksListCommand } = require("./tasks/crud-commands");
       const { createTasksGetCommand } = require("./tasks/crud-commands");
       const { createTasksCreateCommand } = require("./tasks/crud-commands");
       const { createTasksDeleteCommand } = require("./tasks/crud-commands");
+
+      log.debug("[ModularTasksCommandManager] Requiring spec-command");
       const { createTasksSpecCommand } = require("./tasks/spec-command");
+
+      log.debug("[ModularTasksCommandManager] Requiring status-commands");
       const { createTasksStatusGetCommand } = require("./tasks/status-commands");
       const { createTasksStatusSetCommand } = require("./tasks/status-commands");
 
       // Create command instances to get their parameter definitions
+      log.debug("[ModularTasksCommandManager] Creating command instances");
       const listCommand = createTasksListCommand();
+      log.debug("[ModularTasksCommandManager] Created listCommand");
       const getCommand = createTasksGetCommand();
+      log.debug("[ModularTasksCommandManager] Created getCommand");
       const createCommand = createTasksCreateCommand();
+      log.debug("[ModularTasksCommandManager] Created createCommand");
       const deleteCommand = createTasksDeleteCommand();
+      log.debug("[ModularTasksCommandManager] Created deleteCommand");
       const specCommand = createTasksSpecCommand();
+      log.debug("[ModularTasksCommandManager] Created specCommand");
       const statusGetCommand = createTasksStatusGetCommand();
+      log.debug("[ModularTasksCommandManager] Created statusGetCommand");
       const statusSetCommand = createTasksStatusSetCommand();
+      log.debug("[ModularTasksCommandManager] Created statusSetCommand");
 
       // Register list command
       sharedCommandRegistry.registerCommand({

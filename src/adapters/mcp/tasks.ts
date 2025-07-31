@@ -9,9 +9,13 @@ import { log } from "../../utils/logger";
  * Registers task tools with the MCP command mapper
  */
 export function registerTaskTools(commandMapper: CommandMapper): void {
-  log.debug("Registering task commands via shared command integration");
+  log.debug(
+    "Exposing task commands via shared command integration (commands already registered during CLI init)"
+  );
 
-  // Use the bridge integration to automatically register all task commands
+  // Use the bridge integration to expose already-registered task commands
+  // Note: Shared commands are already registered during CLI initialization,
+  // so we just need to expose them via MCP without re-registering
   registerTaskCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
@@ -36,5 +40,5 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     },
   });
 
-  log.debug("Task commands registered successfully via shared integration");
+  log.debug("Task commands exposed successfully via shared integration");
 }

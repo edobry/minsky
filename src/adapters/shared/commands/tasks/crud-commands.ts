@@ -100,26 +100,45 @@ export class TasksGetCommand extends BaseTaskCommand {
   readonly parameters = tasksGetParams;
 
   async execute(params: TasksGetParams, ctx: CommandExecutionContext) {
-    this.debug("Starting tasks.get execution");
+    const startTime = Date.now();
+    this.debug("Starting tasks.get execution", { params, context: ctx });
 
-    // Validate and normalize task ID
-    const taskId = this.validateRequired(params.taskId, "taskId");
-    const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
+    try {
+      // Validate and normalize task ID
+      this.debug("Validating task ID");
+      const taskId = this.validateRequired(params.taskId, "taskId");
+      const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
+      this.debug("Task ID validated and normalized", { taskId, normalizedTaskId });
 
-    // Get task details
-    const task = await getTaskFromParams({
-      ...this.createTaskParams(params),
-      taskId: normalizedTaskId,
-    });
+      // Get task details
+      this.debug("About to call getTaskFromParams");
+      const taskParams = {
+        ...this.createTaskParams(params),
+        taskId: normalizedTaskId,
+      };
+      this.debug("Created task params", { taskParams });
 
-    this.debug("Task retrieved successfully");
+      const task = await getTaskFromParams(taskParams);
+      this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
-    return this.formatResult(
-      this.createSuccessResult(normalizedTaskId, `Task ${normalizedTaskId} retrieved`, {
-        task,
-      }),
-      params.json
-    );
+      const result = this.formatResult(
+        this.createSuccessResult(normalizedTaskId, `Task ${normalizedTaskId} retrieved`, {
+          task,
+        }),
+        params.json
+      );
+
+      const duration = Date.now() - startTime;
+      this.debug("tasks.get execution completed", { duration });
+      return result;
+    } catch (error) {
+      const duration = Date.now() - startTime;
+      this.debug("tasks.get execution failed", {
+        error: error instanceof Error ? error.message : String(error),
+        duration,
+      });
+      throw error;
+    }
   }
 }
 
