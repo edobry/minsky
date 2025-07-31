@@ -1,4 +1,4 @@
-# Explore Automated Session Sync Workflow on PR Merge
+# Task #361: Explore Automated Session Sync Workflow on PR Merge
 
 ## Status
 

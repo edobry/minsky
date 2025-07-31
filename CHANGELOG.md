@@ -12,9 +12,9 @@ All notable changes to this project will be documented in this file.
   - Enhances `session get` and `session list` commands to display sync status indicators
   - Provides timestamp and commit-based detection mechanisms for accuracy
   - Includes visual indicators and detailed information about missing main branch changes
-  - Serves as foundation for future automated sync workflow from Task #360
+  - Serves as foundation for future automated sync workflow from Task #361
 
-- **Task #360**: Automated session sync workflow exploration  
+- **Task #361**: Automated session sync workflow exploration  
   - Created comprehensive exploration task for event-driven session synchronization
   - Introduces concept of system-generated work items distinct from user tasks
   - Defines AI-enhanced session relationship detection and conflict prediction
