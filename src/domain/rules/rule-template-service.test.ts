@@ -50,6 +50,10 @@ describe("RuleTemplateService", () => {
   afterEach(async () => {
     // Clean up test directory
     await fs.rm(testDir, { recursive: true, force: true });
+
+    // Clear the command registry to prevent interference with other tests
+    (sharedCommandRegistry as any).clear();
+    commandsRegistered = false;
   });
 
   describe("Template Registration", () => {
