@@ -39,24 +39,26 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({
-      openai: {
+      morph: {
+        apiKey: "morph-key",
+        baseUrl: "https://api.morphllm.com/v1",
         enabled: true,
-        apiKey: "test-key",
+        model: "morph-v3-large",
         models: [],
-        temperature: undefined,
-        maxTokens: undefined,
-        baseUrl: undefined,
-        headers: undefined,
-        model: undefined,
-        apiKeyFile: undefined,
+      },
+      openai: {
+        apiKey: "test-key",
+        enabled: true,
+        models: [],
       },
     });
 
-    // Should have logged a warning about unknown fields
+    // Should have logged a warning about unknown fields (only unknownProvider, morph is now valid)
     expect(warnCalls.length).toBeGreaterThan(0);
     const warningMessage = warnCalls[0];
     expect(warningMessage).toContain("Configuration Warning: Unknown fields in ai.providers:");
-    expect(warningMessage).toMatch(/morph.*unknownProvider|unknownProvider.*morph/);
+    expect(warningMessage).toContain("unknownProvider");
+    expect(warningMessage).not.toContain("morph");
   });
 
   test("should not warn when all fields are known", () => {
@@ -121,7 +123,7 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
     const result = aiConfigSchema.safeParse(aiConfigWithUnknown);
 
     expect(result.success).toBe(true);
-    expect(result.data?.providers).not.toHaveProperty("morph");
-    expect(warnCalls.length).toBeGreaterThan(0);
+    expect(result.data?.providers).toHaveProperty("morph");
+    expect(warnCalls.length).toBe(0);
   });
 });
