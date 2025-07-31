@@ -116,6 +116,18 @@ describe("Session Approve", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
+      createRepositoryBackend: createMock((sessionRecord: any) =>
+        Promise.resolve({
+          getType: () => "local",
+          mergePullRequest: createMock(() =>
+            Promise.resolve({
+              commitHash: "abcdef123456",
+              mergeDate: new Date(),
+              mergedBy: "test-user",
+            })
+          ),
+        })
+      ),
     };
 
     // Test by session name
@@ -223,6 +235,18 @@ describe("Session Approve", () => {
       taskService: mockTaskService,
       workspaceUtils: {},
       getCurrentSession: mockGetCurrentSession,
+      createRepositoryBackend: createMock((sessionRecord: any) =>
+        Promise.resolve({
+          getType: () => "local",
+          mergePullRequest: createMock(() =>
+            Promise.resolve({
+              commitHash: "abcdef123456",
+              mergeDate: new Date(),
+              mergedBy: "test-user",
+            })
+          ),
+        })
+      ),
     };
 
     // Test auto detection
@@ -236,8 +260,9 @@ describe("Session Approve", () => {
     // Verify
     expect(mockGetCurrentSession).toHaveBeenCalledWith(repoPath);
     expect(getSessionSpy).toHaveBeenCalledWith("current-session");
-    expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
+    // Note: With repository backend architecture, git commands are handled by the backend, not directly
     expect(result.session).toBe("current-session");
+    expect(result.commitHash).toBe("abcdef123456"); // Verify merge was successful
   });
 
   test("throws error when session is not found", async () => {
@@ -378,6 +403,18 @@ describe("Session Approve", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: {},
+      createRepositoryBackend: createMock((sessionRecord: any) =>
+        Promise.resolve({
+          getType: () => "local",
+          mergePullRequest: createMock(() =>
+            Promise.resolve({
+              commitHash: "abcdef123456",
+              mergeDate: new Date(),
+              mergedBy: "test-user",
+            })
+          ),
+        })
+      ),
     };
 
     // Should still succeed even if task update fails
