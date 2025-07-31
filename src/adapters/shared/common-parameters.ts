@@ -230,20 +230,38 @@ export const SessionParameters = {
  */
 export const TaskParameters = {
   /**
-   * Task ID parameter (required)
+   * Task ID parameter (required) - supports qualified IDs and auto-migrates legacy formats
    */
   taskId: {
-    schema: z.string(),
-    description: "Task identifier",
+    schema: z.string().refine(
+      (value) => {
+        // Import here to avoid circular dependencies
+        const { isQualifiedTaskId, isLegacyTaskId } = require("../../domain/tasks/unified-task-id");
+        return isQualifiedTaskId(value) || isLegacyTaskId(value);
+      },
+      {
+        message: "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+      }
+    ),
+    description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
     required: true,
   } as CommandParameterDefinition,
 
   /**
-   * Task ID parameter (optional)
+   * Task ID parameter (optional) - supports qualified IDs and auto-migrates legacy formats
    */
   taskIdOptional: {
-    schema: z.string(),
-    description: "Task identifier",
+    schema: z.string().refine(
+      (value) => {
+        // Import here to avoid circular dependencies
+        const { isQualifiedTaskId, isLegacyTaskId } = require("../../domain/tasks/unified-task-id");
+        return isQualifiedTaskId(value) || isLegacyTaskId(value);
+      },
+      {
+        message: "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+      }
+    ).optional(),
+    description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
     required: false,
   } as CommandParameterDefinition,
 
@@ -299,6 +317,33 @@ export const TaskParameters = {
   filter: {
     schema: z.string(),
     description: "Filter criteria for tasks",
+    required: false,
+  } as CommandParameterDefinition,
+
+  /**
+   * Backend parameter for task operations
+   */
+  backend: {
+    schema: z.string().min(1),
+    description: "Specific backend to use (md, gh, json)",
+    required: false,
+  } as CommandParameterDefinition,
+
+  /**
+   * Multiple backends parameter for cross-backend operations
+   */
+  backends: {
+    schema: z.array(z.string().min(1)),
+    description: "Multiple backends to operate on (md, gh, json)",
+    required: false,
+  } as CommandParameterDefinition,
+
+  /**
+   * Target backend for migration operations
+   */
+  targetBackend: {
+    schema: z.string().min(1),
+    description: "Target backend for migration (md, gh, json)",
     required: false,
   } as CommandParameterDefinition,
 } as const;

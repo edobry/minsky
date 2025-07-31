@@ -12,8 +12,65 @@ import { z } from "zod";
 
 /**
  * Task identifier schema - used across all interfaces
+ * Supports both qualified IDs (md#123, gh#456) and legacy formats (123, task#123, #123)
  */
-export const TaskIdSchema = z.string().min(1, "Task ID cannot be empty");
+export const TaskIdSchema = z
+  .string()
+  .min(1, "Task ID cannot be empty")
+  .refine(
+    (value) => {
+      // Import here to avoid circular dependencies
+      const { isQualifiedTaskId, isLegacyTaskId } = require("../tasks/unified-task-id");
+      return isQualifiedTaskId(value) || isLegacyTaskId(value);
+    },
+    {
+      message: "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+    }
+  );
+
+/**
+ * Qualified task identifier schema - only accepts new format (md#123, gh#456)
+ * Used when legacy formats should not be accepted
+ */
+export const QualifiedTaskIdSchema = z
+  .string()
+  .min(1, "Task ID cannot be empty")
+  .refine(
+    (value) => {
+      // Import here to avoid circular dependencies
+      const { isQualifiedTaskId } = require("../tasks/unified-task-id");
+      return isQualifiedTaskId(value);
+    },
+    {
+      message: "Task ID must be qualified format (md#123, gh#456, json#789)",
+    }
+  );
+
+/**
+ * Normalized task identifier schema - accepts any format but transforms to qualified
+ * Used when we want to normalize legacy formats to qualified IDs
+ */
+export const NormalizedTaskIdSchema = z
+  .string()
+  .min(1, "Task ID cannot be empty")
+  .transform((value, ctx) => {
+    // Import here to avoid circular dependencies
+    const { migrateUnqualifiedTaskId, isQualifiedTaskId, isLegacyTaskId } = require("../tasks/unified-task-id");
+    
+    if (isQualifiedTaskId(value)) {
+      return value; // Already qualified
+    }
+    
+    if (isLegacyTaskId(value)) {
+      return migrateUnqualifiedTaskId(value, "md"); // Default to markdown backend
+    }
+    
+    ctx.addIssue({
+      code: z.ZodIssueCode.custom,
+      message: "Task ID must be either qualified (md#123) or legacy format (123, task#123, #123)",
+    });
+    return z.NEVER;
+  });
 
 /**
  * Session identifier schema - used across all interfaces

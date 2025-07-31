@@ -53,16 +53,28 @@ export abstract class BaseTaskCommand {
   abstract execute(params: any, context: CommandExecutionContext): Promise<any>;
 
   /**
-   * Validate and normalize task ID
+   * Validate and normalize task ID for multi-backend support
    */
   protected validateAndNormalizeTaskId(taskId: string): string {
-    const normalizedTaskId = normalizeTaskId(taskId);
-    if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-      );
+    // Import unified task ID utilities
+    const { isQualifiedTaskId, isLegacyTaskId, migrateUnqualifiedTaskId } = require("../../../domain/tasks/unified-task-id");
+    
+    // First, check if it's already a qualified ID
+    if (isQualifiedTaskId(taskId)) {
+      return taskId; // Already qualified, return as-is
     }
-    return normalizedTaskId;
+    
+    // Check if it's a legacy format that can be migrated
+    if (isLegacyTaskId(taskId)) {
+      const normalizedTaskId = migrateUnqualifiedTaskId(taskId, "md"); // Default to markdown backend
+      this.debug(`Migrated legacy task ID '${taskId}' to '${normalizedTaskId}'`);
+      return normalizedTaskId;
+    }
+    
+    // Invalid format
+    throw new ValidationError(
+      `Invalid task ID: '${taskId}'. Please provide either a qualified task ID (md#123, gh#456) or legacy format (123, task#123, #123).`
+    );
   }
 
   /**

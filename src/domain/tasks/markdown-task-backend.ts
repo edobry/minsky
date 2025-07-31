@@ -16,12 +16,7 @@ import { getTaskSpecRelativePath } from "./taskIO";
 import type { Task } from "./types";
 
 // Import the new multi-backend interface
-import type { 
-  TaskBackend, 
-  TaskSpec, 
-  TaskFilters, 
-  TaskExportData 
-} from "./multi-backend-service";
+import type { TaskBackend, TaskSpec, TaskFilters, TaskExportData } from "./multi-backend-service";
 
 const matter = require("gray-matter");
 
@@ -39,7 +34,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   async createTask(spec: TaskSpec): Promise<Task> {
     // Get next available task ID
     const tasks = await this.parseTasks();
-    const maxId = Math.max(0, ...tasks.map(t => parseInt(t.id.replace(/^(md#|#)/, ""), 10) || 0));
+    const maxId = Math.max(0, ...tasks.map((t) => parseInt(t.id.replace(/^(md#|#)/, ""), 10) || 0));
     const nextId = maxId + 1;
     const qualifiedId = `md#${nextId}`;
 
@@ -60,18 +55,18 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async getTask(taskId: string): Promise<Task | null> {
     const tasks = await this.parseTasks();
-    
+
     // Handle both qualified (md#123) and local (123) IDs
     const localId = taskId.replace(/^md#/, "");
-    
+
     // First try exact match with qualified ID
-    let task = tasks.find(t => t.id === taskId || t.id === `md#${localId}`);
-    
+    let task = tasks.find((t) => t.id === taskId || t.id === `md#${localId}`);
+
     // If not found, try legacy format matching
     if (!task) {
       const numericId = parseInt(localId.replace(/^#/, ""), 10);
       if (!isNaN(numericId)) {
-        task = tasks.find(t => {
+        task = tasks.find((t) => {
           const taskNumericId = parseInt(t.id.replace(/^(md#|#)/, ""), 10);
           return !isNaN(taskNumericId) && taskNumericId === numericId;
         });
@@ -89,8 +84,8 @@ export class MarkdownTaskBackend implements TaskBackend {
   async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
     const tasks = await this.parseTasks();
     const localId = taskId.replace(/^md#/, "");
-    
-    const taskIndex = tasks.findIndex(t => {
+
+    const taskIndex = tasks.findIndex((t) => {
       const tLocalId = t.id.replace(/^(md#|#)/, "");
       return tLocalId === localId;
     });
@@ -121,9 +116,9 @@ export class MarkdownTaskBackend implements TaskBackend {
   async deleteTask(taskId: string): Promise<void> {
     const tasks = await this.parseTasks();
     const localId = taskId.replace(/^md#/, "");
-    
+
     const initialLength = tasks.length;
-    const filteredTasks = tasks.filter(t => {
+    const filteredTasks = tasks.filter((t) => {
       const tLocalId = t.id.replace(/^(md#|#)/, "");
       return tLocalId !== localId;
     });
@@ -139,7 +134,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     const tasks = await this.parseTasks();
 
     // Ensure all task IDs are qualified
-    const qualifiedTasks = tasks.map(task => ({
+    const qualifiedTasks = tasks.map((task) => ({
       ...task,
       id: task.id.startsWith("md#") ? task.id : `md#${task.id.replace(/^#/, "")}`,
     }));
@@ -148,7 +143,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       return qualifiedTasks;
     }
 
-    return qualifiedTasks.filter(task => {
+    return qualifiedTasks.filter((task) => {
       if (filters.status && task.status !== filters.status) {
         return false;
       }
@@ -166,8 +161,15 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   supportsFeature(feature: string): boolean {
     const supportedFeatures = [
-      "create", "read", "update", "delete", 
-      "list", "status", "metadata", "export", "import"
+      "create",
+      "read",
+      "update",
+      "delete",
+      "list",
+      "status",
+      "metadata",
+      "export",
+      "import",
     ];
     return supportedFeatures.includes(feature);
   }
@@ -225,7 +227,10 @@ export class MarkdownTaskBackend implements TaskBackend {
   // Private helper methods
   private async parseTasks(): Promise<Task[]> {
     try {
-      const exists = await fs.access(this.filePath).then(() => true).catch(() => false);
+      const exists = await fs
+        .access(this.filePath)
+        .then(() => true)
+        .catch(() => false);
       if (!exists) {
         return [];
       }
@@ -267,7 +272,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         const checkbox = taskMatch[1];
         const id = taskMatch[2];
         const title = taskMatch[3];
-        
+
         if (checkbox && id && title) {
           const status = checkbox === "x" ? TASK_STATUS.DONE : TASK_STATUS.TODO;
           const qualifiedId = id.startsWith("#") ? `md${id}` : `md#${id}`;
@@ -281,7 +286,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         }
       } else if (currentTask && line.trim()) {
         // Add to description if we have a current task
-        currentTask.description = (currentTask.description || "") + line.trim() + " ";
+        currentTask.description = `${(currentTask.description || "") + line.trim()} `;
       } else if (line.trim() === "" && currentTask) {
         // Empty line ends current task - clean up description
         if (currentTask.description) {
@@ -306,16 +311,18 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   private formatTasksToMarkdown(tasks: Task[]): string {
-    return tasks.map(task => {
-      const checkbox = task.status === TASK_STATUS.DONE ? "x" : " ";
-      const localId = task.id.replace(/^md#/, "");
-      let output = `- [${checkbox}] #${localId} ${task.title}`;
-      
-      if (task.description && task.description.trim()) {
-        output += "\n" + task.description.trim();
-      }
-      
-      return output;
-    }).join("\n\n");
+    return tasks
+      .map((task) => {
+        const checkbox = task.status === TASK_STATUS.DONE ? "x" : " ";
+        const localId = task.id.replace(/^md#/, "");
+        let output = `- [${checkbox}] #${localId} ${task.title}`;
+
+        if (task.description && task.description.trim()) {
+          output += `\n${task.description.trim()}`;
+        }
+
+        return output;
+      })
+      .join("\n\n");
   }
 }

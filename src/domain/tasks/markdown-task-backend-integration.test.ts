@@ -14,9 +14,9 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     tempDir = join("/tmp", `test-workspace-${Date.now()}`);
     await fs.mkdir(tempDir, { recursive: true });
     await fs.mkdir(join(tempDir, "process"), { recursive: true });
-    
+
     tasksFile = join(tempDir, "process", "tasks.md");
-    
+
     // Initialize backend
     backend = new MarkdownTaskBackend(tempDir);
   });
@@ -108,12 +108,12 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
       const tasks = await backend.listTasks();
       expect(tasks).toHaveLength(3);
-      
-      tasks.forEach(task => {
+
+      tasks.forEach((task) => {
         expect(task.id).toMatch(/^md#\d+$/);
       });
 
-      expect(tasks.map(t => t.title)).toEqual(["Task 1", "Task 2", "Task 3"]);
+      expect(tasks.map((t) => t.title)).toEqual(["Task 1", "Task 2", "Task 3"]);
     });
   });
 
@@ -152,7 +152,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
       // Should work with all these formats
       const formats = ["md#042", "042", "#042", "md#42", "42"];
-      
+
       for (const format of formats) {
         const task = await backend.getTask(format);
         expect(task).not.toBeNull();
@@ -183,7 +183,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
     it("should delete tasks correctly", async () => {
       const task = await backend.createTask({ title: "To Delete" });
-      
+
       // Verify task exists
       const beforeDelete = await backend.getTask(task.id);
       expect(beforeDelete).not.toBeNull();
@@ -305,9 +305,9 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
       // Read the raw file content
       const content = await fs.readFile(tasksFile, "utf-8");
-      
+
       expect(content).toContain("- [ ] #1 Persisted Task");
       expect(content).toContain("- [x] #2 Done Task");
     });
   });
-}); 
+});
