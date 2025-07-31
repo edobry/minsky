@@ -57,20 +57,24 @@ export abstract class BaseTaskCommand {
    */
   protected validateAndNormalizeTaskId(taskId: string): string {
     // Import unified task ID utilities
-    const { isQualifiedTaskId, isLegacyTaskId, migrateUnqualifiedTaskId } = require("../../../domain/tasks/unified-task-id");
-    
+    const {
+      isQualifiedTaskId,
+      isLegacyTaskId,
+      migrateUnqualifiedTaskId,
+    } = require("../../../domain/tasks/unified-task-id");
+
     // First, check if it's already a qualified ID
     if (isQualifiedTaskId(taskId)) {
       return taskId; // Already qualified, return as-is
     }
-    
+
     // Check if it's a legacy format that can be migrated
     if (isLegacyTaskId(taskId)) {
       const normalizedTaskId = migrateUnqualifiedTaskId(taskId, "md"); // Default to markdown backend
       this.debug(`Migrated legacy task ID '${taskId}' to '${normalizedTaskId}'`);
       return normalizedTaskId;
     }
-    
+
     // Invalid format
     throw new ValidationError(
       `Invalid task ID: '${taskId}'. Please provide either a qualified task ID (md#123, gh#456) or legacy format (123, task#123, #123).`

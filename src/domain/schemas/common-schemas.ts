@@ -56,15 +56,15 @@ export const NormalizedTaskIdSchema = z
   .transform((value, ctx) => {
     // Import here to avoid circular dependencies
     const { migrateUnqualifiedTaskId, isQualifiedTaskId, isLegacyTaskId } = require("../tasks/unified-task-id");
-    
+
     if (isQualifiedTaskId(value)) {
       return value; // Already qualified
     }
-    
+
     if (isLegacyTaskId(value)) {
       return migrateUnqualifiedTaskId(value, "md"); // Default to markdown backend
     }
-    
+
     ctx.addIssue({
       code: z.ZodIssueCode.custom,
       message: "Task ID must be either qualified (md#123) or legacy format (123, task#123, #123)",

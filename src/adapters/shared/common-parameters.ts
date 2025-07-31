@@ -240,7 +240,8 @@ export const TaskParameters = {
         return isQualifiedTaskId(value) || isLegacyTaskId(value);
       },
       {
-        message: "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+        message:
+          "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
       }
     ),
     description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
@@ -251,16 +252,23 @@ export const TaskParameters = {
    * Task ID parameter (optional) - supports qualified IDs and auto-migrates legacy formats
    */
   taskIdOptional: {
-    schema: z.string().refine(
-      (value) => {
-        // Import here to avoid circular dependencies
-        const { isQualifiedTaskId, isLegacyTaskId } = require("../../domain/tasks/unified-task-id");
-        return isQualifiedTaskId(value) || isLegacyTaskId(value);
-      },
-      {
-        message: "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
-      }
-    ).optional(),
+    schema: z
+      .string()
+      .refine(
+        (value) => {
+          // Import here to avoid circular dependencies
+          const {
+            isQualifiedTaskId,
+            isLegacyTaskId,
+          } = require("../../domain/tasks/unified-task-id");
+          return isQualifiedTaskId(value) || isLegacyTaskId(value);
+        },
+        {
+          message:
+            "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+        }
+      )
+      .optional(),
     description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
     required: false,
   } as CommandParameterDefinition,
