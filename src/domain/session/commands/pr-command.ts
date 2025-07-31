@@ -12,6 +12,7 @@ import {
 } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { extractPrDescription } from "../session-update-operations";
+import { readFile } from "fs/promises";
 
 /**
  * Prepares a PR for a session based on parameters
@@ -81,13 +82,30 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       }
     }
 
+    // TASK 360 FIX: Read body content from bodyPath if provided
+    let bodyContent = body;
+    if (!bodyContent && bodyPath) {
+      try {
+        bodyContent = await readFile(bodyPath, "utf-8");
+        if (debug) {
+          log.debug("Read body content from file", { bodyPath, contentLength: bodyContent.length });
+        }
+      } catch (error) {
+        throw new ValidationError(
+          `Failed to read body content from file: ${bodyPath}. ${getErrorMessage(error)}`,
+          "bodyPath",
+          bodyPath
+        );
+      }
+    }
+
     // Prepare PR using git domain function
     const result = await preparePrFromParams({
       session: resolvedContext.sessionName,
       repo: workdir,
       baseBranch,
       title,
-      body,
+      body: bodyContent,
       branchName,
       debug,
     });
