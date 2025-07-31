@@ -35,6 +35,10 @@ export interface SessionRecord {
     mergedAt?: string; // When merged (for cleanup)
   };
   pullRequest?: PullRequestInfo;
+  
+  // NEW: Simple PR approval tracking (Task #358)
+  prBranch?: string;        // PR branch if one exists ("pr/session-name")
+  prApproved?: boolean;     // Whether this session's PR is approved
 }
 
 /**
@@ -69,6 +73,10 @@ export interface Session {
     mergedAt?: string;
   };
   pullRequest?: PullRequestInfo;
+  
+  // NEW: Simple PR approval tracking (Task #358)
+  prBranch?: string;        // PR branch if one exists ("pr/session-name")
+  prApproved?: boolean;     // Whether this session's PR is approved
 }
 
 /**

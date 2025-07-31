@@ -7,12 +7,14 @@
  */
 
 export * from "./RepositoryBackend";
+export * from "./approval-types";
 
 // Import RepositoryStatus but define our own ValidationResult
 import type { RepositoryStatus } from "../repository";
 
 import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 import { getErrorMessage } from "../../errors/index";
+import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 // Re-export RepositoryStatus
 export type { RepositoryStatus };
 
@@ -241,6 +243,36 @@ export interface RepositoryBackend {
    * @returns Promise<MergeInfo> - Information about the merge operation
    */
   mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo>;
+
+  /**
+   * NEW: Approve a pull request without merging (Task #358)
+   *
+   * Performs approval operation on the specified pull request. This separates
+   * the approval action from the merge action, enabling standard PR workflows
+   * where approval and merging are distinct operations.
+   *
+   * @param prIdentifier - PR number/ID or branch name depending on backend
+   * @param reviewComment - Optional review comment to include with approval
+   * @returns Promise<ApprovalInfo> - Information about the approval operation
+   */
+  approvePullRequest(
+    prIdentifier: string | number, 
+    reviewComment?: string
+  ): Promise<ApprovalInfo>;
+
+  /**
+   * NEW: Check approval status of a pull request (Task #358)
+   *
+   * Retrieves the current approval state of a pull request, including
+   * whether it has sufficient approvals to be merged, approval count,
+   * and platform-specific requirements.
+   *
+   * @param prIdentifier - PR number/ID or branch name depending on backend
+   * @returns Promise<ApprovalStatus> - Current approval state and merge eligibility
+   */
+  getPullRequestApprovalStatus(
+    prIdentifier: string | number
+  ): Promise<ApprovalStatus>;
 }
 
 /**
