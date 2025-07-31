@@ -12,70 +12,20 @@ import { z } from "zod";
 
 /**
  * Task identifier schema - used across all interfaces
- * Supports both qualified IDs (md#123, gh#456) and legacy formats (123, task#123, #123)
  */
-export const TaskIdSchema = z
-  .string()
-  .min(1, "Task ID cannot be empty")
-  .refine(
-    (value) => {
-      // Import here to avoid circular dependencies
-      const { isQualifiedTaskId, isLegacyTaskId } = require("../tasks/unified-task-id");
-      return isQualifiedTaskId(value) || isLegacyTaskId(value);
-    },
-    {
-      message:
-        "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
-    }
-  );
+export const TaskIdSchema = z.string().min(1, "Task ID cannot be empty");
 
 /**
- * Qualified task identifier schema - only accepts new format (md#123, gh#456)
- * Used when legacy formats should not be accepted
+ * Qualified task identifier schema - includes backend prefix for multi-backend operations
+ * Format: "backend:taskId" or just "taskId" for default backend
  */
-export const QualifiedTaskIdSchema = z
-  .string()
-  .min(1, "Task ID cannot be empty")
-  .refine(
-    (value) => {
-      // Import here to avoid circular dependencies
-      const { isQualifiedTaskId } = require("../tasks/unified-task-id");
-      return isQualifiedTaskId(value);
-    },
-    {
-      message: "Task ID must be qualified format (md#123, gh#456, json#789)",
-    }
-  );
+export const QualifiedTaskIdSchema = z.string().min(1, "Qualified Task ID cannot be empty");
 
 /**
- * Normalized task identifier schema - accepts any format but transforms to qualified
- * Used when we want to normalize legacy formats to qualified IDs
+ * Normalized task identifier schema - handles legacy ID migration and backend qualification
+ * Accepts various formats and normalizes them for consistent processing
  */
-export const NormalizedTaskIdSchema = z
-  .string()
-  .min(1, "Task ID cannot be empty")
-  .transform((value, ctx) => {
-    // Import here to avoid circular dependencies
-    const {
-      migrateUnqualifiedTaskId,
-      isQualifiedTaskId,
-      isLegacyTaskId,
-    } = require("../tasks/unified-task-id");
-
-    if (isQualifiedTaskId(value)) {
-      return value; // Already qualified
-    }
-
-    if (isLegacyTaskId(value)) {
-      return migrateUnqualifiedTaskId(value, "md"); // Default to markdown backend
-    }
-
-    ctx.addIssue({
-      code: z.ZodIssueCode.custom,
-      message: "Task ID must be either qualified (md#123) or legacy format (123, task#123, #123)",
-    });
-    return z.NEVER;
-  });
+export const NormalizedTaskIdSchema = z.string().min(1, "Normalized Task ID cannot be empty");
 
 /**
  * Session identifier schema - used across all interfaces
@@ -284,6 +234,8 @@ export function createErrorResponse(
 // ========================
 
 export type TaskId = z.infer<typeof TaskIdSchema>;
+export type QualifiedTaskId = z.infer<typeof QualifiedTaskIdSchema>;
+export type NormalizedTaskId = z.infer<typeof NormalizedTaskIdSchema>;
 export type SessionId = z.infer<typeof SessionIdSchema>;
 export type RepoId = z.infer<typeof RepoIdSchema>;
 export type BackendId = z.infer<typeof BackendIdSchema>;
