@@ -203,4 +203,12 @@ export interface SessionPrResult {
   baseBranch: string;
   title?: string;
   body?: string;
+  // Session information for CLI formatting
+  session?: {
+    session: string;
+    taskId?: string;
+    repoName?: string;
+    branch?: string;
+  };
+  sessionName?: string; // Alternative property name for formatter compatibility
 }
