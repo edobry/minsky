@@ -31,10 +31,78 @@ import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 
 /**
+ * Enhanced error information from MCP inspector
+ */
+interface McpInspectorError {
+  type: "validation" | "timeout" | "execution" | "unknown";
+  message: string;
+  toolName?: string;
+  missingParam?: string;
+  availableParams?: string[];
+  suggestion?: string;
+}
+
+/**
+ * Parse MCP inspector output to extract meaningful error information
+ */
+function parseInspectorError(output: string, toolName?: string): McpInspectorError {
+  const lines = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  // Look for specific error patterns
+  for (const line of lines) {
+    // Missing required parameter
+    if (line.includes("Missing required parameter:")) {
+      const match = line.match(/Missing required parameter:\s*(\w+)/);
+      const missingParam = match?.[1];
+      return {
+        type: "validation",
+        message: `Missing required parameter: ${missingParam}`,
+        toolName,
+        missingParam,
+        suggestion: missingParam
+          ? `Use --arg ${missingParam}=<value>`
+          : "Check the tool schema for required parameters",
+      };
+    }
+
+    // Request timeout
+    if (line.includes("Request timed out") || line.includes("timeout")) {
+      return {
+        type: "timeout",
+        message: "Request timed out",
+        toolName,
+        suggestion: "The tool may be experiencing issues. Try again or use the CLI directly.",
+      };
+    }
+
+    // Tool execution failed
+    if (line.includes("Tool execution failed")) {
+      return {
+        type: "execution",
+        message: "Tool execution failed",
+        toolName,
+        suggestion: "There may be an issue with the tool implementation.",
+      };
+    }
+  }
+
+  // Fallback for unknown errors
+  return {
+    type: "unknown",
+    message: "Unknown error occurred",
+    toolName,
+    suggestion: `Try 'minsky mcp inspect --method tools/list' to see available tools`,
+  };
+}
+
+/**
  * Execute the MCP inspector CLI with the given arguments
  * @param args Arguments to pass to the inspector CLI
  * @param options Execution options
- * @returns Promise that resolves with the output
+ * @returns Promise that resolves with the output or rejects with enhanced error info
  */
 async function runInspectorCli(
   args: string[],
@@ -64,17 +132,42 @@ async function runInspectorCli(
       cwd: options.cwd,
     });
 
+    let stdout = "";
+    let stderr = "";
+
     const child = spawn("npx", inspectorArgs, {
-      stdio: "inherit",
+      stdio: ["pipe", "pipe", "pipe"],
       cwd: options.cwd || process.cwd(),
       env: { ...process.env },
+    });
+
+    child.stdout?.on("data", (data) => {
+      const output = data.toString();
+      stdout += output;
+      // Still show output for successful operations
+      if (!output.includes("Failed") && !output.includes("error")) {
+        process.stdout.write(output);
+      }
+    });
+
+    child.stderr?.on("data", (data) => {
+      stderr += data.toString();
     });
 
     child.on("close", (code) => {
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`Inspector CLI exited with code ${code}`));
+        // Parse the error output to provide better error messages
+        const errorOutput = stderr || stdout;
+        const toolNameMatch = args.find((arg) => args[args.indexOf(arg) - 1] === "--tool-name");
+        const errorInfo = parseInspectorError(errorOutput, toolNameMatch);
+
+        const enhancedError = new Error(errorInfo.message) as Error & {
+          mcpError: McpInspectorError;
+        };
+        enhancedError.mcpError = errorInfo;
+        reject(enhancedError);
       }
     });
 
@@ -464,8 +557,50 @@ export function createMCPCommand(): Command {
         await runInspectorCli(inspectorArgs, {
           repo: options.repo,
         });
-      } catch (error) {
-        log.cliError(`Failed to call tool '${toolName}': ${getErrorMessage(error)}`);
+      } catch (error: any) {
+        // Check if this is an enhanced MCP error
+        if (error.mcpError) {
+          const mcpError = error.mcpError as McpInspectorError;
+
+          // Provide user-friendly error messages based on error type
+          switch (mcpError.type) {
+            case "validation":
+              log.cliError(`❌ ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+              if (mcpError.missingParam) {
+                log.cli(
+                  `📋 To see all parameters for ${toolName}, run: minsky mcp inspect --method tools/list`
+                );
+              }
+              break;
+
+            case "timeout":
+              log.cliError(`⏱️  ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+              log.cli(`🔄 Alternative: minsky ${toolName.replace(".", " ")} --json`);
+              break;
+
+            case "execution":
+              log.cliError(`🚫 ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+              break;
+
+            default:
+              log.cliError(`❌ ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+          }
+        } else {
+          // Fallback for non-MCP errors
+          log.cliError(`Failed to call tool '${toolName}': ${getErrorMessage(error)}`);
+        }
         exit(1);
       }
     });
