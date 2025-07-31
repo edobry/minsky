@@ -1,21 +1,17 @@
 /**
  * Standardized CLI Setup
- * 
+ *
  * Integrates the type composition patterns from Task #335 into the CLI command factory.
  * This file demonstrates how to migrate from manual customizations to standardized patterns.
  */
 import { Command } from "commander";
 import { CommandCategory } from "../../shared/command-registry";
 import { cliFactory } from "../cli-command-factory";
-import {
-  getStandardizedTasksCustomizations,
-} from "../customizations/standardized-tasks-customizations";
-import {
-  getStandardizedGitCustomizations,
-} from "../customizations/standardized-git-customizations";
-import {
-  getStandardizedSessionCustomizations,
-} from "../customizations/standardized-session-customizations";
+import { getStandardizedTasksCustomizations } from "../customizations/standardized-tasks-customizations";
+import { getStandardizedGitCustomizations } from "../customizations/standardized-git-customizations";
+import { getStandardizedSessionCustomizations } from "../customizations/standardized-session-customizations";
+import { getStandardizedConfigCustomizations } from "../customizations/standardized-config-customizations";
+import { getStandardizedRulesCustomizations } from "../customizations/standardized-rules-customizations";
 import { log } from "../../../utils/logger";
 
 /**
@@ -50,10 +46,10 @@ const DEFAULT_STANDARDIZED_CONFIG: StandardizedCliSetupConfig = {
 
 /**
  * Setup standardized CLI command customizations using type composition patterns
- * 
+ *
  * This function applies the standardized parameter validation, response formatting,
  * and error handling patterns from Task #335 to all CLI commands.
- * 
+ *
  * @param program Optional Command instance to apply customizations to
  * @param config Configuration for standardized setup
  */
@@ -96,16 +92,18 @@ export function setupStandardizedCommandCustomizations(
     cliFactory.customizeCategory(sessionCustomizations.category, sessionCustomizations.options);
   }
 
-  // Apply config customizations (if they exist)
+  // Apply standardized config customizations
   if (!finalConfig.excludeCategories?.includes(CommandCategory.CONFIG)) {
-    // Note: Config customizations would be implemented here when available
-    log.debug("Config customizations not yet implemented - using legacy patterns");
+    const configCustomizations = getStandardizedConfigCustomizations();
+    log.debug("Applying standardized config customizations");
+    cliFactory.customizeCategory(configCustomizations.category, configCustomizations.options);
   }
 
-  // Apply rules customizations (if they exist)
+  // Apply standardized rules customizations
   if (!finalConfig.excludeCategories?.includes(CommandCategory.RULES)) {
-    // Note: Rules customizations would be implemented here when available
-    log.debug("Rules customizations not yet implemented - using legacy patterns");
+    const rulesCustomizations = getStandardizedRulesCustomizations();
+    log.debug("Applying standardized rules customizations");
+    cliFactory.customizeCategory(rulesCustomizations.category, rulesCustomizations.options);
   }
 
   log.debug("Standardized CLI command customizations setup complete");
@@ -114,7 +112,7 @@ export function setupStandardizedCommandCustomizations(
 /**
  * Hybrid setup function that uses standardized patterns where available
  * and falls back to legacy patterns for categories not yet migrated
- * 
+ *
  * This allows for gradual migration to standardized patterns.
  */
 export function setupHybridCommandCustomizations(
@@ -128,12 +126,8 @@ export function setupHybridCommandCustomizations(
   // Apply standardized patterns for migrated categories
   setupStandardizedCommandCustomizations(program, {
     ...finalConfig,
-    // Only apply to categories that have been migrated
-    excludeCategories: [
-      ...(finalConfig.excludeCategories || []),
-      CommandCategory.CONFIG,   // Not yet migrated
-      CommandCategory.RULES,    // Not yet migrated
-    ],
+    // All categories have been migrated to standardized patterns
+    excludeCategories: finalConfig.excludeCategories || [],
   });
 
   // Fall back to legacy patterns for non-migrated categories
@@ -147,7 +141,7 @@ export function setupHybridCommandCustomizations(
 
 /**
  * Migration utility to compare standardized vs legacy customizations
- * 
+ *
  * This function can be used during migration to verify that standardized
  * patterns provide equivalent or improved functionality compared to legacy patterns.
  */
@@ -161,12 +155,14 @@ export function validateMigration(): {
     CommandCategory.TASKS,
     CommandCategory.GIT,
     CommandCategory.SESSION,
+    CommandCategory.CONFIG,
+    CommandCategory.RULES,
   ];
-  const pending = allCategories.filter(cat => !migrated.includes(cat));
+  const pending = allCategories.filter((cat) => !migrated.includes(cat));
   const issues: string[] = [];
 
   // Validate that migrated categories have standardized customizations
-  migrated.forEach(category => {
+  migrated.forEach((category) => {
     try {
       switch (category) {
         case CommandCategory.TASKS:
@@ -177,6 +173,12 @@ export function validateMigration(): {
           break;
         case CommandCategory.SESSION:
           getStandardizedSessionCustomizations();
+          break;
+        case CommandCategory.CONFIG:
+          getStandardizedConfigCustomizations();
+          break;
+        case CommandCategory.RULES:
+          getStandardizedRulesCustomizations();
           break;
         default:
           issues.push(`Missing standardized customizations for ${category}`);
@@ -191,7 +193,7 @@ export function validateMigration(): {
 
 /**
  * Migration benefits achieved by using standardized patterns:
- * 
+ *
  * 1. **Type Safety**: Full TypeScript validation for all command parameters
  * 2. **Consistent Validation**: Zod schema-based parameter validation across all commands
  * 3. **Standardized Output**: Uniform JSON and text formatting for all commands
@@ -199,10 +201,10 @@ export function validateMigration(): {
  * 5. **Composable Patterns**: Easy to add new commands using established patterns
  * 6. **Progressive Disclosure**: Advanced options properly organized and documented
  * 7. **Future-Proofing**: Easy to extend with new output formats and validation rules
- * 
+ *
  * Migration path:
  * 1. Use `setupHybridCommandCustomizations()` for gradual migration
  * 2. Migrate categories one by one to standardized patterns
  * 3. Eventually replace with `setupStandardizedCommandCustomizations()`
  * 4. Verify migration completeness with `validateMigration()`
- */ 
+ */

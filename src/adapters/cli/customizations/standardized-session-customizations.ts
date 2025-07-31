@@ -1,6 +1,6 @@
 /**
  * Standardized Session Command Customizations
- * 
+ *
  * Applies the type composition patterns from Tasks #322 and #329 to session command customizations.
  * Demonstrates standardized parameter handling, response formatting, and error handling.
  */
@@ -53,7 +53,9 @@ const SessionApproveParametersSchema = z.object({
  * CLI session parameter schemas with standardized CLI options
  */
 export const CliSessionPRParametersSchema = createCliCommandSchema(SessionPRParametersSchema);
-export const CliSessionApproveParametersSchema = createCliCommandSchema(SessionApproveParametersSchema);
+export const CliSessionApproveParametersSchema = createCliCommandSchema(
+  SessionApproveParametersSchema
+);
 
 /**
  * Get standardized session command customizations using type composition patterns
@@ -110,9 +112,9 @@ export function getStandardizedSessionCustomizations(): {
               );
 
               const response = createCliSuccessResponse(
-                { 
+                {
                   result: result.sessions || [],
-                  count: (result.sessions || []).length
+                  count: (result.sessions || []).length,
                 },
                 {
                   command: "session.list",
@@ -124,7 +126,6 @@ export function getStandardizedSessionCustomizations(): {
               formatCliOutput(response, options, (data, opts) =>
                 formatSessionListOutput(data.result, opts)
               );
-
             } catch (error) {
               handleStandardizedCliError(error, "session.list", options);
             }
@@ -140,7 +141,8 @@ export function getStandardizedSessionCustomizations(): {
             },
             task: {
               alias: "t",
-              description: "Task ID to associate with the session (required if --description not provided)",
+              description:
+                "Task ID to associate with the session (required if --description not provided)",
             },
             description: {
               alias: "d",
@@ -225,7 +227,6 @@ export function getStandardizedSessionCustomizations(): {
                 // Fallback to JSON output if result structure is unexpected
                 log.cli(JSON.stringify(result, null, 2));
               }
-
             } catch (error) {
               handleStandardizedCliError(error, "session.start", options);
             }
@@ -277,7 +278,6 @@ export function getStandardizedSessionCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "session.get", options);
             }
@@ -342,9 +342,9 @@ export function getStandardizedSessionCustomizations(): {
               );
 
               const response = createCliSuccessResponse(
-                { 
+                {
                   result: result.deleted || true,
-                  message: result.quiet ? undefined : "Session deleted successfully"
+                  message: result.quiet ? undefined : "Session deleted successfully",
                 },
                 {
                   command: "session.delete",
@@ -354,7 +354,6 @@ export function getStandardizedSessionCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "session.delete", options);
             }
@@ -467,9 +466,9 @@ export function getStandardizedSessionCustomizations(): {
               );
 
               const response = createCliSuccessResponse(
-                { 
+                {
                   result: result.pr || result,
-                  message: result.quiet ? undefined : "Pull request created successfully"
+                  message: result.quiet ? undefined : "Pull request created successfully",
                 },
                 {
                   command: "session.pr",
@@ -479,7 +478,6 @@ export function getStandardizedSessionCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "session.pr", options);
             }
@@ -492,17 +490,17 @@ export function getStandardizedSessionCustomizations(): {
 
 /**
  * Migration benefits for session commands:
- * 
+ *
  * 1. **Enhanced Session Management**: Standardized validation for session operations
  * 2. **Consistent Output Formatting**: Uniform session information display
  * 3. **Advanced Parameter Validation**: Type-safe session parameter handling
  * 4. **Progressive Disclosure**: Advanced options hidden behind --advanced flag
  * 5. **Error Recovery**: Helpful suggestions for session-related issues
- * 
+ *
  * Example usage after full integration:
  * ```bash
  * minsky session start --task 123 --json
  * minsky session list --current --verbose
  * minsky session pr --title "Fix bug" --body-path ./pr-description.md
  * ```
- */ 
+ */

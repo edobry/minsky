@@ -15,6 +15,10 @@ import {
   type CategoryCommandOptions,
 } from "../shared/bridges/cli-bridge";
 import { log } from "../../utils/logger";
+import { 
+  setupStandardizedCommandCustomizations, 
+  type StandardizedCliSetupConfig 
+} from "./integrations/standardized-cli-setup";
 
 /**
  * Private CLI bridge instance - should not be exported or accessed directly
@@ -1028,15 +1032,35 @@ function flattenObjectToKeyValue(obj: any): any {
 }
 
 /**
- * Initialize the CLI command system with proper customizations
+ * Initialize the CLI command system with standardized type composition patterns
  *
- * This is the recommended way to set up the CLI system.
+ * This is the recommended way to set up the CLI system using the standardized
+ * patterns from Task #335.
  */
-export function initializeCliCommands(program: Command, config?: Partial<CliFactoryConfig>): void {
+export function initializeCliCommands(
+  program: Command, 
+  config?: Partial<CliFactoryConfig & StandardizedCliSetupConfig>
+): void {
   // Initialize the factory
   cliFactory.initialize(config);
 
-  // Setup common customizations
+  // Setup standardized customizations using type composition patterns
+  setupStandardizedCommandCustomizations(program, config);
+
+  // Register all commands in the program
+  cliFactory.registerAllCommands(program);
+}
+
+/**
+ * DEPRECATED: Initialize CLI commands with legacy patterns
+ * 
+ * @deprecated Use initializeCliCommands() instead, which uses standardized patterns
+ */
+export function initializeCliCommandsLegacy(program: Command, config?: Partial<CliFactoryConfig>): void {
+  // Initialize the factory
+  cliFactory.initialize(config);
+
+  // Setup legacy customizations (for backwards compatibility only)
   setupCommonCommandCustomizations(program);
 
   // Register all commands in the program

@@ -1,19 +1,13 @@
 /**
  * Standardized Git Command Customizations
- * 
+ *
  * Applies the type composition patterns from Tasks #322 and #329 to git command customizations.
  * Demonstrates standardized parameter handling, response formatting, and error handling.
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
-import {
-  CliBaseParametersSchema,
-  createCliCommandSchema,
-} from "../schemas/cli-parameter-schemas";
-import {
-  createCliSuccessResponse,
-  formatCliOutput,
-} from "../schemas/cli-response-schemas";
+import { CliBaseParametersSchema, createCliCommandSchema } from "../schemas/cli-parameter-schemas";
+import { createCliSuccessResponse, formatCliOutput } from "../schemas/cli-response-schemas";
 import {
   validateCliParameters,
   handleStandardizedCliError,
@@ -111,9 +105,9 @@ export function getStandardizedGitCustomizations(): {
               );
 
               const response = createCliSuccessResponse(
-                { 
+                {
                   result: result.commit || result,
-                  message: result.quiet ? undefined : "Commit created successfully"
+                  message: result.quiet ? undefined : "Commit created successfully",
                 },
                 {
                   command: "git.commit",
@@ -123,7 +117,6 @@ export function getStandardizedGitCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "git.commit", options);
             }
@@ -185,14 +178,13 @@ export function getStandardizedGitCustomizations(): {
               formatCliOutput(response, options, (data, opts) => {
                 if (Array.isArray(data.result)) {
                   return data.result
-                    .map((branch: any) => 
-                      typeof branch === 'string' ? branch : (branch.name || String(branch))
+                    .map((branch: any) =>
+                      typeof branch === "string" ? branch : branch.name || String(branch)
                     )
-                    .join('\n');
+                    .join("\n");
                 }
                 return String(data.result);
               });
-
             } catch (error) {
               handleStandardizedCliError(error, "git.branch", options);
             }
@@ -244,7 +236,6 @@ export function getStandardizedGitCustomizations(): {
               );
 
               formatCliOutput(response, options);
-
             } catch (error) {
               handleStandardizedCliError(error, "git.status", options);
             }
@@ -296,17 +287,17 @@ export function getStandardizedGitCustomizations(): {
 
 /**
  * Migration benefits for git commands:
- * 
+ *
  * 1. **Consistent Parameter Validation**: All git commands use standardized schemas
  * 2. **Standardized Response Formatting**: Uniform output across all git operations
  * 3. **Enhanced Error Handling**: Proper exit codes and user-friendly error messages
  * 4. **Type Safety**: Full TypeScript validation for git command parameters
  * 5. **Composable Patterns**: Easy to add new git commands using established patterns
- * 
+ *
  * Example usage after full integration:
  * ```bash
  * minsky git commit -m "Fix bug" --json
  * minsky git branch feature-branch --verbose
  * minsky git status --short --quiet
  * ```
- */ 
+ */

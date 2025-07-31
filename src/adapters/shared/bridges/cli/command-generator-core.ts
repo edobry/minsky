@@ -159,18 +159,18 @@ export class CommandGeneratorCore {
         let validatedParams = normalizedParams;
         if (options.parameterSchema) {
           try {
-                         validatedParams = validateCliParameters(
-               options.parameterSchema,
-               normalizedParams,
-               commandDef.id,
-               {
-                 json: !!rawParameters.json,
-                 quiet: !!rawParameters.quiet,
-                 verbose: !!rawParameters.verbose,
-                 debug: !!rawParameters.debug,
-                 format: context.format as "json" | "text" | "yaml" | "table",
-               }
-             );
+            validatedParams = validateCliParameters(
+              options.parameterSchema,
+              normalizedParams,
+              commandDef.id,
+              {
+                json: !!rawParameters.json,
+                quiet: !!rawParameters.quiet,
+                verbose: !!rawParameters.verbose,
+                debug: !!rawParameters.debug,
+                format: context.format as "json" | "text" | "yaml" | "table",
+              }
+            );
             log.debug(`Schema validation passed for command: ${commandDef.id}`);
           } catch (error) {
             log.debug(`Schema validation failed for command: ${commandDef.id}`, error);
