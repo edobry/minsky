@@ -29,7 +29,7 @@ async function testAISDKAPI() {
     console.log("\n📋 **Test 3: Check what happens with environment variable**");
 
     // Set the OpenAI API key as environment variable temporarily
-    process.env.OPENAI_API_KEY = "sk-S-E_EIrfm3MSanIWZDOVDOo-O8ABFsrzlgo1MtaXmLzYBRNz";
+    process.env.OPENAI_API_KEY = "sk-proj-xxx...xxxxx";
 
     const morphModel = openai("gpt-3.5-turbo"); // Use standard model name
 
@@ -66,7 +66,7 @@ async function testAISDKAPI() {
 
         // This might be the correct way to create custom providers
         const customOpenAI = createOpenAI({
-          apiKey: "sk-S-E_EIrfm3MSanIWZDOVDOo-O8ABFsrzlgo1MtaXmLzYBRNz",
+          apiKey: "sk-proj-xxx...xxxxx",
           baseURL: "https://api.morphllm.com/v1",
         });
 

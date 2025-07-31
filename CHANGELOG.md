@@ -5,6 +5,48 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Task #361**: Session outdated detection and display system
+  - Created interim solution for detecting when sessions become outdated after PR merges to main
+  - Implements sync status tracking with severity levels (current, stale, very-stale, ancient) 
+  - Adds `session outdated` command to list all outdated sessions with filtering options
+  - Enhances `session get` and `session list` commands to display sync status indicators
+  - Provides timestamp and commit-based detection mechanisms for accuracy
+  - Includes visual indicators and detailed information about missing main branch changes
+  - Serves as foundation for future automated sync workflow from Task #361
+
+- **Task #361**: Automated session sync workflow exploration  
+  - Created comprehensive exploration task for event-driven session synchronization
+  - Introduces concept of system-generated work items distinct from user tasks
+  - Defines AI-enhanced session relationship detection and conflict prediction
+  - Plans backend-specific implementation (GitHub webhooks vs local git hooks)
+  - Designs work item classification with automation levels and safety mechanisms
+  - Connects to task dependency system (#239) and AI features (#175) for intelligent workflow orchestration
+
+- **Task #359**: Session PR command restructuring with explicit subcommands ✅ **IMPLEMENTED**
+  - **BREAKING CHANGE**: Replaced `session pr` with `session pr create` for explicit command structure
+  - Implemented `session pr list` subcommand for listing PRs by session name, task ID, or status with filtering options
+  - Implemented `session pr get [name] --task <id>` subcommand using same identifier pattern as `session get` command
+  - Added PullRequestInfo interface to SessionRecord for enhanced PR tracking and metadata storage
+  - Created comprehensive CLI command classes with proper error handling and parameter validation
+  - Updated command registry, parameter schemas, and result formatting for new subcommand structure
+  - Follows modern CLI patterns (like GitHub CLI) with explicit subcommands for all operations
+  - Maintains backward compatibility by preserving all original functionality in `session pr create`
+  - Enables comprehensive PR management workflow and future extensibility within Minsky CLI ecosystem
+
+- **Task #358**: PR approval and merge decoupling exploration
+  - Created foundational task to explore separating PR approval from merge operations
+  - Analyzes current coupling in session approve command and repository backends
+  - Proposes enhanced repository backend interface with separate approval/merge methods
+  - Defines new APPROVED task status and backward compatibility strategies
+  - Critical prerequisite for GitHub PR workflow implementation (Task #161)
+
+- **Task #138**: GitHub Issues backend production readiness improvements
+  - **Documentation Package**: Comprehensive setup guide with token configuration, usage examples, troubleshooting, and best practices
+  - **CLI Enhancements**: Added `minsky github test` and `minsky github status` commands for connectivity testing and configuration validation
+  - **Integration Tests**: Created separate GitHub API integration test suite with cleanup and real API testing capability
+  - Enhanced error messages and verbose debugging options for GitHub Issues backend
+  - Complete production-ready package while awaiting Task 161 Phase 0 repository backend integration
+
 - **Task #356**: Comprehensive multi-backend task system architecture design
   - Created new task for implementing backend-qualified task IDs (`md:123`, `gh:456`, `json:789`)
   - Designed architecture to prevent ID conflicts during backend migration

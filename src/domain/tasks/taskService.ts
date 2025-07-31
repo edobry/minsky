@@ -220,36 +220,16 @@ export class TaskService {
       throw new Error(`Status must be one of: ${TASK_STATUS_VALUES.join(", ")}`);
     }
 
-    const tasks = await this.getAllTasks();
+    // Delegate to the backend's setTaskStatus method which handles auto-commit
+    await this.currentBackend.setTaskStatus(id, status);
 
-    // Use proper task ID normalization from systematic architecture
-    // This handles the transition period where storage might be in either format
-    const storageId = normalizeTaskIdForStorage(id);
-    if (!storageId) {
-      throw new Error(`Invalid task ID format: ${id}`);
+    // Return the updated task
+    const task = await this.getTask(id);
+    if (!task) {
+      throw new Error(`Task with ID ${id} not found after update`);
     }
 
-    // Try both storage format and legacy display format during transition
-    const taskIndex = tasks.findIndex(
-      (task) => task.id === storageId || task.id === `#${storageId}`
-    );
-
-    if (taskIndex === -1) {
-      throw new Error(`Task with ID ${id} not found`);
-    }
-
-    // Update the task status
-    tasks[taskIndex].status = status;
-
-    // Save the updated tasks
-    const updatedContent = this.currentBackend.formatTasks(tasks);
-    const saveResult = await this.currentBackend.saveTasksData(updatedContent);
-
-    if (!saveResult.success) {
-      throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
-    }
-
-    return tasks[taskIndex];
+    return task;
   }
 
   /**

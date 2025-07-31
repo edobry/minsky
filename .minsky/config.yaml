@@ -1,5 +1,7 @@
 version: 1
-backend: markdown
+
+# Task Backend Configuration - GitHub Issues backend will error out  
+backend: "github-issues"
 
 # AI Provider Configuration for Testing
 ai:
@@ -17,5 +19,8 @@ ai:
       apiKey: "test-openai-key-placeholder"
       model: "gpt-4"
 
+# SessionDB Configuration
 sessiondb:
-  backend: sqlite
+  backend: "json"
+  json:
+    baseDir: "~/.local/state/minsky"
