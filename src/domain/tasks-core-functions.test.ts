@@ -20,7 +20,7 @@ const TEST_VALUE = 123;
  *
  * @migrated Migrated to native Bun patterns
  */
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import {
   listTasksFromParams,
   getTaskFromParams,
@@ -28,11 +28,11 @@ import {
   setTaskStatusFromParams,
   type Task,
   TASK_STATUS,
-} from "../tasks";
-import { ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { expectToBeInstanceOf } from "../../utils/test-utils/assertions";
-import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
-import { createMockTaskService } from "../../utils/test-utils/dependencies";
+} from "./tasks";
+import { ValidationError, ResourceNotFoundError } from "../errors/index";
+import { expectToBeInstanceOf } from "../utils/test-utils/assertions";
+import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
+import { createTestDeps } from "../utils/test-utils/dependencies";
 
 const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 
