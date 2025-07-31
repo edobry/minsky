@@ -225,14 +225,54 @@ export class LocalGitBackend implements RepositoryBackend {
     return { success: true, message: "Repository is valid" };
   }
 
-  async push(): Promise<Result> {
-    // TODO: Implement local git push logic
-    return { success: false, message: "Not implemented" };
+  async push(branch?: string): Promise<any> {
+    try {
+      // Use the base repository directory (not session-specific)
+      const workdir = this.repoUrl;
+
+      // Build push command with optional branch
+      let pushCommand = "push";
+      if (branch) {
+        pushCommand += ` origin ${branch}`;
+      }
+
+      await execGitWithTimeout("push", pushCommand, {
+        workdir,
+        timeout: 60000,
+      });
+      return { success: true, message: "Push completed successfully" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: `Push failed: ${errorMessage}`,
+      };
+    }
   }
 
-  async pull(): Promise<Result> {
-    // TODO: Implement local git pull logic
-    return { success: false, message: "Not implemented" };
+  async pull(branch?: string): Promise<any> {
+    try {
+      // Use the base repository directory (not session-specific)
+      const workdir = this.repoUrl;
+
+      // Build pull command with optional branch
+      let pullCommand = "pull";
+      if (branch) {
+        pullCommand += ` origin ${branch}`;
+      }
+
+      await execGitWithTimeout("pull", pullCommand, {
+        workdir,
+        timeout: 60000,
+      });
+      return { success: true, message: "Pull completed successfully" };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+      return {
+        success: false,
+        message: `Pull failed: ${errorMessage}`,
+      };
+    }
   }
 
   /**

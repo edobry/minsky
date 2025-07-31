@@ -588,21 +588,113 @@ Repository: https://github.com/${this.owner}/${this.repo}
         },
       };
     } catch (error) {
-      if (error instanceof Error && error.message.includes("422")) {
-        // Check if it's a "No commits between" error
-        if (error.message.includes("No commits between")) {
+      // Enhanced error handling for different types of GitHub API errors
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+
+        // Authentication errors (401, 403)
+        if (
+          errorMessage.includes("401") ||
+          errorMessage.includes("bad credentials") ||
+          errorMessage.includes("unauthorized")
+        ) {
           throw new MinskyError(
-            `No differences found between ${sourceBranch} and ${baseBranch}. Make sure your changes are committed and pushed.`
+            `🔐 GitHub Authentication Failed\n\n` +
+              `Your GitHub token is invalid or expired.\n\n` +
+              `💡 To fix this:\n` +
+              `  1. Generate a new Personal Access Token at https://github.com/settings/tokens\n` +
+              `  2. Set it as GITHUB_TOKEN or GH_TOKEN environment variable\n` +
+              `  3. Ensure the token has 'repo' and 'pull_requests' permissions\n\n` +
+              `Repository: ${this.owner}/${this.repo}`
           );
         }
-        // Check if PR already exists
-        if (error.message.includes("pull request already exists")) {
+
+        // Permission errors (403)
+        if (errorMessage.includes("403") || errorMessage.includes("forbidden")) {
           throw new MinskyError(
-            `A pull request from ${sourceBranch} to ${baseBranch} already exists.`
+            `🚫 GitHub Permission Denied\n\n` +
+              `You don't have permission to create pull requests in ${this.owner}/${this.repo}.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Ensure you have push access to the repository\n` +
+              `  • Check if the repository exists and is public/accessible\n` +
+              `  • Verify your GitHub token has sufficient permissions\n\n` +
+              `Repository: https://github.com/${this.owner}/${this.repo}`
           );
+        }
+
+        // Repository not found (404)
+        if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+          throw new MinskyError(
+            `📂 GitHub Repository Not Found\n\n` +
+              `The repository ${this.owner}/${this.repo} was not found.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Verify the repository name and owner are correct\n` +
+              `  • Check if the repository is private and you have access\n` +
+              `  • Ensure the repository exists at https://github.com/${this.owner}/${this.repo}`
+          );
+        }
+
+        // Rate limiting (429)
+        if (errorMessage.includes("429") || errorMessage.includes("rate limit")) {
+          throw new MinskyError(
+            `⏱️ GitHub Rate Limit Exceeded\n\n` +
+              `You've hit GitHub's API rate limit.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Wait a few minutes before trying again\n` +
+              `  • Use a GitHub token for higher rate limits\n` +
+              `  • Consider using GitHub Enterprise for unlimited API calls`
+          );
+        }
+
+        // Network connectivity issues
+        if (
+          errorMessage.includes("network") ||
+          errorMessage.includes("timeout") ||
+          errorMessage.includes("enotfound")
+        ) {
+          throw new MinskyError(
+            `🌐 Network Connection Error\n\n` +
+              `Unable to connect to GitHub API.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Check your internet connection\n` +
+              `  • Verify GitHub is accessible (https://githubstatus.com)\n` +
+              `  • Try again in a few moments\n\n` +
+              `Error: ${error.message}`
+          );
+        }
+
+        // Validation errors (422)
+        if (errorMessage.includes("422")) {
+          // Check if it's a "No commits between" error
+          if (errorMessage.includes("no commits between") || errorMessage.includes("no changes")) {
+            throw new MinskyError(
+              `📝 No Changes to Create PR\n\n` +
+                `No differences found between ${sourceBranch} and ${baseBranch}.\n\n` +
+                `💡 To fix this:\n` +
+                `  • Make sure your changes are committed to ${sourceBranch}\n` +
+                `  • Push your branch: git push origin ${sourceBranch}\n` +
+                `  • Verify you're on the correct branch: git branch`
+            );
+          }
+          // Check if PR already exists
+          if (
+            errorMessage.includes("pull request already exists") ||
+            errorMessage.includes("already exists")
+          ) {
+            throw new MinskyError(
+              `🔄 Pull Request Already Exists\n\n` +
+                `A pull request from ${sourceBranch} to ${baseBranch} already exists.\n\n` +
+                `💡 Options:\n` +
+                `  • Update the existing PR instead of creating a new one\n` +
+                `  • Use a different branch name\n` +
+                `  • Close the existing PR if it's no longer needed\n\n` +
+                `Check: https://github.com/${this.owner}/${this.repo}/pulls`
+            );
+          }
         }
       }
 
+      // Fallback for any other errors
       throw new MinskyError(
         `Failed to create GitHub pull request: ${getErrorMessage(error as any)}`
       );
@@ -682,12 +774,98 @@ Repository: https://github.com/${this.owner}/${this.repo}
         },
       };
     } catch (error) {
-      if (error instanceof Error && error.message.includes("405")) {
-        throw new MinskyError(
-          `Pull request #${prNumber} cannot be merged. It may have conflicts or branch protection rules preventing the merge.`
-        );
+      // Enhanced error handling for GitHub PR merge operations
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+
+        // Authentication errors
+        if (
+          errorMessage.includes("401") ||
+          errorMessage.includes("bad credentials") ||
+          errorMessage.includes("unauthorized")
+        ) {
+          throw new MinskyError(
+            `🔐 GitHub Authentication Failed\n\n` +
+              `Your GitHub token is invalid or expired.\n\n` +
+              `💡 To fix this:\n` +
+              `  1. Generate a new Personal Access Token at https://github.com/settings/tokens\n` +
+              `  2. Set it as GITHUB_TOKEN or GH_TOKEN environment variable\n` +
+              `  3. Ensure the token has 'repo' and 'pull_requests' permissions`
+          );
+        }
+
+        // Permission errors
+        if (errorMessage.includes("403") || errorMessage.includes("forbidden")) {
+          throw new MinskyError(
+            `🚫 GitHub Permission Denied\n\n` +
+              `You don't have permission to merge pull requests in ${this.owner}/${this.repo}.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Ensure you have write access to the repository\n` +
+              `  • Check if branch protection rules prevent merging\n` +
+              `  • Verify your GitHub token has sufficient permissions`
+          );
+        }
+
+        // PR not found (404)
+        if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+          throw new MinskyError(
+            `📂 Pull Request Not Found\n\n` +
+              `Pull request #${prNumber} was not found in ${this.owner}/${this.repo}.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Verify the PR number is correct\n` +
+              `  • Check if the PR was already merged or closed\n` +
+              `  • Ensure the repository exists and is accessible\n\n` +
+              `Check: https://github.com/${this.owner}/${this.repo}/pulls`
+          );
+        }
+
+        // Merge conflicts or protection rules (405, 422)
+        if (
+          errorMessage.includes("405") ||
+          errorMessage.includes("422") ||
+          errorMessage.includes("merge conflicts")
+        ) {
+          throw new MinskyError(
+            `🔀 Pull Request Cannot Be Merged\n\n` +
+              `Pull request #${prNumber} cannot be merged automatically.\n\n` +
+              `💡 Common causes:\n` +
+              `  • Merge conflicts that need to be resolved\n` +
+              `  • Branch protection rules requiring reviews\n` +
+              `  • Required status checks not passing\n` +
+              `  • PR is not in an open state\n\n` +
+              `Visit the PR to resolve: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}`
+          );
+        }
+
+        // Rate limiting
+        if (errorMessage.includes("429") || errorMessage.includes("rate limit")) {
+          throw new MinskyError(
+            `⏱️ GitHub Rate Limit Exceeded\n\n` +
+              `You've hit GitHub's API rate limit.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Wait a few minutes before trying again\n` +
+              `  • Use a GitHub token for higher rate limits`
+          );
+        }
+
+        // Network issues
+        if (
+          errorMessage.includes("network") ||
+          errorMessage.includes("timeout") ||
+          errorMessage.includes("enotfound")
+        ) {
+          throw new MinskyError(
+            `🌐 Network Connection Error\n\n` +
+              `Unable to connect to GitHub API.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Check your internet connection\n` +
+              `  • Verify GitHub is accessible (https://githubstatus.com)\n` +
+              `  • Try again in a few moments`
+          );
+        }
       }
 
+      // Fallback for any other errors
       throw new MinskyError(
         `Failed to merge GitHub pull request: ${getErrorMessage(error as any)}`
       );

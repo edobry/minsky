@@ -294,9 +294,10 @@ Repository: ${this.repoUrl}
 
   /**
    * Push changes to remote repository
+   * @param branch Optional branch to push (defaults to current branch)
    * @returns Result of the push operation
    */
-  async push(): Promise<Result> {
+  async push(branch?: string): Promise<any> {
     try {
       // Validate repository configuration
       const validation = await this.validate();
@@ -325,14 +326,17 @@ Repository: ${this.repoUrl}
         const workdir = this.getSessionWorkdir(session.session);
 
         try {
-          // Determine current branch
-          const { stdout: branchOutput } = await execAsync(
-            `git -C ${workdir} rev-parse --abbrev-ref HEAD`
-          );
-          const branch = branchOutput.trim();
+          // Determine current branch or use provided branch
+          let targetBranch = branch;
+          if (!targetBranch) {
+            const { stdout: branchOutput } = await execAsync(
+              `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+            );
+            targetBranch = branchOutput.trim();
+          }
 
           // Push to remote
-          await execGitWithTimeout("push", `push origin ${branch}`, { workdir });
+          await execGitWithTimeout("push", `push origin ${targetBranch}`, { workdir });
         } catch (error) {
           const normalizedError = error instanceof Error ? error : new Error(String(error as any));
           if ((normalizedError?.message as any).includes("Authentication failed")) {
@@ -359,11 +363,66 @@ Repository: ${this.repoUrl}
 
   /**
    * Pull changes from remote repository
+   * @param branch Optional branch to pull (defaults to current branch)
    * @returns Result of the pull operation
    */
-  async pull(): Promise<Result> {
-    // TODO: Implement remote git pull logic
-    return { success: false, message: "Not implemented" };
+  async pull(branch?: string): Promise<any> {
+    try {
+      // Validate repository configuration
+      const validation = await this.validate();
+      if (!validation.success) {
+        return validation;
+      }
+
+      // Get all sessions for this repository
+      const sessions = await this.sessionDb.listSessions();
+      const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
+
+      if (currentSessions.length === 0) {
+        return {
+          success: false,
+          message: "No active sessions found for this repository",
+        };
+      }
+
+      // For each session with this repository, pull changes
+      for (const session of currentSessions) {
+        const workdir = this.getSessionWorkdir(session.session);
+
+        try {
+          // Determine current branch or use provided branch
+          let targetBranch = branch;
+          if (!targetBranch) {
+            const { stdout: branchOutput } = await execAsync(
+              `git -C ${workdir} rev-parse --abbrev-ref HEAD`
+            );
+            targetBranch = branchOutput.trim();
+          }
+
+          // Pull from remote
+          await execGitWithTimeout("pull", `pull origin ${targetBranch}`, { workdir });
+        } catch (error) {
+          const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+          if ((normalizedError?.message as any).includes("Authentication failed")) {
+            return {
+              success: false,
+              error: new Error(
+                "Authentication failed during pull operation. Please check your credentials."
+              ),
+            };
+          }
+          throw normalizedError;
+        }
+      }
+
+      return { success: true, message: "Pull completed successfully" };
+    } catch (error) {
+      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      return {
+        success: false,
+        error: new Error(`Failed to pull changes: ${normalizedError.message}`),
+      };
+    }
   }
 
   /**
