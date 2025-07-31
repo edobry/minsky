@@ -5,6 +5,28 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- **Task #359**: Session PR command restructuring with explicit subcommands
+  - Created comprehensive task for restructuring `session pr` to use explicit subcommands
+  - **BREAKING CHANGE**: Replaces `session pr` with `session pr create` for explicit command structure
+  - Defines `session pr list` subcommand for listing PRs by session name, task ID, or status with filtering options
+  - Defines `session pr get [name] --task <id>` subcommand using same identifier pattern as `session get` command
+  - Follows modern CLI patterns (like GitHub CLI) with explicit subcommands for all operations
+  - Enables comprehensive PR management workflow and future extensibility within Minsky CLI ecosystem
+
+- **Task #358**: PR approval and merge decoupling exploration
+  - Created foundational task to explore separating PR approval from merge operations
+  - Analyzes current coupling in session approve command and repository backends
+  - Proposes enhanced repository backend interface with separate approval/merge methods
+  - Defines new APPROVED task status and backward compatibility strategies
+  - Critical prerequisite for GitHub PR workflow implementation (Task #161)
+
+- **Task #138**: GitHub Issues backend production readiness improvements
+  - **Documentation Package**: Comprehensive setup guide with token configuration, usage examples, troubleshooting, and best practices
+  - **CLI Enhancements**: Added `minsky github test` and `minsky github status` commands for connectivity testing and configuration validation
+  - **Integration Tests**: Created separate GitHub API integration test suite with cleanup and real API testing capability
+  - Enhanced error messages and verbose debugging options for GitHub Issues backend
+  - Complete production-ready package while awaiting Task 161 Phase 0 repository backend integration
+
 - **Task #356**: Comprehensive multi-backend task system architecture design
   - Created new task for implementing backend-qualified task IDs (`md:123`, `gh:456`, `json:789`)
   - Designed architecture to prevent ID conflicts during backend migration

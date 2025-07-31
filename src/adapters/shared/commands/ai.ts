@@ -215,7 +215,7 @@ export function registerAiCommands(): void {
   // Register AI fast-apply command
   sharedCommandRegistry.registerCommand({
     id: "ai.fast-apply",
-    category: CommandCategory.CORE,
+    category: CommandCategory.AI,
     name: "fast-apply",
     description:
       "Apply fast edits to a file using fast-apply models (supports both instruction and Cursor edit pattern modes)",
