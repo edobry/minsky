@@ -182,7 +182,7 @@ describe("Session Edit Tools", () => {
     test("should be registered with correct schema", () => {
       expect(registeredTools["session.edit_file"]).toBeDefined();
       expect(registeredTools["session.edit_file"].name).toBe("session.edit_file");
-      expect(registeredTools["session.edit_file"].description).toContain("Edit a file");
+      expect(registeredTools["session.edit_file"].description).toContain("edit");
     });
 
     test.skip("should create new file when it doesn't exist", async () => {

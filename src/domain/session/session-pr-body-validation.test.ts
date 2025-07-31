@@ -16,7 +16,7 @@
  * NOTE: This tests PR validation, not PR creation workflow (see other session tests)
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { sessionPrImpl } from "./session-pr-operations";
 import { ValidationError, MinskyError } from "../errors";
 import {
@@ -99,6 +99,26 @@ describe("Session PR Body Validation Bug Fix", () => {
         {
           gitService: mockGitService,
           sessionDB: mockSessionProvider,
+          createRepositoryBackend: mock((sessionRecord: any) =>
+            Promise.resolve({
+              getType: () => "local",
+              createPullRequest: mock(() =>
+                Promise.resolve({
+                  prBranch: "pr/test-session",
+                  baseBranch: "main",
+                  title: "Test PR",
+                  body: "",
+                })
+              ),
+              mergePullRequest: mock(() =>
+                Promise.resolve({
+                  commitHash: "abc123commit",
+                  mergeDate: new Date(),
+                  mergedBy: "test-user",
+                })
+              ),
+            })
+          ),
         }
       );
 
