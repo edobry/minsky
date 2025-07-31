@@ -11,6 +11,9 @@ import {
   sessionGetCommandParams,
   sessionStartCommandParams,
   sessionDirCommandParams,
+  sessionOutdatedCommandParams,
+  sessionCheckSyncCommandParams,
+  sessionSyncSummaryCommandParams,
 } from "./session-parameters";
 
 /**
@@ -39,6 +42,7 @@ export class SessionListCommand extends BaseSessionCommand<any, any> {
     const sessions = await listSessionsFromParams({
       repo: params.repo,
       json: params.json,
+      showSyncStatus: params.showSyncStatus,
     });
 
     return this.createSuccessResult({ sessions });
@@ -167,6 +171,113 @@ export class SessionDirCommand extends BaseSessionCommand<any, any> {
 }
 
 /**
+ * Session Outdated Command
+ * TASK 360: Command to list all outdated sessions
+ */
+export class SessionOutdatedCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.outdated";
+  }
+
+  getCommandName(): string {
+    return "outdated";
+  }
+
+  getCommandDescription(): string {
+    return "List all outdated sessions";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionOutdatedCommandParams;
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    const { sessionOutdated } = await import(
+      "../../../../domain/session/commands/outdated-command"
+    );
+
+    const result = await sessionOutdated({
+      severity: params.severity,
+      sort: params.sort,
+      json: params.json,
+      verbose: params.verbose,
+    });
+
+    return this.createSuccessResult(result);
+  }
+}
+
+/**
+ * Session Check Sync Command
+ * TASK 360: Command to check sync status for all sessions
+ */
+export class SessionCheckSyncCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.check-sync";
+  }
+
+  getCommandName(): string {
+    return "check-sync";
+  }
+
+  getCommandDescription(): string {
+    return "Check sync status for all sessions";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionCheckSyncCommandParams;
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    const { sessionCheckSync } = await import(
+      "../../../../domain/session/commands/check-sync-command"
+    );
+
+    const result = await sessionCheckSync({
+      updateCache: params.updateCache,
+      verbose: params.verbose,
+      json: params.json,
+    });
+
+    return this.createSuccessResult(result);
+  }
+}
+
+/**
+ * Session Sync Summary Command
+ * TASK 360: Command to show sync status summary
+ */
+export class SessionSyncSummaryCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.sync-summary";
+  }
+
+  getCommandName(): string {
+    return "sync-summary";
+  }
+
+  getCommandDescription(): string {
+    return "Show sync status summary for all sessions";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionSyncSummaryCommandParams;
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    const { sessionSyncSummary } = await import(
+      "../../../../domain/session/commands/check-sync-command"
+    );
+
+    const result = await sessionSyncSummary({
+      json: params.json,
+    });
+
+    return this.createSuccessResult(result);
+  }
+}
+
+/**
  * Factory functions for creating basic session commands
  */
 export const createSessionListCommand = (deps?: SessionCommandDependencies) =>
@@ -180,3 +291,12 @@ export const createSessionStartCommand = (deps?: SessionCommandDependencies) =>
 
 export const createSessionDirCommand = (deps?: SessionCommandDependencies) =>
   new SessionDirCommand(deps);
+
+export const createSessionOutdatedCommand = (deps?: SessionCommandDependencies) =>
+  new SessionOutdatedCommand(deps);
+
+export const createSessionCheckSyncCommand = (deps?: SessionCommandDependencies) =>
+  new SessionCheckSyncCommand(deps);
+
+export const createSessionSyncSummaryCommand = (deps?: SessionCommandDependencies) =>
+  new SessionSyncSummaryCommand(deps);

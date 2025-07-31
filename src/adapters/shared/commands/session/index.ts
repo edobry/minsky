@@ -24,10 +24,16 @@ export {
   SessionGetCommand,
   SessionStartCommand,
   SessionDirCommand,
+  SessionOutdatedCommand,
+  SessionCheckSyncCommand,
+  SessionSyncSummaryCommand,
   createSessionListCommand,
   createSessionGetCommand,
   createSessionStartCommand,
   createSessionDirCommand,
+  createSessionOutdatedCommand,
+  createSessionCheckSyncCommand,
+  createSessionSyncSummaryCommand,
 } from "./basic-commands";
 
 // Import factory functions for internal use
@@ -36,6 +42,9 @@ import {
   createSessionGetCommand,
   createSessionStartCommand,
   createSessionDirCommand,
+  createSessionOutdatedCommand,
+  createSessionCheckSyncCommand,
+  createSessionSyncSummaryCommand,
 } from "./basic-commands";
 
 // Management commands (re-export)
@@ -89,6 +98,9 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     createSessionGetCommand,
     createSessionStartCommand,
     createSessionDirCommand,
+    createSessionOutdatedCommand,
+    createSessionCheckSyncCommand,
+    createSessionSyncSummaryCommand,
   } = basicCommands;
 
   const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
@@ -108,6 +120,9 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     get: createSessionGetCommand(deps),
     start: createSessionStartCommand(deps),
     dir: createSessionDirCommand(deps),
+    outdated: createSessionOutdatedCommand(deps),
+    checkSync: createSessionCheckSyncCommand(deps),
+    syncSummary: createSessionSyncSummaryCommand(deps),
 
     // Management commands
     delete: createSessionDeleteCommand(deps),
@@ -139,6 +154,9 @@ export async function setupSessionCommandRegistry(
   registry.register("session.get", commands.get);
   registry.register("session.start", commands.start);
   registry.register("session.dir", commands.dir);
+  registry.register("session.outdated", commands.outdated);
+  registry.register("session.check-sync", commands.checkSync);
+  registry.register("session.sync-summary", commands.syncSummary);
   registry.register("session.delete", commands.delete);
   registry.register("session.update", commands.update);
   registry.register("session.approve", commands.approve);

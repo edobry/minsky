@@ -65,10 +65,17 @@ export const commonSessionParams = {
 
 /**
  * Session list command parameters
+ * TASK 360: Added --show-sync-status flag for outdated session display
  */
 export const sessionListCommandParams = {
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  showSyncStatus: {
+    schema: z.boolean(),
+    description: "Show sync status indicators for each session",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
@@ -78,6 +85,59 @@ export const sessionGetCommandParams = {
   name: commonSessionParams.name,
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session outdated command parameters
+ * TASK 360: Parameters for listing outdated sessions
+ */
+export const sessionOutdatedCommandParams = {
+  severity: {
+    schema: z.enum(["current", "stale", "very-stale", "ancient"]),
+    description: "Filter by severity level",
+    required: false,
+  },
+  sort: {
+    schema: z.enum(["commits", "days"]),
+    description: "Sort by commits behind or days old",
+    required: false,
+    defaultValue: "commits",
+  },
+  json: commonSessionParams.json,
+  verbose: {
+    schema: z.boolean(),
+    description: "Show verbose output including errors",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Session check-sync command parameters
+ * TASK 360: Parameters for batch sync status checking
+ */
+export const sessionCheckSyncCommandParams = {
+  updateCache: {
+    schema: z.boolean(),
+    description: "Update cached sync status for all sessions",
+    required: false,
+    defaultValue: false,
+  },
+  verbose: {
+    schema: z.boolean(),
+    description: "Show detailed sync status for each session",
+    required: false,
+    defaultValue: false,
+  },
+  json: commonSessionParams.json,
+};
+
+/**
+ * Session sync-summary command parameters
+ * TASK 360: Parameters for sync status summary
+ */
+export const sessionSyncSummaryCommandParams = {
   json: commonSessionParams.json,
 };
 
