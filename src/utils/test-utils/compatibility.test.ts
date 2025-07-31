@@ -5,7 +5,7 @@
  *
  * Tests for the Jest/Vitest compatibility layer for Bun.
  */
-import { describe, test, expect as bunExpect } from "bun:test";
+import { describe, test, expect as bunExpect, mock } from "bun:test";
 import { compat } from "../index";
 import { setupTestMocks } from "./mocking";
 
@@ -216,9 +216,11 @@ describe("Asymmetric Matchers Compatibility", () => {
 describe("Module Mocking Compatibility", () => {
   test("mockModule works with factory", () => {
     // Mock a module with a factory
+    const fooMock = mock(() => "mocked foo");
+    const barMock = mock(() => "mocked bar");
     const mockExports = {
-      foo: (compat.createCompatMock() = mock(() => "mocked foo")),
-      bar: (compat.createCompatMock() = mock(() => "mocked bar")),
+      foo: compat.createCompatMock(fooMock),
+      bar: compat.createCompatMock(barMock),
     };
 
     compat.mockModule("some/module/path", () => mockExports);
@@ -232,8 +234,9 @@ describe("Module Mocking Compatibility", () => {
 
   test("jest.mock provides Jest-like syntax", () => {
     // Mock a module using jest.mock
+    const bazMock = mock(() => "mocked baz");
     compat.jest.mock("another/module/path", () => ({
-      baz: (compat.createCompatMock() = mock(() => "mocked baz")),
+      baz: compat.createCompatMock(bazMock),
     }));
 
     // The module should be mocked

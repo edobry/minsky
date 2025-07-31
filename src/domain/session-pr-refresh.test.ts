@@ -233,12 +233,14 @@ describe.skip("Session PR Refresh Functionality", () => {
   describe("Schema Validation", () => {
     it("should accept optional title parameter", async () => {
       // Mock PR branch exists
-      mockGitService.execInRepository
+      const execMock = mock(() => Promise.resolve("not-exists"))
         .mockImplementationOnce(() => Promise.resolve("not-exists"))
+        .mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
         .mockImplementationOnce(() =>
-          Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-        ) = // remote branch check
-        mock(() => Promise.resolve("feat(#231): Existing title\n\nExisting body")); // get commit message
+          Promise.resolve("feat(#231): Existing title\n\nExisting body")
+        ); // get commit message
+
+      mockGitService.execInRepository = execMock;
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({
