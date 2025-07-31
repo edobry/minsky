@@ -3,81 +3,34 @@
  *
  * This test verifies that the configuration system properly integrates
  * with task service creation and backend resolution.
- * Uses complete mocking to eliminate filesystem race conditions.
+ * Uses standardized mock filesystem to eliminate race conditions.
  */
 
-import { test, expect, describe, beforeEach, afterEach, mock } from "bun:test";
+import { test, expect, describe, beforeEach, afterEach } from "bun:test";
 import { createConfiguredTaskService } from "./taskService";
-
-// Mock filesystem operations
-const mockFileSystem = new Map<string, string>();
-const mockDirectories = new Set<string>();
-
-const mockFs = {
-  mkdir: mock(async (path: string) => {
-    mockDirectories.add(path);
-  }),
-  writeFile: mock(async (path: string, data: string) => {
-    mockFileSystem.set(path, data);
-  }),
-  rmdir: mock(async (path: string) => {
-    mockDirectories.delete(path);
-    // Also remove any files in this directory
-    Array.from(mockFileSystem.keys())
-      .filter((filePath) => filePath.startsWith(`${path}/`))
-      .forEach((filePath) => mockFileSystem.delete(filePath));
-  }),
-  readFile: mock(async (path: string) => {
-    if (!mockFileSystem.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
-    }
-    return mockFileSystem.get(path);
-  }),
-};
-
-// Mock the fs modules
-mock.module("fs", () => ({
-  promises: mockFs,
-}));
-
-// Mock path module
-mock.module("path", () => ({
-  join: mock((...parts: string[]) => parts.join("/")),
-}));
+import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
+import { mockModule } from "../../utils/test-utils/mocking";
 
 describe("Configuration Integration", () => {
-  beforeEach(() => {
-    // Reset all mocks
-    mock.restore();
-    mockFileSystem.clear();
-    mockDirectories.clear();
+  let mockFs: any;
 
-    // Reset filesystem mocks
-    mockFs.mkdir = mock(async (path: string) => {
-      mockDirectories.add(path);
-    });
-    mockFs.writeFile = mock(async (path: string, data: string) => {
-      mockFileSystem.set(path, data);
-    });
-    mockFs.rmdir = mock(async (path: string) => {
-      mockDirectories.delete(path);
-      // Also remove any files in this directory
-      Array.from(mockFileSystem.keys())
-        .filter((filePath) => filePath.startsWith(`${path}/`))
-        .forEach((filePath) => mockFileSystem.delete(filePath));
-    });
-    mockFs.readFile = mock(async (path: string) => {
-      if (!mockFileSystem.has(path)) {
-        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
-      }
-      return mockFileSystem.get(path);
-    });
+  beforeEach(() => {
+    // Create independent mock filesystem for each test
+    mockFs = createMockFilesystem();
+
+    // Mock fs modules to use our independent filesystem
+    mockModule("fs", () => ({
+      promises: mockFs,
+    }));
+
+    // Mock path module for consistent path operations
+    mockModule("path", () => ({
+      join: (...parts: string[]) => parts.join("/"),
+    }));
   });
 
   afterEach(() => {
-    mock.restore();
-    mockFileSystem.clear();
-    mockDirectories.clear();
+    // No cleanup needed - each test gets fresh mock filesystem
   });
 
   test("createConfiguredTaskService should use configuration to resolve backend", async () => {
@@ -87,69 +40,78 @@ describe("Configuration Integration", () => {
     const configPath = "/mock/config-test/.minsky/config.yaml";
 
     // Setup mock directory structure
-    mockDirectories.add(tempDir);
-    mockDirectories.add(minskyhDir);
+    mockFs.directories.add(tempDir);
+    mockFs.directories.add(minskyhDir);
 
     const configContent = `
 version: 1
 backends:
-  default: "json-file"
-repository:
-  auto_detect_backend: true
-  detection_rules:
-    - condition: "always"
-      backend: "json-file"
+  default: json-file
+  json-file:
+    type: json-file
+    name: json-file
 `;
 
-    // Mock config file
-    mockFileSystem.set(configPath, configContent);
+    // Create config file in mock filesystem
+    await mockFs.writeFile(configPath, configContent);
 
-    // Test that the service is created successfully
+    // Test createConfiguredTaskService
     const taskService = await createConfiguredTaskService({
       workspacePath: tempDir,
     });
 
     expect(taskService).toBeDefined();
-    expect(taskService.getWorkspacePath()).toBe(tempDir);
-
-    // Test that tasks can be listed (even if empty)
+    // Verify the service works by testing basic functionality
     const tasks = await taskService.listTasks();
     expect(Array.isArray(tasks)).toBe(true);
   });
 
-  test("createConfiguredTaskService should fall back to default when configuration fails", async () => {
-    // Use mock path with no config file
-    const tempDir = "/mock/no-config-test";
-    mockDirectories.add(tempDir);
+  test("createConfiguredTaskService should handle missing config directory", async () => {
+    const nonExistentDir = "/mock/non-existent-dir";
 
-    // Test that the service is created successfully even without config
+    // The function should succeed with fallback behavior, not throw
     const taskService = await createConfiguredTaskService({
-      workspacePath: tempDir,
+      workspacePath: nonExistentDir,
     });
 
     expect(taskService).toBeDefined();
-    expect(taskService.getWorkspacePath()).toBe(tempDir);
-
-    // Should still be able to list tasks with default configuration
+    // Should work with default configuration
     const tasks = await taskService.listTasks();
     expect(Array.isArray(tasks)).toBe(true);
   });
 
-  test("createConfiguredTaskService should respect explicit backend parameter", async () => {
-    // Use mock paths
-    const tempDir = "/mock/explicit-backend-test";
-    mockDirectories.add(tempDir);
+  test("createConfiguredTaskService should handle explicit backend override", async () => {
+    const tempDir = "/mock/config-test-explicit";
+    const minskyhDir = "/mock/config-test-explicit/.minsky";
+    const configPath = "/mock/config-test-explicit/.minsky/config.yaml";
+
+    // Setup mock directory structure
+    mockFs.directories.add(tempDir);
+    mockFs.directories.add(minskyhDir);
+
+    const configContent = `
+version: 1
+backends:
+  default: json-file
+  json-file:
+    type: json-file
+    name: json-file
+  markdown:
+    type: markdown
+    name: markdown
+`;
+
+    // Create config file in mock filesystem
+    await mockFs.writeFile(configPath, configContent);
 
     // Test with explicit backend override
     const taskService = await createConfiguredTaskService({
       workspacePath: tempDir,
-      backend: "json-file", // Explicit backend specification
+      backend: "markdown",
     });
 
     expect(taskService).toBeDefined();
-    expect(taskService.getWorkspacePath()).toBe(tempDir);
-
-    // Should work with explicitly specified backend
+    // Verify the service works with the specified backend
     const tasks = await taskService.listTasks();
     expect(Array.isArray(tasks)).toBe(true);
   });

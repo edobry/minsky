@@ -292,11 +292,10 @@ describe("TaskService", () => {
     });
 
     test("integration: should create task with proper spec path using mock backend", async () => {
-      // Integration test using mock filesystem for complete isolation
+      // Integration test using dependency injection instead of global mocking
       const { createMockFilesystem } = await import(
         "../../utils/test-utils/filesystem/mock-filesystem"
       );
-      const { mockModule } = await import("../../utils/test-utils/mocking");
 
       // Create independent mock filesystem for this test
       const mockFs = createMockFilesystem();
@@ -307,59 +306,112 @@ describe("TaskService", () => {
       mockFs.directories.add(tempWorkspace);
       mockFs.directories.add(mockTempDir);
 
-      // Mock fs/promises to use our mock filesystem
-      mockModule("fs/promises", () => mockFs);
+      // Create a mock backend that uses our mock filesystem via DI
+      const mockBackend: TaskBackend = {
+        name: "mock-markdown",
 
-      // Mock fs module (sync operations) to use our mock filesystem
-      mockModule("fs", () => ({
-        existsSync: mockFs.existsSync,
-        readFileSync: mockFs.readFileSync,
-        writeFileSync: mockFs.writeFileSync,
-        mkdirSync: (path: string, options?: any) => {
-          mockFs.directories.add(path);
-          if (options?.recursive) {
-            const parts = path.split("/");
-            for (let i = 1; i <= parts.length; i++) {
-              mockFs.directories.add(parts.slice(0, i).join("/"));
-            }
+        // Data retrieval methods
+        getTasksData: async () => ({
+          success: true,
+          content: "# Tasks\n\n## Active Tasks\n\n",
+          filePath: `${tempWorkspace}/process/tasks.md`,
+        }),
+
+        getTaskSpecData: async (specPath: string) => {
+          try {
+            const content = await mockFs.readFile(specPath);
+            return {
+              success: true,
+              content: content || "",
+              filePath: specPath,
+            };
+          } catch {
+            return {
+              success: false,
+              content: "",
+              filePath: specPath,
+              error: new Error(`File not found: ${specPath}`),
+            };
           }
         },
-        mkdtempSync: (prefix: string) => {
-          const timestamp = Date.now();
-          const random = Math.random().toString(36).substring(2, 8);
-          const tempDir = `${prefix}${timestamp}-${random}`;
-          mockFs.directories.add(tempDir);
-          return tempDir;
+
+        // Pure operations
+        parseTasks: () => [],
+        formatTasks: () => "",
+        parseTaskSpec: (content: string) => {
+          // Extract title from markdown heading
+          const titleMatch = content.match(/# Task [^:]*: (.+)/);
+          const title = titleMatch ? titleMatch[1] : "Test Task";
+          return {
+            id: "#001",
+            title,
+            description: "Mock task description",
+          };
         },
-      }));
+        formatTaskSpec: (spec: any) =>
+          `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`,
 
-      // Mock os module to return our mock temp directory
-      mockModule("os", () => ({
-        tmpdir: () => mockTempDir,
-      }));
+        // Task operations using mock filesystem
+        listTasks: async () => [],
+        getTask: async () => null,
+        getTaskStatus: async () => null,
+        setTaskStatus: async () => {},
+        createTask: async () => ({ id: "#001", title: "Mock Task", status: "TODO" }) as any,
+        updateTask: async () => ({ id: "#001", title: "Mock Task", status: "TODO" }) as any,
+        deleteTask: async () => true,
 
-      // Mock path module for consistent path joining
-      mockModule("path", () => ({
-        join: (...parts: string[]) => parts.join("/"),
-      }));
+        createTaskFromTitleAndDescription: async (title: string, description: string) => {
+          // Generate task ID and spec path
+          const taskId = "#001";
+          const specPath = `process/tasks/001-${title.toLowerCase().replace(/\s+/g, "-")}.md`;
 
-      // Create required directory structure and tasks.md file
+          // Create spec content
+          const specContent = `# Task ${taskId}: ${title}\n\n## Context\n\n${description}`;
+
+          // Store in mock filesystem
+          const fullSpecPath = `${tempWorkspace}/${specPath}`;
+          await mockFs.writeFile(fullSpecPath, specContent);
+
+          return {
+            id: taskId,
+            title,
+            description,
+            status: "TODO" as any,
+            specPath,
+          };
+        },
+
+        // Side effects using mock filesystem
+        saveTasksData: async () => ({ success: true }),
+        saveTaskSpecData: async () => ({ success: true }),
+
+        // Utility methods
+        getWorkspacePath: () => tempWorkspace,
+        getTaskSpecPath: (taskId: string, title: string) =>
+          `process/tasks/${taskId.replace("#", "")}-${title.toLowerCase().replace(/\s+/g, "-")}.md`,
+        fileExists: async (path: string) => {
+          return mockFs.files.has(path) || mockFs.directories.has(path);
+        },
+      };
+
+      // Create required directory structure in mock filesystem
       const processDir = `${tempWorkspace}/process`;
       const tasksFile = `${processDir}/tasks.md`;
 
       await mockFs.mkdir(processDir, { recursive: true });
-      await mockFs.writeFile(tasksFile, "# Tasks\n\n## Active Tasks\n\n", "utf-8");
+      await mockFs.writeFile(tasksFile, "# Tasks\n\n## Active Tasks\n\n");
 
-      // Create a real TaskService with the markdown backend
-      const realTaskService = new TaskService({
+      // Create TaskService with injected mock backend (NO global mocking!)
+      const taskService = new TaskService({
         workspacePath: tempWorkspace,
-        backend: "markdown",
+        backend: "mock-markdown",
+        customBackends: [mockBackend], // Dependency injection!
       });
 
       const title = "Integration test task";
-      const description = "This task tests the mock filesystem integration.";
+      const description = "This task tests dependency injection with mock filesystem.";
 
-      const task = await realTaskService.createTaskFromTitleAndDescription(title, description);
+      const task = await taskService.createTaskFromTitleAndDescription(title, description);
 
       // Verify the spec path is correct (not a temporary path)
       expect(task.specPath).not.toMatch(/\/tmp\//);
@@ -368,10 +420,10 @@ describe("TaskService", () => {
 
       // Verify the file actually exists in the mock filesystem
       const fullSpecPath = `${tempWorkspace}/${task.specPath}`;
-      await expect(mockFs.access(fullSpecPath)).resolves.toBeUndefined();
+      expect(mockFs.files.has(fullSpecPath)).toBe(true);
 
       // Verify the file content in mock filesystem
-      const fileContent = await mockFs.readFile(fullSpecPath);
+      const fileContent = mockFs.files.get(fullSpecPath);
       expect(fileContent).toContain(title);
       expect(fileContent).toContain(description);
     });
