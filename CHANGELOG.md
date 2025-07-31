@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Session Approve Display**: Fixed "Session: Unknown" display in session approval command output
+  - Corrected property access in session approval formatter from `result.result` to `result.data`
+  - Session name now displays correctly instead of showing "Unknown"
+  - Aligns formatter with actual data structure returned by approval operations
+
 - **Session Approve Merge Strategy**: Fixed session approve creating new merge commits instead of fast-forwarding to prepared merge commits
   - Changed prepared-merge-commit-workflow to use `--ff-only` instead of `--no-ff` during approval
   - Resolves "Merge commits into main must use conventional commit format" validation errors
