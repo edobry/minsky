@@ -165,7 +165,7 @@ export function getSessionCustomizations(): {
 
             // Format the session approval result
             if ((result as any).success) {
-              const data = (result as any).result;
+              const data = (result as any).data;
 
               if (data && data.isNewlyApproved) {
                 log.cli("✅ Session approved and merged successfully!");
