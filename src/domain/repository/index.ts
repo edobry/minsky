@@ -151,6 +151,56 @@ export interface BranchResult {
   branch: string;
 }
 
+/**
+ * Pull Request information
+ */
+export interface PRInfo {
+  /**
+   * PR number (for platforms that support it) or identifier
+   */
+  number: number | string;
+
+  /**
+   * PR URL (for platforms that support it) or branch name
+   */
+  url: string;
+
+  /**
+   * PR state
+   */
+  state: "open" | "closed" | "merged";
+
+  /**
+   * Additional metadata specific to the repository backend
+   */
+  metadata?: any;
+}
+
+/**
+ * Pull Request merge information
+ */
+export interface MergeInfo {
+  /**
+   * Commit hash of the merge
+   */
+  commitHash: string;
+
+  /**
+   * Date when the merge occurred
+   */
+  mergeDate: string;
+
+  /**
+   * User who performed the merge
+   */
+  mergedBy: string;
+
+  /**
+   * Additional metadata specific to the repository backend
+   */
+  metadata?: any;
+}
+
 // Completely rewritten repository backend interface with flexible types
 export interface RepositoryBackend {
   getType(): string;
@@ -163,6 +213,34 @@ export interface RepositoryBackend {
   pull(branch?: string): Promise<any>;
   checkout?(branch: string): Promise<void>;
   getConfig?(): RepositoryBackendConfig;
+
+  // New PR workflow methods
+  /**
+   * Create a pull request from the source branch to the base branch
+   *
+   * @param title - PR title
+   * @param body - PR body/description
+   * @param sourceBranch - Source branch name (session branch)
+   * @param baseBranch - Target branch name (usually main/master)
+   * @param session - Session identifier for workspace context
+   * @returns Promise<PRInfo> - Information about the created PR
+   */
+  createPullRequest(
+    title: string,
+    body: string,
+    sourceBranch: string,
+    baseBranch: string,
+    session?: string
+  ): Promise<PRInfo>;
+
+  /**
+   * Merge a pull request into the base branch
+   *
+   * @param prIdentifier - PR number/ID or branch name depending on backend
+   * @param session - Session identifier for workspace context
+   * @returns Promise<MergeInfo> - Information about the merge operation
+   */
+  mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo>;
 }
 
 /**

@@ -584,7 +584,11 @@
 
 - [x] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
+<<<<<<< HEAD
 - [-] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
+=======
+- [x] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
+>>>>>>> origin/main
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
@@ -614,6 +618,10 @@
 
 - [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
-- [ ] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
+- [+] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
+
+- [+] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
+
+- [ ] Explore Automated Session Sync Workflow on PR Merge [#361](process/tasks/361-explore-automated-session-sync-workflow-on-pr-merge.md)
