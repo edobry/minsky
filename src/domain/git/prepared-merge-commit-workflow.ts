@@ -45,7 +45,7 @@ export async function createPreparedMergeCommitPR(
   // Generate PR branch name from title
   const prBranchName = titleToBranchName(title);
   const prBranch = `pr/${prBranchName}`;
-  
+
   let stashCreated = false;
   const stashName = `prepared-merge-${Date.now()}`;
 
@@ -53,20 +53,25 @@ export async function createPreparedMergeCommitPR(
     // Check for uncommitted changes before any git operations
     let hasUncommittedChanges = false;
     try {
-      const statusResult = await gitExec("status", "status --porcelain", { workdir, timeout: 30000 });
+      const statusResult = await gitExec("status", "status --porcelain", {
+        workdir,
+        timeout: 30000,
+      });
       hasUncommittedChanges = statusResult.stdout.trim().length > 0;
     } catch (statusErr) {
       // If we can't check status, proceed cautiously
       console.warn("Could not check git status, proceeding with potential uncommitted changes");
     }
-    
+
     // Stash uncommitted changes if they exist
     if (hasUncommittedChanges) {
       try {
         await gitExec("stash-push", `stash push -m "${stashName}"`, { workdir, timeout: 30000 });
         stashCreated = true;
       } catch (stashErr) {
-        throw new MinskyError(`Failed to stash uncommitted changes: ${getErrorMessage(stashErr as any)}`);
+        throw new MinskyError(
+          `Failed to stash uncommitted changes: ${getErrorMessage(stashErr as any)}`
+        );
       }
     }
 
@@ -114,14 +119,17 @@ export async function createPreparedMergeCommitPR(
     // Restore stashed changes if we created a stash
     if (stashCreated) {
       try {
-        const stashListResult = await gitExec("stash-list", "stash list", { workdir, timeout: 30000 });
+        const stashListResult = await gitExec("stash-list", "stash list", {
+          workdir,
+          timeout: 30000,
+        });
         if (stashListResult.stdout.includes(stashName)) {
           await gitExec("stash-pop", `stash pop "stash@{0}"`, { workdir, timeout: 30000 });
         }
       } catch (stashRestoreErr) {
-        log.warn("Failed to restore stashed changes, but PR was created successfully", { 
-          stashName, 
-          error: getErrorMessage(stashRestoreErr as any) 
+        log.warn("Failed to restore stashed changes, but PR was created successfully", {
+          stashName,
+          error: getErrorMessage(stashRestoreErr as any),
         });
       }
     }
@@ -151,14 +159,17 @@ export async function createPreparedMergeCommitPR(
     // Restore stashed changes if we created a stash
     if (stashCreated) {
       try {
-        const stashListResult = await gitExec("stash-list", "stash list", { workdir, timeout: 30000 });
+        const stashListResult = await gitExec("stash-list", "stash list", {
+          workdir,
+          timeout: 30000,
+        });
         if (stashListResult.stdout.includes(stashName)) {
           await gitExec("stash-pop", `stash pop "stash@{0}"`, { workdir, timeout: 30000 });
         }
       } catch (stashRestoreErr) {
-        log.warn("Failed to restore stashed changes after error", { 
-          stashName, 
-          error: getErrorMessage(stashRestoreErr as any) 
+        log.warn("Failed to restore stashed changes after error", {
+          stashName,
+          error: getErrorMessage(stashRestoreErr as any),
         });
       }
     }

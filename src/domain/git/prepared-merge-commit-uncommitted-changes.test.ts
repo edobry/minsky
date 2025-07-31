@@ -1,9 +1,9 @@
 /**
  * Test for Prepared Merge Commit Workflow - Uncommitted Changes Handling
- * 
+ *
  * CRITICAL REQUIREMENT: The workflow must handle uncommitted changes properly
  * to avoid "Your local changes would be overwritten by checkout" errors.
- * 
+ *
  * Expected behavior:
  * 1. Check for uncommitted changes before any git checkout operations
  * 2. Stash uncommitted changes if they exist
@@ -35,9 +35,11 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         return { stdout: "M  src/file1.ts\nA  src/file2.ts\n", stderr: "" };
       } else if (operation === "stash-list") {
         // Simulate stash exists with dynamic name
-        const stashEntries = gitCommands.filter(cmd => cmd.command.startsWith("stash push -m"));
+        const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
-          const stashMessage = stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] || "prepared-merge";
+          const stashMessage =
+            stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] ||
+            "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
           return { stdout: "", stderr: "" };
@@ -71,7 +73,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
     // Should stash uncommitted changes
     expect(commandSequence.some((cmd) => cmd.startsWith("stash push -m"))).toBe(true);
 
-    // Should perform normal workflow operations  
+    // Should perform normal workflow operations
     expect(commandSequence).toContain("switch task161");
     expect(commandSequence.some((cmd) => cmd.startsWith("branch pr/"))).toBe(true);
     expect(commandSequence.some((cmd) => cmd.startsWith("merge --no-ff"))).toBe(true);
@@ -129,9 +131,11 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
         // Simulate merge conflict
         throw new Error("CONFLICT (content): Merge conflict in file.txt");
       } else if (operation === "stash-list") {
-        const stashEntries = gitCommands.filter(cmd => cmd.command.startsWith("stash push -m"));
+        const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
-          const stashMessage = stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] || "prepared-merge";
+          const stashMessage =
+            stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] ||
+            "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
           return { stdout: "", stderr: "" };
@@ -204,9 +208,11 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       if (operation === "status") {
         return { stdout: "M  src/file1.ts\n", stderr: "" };
       } else if (operation === "stash-list") {
-        const stashEntries = gitCommands.filter(cmd => cmd.command.startsWith("stash push -m"));
+        const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
-          const stashMessage = stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] || "prepared-merge";
+          const stashMessage =
+            stashEntries[stashEntries.length - 1].command.match(/"([^"]+)"/)?.[1] ||
+            "prepared-merge";
           return { stdout: `stash@{0}: On branch: ${stashMessage}`, stderr: "" };
         } else {
           return { stdout: "", stderr: "" };
