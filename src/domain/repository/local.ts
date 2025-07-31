@@ -82,8 +82,9 @@ export class LocalGitBackend implements RepositoryBackend {
    * @returns Full path to the session working directory
    */
   private getSessionWorkdir(session: string): string {
-    // Use the new path structure with sessions subdirectory
-    return join(this.baseDir, this.repoName, "sessions", session);
+    // Use consistent path structure with SessionDB: no repoName component
+    // This fixes the bug where LocalGitBackend and SessionDB used different paths
+    return join(this.baseDir, "sessions", session);
   }
 
   /**

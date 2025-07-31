@@ -51,13 +51,13 @@ interface WorkItem {
   id: string;
   type: "user-task" | "system-action" | "ai-suggestion";
   source: "manual" | "pr-merge" | "ai-analysis" | "scheduled";
-  
+
   // Core work item data
   title: string;
   description: string;
   status: WorkItemStatus;
   priority: WorkItemPriority;
-  
+
   // System action specific fields
   automation?: {
     executable: boolean;           // Can this be auto-executed?
@@ -65,7 +65,7 @@ interface WorkItem {
     retryable: boolean;           // Can retry on failure?
     prerequisites: string[];       // Other work items that must complete first
   };
-  
+
   // Context and relationships
   context: {
     triggerEvent?: PRMergeEvent;   // What triggered this work item
@@ -73,7 +73,7 @@ interface WorkItem {
     relatedTasks?: string[];      // Related user tasks
     riskLevel?: "low" | "medium" | "high"; // AI-assessed risk
   };
-  
+
   // Execution tracking
   execution?: {
     attempts: number;
@@ -96,7 +96,7 @@ interface PRMergeEvent {
   mergeBranch: string;       // Feature branch that was merged
   mergeCommit: string;
   changedFiles: string[];
-  
+
   // AI-enhanced analysis
   analysis: {
     impactAssessment: "low" | "medium" | "high";
@@ -121,7 +121,7 @@ interface SessionRelation {
 // Use GitHub webhooks for real-time PR merge detection
 interface GitHubWebhookHandler {
   onPullRequestMerged(event: GitHubPREvent): Promise<WorkItem[]>;
-  
+
   // Rich GitHub context available
   analyzeRelatedSessions(pr: GitHubPullRequest): Promise<SessionRelation[]>;
   detectFileOverlaps(changedFiles: string[], sessions: Session[]): SessionRelation[];
@@ -134,10 +134,10 @@ interface GitHubWebhookHandler {
 interface LocalEventDetector {
   // Option 1: Git hooks (post-merge, post-receive)
   setupGitHooks(repoPath: string): void;
-  
+
   // Option 2: Periodic polling of git log
   pollForMerges(lastCheck: Date): Promise<PRMergeEvent[]>;
-  
+
   // Option 3: Manual trigger
   manualMergeDetection(mergeCommit: string): Promise<PRMergeEvent>;
 }
@@ -149,19 +149,19 @@ interface LocalEventDetector {
 interface SessionRelationshipAnalyzer {
   // Analyze which sessions are affected by PR changes
   analyzeSessionImpact(
-    prEvent: PRMergeEvent, 
+    prEvent: PRMergeEvent,
     activeSessions: Session[]
   ): Promise<SessionRelation[]>;
-  
+
   // Predict potential merge conflicts
   predictConflicts(
-    sessionBranch: string, 
+    sessionBranch: string,
     mainChanges: string[]
   ): Promise<ConflictPrediction[]>;
-  
+
   // Assess merge complexity and risk
   assessMergeRisk(
-    session: Session, 
+    session: Session,
     prEvent: PRMergeEvent
   ): Promise<MergeRiskAssessment>;
 }
@@ -184,7 +184,7 @@ function generateSyncWorkItems(
   prEvent: PRMergeEvent,
   sessionRelations: SessionRelation[]
 ): WorkItem[] {
-  
+
   return sessionRelations.map(relation => {
     if (relation.relationshipStrength > 0.8) {
       // High confidence - auto-executable
@@ -243,7 +243,7 @@ minsky sessions sync --all [--dry-run]   # Sync all sessions
 # Enhanced session listing with sync status
 minsky sessions list --show-sync-status
 # Output:
-# - session-123: Feature Work [BEHIND main by 3 commits] ⚠️ 
+# - session-123: Feature Work [BEHIND main by 3 commits] ⚠️
 # - session-456: Bug Fix [UP TO DATE] ✅
 # - session-789: Refactor [CONFLICTS detected] ⚠️
 
@@ -263,14 +263,14 @@ class PRMergeOrchestrator {
     // 1. Analyze impact
     const activeSessions = await this.sessionService.getActiveSessions();
     const relationships = await this.aiAnalyzer.analyzeSessionImpact(event, activeSessions);
-    
+
     // 2. Generate work items
     const workItems = await this.generateSyncWorkItems(event, relationships);
-    
+
     // 3. Store and optionally execute
     await this.workItemService.storeWorkItems(workItems);
     await this.executeAutoWorkItems(workItems.filter(wi => wi.automation?.executable));
-    
+
     return workItems;
   }
 }
@@ -294,7 +294,7 @@ class WorkItemExecutor {
       return this.handleExecutionError(workItem, error);
     }
   }
-  
+
   private async executeSystemAction(workItem: WorkItem): Promise<ExecutionResult> {
     // Handle different system actions (sync, analyze, notify, etc.)
     const action = workItem.context.action;
@@ -373,7 +373,7 @@ class WorkItemExecutor {
 ## Estimated Effort
 
 **Initial Exploration**: 16-24 hours
-**Proof of Concept**: 40-60 hours  
+**Proof of Concept**: 40-60 hours
 **Production Implementation**: 80-120 hours
 
 This represents a significant architectural addition that bridges event-driven automation with task management, requiring careful design and implementation across multiple system boundaries.
@@ -404,4 +404,4 @@ This represents a significant architectural addition that bridges event-driven a
 - [ ] Implement performance optimizations
 - [ ] Create comprehensive documentation and testing
 
-This exploration could fundamentally change how Minsky handles the intersection of ongoing work and main branch evolution, making it a more intelligent and proactive development workflow orchestrator. 
+This exploration could fundamentally change how Minsky handles the intersection of ongoing work and main branch evolution, making it a more intelligent and proactive development workflow orchestrator.

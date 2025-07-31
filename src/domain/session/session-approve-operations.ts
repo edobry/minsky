@@ -23,8 +23,66 @@ import {
 } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
+import type { SessionRecord } from "./types";
 import { updatePrStateOnMerge } from "./session-update-operations";
 import { createRepositoryBackendForSession } from "./repository-backend-detection";
+import {
+  createRepositoryBackend,
+  RepositoryBackendType,
+  type RepositoryBackend,
+  type RepositoryBackendConfig,
+} from "../repository/index";
+
+/**
+ * Create repository backend from session record's stored configuration
+ * instead of auto-detecting from git remote
+ */
+async function createRepositoryBackendFromSession(
+  sessionRecord: SessionRecord
+): Promise<RepositoryBackend> {
+  // Determine backend type from session configuration
+  let backendType: RepositoryBackendType;
+
+  if (sessionRecord.backendType) {
+    // Use explicitly set backend type
+    switch (sessionRecord.backendType) {
+      case "github":
+        backendType = RepositoryBackendType.GITHUB;
+        break;
+      case "remote":
+        backendType = RepositoryBackendType.REMOTE;
+        break;
+      case "local":
+      default:
+        backendType = RepositoryBackendType.LOCAL;
+        break;
+    }
+  } else {
+    // Infer backend type from repoUrl format for backward compatibility
+    if (sessionRecord.repoUrl.startsWith("/") || sessionRecord.repoUrl.startsWith("file://")) {
+      backendType = RepositoryBackendType.LOCAL;
+    } else if (sessionRecord.repoUrl.includes("github.com")) {
+      backendType = RepositoryBackendType.GITHUB;
+    } else {
+      backendType = RepositoryBackendType.REMOTE;
+    }
+  }
+
+    const config: RepositoryBackendConfig = {
+    type: backendType,
+    repoUrl: sessionRecord.repoUrl,
+  };
+
+  // Add GitHub-specific configuration if available
+  if (backendType === RepositoryBackendType.GITHUB && sessionRecord.github) {
+    config.github = {
+      owner: sessionRecord.github.owner || "",
+      repo: sessionRecord.github.repo || "",
+    };
+  }
+
+  return await createRepositoryBackend(config);
+}
 
 /**
  * Approves a session by merging its PR branch into the main branch
@@ -49,6 +107,7 @@ export async function approveSessionImpl(
     };
     workspaceUtils?: any;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
+    createRepositoryBackend?: (sessionRecord: SessionRecord) => Promise<RepositoryBackend>;
   }
 ): Promise<{
   session: string;
@@ -266,13 +325,14 @@ The task exists but has no associated session to approve.
   let mergedBy: string = "";
 
   try {
-    // Use repository backend to handle merging instead of direct git commands
+    // Use repository backend from session configuration instead of auto-detecting
     if (!params.json) {
-      log.cli("🔍 Auto-detecting repository backend...");
+      log.cli("🔍 Using session's repository configuration...");
     }
 
-    // Create repository backend based on current repository
-    const repositoryBackend = await createRepositoryBackendForSession(workingDirectory);
+    // Create repository backend from session record's stored configuration
+    const createBackendFn = depsInput?.createRepositoryBackend || createRepositoryBackendFromSession;
+    const repositoryBackend = await createBackendFn(sessionRecord);
     const backendType = repositoryBackend.getType();
 
     if (!params.json) {
