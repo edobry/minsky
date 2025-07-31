@@ -584,11 +584,7 @@
 
 - [x] Create Domain-Wide Schema Libraries for Cross-Interface Type Composition [#329](process/tasks/329-create-domain-wide-schema-libraries-for-cross-interface-type-composition.md)
 
-<<<<<<< HEAD
-- [-] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
-=======
 - [x] Apply Type Composition Patterns to CLI Adapters [#335](process/tasks/335-apply-type-composition-patterns-to-cli-adapters.md)
->>>>>>> origin/main
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
@@ -625,3 +621,5 @@
 - [+] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
 
 - [ ] Explore Automated Session Sync Workflow on PR Merge [#361](process/tasks/361-explore-automated-session-sync-workflow-on-pr-merge.md)
+
+- [ ] Truncate verbose git commands in error messages [#362](process/tasks/362-truncate-verbose-git-commands-in-error-messages.md)
