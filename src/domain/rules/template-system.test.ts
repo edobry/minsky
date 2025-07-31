@@ -66,6 +66,9 @@ mock.module("../../adapters/shared/command-registry", () => {
     sharedCommandRegistry: {
       getCommand: mock(),
       getCommandsByCategory: mock(),
+      clear: mock(),
+      getCommandCount: mock(() => 0),
+      registerCommand: mock(),
     },
   };
 });

@@ -118,7 +118,10 @@ export function fixMockingConsistency(filePaths: string[]): FixResult[] {
 
       results.push(result);
     } catch (error) {
-      console.error(`❌ Error processing ${filePath}:`, error);
+      // Only log errors in non-test environments to avoid test noise
+      if (!process.env.NODE_ENV?.includes('test') && !process.env.BUN_ENV?.includes('test')) {
+        console.error(`❌ Error processing ${filePath}:`, error);
+      }
       results.push({
         changed: false,
         reason: `Error: ${error instanceof Error ? error.message : String(error)}`,

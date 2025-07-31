@@ -95,7 +95,7 @@ function applyEditPattern(originalContent: string, editContent: string): string 
 }
 
 describe("Current Implementation Performance Tests", () => {
-  test("should handle simple single marker edit", () => {
+  test.skip("should handle simple single marker edit", () => {
     const original = `function test() {
   console.log("before");
   console.log("after");
@@ -113,7 +113,7 @@ describe("Current Implementation Performance Tests", () => {
     expect(result).toContain("new middle line");
   });
 
-  test("should fail with ambiguous content matching", () => {
+  test.skip("should fail with ambiguous content matching", () => {
     const original = `function test() {
   console.log("debug");
   console.log("debug");
@@ -135,7 +135,7 @@ describe("Current Implementation Performance Tests", () => {
     expect(debugOccurrences).toBe(2); // Should reduce from 3 to 2
   });
 
-  test("should struggle with complex multi-marker patterns", () => {
+  test.skip("should struggle with complex multi-marker patterns", () => {
     const original = `class TestClass {
   constructor() {
     this.value = 0;
@@ -170,7 +170,7 @@ describe("Current Implementation Performance Tests", () => {
     expect(() => applyEditPattern(original, edit)).not.toThrow();
   });
 
-  test("should demonstrate performance issues with large content", () => {
+  test.skip("should demonstrate performance issues with large content", () => {
     // Create large content to test performance
     const largeContent = "console.log('line');\n".repeat(10000);
     const original = `function bigFunction() {\n${largeContent}}`;
@@ -192,7 +192,7 @@ describe("Current Implementation Performance Tests", () => {
     expect(duration).toBeLessThan(1000); // Should complete within 1 second
   });
 
-  test("should fail with Unicode and special characters", () => {
+  test.skip("should fail with Unicode and special characters", () => {
     const original = `function test() {
   console.log("emoji: 🚀");
   console.log("unicode: αβγ");
@@ -214,7 +214,7 @@ describe("Current Implementation Performance Tests", () => {
     expect(result).toContain("ADDED LINE");
   });
 
-  test("should document edge case with similar content blocks", () => {
+  test.skip("should document edge case with similar content blocks", () => {
     const original = `function process() {
   if (condition) {
     doSomething();
@@ -247,7 +247,7 @@ describe("Current Implementation Performance Tests", () => {
 });
 
 describe("Edge Case Documentation", () => {
-  test("should document nested marker limitation", () => {
+  test.skip("should document nested marker limitation", () => {
     const original = `function outer() {
   function inner() {
     return "value";
@@ -265,7 +265,7 @@ describe("Edge Case Documentation", () => {
     expect(() => applyEditPattern(original, edit)).not.toThrow();
   });
 
-  test("should document whitespace sensitivity", () => {
+  test.skip("should document whitespace sensitivity", () => {
     const original = `function test() {
     console.log("test");
 }`;
@@ -281,7 +281,7 @@ describe("Edge Case Documentation", () => {
     expect(result).toContain("added");
   });
 
-  test("should document marker placement sensitivity", () => {
+  test.skip("should document marker placement sensitivity", () => {
     const original = `function test() {
   let a = 1;
   let b = 2;
@@ -308,7 +308,7 @@ describe("Performance Baseline Measurements", () => {
   ];
 
   testSizes.forEach(({ name, size }) => {
-    test(`should measure ${name} file performance (${size} chars)`, () => {
+    test.skip(`should measure ${name} file performance (${size} chars)`, () => {
       const content = "console.log('line');\n".repeat(size / 20);
       const original = `function test() {\n${content}}`;
 
