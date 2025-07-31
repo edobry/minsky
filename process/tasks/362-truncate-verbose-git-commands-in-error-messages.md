@@ -46,9 +46,53 @@ Implement a command truncation utility that:
 
 ## Acceptance Criteria
 
-- [ ] Git commands in error messages are truncated to reasonable length (≤150 chars)
-- [ ] Essential information (operation, key files, error type) is preserved
-- [ ] Long paths are intelligently shortened (show relevant parts)
-- [ ] Error messages remain actionable and debuggable
-- [ ] Tests verify truncation behavior with various command types
-- [ ] No regression in error message usefulness
+- [x] Git commands in error messages are truncated to reasonable length (≤150 chars)
+- [x] Essential information (operation, key files, error type) is preserved
+- [x] Long paths are intelligently shortened (show relevant parts)
+- [x] Error messages remain actionable and debuggable
+- [x] Tests verify truncation behavior with various command types
+- [x] No regression in error message usefulness
+
+## Implementation
+
+### Changes Made
+
+1. **Created `src/utils/command-truncation.ts`** - Core truncation utility
+   - `truncateGitCommand()` - Main function for truncating git commands
+   - `truncateWorkingDirectory()` - Specific function for path truncation
+   - Intelligent session workspace path handling (`...sessions/taskXXX`)
+   - File extension preservation
+   - Configurable limits and ellipsis characters
+
+2. **Updated `src/utils/git-exec.ts`** - Applied truncation to error handling
+   - Import truncation utilities
+   - Apply `truncateGitCommand()` to all command context labels
+   - Apply `truncateWorkingDirectory()` to working directory paths
+   - Preserves all existing functionality while reducing verbosity
+
+3. **Added comprehensive tests** - `src/utils/command-truncation.test.ts`
+   - 21 test cases covering various scenarios
+   - Session workspace path truncation
+   - File extension preservation
+   - Custom configuration
+   - Edge cases and error conditions
+
+### Results
+
+**Before:**
+```
+Command: git -C /Users/edobry/.local/state/minsky/sessions/task362/very/long/path/that/should/be/truncated/destination clone https://fake-repo.git
+Working directory: /Users/edobry/.local/state/minsky/sessions/task362/very/long/path/that/should/be/truncated/destination
+```
+
+**After:**
+```
+Command: git -C .../sessions/task362/.../destination clone https://fake-repo.git
+Working directory: .../sessions/task362
+```
+
+## Status
+
+**COMPLETED** ✅ - Git command truncation implemented and tested.
+
+All error messages now display truncated commands while preserving essential debugging information.
