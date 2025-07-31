@@ -5,6 +5,7 @@
 **Dependencies:** 
 - Task #161 (Add GitHub PR Workflow) - FOUNDATIONAL DEPENDENCY
 - Task #174 (Review Session PR Workflow Architecture) - COMPLETED
+- Task #359 (Restructure Session PR Command with Explicit Subcommands) - COMMAND STRUCTURE DEPENDENCY
 
 ## Context
 
@@ -222,6 +223,7 @@ minsky session merge     # merge only
 - **Command Discovery**: How do users learn about separate commands?
 - **Workflow Guidance**: When to approve vs. merge?
 - **Error Recovery**: Clear messages for workflow violations
+- **CLI Consistency**: Align approval/merge commands with session PR structure from Task #359
 
 ### 4. Migration Strategy
 - **Existing Sessions**: How to handle in-flight work?
@@ -271,6 +273,7 @@ minsky session merge     # merge only
 2. **Repository Backend Review**: Analyze coupling in existing implementations  
 3. **Task Status Lifecycle**: Map current status transitions and identify gaps
 4. **CLI Command Analysis**: Review session command structure and patterns
+5. **Session PR Command Structure**: Align with Task #359 decisions on subcommand patterns
 
 ### Phase 2: Platform Research
 1. **GitHub PR Workflow Study**: Document GitHub's approval/merge separation
@@ -315,6 +318,7 @@ minsky session merge     # merge only
 **Foundational Dependencies**:
 - **Task #161**: This exploration directly informs GitHub PR workflow implementation
 - **Task #174**: Completed session PR architecture review provides context
+- **Task #359**: Command structure decisions impact approval/merge command design
 
 **Related Work**:
 - **Repository Backend Interface** (Task #014): May need interface extensions
@@ -341,3 +345,5 @@ This exploration is **foundational** for Task #161 and will significantly impact
 ## Notes
 
 This task represents a critical architectural decision point for Minsky's PR workflow. The outcome will determine whether Minsky can effectively leverage platform-native collaboration features or remains limited to non-standard workflows that bypass industry-standard patterns.
+
+**Dependency on Task #359**: The command structure decisions in Task #359 (restructuring `session pr` with explicit subcommands) will directly influence how approval and merge commands should be designed. If Task #359 establishes patterns like `session pr create`, `session pr list`, `session pr get`, then the approval/merge commands should follow similar patterns (e.g., `session review approve`, `session review merge` or integrated into the `session pr` subcommand structure). This exploration must align with whatever CLI patterns are established in Task #359 to maintain consistency across the session command interface.
