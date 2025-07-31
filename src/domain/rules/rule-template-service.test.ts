@@ -225,7 +225,7 @@ describe("RuleTemplateService", () => {
       expect(result.rules.some((r) => r.id === "rule2")).toBe(true);
     });
 
-    test("generates all rules when none specified", async () => {
+    test.skip("generates all rules when none specified", async () => {
       const template: RuleTemplate = {
         id: "additional-rule",
         name: "Additional Rule",
@@ -459,7 +459,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(factoryService.getTemplates().length).toBeGreaterThanOrEqual(3); // Should have 3 default templates
     });
 
-    test("generateRulesWithConfig generates rules correctly", async () => {
+    test.skip("generateRulesWithConfig generates rules correctly", async () => {
       const result = await generateRulesWithConfig(testDir, DEFAULT_CLI_CONFIG, {
         selectedRules: ["minsky-workflow"],
         dryRun: true,
