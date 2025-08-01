@@ -625,3 +625,5 @@
 - [x] Truncate verbose git commands in error messages [#362](process/tasks/362-truncate-verbose-git-commands-in-error-messages.md)
 
 - [ ] Implement Linear Backend for Multi-Backend Task System [#363](process/tasks/363-implement-linear-backend-for-multi-backend-task-system.md)
+
+- [ ] Test Hang Fix [#364](process/tasks/364-test-hang-fix.md)

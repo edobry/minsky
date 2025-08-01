@@ -116,6 +116,7 @@ async function callMcpToolDirectly(
       serverArgs.push("--repo", options.repo);
     }
 
+    log.debug(`Spawning minsky with args:`, serverArgs);
     const child = spawn("minsky", serverArgs, {
       stdio: ["pipe", "pipe", "pipe"],
       cwd: process.cwd(),
@@ -126,10 +127,13 @@ async function callMcpToolDirectly(
     let stderr = "";
     let resolved = false;
 
+    log.debug(`Child process spawned with PID: ${child.pid}`);
+
     // Timeout for the operation
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true;
+        log.debug(`Killing child process ${child.pid} due to timeout`);
         child.kill("SIGTERM");
         reject(new Error(`Tool '${toolName}' timed out after 10 seconds`));
       }
@@ -155,9 +159,12 @@ async function callMcpToolDirectly(
       },
     };
 
-    log.debug(`Sending MCP request: ${JSON.stringify(request)}`);
-    child.stdin?.write(`${JSON.stringify(request)}\n`);
-    child.stdin?.end();
+    // Wait a moment for the MCP server to start up
+    setTimeout(() => {
+      log.debug(`Sending MCP request: ${JSON.stringify(request)}`);
+      child.stdin?.write(`${JSON.stringify(request)}\n`);
+      child.stdin?.end();
+    }, 1000);
 
     child.stdout?.on("data", (data) => {
       const output = data.toString();
@@ -213,28 +220,65 @@ async function callMcpToolDirectly(
         const lines = stdout.split("\n");
         for (const line of lines) {
           const trimmedLine = line.trim();
-          if (trimmedLine.startsWith('{"result":') || trimmedLine.startsWith('{"error":')) {
+
+          // Look for JSON-RPC responses (might be direct or in debug logs)
+          let jsonrpcResponse = null;
+
+          // Try direct JSON-RPC response
+          if (
+            trimmedLine.startsWith('{"result":') ||
+            trimmedLine.startsWith('{"error":') ||
+            trimmedLine.includes('"jsonrpc"')
+          ) {
             try {
               const response = JSON.parse(trimmedLine);
               if (response.jsonrpc === "2.0" && response.id === 1) {
-                if (response.error) {
-                  reject(new Error(response.error.message || "MCP tool call failed"));
-                  return;
-                }
-                if (response.result !== undefined) {
-                  // Pretty print the result
-                  if (typeof response.result === "string") {
-                    console.log(response.result);
-                  } else {
-                    console.log(JSON.stringify(response.result, null, 2));
+                jsonrpcResponse = response;
+              }
+            } catch (lineParseError) {
+              // Continue to check for embedded responses
+            }
+          }
+
+          // If not found, look for JSON-RPC embedded in debug logs
+          if (!jsonrpcResponse && trimmedLine.includes('"jsonrpc"')) {
+            try {
+              // Check if this is a debug log with a message field containing JSON-RPC
+              const debugLog = JSON.parse(trimmedLine);
+              if (
+                debugLog.message &&
+                typeof debugLog.message === "string" &&
+                debugLog.message.includes('"jsonrpc"')
+              ) {
+                // Extract JSON-RPC from debug message (format: "Received stdout: {json}")
+                const jsonStart = debugLog.message.indexOf("{");
+                if (jsonStart !== -1) {
+                  const jsonPart = debugLog.message.substring(jsonStart);
+                  const response = JSON.parse(jsonPart);
+                  if (response.jsonrpc === "2.0" && response.id === 1) {
+                    jsonrpcResponse = response;
                   }
-                  resolve();
-                  return;
                 }
               }
             } catch (lineParseError) {
-              // Skip invalid JSON lines
-              continue;
+              // Continue
+            }
+          }
+
+          if (jsonrpcResponse) {
+            if (jsonrpcResponse.error) {
+              reject(new Error(jsonrpcResponse.error.message || "MCP tool call failed"));
+              return;
+            }
+            if (jsonrpcResponse.result !== undefined) {
+              // Pretty print the result
+              if (typeof jsonrpcResponse.result === "string") {
+                console.log(jsonrpcResponse.result);
+              } else {
+                console.log(JSON.stringify(jsonrpcResponse.result, null, 2));
+              }
+              resolve();
+              return;
             }
           }
         }
@@ -260,6 +304,8 @@ async function callMcpToolDirectly(
           }
         }
 
+        log.debug("Raw server output:", stdout);
+        log.debug("Raw server stderr:", stderr);
         reject(new Error("No valid MCP response found in server output"));
       } catch (parseError) {
         reject(new Error(`Failed to parse MCP response: ${parseError}`));
