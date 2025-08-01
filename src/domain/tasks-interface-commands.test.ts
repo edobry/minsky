@@ -40,9 +40,9 @@ const TASK_ID_WITHOUT_LEADING_ZEROS = 23;
 // Set up automatic mock cleanup
 setupTestMocks();
 
-// Mock dependencies
+// Mock dependencies - updated for qualified ID format
 const mockTask: Task = {
-  id: "#123",
+  id: "md#123",
   title: "Test Task",
   status: TASK_STATUS.TODO,
   description: "This is a test task",
@@ -51,9 +51,11 @@ const mockTask: Task = {
 // Create a default implementation for getTask that works for all tests
 const defaultGetTaskMock = (id: unknown) => {
   const taskId = String(id);
-  // Handle both formats: with and without # prefix
-  if (taskId === "#123" || taskId === "123") return Promise.resolve(mockTask);
-  if (taskId === "#23" || taskId === "23") return Promise.resolve({ ...mockTask, id: "#023" });
+  // Handle qualified format (new approach) and legacy formats for backward compatibility
+  if (taskId === "md#123" || taskId === "#123" || taskId === "123")
+    return Promise.resolve(mockTask);
+  if (taskId === "md#23" || taskId === "#23" || taskId === "23")
+    return Promise.resolve({ ...mockTask, id: "md#23" });
   return Promise.resolve(null);
 };
 
@@ -62,8 +64,15 @@ const mockTaskService = {
   getTask: createMock(defaultGetTaskMock),
   getTaskStatus: createMock((id: unknown) => {
     const taskId = String(id);
-    // Handle both formats: with and without # prefix
-    if (taskId === "#123" || taskId === "123" || taskId === "#23" || taskId === "23") {
+    // Handle qualified format (new approach) and legacy formats for backward compatibility
+    if (
+      taskId === "md#123" ||
+      taskId === "#123" ||
+      taskId === "123" ||
+      taskId === "md#23" ||
+      taskId === "#23" ||
+      taskId === "23"
+    ) {
       return Promise.resolve(TASK_STATUS.TODO);
     }
     return Promise.resolve(null);
@@ -72,7 +81,7 @@ const mockTaskService = {
   backends: [] as any,
   currentBackend: {} as any,
   getWorkspacePath: createMock(() => "/mock/workspace/path"),
-  createTask: createMock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "#new" })),
+  createTask: createMock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "md#new" })),
 };
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
@@ -137,7 +146,7 @@ describe("interface-agnostic task functions", () => {
       const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("123");
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("md#123");
     });
 
     test("should throw ResourceNotFoundError when task is not found", async () => {
@@ -154,7 +163,7 @@ describe("interface-agnostic task functions", () => {
       }
     });
 
-    test("should normalize non-canonical task IDs (e.g., '123' -> '#123')", async () => {
+    test("should normalize task IDs to qualified format (e.g., '#123' -> 'md#123')", async () => {
       const params = {
         taskId: "#123",
         backend: "markdown",
@@ -163,7 +172,7 @@ describe("interface-agnostic task functions", () => {
       const result = await getTaskFromParams(params, mockDeps);
 
       expect(result).toEqual(mockTask);
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("123");
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("md#123");
     });
 
     test("should handle task IDs without leading zeros", async () => {
@@ -174,8 +183,8 @@ describe("interface-agnostic task functions", () => {
 
       const result = await getTaskFromParams(params, mockDeps);
 
-      expect(result).toEqual({ ...mockTask, id: "#023" });
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("23");
+      expect(result).toEqual({ ...mockTask, id: "md#23" });
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("md#23");
     });
   });
 
@@ -190,7 +199,7 @@ describe("interface-agnostic task functions", () => {
 
       expect(result).toBe(TASK_STATUS.TODO);
       // getTaskStatusFromParams actually calls getTask, not getTaskStatus
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("123");
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("md#123");
     });
 
     test("should throw ResourceNotFoundError when task status is not found", async () => {
@@ -221,8 +230,8 @@ describe("interface-agnostic task functions", () => {
 
       await setTaskStatusFromParams(params, mockDeps);
 
-      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("123", "IN-PROGRESS");
-      expect(mockTaskService.getTask).toHaveBeenCalledWith("123");
+      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("md#123", "IN-PROGRESS");
+      expect(mockTaskService.getTask).toHaveBeenCalledWith("md#123");
     });
 
     test("should throw ValidationError when status is invalid", async () => {

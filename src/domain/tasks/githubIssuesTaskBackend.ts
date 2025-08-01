@@ -203,10 +203,15 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
       // Extract task ID from spec path
       const pathParts = specPath.split("/");
       const fileName = pathParts[pathParts.length - 1];
-      const taskIdMatch = fileName.match(/^(\d+)-/);
+
+      // Only match legitimate task files: {1-4 digit ID}-{title}.md
+      // Exclude temporary files like temp-task-{title}-{timestamp}.md
+      const taskIdMatch = fileName.match(/^(\d{1,4})-[^0-9]/);
 
       if (!taskIdMatch || !taskIdMatch[1]) {
-        throw new Error(`Invalid spec path format: ${specPath}`);
+        throw new Error(
+          `Invalid spec path format: ${specPath}. Expected format: {taskId}-{title}.md`
+        );
       }
 
       const taskId = `#${taskIdMatch[1]}`;
