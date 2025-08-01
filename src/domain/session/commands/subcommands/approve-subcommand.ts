@@ -26,7 +26,7 @@ export const approveSessionSubcommand: CommandExecutionHandler = async (params) 
 
     return {
       success: true,
-      message: "Session PR approved successfully (use 'session merge' to merge)",
+      message: "Session PR approved successfully (use 'session pr merge' to merge)",
       data: result,
     };
   } catch (error) {

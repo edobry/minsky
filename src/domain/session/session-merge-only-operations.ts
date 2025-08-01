@@ -14,24 +14,27 @@ import type { SessionRecord } from "./types";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
- * 
+ *
  * This function enforces the approval requirement across all merge operations.
  * NO MERGE SHOULD EVER BYPASS THIS VALIDATION.
  */
-export function validateSessionApprovedForMerge(sessionRecord: SessionRecord, sessionName: string): void {
+export function validateSessionApprovedForMerge(
+  sessionRecord: SessionRecord,
+  sessionName: string
+): void {
   // Check 1: PR branch must exist
   if (!sessionRecord.prBranch) {
-    throw new ValidationError(
+        throw new ValidationError(
       `❌ MERGE REJECTED: Session "${sessionName}" has no PR branch.\n` +
-      `   Create a PR first with 'minsky session pr'`
+      `   Create a PR first with 'minsky session pr create'`
     );
   }
 
   // Check 2: PR must be explicitly approved
   if (!sessionRecord.prApproved) {
-    throw new ValidationError(
+        throw new ValidationError(
       `❌ MERGE REJECTED: Session "${sessionName}" PR must be approved before merging.\n` +
-      `   Use 'minsky session approve' first to approve the PR.\n` +
+      `   Use 'minsky session pr approve' first to approve the PR.\n` +
       `   This validation prevents unauthorized merges and ensures proper code review.`
     );
   }
@@ -40,16 +43,16 @@ export function validateSessionApprovedForMerge(sessionRecord: SessionRecord, se
   if (sessionRecord.prApproved !== true) {
     throw new ValidationError(
       `❌ MERGE REJECTED: Invalid approval state for session "${sessionName}".\n` +
-      `   prApproved value: ${sessionRecord.prApproved} (type: ${typeof sessionRecord.prApproved})\n` +
-      `   Expected: true (boolean)\n` +
-      `   The approval state must be explicitly set to true.`
+        `   prApproved value: ${sessionRecord.prApproved} (type: ${typeof sessionRecord.prApproved})\n` +
+        `   Expected: true (boolean)\n` +
+        `   The approval state must be explicitly set to true.`
     );
   }
 
   log.debug("Session approval validation passed", {
     sessionName,
     prBranch: sessionRecord.prBranch,
-    prApproved: sessionRecord.prApproved
+    prApproved: sessionRecord.prApproved,
   });
 }
 

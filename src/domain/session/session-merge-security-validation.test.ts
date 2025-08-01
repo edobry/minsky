@@ -1,18 +1,18 @@
 /**
  * Security Test: Session Merge Approval Validation (Task #358)
- * 
+ *
  * CRITICAL SECURITY REQUIREMENT: NO MERGE OPERATIONS SHALL BE ALLOWED
  * WITHOUT PROPER PR APPROVAL VALIDATION
- * 
+ *
  * This test ensures that all merge pathways properly validate approval state
  * before allowing any merge operation to proceed.
  */
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
-import { 
-  mergeSessionOnly, 
+import {
+  mergeSessionOnly,
   validateSessionApprovedForMerge,
-  type SessionMergeOnlyParams 
+  type SessionMergeOnlyParams,
 } from "./session-merge-only-operations";
 import { ValidationError } from "../../errors/index";
 import type { SessionRecord } from "./types";
@@ -21,23 +21,23 @@ import type { SessionRecord } from "./types";
 const mockSessionProvider = {
   getSession: mock(),
   updateSession: mock(),
-  getSessionByTaskId: mock()
+  getSessionByTaskId: mock(),
 };
 
 const mockRepositoryBackend = {
   mergePullRequest: mock(),
   approvePullRequest: mock(),
   getPullRequestApprovalStatus: mock(),
-  getType: () => "test-backend"
+  getType: () => "test-backend",
 };
 
 // Mock modules for Bun test
 mock.module("./session-db-adapter", () => ({
-  createSessionProvider: () => mockSessionProvider
+  createSessionProvider: () => mockSessionProvider,
 }));
 
 mock.module("./repository-backend-detection", () => ({
-  createRepositoryBackendForSession: () => mockRepositoryBackend
+  createRepositoryBackendForSession: () => mockRepositoryBackend,
 }));
 
 describe("Session Merge Security Validation", () => {
@@ -59,7 +59,7 @@ describe("Session Merge Security Validation", () => {
         taskId: "task-123",
         repoUrl: "/test/repo",
         // prBranch: undefined - missing!
-        prApproved: true
+        prApproved: true,
       };
 
       expect(() => {
@@ -74,11 +74,11 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge when prApproved is false", () => {
       // SECURITY TEST: Unapproved PR should block merge
       const sessionRecord: SessionRecord = {
-        name: "test-session", 
+        name: "test-session",
         taskId: "task-123",
         repoUrl: "/test/repo",
         prBranch: "pr/test-session",
-        prApproved: false // UNAPPROVED!
+        prApproved: false, // UNAPPROVED!
       };
 
       expect(() => {
@@ -94,9 +94,9 @@ describe("Session Merge Security Validation", () => {
       // SECURITY TEST: Undefined approval should block merge
       const sessionRecord: SessionRecord = {
         name: "test-session",
-        taskId: "task-123", 
+        taskId: "task-123",
         repoUrl: "/test/repo",
-        prBranch: "pr/test-session"
+        prBranch: "pr/test-session",
         // prApproved: undefined - missing!
       };
 
@@ -114,9 +114,9 @@ describe("Session Merge Security Validation", () => {
       const sessionRecord: SessionRecord = {
         name: "test-session",
         taskId: "task-123",
-        repoUrl: "/test/repo", 
+        repoUrl: "/test/repo",
         prBranch: "pr/test-session",
-        prApproved: "yes" as any // Truthy but not boolean true!
+        prApproved: "yes" as any, // Truthy but not boolean true!
       };
 
       expect(() => {
@@ -132,10 +132,10 @@ describe("Session Merge Security Validation", () => {
       // SECURITY TEST: Only valid approval state should allow merge
       const sessionRecord: SessionRecord = {
         name: "test-session",
-        taskId: "task-123", 
+        taskId: "task-123",
         repoUrl: "/test/repo",
         prBranch: "pr/test-session",
-        prApproved: true // PROPERLY APPROVED
+        prApproved: true, // PROPERLY APPROVED
       };
 
       // This should NOT throw
@@ -152,15 +152,15 @@ describe("Session Merge Security Validation", () => {
         name: "unapproved-session",
         taskId: "task-456",
         repoUrl: "/test/repo",
-        prBranch: "pr/unapproved-session", 
-        prApproved: false // UNAPPROVED!
+        prBranch: "pr/unapproved-session",
+        prApproved: false, // UNAPPROVED!
       };
 
-      mockSessionProvider.getSession.mockResolvedValue(unapprovedSession);
+      mockSessionProvider.getSession = mock(() => Promise.resolve(unapprovedSession));
 
       const params: SessionMergeOnlyParams = {
         session: "unapproved-session",
-        json: false
+        json: false,
       };
 
       // The merge operation should be REJECTED
@@ -174,18 +174,18 @@ describe("Session Merge Security Validation", () => {
     it("should REJECT merge operation for session with no PR branch", async () => {
       // SECURITY TEST: Session without PR should be blocked
       const noPrSession: SessionRecord = {
-        name: "no-pr-session", 
+        name: "no-pr-session",
         taskId: "task-789",
-        repoUrl: "/test/repo"
+        repoUrl: "/test/repo",
         // prBranch: undefined - no PR!
         // prApproved: undefined
       };
 
-      mockSessionProvider.getSession.mockResolvedValue(noPrSession);
+      mockSessionProvider.getSession = mock(() => Promise.resolve(noPrSession));
 
       const params: SessionMergeOnlyParams = {
         session: "no-pr-session",
-        json: false
+        json: false,
       };
 
       // The merge operation should be REJECTED
@@ -200,35 +200,40 @@ describe("Session Merge Security Validation", () => {
       // SECURITY TEST: Only properly approved sessions should proceed to merge
       const approvedSession: SessionRecord = {
         name: "approved-session",
-        taskId: "task-999", 
+        taskId: "task-999",
         repoUrl: "/test/repo",
         prBranch: "pr/approved-session",
-        prApproved: true // PROPERLY APPROVED
+        prApproved: true, // PROPERLY APPROVED
       };
 
-      mockSessionProvider.getSession.mockResolvedValue(approvedSession);
-      mockRepositoryBackend.mergePullRequest.mockResolvedValue({
-        commitHash: "abc123def456", 
-        mergeDate: new Date().toISOString(),
-        mergedBy: "test-user",
-        mergeSha: "abc123",
-        mergedAt: new Date().toISOString()
-      });
+      mockSessionProvider.getSession = mock(() => Promise.resolve(approvedSession));
+      mockRepositoryBackend.mergePullRequest = mock(() =>
+        Promise.resolve({
+          commitHash: "abc123def456",
+          mergeDate: new Date().toISOString(),
+          mergedBy: "test-user",
+          mergeSha: "abc123",
+          mergedAt: new Date().toISOString(),
+        })
+      );
 
       const params: SessionMergeOnlyParams = {
-        session: "approved-session", 
-        json: false
+        session: "approved-session",
+        json: false,
       };
 
       // This should succeed and call the repository backend
       const result = await mergeSessionOnly(params);
-      
+
       expect(result).toBeDefined();
       expect(result.session).toBe("approved-session");
       expect(result.taskId).toBe("task-999");
-      
+
       // Repository backend should be called for approved sessions
-      expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith("pr/approved-session", "approved-session");
+      expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
+        "pr/approved-session",
+        "approved-session"
+      );
     });
   });
 
@@ -238,9 +243,9 @@ describe("Session Merge Security Validation", () => {
       const maliciousSession = {
         name: "malicious-session",
         taskId: "task-evil",
-        repoUrl: "/test/repo", 
+        repoUrl: "/test/repo",
         prBranch: "pr/malicious-session",
-        prApproved: { valueOf: () => true } // Object that's truthy but not boolean true
+        prApproved: { valueOf: () => true }, // Object that's truthy but not boolean true
       } as any;
 
       expect(() => {
@@ -255,7 +260,7 @@ describe("Session Merge Security Validation", () => {
         taskId: "task-edge",
         repoUrl: "/test/repo",
         prBranch: null,
-        prApproved: null
+        prApproved: null,
       } as any;
 
       expect(() => {

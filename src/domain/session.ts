@@ -1299,19 +1299,17 @@ export async function sessionPrFromParams(
 
 /**
  * ⚠️  SECURITY UPDATE (Task #358): Approves a session PR branch (DOES NOT MERGE)
- * 
+ *
  * This function now only performs approval. Use 'session merge' separately to merge.
  * This prevents unauthorized merges and ensures proper code review workflow.
  */
-export async function approveSessionFromParams(
-  params: {
-    session?: string;
-    task?: string;
-    repo?: string;
-    json?: boolean;
-    reviewComment?: string;
-  }
-): Promise<{
+export async function approveSessionFromParams(params: {
+  session?: string;
+  task?: string;
+  repo?: string;
+  json?: boolean;
+  reviewComment?: string;
+}): Promise<{
   sessionName: string;
   taskId?: string;
   prBranch?: string;
@@ -1356,7 +1354,7 @@ Task ${taskIdToUse} exists but has no associated session to approve.
 
 3️⃣ Or approve a different task that has a session:
    minsky session list | grep "task:"
-   minsky session approve --task <task-id-with-session>
+       minsky session pr approve --task <task-id-with-session>
 
 📋 Current available sessions:
    Run 'minsky session list' to see which tasks have active sessions.
