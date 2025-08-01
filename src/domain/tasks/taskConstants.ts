@@ -133,14 +133,14 @@ export const TASK_PARSING_UTILS = {
     if (!checkbox || !title || !fullId) return null;
 
     // Use unified task ID system for consistent handling
-    const { isQualifiedTaskId } = require("../unified-task-id");
-    
+    const { isQualifiedTaskId } = require("./unified-task-id");
+
     let id: string;
     if (isQualifiedTaskId(fullId)) {
       // Qualified ID (md#367) - return as-is
       id = fullId;
     } else if (fullId.startsWith("#")) {
-      // Legacy format with # prefix (#123) - return as-is  
+      // Legacy format with # prefix (#123) - return as-is
       id = fullId;
     } else {
       // Legacy format without # prefix (123) - add # prefix
