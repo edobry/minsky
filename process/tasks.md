@@ -306,7 +306,7 @@
 
 - [ ] Implement Comprehensive ESLint Configuration [#159](process/tasks/159-implement-comprehensive-eslint-configuration.md)
 
-- [+] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
+- [x] Add AI Completion Backend with Multi-Provider Support [#160](process/tasks/160-add-ai-completion-backend-with-multi-provider-support.md)
 
 - [x] Add GitHub PR Workflow as Alternative to Prepared Merge Commits [#161](process/tasks/161-add-github-pr-workflow-as-alternative-to-prepared-merge-commits.md)
 
@@ -610,7 +610,7 @@
 
 - [x] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [#355](process/tasks/355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
 
-- [+] Implement Multi-Backend Task System Architecture [#356](process/tasks/356-implement-multi-backend-task-system-architecture.md)
+- [x] Implement Multi-Backend Task System Architecture [#356](process/tasks/356-implement-multi-backend-task-system-architecture.md)
 
 - [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
@@ -625,4 +625,7 @@
 - [x] Truncate verbose git commands in error messages [#362](process/tasks/362-truncate-verbose-git-commands-in-error-messages.md)
 
 - [ ] Implement Linear Backend for Multi-Backend Task System [#363](process/tasks/363-implement-linear-backend-for-multi-backend-task-system.md)
+
 - [x] Fix missing session.pr command in template system causing 5 template generation failures [#364](process/tasks/364-fix-missing-session-pr-command-in-template-system-causing-5-template-generation-failures.md)
+
+- [+] Fix misleading template messages and missing CLI error details in rules generation [#365](process/tasks/365-fix-misleading-template-messages-and-missing-cli-error-details-in-rules-generation.md)
