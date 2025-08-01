@@ -135,7 +135,7 @@ ${helpers.command("session.dir")}
 1. **Create Session**: Use session.start with task ID
 2. **Work in Session**: All code changes happen in the session directory
 3. **Regular Commits**: Commit changes frequently
-4. **Create PR**: Use session.pr when ready for review
+4. **Create PR**: Use session.pr.create when ready for review
 5. **Update Status**: Set task status to IN-REVIEW
 
 ### 4. Review & Completion
@@ -145,7 +145,7 @@ ${helpers.conditionalSection(
   isCliMode || isHybridMode,
   `
 \`\`\`bash
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 `,
   ""
@@ -154,7 +154,7 @@ ${helpers.conditionalSection(
   isMcpMode || isHybridMode,
   `
 \`\`\`
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 `,
   ""
@@ -194,7 +194,7 @@ ${helpers.parameterDoc("tasks.list")}
 
 ${helpers.parameterDoc("session.start")}
 
-${helpers.parameterDoc("session.pr")}
+${helpers.parameterDoc("session.pr.create")}
 `;
   },
   generateMeta: (context) => ({
@@ -413,7 +413,7 @@ This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent i
 - ${helpers.command("session.get")} - get session details
 - ${helpers.command("session.start")} - create new session
 - ${helpers.command("session.dir")} - get session directory
-- ${helpers.command("session.pr")} - create pull request
+- ${helpers.command("session.pr.create")} - create pull request
 
 ### Rules Management
 - ${helpers.command("rules.list")} - list all rules
@@ -697,7 +697,7 @@ Before starting any task implementation, ensure:
    - This indicates implementation is complete and ready for review
 
 2. **Create Pull Request**
-   - Generate PR using session PR command: ${helpers.command("session.pr")}
+   - Generate PR using session PR command: ${helpers.command("session.pr.create")}
    - Ensure PR description follows guidelines
    - Include task ID in PR title and description
 
@@ -840,7 +840,7 @@ Sessions provide isolated development environments for working on specific tasks
 - Brings session up to date with latest changes from main branch
 - Handles merge conflicts and branch synchronization
 
-**Create pull request**: ${helpers.command("session.pr")}
+**Create pull request**: ${helpers.command("session.pr.create")}
 - Creates a pull request from the session branch
 - Integrates with task management and status updates
 
@@ -905,7 +905,7 @@ When task implementation is complete:
    - Run final tests in session workspace
    - Verify requirements are fully met
 
-2. **Create pull request**: ${helpers.command("session.pr")}
+2. **Create pull request**: ${helpers.command("session.pr.create")}
    - Generates PR from session branch
    - Links PR to associated task
    - Updates task status appropriately
@@ -1001,7 +1001,7 @@ ${helpers.command("session.update")}
 cd \$(${helpers.command("session.dir")})
 
 # 2. Create pull request from session
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ## Troubleshooting
@@ -1297,7 +1297,7 @@ Before creating a PR, ensure:
 
 ### Step 2: Create Pull Request
 
-**Generate PR from session**: ${helpers.command("session.pr")}
+**Generate PR from session**: ${helpers.command("session.pr.create")}
 - Creates PR from session branch to main branch
 - Automatically links PR to associated task
 - May update task status to IN-REVIEW
@@ -1362,7 +1362,7 @@ Use these prefixes for PR titles:
 ## PR Management Commands
 
 ### PR Creation
-**Create PR from session**: ${helpers.command("session.pr")}
+**Create PR from session**: ${helpers.command("session.pr.create")}
 - Primary method for creating PRs
 - Handles task integration automatically
 - Manages branch and status updates
@@ -1417,7 +1417,7 @@ cd \$(${helpers.command("session.dir")})
 ${helpers.command("tasks.status.set")}
 
 # 3. Create PR from session
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ### Scenario 2: Bug Fix PR
@@ -1430,7 +1430,7 @@ cd \$(${helpers.command("session.dir")})
 ${helpers.command("tasks.status.set")}
 
 # 3. Create PR with fix prefix
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ### Scenario 3: Documentation PR
@@ -1443,7 +1443,7 @@ cd \$(${helpers.command("session.dir")})
 ${helpers.command("tasks.status.set")}
 
 # 3. Create docs PR
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ## PR Best Practices
