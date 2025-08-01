@@ -629,3 +629,5 @@
 - [x] Fix missing session.pr command in template system causing 5 template generation failures [#364](process/tasks/364-fix-missing-session-pr-command-in-template-system-causing-5-template-generation-failures.md)
 
 - [+] Fix misleading template messages and missing CLI error details in rules generation [#365](process/tasks/365-fix-misleading-template-messages-and-missing-cli-error-details-in-rules-generation.md)
+
+- [ ] Fix SQLite schema to persist PR metadata for session auto-updates [#366](process/tasks/366-fix-sqlite-schema-to-persist-pr-metadata-for-session-auto-updates.md)
