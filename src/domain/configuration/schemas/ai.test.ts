@@ -41,23 +41,17 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
 
     expect(result.success).toBe(true);
     expect(result.data).toEqual({
-      openai: {
-        enabled: true,
-        apiKey: "test-key",
-        models: [],
-        temperature: undefined,
-        maxTokens: undefined,
-        baseUrl: undefined,
-        headers: undefined,
-        model: undefined,
-        apiKeyFile: undefined,
-      },
       morph: {
-        enabled: true,
         apiKey: "morph-key",
-        models: [],
-        model: "morph-v3-large",
         baseUrl: "https://api.morphllm.com/v1",
+        enabled: true,
+        model: "morph-v3-large",
+        models: [],
+      },
+      openai: {
+        apiKey: "test-key",
+        enabled: true,
+        models: [],
       },
     });
 

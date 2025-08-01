@@ -382,13 +382,33 @@ The task exists but has no associated session to approve.
     }
 
     // Use repository backend to merge the pull request
-    const mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+    let mergeResult;
+    try {
+      mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+      isNewlyApproved = true;
+    } catch (mergeError) {
+      const errorMessage = getErrorMessage(mergeError);
+
+      // Handle "Already up to date" as a successful case - PR was already merged
+      if (errorMessage.includes("Already up to date")) {
+        log.debug("PR is already merged, treating as successful approval");
+        // Create a mock merge result for already-merged PR
+        mergeResult = {
+          commitHash: "already-merged",
+          mergeDate: new Date().toISOString(),
+          mergedBy: "already-merged",
+        };
+        isNewlyApproved = false; // Not newly approved, just already merged
+      } else {
+        // For any other merge error, re-throw to maintain existing behavior
+        throw mergeError;
+      }
+    }
 
     // Extract merge information from repository backend response
     commitHash = mergeResult.commitHash;
     mergeDate = mergeResult.mergeDate;
     mergedBy = mergeResult.mergedBy;
-    isNewlyApproved = true;
 
     if (!params.json) {
       if (backendType === "github") {
@@ -553,6 +573,23 @@ The task exists but has no associated session to approve.
           );
         }
         // Don't fail the entire operation if stash restoration fails
+      }
+    }
+
+    // Clean up local branches after successful merge
+    if (isNewlyApproved) {
+      try {
+        await cleanupLocalBranches(
+          deps.gitService,
+          workingDirectory,
+          prBranch,
+          sessionNameToUse,
+          taskId
+        );
+        log.debug("Successfully cleaned up local branches after merge");
+      } catch (cleanupError) {
+        // Log but don't fail the operation if cleanup fails
+        log.debug(`Branch cleanup failed (non-critical): ${getErrorMessage(cleanupError)}`);
       }
     }
 

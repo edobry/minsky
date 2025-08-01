@@ -13,7 +13,7 @@ import {
 } from "./bun-test-mocking-consistency-fixer";
 
 describe("Bun Test Mocking Consistency Fixer", () => {
-  describe("fixBunTestMockingInFile", () => {
+  describe("fixMockingConsistencyInFile", () => {
     test("should skip non-test files for safety", () => {
       const project = new Project();
       const sourceFile = project.createSourceFile(
@@ -24,10 +24,10 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(false);
-      expect(result.reason).toBe("Not a test file");
+      expect(result.reason).toBe("Not a test file - skipped for safety");
       expect(result.transformations).toBe(0);
     });
 
@@ -41,10 +41,10 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(false);
-      expect(result.reason).toBe("File does not import from bun:test");
+      expect(result.reason).toBe("No bun:test import found - not a bun test file");
       expect(result.transformations).toBe(0);
     });
 
@@ -62,13 +62,13 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(true);
-      expect(result.reason).toBe("Fixed 2 vi.fn() → mock() transformations in bun:test file");
+      expect(result.reason).toBe("Converted 2 vi.fn() calls to mock() for bun:test compatibility");
       expect(result.transformations).toBe(2);
       expect(sourceFile.getFullText()).toContain(
-        'import { describe, expect, mock, test } from "bun:test";'
+        'import { describe, test, expect, mock } from "bun:test";'
       );
       expect(sourceFile.getFullText()).toContain("info: mock(() => {})");
       expect(sourceFile.getFullText()).toContain("error: mock(() => {})");
@@ -85,10 +85,10 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(true);
-      expect(result.reason).toBe("Fixed 1 vi.fn() → mock() transformations in bun:test file");
+      expect(result.reason).toBe("Converted 1 vi.fn() calls to mock() for bun:test compatibility");
       expect(result.transformations).toBe(1);
       // Should not duplicate mock import
       expect(sourceFile.getFullText()).toContain(
@@ -109,7 +109,7 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(true);
       expect(result.transformations).toBe(2);
@@ -129,10 +129,10 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(false);
-      expect(result.reason).toBe("No vi.fn() calls found to transform");
+      expect(result.reason).toBe("No vi.fn() calls found to convert");
       expect(result.transformations).toBe(0);
     });
 
@@ -149,7 +149,7 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(true);
       expect(result.transformations).toBe(1); // Only vi.fn() should be transformed
@@ -169,11 +169,11 @@ describe("Bun Test Mocking Consistency Fixer", () => {
     });
 
     test("should handle file processing errors gracefully", () => {
-      const results = fixMockingConsistency(["/nonexistent/file.test.ts"]);
+      const results = fixMockingConsistency(["/tmp/nonexistent-test-file.ts"]);
 
       expect(results.length).toBe(1);
-      expect(results[0].result.changed).toBe(false);
-      expect(results[0].result.reason).toContain("Error");
+      expect(results[0].changed).toBe(false);
+      expect(results[0].reason).toContain("Error");
     });
   });
 
@@ -188,10 +188,10 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(false);
-      expect(result.reason).toBe("Not a test file");
+      expect(result.reason).toBe("Not a test file - skipped for safety");
     });
 
     test("should preserve existing valid bun:test mocking without changes", () => {
@@ -209,7 +209,7 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       );
 
       const originalText = sourceFile.getFullText();
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(false);
       expect(sourceFile.getFullText()).toBe(originalText);
@@ -231,7 +231,7 @@ describe("Bun Test Mocking Consistency Fixer", () => {
       `
       );
 
-      const result = fixBunTestMockingInFile(sourceFile);
+      const result = fixMockingConsistencyInFile(sourceFile);
 
       expect(result.changed).toBe(true);
 

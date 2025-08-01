@@ -7,7 +7,7 @@
  * to domain-wide schemas while maintaining functionality.
  */
 
-import { test, expect, describe } from "bun:test";
+import { test, expect, describe, beforeEach } from "bun:test";
 import { Project, SourceFile, SyntaxKind } from "ts-morph";
 import { McpToDomainSchemaMigrator } from "./mcp-to-domain-schema-migrator";
 

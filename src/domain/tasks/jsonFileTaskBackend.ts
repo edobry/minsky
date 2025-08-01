@@ -273,6 +273,11 @@ export class JsonFileTaskBackend implements TaskBackend {
     await this.updateTaskData(id, { status: status as TaskStatus });
   }
 
+  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+    // Delegate to the existing createTaskFromSpecFile method
+    return this.createTaskFromSpecFile(specPath, options);
+  }
+
   /**
    * Create a task from title and description
    * @param title Title of the task
@@ -469,37 +474,35 @@ ${description}
   }
 
   async deleteTask(id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
-    const normalizedId = id.startsWith("#") ? id : `#${id}`;
-
+    // Use the ID directly without normalization to match storage format
     try {
       // Check if the task exists first
-      const existingTask = await this.getTaskById(normalizedId);
+      const existingTask = await this.getTaskById(id);
       if (!existingTask) {
-        log.debug(`Task ${normalizedId} not found for deletion`);
+        log.debug(`Task ${id} not found for deletion`);
         return false;
       }
 
       // Delete from database
-      const deleted = await this.deleteTaskData(normalizedId);
+      const deleted = await this.deleteTaskData(id);
 
       if (deleted && existingTask.specPath) {
-        // Delete the spec file if it exists
+        // Try to delete spec file if it exists
         try {
-          const fullSpecPath = existingTask.specPath.startsWith("/")
-            ? existingTask.specPath
-            : join(this.workspacePath, existingTask.specPath);
-          await unlink(fullSpecPath);
+          const fullPath = join(this.workspacePath, existingTask.specPath);
+          if (await this.fileExists(fullPath)) {
+            await unlink(fullPath);
+            log.debug(`Deleted spec file: ${fullPath}`);
+          }
         } catch (error) {
-          // Spec file might not exist, log but don't fail the operation
-          log.debug(`Spec file could not be deleted: ${existingTask.specPath}`, {
-            error: getErrorMessage(error as any),
-          });
+          // Log but don't fail the operation if spec file deletion fails
+          log.debug(`Could not delete spec file for task ${id}: ${getErrorMessage(error as any)}`);
         }
       }
 
       return deleted;
     } catch (error) {
-      log.error(`Failed to delete task ${normalizedId}`, {
+      log.error(`Failed to delete task ${id}`, {
         error: getErrorMessage(error as any),
       });
       return false;

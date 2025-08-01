@@ -94,6 +94,18 @@ describe("Session Approve Branch Cleanup", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: {},
+      createRepositoryBackend: createMock((sessionRecord: any) =>
+        Promise.resolve({
+          getType: () => "local",
+          mergePullRequest: createMock(() =>
+            Promise.resolve({
+              commitHash: "abcdef123456",
+              mergeDate: new Date(),
+              mergedBy: "test-user",
+            })
+          ),
+        })
+      ),
     };
 
     // Test the approval with newly approved session
@@ -186,6 +198,18 @@ describe("Session Approve Branch Cleanup", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: {},
+      createRepositoryBackend: createMock((sessionRecord: any) =>
+        Promise.resolve({
+          getType: () => "local",
+          mergePullRequest: createMock(() =>
+            Promise.resolve({
+              commitHash: "abcdef123456",
+              mergeDate: new Date(),
+              mergedBy: "test-user",
+            })
+          ),
+        })
+      ),
     };
 
     // Test the approval - should not fail even if branch cleanup fails
@@ -254,6 +278,7 @@ describe("Session Approve Branch Cleanup", () => {
 
     const mockTaskService = {
       setTaskStatus: createMock(() => Promise.resolve()),
+      getTaskStatus: createMock(() => Promise.resolve("DONE")), // Task is already completed
       getBackendForTask: createMock(() =>
         Promise.resolve({
           setTaskMetadata: createMock(() => Promise.resolve()),
@@ -267,6 +292,18 @@ describe("Session Approve Branch Cleanup", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: {},
+      createRepositoryBackend: createMock((sessionRecord: any) =>
+        Promise.resolve({
+          getType: () => "local",
+          mergePullRequest: createMock(() =>
+            Promise.resolve({
+              commitHash: "abcdef123456",
+              mergeDate: new Date(),
+              mergedBy: "test-user",
+            })
+          ),
+        })
+      ),
     };
 
     // Test the approval of already approved session

@@ -33,6 +33,21 @@ describe("Session Approve Task Status Commit", () => {
     warn: mock(() => {}),
   };
 
+  // Reusable mock for repository backend to prevent real shell execution
+  const createMockRepositoryBackend = () =>
+    mock((sessionRecord: any) =>
+      Promise.resolve({
+        getType: () => "local",
+        mergePullRequest: mock(() =>
+          Promise.resolve({
+            commitHash: "abc123commit",
+            mergeDate: new Date(),
+            mergedBy: "test-user",
+          })
+        ),
+      })
+    );
+
   beforeEach(() => {
     // Mock cleanup handled by bun:test automatically
   });
@@ -376,6 +391,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
+        createRepositoryBackend: createMockRepositoryBackend(),
       }
     );
 
@@ -476,6 +492,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
+        createRepositoryBackend: createMockRepositoryBackend(),
       }
     );
 

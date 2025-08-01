@@ -137,7 +137,7 @@ This is a test task description.
 
       const _result = backend.formatTaskSpec(spec);
 
-      expect(_result).toContain("# Task #001: Test Task");
+      expect(_result).toContain("# Task 001: Test Task");
       expect(_result).toContain("## Description\nTest description");
       expect(_result).toContain("## GitHub Issue");
       expect(_result).toContain("- Issue: #1");

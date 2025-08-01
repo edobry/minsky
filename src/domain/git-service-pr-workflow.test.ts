@@ -1,30 +1,16 @@
 /**
- * GITSERVICE PR WORKFLOW TESTS
+ * GitService PR Workflow Tests
  *
- * What this file tests:
- * - GitService class methods for PR and git operations
- * - Low-level git command execution and output parsing
- * - Git repository manipulation (clone, branch, merge, etc.)
- * - PR generation and markdown formatting
+ * Tests the GitService PR workflow functionality with dependency injection
+ * and comprehensive error handling scenarios.
  *
- * Key functionality tested:
- * - GitService dependency injection patterns
- * - Git command execution with proper mocking
- * - PR workflow steps (prepare, create, merge)
- * - Git repository state management
- *
- * NOTE: This is different from session-approve-workflow.test.ts which tests high-level session approval
- *
- * @migrated Extracted from git.test.ts as part of modularization
- * @enhanced Enhanced with comprehensive PR workflow coverage and DI patterns
+ * @migrated Enhanced with DI patterns and comprehensive coverage
  */
-import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { GitService } from "../git";
-import { createMock, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
-import {
-  expectToHaveBeenCalled,
-  expectToHaveBeenCalledWith,
-} from "../../utils/test-utils/assertions";
+
+import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { GitService } from "./git";
+import { createMock, setupTestMocks, mockModule } from "../utils/test-utils/mocking";
+import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 
 // Set up automatic mock cleanup
 setupTestMocks();

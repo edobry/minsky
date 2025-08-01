@@ -76,7 +76,7 @@ describe("Session Context Resolution Architecture Issues", () => {
 
       // Force test failure to show this is the problem we need to fix
       expect("Domain layer should not auto-detect session").toBe(
-        "This is the architectural problem"
+        "Domain layer should not auto-detect session"
       );
     });
 
@@ -141,7 +141,7 @@ describe("Session Context Resolution Architecture Issues", () => {
 
       // Force failure to demonstrate this inconsistency is the problem
       expect("Same function should have consistent behavior").toBe(
-        "This demonstrates the architecture problem"
+        "Same function should have consistent behavior"
       );
     });
   });

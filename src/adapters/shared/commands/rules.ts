@@ -13,7 +13,7 @@ import {
   CommandCategory,
   type CommandExecutionContext,
   type CommandParameterMap,
-} from "../../shared/command-registry";
+} from "../command-registry";
 import { RuleService, type RuleFormat } from "../../../domain/rules";
 import { createRuleTemplateService } from "../../../domain/rules/rule-template-service";
 import { type RuleGenerationConfig } from "../../../domain/rules/template-system";
@@ -259,9 +259,10 @@ const rulesSearchCommandParams: CommandParameterMap = composeParams(
 /**
  * Register the rules commands in the shared command registry
  */
-export function registerRulesCommands(): void {
+export function registerRulesCommands(registry?: typeof sharedCommandRegistry): void {
+  const targetRegistry = registry || sharedCommandRegistry;
   // Register rules list command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "rules.list",
     category: CommandCategory.RULES,
     name: "list",
@@ -302,7 +303,7 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules get command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "rules.get",
     category: CommandCategory.RULES,
     name: "get",
@@ -342,7 +343,7 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules generate command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "rules.generate",
     category: CommandCategory.RULES,
     name: "generate",
@@ -407,7 +408,7 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules create command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "rules.create",
     category: CommandCategory.RULES,
     name: "create",
@@ -464,7 +465,7 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules update command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "rules.update",
     category: CommandCategory.RULES,
     name: "update",
@@ -530,7 +531,7 @@ export function registerRulesCommands(): void {
   });
 
   // Register rules search command
-  sharedCommandRegistry.registerCommand({
+  targetRegistry.registerCommand({
     id: "rules.search",
     category: CommandCategory.RULES,
     name: "search",

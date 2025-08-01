@@ -28,19 +28,11 @@ const INTEGRATION_CONFIG = {
   testPrefix: "[MINSKY-INTEGRATION-TEST]",
 };
 
-describe("GitHub API Integration Tests", () => {
+describe.skipIf(!INTEGRATION_CONFIG.token)("GitHub API Integration Tests", () => {
   let octokit: Octokit;
   let createdIssueNumbers: number[] = [];
 
   beforeAll(async () => {
-    // Verify test prerequisites
-    if (!INTEGRATION_CONFIG.token) {
-      throw new Error(
-        "GITHUB_TOKEN environment variable is required for integration tests.\n" +
-          'Set it with: export GITHUB_TOKEN="your_token_here"'
-      );
-    }
-
     console.log("🔍 Setting up GitHub API integration tests...");
     console.log(`   Repository: ${INTEGRATION_CONFIG.owner}/${INTEGRATION_CONFIG.repo}`);
 

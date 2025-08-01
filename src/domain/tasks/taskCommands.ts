@@ -32,6 +32,7 @@ import {
   taskStatusGetParamsSchema,
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
+  taskCreateFromTitleAndDescriptionParamsSchema,
   taskSpecContentParamsSchema,
   taskDeleteParamsSchema,
   type TaskListParams,
@@ -39,50 +40,54 @@ import {
   type TaskStatusGetParams,
   type TaskStatusSetParams,
   type TaskCreateParams,
+  type TaskCreateFromTitleAndDescriptionParams,
   type TaskSpecContentParams,
   type TaskDeleteParams,
-} from "../../domain/schemas";
-
-// Import schemas that haven't been migrated yet
-import {
-  taskCreateFromTitleAndDescriptionParamsSchema,
-  type TaskCreateFromTitleAndDescriptionParams,
 } from "../../schemas/tasks";
 
 /**
  * List tasks with given parameters
  * @param params Parameters for listing tasks
+ * @param deps Optional dependencies for testing
  * @returns Array of tasks
  */
-export async function listTasksFromParams(params: TaskListParams): Promise<any[]> {
+export async function listTasksFromParams(
+  params: TaskListParams,
+  deps?: {
+    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
+  }
+): Promise<any[]> {
   try {
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Use current directory as workspace path (simplified architecture)
-    const workspacePath = process.cwd();
+    // Use dependency injection for workspace path resolution
+    const resolveMainWorkspacePath =
+      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
+    const workspacePath = await resolveMainWorkspacePath();
 
-    // Create task service with read-only mode for better performance
-    const taskService = await TaskService.createWithEnhancedBackend({
-      backend: (validParams.backend || "markdown") as "markdown" | "json-file",
-      backendConfig: {
-        name: validParams.backend || "markdown",
-        workspacePath,
-      },
-      isReadOperation: true,
+    // Create task service using dependency injection or default implementation
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+
+    const taskService = await createTaskService({
+      workspacePath,
+      backend: validParams.backend || "markdown",
     });
 
     // Get tasks with filters
     let tasks = await taskService.listTasks();
 
     // Apply filters
-    if (validParams.status && validParams.status.length > 0) {
-      tasks = tasks.filter((task) => validParams.status!.includes(task.status));
+    if (validParams.filter) {
+      const filterValue = validParams.filter as string;
+      tasks = tasks.filter((task) => task.status === filterValue);
     }
 
     if (validParams.all !== true) {
-      // Filter out DONE and CLOSED tasks by default
-      tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
+      // Filter out DONE tasks by default
+      tasks = tasks.filter((task) => task.status !== "DONE");
     }
 
     return tasks;
@@ -93,18 +98,16 @@ export async function listTasksFromParams(params: TaskListParams): Promise<any[]
 }
 
 /**
- * Get a task by ID
+ * Get a task by ID with given parameters
  * @param params Parameters for getting a task
+ * @param deps Optional dependencies for testing
  * @returns Task object
  */
 export async function getTaskFromParams(
   params: TaskGetParams,
-  deps: {
-    resolveRepoPath: typeof resolveRepoPath;
-    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
-  } = {
-    resolveRepoPath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+  deps?: {
+    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<any> {
   const startTime = Date.now();
@@ -141,9 +144,12 @@ export async function getTaskFromParams(
     const workspacePath = process.cwd();
     log.debug("[getTaskFromParams] Using workspace path", { workspacePath });
 
-    // Create task service using dependency injection
+    // Create task service using dependency injection or default implementation
     log.debug("[getTaskFromParams] About to create task service");
-    const taskService = await deps.createTaskService({
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+
+    const taskService = await createTaskService({
       workspacePath,
       backend: validParams.backend || "markdown",
     });
@@ -183,12 +189,10 @@ export async function getTaskFromParams(
  */
 export async function getTaskStatusFromParams(
   params: TaskStatusGetParams,
-  deps: {
-    resolveRepoPath: typeof resolveRepoPath;
-    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
-  } = {
-    resolveRepoPath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+  deps?: {
+    resolveRepoPath?: typeof resolveRepoPath;
+    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<string> {
   try {
@@ -207,21 +211,24 @@ export async function getTaskStatusFromParams(
     const validParams = taskStatusGetParamsSchema.parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
+    const resolveRepoPathFn = deps?.resolveRepoPath || resolveRepoPath;
+    const repoPath = await resolveRepoPathFn({
       session: validParams.session,
       repo: validParams.repo,
     });
 
-    // Then get the workspace path using backend-aware resolution
-    const workspacePath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
+    // Use dependency injection for workspace path resolution
+    const resolveMainWorkspacePath =
+      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
+    const workspacePath = await resolveMainWorkspacePath();
 
-    // Create task service
-    const taskService = await deps.createTaskService({
+    // Create task service using dependency injection or default implementation
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+
+    const taskService = await createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown", // Use same fallback as setTaskStatusFromParams
+      backend: validParams.backend || "markdown",
     });
 
     // Get the task
@@ -255,12 +262,9 @@ export async function getTaskStatusFromParams(
  */
 export async function setTaskStatusFromParams(
   params: TaskStatusSetParams,
-  deps: {
-    resolveRepoPath: typeof resolveRepoPath;
-    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
-  } = {
-    resolveRepoPath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+  deps?: {
+    resolveRepoPath?: typeof resolveRepoPath;
+    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
   }
 ): Promise<void> {
   try {
@@ -279,21 +283,22 @@ export async function setTaskStatusFromParams(
     const validParams = taskStatusSetParamsSchema.parse(paramsWithNormalizedId);
 
     // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
+    const resolveRepoPathFn = deps?.resolveRepoPath || resolveRepoPath;
+    const repoPath = await resolveRepoPathFn({
       session: validParams.session,
       repo: validParams.repo,
     });
 
-    // Then get the workspace path using backend-aware resolution
-    const workspacePath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
+    // Use current directory as workspace path (simplified architecture)
+    const workspacePath = process.cwd();
 
-    // Create task service with explicit backend to avoid configuration issues
-    const taskService = await deps.createTaskService({
+    // Create task service using dependency injection or default implementation
+    const createTaskService =
+      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+
+    const taskService = await createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown", // Use markdown as default to avoid config lookup
+      backend: validParams.backend || "markdown",
     });
 
     // Verify the task exists before setting status and get old status for commit message

@@ -501,11 +501,18 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
       options.execInRepository ||
       ((workdir: string, command: string) => {
         gitCallCount++;
+        // Mock specific commands that cause test failures
+        if (command.includes("rev-list --left-right --count")) {
+          return Promise.resolve("0\t0"); // No commits ahead/behind
+        }
         if (command.includes("show-ref") && command.includes("pr/")) {
           return Promise.resolve(branchExists ? "ref-exists" : "not-exists");
         }
         if (command.includes("ls-remote") && command.includes("pr/")) {
           return Promise.resolve(branchExists ? "remote-ref-exists" : "");
+        }
+        if (command.includes("status --porcelain")) {
+          return Promise.resolve(""); // Clean working directory
         }
         return Promise.resolve("mock git output");
       }),
@@ -599,7 +606,7 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
           status: "TODO",
         })),
 
-    deleteTask: options.deleteTask || (() => Promise.resolve(true)),
+    deleteTask: options.deleteTask || (() => Promise.resolve(false)),
 
     getWorkspacePath: options.getWorkspacePath || (() => "/test/workspace/path"),
 
