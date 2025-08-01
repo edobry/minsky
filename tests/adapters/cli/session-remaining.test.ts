@@ -116,6 +116,15 @@ describe("session pr command", () => {
       if (command.includes("remote get-url")) {
         return { stdout: "https://github.com/test/repo.git", stderr: "" };
       }
+      if (command.includes("merge --no-ff")) {
+        return { stdout: "Merge made by the 'ort' strategy.", stderr: "" };
+      }
+      if (command.includes("switch") || command.includes("checkout")) {
+        return { stdout: "", stderr: "" };
+      }
+      if (command.includes("status --porcelain")) {
+        return { stdout: "", stderr: "" };
+      }
       return { stdout: "", stderr: "" };
     };
 
