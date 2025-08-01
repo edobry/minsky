@@ -23,6 +23,7 @@ import type {
   RepoStatus,
   PRInfo,
   MergeInfo,
+  SessionUpdateEvent,
 } from "./index";
 
 // Define a global for process to avoid linting errors
@@ -338,5 +339,77 @@ export class LocalGitBackend implements RepositoryBackend {
     };
 
     return await mergePreparedMergeCommitPR(options);
+  }
+
+  /**
+   * Post-session-update hook: Auto-update PR branches for local repositories
+   * This ensures PRs stay current when sessions are updated with latest main
+   *
+   * Design note: Simple implementation now, structured for future work item integration
+   */
+  async onSessionUpdated(event: SessionUpdateEvent): Promise<void> {
+    const { session, workdir } = event;
+    try {
+      // Check if session has an associated PR
+      const hasPr = session.pullRequest || (session.prState && session.prState.exists);
+
+      if (!hasPr) {
+        log.debug(`Session '${session.session}' has no associated PR, skipping PR branch update`);
+        return;
+      }
+
+      // Determine PR branch name
+      let prBranch: string;
+      if (session.pullRequest?.headBranch) {
+        prBranch = session.pullRequest.headBranch;
+      } else if (session.prState?.branchName) {
+        prBranch = session.prState.branchName;
+      } else {
+        // Default PR branch naming convention
+        prBranch = `pr/${session.session}`;
+      }
+
+      log.info(`Local session has associated PR, auto-updating PR branch '${prBranch}'`);
+
+      // Check if we're currently on the PR branch
+      const currentBranchName = await execGitWithTimeout(workdir, ["branch", "--show-current"], {
+        timeout: 10000,
+      });
+
+      if (currentBranchName === prBranch) {
+        // We're on the PR branch, push the updates
+        await execGitWithTimeout(workdir, ["push", "origin", prBranch], { timeout: 30000 });
+        log.info(`PR branch '${prBranch}' updated successfully`);
+      } else {
+        // We're on a different branch (probably session branch), need to update PR branch
+        log.debug(
+          `Current branch '${currentBranchName}' differs from PR branch '${prBranch}', updating PR branch`
+        );
+
+        // Check if PR branch exists locally
+        try {
+          await execGitWithTimeout(workdir, ["rev-parse", "--verify", prBranch], {
+            timeout: 10000,
+          });
+          // PR branch exists locally, merge current changes into it
+          await execGitWithTimeout(workdir, ["checkout", prBranch], { timeout: 10000 });
+          await execGitWithTimeout(workdir, ["merge", currentBranchName], { timeout: 30000 });
+          await execGitWithTimeout(workdir, ["push", "origin", prBranch], { timeout: 30000 });
+          await execGitWithTimeout(workdir, ["checkout", currentBranchName], { timeout: 10000 });
+          log.info(`PR branch '${prBranch}' updated with latest changes`);
+        } catch {
+          // PR branch doesn't exist locally, create it from current branch
+          await execGitWithTimeout(workdir, ["checkout", "-b", prBranch], { timeout: 10000 });
+          await execGitWithTimeout(workdir, ["push", "origin", prBranch], { timeout: 30000 });
+          await execGitWithTimeout(workdir, ["checkout", currentBranchName], { timeout: 10000 });
+          log.info(`PR branch '${prBranch}' created and pushed`);
+        }
+      }
+    } catch (error) {
+      // Don't fail the session update if PR update fails
+      log.warn(
+        `Failed to update PR branch: ${error instanceof Error ? error.message : String(error)}`
+      );
+    }
   }
 }

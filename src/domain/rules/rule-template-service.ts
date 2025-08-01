@@ -140,11 +140,7 @@ export class RuleTemplateService {
    * @param template Rule template to register
    */
   registerTemplate(template: RuleTemplate): void {
-    if (this.templateRegistry.has(template.id)) {
-      // Silently replace existing template to avoid conflicts during testing
-      console.debug(`Replacing existing template '${template.id}'`);
-    }
-
+    // Silently replace existing template to avoid conflicts during testing
     this.templateRegistry.set(template.id, template);
   }
 

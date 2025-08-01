@@ -241,6 +241,42 @@ export interface RepositoryBackend {
    * @returns Promise<MergeInfo> - Information about the merge operation
    */
   mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo>;
+
+  /**
+   * Post-session-update hook for backend-specific operations
+   * Called after a session is updated to allow backends to perform additional work
+   *
+   * This is designed to be extensible for future event-driven automation:
+   * - Current: Simple PR branch updates for local repos
+   * - Future: Full work item generation and AI-powered sync orchestration
+   *
+   * @param event - Session update event with context
+   * @returns Promise<void>
+   */
+  onSessionUpdated?(event: SessionUpdateEvent): Promise<void>;
+}
+
+/**
+ * Session update event - designed for future extensibility with work item system
+ * Currently simple, but structured to support AI-powered automation from task #361
+ */
+export interface SessionUpdateEvent {
+  /** Basic session and context info */
+  session: any;
+  workdir: string;
+
+  /** Update details - extensible for future event enrichment */
+  updateType: "pull" | "merge" | "rebase" | "checkout";
+
+  /** Future extensibility hooks */
+  context?: {
+    /** For future: PR merge events that triggered this */
+    triggerEvent?: any;
+    /** For future: AI analysis and work item generation */
+    automationConfig?: any;
+    /** For future: Related sessions and dependency tracking */
+    relatedSessions?: string[];
+  };
 }
 
 /**

@@ -68,6 +68,13 @@ export interface TemplateHelpers {
    * @param description Description of the step
    */
   workflowStep: (commandId: string, description: string) => string;
+
+  /**
+   * Formats a command in a readable way - for MCP, puts XML in proper code blocks
+   * @param commandId Shared command ID
+   * @param description Description of the command
+   */
+  readableCommand: (commandId: string, description: string) => string;
 }
 
 /**
@@ -128,6 +135,21 @@ function createTemplateHelpers(
       }
 
       return `1. **${description}**\n   ${syntax}`;
+    },
+
+    readableCommand: (commandId: string, description: string) => {
+      const syntax = commandGenerator.getCommandSyntax(commandId);
+      if (!syntax) {
+        throw new Error(`Command not found: ${commandId}`);
+      }
+
+      // For MCP mode, format XML in proper code blocks with better structure
+      if (shouldUseMcp && syntax.includes("<function_calls>")) {
+        return `${description}\n\n\`\`\`xml\n${syntax}\n\`\`\``;
+      }
+
+      // For CLI mode, use regular bash code blocks
+      return `${description}\n\n\`\`\`bash\n${syntax}\n\`\`\``;
     },
   };
 }
