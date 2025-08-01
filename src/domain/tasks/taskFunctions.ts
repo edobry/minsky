@@ -39,7 +39,8 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
     if (!parsed) continue;
 
     const { checkbox, title, id } = parsed;
-    if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
+    // Accept both legacy (#123) and qualified (md#123) ID formats
+    if (!title || !id || !/^(#\d+|[a-z-]+#\d+)$/.test(id)) continue; // skip malformed or empty
 
     const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
 
