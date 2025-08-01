@@ -14,7 +14,7 @@ The current Minsky CLI provides a `session pr` command that creates pull request
 
 1. **Inconsistent Command Structure**: Direct action commands don't scale well when adding multiple operations
 2. **Limited PR Visibility**: No way to list PRs associated with sessions
-3. **No PR Inspection**: Cannot retrieve PR details, status, or content programmatically  
+3. **No PR Inspection**: Cannot retrieve PR details, status, or content programmatically
 4. **Non-Standard Pattern**: Modern CLIs use explicit subcommands (e.g., `gh pr create`, `kubectl get pods`)
 5. **Future Growth Constraints**: Adding operations like edit, close, merge becomes awkward
 
@@ -31,11 +31,13 @@ Restructure the `session pr` command to use explicit subcommands (`create`, `lis
 **Command**: `minsky session pr create`
 
 **Functionality**:
+
 - Replace current `minsky session pr` behavior with explicit `create` subcommand
 - Maintain all existing parameters and functionality
 - Create pull requests for session workflows with same capabilities as before
 
 **Parameters**: (identical to current `session pr` command)
+
 - `--session <name>` (optional): Session name to create PR for
 - `--task <id>` / `-t <id>` (optional): Task ID associated with the session
 - `--title <title>` (optional): PR title (auto-generated if not provided)
@@ -51,19 +53,22 @@ Restructure the `session pr` command to use explicit subcommands (`create`, `lis
 **Command**: `minsky session pr list`
 
 **Functionality**:
+
 - List all PRs associated with sessions in the current repository
 - Display PR status, title, session name, and last updated date
 - Support filtering by session name, task ID, or PR status
 - Provide both tabular and JSON output formats
 
 **Parameters**:
+
 - `--session <name>` (optional): Filter PRs by specific session name
-- `--task <id>` (optional): Filter PRs by specific task ID  
+- `--task <id>` (optional): Filter PRs by specific task ID
 - `--status <status>` (optional): Filter by PR status (open, closed, merged, draft)
 - `--json` (optional): Output results in JSON format
 - `--verbose` / `-v` (optional): Show detailed PR information
 
 **Output Format** (tabular):
+
 ```
 SESSION    TASK   PR#    STATUS   TITLE                           UPDATED
 feat-auth  #123   #456   open     feat(#123): Add authentication  2 days ago
@@ -71,12 +76,13 @@ bug-fix    #124   #457   merged   fix(#124): Fix login bug       1 week ago
 ```
 
 **Output Format** (JSON):
+
 ```json
 {
   "pullRequests": [
     {
       "sessionName": "feat-auth",
-      "taskId": "123", 
+      "taskId": "123",
       "prNumber": 456,
       "status": "open",
       "title": "feat(#123): Add authentication",
@@ -93,30 +99,34 @@ bug-fix    #124   #457   merged   fix(#124): Fix login bug       1 week ago
 **Command**: `minsky session pr get [session-name] --task <id>`
 
 **Functionality**:
+
 - Retrieve detailed information about a specific PR
 - Use the same identifier pattern as `session get` command
 - Support both positional session name and `--task` flag for lookup
 - Display PR content, metadata, status, and related session information
 
 **Parameters**:
+
 - `session-name` (positional, optional): Session name to look up PR for
-- `--task <id>` / `-t <id>` (optional): Task ID to find associated PR  
+- `--task <id>` / `-t <id>` (optional): Task ID to find associated PR
 - `--json` (optional): Output in JSON format
 - `--content` (optional): Include PR description and diff content
 - `--repo <path>` (optional): Repository path (for consistency with session get)
 
 **Parameter Resolution** (matching `session get` behavior):
+
 - If positional name provided: Look up PR for that session
 - If `--task` provided: Find PR associated with that task ID
 - If neither provided: Auto-detect from current session context
 - Error if both provided and they conflict
 
 **Output Format** (default):
+
 ```
 PR #456: feat(#123): Add authentication
 
 Session:     feat-auth
-Task:        #123  
+Task:        #123
 Branch:      pr/feat-auth
 Status:      open
 Created:     2024-01-13T15:20:00Z
@@ -134,12 +144,13 @@ Files Changed: (5)
 ```
 
 **Output Format** (JSON):
+
 ```json
 {
   "pullRequest": {
     "number": 456,
     "title": "feat(#123): Add authentication",
-    "sessionName": "feat-auth", 
+    "sessionName": "feat-auth",
     "taskId": "123",
     "branch": "pr/feat-auth",
     "status": "open",
@@ -152,7 +163,7 @@ Files Changed: (5)
     "commits": [
       {
         "sha": "abc123",
-        "message": "Add authentication service", 
+        "message": "Add authentication service",
         "date": "2024-01-13T15:20:00Z"
       }
     ]
@@ -164,12 +175,14 @@ Files Changed: (5)
 
 **Breaking Change**: Restructure `session pr` to use explicit subcommands
 
-**New Command Structure**: 
+**New Command Structure**:
+
 - `minsky session pr create` (creates PR - replaces bare `session pr`)
 - `minsky session pr list` (lists PRs)
 - `minsky session pr get [name] --task <id>` (gets specific PR)
 
-**Migration Impact**: 
+**Migration Impact**:
+
 - **BREAKING**: `minsky session pr` will no longer work directly
 - Users must update to `minsky session pr create`
 - All existing parameters and functionality preserved in `create` subcommand
@@ -178,6 +191,7 @@ Files Changed: (5)
 ### 5. Error Handling
 
 **Common Error Scenarios**:
+
 - No PRs found for specified filters
 - Session or task ID not found
 - Repository not found or not a git repository
@@ -185,6 +199,7 @@ Files Changed: (5)
 - Network connectivity problems
 
 **Error Messages**:
+
 - "No pull requests found for session 'session-name'"
 - "No pull request found for task #123"
 - "Session 'session-name' not found"
@@ -197,21 +212,23 @@ Files Changed: (5)
 ```typescript
 // Restructured session PR command group with explicit subcommands
 interface SessionPrCommands {
-  create: SessionPrCreateCommand;  // replaces bare `session pr`
-  list: SessionPrListCommand;      // new
-  get: SessionPrGetCommand;        // new
+  create: SessionPrCreateCommand; // replaces bare `session pr`
+  list: SessionPrListCommand; // new
+  get: SessionPrGetCommand; // new
 }
 ```
 
 ### 2. GitHub Integration
 
 **PR Detection Strategy**:
+
 - Use GitHub API to search for PRs with session-specific branch patterns (`pr/{session-name}`)
 - Match PRs to sessions using branch naming conventions
 - Extract task IDs from PR titles using conventional commit format patterns
 - Cache PR metadata for performance
 
 **API Requirements**:
+
 - GitHub API access for PR search and retrieval
 - Repository information access
 - Branch and commit history access
@@ -220,6 +237,7 @@ interface SessionPrCommands {
 ### 3. Session Context Resolution
 
 **Reuse Existing Patterns**:
+
 - Use same `resolveSessionContextWithFeedback` function as other session commands
 - Follow identical parameter precedence rules as `session get`
 - Support auto-detection when no parameters provided
@@ -227,6 +245,7 @@ interface SessionPrCommands {
 ### 4. CLI Registration
 
 **Integration Points**:
+
 - **BREAKING**: Replace existing session PR command with subcommand router
 - Implement subcommand routing logic for create/list/get operations
 - Register parameter schemas for all three subcommands (create/list/get)
@@ -238,13 +257,15 @@ interface SessionPrCommands {
 ### 1. Backend Agnostic Design
 
 **Future Compatibility**:
+
 - Design PR retrieval interface to work with multiple Git hosting providers
-- Abstract GitHub-specific logic behind generic PR provider interface  
+- Abstract GitHub-specific logic behind generic PR provider interface
 - Support future GitLab, Bitbucket, or other hosting provider integration
 
 ### 2. Caching and Performance
 
 **Performance Optimizations**:
+
 - Cache PR metadata to reduce API calls
 - Batch API requests when listing multiple PRs
 - Use conditional requests (ETags) to minimize network traffic
@@ -253,6 +274,7 @@ interface SessionPrCommands {
 ### 3. Data Consistency
 
 **Session-PR Relationships**:
+
 - Ensure PR-session mappings remain consistent with session updates
 - Handle orphaned PRs when sessions are deleted
 - Validate session-task-PR relationships for data integrity
@@ -262,13 +284,15 @@ interface SessionPrCommands {
 ### 1. GitHub API Integration
 
 **Required Components**:
+
 - GitHub API client (likely already exists)
 - Authentication handling (existing)
 - Error handling and rate limiting (existing)
 
-### 2. Session Command Infrastructure  
+### 2. Session Command Infrastructure
 
 **Existing Dependencies**:
+
 - Session context resolution (`resolveSessionContextWithFeedback`)
 - Session provider interface (`SessionProviderInterface`)
 - Command registration system (CLI factory)
@@ -276,6 +300,7 @@ interface SessionPrCommands {
 ### 3. Schema Validation
 
 **Parameter Schemas**:
+
 - Extend existing session parameter schemas
 - Add validation for new optional parameters
 - Maintain consistency with existing session command patterns
@@ -285,6 +310,7 @@ interface SessionPrCommands {
 ### 1. Unit Tests
 
 **Test Coverage**:
+
 - Parameter validation and resolution
 - PR filtering and search logic
 - GitHub API response handling
@@ -293,6 +319,7 @@ interface SessionPrCommands {
 ### 2. Integration Tests
 
 **Test Scenarios**:
+
 - End-to-end PR list and get workflows
 - Session context auto-detection
 - GitHub API integration (with mocked responses)
@@ -301,6 +328,7 @@ interface SessionPrCommands {
 ### 3. Manual Testing
 
 **User Acceptance Testing**:
+
 - Cross-platform CLI behavior
 - Real GitHub repository integration
 - Performance with large PR sets
@@ -335,7 +363,7 @@ interface SessionPrCommands {
 
 - [ ] Clear error messages when no PRs found
 - [ ] Proper handling of GitHub API rate limits
-- [ ] Graceful degradation when GitHub is unavailable  
+- [ ] Graceful degradation when GitHub is unavailable
 - [ ] Validation errors for invalid session/task references
 
 ### Output Quality
@@ -359,6 +387,7 @@ interface SessionPrCommands {
 ### 1. Interactive PR Management
 
 **Potential Extensions**:
+
 - `minsky session pr edit` - Modify PR title/description
 - `minsky session pr status` - Update PR status or labels
 - `minsky session pr merge` - Merge PR with proper checks
@@ -366,6 +395,7 @@ interface SessionPrCommands {
 ### 2. Multi-Repository Support
 
 **Cross-Repository Operations**:
+
 - List PRs across multiple repositories
 - Support for monorepo PR management
 - Cross-repository session workflows
@@ -373,6 +403,7 @@ interface SessionPrCommands {
 ### 3. Advanced Filtering
 
 **Enhanced Search Capabilities**:
+
 - Filter by author, reviewer, or assignee
 - Date range filtering for PR creation/update
 - Label-based filtering and categorization
@@ -381,11 +412,11 @@ interface SessionPrCommands {
 ### 4. Integration Enhancements
 
 **Workflow Integration**:
+
 - Integration with task status updates
 - Automatic PR status synchronization
 - Notification systems for PR state changes
-- CI/CD pipeline status integration 
-
+- CI/CD pipeline status integration
 
 ## Requirements
 

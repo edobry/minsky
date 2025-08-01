@@ -13,11 +13,13 @@ The `rules.list` command currently returns the full `content` field in both CLI 
 ## Requirements
 
 1. **Modify Shared Command Implementation**
+
    - Update the `rules.list` command in `src/adapters/shared/commands/rules.ts`
    - Transform the rules array to exclude the `content` field before returning
    - Ensure all other metadata (id, name, description, globs, tags, format, etc.) is preserved
 
 2. **Maintain Interface Consistency**
+
    - Both CLI `--json` and MCP should return the same content-free structure
    - Formatted CLI output should continue working as before
    - Other rules commands (`rules.get`, `rules.search`) should not be affected
@@ -30,6 +32,7 @@ The `rules.list` command currently returns the full `content` field in both CLI 
 ## Implementation Plan
 
 1. **Update Shared Command Execute Function**
+
    ```typescript
    // In src/adapters/shared/commands/rules.ts, lines 282-291
    const rules = await ruleService.listRules({

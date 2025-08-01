@@ -11,9 +11,11 @@ Linear is a popular issue tracking and project management tool with excellent AP
 ## Objectives
 
 ### Primary Goal
+
 Implement a production-ready Linear backend that seamlessly integrates with the multi-backend task system, providing full CRUD operations, status synchronization, and native Linear issue management.
 
 ### Success Criteria
+
 1. **Complete TaskBackend Implementation**: Full implementation of the TaskBackend interface with Linear API integration
 2. **Qualified Task IDs**: Support for linear#ABC-123 format with automatic ID extraction from Linear issue identifiers
 3. **Status Synchronization**: Bidirectional status mapping between Minsky task statuses and Linear issue states
@@ -32,14 +34,14 @@ Implement LinearTaskBackend class with complete TaskBackend interface:
 export class LinearTaskBackend implements TaskBackend {
   readonly prefix = "linear";
   readonly name = "linear";
-  
+
   // Core interface methods
   async createTask(spec: TaskSpec): Promise<Task>;
   async getTask(taskId: string): Promise<Task | null>;
   async updateTask(taskId: string, updates: Partial<TaskSpec>): Promise<Task>;
   async deleteTask(taskId: string): Promise<void>;
   async listTasks(options?: TaskListOptions): Promise<Task[]>;
-  
+
   // Multi-backend methods (from Task #356)
   async exportTask(taskId: string): Promise<TaskExportData>;
   async importTask(data: TaskExportData): Promise<Task>;
@@ -51,6 +53,7 @@ export class LinearTaskBackend implements TaskBackend {
 ### 2. Linear API Integration
 
 **Linear GraphQL API**: Linear uses GraphQL for all operations
+
 - **Authentication**: Personal API tokens or OAuth
 - **Issue Operations**: Create, read, update, archive issues
 - **Team Scope**: Issues belong to teams (required)
@@ -60,6 +63,7 @@ export class LinearTaskBackend implements TaskBackend {
 ### 3. Task ID Management
 
 **Format**: linear#ABC-123 where:
+
 - linear = backend prefix
 - ABC-123 = Linear issue identifier (team prefix + issue number)
 
@@ -70,39 +74,46 @@ Map Linear workflow states to Minsky task statuses:
 ```typescript
 const LINEAR_STATUS_MAPPING = {
   // Linear → Minsky
-  "unstarted": "TODO",
-  "started": "IN-PROGRESS", 
-  "completed": "DONE",
-  "canceled": "CLOSED",
+  unstarted: "TODO",
+  started: "IN-PROGRESS",
+  completed: "DONE",
+  canceled: "CLOSED",
 } as const;
 ```
 
 ## Implementation Plan
 
 ### Phase 1: Core Backend Structure (4-5 hours)
+
 1. **Linear API Client Setup**
 2. **TaskBackend Interface Implementation**
 
-### Phase 2: Task Operations (6-8 hours)  
+### Phase 2: Task Operations (6-8 hours)
+
 1. **CRUD Operations**
 2. **Task ID Management**
 
 ### Phase 3: Advanced Features (4-5 hours)
+
 1. **Status Synchronization**
 2. **Team and Project Support**
 
 ### Phase 4: Integration and Testing (3-4 hours)
+
 1. **Multi-Backend Integration**
 2. **Comprehensive Testing**
 
 ## Dependencies
+
 - ✅ Task #356: Multi-backend task system architecture (completed)
 - ⚠️ Task #357: Repository backend integration (helpful but not blocking)
 
 ## Effort Estimate
+
 **Large (16-20 hours)**
 
 ## Priority
+
 **MEDIUM** - Extends multi-backend architecture with popular project management integration
 
 ## Requirements

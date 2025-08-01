@@ -5,8 +5,9 @@
 ## Problem
 
 During Task 176, we discovered multiple test files using real filesystem operations causing:
+
 - Race conditions between concurrent test runs
-- Test interference where tests pass individually but fail in test suite  
+- Test interference where tests pass individually but fail in test suite
 - Infinite loops due to filesystem conflicts (1.6+ billion ms timeouts)
 - Non-deterministic test behavior
 
@@ -15,6 +16,7 @@ During Task 176, we discovered multiple test files using real filesystem operati
 Create ESLint rule at src/eslint-rules/no-real-fs-in-tests.js that:
 
 ### Forbidden Imports in Test Files
+
 ```javascript
 // ❌ FORBIDDEN in test files
 import { mkdirSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
@@ -24,6 +26,7 @@ import { join } from "path"; // when used for temp directory creation
 ```
 
 ### Forbidden Function Calls in Test Files
+
 - Any `fs.*` operations (`mkdirSync`, `writeFileSync`, etc.)
 - Any `fs/promises.*` operations (`mkdir`, `writeFile`, etc.)
 - `tmpdir()` usage for temp directory creation
@@ -33,6 +36,7 @@ import { join } from "path"; // when used for temp directory creation
 ### **NEW: Additional Test Interference Patterns**
 
 #### **Global State and Counters**
+
 ```javascript
 // ❌ FORBIDDEN - Global counters in test files
 let testSequenceNumber = 0;
@@ -46,6 +50,7 @@ describe("tests", () => {
 ```
 
 #### **Timestamp-Based "Uniqueness" Patterns**
+
 ```javascript
 // ❌ FORBIDDEN - Non-unique timestamp patterns
 const testDir = join(tmpdir(), `test-${Date.now()}`); // Race condition!
@@ -53,6 +58,7 @@ const uniqueId = `${Date.now()}-${Math.random()}`; // Still not unique in parall
 ```
 
 #### **Dynamic Imports in Tests**
+
 ```javascript
 // ❌ FORBIDDEN - Dynamic imports in test files
 const { someFunction } = await import("../module"); // Can cause infinite loops
@@ -60,6 +66,7 @@ const module = require("../dynamic-module"); // Problematic in test context
 ```
 
 #### **Real Filesystem in Test Hooks**
+
 ```javascript
 // ❌ FORBIDDEN - Real I/O in test setup/teardown
 beforeEach(async () => {
@@ -77,31 +84,37 @@ afterEach(async () => {
 The ESLint rule should detect:
 
 #### **1. Filesystem Operations**
+
 - `fs.*` and `fs/promises.*` usage
 - `tmpdir()` calls
 - `process.cwd()` for temp path creation
 
 #### **2. Global State Anti-Patterns**
+
 - Variables declared outside `describe` blocks with counter patterns
 - `++` operators on global variables in `beforeEach`/`afterEach`
 - Global `let` declarations with names like `*Counter`, `*Sequence`, `*Number`
 
 #### **3. Non-Deterministic Uniqueness**
+
 - `Date.now()` usage in path creation within test files
 - `Math.random()` for "unique" identifiers in tests
 - Timestamp-based directory/file naming patterns
 
 #### **4. Problematic Import Patterns**
+
 - Dynamic `import()` statements in test files
 - `require()` calls inside test functions (not at module level)
 - Conditional imports based on test state
 
 #### **5. Dangerous Test Hook Patterns**
+
 - Real filesystem operations in `beforeEach`/`afterEach`/`beforeAll`/`afterAll`
 - Async operations that modify shared resources
 - Global state mutations in test hooks
 
 ### **Enhanced Error Messages**
+
 The rule should provide specific, actionable error messages:
 
 ```
@@ -117,11 +130,12 @@ The rule should provide specific, actionable error messages:
 ```
 
 ### **Rule Configuration Options**
+
 ```javascript
 {
   "rules": {
     "no-test-interference": [
-      "error", 
+      "error",
       {
         "allowedModules": ["mock"], // modules that CAN import fs for mocking
         "testPatterns": ["**/*.test.ts", "**/tests/**"],
@@ -136,6 +150,7 @@ The rule should provide specific, actionable error messages:
 ```
 
 ### Success Criteria
+
 1. ESLint rule detects and prevents real filesystem operations in tests
 2. Rule integrated into project ESLint configuration
 3. Clear error messages with mocking alternatives

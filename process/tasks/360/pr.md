@@ -9,6 +9,7 @@ This PR implements a comprehensive session outdated detection and display system
 ### Added
 
 **Data Model Extensions:**
+
 - New `SyncSeverity` type with levels: `current`, `stale`, `very-stale`, `ancient`
 - `SyncStatus` interface for basic sync tracking (timestamps, commit counts, flags)
 - `SyncStatusInfo` interface for detailed computed status information
@@ -16,6 +17,7 @@ This PR implements a comprehensive session outdated detection and display system
 - Extended `SessionRecord` and `Session` with optional `syncStatus` field
 
 **Git Service Methods:**
+
 - `getLatestMainCommit()` - Get the latest commit from main branch
 - `getMergeBase()` - Find merge base between two branches
 - `getCommitsBetween()` - Get commits in a range
@@ -25,12 +27,14 @@ This PR implements a comprehensive session outdated detection and display system
 - `getMainBranch()` - Detect main/master branch automatically
 
 **Core Sync Status Logic:**
+
 - `computeSyncStatus()` - Calculate detailed sync status using both timestamp and commit-based detection
 - `computeSeverity()` - Classify outdatedness into severity levels
 - `formatSyncStatus()` - Generate human-readable status strings
 - `getRecentMainChanges()` - Fetch recent commits from main for outdated sessions
 
 **New CLI Commands:**
+
 - `minsky session outdated` - List all outdated sessions with filtering and sorting
 - `minsky session check-sync` - Batch sync status checking with cache updates
 - `minsky session sync-summary` - Quick overview of sync status across all sessions
@@ -38,10 +42,12 @@ This PR implements a comprehensive session outdated detection and display system
 ### Changed
 
 **Enhanced Existing Commands:**
+
 - `minsky session get` - Now displays comprehensive sync status with visual indicators
 - `minsky session list --show-sync-status` - Shows inline sync status indicators
 
 **CLI Integration:**
+
 - Extended command parameter schemas for new sync-related options
 - Added command classes and factory functions for new commands
 - Enhanced result formatters with visual severity indicators (🔴🟠🟡✅)
@@ -50,23 +56,27 @@ This PR implements a comprehensive session outdated detection and display system
 ## Features
 
 ### Severity Levels and Thresholds
+
 - **Current**: Up to date with main branch
 - **Stale**: 3+ days behind main
 - **Very Stale**: 7+ days behind main
 - **Ancient**: 14+ days behind main
 
 ### Visual Indicators
+
 - 🔴 Ancient (14+ days behind)
 - 🟠 Very stale (7+ days behind)
 - 🟡 Stale (3+ days behind)
 - ✅ Current (up to date)
 
 ### Detection Mechanisms
+
 - **Timestamp-based**: Compares session last update with main branch commits
 - **Commit-based**: Uses Git merge base to count commits behind main
 - **Graceful degradation**: Falls back to basic detection if advanced Git operations fail
 
 ### User Experience
+
 - Detailed sync status in `session get` including recent main changes
 - Quick overview in `session list --show-sync-status`
 - Filterable and sortable outdated session listing

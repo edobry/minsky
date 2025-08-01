@@ -24,6 +24,7 @@ Explore the concept of automatically creating work items (distinct from user tas
 ### Conceptual Foundation
 
 This explores a new category of work items that are:
+
 - **System-generated** (not human-prompted tasks)
 - **Event-driven** (triggered by PR merges)
 - **Workflow-oriented** (focused on maintaining system state)
@@ -60,17 +61,17 @@ interface WorkItem {
 
   // System action specific fields
   automation?: {
-    executable: boolean;           // Can this be auto-executed?
+    executable: boolean; // Can this be auto-executed?
     requiresConfirmation: boolean; // Needs human approval?
-    retryable: boolean;           // Can retry on failure?
-    prerequisites: string[];       // Other work items that must complete first
+    retryable: boolean; // Can retry on failure?
+    prerequisites: string[]; // Other work items that must complete first
   };
 
   // Context and relationships
   context: {
-    triggerEvent?: PRMergeEvent;   // What triggered this work item
-    affectedSessions?: string[];   // Sessions this affects
-    relatedTasks?: string[];      // Related user tasks
+    triggerEvent?: PRMergeEvent; // What triggered this work item
+    affectedSessions?: string[]; // Sessions this affects
+    relatedTasks?: string[]; // Related user tasks
     riskLevel?: "low" | "medium" | "high"; // AI-assessed risk
   };
 
@@ -92,16 +93,16 @@ interface WorkItem {
 interface PRMergeEvent {
   prId: string;
   prTitle: string;
-  baseBranch: string;        // Usually 'main'
-  mergeBranch: string;       // Feature branch that was merged
+  baseBranch: string; // Usually 'main'
+  mergeBranch: string; // Feature branch that was merged
   mergeCommit: string;
   changedFiles: string[];
 
   // AI-enhanced analysis
   analysis: {
     impactAssessment: "low" | "medium" | "high";
-    affectedAreas: string[];           // Code areas affected
-    potentialConflicts: string[];      // Predicted conflict areas
+    affectedAreas: string[]; // Code areas affected
+    potentialConflicts: string[]; // Predicted conflict areas
     relatedSessions: SessionRelation[];
   };
 }
@@ -109,14 +110,15 @@ interface PRMergeEvent {
 interface SessionRelation {
   sessionId: string;
   relationshipType: "explicit" | "inferred" | "file-overlap" | "dependency-based";
-  relationshipStrength: number;  // 0-1 confidence score
-  reasoning: string;             // AI explanation of relationship
+  relationshipStrength: number; // 0-1 confidence score
+  reasoning: string; // AI explanation of relationship
 }
 ```
 
 #### 2.2 Backend-Specific Event Detection
 
 **GitHub Backend:**
+
 ```typescript
 // Use GitHub webhooks for real-time PR merge detection
 interface GitHubWebhookHandler {
@@ -129,6 +131,7 @@ interface GitHubWebhookHandler {
 ```
 
 **Local Backend:**
+
 ```typescript
 // Git hook or polling-based detection
 interface LocalEventDetector {
@@ -154,16 +157,10 @@ interface SessionRelationshipAnalyzer {
   ): Promise<SessionRelation[]>;
 
   // Predict potential merge conflicts
-  predictConflicts(
-    sessionBranch: string,
-    mainChanges: string[]
-  ): Promise<ConflictPrediction[]>;
+  predictConflicts(sessionBranch: string, mainChanges: string[]): Promise<ConflictPrediction[]>;
 
   // Assess merge complexity and risk
-  assessMergeRisk(
-    session: Session,
-    prEvent: PRMergeEvent
-  ): Promise<MergeRiskAssessment>;
+  assessMergeRisk(session: Session, prEvent: PRMergeEvent): Promise<MergeRiskAssessment>;
 }
 
 interface ConflictPrediction {
@@ -184,8 +181,7 @@ function generateSyncWorkItems(
   prEvent: PRMergeEvent,
   sessionRelations: SessionRelation[]
 ): WorkItem[] {
-
-  return sessionRelations.map(relation => {
+  return sessionRelations.map((relation) => {
     if (relation.relationshipStrength > 0.8) {
       // High confidence - auto-executable
       return createAutoSyncWorkItem(relation, prEvent);
@@ -203,11 +199,13 @@ function generateSyncWorkItems(
 #### 4.2 Work Item Types for Session Sync
 
 1. **Auto-Sync Work Items** (High confidence, low risk)
+
    - Automatically merge main into session branch
    - Execute without human intervention
    - Report results and any issues
 
 2. **Confirmation Sync Work Items** (Medium confidence or risk)
+
    - Prepare merge analysis
    - Request human approval before execution
    - Provide conflict preview and resolution suggestions
@@ -269,7 +267,7 @@ class PRMergeOrchestrator {
 
     // 3. Store and optionally execute
     await this.workItemService.storeWorkItems(workItems);
-    await this.executeAutoWorkItems(workItems.filter(wi => wi.automation?.executable));
+    await this.executeAutoWorkItems(workItems.filter((wi) => wi.automation?.executable));
 
     return workItems;
   }
@@ -381,24 +379,28 @@ This represents a significant architectural addition that bridges event-driven a
 ## Implementation Phases
 
 ### Phase 1: Foundation (Week 1-2)
+
 - [ ] Design work item data model and distinguish from tasks
 - [ ] Implement basic PR merge event detection
 - [ ] Create simple session relationship analysis
 - [ ] Build work item storage and basic CLI
 
 ### Phase 2: AI Integration (Week 3-4)
+
 - [ ] Integrate AI-powered relationship detection
 - [ ] Add conflict prediction capabilities
 - [ ] Implement risk assessment algorithms
 - [ ] Create intelligent work item generation
 
 ### Phase 3: Automation Engine (Week 5-6)
+
 - [ ] Build work item execution engine
 - [ ] Implement auto-sync capabilities
 - [ ] Add safety mechanisms and rollback
 - [ ] Create comprehensive error handling
 
 ### Phase 4: Polish and Integration (Week 7-8)
+
 - [ ] Integrate with existing task dependency system
 - [ ] Add advanced CLI features and user controls
 - [ ] Implement performance optimizations

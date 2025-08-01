@@ -2,7 +2,8 @@
 
 **Status:** NEW  
 **Priority:** HIGH  
-**Dependencies:** 
+**Dependencies:**
+
 - Task #161 (Add GitHub PR Workflow) - FOUNDATIONAL DEPENDENCY
 - Task #174 (Review Session PR Workflow Architecture) - COMPLETED
 - Task #359 (Restructure Session PR Command with Explicit Subcommands) - COMMAND STRUCTURE DEPENDENCY
@@ -19,6 +20,7 @@ This architectural limitation becomes critical when implementing Task #161 (GitH
 4. **Branch Protection**: Merge restrictions based on approval state
 
 **Key Insight**: The current coupling forces Minsky to either:
+
 - Use GitHub's native approval system but bypass it with immediate merging
 - Implement a non-standard workflow that doesn't leverage GitHub's collaboration features
 
@@ -27,17 +29,19 @@ This architectural limitation becomes critical when implementing Task #161 (GitH
 ### Current Coupling in Repository Backends
 
 **Local/Remote Git Backend** (`session approve`):
+
 ```typescript
 // Current: Approval and merge happen atomically
 await repositoryBackend.fastForwardMerge(preparedCommit);
-await taskService.updateStatus(taskId, 'DONE');
+await taskService.updateStatus(taskId, "DONE");
 ```
 
 **GitHub Backend** (proposed in Task #161):
+
 ```typescript
 // Problematic: Forces immediate merge after approval
 await githubApi.mergePullRequest(prNumber);
-await taskService.updateStatus(taskId, 'DONE');
+await taskService.updateStatus(taskId, "DONE");
 ```
 
 ### Architectural Issues
@@ -53,6 +57,7 @@ await taskService.updateStatus(taskId, 'DONE');
 ### 1. Separate PR Approval and Merge Operations
 
 **New Task Status Flow**:
+
 ```
 ASSIGNED → IN-PROGRESS → IN-REVIEW → APPROVED → DONE
                                   ↗        ↘
@@ -60,6 +65,7 @@ ASSIGNED → IN-PROGRESS → IN-REVIEW → APPROVED → DONE
 ```
 
 **Decoupled Commands**:
+
 ```bash
 # Create PR (existing)
 minsky session pr
@@ -74,17 +80,23 @@ minsky session merge
 ### 2. Repository Backend Interface Extension
 
 **Enhanced RepositoryBackend Interface**:
+
 ```typescript
 interface RepositoryBackend {
   // Existing PR creation
-  createPullRequest(title: string, body: string, sourceBranch: string, baseBranch: string): Promise<PRInfo>;
-  
+  createPullRequest(
+    title: string,
+    body: string,
+    sourceBranch: string,
+    baseBranch: string
+  ): Promise<PRInfo>;
+
   // NEW: Separate approval operation
   approvePullRequest(prNumber: number, reviewComment?: string): Promise<ApprovalInfo>;
-  
-  // NEW: Separate merge operation  
+
+  // NEW: Separate merge operation
   mergePullRequest(prNumber: number, mergeStrategy?: MergeStrategy): Promise<MergeInfo>;
-  
+
   // NEW: Check approval status
   getPullRequestApprovalStatus(prNumber: number): Promise<ApprovalStatus>;
 }
@@ -107,11 +119,13 @@ interface ApprovalStatus {
 ### 3. Task Status Enhancement
 
 **New Task Status**: `APPROVED`
+
 - Indicates PR has been approved but not yet merged
 - Allows time gap between approval and merge
 - Supports multi-step review processes
 
 **Enhanced Task Metadata**:
+
 ```yaml
 ---
 # Existing fields...
@@ -121,10 +135,10 @@ approval_info:
   approved_by: username
   approved_at: 2023-06-15T14:32:00Z
   review_comment: "LGTM - great implementation"
-  
+
 github_pr:
   pr_number: 123
-  status: "approved"  # open, approved, merged
+  status: "approved" # open, approved, merged
   approval_count: 2
   required_approvals: 1
   can_merge: true
@@ -134,6 +148,7 @@ github_pr:
 ### 4. Backward Compatibility Strategy
 
 **Option A: Unified Command with Flags**
+
 ```bash
 # Current behavior (approve + merge)
 minsky session approve
@@ -144,6 +159,7 @@ minsky session merge
 ```
 
 **Option B: Separate Commands with Legacy Support**
+
 ```bash
 # New preferred workflow
 minsky session approve  # approve only
@@ -154,6 +170,7 @@ minsky session approve --merge  # old behavior
 ```
 
 **Option C: Progressive Migration**
+
 ```bash
 # Phase 1: Keep current behavior, add warnings
 minsky session approve  # works as before, shows deprecation warning
@@ -170,39 +187,46 @@ minsky session merge     # merge only
 ### 5. Repository Backend-Specific Behavior
 
 **GitHub Backend**:
+
 - `session approve`: Submit GitHub PR review with "APPROVE" state
 - `session merge`: Merge via GitHub API (respects branch protection rules)
 - Supports multiple reviewers and approval requirements
 
 **Local/Remote Git Backend**:
+
 - `session approve`: Mark as approved in task metadata (no git operation)
 - `session merge`: Execute prepared merge commit (existing behavior)
 - Maintains current functionality while enabling decoupled workflow
 
 **Future GitLab/Bitbucket Backends**:
+
 - Each can implement approval/merge according to platform-specific patterns
 - Standardized interface enables consistent CLI experience
 
 ## Benefits
 
 ### 1. Industry Standard Alignment
+
 - Matches GitHub, GitLab, and Bitbucket PR workflows
 - Familiar patterns for developers coming from other tools
 - Enables integration with platform-native review processes
 
 ### 2. Enhanced Collaboration
+
 - **Code Review Workflows**: Approval without immediate merge pressure
 - **Multi-Reviewer Support**: Multiple people can approve before merge
 - **Timing Flexibility**: Approve during work hours, merge during deployment windows
 - **Role Separation**: Reviewers vs. Release Managers can have different responsibilities
 
 ### 3. Improved Control
+
 - **Branch Protection Integration**: Respect GitHub's merge restrictions
 - **CI/CD Integration**: Merge only after approval + successful builds
 - **Release Coordination**: Batch approved PRs for coordinated releases
 - **Rollback Capability**: Approved but unmerged PRs can be easily abandoned
 
 ### 4. Platform Feature Leverage
+
 - **GitHub**: Required reviewers, CODEOWNERS, status checks
 - **GitLab**: Merge requests approvals, approval rules
 - **Enterprise Features**: Compliance and audit trails
@@ -210,22 +234,26 @@ minsky session merge     # merge only
 ## Implementation Considerations
 
 ### 1. State Management Complexity
+
 - **Current**: Simple ASSIGNED → IN-PROGRESS → IN-REVIEW → DONE
 - **New**: Must handle APPROVED state and transitions
 - **Edge Cases**: What if approval is removed? Multiple approvals?
 
 ### 2. Error Handling
+
 - **Approval Failures**: Insufficient permissions, already approved
-- **Merge Failures**: Conflicts, branch protection violations  
+- **Merge Failures**: Conflicts, branch protection violations
 - **State Inconsistencies**: PR merged externally, approval revoked
 
 ### 3. User Experience
+
 - **Command Discovery**: How do users learn about separate commands?
 - **Workflow Guidance**: When to approve vs. merge?
 - **Error Recovery**: Clear messages for workflow violations
 - **CLI Consistency**: Align approval/merge commands with session PR structure from Task #359
 
 ### 4. Migration Strategy
+
 - **Existing Sessions**: How to handle in-flight work?
 - **Documentation Updates**: Extensive examples and migration guides
 - **Training**: Team adoption of new patterns
@@ -233,34 +261,42 @@ minsky session merge     # merge only
 ## Open Questions
 
 ### 1. Default Behavior Decision
+
 **Question**: Should `session approve` default to approve-only or approve+merge?
 
 **Options**:
+
 - **A**: Default to approve-only (forces explicit merge step)
 - **B**: Default to approve+merge (maintains current behavior)
 - **C**: Prompt user for choice (interactive confirmation)
 - **D**: Repository backend determines default (GitHub=approve-only, Local=approve+merge)
 
 ### 2. Task Status Granularity
+
 **Question**: How granular should task status tracking be?
 
 **Options**:
+
 - **Minimal**: Keep current statuses, track approval in metadata only
 - **Moderate**: Add APPROVED status between IN-REVIEW and DONE
 - **Detailed**: Add multiple approval states (NEEDS-REVIEW, APPROVED, MERGE-READY)
 
 ### 3. Multi-PR Tasks
+
 **Question**: How should this work for tasks that span multiple PRs?
 
 **Considerations**:
+
 - **Stacked PRs**: Dependencies between multiple PRs
 - **Parallel PRs**: Multiple independent changes for one task
 - **Partial Approval**: Some PRs approved, others still in review
 
 ### 4. Approval Authority
+
 **Question**: Who can approve vs. merge PRs in Minsky?
 
 **Options**:
+
 - **Task Owner Only**: Only task assignee can approve/merge
 - **Team Members**: Any team member can approve, subset can merge
 - **Platform Rules**: Defer to GitHub/GitLab permission system
@@ -269,25 +305,29 @@ minsky session merge     # merge only
 ## Investigation Methodology
 
 ### Phase 1: Current State Analysis
+
 1. **Map Current Approval/Merge Flow**: Document exact steps in session approve
-2. **Repository Backend Review**: Analyze coupling in existing implementations  
+2. **Repository Backend Review**: Analyze coupling in existing implementations
 3. **Task Status Lifecycle**: Map current status transitions and identify gaps
 4. **CLI Command Analysis**: Review session command structure and patterns
 5. **Session PR Command Structure**: Align with Task #359 decisions on subcommand patterns
 
 ### Phase 2: Platform Research
+
 1. **GitHub PR Workflow Study**: Document GitHub's approval/merge separation
 2. **GitLab Comparison**: How does GitLab handle approval vs. merge?
 3. **Industry Patterns**: Survey other tools (Azure DevOps, Bitbucket)
 4. **Best Practices**: Research team workflows and collaboration patterns
 
 ### Phase 3: Design Exploration
+
 1. **Interface Design**: Multiple approaches to separating operations
 2. **Backward Compatibility**: Strategies for smooth migration
 3. **State Management**: Robust handling of approval/merge states
 4. **Error Scenarios**: Comprehensive error case analysis
 
 ### Phase 4: User Experience Validation
+
 1. **Developer Workflow Simulation**: Walk through common scenarios
 2. **Team Collaboration Scenarios**: Multi-person review workflows
 3. **Migration Path Testing**: How existing users adapt to changes
@@ -296,18 +336,21 @@ minsky session merge     # merge only
 ## Success Criteria
 
 ### Technical Success
+
 - [ ] Clean separation of approval and merge operations in repository backends
 - [ ] Backward compatibility with existing `session approve` behavior
 - [ ] Robust state management for new APPROVED task status
 - [ ] Platform-specific implementations leverage native approval features
 
-### User Experience Success  
+### User Experience Success
+
 - [ ] Intuitive command structure that matches industry patterns
 - [ ] Clear migration path from current workflow
 - [ ] Comprehensive error handling and recovery guidance
 - [ ] Documentation and examples for common scenarios
 
 ### Architectural Success
+
 - [ ] Repository backend interface properly abstracts platform differences
 - [ ] Task status model accurately represents approval/merge lifecycle
 - [ ] CLI commands provide appropriate flexibility without complexity
@@ -316,16 +359,19 @@ minsky session merge     # merge only
 ## Dependencies and Relationships
 
 **Foundational Dependencies**:
+
 - **Task #161**: This exploration directly informs GitHub PR workflow implementation
 - **Task #174**: Completed session PR architecture review provides context
 - **Task #359**: Command structure decisions impact approval/merge command design
 
 **Related Work**:
+
 - **Repository Backend Interface** (Task #014): May need interface extensions
 - **Task Status Model** (ADR 002): APPROVED status addition
 - **Multi-Backend Architecture** (Task #356): Cross-platform consistency
 
 **Future Enablement**:
+
 - **GitLab Integration**: Decoupled approval/merge enables GitLab backend
 - **Enterprise Features**: Supports compliance and audit requirements
 - **Advanced Workflows**: Enables stacked PRs, release trains, etc.
@@ -335,6 +381,7 @@ minsky session merge     # merge only
 This exploration is **foundational** for Task #161 and will significantly impact the session PR workflow architecture going forward.
 
 ### Investigation Plan
+
 1. **Conduct Investigation**: Execute the four-phase methodology above
 2. **Create Design Proposal**: Specific recommendation for implementation approach
 3. **Prototype Core Interface**: Implement repository backend interface changes

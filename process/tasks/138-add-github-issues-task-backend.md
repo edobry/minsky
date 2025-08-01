@@ -28,21 +28,25 @@ Examples:
 #### 3. System-Wide Impact Areas
 
 **Session Management:**
+
 - Session names: `task#123` → `task#md:123`
 - Session records must store backend information
 - Auto-detection must handle backend-qualified IDs
 
 **Git Operations:**
+
 - Branch names: `task#123` → `task#md:123`
 - PR branches: `pr/task#123` → `pr/task#md:123`
 - Branch cleanup operations must handle qualified names
 
 **File System Organization:**
+
 - Task spec paths: `process/tasks/123-title.md` → `process/tasks/md/123-title.md`
 - Session workspaces: `/sessions/task#123/` → `/sessions/task#md:123/`
 - Backend-specific directory structures
 
 **CLI Commands:**
+
 - All task ID parameters must accept qualified format
 - Backend auto-detection from task ID
 - Cross-backend task operations
@@ -55,29 +59,31 @@ Examples:
 ```typescript
 interface TaskService {
   // Route operations to correct backend based on task ID
-  getTask(qualifiedId: string): Promise<Task>
+  getTask(qualifiedId: string): Promise<Task>;
 
   // Backend selection for new tasks
-  createTask(spec: TaskSpec, backend?: string): Promise<Task>
+  createTask(spec: TaskSpec, backend?: string): Promise<Task>;
 
   // Cross-backend operations
-  listAllTasks(): Promise<Task[]> // From all backends
-  listTasksByBackend(backend: string): Promise<Task[]>
+  listAllTasks(): Promise<Task[]>; // From all backends
+  listTasksByBackend(backend: string): Promise<Task[]>;
 
   // Backend management
-  getAvailableBackends(): string[]
-  getBackendForTask(qualifiedId: string): string
+  getAvailableBackends(): string[];
+  getBackendForTask(qualifiedId: string): string;
 }
 ```
 
 #### 5. Migration Strategy Requirements
 
 **Backward Compatibility:**
+
 - Support unqualified IDs during transition period
 - Auto-detect backend for existing unqualified IDs
 - Graceful fallback mechanisms
 
 **Migration Process:**
+
 1. Implement backend-qualified ID system
 2. Add migration utilities to convert existing tasks
 3. Update all system references to use qualified IDs
@@ -89,11 +95,13 @@ interface TaskService {
 #### Phase 1: Multi-Backend Infrastructure (EXPANDED)
 
 1. **Backend-Qualified ID System**
+
    - Design qualified ID format and validation
    - Update task ID utilities for parsing/formatting
    - Implement backend prefix registration system
 
 2. **TaskService Multi-Backend Routing**
+
    - Replace single `currentBackend` with routing system
    - Implement backend selection and task routing
    - Add cross-backend operation support
@@ -106,6 +114,7 @@ interface TaskService {
 #### Phase 2: GitHub Issues Backend Implementation
 
 1. **GitHubIssuesTaskBackend Class** ✅ COMPLETED
+
    - Implements TaskBackend interface
    - GitHub API integration with issue mapping
    - Status synchronization via labels
@@ -118,11 +127,13 @@ interface TaskService {
 #### Phase 3: System Integration Updates
 
 1. **CLI Command Updates**
+
    - Update all schemas to support qualified task IDs
    - Add backend parameter support
    - Implement cross-backend operations
 
 2. **Git Operations Updates**
+
    - Update branch naming for qualified IDs
    - Modify PR and merge operations for backend-qualified branches
    - Update cleanup operations
@@ -135,6 +146,7 @@ interface TaskService {
 #### Phase 4: Migration and Compatibility
 
 1. **Migration Utilities**
+
    - Task ID conversion tools
    - File system reorganization scripts
    - Session record migration
@@ -179,31 +191,37 @@ interface TaskService {
 ### Required Follow-up Tasks
 
 1. **Task ID System Redesign** (High Priority)
+
    - Design backend-qualified ID format
    - Implement parsing and validation utilities
    - Update all ID references system-wide
 
 2. **TaskService Multi-Backend Refactor** (High Priority)
+
    - Replace single-backend architecture
    - Implement backend routing system
    - Add cross-backend operation support
 
 3. **Session Management Updates** (High Priority)
+
    - Update session naming for qualified IDs
    - Modify session records and operations
    - Update auto-detection mechanisms
 
 4. **CLI Schema Updates** (Medium Priority)
+
    - Update all command schemas for qualified IDs
    - Add backend parameter support
    - Implement backward compatibility
 
 5. **Git Operations Updates** (Medium Priority)
+
    - Update branch naming schemes
    - Modify PR and merge operations
    - Update cleanup procedures
 
 6. **File System Migration** (Medium Priority)
+
    - Design backend-specific directory structure
    - Implement migration utilities
    - Add path generation updates
@@ -229,14 +247,17 @@ interface TaskService {
 Before proceeding with multi-backend implementation:
 
 1. **Backend Prefix Strategy**: What short prefixes should be used for each backend?
+
    - `md:` for markdown, `gh:` for GitHub, `json:` for JSON file?
    - Alternative schemes (numeric, alphabetic)?
 
 2. **Migration Timeline**: What is the timeline for transitioning to qualified IDs?
+
    - Immediate full transition or gradual migration?
    - Backward compatibility duration?
 
 3. **Session Naming Strategy**: How should qualified IDs be handled in session names?
+
    - `task#md:123` or alternative format?
    - URL encoding for special characters?
 
@@ -250,6 +271,7 @@ Before proceeding with multi-backend implementation:
 **Updated Scope**: Medium (4-8 hours) - Reduced due to dependency on Task #356
 
 The scope has been significantly reduced because:
+
 - Core multi-backend architecture will be implemented in Task #356
 - This task now focuses on adapting existing GitHub backend implementation
 - System-wide changes are handled by the prerequisite task
@@ -383,6 +405,7 @@ Medium (4-8 hours) - reduced scope due to dependency on Task #356 for multi-back
 ## Work Log
 
 - 2025-01-17: Initial GitHub Issues backend implementation completed
+
   - Implemented full GitHub Issues task backend with API integration
   - Added comprehensive test suite with mocked GitHub API responses
   - Integrated with existing task service using factory pattern
@@ -393,6 +416,7 @@ Medium (4-8 hours) - reduced scope due to dependency on Task #356 for multi-back
   - Created task #146 to fix session PR command import bug discovered during implementation
 
 - 2025-01-28: Multi-backend architecture analysis completed and separated into prerequisite task
+
   - Identified need for backend-qualified task IDs to prevent conflicts during migration
   - Analyzed system-wide impact on sessions, git operations, file paths
   - Created Task #356 "Implement Multi-Backend Task System Architecture" as prerequisite

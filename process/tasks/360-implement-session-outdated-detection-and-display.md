@@ -38,14 +38,14 @@ This creates manual overhead and increases the likelihood of merge conflicts whe
 ```typescript
 interface SessionData {
   // ... existing session fields
-  
+
   syncStatus?: {
-    lastMainSync?: string;           // Last commit hash from main that was synced
-    lastMainSyncTimestamp?: Date;    // When that sync occurred
-    lastUpdateTimestamp?: Date;      // When session was last updated
-    isOutdated?: boolean;           // Computed field: main has newer commits
-    mainCommitsBehind?: number;     // How many commits behind main
-    lastChecked?: Date;             // When sync status was last calculated
+    lastMainSync?: string; // Last commit hash from main that was synced
+    lastMainSyncTimestamp?: Date; // When that sync occurred
+    lastUpdateTimestamp?: Date; // When session was last updated
+    isOutdated?: boolean; // Computed field: main has newer commits
+    mainCommitsBehind?: number; // How many commits behind main
+    lastChecked?: Date; // When sync status was last calculated
   };
 }
 ```
@@ -77,25 +77,27 @@ const ANCIENT_THRESHOLD_DAYS = 14;
 async function computeSyncStatus(sessionId: string): Promise<SyncStatusInfo> {
   const session = await sessionService.getSession(sessionId);
   const mainBranch = await gitService.getMainBranch();
-  
+
   // Get latest main commit
   const latestMainCommit = await gitService.getLatestCommit(mainBranch);
   const latestMainDate = await gitService.getCommitDate(latestMainCommit.hash);
-  
+
   // Compare with session's last update
   const sessionLastUpdate = session.syncStatus?.lastUpdateTimestamp || session.createdAt;
-  
+
   const isOutdated = latestMainDate > sessionLastUpdate;
   const daysBehind = Math.floor((Date.now() - latestMainDate.getTime()) / (1000 * 60 * 60 * 24));
-  
+
   return {
     isOutdated,
-    commitsBehind: isOutdated ? await gitService.getCommitsBetween(sessionLastUpdate, latestMainDate) : 0,
+    commitsBehind: isOutdated
+      ? await gitService.getCommitsBetween(sessionLastUpdate, latestMainDate)
+      : 0,
     lastMainCommit: latestMainCommit.hash,
     lastMainCommitDate: latestMainDate,
     sessionLastUpdate,
     daysBehind,
-    severity: computeSeverity(daysBehind, isOutdated)
+    severity: computeSeverity(daysBehind, isOutdated),
   };
 }
 ```
@@ -107,15 +109,16 @@ async function computeDetailedSyncStatus(sessionId: string): Promise<SyncStatusI
   const session = await sessionService.getSession(sessionId);
   const sessionBranch = await gitService.getSessionBranch(sessionId);
   const mainBranch = await gitService.getMainBranch();
-  
+
   // Get merge base and check if main has moved ahead
   const mergeBase = await gitService.getMergeBase(sessionBranch, mainBranch);
   const latestMainCommit = await gitService.getLatestCommit(mainBranch);
-  
+
   const isOutdated = mergeBase !== latestMainCommit.hash;
-  const commitsBehind = isOutdated ? 
-    await gitService.getCommitCount(`${mergeBase}..${mainBranch}`) : 0;
-  
+  const commitsBehind = isOutdated
+    ? await gitService.getCommitCount(`${mergeBase}..${mainBranch}`)
+    : 0;
+
   return {
     isOutdated,
     commitsBehind,
@@ -123,7 +126,7 @@ async function computeDetailedSyncStatus(sessionId: string): Promise<SyncStatusI
     lastMainCommitDate: await gitService.getCommitDate(latestMainCommit.hash),
     sessionLastUpdate: session.updatedAt,
     daysBehind: Math.floor((Date.now() - latestMainCommit.timestamp) / (1000 * 60 * 60 * 24)),
-    severity: computeSeverity(commitsBehind, isOutdated)
+    severity: computeSeverity(commitsBehind, isOutdated),
   };
 }
 ```
@@ -140,7 +143,7 @@ minsky session get <session-id>
 # Status: ACTIVE
 # Branch: session/feature-authentication
 # Task: #123: Implement user authentication
-# 
+#
 # ⚠️  OUTDATED: 5 commits behind main (3 days old)
 # Last main sync: abc1234 (2024-01-15)
 # Last updated: 2024-01-12
@@ -159,10 +162,10 @@ minsky session get <session-id>
 minsky session outdated [--severity current|stale|very-stale|ancient] [--sort commits|days]
 # Output:
 # Outdated Sessions (3 found):
-# 
+#
 # 🔴 session-456: Feature Work [VERY STALE]
 #    └─ 12 commits behind, 8 days old
-# 🟡 session-789: Bug Fix [STALE] 
+# 🟡 session-789: Bug Fix [STALE]
 #    └─ 5 commits behind, 4 days old
 # 🟡 session-123: Refactor [STALE]
 #    └─ 3 commits behind, 2 days old
@@ -179,7 +182,7 @@ minsky session list --show-sync-status
 # Output:
 # Active Sessions:
 # - session-123: Feature Work [ACTIVE] ⚠️ 3 commits behind
-# - session-456: Bug Fix [ACTIVE] ✅ up to date  
+# - session-456: Bug Fix [ACTIVE] ✅ up to date
 # - session-789: Refactor [ACTIVE] 🔴 12 commits behind (ancient)
 ```
 
@@ -194,9 +197,9 @@ minsky session sync-summary
 # Output:
 # Session Sync Summary:
 # ✅ Up to date: 2 sessions
-# 🟡 Stale (3-7 days): 1 session  
+# 🟡 Stale (3-7 days): 1 session
 # 🔴 Very stale (7+ days): 1 session
-# 
+#
 # Use 'minsky session outdated' for details
 ```
 
@@ -207,13 +210,13 @@ minsky session sync-summary
 ```typescript
 interface GitService {
   // ... existing methods
-  
+
   // Sync status detection
   getLatestMainCommit(): Promise<GitCommit>;
   getMergeBase(branch1: string, branch2: string): Promise<string>;
   getCommitsBetween(fromRef: string, toRef: string): Promise<GitCommit[]>;
   getCommitCount(range: string): Promise<number>;
-  
+
   // Commit information
   getCommitDate(commitHash: string): Promise<Date>;
   getCommitsSince(since: Date, branch?: string): Promise<GitCommit[]>;
@@ -225,12 +228,12 @@ interface GitService {
 ```typescript
 interface SessionService {
   // ... existing methods
-  
+
   // Sync status management
   updateSyncStatus(sessionId: string, status: SyncStatusInfo): Promise<void>;
   getSyncStatus(sessionId: string): Promise<SyncStatusInfo>;
   getOutdatedSessions(severity?: SyncSeverity): Promise<SessionData[]>;
-  
+
   // Batch operations
   refreshAllSyncStatuses(): Promise<void>;
   getSyncSummary(): Promise<SyncSummary>;
@@ -297,8 +300,7 @@ This interim solution provides the foundation for:
 - **Task #360**: Advanced automated sync workflow
 - **AI integration**: Intelligent analysis of which changes affect which sessions
 - **Notification system**: Proactive alerts about critical outdated sessions
-- **Automated sync**: Optional automatic syncing for low-risk scenarios 
-
+- **Automated sync**: Optional automatic syncing for low-risk scenarios
 
 ## Requirements
 

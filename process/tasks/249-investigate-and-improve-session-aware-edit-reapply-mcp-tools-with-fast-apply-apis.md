@@ -11,6 +11,7 @@ HIGH
 ## Description
 
 **CRITICAL**: Phase 1 investigation revealed our current session-aware edit tools are completely non-functional:
+
 1. **Complete Failure**: 0% success rate on all test scenarios (12/12 tests failed)
 2. **Broken Pattern Matching**: `applyEditPattern` cannot match even basic content due to oversimplified `indexOf` approach
 3. **No Reapply Functionality**: Missing the critical `reapply` tool for recovering from failed edits
@@ -321,18 +322,21 @@ HIGH
 - **Fast-Apply API Research**: Validated Morph (4,500+ tok/s, 98% accuracy) and Relace as solutions
 - **Business Case**: Infinite ROI from completely broken to working functionality
 
-### Phase 2: ✅ COMPLETED - Morph Integration via AI Provider Infrastructure  
+### Phase 2: ✅ COMPLETED - Morph Integration via AI Provider Infrastructure
+
 - **✅ Model Capabilities**: Extended AI provider types to include "fast-apply" capability
 - **✅ Morph Provider Integration**: Added Morph to existing AI provider enum and configuration
 - **✅ Test-Driven Implementation**: Created comprehensive validation suite for real API testing
 - **✅ Fast-Apply Testing Command**: Implemented `minsky ai fast-apply` for file edit testing
 
 ### Phase 3: ✅ COMPLETED - Session Tools Restoration
+
 - **✅ Replace Broken Session Edit Tools**: Fixed session_edit_file and session_search_replace using fast-apply
 - **✅ Provider Selection**: Implemented capability-based provider selection for edit operations
 - **✅ Integration Testing**: Validated restored functionality with comprehensive testing
 
 ### Phase 4: DEFERRED - Advanced Features (New Task)
+
 - **Session Reapply Tool**: Implement session_reapply using fast-apply providers (separate task)
 - **Multi-Provider Fallback**: Graceful degradation and provider selection optimization
 
@@ -355,12 +359,14 @@ HIGH
 ## Success Criteria
 
 ### Immediate (Phase 2) - ✅ COMPLETED
+
 - **✅ Morph Provider Added**: Successfully integrated into AI provider configuration
 - **✅ Fast-Apply Testing**: `minsky ai fast-apply` command for file edit testing
 - **✅ Infrastructure Complete**: Real API calls validated, configuration working
 - **✅ Capability Framework**: Fast-apply provider detection operational
 
-### Current (Phase 3) - ✅ COMPLETED  
+### Current (Phase 3) - ✅ COMPLETED
+
 - **✅ Session Edit Tools Restored**: >95% success rate on edit operations (vs. previous 0%)
 - **✅ Provider Integration**: Session tools use fast-apply providers automatically
 - **✅ Fast-Apply Command**: `minsky ai fast-apply` for testing and direct usage
@@ -368,6 +374,7 @@ HIGH
 - **✅ Performance Improvement**: Fast, accurate edit operations using AI-powered editing
 
 ### API Specification Compliance - ✅ COMPLETED
+
 - **✅ Morph Official XML Format**: Fixed prompt generation to match `<instruction>...</instruction><code>...</code><update>...</update>` exactly
 - **✅ Tool Description Updated**: Added official Morph tool description with examples to session.edit_file
 - **✅ Structured XML Tags**: Corrected to use proper XML structure instead of backticks
@@ -375,6 +382,7 @@ HIGH
 - **✅ Raw Edit Snippets**: Using raw code with `// ... existing code ...` markers in `<update>` tags
 
 ### Future (Phase 4) - DEFERRED
+
 - **Reapply Tool**: Working session_reapply implementation (new dedicated task #350)
 - **Advanced Provider Selection**: Multi-provider fallback and optimization
 - **Performance Analytics**: Usage tracking and optimization insights

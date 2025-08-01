@@ -34,12 +34,14 @@ Implement `minsky tasks similar <task-id>` command that:
 ### Core Functionality
 
 1. **Analyzes the target task** to understand its key characteristics:
+
    - Task description and requirements
    - Technical domain (e.g., CLI, backend, testing)
    - Implementation patterns mentioned
    - Complexity indicators
 
 2. **Searches completed tasks** using AI-powered similarity matching:
+
    - Semantic similarity of task descriptions
    - Technical domain overlap
    - Implementation approach patterns
@@ -72,12 +74,12 @@ Similar tasks to #175 (Add AI-powered task management subcommands):
    Domain: Backend/AI
    Similarity: Both involve AI integration and backend service architecture
    Status: DONE | Effort: Large
-   
+
 2. Task #125: Implement session management commands (Score: 0.72)
-   Domain: CLI/Commands  
+   Domain: CLI/Commands
    Similarity: Both add new CLI subcommands with complex workflows
    Status: DONE | Effort: Medium
-   
+
 3. Task #98: Add task status management (Score: 0.68)
    Domain: Tasks/CLI
    Similarity: Both extend task management functionality
@@ -87,16 +89,19 @@ Similar tasks to #175 (Add AI-powered task management subcommands):
 ## Technical Approach
 
 1. **AI Service Integration**:
+
    - Build on existing AI backend from Task #160
    - Create task similarity analysis service
    - Use embeddings or semantic comparison for similarity scoring
 
 2. **Task Analysis**:
+
    - Extract key features from task specifications
    - Normalize task descriptions for comparison
    - Weight different aspects (domain, complexity, patterns)
 
 3. **Search Implementation**:
+
    - Query task storage for completed tasks
    - Apply AI-powered similarity analysis
    - Rank and filter results based on relevance

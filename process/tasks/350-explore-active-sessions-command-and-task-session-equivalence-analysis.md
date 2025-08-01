@@ -28,6 +28,7 @@ The current Minsky CLI includes `minsky session list` which shows all sessions, 
 ### Task #229 Implementation Status: ✅ COMPLETED
 
 Task #229 has been **fully implemented** with the following changes:
+
 - **Mandatory task association**: All sessions now require either `--task` or `--description`
 - **Auto-task creation**: `minsky session start --description "Fix bug"` automatically creates a task
 - **Migration completed**: All 13 existing taskless sessions have been migrated
@@ -39,6 +40,7 @@ Task #229 has been **fully implemented** with the following changes:
 ### 1. Define "Active Sessions" in Post-Task #229 Architecture
 
 **Current Reality (Task #229 Complete):**
+
 - [ ] Analyze what constitutes an "active" session when all sessions have task associations
 - [ ] Determine if "active" means "sessions with IN_PROGRESS tasks" vs. "sessions not yet approved/merged"
 - [ ] Assess whether session lifecycle differs from task lifecycle in meaningful ways
@@ -46,6 +48,7 @@ Task #229 has been **fully implemented** with the following changes:
 ### 2. Evaluate Task/Session Equivalence Impact
 
 **Core Question**: Since every session now has exactly one task association:
+
 - [ ] Is `minsky tasks list --status IN_PROGRESS` functionally equivalent to "active sessions"?
 - [ ] Do sessions and tasks have different lifecycles that justify separate "active" commands?
 - [ ] Are there session-specific attributes (workspace state, branch info) that tasks don't capture?
@@ -59,11 +62,13 @@ Task #229 has been **fully implemented** with the following changes:
 ### 4. Assess Command Value Proposition
 
 **Potential Benefits:**
+
 - [ ] Workspace-specific information (directories, branches) not available in task lists
 - [ ] Developer familiarity with session-centric workflow
 - [ ] Different filtering options (by repo, by workspace state)
 
 **Potential Redundancy:**
+
 - [ ] ✅ **CONFIRMED**: `minsky tasks list --status IN_PROGRESS` would show all active work
 - [ ] Task-based filtering likely more comprehensive than session-based
 - [ ] Additional command complexity without clear differentiation
@@ -73,6 +78,7 @@ Task #229 has been **fully implemented** with the following changes:
 ### Scenario 1: Active Sessions Still Provides Value
 
 If sessions offer unique information not available in tasks:
+
 - [ ] Add `--active` flag to existing `minsky session list` command
 - [ ] Define active criteria for sessions with mandatory task association
 - [ ] Focus on session-specific attributes (workspace paths, git branches, etc.)
@@ -80,6 +86,7 @@ If sessions offer unique information not available in tasks:
 ### Scenario 2: Task-Based Filtering is Sufficient ✅ **LIKELY**
 
 Given Task #229's completion and task/session equivalence:
+
 - [ ] Determine if `minsky tasks list --status IN_PROGRESS` meets the use case
 - [ ] Consider enhancing task list output with session information
 - [ ] Document this as the recommended approach for finding active work
@@ -87,6 +94,7 @@ Given Task #229's completion and task/session equivalence:
 ### Scenario 3: Enhanced Task Listing
 
 If task listing needs session information:
+
 - [ ] Add session workspace details to task list output
 - [ ] Implement `--include-session-info` flag for task commands
 - [ ] Provide unified view of tasks with associated session details

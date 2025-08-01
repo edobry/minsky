@@ -5,6 +5,7 @@
 The session approve workflow was incorrectly trying to create new merge commits instead of fast-forwarding to prepared merge commits, causing failure with conventional commit message validation.
 
 **Error Observed:**
+
 ```
 ❌ Invalid commit message:
 Merge commits into main must use conventional commit format. Use squash merge or reword the commit message.

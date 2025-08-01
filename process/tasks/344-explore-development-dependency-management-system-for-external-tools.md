@@ -17,6 +17,7 @@ The current secret scanning implementation requires `gitleaks` binary but has no
 ### 1. Evaluate Development Dependency Managers
 
 **Primary Option: `mise`** (https://mise.jdx.dev/)
+
 - Successor to `asdf`
 - Cross-platform (macOS, Linux, Windows)
 - Language-agnostic tool management
@@ -24,8 +25,9 @@ The current secret scanning implementation requires `gitleaks` binary but has no
 - Automatic tool installation and version management
 
 **Alternative Options:**
+
 - `asdf` (original multi-tool manager)
-- `rtx` (Rust-based alternative) 
+- `rtx` (Rust-based alternative)
 - Docker-based development containers
 - GitHub Codespaces configuration
 - Platform-specific solutions (Homebrew Bundle, apt packages)
@@ -33,12 +35,14 @@ The current secret scanning implementation requires `gitleaks` binary but has no
 ### 2. Implementation Requirements
 
 **Automated Setup:**
+
 - One-command setup for new developers
 - Consistent tool versions across team
 - Platform compatibility (macOS, Linux, Windows)
 - CI/CD environment compatibility
 
 **Configuration:**
+
 - Project-local tool definitions
 - Version pinning for reproducibility
 - Integration with existing package.json scripts
@@ -47,11 +51,13 @@ The current secret scanning implementation requires `gitleaks` binary but has no
 ### 3. Tool Coverage
 
 **Current External Dependencies:**
+
 - `gitleaks` (secret scanning)
 - `bun` (runtime - already handled)
 - Potential future: `just`, `fd`, `rg`, etc.
 
 **Tool Lifecycle Management:**
+
 - Installation automation
 - Version updates
 - Team synchronization
@@ -69,12 +75,14 @@ The current secret scanning implementation requires `gitleaks` binary but has no
 ## Investigation Areas
 
 1. **Mise Evaluation:**
+
    - Configuration format and flexibility
    - Tool availability (especially gitleaks)
    - Performance and reliability
    - Team adoption considerations
 
 2. **Alternative Approaches:**
+
    - Docker development containers
    - GitHub Codespaces configuration
    - Platform-specific solutions

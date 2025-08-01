@@ -38,15 +38,16 @@ This task proposes adding a GitHub PR workflow that automatically selects the ap
 
 ```typescript
 function detectRepositoryBackend(workdir: string): RepositoryBackendType {
-  const remote = execSync('git remote get-url origin', { cwd: workdir });
-  
-  if (remote.includes('github.com')) return 'github';
-  if (remote.includes('gitlab.com')) return 'gitlab';  
-  return remote.startsWith('/') ? 'local' : 'remote';
+  const remote = execSync("git remote get-url origin", { cwd: workdir });
+
+  if (remote.includes("github.com")) return "github";
+  if (remote.includes("gitlab.com")) return "gitlab";
+  return remote.startsWith("/") ? "local" : "remote";
 }
 ```
 
-**Design Rationale**: 
+**Design Rationale**:
+
 - **KISS Principle**: No complex remote chaining or configuration
 - **Follows Git Conventions**: Uses standard `origin` remote
 - **Team Consistency**: Same remote = same backend for everyone
@@ -55,19 +56,22 @@ function detectRepositoryBackend(workdir: string): RepositoryBackendType {
 #### 0.2. Repository Backend Integration with Task Services - ✅ COMPLETED
 
 **Current Problem**:
+
 ```typescript
 // WRONG: Task backends parsing git remotes directly
 githubConfig = getGitHubBackendConfig(backendConfig.workspacePath);
 ```
 
 **Correct Architecture**:
+
 ```typescript
-// RIGHT: Task backends getting repo info from repository backends  
+// RIGHT: Task backends getting repo info from repository backends
 repositoryBackend = detectAndCreateRepositoryBackend(workdir);
 githubConfig = repositoryBackend.getGitHubInfo();
 ```
 
 **Implementation**:
+
 1. **TaskService Integration**: TaskService detects repository backend and creates instance
 2. **Repository Info Propagation**: Task backends receive repository information from repository backend
 3. **Remove Direct Git Parsing**: Eliminate git remote auto-detection from task backends
@@ -75,23 +79,27 @@ githubConfig = repositoryBackend.getGitHubInfo();
 #### 0.3. Task Backend Compatibility Validation - ✅ COMPLETED
 
 **Compatibility Matrix**:
+
 - **GitHub Issues Task Backend**: Requires GitHub repository backend
 - **Markdown Task Backend**: Compatible with any repository backend
 - **JSON File Task Backend**: Compatible with any repository backend
 
 **Validation Logic**:
+
 ```typescript
 function validateTaskBackendCompatibility(repoBackend: string, taskBackend: string) {
-  if (taskBackend === 'github-issues' && repoBackend !== 'github') {
+  if (taskBackend === "github-issues" && repoBackend !== "github") {
     throw new Error(
-      'GitHub Issues task backend requires GitHub repository backend. ' +
-      'Current repository backend: ' + repoBackend
+      "GitHub Issues task backend requires GitHub repository backend. " +
+        "Current repository backend: " +
+        repoBackend
     );
   }
 }
 ```
 
-**Session Behavior**: 
+**Session Behavior**:
+
 - **Existing sessions** with local remotes cannot use GitHub Issues backend (correct behavior)
 - **New sessions** created with GitHub repository backend will work with GitHub Issues
 - **No migration needed**: Clean separation, no configuration complexity
@@ -99,6 +107,7 @@ function validateTaskBackendCompatibility(repoBackend: string, taskBackend: stri
 #### 0.4. Backend Change Handling - ✅ COMPLETED
 
 **Remote URL Changes**: When repository remote changes (e.g., GitHub→GitLab):
+
 - Repository backend auto-detection updates automatically
 - Task backend compatibility re-validated
 - **Task Freezing**: Tasks may become read-only when source backend unavailable (see Task #356)
@@ -107,11 +116,13 @@ function validateTaskBackendCompatibility(repoBackend: string, taskBackend: stri
 #### 0.5. Repository vs Task Backend Separation - ✅ COMPLETED
 
 **Clear Architectural Separation**:
+
 - **Repository Backend**: Where code lives (GitHub, GitLab, local)
 - **Task Backend**: Where tasks live (GitHub Issues, markdown, JSON)
 - **Independence**: Task backend choice independent of repository backend (where compatible)
 
 **Benefits**:
+
 - **Future GitHub Enterprise**: Auto-detects GitHub backend regardless of domain
 - **Future GitLab Issues**: GitLab repository backend + GitLab Issues task backend
 - **Mixed Workflows**: GitHub repository + local markdown tasks (valid combination)
@@ -152,17 +163,17 @@ interface RepositoryBackend {
 
 ```typescript
 interface PRInfo {
-  number: number | string;    // PR number (GitHub) or branch name (local/remote)
-  url: string;               // PR URL (GitHub) or branch name (local/remote)
+  number: number | string; // PR number (GitHub) or branch name (local/remote)
+  url: string; // PR URL (GitHub) or branch name (local/remote)
   state: "open" | "closed" | "merged";
-  metadata?: any;            // Backend-specific information
+  metadata?: any; // Backend-specific information
 }
 
 interface MergeInfo {
-  commitHash: string;        // Merge commit hash
-  mergeDate: string;         // ISO timestamp
-  mergedBy: string;          // User who performed the merge
-  metadata?: any;            // Backend-specific information
+  commitHash: string; // Merge commit hash
+  mergeDate: string; // ISO timestamp
+  mergedBy: string; // User who performed the merge
+  metadata?: any; // Backend-specific information
 }
 ```
 
@@ -187,6 +198,7 @@ class GitHubBackend implements RepositoryBackend {
 ```
 
 **GitHub Integration:**
+
 1. **Authentication**: Use existing GitHub token from environment (`GITHUB_TOKEN` or `GH_TOKEN`)
 2. **API Client**: Leverage Octokit for GitHub API operations
 3. **PR Creation**: Create real GitHub PRs with proper metadata
@@ -218,6 +230,7 @@ class LocalGitBackend implements RepositoryBackend {
 ```
 
 **Prepared Merge Commit Workflow:**
+
 1. **PR Branch Creation**: Create PR branch from base branch (not source branch)
 2. **Prepared Merge Commit**: Merge source branch INTO PR branch with `--no-ff`
 3. **Push PR Branch**: Push the prepared merge commit
@@ -354,7 +367,7 @@ minsky session approve
 1. **Repository Backend Interface Extension**: Added `createPullRequest()` and `mergePullRequest()` methods to `RepositoryBackend` interface
 2. **Three Backend Implementations**:
    - `LocalGitBackend`: Uses shared prepared merge commit workflow
-   - `RemoteGitBackend`: Uses shared prepared merge commit workflow  
+   - `RemoteGitBackend`: Uses shared prepared merge commit workflow
    - `GitHubBackend`: Uses GitHub API via Octokit
 3. **Shared Workflow Module**: Extracted prepared merge commit logic to `src/domain/git/prepared-merge-commit-workflow.ts`
 4. **Repository Backend Auto-Detection**: Added `detectRepositoryBackendType()` and `createRepositoryBackendForSession()`
@@ -423,16 +436,19 @@ The implementation maintains the session-first, task-oriented approach while aut
 **Design Decisions**:
 
 1. **Simple Auto-Detection (KISS)**: Repository backend determined by immediate git remote URL only
+
    - No complex chaining or configuration required
    - Follows standard git conventions (origin remote)
    - Natural workflow that developers already understand
 
 2. **Clean Architecture Separation**:
+
    - **Repository Backend**: Where code lives (GitHub, GitLab, local)
    - **Task Backend**: Where tasks live (GitHub Issues, markdown, JSON)
    - **Compatibility Validation**: Some combinations require specific pairings
 
 3. **Session Behavior**:
+
    - Existing sessions with local remotes cannot use GitHub Issues (correct behavior)
    - New sessions created with appropriate repository backend enable full functionality
    - No complex migration needed - clean separation principle

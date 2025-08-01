@@ -17,7 +17,7 @@ Implement a comprehensive evaluation framework for testing rules, context constr
 This task directly builds on the successful infrastructure from Task #249:
 
 - **✅ Fast-Apply Integration**: Proven Morph API integration with XML format compliance
-- **✅ Type-Safe Provider Registry**: Compile-time validation for provider implementations  
+- **✅ Type-Safe Provider Registry**: Compile-time validation for provider implementations
 - **✅ AI Provider System**: Working completion service and configuration management
 - **✅ CLI Command Framework**: Established patterns for `minsky ai fast-apply` commands
 - **✅ Session Integration**: MCP tools with session path resolution and workspace management
@@ -89,7 +89,7 @@ Using fast-apply infrastructure for rapid, reliable evaluations:
    <evaluation>
    Context Quality Metrics:
    - Information completeness: [score/reasoning]
-   - Relevance filtering: [score/reasoning]  
+   - Relevance filtering: [score/reasoning]
    - Efficiency: [score/reasoning]
    Overall: [score] with improvement suggestions
    </evaluation>
@@ -178,7 +178,7 @@ Building on successful Task #249 patterns:
 ## Success Criteria
 
 - **✅ Working CLI Commands**: `minsky eval rule/context/agent/edit` commands functional
-- **✅ Session Integration**: Evaluation MCP tools working in session workflows  
+- **✅ Session Integration**: Evaluation MCP tools working in session workflows
 - **✅ Fast-Apply Integration**: Morph and other providers executing evaluations rapidly
 - **✅ Type Safety**: Compile-time validation for evaluation provider implementations
 - **✅ XML Compliance**: Structured evaluation prompts following proven format
@@ -188,28 +188,32 @@ Building on successful Task #249 patterns:
 
 - **Task #249**: Fast-apply infrastructure must be completed and stable
 - Access to Morph and other fast-apply providers for evaluation execution
-- Understanding of current Minsky rule system and agent architecture  
+- Understanding of current Minsky rule system and agent architecture
 - Existing AI provider configuration and completion service infrastructure
 - Session management and MCP tool framework
 
 ## Implementation Plan
 
 ### Phase 1: Core Infrastructure Extension
+
 1. Extend AI provider types to include `evaluation` capability
 2. Update `PROVIDER_FETCHER_REGISTRY` with evaluation provider support
 3. Create `EvaluationCapability` interface and validation logic
 
-### Phase 2: CLI Evaluation Commands  
+### Phase 2: CLI Evaluation Commands
+
 1. Implement `minsky eval rule` command using existing CLI patterns
 2. Add `minsky eval context`, `minsky eval agent`, `minsky eval edit` commands
 3. Create XML prompt templates for each evaluation type
 
 ### Phase 3: Session Integration
+
 1. Implement `session.eval_rule` MCP tool
 2. Add `session.eval_context` and `session.eval_output` tools
 3. Integrate with existing session path resolution and workspace management
 
 ### Phase 4: Provider Integration & Testing
+
 1. Update `MorphModelFetcher` to support evaluation workflows
 2. Test evaluation commands with real Morph API integration
 3. Add support for other evaluation-capable providers

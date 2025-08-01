@@ -30,6 +30,7 @@ Implement validation utilities that work consistently across CLI, MCP, and API.
 ### 4. Refactor Existing MCP Modules
 
 Update existing MCP modules from Task #322 to use the new domain-wide schemas instead of MCP-specific ones:
+
 - src/adapters/mcp/session-workspace.ts
 - src/adapters/mcp/session-files.ts
 - src/adapters/mcp/session-edit-tools.ts
@@ -48,6 +49,7 @@ This demonstrates practical migration and validates that domain schemas can repl
 ## Implementation Plan
 
 ### Phase 1: Create Domain Schema Libraries ✅
+
 - [x] common-schemas.ts with base types and response builders
 - [x] task-schemas.ts for task domain operations
 - [x] session-schemas.ts for session domain operations
@@ -56,6 +58,7 @@ This demonstrates practical migration and validates that domain schemas can repl
 - [x] index.ts for central exports
 
 ### Phase 2: Refactor MCP Modules ✅
+
 - [x] Copy MCP modules to session workspace for refactoring
 - [x] Create comprehensive migration guide with schema mapping
 - [x] Document response builder migration patterns
@@ -70,6 +73,7 @@ This demonstrates practical migration and validates that domain schemas can repl
 - [ ] **FUTURE TESTING**: Complete manual response builder adjustments and validate functionality
 
 ### Phase 3: Documentation and Testing ✅
+
 - [x] Comprehensive documentation with examples
 - [x] Integration patterns for CLI, MCP, and API
 - [x] Migration guide from MCP-specific schemas
@@ -80,6 +84,7 @@ This demonstrates practical migration and validates that domain schemas can repl
 Implemented a comprehensive domain-wide schema architecture that extends Task #322's patterns to work across all interfaces. Created modular schema libraries with interface-agnostic validation utilities and response builders.
 
 **Key Deliverables:**
+
 1. **Domain Schema Libraries** - Complete schema system in `src/domain/schemas/`
 2. **Migration Infrastructure** - AST-based codemod for automated MCP module migration
 3. **Comprehensive Documentation** - Architecture guide and migration patterns
@@ -87,6 +92,7 @@ Implemented a comprehensive domain-wide schema architecture that extends Task #3
 
 **Codemod-Driven Migration: ✅ EXECUTED**
 Created and executed `mcp-to-domain-schema-migrator.ts` using ts-morph for automated migration:
+
 - **23 total transformations** applied across 3 MCP files
 - **Systematic import transformations**: `./schemas/common-parameters` → `../../domain/schemas`
 - **Schema name mapping**: `SessionFileReadSchema` → `FileReadSchema` (+ 10 others)

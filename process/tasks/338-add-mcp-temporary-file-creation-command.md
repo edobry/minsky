@@ -13,6 +13,7 @@ Currently, the codebase has robust temporary file utilities (`createRobustTempDi
 ## Requirements
 
 ### Core Functionality
+
 - ✅ Add new MCP command `files.createTemp` or similar
 - ✅ Support customizable filename prefix
 - ✅ Support customizable file extension/suffix
@@ -21,13 +22,16 @@ Currently, the codebase has robust temporary file utilities (`createRobustTempDi
 - ✅ Use existing robust temporary file utilities from `src/utils/tempdir.ts`
 
 ### Input Parameters (Zod Schema)
+
 - `prefix` (optional string): Prefix for the temporary filename (default: "mcp-temp-")
 - `suffix` (optional string): File extension/suffix (default: ".tmp")
 - `content` (optional string): Initial content to write to the file (default: "")
 - `description` (optional string): Description for logging/debugging purposes
 
 ### Output Format
+
 Return object with:
+
 - `success`: boolean
 - `path`: string (full path to created file)
 - `filename`: string (just the filename)
@@ -35,11 +39,13 @@ Return object with:
 - `created`: string (ISO timestamp)
 
 ### Error Handling
+
 - Handle filesystem permission errors gracefully
 - Provide clear error messages for temp directory access issues
 - Validate filename characters to prevent path injection
 
 ### Security Considerations
+
 - Use secure temp directory locations
 - Validate input parameters to prevent path traversal
 - Limit file size/content length to prevent abuse
@@ -48,21 +54,26 @@ Return object with:
 ## Implementation Plan
 
 ### 1. Create MCP Command Registration
+
 Add command to the MCP command mapper, likely in:
+
 - `src/adapters/mcp/` directory (create new file or extend existing)
 - Register with `commandMapper.addCommand()`
 
 ### 2. Command Handler Implementation
+
 - Use existing `createRobustTempDir()` utility from `src/utils/tempdir.ts`
 - Leverage `createCleanTempFile()` patterns from test utilities if applicable
 - Follow error handling patterns from other MCP commands
 
 ### 3. Integration Points
+
 - Add to MCP server startup sequence
 - Include in MCP tools listing
 - Follow existing MCP command patterns for consistency
 
 ### 4. Testing
+
 - Unit tests for command handler
 - Integration tests with MCP server
 - Error scenario testing (permissions, disk space, etc.)
@@ -71,10 +82,12 @@ Add command to the MCP command mapper, likely in:
 ## File Locations
 
 **New files to create:**
+
 - `src/adapters/mcp/temp-files.ts` - Command implementation
 - `tests/adapters/mcp/temp-files.test.ts` - Tests
 
 **Files to modify:**
+
 - MCP command registration file (determine exact location during implementation)
 - Add to MCP tools documentation if applicable
 

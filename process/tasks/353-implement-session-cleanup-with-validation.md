@@ -28,11 +28,13 @@ Currently, there's no automated way to clean up sessions for completed work, req
 ### 1. Session Cleanup Command
 
 **Command Structure Decision**:
+
 - **Current**: `minsky sessiondb` contains database-level operations (migrate, check)
 - **Proposed**: Move to `minsky session db cleanup` for logical grouping with session operations
 - **Alternative**: Keep as `minsky sessiondb cleanup` for consistency with existing structure
 
 **Core Functionality**:
+
 - **Standalone cleanup command** with comprehensive validation
 - **Dry-run capability** to preview what would be cleaned up
 - **Configurable retention policies** (age, completion status, merge status)
@@ -40,6 +42,7 @@ Currently, there's no automated way to clean up sessions for completed work, req
 - **Comprehensive logging** of cleanup actions
 
 **Safety Features**:
+
 - **Multi-level validation** before any deletions
 - **Task completion verification** (status = DONE)
 - **Merge status verification** (changes merged into main)
@@ -49,12 +52,14 @@ Currently, there's no automated way to clean up sessions for completed work, req
 ### 2. Session Approve Integration
 
 **Automatic Post-Merge Cleanup**:
+
 - **Trigger**: After successful session approve and PR merge
 - **Same validation logic** as standalone command
 - **User consent required** (configurable default behavior)
 - **Graceful failure handling** (cleanup failure doesn't break approve)
 
 **Configuration Options**:
+
 - **Auto-cleanup enabled/disabled** (default: prompt user)
 - **Retention period** (e.g., keep sessions for N days after merge)
 - **Validation strictness level** (strict, normal, permissive)
@@ -62,10 +67,11 @@ Currently, there's no automated way to clean up sessions for completed work, req
 ### 3. Validation Logic (Shared)
 
 **Session Eligibility Criteria**:
+
 ```typescript
 interface CleanupEligibility {
-  taskStatus: 'DONE' | 'OTHER';
-  mergeStatus: 'MERGED' | 'NOT_MERGED' | 'UNKNOWN';
+  taskStatus: "DONE" | "OTHER";
+  mergeStatus: "MERGED" | "NOT_MERGED" | "UNKNOWN";
   workspaceClean: boolean;
   ageInDays: number;
   hasUncommittedChanges: boolean;
@@ -75,16 +81,20 @@ interface CleanupEligibility {
 ```
 
 **Safety Checks**:
+
 1. **Task Status Verification**:
+
    - Task must be marked as DONE in task management system
    - Task must exist and be trackable
 
 2. **Git Merge Verification**:
+
    - Session branch changes must be merged into main
    - No pending commits or unmerged work
    - Branch can be safely deleted (optional)
 
 3. **Workspace State Verification**:
+
    - No uncommitted changes in session workspace
    - No stash entries that would be lost
    - No important local-only work
@@ -99,6 +109,7 @@ interface CleanupEligibility {
 #### `minsky session db cleanup` (or `minsky sessiondb cleanup`)
 
 **Parameters**:
+
 ```bash
 minsky session db cleanup [options]
 
@@ -114,6 +125,7 @@ Options:
 ```
 
 **Example Usage**:
+
 ```bash
 # Safe dry-run to see what would be cleaned
 minsky session db cleanup --dry-run
@@ -131,6 +143,7 @@ minsky session db cleanup --force --validation-level permissive
 #### Session Approve Integration
 
 **New Parameters for `minsky session approve`**:
+
 ```bash
 minsky session approve [existing-options] [cleanup-options]
 
@@ -141,6 +154,7 @@ Additional Options:
 ```
 
 **Workflow Integration**:
+
 1. Complete existing approve workflow
 2. If approve successful and cleanup enabled:
    - Run same validation as cleanup command
@@ -151,20 +165,26 @@ Additional Options:
 ### 5. Implementation Architecture
 
 **Shared Validation Service**:
+
 ```typescript
 // src/domain/session/session-cleanup-validator.ts
 export class SessionCleanupValidator {
-  async validateSessionForCleanup(sessionId: string): Promise<CleanupEligibility>
-  async getCleanupCandidates(criteria: CleanupCriteria): Promise<CleanupCandidate[]>
-  async performSafeCleanup(candidates: CleanupCandidate[], options: CleanupOptions): Promise<CleanupResult>
+  async validateSessionForCleanup(sessionId: string): Promise<CleanupEligibility>;
+  async getCleanupCandidates(criteria: CleanupCriteria): Promise<CleanupCandidate[]>;
+  async performSafeCleanup(
+    candidates: CleanupCandidate[],
+    options: CleanupOptions
+  ): Promise<CleanupResult>;
 }
 ```
 
 **Command Implementations**:
+
 - `src/adapters/shared/commands/session-cleanup.ts` - Standalone command
 - `src/domain/session/session-approve-operations.ts` - Integration with approve workflow
 
 **Configuration Support**:
+
 - Global defaults in user config
 - Repository-specific overrides in `.minsky/config.toml`
 - Command-line parameter overrides
@@ -172,16 +192,19 @@ export class SessionCleanupValidator {
 ### 6. Safety and Recovery
 
 **Backup Strategy**:
+
 - **Optional backup creation** before any cleanup
 - **Metadata preservation** (session info, task associations)
 - **Restore capability** from backups
 
 **Error Handling**:
+
 - **Graceful degradation** (partial cleanup on errors)
 - **Detailed error reporting** with recovery suggestions
 - **Rollback capability** for failed operations
 
 **Audit Trail**:
+
 - **Comprehensive logging** of all cleanup actions
 - **Before/after session counts** and disk space freed
 - **Validation results** and decisions made
@@ -189,12 +212,14 @@ export class SessionCleanupValidator {
 ## Acceptance Criteria
 
 ### Phase 1: Core Infrastructure
+
 - [ ] **SessionCleanupValidator service** implemented with comprehensive validation
 - [ ] **Shared validation logic** working for both command and approve integration
 - [ ] **Configuration system** supporting global and repo-specific settings
 - [ ] **Unit tests** for validation logic (90%+ coverage)
 
 ### Phase 2: Standalone Command
+
 - [ ] **Cleanup command implemented** with all specified parameters
 - [ ] **Dry-run functionality** showing accurate preview
 - [ ] **Interactive confirmation** with detailed session information
@@ -202,6 +227,7 @@ export class SessionCleanupValidator {
 - [ ] **Integration tests** for command functionality
 
 ### Phase 3: Session Approve Integration
+
 - [ ] **Post-merge cleanup** integrated into approve workflow
 - [ ] **User consent handling** (prompt/auto/disabled modes)
 - [ ] **Graceful error handling** (cleanup failure doesn't break approve)
@@ -209,6 +235,7 @@ export class SessionCleanupValidator {
 - [ ] **End-to-end tests** for approve + cleanup workflow
 
 ### Phase 4: Production Readiness
+
 - [ ] **Command structure decision** finalized (`session db` vs `sessiondb`)
 - [ ] **Documentation updated** with cleanup functionality
 - [ ] **Error messages** clear and actionable
@@ -220,11 +247,13 @@ export class SessionCleanupValidator {
 ### Command Structure Decision
 
 **Option A: `minsky session db cleanup`**
+
 - **Pros**: Logical grouping with session operations, better discoverability
 - **Cons**: Requires refactoring existing sessiondb commands
 - **Impact**: Breaking change for existing sessiondb users
 
 **Option B: `minsky sessiondb cleanup`**
+
 - **Pros**: Consistent with existing structure, no breaking changes
 - **Cons**: Less intuitive grouping, sessiondb becomes overloaded
 - **Impact**: Minimal change required
@@ -234,6 +263,7 @@ export class SessionCleanupValidator {
 ### Integration Strategy
 
 **Session Approve Workflow**:
+
 1. Existing approve logic completes successfully
 2. Check if cleanup is enabled (config + command flags)
 3. Run cleanup validation in background
@@ -242,6 +272,7 @@ export class SessionCleanupValidator {
 6. Report results and continue
 
 **Error Isolation**:
+
 - Cleanup errors should NOT fail the approve operation
 - Cleanup should be clearly separated from core approve functionality
 - User should get clear feedback on cleanup success/failure
@@ -249,16 +280,19 @@ export class SessionCleanupValidator {
 ### Validation Complexity
 
 **Strict Mode** (default):
+
 - All safety checks must pass
 - Require explicit confirmation for any edge cases
 - Conservative approach to prevent data loss
 
 **Normal Mode**:
+
 - Allow some edge cases with warnings
 - Reasonable defaults for common scenarios
 - Balance safety with usability
 
 **Permissive Mode**:
+
 - Minimal validation, maximum automation
 - For advanced users who understand risks
 - Require explicit flag to enable
@@ -274,14 +308,17 @@ export class SessionCleanupValidator {
 ## Risk Assessment
 
 **High Risk**:
+
 - **Data loss**: Accidental deletion of important work
 - **Mitigation**: Multiple validation layers, dry-run capability, backup options
 
 **Medium Risk**:
+
 - **Performance impact**: Cleanup operations on large session sets
 - **Mitigation**: Background processing, progress reporting, cancellation support
 
 **Low Risk**:
+
 - **Configuration complexity**: Too many options confusing users
 - **Mitigation**: Sensible defaults, clear documentation, progressive disclosure
 
