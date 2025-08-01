@@ -5,10 +5,11 @@
  */
 
 import { z } from "zod";
-import type { CommandExecutionContext } from "../../types";
-import { BaseTaskCommand } from "./base-task-command";
+import type { CommandExecutionContext } from "../../command-registry";
+import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { TaskMigrationService } from "../../../../domain/tasks/task-migration-service";
 import { log } from "../../../../utils/logger";
+import { tasksMigrateParams } from "./task-parameters";
 
 /**
  * Schema for migrate command parameters
@@ -29,6 +30,11 @@ export type MigrateTasksParams = z.infer<typeof migrateTasksParamsSchema>;
  * Command for migrating legacy task IDs to qualified format
  */
 export class MigrateTasksCommand extends BaseTaskCommand<MigrateTasksParams, any> {
+  readonly id = "tasks.migrate";
+  readonly name = "migrate";
+  readonly description = "Migrate legacy task IDs to qualified format";
+  readonly parameters = tasksMigrateParams;
+
   getCommandId(): string {
     return "tasks.migrate";
   }
@@ -81,7 +87,7 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateTasksParams, any
     };
   }
 
-  async executeCommand(params: MigrateTasksParams, context: CommandExecutionContext): Promise<any> {
+  async execute(params: MigrateTasksParams, context: CommandExecutionContext): Promise<any> {
     const validatedParams = migrateTasksParamsSchema.parse(params);
 
     const { dryRun, toBackend, statusFilter, createBackup, force, quiet, json } = validatedParams;

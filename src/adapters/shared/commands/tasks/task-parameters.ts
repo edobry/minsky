@@ -149,3 +149,48 @@ export const tasksDeleteParams: CommandParameterMap = {
   ...taskContextParams,
   ...outputFormatParams,
 };
+
+/**
+ * Task migration specific parameters
+ */
+export const taskMigrationParams = {
+  dryRun: {
+    schema: z.boolean().default(false),
+    description: "Show what would be changed without making changes",
+    required: false,
+  },
+  toBackend: {
+    schema: z.string().default("md"),
+    description: "Target backend for migration (e.g., 'md', 'gh')",
+    required: false,
+  },
+  statusFilter: {
+    schema: z.string().optional(),
+    description: "Filter tasks by status (TODO, IN-PROGRESS, DONE, etc.)",
+    required: false,
+  },
+  createBackup: {
+    schema: z.boolean().default(true),
+    description: "Create backup before migration",
+    required: false,
+  },
+  force: {
+    schema: z.boolean().default(false),
+    description: "Force migration even if some tasks might be lost",
+    required: false,
+  },
+  quiet: {
+    schema: z.boolean().default(false),
+    description: "Suppress non-essential output",
+    required: false,
+  },
+};
+
+/**
+ * Parameters for tasks migrate command
+ */
+export const tasksMigrateParams: CommandParameterMap = {
+  ...taskMigrationParams,
+  ...taskContextParams,
+  ...outputFormatParams,
+};

@@ -641,3 +641,5 @@
 - [ ] Add minsky tasks similar command for finding related completed tasks [md#370](process/tasks/md#370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
 
 - [ ] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system-mise-asdf-docker.md)
+
+- [ ] testing stuff [#001](process/tasks/001-testing-stuff.md)

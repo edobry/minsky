@@ -36,6 +36,9 @@ export class ModularTasksCommandManager {
       const { createTasksStatusGetCommand } = require("./tasks/status-commands");
       const { createTasksStatusSetCommand } = require("./tasks/status-commands");
 
+      log.debug("[ModularTasksCommandManager] Requiring migrate-command");
+      const { createMigrateTasksCommand } = require("./tasks/migrate-command");
+
       // Create command instances to get their parameter definitions
       log.debug("[ModularTasksCommandManager] Creating command instances");
       const listCommand = createTasksListCommand();
@@ -52,6 +55,8 @@ export class ModularTasksCommandManager {
       log.debug("[ModularTasksCommandManager] Created statusGetCommand");
       const statusSetCommand = createTasksStatusSetCommand();
       log.debug("[ModularTasksCommandManager] Created statusSetCommand");
+      const migrateCommand = createMigrateTasksCommand();
+      log.debug("[ModularTasksCommandManager] Created migrateCommand");
 
       // Register list command
       sharedCommandRegistry.registerCommand({
@@ -134,6 +139,18 @@ export class ModularTasksCommandManager {
         parameters: statusSetCommand.parameters,
         execute: async (params: any, context: any) => {
           return await statusSetCommand.execute(params, context);
+        },
+      });
+
+      // Register migrate command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.migrate",
+        category: CommandCategory.TASKS,
+        name: "migrate",
+        description: "Migrate legacy task IDs to qualified format",
+        parameters: migrateCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await migrateCommand.execute(params, context);
         },
       });
     } catch (error) {
