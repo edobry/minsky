@@ -10,10 +10,10 @@
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import {
-  mergeSessionOnly,
+  mergeSession,
   validateSessionApprovedForMerge,
-  type SessionMergeOnlyParams,
-} from "./session-merge-only-operations";
+  type SessionMergeParams,
+} from "./session-merge-operations";
 import { ValidationError } from "../../errors/index";
 import type { SessionRecord } from "./types";
 
@@ -145,7 +145,7 @@ describe("Session Merge Security Validation", () => {
     });
   });
 
-  describe("mergeSessionOnly - End-to-End Security Validation", () => {
+  describe("mergeSession - End-to-End Security Validation", () => {
     it("should REJECT merge operation for unapproved session", async () => {
       // SECURITY TEST: Full merge operation should be blocked for unapproved PR
       const unapprovedSession: SessionRecord = {
@@ -158,14 +158,14 @@ describe("Session Merge Security Validation", () => {
 
       mockSessionProvider.getSession = mock(() => Promise.resolve(unapprovedSession));
 
-      const params: SessionMergeOnlyParams = {
+      const params: SessionMergeParams = {
         session: "unapproved-session",
         json: false,
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionOnly(params)).rejects.toThrow(ValidationError);
-      await expect(mergeSessionOnly(params)).rejects.toThrow(/MERGE REJECTED.*must be approved/);
+      await expect(mergeSession(params)).rejects.toThrow(ValidationError);
+      await expect(mergeSession(params)).rejects.toThrow(/MERGE REJECTED.*must be approved/);
 
       // Repository backend should NEVER be called for unapproved sessions
       expect(mockRepositoryBackend.mergePullRequest).not.toHaveBeenCalled();
@@ -183,14 +183,14 @@ describe("Session Merge Security Validation", () => {
 
       mockSessionProvider.getSession = mock(() => Promise.resolve(noPrSession));
 
-      const params: SessionMergeOnlyParams = {
+      const params: SessionMergeParams = {
         session: "no-pr-session",
         json: false,
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionOnly(params)).rejects.toThrow(ValidationError);
-      await expect(mergeSessionOnly(params)).rejects.toThrow(/has no PR branch/);
+      await expect(mergeSession(params)).rejects.toThrow(ValidationError);
+      await expect(mergeSession(params)).rejects.toThrow(/has no PR branch/);
 
       // Repository backend should NEVER be called for sessions without PR
       expect(mockRepositoryBackend.mergePullRequest).not.toHaveBeenCalled();
@@ -217,13 +217,13 @@ describe("Session Merge Security Validation", () => {
         })
       );
 
-      const params: SessionMergeOnlyParams = {
+      const params: SessionMergeParams = {
         session: "approved-session",
         json: false,
       };
 
       // This should succeed and call the repository backend
-      const result = await mergeSessionOnly(params);
+      const result = await mergeSession(params);
 
       expect(result).toBeDefined();
       expect(result.session).toBe("approved-session");

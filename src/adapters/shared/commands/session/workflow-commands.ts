@@ -143,9 +143,11 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
   }
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
-    const { mergeSessionOnly } = await import("../../../../domain/session/session-merge-only-operations");
+    const { mergeSession } = await import(
+      "../../../../domain/session/session-merge-operations"
+    );
 
-    const result = await mergeSessionOnly({
+    const result = await mergeSession({
       session: params.name,
       task: params.task,
       repo: params.repo,
@@ -157,7 +159,13 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
 }
 
 // Export the new PR subcommand classes
-export { SessionPrCreateCommand, SessionPrListCommand, SessionPrGetCommand, SessionPrApproveCommand, SessionPrMergeCommand };
+export {
+  SessionPrCreateCommand,
+  SessionPrListCommand,
+  SessionPrGetCommand,
+  SessionPrApproveCommand,
+  SessionPrMergeCommand,
+};
 
 /**
  * Factory functions for creating workflow commands

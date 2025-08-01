@@ -1,7 +1,7 @@
 /**
- * Session Merge-Only Operations (Task #358)
+ * Session Merge Operations (Task #358)
  *
- * This module implements the new merge-only workflow that requires
+ * This module implements session PR merge functionality that requires
  * PR approval before allowing merge, enabling standard collaborative workflows.
  */
 
@@ -24,18 +24,18 @@ export function validateSessionApprovedForMerge(
 ): void {
   // Check 1: PR branch must exist
   if (!sessionRecord.prBranch) {
-        throw new ValidationError(
+    throw new ValidationError(
       `❌ MERGE REJECTED: Session "${sessionName}" has no PR branch.\n` +
-      `   Create a PR first with 'minsky session pr create'`
+        `   Create a PR first with 'minsky session pr create'`
     );
   }
 
   // Check 2: PR must be explicitly approved
   if (!sessionRecord.prApproved) {
-        throw new ValidationError(
+    throw new ValidationError(
       `❌ MERGE REJECTED: Session "${sessionName}" PR must be approved before merging.\n` +
-      `   Use 'minsky session pr approve' first to approve the PR.\n` +
-      `   This validation prevents unauthorized merges and ensures proper code review.`
+        `   Use 'minsky session pr approve' first to approve the PR.\n` +
+        `   This validation prevents unauthorized merges and ensures proper code review.`
     );
   }
 
@@ -59,7 +59,7 @@ export function validateSessionApprovedForMerge(
 /**
  * Parameters for session merge operation
  */
-export interface SessionMergeOnlyParams {
+export interface SessionMergeParams {
   session?: string;
   task?: string;
   repo?: string;
@@ -69,7 +69,7 @@ export interface SessionMergeOnlyParams {
 /**
  * Result of session merge operation
  */
-export interface SessionMergeOnlyResult {
+export interface SessionMergeResult {
   session: string;
   taskId?: string;
   prBranch: string;
@@ -77,24 +77,24 @@ export interface SessionMergeOnlyResult {
 }
 
 /**
- * Merge a session's approved PR (Task #358)
+ * Merge a session's approved pull request (Task #358)
  *
  * This function:
  * 1. Validates the session has a PR branch
  * 2. Validates the PR is approved (prApproved: true)
  * 3. Calls repositoryBackend.mergePullRequest()
- * 4. Updates session record (could add prMerged: true if needed)
+ * 4. Updates session record
  *
- * Requires the PR to be approved first via session approve.
+ * Requires the PR to be approved first.
  */
-export async function mergeSessionOnly(
-  params: SessionMergeOnlyParams,
+export async function mergeSession(
+  params: SessionMergeParams,
   deps?: {
     sessionDB?: SessionProviderInterface;
   }
-): Promise<SessionMergeOnlyResult> {
+): Promise<SessionMergeResult> {
   if (!params.json) {
-    log.cli("🔄 Starting session merge (merge-only mode)...");
+    log.cli("🔄 Starting session merge...");
   }
 
   // Set up session provider
