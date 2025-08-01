@@ -632,4 +632,4 @@
 
 - [+] Fix SQLite schema to persist PR metadata for session auto-updates [#366](process/tasks/366-fix-sqlite-schema-to-persist-pr-metadata-for-session-auto-updates.md)
 
-- [ ] Consolidate Multiple Task ID Parsing Implementations [md#367](process/tasks/md#367-consolidate-multiple-task-id-parsing-implementations.md)
+- [x] Consolidate Multiple Task ID Parsing Implementations [md#367](process/tasks/md#367-consolidate-multiple-task-id-parsing-implementations.md)
