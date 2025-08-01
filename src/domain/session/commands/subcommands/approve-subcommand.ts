@@ -1,6 +1,11 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
-import { approveSessionImpl } from "../../session-approve-operations";
+import { approveSessionPr } from "../../session-approval-operations";
 
+/**
+ * Session approve subcommand (Task #358 - Updated)
+ *
+ * Now performs approve-only operation. Use 'session merge' to merge after approval.
+ */
 export const approveSessionSubcommand: CommandExecutionHandler = async (params) => {
   const { args, options } = params;
 
@@ -9,18 +14,19 @@ export const approveSessionSubcommand: CommandExecutionHandler = async (params) 
     sessionId = args[0];
   }
 
-  const noStash = options?.noStash === true;
   const json = options?.json === true;
+  const reviewComment = options?.comment || options?.reviewComment;
 
   try {
-    const result = await approveSessionImpl({
+    const result = await approveSessionPr({
       session: sessionId,
       json,
-      noStash,
+      reviewComment,
     });
+
     return {
       success: true,
-      message: "Session approved and merged successfully",
+      message: "Session PR approved successfully (use 'session pr merge' to merge)",
       data: result,
     };
   } catch (error) {

@@ -38,7 +38,7 @@ import * as WorkspaceUtils from "./workspace";
 import { SessionDbAdapter } from "./session/session-db-adapter";
 import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
-import { approveSessionImpl } from "./session/session-approve-operations";
+import { approveSessionPr } from "./session/session-approval-operations";
 import { sessionCommit } from "./session/session-commands";
 import { execGitWithTimeout } from "../utils/git-exec";
 import type { SessionRecord } from "./session/session-db";
@@ -984,10 +984,10 @@ export async function checkPrBranchExistsOptimized(
   if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
     log.debug("Using cached PR state", {
       sessionName,
-      exists: !!sessionRecord.prState.commitHash,
+      exists: sessionRecord.prState.exists,
       lastChecked: sessionRecord.prState.lastChecked,
     });
-    return !!sessionRecord.prState.commitHash;
+    return sessionRecord.prState.exists;
   }
 
   // Cache is stale or missing, perform git operations and update cache
@@ -1298,41 +1298,37 @@ export async function sessionPrFromParams(
 }
 
 /**
- * Approves and merges a session PR branch
+ * ⚠️  SECURITY UPDATE (Task #358): Approves a session PR branch (DOES NOT MERGE)
+ *
+ * This function now only performs approval. Use 'session merge' separately to merge.
+ * This prevents unauthorized merges and ensures proper code review workflow.
  */
-export async function approveSessionFromParams(
-  params: {
-    session?: string;
-    task?: string;
-    repo?: string;
-    json?: boolean;
-    noStash?: boolean;
-  },
-  depsInput?: {
-    sessionDB?: SessionProviderInterface;
-    gitService?: GitServiceInterface;
-    taskService?: {
-      setTaskStatus?: (taskId: string, status: string) => Promise<any>;
-      getTaskStatus?: (taskId: string) => Promise<string | undefined>;
-      getBackendForTask?: (taskId: string) => Promise<any>;
-      getTask?: (taskId: string) => Promise<any>;
-    };
-    workspaceUtils?: any;
-    getCurrentSession?: (repoPath: string) => Promise<string | null>;
-    createRepositoryBackend?: (sessionRecord: any) => Promise<any>;
-  }
-): Promise<{
-  session: string;
-  commitHash: string;
-  mergeDate: string;
-  mergedBy: string;
-  baseBranch: string;
-  prBranch: string;
+export async function approveSessionFromParams(params: {
+  session?: string;
+  task?: string;
+  repo?: string;
+  json?: boolean;
+  reviewComment?: string;
+}): Promise<{
+  sessionName: string;
   taskId?: string;
-  isNewlyApproved: boolean;
+  prBranch?: string;
+  approvalInfo: {
+    reviewId: number | string;
+    approvedBy: string;
+    approvedAt: string;
+    prNumber?: string;
+  };
+  wasAlreadyApproved: boolean;
 }> {
-  // Delegate to the new implementation with automatic stash handling
-  return await approveSessionImpl(params, depsInput);
+  // SECURITY: Use new approve-only operation
+  return await approveSessionPr({
+    session: params.session,
+    task: params.task,
+    repo: params.repo,
+    json: params.json,
+    reviewComment: params.reviewComment,
+  });
 }
 
 /**
@@ -1358,7 +1354,7 @@ Task ${taskIdToUse} exists but has no associated session to approve.
 
 3️⃣ Or approve a different task that has a session:
    minsky session list | grep "task:"
-   minsky session approve --task <task-id-with-session>
+       minsky session pr approve --task <task-id-with-session>
 
 📋 Current available sessions:
    Run 'minsky session list' to see which tasks have active sessions.

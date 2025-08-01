@@ -23,6 +23,8 @@ import type {
   RepoStatus,
   PRInfo,
   MergeInfo,
+  ApprovalInfo,
+  ApprovalStatus,
   SessionUpdateEvent,
 } from "./index";
 
@@ -339,6 +341,117 @@ export class LocalGitBackend implements RepositoryBackend {
     };
 
     return await mergePreparedMergeCommitPR(options);
+  }
+
+  /**
+   * Approve a pull request in the local repository
+   * For local repositories, this updates the session record with prApproved: true.
+   * (GitHub backend would update GitHub, local backend updates session record)
+   */
+  async approvePullRequest(
+    prIdentifier: string | number,
+    reviewComment?: string
+  ): Promise<ApprovalInfo> {
+    const prId = String(prIdentifier);
+
+    // Find session record by PR branch
+    const sessions = await this.sessionDb.getAllSessions();
+    const sessionRecord = sessions.find((s) => s.prBranch === prId);
+
+    if (!sessionRecord) {
+      throw new Error(`No session found with PR branch: ${prId}`);
+    }
+
+    // Get current git user for approval record
+    let approver = "local-user";
+    try {
+      const { stdout } = await execGitWithTimeout("get-user-name", "config user.name", {
+        workdir: process.cwd(),
+        timeout: 5000,
+      });
+      approver = stdout.trim() || "local-user";
+    } catch {
+      // Use default if git config fails
+    }
+
+    // Update session record with approval (this is where local backend stores approval)
+    await this.sessionDb.updateSession(sessionRecord.session, {
+      prApproved: true,
+    });
+
+    log.info("Local PR approved - session record updated", {
+      prIdentifier: prId,
+      sessionName: sessionRecord.session,
+      approver,
+    });
+
+    return {
+      reviewId: `local-${prId}-${Date.now()}`,
+      approvedBy: approver,
+      approvedAt: new Date().toISOString(),
+      comment: reviewComment,
+      platformData: {
+        platform: "local",
+        prIdentifier: prId,
+        sessionName: sessionRecord.session,
+      },
+    };
+  }
+
+  /**
+   * Get approval status for a pull request in the local repository
+   * For local repositories, checks the session record for prApproved status.
+   */
+  async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
+    const prId = String(prIdentifier);
+
+    // Find session record by PR branch
+    const sessions = await this.sessionDb.getAllSessions();
+    const sessionRecord = sessions.find((s) => s.prBranch === prId);
+
+    if (!sessionRecord) {
+      log.debug("No session found for PR approval status check", { prIdentifier: prId });
+      return {
+        isApproved: false,
+        approvals: [],
+        requiredApprovals: 1,
+        canMerge: false,
+        platformData: {
+          platform: "local",
+          prIdentifier: prId,
+          error: "No session found with this PR branch",
+        },
+      };
+    }
+
+    const isApproved = !!sessionRecord.prApproved;
+
+    log.debug("Local PR approval status", {
+      prIdentifier: prId,
+      sessionName: sessionRecord.session,
+      isApproved,
+    });
+
+    return {
+      isApproved,
+      approvals: isApproved
+        ? [
+            {
+              reviewId: `local-${sessionRecord.session}`,
+              approvedBy: "local-user",
+              approvedAt: new Date().toISOString(), // We don't track when it was approved
+              platformData: { platform: "local", sessionName: sessionRecord.session },
+            },
+          ]
+        : [],
+      requiredApprovals: 1,
+      canMerge: isApproved,
+      platformData: {
+        platform: "local",
+        prIdentifier: prId,
+        sessionName: sessionRecord.session,
+      },
+    };
   }
 
   /**

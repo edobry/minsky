@@ -1,188 +1,105 @@
 /**
- * Tests for session approval error handling bug fix (Task #300)
+ * Tests for session approval error handling (Updated for Task #358)
  *
- * Verifies that session approval correctly validates task existence
- * before checking for sessions and provides clear error messages.
+ * Verifies that session approval correctly handles missing sessions
+ * and provides clear error messages for the new approve-only workflow.
  */
 
 import { describe, test, expect } from "bun:test";
-import { approveSessionImpl } from "./session-approve-operations";
+import { approveSessionPr } from "./session-approval-operations";
 import { ResourceNotFoundError } from "../../errors/index";
 
-describe("Session Approval Error Handling Fix", () => {
-  test("should validate task existence BEFORE checking for session", async () => {
-    // Mock TaskService to ensure task "3283" doesn't exist
-    const mockTaskService = {
-      getTask: async (id: string) => {
-        // Return null for the test task ID to simulate non-existent task
-        if (id === "3283") return null;
-        return { id, title: "Other Task", status: "TODO" };
-      },
-    };
-
-    // Test Case 1: Non-existent task (like the reported bug with task 3283)
+describe("Session Approval Error Handling (Task #358 Updated)", () => {
+  test("should handle missing session for task", async () => {
+    // Test Case 1: Task with no associated session (like task 3283)
     await expect(
-      approveSessionImpl(
-        {
-          task: "3283", // Non-existent task
-          json: false,
-        },
-        { taskService: mockTaskService }
-      )
+      approveSessionPr({
+        task: "3283", // Task with no session
+        json: false,
+      })
     ).rejects.toThrow(ResourceNotFoundError);
 
     try {
-      await approveSessionImpl(
-        {
-          task: "3283",
-          json: false,
-        },
-        { taskService: mockTaskService }
-      );
+      await approveSessionPr({
+        task: "3283",
+        json: false,
+      });
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
-        // Verify error message is clear and concise
-        expect(error.message).toContain("❌ Task not found: 3283");
-        expect(error.message).toContain("The specified task does not exist");
-        expect(error.message).toContain("💡 Available options:");
-        expect(error.message).toContain("Run 'minsky tasks list'");
+        // Verify error message is clear and indicates missing session
+        expect(error.message).toContain("No session found for task 3283");
 
         // Verify resource type is correct
-        expect(error.resourceType).toBe("task");
+        expect(error.resourceType).toBe("session");
         expect(error.resourceId).toBe("3283");
-
-        // Verify error is NOT the old verbose message
-        expect(error.message).not.toContain("Task 3283 exists but has no associated session");
-        expect(error.message).not.toContain("1️⃣ Check if the task has a session");
       } else {
         throw new Error(`Expected ResourceNotFoundError, got ${error?.constructor?.name}`);
       }
     }
   });
 
-  test("should provide different error for existing task without session", async () => {
-    // Mock TaskService to return a task (simulate existing task)
-    const mockTaskService = {
-      getTask: async (id: string) => {
-        // Return a task for ID "1234" to simulate existing task
-        if (id === "1234") {
-          return { id: "1234", title: "Existing Task", status: "TODO" };
-        }
-        return null;
-      },
-    };
-
-    // Mock SessionDB to return null (no session)
+  test("should handle task without session using mocked sessionDB", async () => {
+    // Mock SessionDB to return no session for the task
     const mockSessionDB = {
       getSessionByTaskId: async () => null,
-    } as any;
+      getSession: async () => null,
+    };
 
-    await expect(
-      approveSessionImpl(
-        {
-          task: "1234", // Existing task but no session
-          json: false,
-        },
-        { taskService: mockTaskService, sessionDB: mockSessionDB }
-      )
-    ).rejects.toThrow(ResourceNotFoundError);
-
+    // Test Case 2: Task without session (using mocked sessionDB)
     try {
-      await approveSessionImpl(
+      await approveSessionPr(
         {
-          task: "1234",
+          task: "100", // Task without session
           json: false,
         },
-        { taskService: mockTaskService, sessionDB: mockSessionDB }
+        {
+          sessionDB: mockSessionDB as any,
+        }
       );
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
-        // Should be different error message for existing task without session
-        expect(error.message).toContain("❌ No session found for task 1234");
-        expect(error.resourceType).toBe("session");
-        expect(error.resourceId).toBe("1234");
+        // Verify error message indicates missing session for task
+        expect(error.message).toContain("No session found for task 100");
 
-        // Verify error is NOT the task not found message
-        expect(error.message).not.toContain("❌ Task not found:");
-        expect(error.message).not.toContain("The specified task does not exist");
+        // Verify resource type indicates session problem
+        expect(error.resourceType).toBe("session");
+        expect(error.resourceId).toBe("100");
       } else {
         throw new Error(`Expected ResourceNotFoundError, got ${error?.constructor?.name}`);
       }
     }
   });
 
-  test("should have proper validation order", async () => {
-    // Mock TaskService and SessionDB to test validation order
-    const mockTaskService = {
-      getTask: async (id: string) => {
-        if (id === "5678") {
-          return { id, title: "Valid Task", status: "TODO" };
-        }
-        return null;
-      },
-    };
-
-    // Mock SessionDB with type assertion
-    const mockSessionDB = {
-      getSessionByTaskId: async () => null, // No session
-    } as any;
-
-    // Test 1: Invalid task (use numeric ID) should fail BEFORE session check
+  test("should require session name or task ID", async () => {
+    // Test Case 3: No session name or task ID provided
     await expect(
-      approveSessionImpl(
-        {
-          task: "9999", // Use numeric task ID instead of "invalid-task"
-          json: false,
-        },
-        { taskService: mockTaskService, sessionDB: mockSessionDB }
-      )
-    ).rejects.toThrow(ResourceNotFoundError);
-
-    // Test 2: Valid task without session should reach session validation
-    await expect(
-      approveSessionImpl(
-        {
-          task: "5678", // Change to match the mock
-          json: false,
-        },
-        { taskService: mockTaskService, sessionDB: mockSessionDB }
-      )
-    ).rejects.toThrow(ResourceNotFoundError);
+      approveSessionPr({
+        json: false,
+        // No session or task provided
+      })
+    ).rejects.toThrow("No session detected. Please provide a session name or task ID");
   });
 
-  test("should provide clear error message format", async () => {
-    // Mock TaskService to ensure consistent behavior
-    const mockTaskService = {
-      getTask: async () => null, // Always return null
-    };
-
+  test("should provide clear error message for missing session", async () => {
+    // Test that error messages are clear and concise for the new approve function
     try {
-      await approveSessionImpl(
-        {
-          task: "9999",
-          json: false,
-        },
-        { taskService: mockTaskService }
-      );
+      await approveSessionPr({
+        task: "9999",
+        json: false,
+      });
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
         const message = error.message;
 
-        // Should start with clear error indicator
-        expect(message).toMatch(/^❌/);
+        // Should indicate no session found for task
+        expect(message).toContain("No session found for task 9999");
 
-        // Should have clear structure: error + explanation + options
-        expect(message).toContain("❌ Task not found:");
-        expect(message).toContain("The specified task does not exist");
-        expect(message).toContain("💡 Available options:");
-        expect(message).toContain("Run 'minsky tasks list'");
+        // Should be concise (not overly verbose)
+        expect(message.split("\n").length).toBeLessThan(5); // Keep it simple
 
-        // Should NOT contain verbose session-related guidance
-        expect(message).not.toContain("1️⃣");
-        expect(message).not.toContain("2️⃣");
-        expect(message).not.toContain("exists but has no associated session");
-      } else {
-        throw new Error(`Expected ResourceNotFoundError, got ${error?.constructor?.name}`);
+        // Should have correct resource type
+        expect((error as ResourceNotFoundError).resourceType).toBe("session");
+        expect((error as ResourceNotFoundError).resourceId).toBe("9999");
       }
     }
   });

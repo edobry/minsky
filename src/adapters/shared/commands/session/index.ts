@@ -75,6 +75,8 @@ import {
   createSessionPrCreateCommand,
   createSessionPrListCommand,
   createSessionPrGetCommand,
+  createSessionPrApproveCommand,
+  createSessionPrMergeCommand,
 } from "./workflow-commands";
 
 // Factory for creating all session commands
@@ -121,6 +123,8 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     prCreate: createSessionPrCreateCommand(deps),
     prList: createSessionPrListCommand(deps),
     prGet: createSessionPrGetCommand(deps),
+    prApprove: createSessionPrApproveCommand(deps),
+    prMerge: createSessionPrMergeCommand(deps),
 
     // Utility commands
     conflicts: createSessionConflictsCommand(deps),
@@ -141,7 +145,7 @@ export async function setupSessionCommandRegistry(
   registry.register("session.dir", commands.dir);
   registry.register("session.delete", commands.delete);
   registry.register("session.update", commands.update);
-  registry.register("session.approve", commands.approve);
+  // NOTE: session.approve removed in favor of session.pr.approve (Task #358)
   registry.register("session.inspect", commands.inspect);
   registry.register("session.conflicts", commands.conflicts);
 
@@ -149,6 +153,8 @@ export async function setupSessionCommandRegistry(
   registry.register("session.pr.create", commands.prCreate);
   registry.register("session.pr.list", commands.prList);
   registry.register("session.pr.get", commands.prGet);
+  registry.register("session.pr.approve", commands.prApprove);
+  registry.register("session.pr.merge", commands.prMerge);
 
   return registry;
 }

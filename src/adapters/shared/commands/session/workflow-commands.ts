@@ -87,8 +87,83 @@ export class SessionInspectCommand extends BaseSessionCommand<any, any> {
   }
 }
 
+/**
+ * Session PR Approve Command (Task #358 - New Structure)
+ */
+export class SessionPrApproveCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.pr.approve";
+  }
+
+  getCommandName(): string {
+    return "approve";
+  }
+
+  getCommandDescription(): string {
+    return "Approve a session pull request (does not merge)";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionApproveCommandParams;
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    const { approveSessionFromParams } = await import("../../../../domain/session");
+
+    const result = await approveSessionFromParams({
+      session: params.name,
+      task: params.task,
+      repo: params.repo,
+      json: params.json,
+      reviewComment: params.comment || params.reviewComment,
+    });
+
+    return this.createSuccessResult({ result });
+  }
+}
+
+/**
+ * Session PR Merge Command (Task #358 - New Structure)
+ */
+export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.pr.merge";
+  }
+
+  getCommandName(): string {
+    return "merge";
+  }
+
+  getCommandDescription(): string {
+    return "Merge an approved session pull request";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionApproveCommandParams; // Reuse same params for now
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
+
+    const result = await mergeSessionPr({
+      session: params.name,
+      task: params.task,
+      repo: params.repo,
+      json: params.json,
+    });
+
+    return this.createSuccessResult({ result });
+  }
+}
+
 // Export the new PR subcommand classes
-export { SessionPrCreateCommand, SessionPrListCommand, SessionPrGetCommand };
+export {
+  SessionPrCreateCommand,
+  SessionPrListCommand,
+  SessionPrGetCommand,
+  SessionPrApproveCommand,
+  SessionPrMergeCommand,
+};
 
 /**
  * Factory functions for creating workflow commands
@@ -98,6 +173,12 @@ export const createSessionApproveCommand = (deps?: SessionCommandDependencies) =
 
 export const createSessionInspectCommand = (deps?: SessionCommandDependencies) =>
   new SessionInspectCommand(deps);
+
+export const createSessionPrApproveCommand = (deps?: SessionCommandDependencies) =>
+  new SessionPrApproveCommand(deps);
+
+export const createSessionPrMergeCommand = (deps?: SessionCommandDependencies) =>
+  new SessionPrMergeCommand(deps);
 
 // Export the new PR subcommand factory functions
 export { createSessionPrCreateCommand, createSessionPrListCommand, createSessionPrGetCommand };
