@@ -1,0 +1,542 @@
+---
+name: Minsky Session Management
+description: 'Complete guide for creating, managing, and working with Minsky sessions'
+tags:
+  - session
+  - management
+  - git
+  - workspace
+---
+# Minsky Session Management
+
+This rule provides comprehensive guidance for creating, managing, and working with Minsky sessions.
+
+## Overview
+
+Sessions provide isolated development environments for working on specific tasks. Each session:
+
+- Contains a separate git branch and workspace
+- Maintains isolation from other work
+- Tracks association with specific tasks
+- Enables safe experimentation and development
+
+## Session Commands
+
+### Core Session Operations
+
+**List all sessions**: <function_calls>
+<invoke name="mcp_minsky-server_session_list">
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Shows all available sessions with their status and associated tasks
+
+**Get session details**: <function_calls>
+<invoke name="mcp_minsky-server_session_get">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Retrieves detailed information about a specific session
+- Can query by session name or task ID
+
+**Create new session**: <function_calls>
+<invoke name="mcp_minsky-server_session_start">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="description">optional description value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="quiet">optional quiet value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="skipInstall">optional skipInstall value</parameter>
+<parameter name="packageManager">optional packageManager value</parameter>
+</invoke>
+</function_calls>
+- Creates a new session for a task
+- Automatically sets up isolated workspace and git branch
+
+**Get session directory**: <function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Returns the absolute path to the session's workspace
+- Essential for navigating to the correct working directory
+
+### Advanced Session Operations
+
+**Update session**: <function_calls>
+<invoke name="mcp_minsky-server_session_update">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="noStash">optional noStash value</parameter>
+<parameter name="noPush">optional noPush value</parameter>
+<parameter name="force">optional force value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="skipConflictCheck">optional skipConflictCheck value</parameter>
+<parameter name="autoResolveDeleteConflicts">optional autoResolveDeleteConflicts value</parameter>
+<parameter name="dryRun">optional dryRun value</parameter>
+<parameter name="skipIfAlreadyMerged">optional skipIfAlreadyMerged value</parameter>
+</invoke>
+</function_calls>
+- Brings session up to date with latest changes from main branch
+- Handles merge conflicts and branch synchronization
+
+**Create pull request**: <function_calls>
+<invoke name="mcp_minsky-server_session_pr_create">
+<parameter name="title">optional title value</parameter>
+<parameter name="body">optional body value</parameter>
+<parameter name="bodyPath">optional bodyPath value</parameter>
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="debug">optional debug value</parameter>
+<parameter name="skipUpdate">optional skipUpdate value</parameter>
+<parameter name="autoResolveDeleteConflicts">optional autoResolveDeleteConflicts value</parameter>
+<parameter name="skipConflictCheck">optional skipConflictCheck value</parameter>
+</invoke>
+</function_calls>
+- Creates a pull request from the session branch
+- Integrates with task management and status updates
+
+**Delete session**: <function_calls>
+<invoke name="mcp_minsky-server_session_delete">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="force">optional force value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Removes session workspace and branch
+- Use with caution - this is destructive
+
+## Session Lifecycle
+
+### 1. Session Creation
+
+Before starting work on any task:
+
+1. **Verify task exists**: <function_calls>
+<invoke name="mcp_minsky-server_tasks_get">
+<parameter name="taskId">required taskId value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="workspace">optional workspace value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="backend">optional backend value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+2. **Check for existing session**: <function_calls>
+<invoke name="mcp_minsky-server_session_list">
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+3. **Create session if needed**: <function_calls>
+<invoke name="mcp_minsky-server_session_start">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="description">optional description value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="quiet">optional quiet value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="skipInstall">optional skipInstall value</parameter>
+<parameter name="packageManager">optional packageManager value</parameter>
+</invoke>
+</function_calls>
+4. **Navigate to session**: Use <function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls> output
+
+Example workflow:
+```bash
+# Check if session already exists for task
+```bash
+<function_calls>
+<invoke name="mcp_minsky-server_session_list">
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+```
+
+# Create session for task #123 if it doesn't exist
+```bash
+<function_calls>
+<invoke name="mcp_minsky-server_session_start">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="description">optional description value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="quiet">optional quiet value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="skipInstall">optional skipInstall value</parameter>
+<parameter name="packageManager">optional packageManager value</parameter>
+</invoke>
+</function_calls>
+```
+
+# Get session directory and navigate
+```bash
+<function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+```
+```
+
+### 2. Working in Sessions
+
+**Critical Requirements**:
+- ALL implementation work MUST happen in the session workspace
+- Always verify your current directory before making changes
+- Never edit files in the main workspace when implementing tasks
+
+**Navigation Pattern**:
+1. Get session directory: <function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+2. Navigate to that directory
+3. Verify you're in the correct location
+4. Begin implementation work
+
+### 3. Session Maintenance
+
+**Keep session updated**:
+- Regularly sync with main branch: <function_calls>
+<invoke name="mcp_minsky-server_session_update">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="noStash">optional noStash value</parameter>
+<parameter name="noPush">optional noPush value</parameter>
+<parameter name="force">optional force value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="skipConflictCheck">optional skipConflictCheck value</parameter>
+<parameter name="autoResolveDeleteConflicts">optional autoResolveDeleteConflicts value</parameter>
+<parameter name="dryRun">optional dryRun value</parameter>
+<parameter name="skipIfAlreadyMerged">optional skipIfAlreadyMerged value</parameter>
+</invoke>
+</function_calls>
+- Resolve any merge conflicts promptly
+- Push changes frequently to avoid data loss
+
+**Monitor session status**:
+- Check session information: <function_calls>
+<invoke name="mcp_minsky-server_session_get">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Verify task association is correct
+- Ensure git branch is properly managed
+
+### 4. Session Completion
+
+When task implementation is complete:
+
+1. **Final verification in session**:
+   - Ensure all changes are committed
+   - Run final tests in session workspace
+   - Verify requirements are fully met
+
+2. **Create pull request**: <function_calls>
+<invoke name="mcp_minsky-server_session_pr_create">
+<parameter name="title">optional title value</parameter>
+<parameter name="body">optional body value</parameter>
+<parameter name="bodyPath">optional bodyPath value</parameter>
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="debug">optional debug value</parameter>
+<parameter name="skipUpdate">optional skipUpdate value</parameter>
+<parameter name="autoResolveDeleteConflicts">optional autoResolveDeleteConflicts value</parameter>
+<parameter name="skipConflictCheck">optional skipConflictCheck value</parameter>
+</invoke>
+</function_calls>
+   - Generates PR from session branch
+   - Links PR to associated task
+   - Updates task status appropriately
+
+3. **Post-merge cleanup**:
+   - Session can be deleted after successful merge
+   - Or kept for reference if needed
+
+## Session Best Practices
+
+### Directory Management
+
+**Always verify location**:
+- Use `pwd` to confirm current directory
+- Session workspaces are completely separate from main workspace
+- Changes in main workspace don't affect session workspace
+
+**Use absolute paths**:
+- Get full session path: <function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Store this path for easy navigation
+- Avoid relative path assumptions
+
+### Git Management
+
+**Branch isolation**:
+- Each session has its own git branch
+- Never work directly on main branch
+- Session branches are automatically managed
+
+**Commit frequently**:
+- Make small, logical commits
+- Push changes regularly
+- Use descriptive commit messages
+
+### Task Association
+
+**Maintain task linkage**:
+- Sessions are tied to specific tasks
+- Verify task association: <function_calls>
+<invoke name="mcp_minsky-server_session_get">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Don't work on multiple tasks in one session
+
+**Status synchronization**:
+- Session operations can update task status
+- Monitor status changes: <function_calls>
+<invoke name="mcp_minsky-server_tasks_status_get">
+<parameter name="taskId">required taskId value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="workspace">optional workspace value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="backend">optional backend value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+- Ensure status reflects actual progress
+
+## Common Session Scenarios
+
+### Scenario 1: Starting Fresh Task
+
+```bash
+# 1. Verify task exists and get details
+<function_calls>
+<invoke name="mcp_minsky-server_tasks_get">
+<parameter name="taskId">required taskId value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="workspace">optional workspace value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="backend">optional backend value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+
+# 2. Create session for the task  
+<function_calls>
+<invoke name="mcp_minsky-server_session_start">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="description">optional description value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="quiet">optional quiet value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="skipInstall">optional skipInstall value</parameter>
+<parameter name="packageManager">optional packageManager value</parameter>
+</invoke>
+</function_calls>
+
+# 3. Navigate to session workspace
+cd $(<function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>)
+
+# 4. Begin implementation
+```
+
+### Scenario 2: Resuming Existing Work
+
+```bash
+# 1. Check existing sessions
+<function_calls>
+<invoke name="mcp_minsky-server_session_list">
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+
+# 2. Get session directory
+<function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+
+# 3. Navigate and continue work
+cd $(<function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>)
+```
+
+### Scenario 3: Updating Session
+
+```bash
+# 1. Ensure you're in session directory
+cd $(<function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>)
+
+# 2. Update session with latest changes
+<function_calls>
+<invoke name="mcp_minsky-server_session_update">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="noStash">optional noStash value</parameter>
+<parameter name="noPush">optional noPush value</parameter>
+<parameter name="force">optional force value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="skipConflictCheck">optional skipConflictCheck value</parameter>
+<parameter name="autoResolveDeleteConflicts">optional autoResolveDeleteConflicts value</parameter>
+<parameter name="dryRun">optional dryRun value</parameter>
+<parameter name="skipIfAlreadyMerged">optional skipIfAlreadyMerged value</parameter>
+</invoke>
+</function_calls>
+
+# 3. Resolve any conflicts if needed
+```
+
+### Scenario 4: Creating Pull Request
+
+```bash
+# 1. Verify all changes committed in session
+cd $(<function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>)
+
+# 2. Create pull request from session
+<function_calls>
+<invoke name="mcp_minsky-server_session_pr_create">
+<parameter name="title">optional title value</parameter>
+<parameter name="body">optional body value</parameter>
+<parameter name="bodyPath">optional bodyPath value</parameter>
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="debug">optional debug value</parameter>
+<parameter name="skipUpdate">optional skipUpdate value</parameter>
+<parameter name="autoResolveDeleteConflicts">optional autoResolveDeleteConflicts value</parameter>
+<parameter name="skipConflictCheck">optional skipConflictCheck value</parameter>
+</invoke>
+</function_calls>
+```
+
+## Troubleshooting
+
+### Problem: Can't find session directory
+**Solution**: Use <function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls> to get exact path, don't guess
+
+### Problem: Changes not appearing
+**Solution**: Verify you're in session workspace, not main workspace
+
+### Problem: Git conflicts during update
+**Solution**: Follow conflict resolution process, commit resolution
+
+### Problem: Session seems corrupted
+**Solution**: Check session status with <function_calls>
+<invoke name="mcp_minsky-server_session_get">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>, consider recreating if necessary
+
+## Integration Points
+
+This rule integrates with:
+
+- **task-implementation-workflow**: For complete task implementation process
+- **session-first-workflow**: For the requirement that all implementation happens in sessions
+- **pr-preparation-workflow**: For creating PRs from sessions
+- **task-status-protocol**: For status updates during session operations

@@ -1,0 +1,94 @@
+---
+name: MCP Usage
+description: Guidelines for using the Minsky Control Protocol
+tags:
+  - mcp
+  - protocol
+  - ai
+---
+# MCP Usage
+
+This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent interaction.
+
+## Overview
+
+- **Purpose**: Provides a stable, machine-readable interface for AI agents to interact with the Minsky CLI.
+- **Transport**: Can be configured for `stdio`, `sse`, or `httpStream`.
+- **Commands**: All shared commands are available via MCP.
+
+## Current Configuration
+
+- **Interface**: cli
+- **MCP Enabled**: No
+- **Transport**: stdio
+- **Rule Format**: cursor
+
+## Available MCP Tools
+
+### Task Management
+- minsky tasks list [--all] [--status <value>] [--filter <value>] [--limit <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json] - list all tasks
+- minsky tasks get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json] - get task by ID
+- minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json] - check task status
+- minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json] - update task status
+- minsky tasks create <title> [--description <value>] [--force] [--descriptionPath <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json] - create new task
+
+### Session Management
+- minsky session list [--repo <value>] [--json] - list all sessions
+- minsky session get [--name <value>] [--task <value>] [--repo <value>] [--json] - get session details
+- minsky session start [--name <value>] [--task <value>] [--description <value>] [--branch <value>] [--repo <value>] [--session <value>] [--json] [--quiet] [--noStatusUpdate] [--skipInstall] [--packageManager <value>] - create new session
+- minsky session dir [--name <value>] [--task <value>] [--repo <value>] [--json] - get session directory
+- minsky session pr.create [--title <value>] [--body <value>] [--bodyPath <value>] [--name <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--skipUpdate] [--autoResolveDeleteConflicts] [--skipConflictCheck] - create pull request
+
+### Rules Management
+- minsky rules list [--format <value>] [--tag <value>] [--json] [--debug] - list all rules
+- minsky rules get <id> [--format <value>] [--json] [--debug] - get rule by ID
+- minsky rules create <id> <content> [--description <value>] [--name <value>] [--globs <value>] [--tags <value>] [--format <value>] [--overwrite] [--json] - create new rule
+- minsky rules update <id> [--content <value>] [--description <value>] [--name <value>] [--globs <value>] [--tags <value>] [--format <value>] [--json] [--debug] - update existing rule
+
+## Usage Examples
+
+### Task Management Example
+```
+minsky tasks list [--all] [--status <value>] [--filter <value>] [--limit <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+```bash
+taskId: "#123"\nminsky tasks get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
+```
+```
+
+### Session Management Example  
+```
+```bash
+task: "#123"\nminsky session start [--name <value>] [--task <value>] [--description <value>] [--branch <value>] [--repo <value>] [--session <value>] [--json] [--quiet] [--noStatusUpdate] [--skipInstall] [--packageManager <value>]
+```
+```bash
+name: "task#123"\nminsky session dir [--name <value>] [--task <value>] [--repo <value>] [--json]
+```
+```
+
+## Parameter Documentation
+
+- `all`: Include all tasks regardless of status (Optional, Default: `false`)
+- `status`: Task status (Optional)
+- `filter`: Filter criteria for tasks (Optional)
+- `limit`: Maximum number of tasks to return (Optional)
+- `repo`: Repository path (Optional)
+- `workspace`: Workspace path (Optional)
+- `session`: Session identifier (Optional)
+- `backend`: Backend type (Optional)
+- `json`: Output in JSON format (Optional, Default: `false`)
+
+- `name`: Session name (Optional)
+- `task`: Task ID (Optional)
+- `description`: Task description for auto-creation (Optional)
+- `branch`: Git branch to use (Optional)
+- `repo`: Repository path (Optional)
+- `session`: Session identifier (Optional)
+- `json`: Output in JSON format (Optional, Default: `false`)
+- `quiet`: Suppress output (Optional, Default: `false`)
+- `noStatusUpdate`: Skip updating task status (Optional, Default: `false`)
+- `skipInstall`: Skip dependency installation (Optional, Default: `false`)
+- `packageManager`: Package manager to use (Optional)
+
+
+
+See README-MCP.md for detailed protocol specifications.
