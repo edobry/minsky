@@ -40,10 +40,7 @@ export async function sessionPrCreate(params: {
   body?: string;
   pullRequest?: PullRequestInfo;
 }> {
-  console.log("🔥 CONSOLE DEBUG: sessionPrCreate called", params);
-
   // Delegate to existing session pr implementation
-  console.log("🔥 CONSOLE DEBUG: About to call sessionPr");
   const result = await sessionPr({
     session: params.name,
     task: params.task,
@@ -57,8 +54,6 @@ export async function sessionPrCreate(params: {
     skipUpdate: params.skipUpdate || false,
     autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
   });
-
-  console.log("🔥 CONSOLE DEBUG: sessionPr completed", result);
 
   // TODO: In future implementation, also update session record with pullRequest info
   // For now, return the basic result with placeholder for pullRequest

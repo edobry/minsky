@@ -102,8 +102,6 @@ export async function preparePrImpl(
   options: PreparePrOptions,
   deps: PreparePrDependencies
 ): Promise<PreparePrResult> {
-  console.log("🔥 CONSOLE DEBUG: preparePrImpl function started", options);
-
   let workdir: string;
   let sourceBranch: string;
   const baseBranch = options.baseBranch || "main";
@@ -439,14 +437,8 @@ Session requested: "${(options as any).session}"
     // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
     // First checkout the PR branch temporarily to perform the merge
 
-    // 🔥 DEBUG: Log merge setup details
-    console.log("🔥 CONSOLE DEBUG: About to perform merge setup", {
-      workdir,
-      sourceBranch,
-      prBranch,
-      baseBranch,
-    });
-    log.debug("🔥 DEBUG: About to perform merge setup", {
+    // Log merge setup details
+    log.debug("About to perform merge setup", {
       workdir,
       sourceBranch,
       prBranch,
@@ -454,21 +446,6 @@ Session requested: "${(options as any).session}"
     });
 
     await execGitWithTimeout("switch", `switch ${prBranch}`, { workdir, timeout: 30000 });
-
-    // 🔥 DEBUG: Verify branch state before merge
-    const currentBranch = await execGitWithTimeout("branch", "branch --show-current", {
-      workdir,
-      timeout: 5000,
-    });
-    const sourceBranchExists = await execGitWithTimeout("branch", `branch --list ${sourceBranch}`, {
-      workdir,
-      timeout: 5000,
-    });
-    log.debug("🔥 DEBUG: Branch state before merge", {
-      currentBranch: currentBranch.stdout.trim(),
-      sourceBranchExists: sourceBranchExists.stdout.trim(),
-      workdir,
-    });
 
     // Check merge complexity and warn user if needed
     try {
@@ -498,14 +475,8 @@ Session requested: "${(options as any).session}"
       /"/g,
       String.fromCharCode(92) + String.fromCharCode(34)
     );
-    // 🔥 DEBUG: Log before merge attempt
-    console.log("🔥 CONSOLE DEBUG: About to attempt merge", {
-      sourceBranch,
-      prBranch,
-      workdir,
-      mergeCommand: `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
-    });
-    log.debug("🔥 DEBUG: About to attempt merge", {
+    // Log before merge attempt
+    log.debug("About to attempt merge", {
       sourceBranch,
       prBranch,
       workdir,
@@ -517,14 +488,6 @@ Session requested: "${(options as any).session}"
       `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
       { workdir, timeout: 180000 } // Increased to 3 minutes for complex merges
     );
-
-    // 🔥 DEBUG: Log merge result
-    log.debug("🔥 DEBUG: Merge command completed", {
-      stdout: mergeResult.stdout,
-      stderr: mergeResult.stderr,
-      sourceBranch,
-      prBranch,
-    });
 
     // VERIFICATION: Check that the merge commit has the correct message
     const logResult = await execGitWithTimeout("log", "log -1 --pretty=format:%B", {

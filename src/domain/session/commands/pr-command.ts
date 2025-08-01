@@ -73,16 +73,6 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
     }
 
     // Prepare PR using git domain function
-    console.log("🔥 CONSOLE DEBUG: About to call preparePrFromParams", {
-      session: resolvedContext.sessionName,
-      repo: workdir,
-      baseBranch,
-      title,
-      body,
-      branchName,
-      debug,
-    });
-
     const result = await preparePrFromParams({
       session: resolvedContext.sessionName,
       repo: workdir,
@@ -92,8 +82,6 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       branchName,
       debug,
     });
-
-    console.log("🔥 CONSOLE DEBUG: preparePrFromParams completed", result);
 
     // Get the commit hash of the prepared merge commit
     const commitHashResult = await gitService.execInRepository(
