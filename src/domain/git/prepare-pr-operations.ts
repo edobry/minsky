@@ -516,6 +516,11 @@ Session requested: "${(options as any).session}"
     // Get error message for conflict detection
     const errorMessage = err instanceof Error ? err.message : String(err);
 
+    console.log("🚨 TESTING: My improved conflict detection is running!", {
+      errorMessage,
+      hasConflict: errorMessage.includes("CONFLICT"),
+    });
+
     // Check for conflict errors FIRST - before any cleanup
     if (errorMessage.includes("CONFLICT") || errorMessage.includes("Automatic merge failed")) {
       // DON'T clean up on conflict - leave user in natural git merge conflict state
