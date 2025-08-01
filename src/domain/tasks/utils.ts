@@ -2,17 +2,34 @@
  * Task-related utility functions
  */
 
-import { normalizeTaskIdForStorage } from "./task-id-utils";
-
 /**
- * Normalizes a task ID using the unified "permissive in, strict out" approach
+ * Normalizes a task ID to always include the leading hash symbol
  *
- * @param userInput The task ID to normalize (accepts any format: 123, #123, task#123, md#123)
- * @returns The normalized task ID in qualified format (md#123) or null if invalid
- * @deprecated Use normalizeTaskIdForStorage directly for new code
+ * @param taskId The task ID to normalize (can be with or without leading hash)
+ * @returns The normalized task ID with leading hash, or null if the input is invalid.
  */
 export function normalizeTaskId(userInput: string): string | undefined {
-  // Delegate to the new unified task ID system
-  const result = normalizeTaskIdForStorage(userInput);
-  return result || undefined; // Convert null to undefined for backward compatibility
+  if (!userInput || typeof userInput !== "string") {
+    return null;
+  }
+
+  let normalizedInput = userInput.trim();
+
+  // Handle formats like "task#064" or "task#64"
+  if (normalizedInput.toLowerCase().startsWith("task#")) {
+    normalizedInput = normalizedInput.substring(5);
+  }
+
+  // Remove all leading '#' characters to avoid multiple hashes
+  while (normalizedInput.startsWith("#")) {
+    normalizedInput = normalizedInput.substring(1);
+  }
+
+  // Check if the result is valid (numeric only)
+  if (!/^\d+$/.test(normalizedInput) || normalizedInput?.length === 0) {
+    return null;
+  }
+
+  // Add the '#' prefix to ensure canonical format - don't pad with zeros
+  return `#${normalizedInput}`;
 }

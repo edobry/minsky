@@ -124,21 +124,42 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
 }
 
 /**
- * Normalize task ID using the unified "permissive in, strict out" approach
- * Accepts any format, always returns qualified format for consistency
+ * Normalize task ID to consistent format using unified task ID system
+ * Supports both legacy formats (#XXX) and qualified formats (md#XXX, gh#XXX)
  * @param id Task ID to normalize
- * @returns Normalized task ID in qualified format (md#123) or undefined if invalid
- * @deprecated Use normalizeTaskIdForStorage directly for new code
+ * @returns Normalized task ID or undefined if invalid
  */
 export function normalizeTaskId(id: string): string | undefined {
   if (!id) return undefined;
 
-  // Import the new task ID utilities
-  const { normalizeTaskIdForStorage } = require("./task-id-utils");
+  // Use unified task ID system for consistent handling
+  const {
+    isQualifiedTaskId,
+    isLegacyTaskId,
+    migrateUnqualifiedTaskId,
+  } = require("./unified-task-id");
 
-  // Delegate to the new unified task ID system
-  const result = normalizeTaskIdForStorage(id);
-  return result || undefined; // Convert null to undefined for backward compatibility
+  // If it's already a qualified ID, return as-is
+  if (isQualifiedTaskId(id)) {
+    return id;
+  }
+
+  // If it's a legacy format, migrate to qualified format
+  if (isLegacyTaskId(id)) {
+    return migrateUnqualifiedTaskId(id, "md"); // Default to markdown backend
+  }
+
+  // If already in #XXX format, keep for backward compatibility
+  if (/^#[a-zA-Z0-9_]+$/.test(id)) {
+    return id;
+  }
+
+  // If purely alphanumeric, convert to #XXX format (legacy compatibility)
+  if (/^[a-zA-Z0-9_]+$/.test(id)) {
+    return `#${id}`;
+  }
+
+  return undefined;
 }
 
 /**
