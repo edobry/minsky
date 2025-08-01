@@ -164,17 +164,12 @@ export function registerSharedCommandsWithMcp(
             const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
             log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
 
-            // Execute the shared command with timeout
+            // Execute the shared command (no timeout - debug actual hang)
             log.debug(`[MCP] About to execute command: ${command.id}`);
-            const result = await Promise.race([
-              command.execute(parameters, context),
-              new Promise((_, reject) =>
-                setTimeout(
-                  () => reject(new Error(`Command ${command.id} timed out after 30 seconds`)),
-                  30000
-                )
-              ),
-            ]);
+            log.debug(`[MCP] Parameters being passed:`, parameters);
+            log.debug(`[MCP] Context being passed:`, context);
+
+            const result = await command.execute(parameters, context);
 
             const duration = Date.now() - startTime;
             log.debug(`[MCP] Command completed: ${command.id}`, { duration });

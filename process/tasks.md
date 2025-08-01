@@ -623,3 +623,5 @@
 - [ ] Explore Automated Session Sync Workflow on PR Merge [#361](process/tasks/361-explore-automated-session-sync-workflow-on-pr-merge.md)
 
 - [x] Truncate verbose git commands in error messages [#362](process/tasks/362-truncate-verbose-git-commands-in-error-messages.md)
+
+- [ ] Implement Linear Backend for Multi-Backend Task System [#363](process/tasks/363-implement-linear-backend-for-multi-backend-task-system.md)

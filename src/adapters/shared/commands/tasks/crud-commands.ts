@@ -12,6 +12,7 @@ import {
   createTaskFromTitleAndDescription,
   deleteTaskFromParams,
 } from "../../../../domain/tasks";
+import { ValidationError } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import {
   tasksListParams,
