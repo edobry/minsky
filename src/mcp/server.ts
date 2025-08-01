@@ -258,18 +258,28 @@ export class MinskyMCPServer {
       try {
         const result = await tool.handler(request.params.arguments || {});
 
-        // Handle inconsistent return formats from shared commands
-        if (Array.isArray(result)) {
-          // Raw arrays (like tasks.list) need minimal wrapping for MCP compatibility
-          return {
-            success: true,
-            data: result,
-            count: result.length,
-          };
+        // Convert result to proper MCP tool response format
+        let responseText: string;
+
+        if (typeof result === "string") {
+          responseText = result;
+        } else if (Array.isArray(result)) {
+          responseText = JSON.stringify(result, null, 2);
+        } else if (typeof result === "object" && result !== null) {
+          responseText = JSON.stringify(result, null, 2);
         } else {
-          // Objects (like session.list with success wrapper) return as-is
-          return result;
+          responseText = String(result);
         }
+
+        // Return MCP-compliant tool response
+        return {
+          content: [
+            {
+              type: "text",
+              text: responseText,
+            },
+          ],
+        };
       } catch (error) {
         log.error("Tool execution failed", {
           tool: request.params.name,

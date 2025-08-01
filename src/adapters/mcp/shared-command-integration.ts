@@ -143,22 +143,62 @@ export function registerSharedCommandsWithMcp(
         description,
         parameters: convertParametersToZodSchema(command.parameters),
         handler: async (args: any, projectContext?: any) => {
-          // Create execution context for shared command
-          const context: CommandExecutionContext = {
-            interface: "mcp",
-            debug: args?.debug || false,
-            format: "json", // MCP always returns JSON format
-          };
+          const startTime = Date.now();
+          log.debug(`[MCP] Starting command execution: ${command.id}`, { args });
 
-          // Convert MCP args to expected parameter format, filtering out the json parameter
-          // since MCP always returns JSON regardless of this parameter
-          const filteredArgs = { ...args };
-          delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
+          try {
+            // Create execution context for shared command
+            const context: CommandExecutionContext = {
+              interface: "mcp",
+              debug: args?.debug || false,
+              format: "json", // MCP always returns JSON format
+            };
+            log.debug(`[MCP] Created execution context: ${command.id}`, { context });
 
-          const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            // Convert MCP args to expected parameter format, filtering out the json parameter
+            // since MCP always returns JSON regardless of this parameter
+            const filteredArgs = { ...args };
+            delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
+            log.debug(`[MCP] Filtered args: ${command.id}`, { filteredArgs });
 
-          // Execute the shared command
-          return await command.execute(parameters, context);
+            const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
+            log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
+
+            // Execute the shared command (no timeout - debug actual hang)
+            log.debug(`[MCP] About to execute command: ${command.id}`);
+            log.debug(`[MCP] Parameters being passed:`, parameters);
+            log.debug(`[MCP] Context being passed:`, context);
+
+            const result = await command.execute(parameters, context);
+
+            const duration = Date.now() - startTime;
+            log.debug(`[MCP] Command completed: ${command.id}`, { duration });
+            return result;
+          } catch (error) {
+            const duration = Date.now() - startTime;
+
+            // CRITICAL: Check for undefined reference errors that could indicate missing imports
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isUndefinedReference =
+              errorMessage.includes("is not defined") ||
+              errorMessage.includes("undefined") ||
+              errorMessage.includes("ReferenceError");
+
+            if (isUndefinedReference) {
+              log.error(`🚨 CRITICAL: Possible missing import detected in ${command.id}`, {
+                error: errorMessage,
+                duration,
+                suggestion: "Check for missing imports in the command implementation",
+              });
+            }
+
+            log.error(`[MCP] Command failed: ${command.id}`, {
+              error: errorMessage,
+              duration,
+              isUndefinedReference,
+            });
+            throw error;
+          }
         },
       });
     });

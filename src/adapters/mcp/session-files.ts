@@ -309,20 +309,16 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           targetResolvedPath
         );
 
-        return createSuccessResponse(
-          {
-            path: args.targetPath,
-            session: args.sessionName,
-          },
-          {
-            sourcePath: args.sourcePath,
-            targetPath: args.targetPath,
-            sourceResolvedPath: sourceResolvedPath_rel,
-            targetResolvedPath: targetResolvedPath_rel,
-            moved: true,
-            overwritten: targetExists,
-          }
-        );
+        return createSuccessResponse({
+          path: args.targetPath,
+          session: args.sessionName,
+          sourcePath: args.sourcePath,
+          targetPath: args.targetPath,
+          sourceResolvedPath: sourceResolvedPath_rel,
+          targetResolvedPath: targetResolvedPath_rel,
+          moved: true,
+          overwritten: targetExists,
+        });
       } catch (error) {
         const errorContext: ErrorContext = {
           operation: "move_file",
@@ -410,21 +406,17 @@ export function registerSessionFileTools(commandMapper: CommandMapper): void {
           targetResolvedPath
         );
 
-        return createSuccessResponse(
-          {
-            path: targetPath,
-            session: args.sessionName,
-          },
-          {
-            originalPath: args.path,
-            newPath: targetPath,
-            newName: args.newName,
-            originalResolvedPath: originalResolvedPath_rel,
-            newResolvedPath: newResolvedPath_rel,
-            renamed: true,
-            overwritten: targetExists,
-          }
-        );
+        return createSuccessResponse({
+          path: targetPath,
+          session: args.sessionName,
+          originalPath: args.path,
+          newPath: targetPath,
+          newName: args.newName,
+          originalResolvedPath: originalResolvedPath_rel,
+          newResolvedPath: newResolvedPath_rel,
+          renamed: true,
+          overwritten: targetExists,
+        });
       } catch (error) {
         const errorContext: ErrorContext = {
           operation: "rename_file",

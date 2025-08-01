@@ -17,7 +17,7 @@ Complete the integration of the production-ready GitHub Issues backend (Task #13
 
 **Dependencies Completed**:
 - ✅ Task #138: GitHub Issues backend implementation (production-ready)
-- ✅ Task #161: GitHub PR workflow specification (contains Phase 0 repository backend design)  
+- ✅ Task #161: GitHub PR workflow specification (contains Phase 0 repository backend design)
 - ✅ Task #356: Multi-backend task system architecture design
 
 ## Objectives
@@ -28,7 +28,7 @@ Enable end-to-end GitHub Issues task backend usage by implementing the repositor
 ### Success Criteria
 1. **Repository Backend Auto-Detection**: Automatically detect and instantiate GitHub repository backend when working in GitHub repositories
 2. **Task Backend Compatibility**: GitHub Issues task backend works seamlessly when GitHub repository backend is detected
-3. **Multi-Backend Task IDs**: Implement backend-qualified task IDs (`gh:123`, `md:456`) to prevent conflicts
+3. **Multi-Backend Task IDs**: Implement backend-qualified task IDs (`gh#123`, `md#456`) to prevent conflicts
 4. **Backward Compatibility**: Existing unqualified task IDs continue to work during transition
 5. **End-to-End Workflow**: Complete task creation → session management → PR workflow using GitHub Issues
 
@@ -41,9 +41,9 @@ Implement simple, immediate git remote detection (KISS principle):
 ```typescript
 function detectRepositoryBackend(workdir: string): RepositoryBackendType {
   const remote = execSync('git remote get-url origin', { cwd: workdir });
-  
+
   if (remote.includes('github.com')) return 'github';
-  if (remote.includes('gitlab.com')) return 'gitlab';  
+  if (remote.includes('gitlab.com')) return 'gitlab';
   return remote.startsWith('/') ? 'local' : 'remote';
 }
 ```
@@ -64,22 +64,22 @@ class TaskService {
   static async createWithEnhancedBackend(options) {
     // 1. Detect repository backend type
     const repoBackendType = detectRepositoryBackend(options.workspacePath);
-    
+
     // 2. Create repository backend instance
     const repoBackend = await createRepositoryBackend({
       type: repoBackendType,
       workspacePath: options.workspacePath
     });
-    
-    // 3. Validate task backend compatibility  
+
+    // 3. Validate task backend compatibility
     validateTaskBackendCompatibility(repoBackendType, options.backend);
-    
+
     // 4. Create task backend with repo info
     const taskBackend = await createTaskBackend({
       ...options,
       repositoryBackend: repoBackend
     });
-    
+
     return new TaskService(taskBackend, repoBackend);
   }
 }
@@ -107,11 +107,11 @@ function validateTaskBackendCompatibility(repoBackend: string, taskBackend: stri
 
 Implement the multi-backend task ID system:
 
-**Format**: `backend:id` (e.g., `gh:123`, `md:456`, `json:789`)
+**Format**: `backend#id` (e.g., `gh#123`, `md#456`, `json#789`)
 
 **Implementation**:
 - ✅ Update task ID parsing to handle qualified IDs
-- ✅ Maintain backward compatibility for unqualified IDs  
+- ✅ Maintain backward compatibility for unqualified IDs
 - ✅ Default new tasks to qualified format
 - ✅ Update session management to use qualified IDs
 - ✅ Update git operations (branch names, commits) to use qualified IDs
@@ -138,14 +138,14 @@ Update session operations to work with repository backend detection:
 3. **Integrate with TaskService** creation flow
 4. **Add error handling** for invalid/missing remotes
 
-### Phase 2: Task Backend Compatibility System (3-4 hours)  
+### Phase 2: Task Backend Compatibility System (3-4 hours)
 1. **Implement validation function** with clear error messages
 2. **Update TaskService** to call validation during creation
 3. **Add comprehensive error messages** with troubleshooting steps
 4. **Test compatibility matrix** (all backend combinations)
 
 ### Phase 3: Backend-Qualified Task IDs (4-5 hours)
-1. **Update task ID parsing** to handle `backend:id` format  
+1. **Update task ID parsing** to handle `backend#id` format
 2. **Implement backward compatibility** for unqualified IDs
 3. **Update task creation** to use qualified format by default
 4. **Update all task operations** (get, update, delete, list)
@@ -161,11 +161,11 @@ Update session operations to work with repository backend detection:
 ### Functional Requirements
 - [ ] **Auto-Detection**: Repository backend automatically detected from git remote
 - [ ] **Compatibility**: GitHub Issues backend works only with GitHub repository backend
-- [ ] **Task IDs**: New tasks use backend-qualified IDs (`gh:123`)
+- [ ] **Task IDs**: New tasks use backend-qualified IDs (`gh#123`)
 - [ ] **Backward Compatibility**: Existing unqualified task IDs continue working
 - [ ] **Error Messages**: Clear guidance when incompatible backends detected
 
-### Integration Requirements  
+### Integration Requirements
 - [ ] **TaskService**: Enhanced to handle repository backend detection and validation
 - [ ] **Session Management**: Works with auto-detected repository backends
 - [ ] **CLI Commands**: All task operations work with qualified IDs
@@ -185,7 +185,7 @@ Update session operations to work with repository backend detection:
 - Task ID parsing and qualification
 - Backward compatibility scenarios
 
-### Integration Tests  
+### Integration Tests
 - End-to-end GitHub Issues task workflow
 - Session creation with repository backend auto-detection
 - Migration from unqualified to qualified task IDs
@@ -204,7 +204,7 @@ Update session operations to work with repository backend detection:
 - **Performance Impact**: Auto-detection must not slow down common operations
 - **Error UX**: Users must understand backend compatibility requirements
 
-### Medium Risk  
+### Medium Risk
 - **Session Migration**: Existing sessions may need repository backend updates
 - **Git Remote Variations**: Handle edge cases in remote URL formats
 - **Backend Availability**: Graceful handling when backends become unavailable
@@ -223,7 +223,7 @@ Update session operations to work with repository backend detection:
 - Backend-qualified task ID specification
 - Migration guide for existing installations
 
-### User Documentation  
+### User Documentation
 - Updated GitHub Issues backend guide with auto-detection
 - Troubleshooting guide for backend compatibility issues
 - Migration instructions for existing users
@@ -272,12 +272,12 @@ Update session operations to work with repository backend detection:
 
 ### Architectural Decisions
 - Repository backend detection happens at TaskService creation time
-- Task backend compatibility validation occurs before backend instantiation  
-- Backend-qualified task IDs use consistent `backend:id` format
+- Task backend compatibility validation occurs before backend instantiation
+- Backend-qualified task IDs use consistent `backend#id` format
 - Unqualified task IDs resolve to currently configured backend for compatibility
 
 ### Performance Considerations
 - Repository backend detection cached per TaskService instance
 - Git remote checking optimized for common repository layouts
 - Lazy loading of repository backend instances when possible
-- Minimal overhead for non-GitHub repository workflows 
+- Minimal overhead for non-GitHub repository workflows

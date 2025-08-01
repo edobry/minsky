@@ -65,7 +65,7 @@ describe("Session File Move Tools Integration", () => {
 
     registerSessionFileTools(mockCommandMapper as any);
 
-    // Test session.move_file parameters
+    // Test session_move_file parameters
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
     const moveSchema = moveCommand.parameters;
 
@@ -80,7 +80,7 @@ describe("Session File Move Tools Integration", () => {
     const moveResult = moveSchema.safeParse(validMoveData);
     expect(moveResult.success).toBe(true);
 
-    // Test session.rename_file parameters
+    // Test session_rename_file parameters
     const renameCommand = registeredCommands.find((cmd) => cmd.name === "session.rename_file");
     const renameSchema = renameCommand.parameters;
 
@@ -140,7 +140,7 @@ describe("Session File Move Tools Integration", () => {
 
     registerSessionFileTools(mockCommandMapper as any);
 
-    // Test session.move_file default values
+    // Test session_move_file default values
     const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
     const moveSchema = moveCommand.parameters;
 
@@ -155,7 +155,7 @@ describe("Session File Move Tools Integration", () => {
     expect(moveResult.createDirs).toBe(true);
     expect(moveResult.overwrite).toBe(false);
 
-    // Test session.rename_file default values
+    // Test session_rename_file default values
     const renameCommand = registeredCommands.find((cmd) => cmd.name === "session.rename_file");
     const renameSchema = renameCommand.parameters;
 

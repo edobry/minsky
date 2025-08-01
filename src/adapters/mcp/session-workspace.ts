@@ -197,26 +197,22 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           totalLines: processed.totalLines,
         });
 
-        return createSuccessResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relativeResolvedPath,
-          },
-          {
-            content: processed.content,
-            totalLines: processed.totalLines,
-            linesRead:
-              args.start_line_one_indexed && args.end_line_one_indexed_inclusive
-                ? {
-                    start: args.start_line_one_indexed,
-                    end: args.end_line_one_indexed_inclusive,
-                  }
-                : undefined,
-            linesShown: processed.linesShown,
-            omittedContent: processed.summary ? { summary: processed.summary } : undefined,
-          }
-        );
+        return createSuccessResponse({
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relativeResolvedPath,
+          content: processed.content,
+          totalLines: processed.totalLines,
+          linesRead:
+            args.start_line_one_indexed && args.end_line_one_indexed_inclusive
+              ? {
+                  start: args.start_line_one_indexed,
+                  end: args.end_line_one_indexed_inclusive,
+                }
+              : undefined,
+          linesShown: processed.linesShown,
+          omittedContent: processed.summary ? { summary: processed.summary } : undefined,
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file read failed", {
@@ -263,17 +259,13 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           createdDirs: args.createDirs,
         });
 
-        return createSuccessResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relativeResolvedPath,
-          },
-          {
-            bytesWritten: args.content.length,
-            created: true, // File is being written
-          }
-        );
+        return createSuccessResponse({
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relativeResolvedPath,
+          bytesWritten: args.content.length,
+          created: true, // File is being written
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
@@ -331,18 +323,14 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           directoryCount: directories.length,
         });
 
-        return createSuccessResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relativeResolvedPath,
-          },
-          {
-            files: files.sort(),
-            directories: directories.sort(),
-            totalEntries: files.length + directories.length,
-          }
-        );
+        return createSuccessResponse({
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relativeResolvedPath,
+          files: files.sort(),
+          directories: directories.sort(),
+          totalEntries: files.length + directories.length,
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session directory list failed", {

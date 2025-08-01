@@ -16,6 +16,18 @@ import { z } from "zod";
 export const TaskIdSchema = z.string().min(1, "Task ID cannot be empty");
 
 /**
+ * Qualified task identifier schema - includes backend prefix for multi-backend operations
+ * Format: "backend:taskId" or just "taskId" for default backend
+ */
+export const QualifiedTaskIdSchema = z.string().min(1, "Qualified Task ID cannot be empty");
+
+/**
+ * Normalized task identifier schema - handles legacy ID migration and backend qualification
+ * Accepts various formats and normalizes them for consistent processing
+ */
+export const NormalizedTaskIdSchema = z.string().min(1, "Normalized Task ID cannot be empty");
+
+/**
  * Session identifier schema - used across all interfaces
  */
 export const SessionIdSchema = z.string().min(1, "Session ID cannot be empty");
@@ -222,6 +234,8 @@ export function createErrorResponse(
 // ========================
 
 export type TaskId = z.infer<typeof TaskIdSchema>;
+export type QualifiedTaskId = z.infer<typeof QualifiedTaskIdSchema>;
+export type NormalizedTaskId = z.infer<typeof NormalizedTaskIdSchema>;
 export type SessionId = z.infer<typeof SessionIdSchema>;
 export type RepoId = z.infer<typeof RepoIdSchema>;
 export type BackendId = z.infer<typeof BackendIdSchema>;

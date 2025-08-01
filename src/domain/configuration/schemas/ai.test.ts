@@ -28,6 +28,8 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
       morph: {
         enabled: true,
         apiKey: "morph-key",
+        model: "morph-v3-large",
+        baseUrl: "https://api.morphllm.com/v1",
       },
       unknownProvider: {
         enabled: true,
@@ -53,7 +55,7 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
       },
     });
 
-    // Should have logged a warning about unknown fields (only unknownProvider, morph is now valid)
+    // Should have logged a warning about unknown fields (only unknownProvider, not morph which is now valid)
     expect(warnCalls.length).toBeGreaterThan(0);
     const warningMessage = warnCalls[0];
     expect(warningMessage).toContain("Configuration Warning: Unknown fields in ai.providers:");
@@ -116,6 +118,8 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
         morph: {
           enabled: true,
           apiKey: "morph-key",
+          model: "morph-v3-large",
+          baseUrl: "https://api.morphllm.com/v1",
         },
       },
     };
@@ -124,6 +128,14 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
 
     expect(result.success).toBe(true);
     expect(result.data?.providers).toHaveProperty("morph");
+    expect(result.data?.providers?.morph).toEqual({
+      enabled: true,
+      apiKey: "morph-key",
+      models: [],
+      model: "morph-v3-large",
+      baseUrl: "https://api.morphllm.com/v1",
+    });
+    // No warnings should be logged since morph is now a valid provider
     expect(warnCalls.length).toBe(0);
   });
 });

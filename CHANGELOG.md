@@ -5,6 +5,121 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Task Status Commit Messages**: Fixed double hash bug in task status update commit messages
+  - Task status updates now generate correct commit messages with single hash (#347) instead of double hash (##347)
+  - Fixed in markdownTaskBackend.ts where commit message template was adding extra # prefix to already normalized task IDs
+  - Ensures conventional commit format compliance for task status changes
+
+- **Session MCP Tools Response Data**: Fixed all session MCP tools not returning complete response data
+  - Fixed `createSuccessResponse` calls incorrectly using two object parameters instead of one
+  - Affected tools: session.read_file, session.write_file, session.edit_file, session.search_replace,
+    session.move_file, session.rename_file, session.list_directory
+  - All session tools now properly return complete response data (content, metadata, operation results)
+  - Tools were succeeding but missing crucial data fields like `content`, `bytesWritten`, `files`, etc.
+  - Removed unused legacy MCP response builders (createFileReadResponse, createFileOperationResponse,
+    createDirectoryListResponse) that were replaced during domain schema migration
+
+- **Session MCP Tools**: Re-enabled session MCP tools including session.pr.create
+  - Fixed outdated "import issues" comment that was blocking session command registration
+  - All session tools now available via MCP: list, get, start, delete, update, approve, conflicts
+  - Added session PR management tools: session.pr.create, session.pr.list, session.pr.get
+  - Session workspace file operations now available: read_file, write_file, list_directory, etc.
+
+- **MCP Server Schema Exports**: Fixed MCP server startup error due to missing schema exports
+  - Added `QualifiedTaskIdSchema` for multi-backend task operations with backend prefixes
+  - Added `NormalizedTaskIdSchema` for legacy ID migration and backend qualification
+  - Added corresponding TypeScript type exports (`QualifiedTaskId`, `NormalizedTaskId`)
+  - Resolves startup error: "Export named 'QualifiedTaskIdSchema' not found in module"
+  - MCP server now starts successfully with `minsky mcp start --with-inspector --http`
+
+- **Session Approve Display**: Fixed "Session: Unknown" display in session approval command output
+  - Corrected property access in session approval formatter from `result.result` to `result.data`
+  - Session name now displays correctly instead of showing "Unknown"
+  - Aligns formatter with actual data structure returned by approval operations
+
+- **Session Approve Merge Strategy**: Fixed session approve creating new merge commits instead of fast-forwarding to prepared merge commits
+  - Changed prepared-merge-commit-workflow to use `--ff-only` instead of `--no-ff` during approval
+  - Resolves "Merge commits into main must use conventional commit format" validation errors
+  - Session approve now correctly fast-forwards to the prepared merge commit as designed
+  - Aligns implementation with documented prepared merge commit workflow specification
+
+- **Session Approve Workflow**: Resolved `posix_spawn '/bin/sh'` error in session approve command
+  - Fixed path inconsistency between LocalGitBackend and SessionDB that caused git operations to fail
+  - LocalGitBackend now uses consistent session workspace path structure without repoName component
+  - Added comprehensive test suite with proper test-driven development approach
+  - Session approve operations now work correctly for all session types
+
+### Added
+- **Task #361**: Session outdated detection and display system
+  - Created interim solution for detecting when sessions become outdated after PR merges to main
+  - Implements sync status tracking with severity levels (current, stale, very-stale, ancient)
+  - Adds `session outdated` command to list all outdated sessions with filtering options
+  - Enhances `session get` and `session list` commands to display sync status indicators
+  - Provides timestamp and commit-based detection mechanisms for accuracy
+  - Includes visual indicators and detailed information about missing main branch changes
+  - Serves as foundation for future automated sync workflow from Task #361
+
+- **Task #361**: Automated session sync workflow exploration
+  - Created comprehensive exploration task for event-driven session synchronization
+  - Introduces concept of system-generated work items distinct from user tasks
+  - Defines AI-enhanced session relationship detection and conflict prediction
+  - Plans backend-specific implementation (GitHub webhooks vs local git hooks)
+  - Designs work item classification with automation levels and safety mechanisms
+  - Connects to task dependency system (#239) and AI features (#175) for intelligent workflow orchestration
+
+- **Task #359**: Session PR command restructuring with explicit subcommands ✅ **IMPLEMENTED**
+  - **BREAKING CHANGE**: Replaced `session pr` with `session pr create` for explicit command structure
+  - Implemented `session pr list` subcommand for listing PRs by session name, task ID, or status with filtering options
+  - Implemented `session pr get [name] --task <id>` subcommand using same identifier pattern as `session get` command
+  - Added PullRequestInfo interface to SessionRecord for enhanced PR tracking and metadata storage
+  - Created comprehensive CLI command classes with proper error handling and parameter validation
+  - Updated command registry, parameter schemas, and result formatting for new subcommand structure
+  - Follows modern CLI patterns (like GitHub CLI) with explicit subcommands for all operations
+  - Maintains backward compatibility by preserving all original functionality in `session pr create`
+  - Enables comprehensive PR management workflow and future extensibility within Minsky CLI ecosystem
+
+- **Task #358**: PR approval and merge decoupling exploration
+  - Created foundational task to explore separating PR approval from merge operations
+  - Analyzes current coupling in session approve command and repository backends
+  - Proposes enhanced repository backend interface with separate approval/merge methods
+  - Defines new APPROVED task status and backward compatibility strategies
+  - Critical prerequisite for GitHub PR workflow implementation (Task #161)
+
+- **Task #138**: GitHub Issues backend production readiness improvements
+  - **Documentation Package**: Comprehensive setup guide with token configuration, usage examples, troubleshooting, and best practices
+  - **CLI Enhancements**: Added `minsky github test` and `minsky github status` commands for connectivity testing and configuration validation
+  - **Integration Tests**: Created separate GitHub API integration test suite with cleanup and real API testing capability
+  - Enhanced error messages and verbose debugging options for GitHub Issues backend
+  - Complete production-ready package while awaiting Task 161 Phase 0 repository backend integration
+
+- **Task #356**: Comprehensive multi-backend task system architecture design
+  - Created new task for implementing backend-qualified task IDs (`md:123`, `gh:456`, `json:789`)
+  - Designed architecture to prevent ID conflicts during backend migration
+  - Comprehensive analysis of system-wide impact on sessions, git operations, file paths
+  - Phased implementation plan with backward compatibility strategy
+
+### Changed
+- **Task #138**: Updated GitHub Issues backend task to depend on multi-backend architecture
+  - Reduced scope from Extra Large (20-30h) to Medium (4-8h) by separating concerns
+  - Updated to focus on adapting existing GitHub backend to multi-backend system
+  - Made prerequisite dependency on Task #356 explicit
+  - GitHub backend implementation remains complete and ready for integration
+
+### Security
+
+- **CRITICAL FIX**: Fixed security vulnerability in config list command that exposed API keys and GitHub tokens in plain text (#337)
+  - Added credential masking by default for all sensitive values
+  - Added `--show-secrets` flag for intentional credential exposure with security warning
+  - Applied comprehensive credential detection (API keys, tokens, connection strings, secrets)
+  - Added security notices when credentials are masked
+  - Consistent masking across CLI and MCP interfaces
+
+### Changed
+- **Rules List Command Optimization**: Excluded `content` field from `rules.list` command output for both CLI `--json` and MCP interfaces (#345)
+  - Improves command usability by reducing output size and removing verbose rule content
+  - Maintains all other rule information (id, title, description, tags, etc.)
+  - Content can still be retrieved via `rules.get` command when needed
+### Fixed
 - **Task #176: Comprehensive Session Database Architecture Fix** - Complete architectural overhaul achieving 99%+ performance improvement
   - Eliminated infinite loops in test suite (1.6+ billion ms → 2.02s execution time)
   - Fixed missing `createTaskFromTitleAndDescription` method in TaskService class
@@ -1682,9 +1797,25 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **ESLint Formatting**: Resolved formatting issues in task command functions with optional dependency injection parameters
 - **Test Mocking Paths**: Corrected mock workspace paths to use proper temporary directories
 
+<<<<<<< HEAD
 ### Technical Debt
 - **Test Failures**: 6/10 task interface command tests still failing due to mock configuration issues
   - Root cause: `mockCreateTaskService` not properly returning mocked task service
   - Symptoms: Tests creating real filesystem operations instead of using `mockTaskService`
   - Next steps: Refine mock setup to ensure dependency injection returns proper mock objects
 - **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
+=======
+### Removed
+
+## 2025-01-24
+
+### feat(#161): Complete repository backend delegation with robust uncommitted changes handling
+
+- **COMPLETE**: Task #161 repository backend delegation fully implemented
+- **CRITICAL FIX**: Added comprehensive auto-stash/restore logic to prevent git checkout conflicts
+- **ARCHITECTURE**: Repository backends now properly handle PR workflow operations
+- **TESTING**: 5 comprehensive test scenarios cover all uncommitted changes edge cases
+- **INTEGRATION**: Seamless integration with Task #359 subcommand structure
+
+Repository backend PR workflow delegation now works reliably regardless of uncommitted changes state.
+>>>>>>> origin/main

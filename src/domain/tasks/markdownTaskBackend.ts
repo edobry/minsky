@@ -129,7 +129,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
-    console.error("DEBUG markdownTaskBackend setTaskStatus called with:", { id, status });
+    log.debug("markdownTaskBackend setTaskStatus called", { id, status });
 
     const result = await this.getTasksData();
     if (!result.success || !result.content) {
@@ -137,10 +137,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     const tasks = this.parseTasks(result.content);
-    console.error("DEBUG stored task IDs:", tasks.map((t) => t.id).slice(0, 5));
+    log.debug("stored task IDs", { taskIds: tasks.map((t) => t.id).slice(0, 5) });
 
     const taskIndex = tasks.findIndex((task) => task.id === id);
-    console.error("DEBUG findIndex result:", { searchId: id, taskIndex, found: taskIndex !== -1 });
+    log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
       throw new Error(`Task with id ${id} not found`);
@@ -205,7 +205,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           await gitService.execInRepository(workdir, "git add -A");
 
           // Commit with conventional commit message
-          const commitMessage = `chore(#${id}): update task status ${previousStatus} → ${status}`;
+          const commitMessage = `chore(${id}): update task status ${previousStatus} → ${status}`;
           await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
 
           log.cli("📤 Pushing changes...");

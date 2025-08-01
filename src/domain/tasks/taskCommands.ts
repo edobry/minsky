@@ -110,16 +110,42 @@ export async function getTaskFromParams(
     resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<any> {
-  try {
-    // Validate params with Zod schema
-    const validParams = taskGetParamsSchema.parse(params);
+  const startTime = Date.now();
+  log.debug("[getTaskFromParams] Starting execution", { params });
 
-    // Use dependency injection for workspace path resolution
-    const resolveMainWorkspacePath =
-      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
-    const workspacePath = await resolveMainWorkspacePath();
+  try {
+    // Handle taskId as either string or string array
+    const taskIdInput = Array.isArray(params.taskId) ? params.taskId[0] : params.taskId;
+    log.debug("[getTaskFromParams] Processed taskId input", { taskIdInput });
+
+    if (!taskIdInput) {
+      throw new ValidationError("Task ID is required");
+    }
+
+    // Normalize the taskId before validation
+    const normalizedTaskId = normalizeTaskId(taskIdInput);
+    log.debug("[getTaskFromParams] Normalized taskId", { normalizedTaskId });
+
+    if (!normalizedTaskId) {
+      const errorMessage = createTaskIdParsingErrorMessage(taskIdInput, [
+        { label: "Operation", value: "get task" },
+        { label: "Input", value: taskIdInput },
+      ]);
+      throw new ValidationError(errorMessage);
+    }
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+
+    // Validate params with Zod schema
+    log.debug("[getTaskFromParams] About to validate params with Zod");
+    const validParams = taskGetParamsSchema.parse(paramsWithNormalizedId);
+    log.debug("[getTaskFromParams] Params validated", { validParams });
+
+    // Use current directory as workspace path (simplified architecture)
+    const workspacePath = process.cwd();
+    log.debug("[getTaskFromParams] Using workspace path", { workspacePath });
 
     // Create task service using dependency injection or default implementation
+    log.debug("[getTaskFromParams] About to create task service");
     const createTaskService =
       deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
 
@@ -127,9 +153,12 @@ export async function getTaskFromParams(
       workspacePath,
       backend: validParams.backend || "markdown",
     });
+    log.debug("[getTaskFromParams] Task service created");
 
     // Get the task
+    log.debug("[getTaskFromParams] About to get task");
     const task = await taskService.getTask(validParams.taskId);
+    log.debug("[getTaskFromParams] Task retrieved", { taskExists: !!task });
 
     if (!task) {
       throw new ResourceNotFoundError(
@@ -139,9 +168,15 @@ export async function getTaskFromParams(
       );
     }
 
+    const duration = Date.now() - startTime;
+    log.debug("[getTaskFromParams] Execution completed", { duration });
     return task;
   } catch (error) {
-    log.error("Error getting task:", getErrorMessage(error));
+    const duration = Date.now() - startTime;
+    log.error("[getTaskFromParams] Error getting task:", {
+      error: getErrorMessage(error),
+      duration,
+    });
     throw error;
   }
 }

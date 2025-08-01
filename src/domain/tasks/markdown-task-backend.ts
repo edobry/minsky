@@ -13,9 +13,10 @@ import { ResourceNotFoundError, getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
-// Import the task backend interface
-import type { TaskBackend } from "./taskBackend";
 import type { Task } from "./types";
+
+// Import the new multi-backend interface
+import type { TaskBackend, TaskSpec, TaskFilters, TaskExportData } from "./multi-backend-service";
 
 const matter = require("gray-matter");
 

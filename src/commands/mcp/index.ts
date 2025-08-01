@@ -29,12 +29,303 @@ const INSPECTOR_PORT = 5173;
 // Import adapter-based tool registrations
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
+import { setupConfiguration } from "../../config-setup";
+
+/**
+ * Enhanced error information from MCP inspector
+ */
+interface McpInspectorError {
+  type: "validation" | "timeout" | "execution" | "unknown";
+  message: string;
+  toolName?: string;
+  missingParam?: string;
+  availableParams?: string[];
+  suggestion?: string;
+}
+
+/**
+ * Parse MCP inspector output to extract meaningful error information
+ */
+function parseInspectorError(output: string, toolName?: string): McpInspectorError {
+  const lines = output
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean);
+
+  // Look for specific error patterns
+  for (const line of lines) {
+    // Missing required parameter
+    if (line.includes("Missing required parameter:")) {
+      const match = line.match(/Missing required parameter:\s*(\w+)/);
+      const missingParam = match?.[1];
+      return {
+        type: "validation",
+        message: `Missing required parameter: ${missingParam}`,
+        toolName,
+        missingParam,
+        suggestion: missingParam
+          ? `Use --arg ${missingParam}=<value>`
+          : "Check the tool schema for required parameters",
+      };
+    }
+
+    // Request timeout
+    if (line.includes("Request timed out") || line.includes("timeout")) {
+      return {
+        type: "timeout",
+        message: "Request timed out",
+        toolName,
+        suggestion: "The tool may be experiencing issues. Try again or use the CLI directly.",
+      };
+    }
+
+    // Tool execution failed
+    if (line.includes("Tool execution failed")) {
+      return {
+        type: "execution",
+        message: "Tool execution failed",
+        toolName,
+        suggestion: "There may be an issue with the tool implementation.",
+      };
+    }
+  }
+
+  // Fallback for unknown errors
+  return {
+    type: "unknown",
+    message: "Unknown error occurred",
+    toolName,
+    suggestion: `Try 'minsky mcp inspect --method tools/list' to see available tools`,
+  };
+}
+
+/**
+ * Call an MCP tool directly via stdio (faster than inspector CLI)
+ * @param toolName Name of the tool to call
+ * @param args Tool arguments as key-value pairs
+ * @param options Options for the call
+ */
+async function callMcpToolDirectly(
+  toolName: string,
+  args: string[],
+  options: { repo?: string } = {}
+): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const serverArgs = ["mcp", "start"];
+    if (options.repo) {
+      serverArgs.push("--repo", options.repo);
+    }
+
+    log.debug(`Spawning minsky with args:`, serverArgs);
+    const child = spawn("minsky", serverArgs, {
+      stdio: ["pipe", "pipe", "pipe"],
+      cwd: process.cwd(),
+      env: { ...process.env },
+    });
+
+    let stdout = "";
+    let stderr = "";
+    let resolved = false;
+
+    log.debug(`Child process spawned with PID: ${child.pid}`);
+
+    // Timeout for the operation
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        log.debug(`Killing child process ${child.pid} due to timeout`);
+        child.kill("SIGTERM");
+        reject(new Error(`Tool '${toolName}' timed out after 10 seconds`));
+      }
+    }, 10000);
+
+    // Convert args array to object
+    const argsObj: Record<string, string> = {};
+    for (const arg of args) {
+      const [key, value] = arg.split("=", 2);
+      if (key && value !== undefined) {
+        argsObj[key] = value;
+      }
+    }
+
+    // Send the MCP request
+    const request = {
+      jsonrpc: "2.0",
+      id: 1,
+      method: "tools/call",
+      params: {
+        name: toolName,
+        arguments: argsObj,
+      },
+    };
+
+    // Wait a moment for the MCP server to start up
+    setTimeout(() => {
+      log.debug(`Sending MCP request: ${JSON.stringify(request)}`);
+      child.stdin?.write(`${JSON.stringify(request)}\n`);
+      child.stdin?.end();
+    }, 1000);
+
+    child.stdout?.on("data", (data) => {
+      const output = data.toString();
+      stdout += output;
+      log.debug(`Received stdout: ${output.trim()}`);
+
+      // Check if we got a complete JSON-RPC response and resolve early
+      const lines = output.split("\n");
+      for (const line of lines) {
+        const trimmedLine = line.trim();
+        if (trimmedLine.startsWith('{"result":') || trimmedLine.startsWith('{"error":')) {
+          try {
+            const response = JSON.parse(trimmedLine);
+            if (response.jsonrpc === "2.0" && response.id === 1 && !resolved) {
+              resolved = true;
+              clearTimeout(timeout);
+              child.kill("SIGTERM");
+
+              if (response.error) {
+                reject(new Error(response.error.message || "MCP tool call failed"));
+                return;
+              }
+              if (response.result !== undefined) {
+                if (typeof response.result === "string") {
+                  console.log(response.result);
+                } else {
+                  console.log(JSON.stringify(response.result, null, 2));
+                }
+                resolve();
+                return;
+              }
+            }
+          } catch (lineParseError) {
+            // Continue processing
+          }
+        }
+      }
+    });
+
+    child.stderr?.on("data", (data) => {
+      const output = data.toString();
+      stderr += output;
+      log.debug(`Received stderr: ${output.trim()}`);
+    });
+
+    child.on("close", (code) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+
+      try {
+        // Parse the server output to find the JSON-RPC response
+        const lines = stdout.split("\n");
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+
+          // Look for JSON-RPC responses (might be direct or in debug logs)
+          let jsonrpcResponse = null;
+
+          // Try direct JSON-RPC response
+          if (
+            trimmedLine.startsWith('{"result":') ||
+            trimmedLine.startsWith('{"error":') ||
+            trimmedLine.includes('"jsonrpc"')
+          ) {
+            try {
+              const response = JSON.parse(trimmedLine);
+              if (response.jsonrpc === "2.0" && response.id === 1) {
+                jsonrpcResponse = response;
+              }
+            } catch (lineParseError) {
+              // Continue to check for embedded responses
+            }
+          }
+
+          // If not found, look for JSON-RPC embedded in debug logs
+          if (!jsonrpcResponse && trimmedLine.includes('"jsonrpc"')) {
+            try {
+              // Check if this is a debug log with a message field containing JSON-RPC
+              const debugLog = JSON.parse(trimmedLine);
+              if (
+                debugLog.message &&
+                typeof debugLog.message === "string" &&
+                debugLog.message.includes('"jsonrpc"')
+              ) {
+                // Extract JSON-RPC from debug message (format: "Received stdout: {json}")
+                const jsonStart = debugLog.message.indexOf("{");
+                if (jsonStart !== -1) {
+                  const jsonPart = debugLog.message.substring(jsonStart);
+                  const response = JSON.parse(jsonPart);
+                  if (response.jsonrpc === "2.0" && response.id === 1) {
+                    jsonrpcResponse = response;
+                  }
+                }
+              }
+            } catch (lineParseError) {
+              // Continue
+            }
+          }
+
+          if (jsonrpcResponse) {
+            if (jsonrpcResponse.error) {
+              reject(new Error(jsonrpcResponse.error.message || "MCP tool call failed"));
+              return;
+            }
+            if (jsonrpcResponse.result !== undefined) {
+              // Pretty print the result
+              if (typeof jsonrpcResponse.result === "string") {
+                console.log(jsonrpcResponse.result);
+              } else {
+                console.log(JSON.stringify(jsonrpcResponse.result, null, 2));
+              }
+              resolve();
+              return;
+            }
+          }
+        }
+
+        // If no valid JSON-RPC response found, check for any JSON-like lines
+        for (const line of lines) {
+          const trimmedLine = line.trim();
+          if (trimmedLine.startsWith("{") && trimmedLine.includes("result")) {
+            try {
+              const response = JSON.parse(trimmedLine);
+              if (response.result !== undefined) {
+                if (typeof response.result === "string") {
+                  console.log(response.result);
+                } else {
+                  console.log(JSON.stringify(response.result, null, 2));
+                }
+                resolve();
+                return;
+              }
+            } catch (lineParseError) {
+              continue;
+            }
+          }
+        }
+
+        log.debug("Raw server output:", stdout);
+        log.debug("Raw server stderr:", stderr);
+        reject(new Error("No valid MCP response found in server output"));
+      } catch (parseError) {
+        reject(new Error(`Failed to parse MCP response: ${parseError}`));
+      }
+    });
+
+    child.on("error", (error) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+      reject(error);
+    });
+  });
+}
 
 /**
  * Execute the MCP inspector CLI with the given arguments
  * @param args Arguments to pass to the inspector CLI
  * @param options Execution options
- * @returns Promise that resolves with the output
+ * @returns Promise that resolves with the output or rejects with enhanced error info
  */
 async function runInspectorCli(
   args: string[],
@@ -64,21 +355,63 @@ async function runInspectorCli(
       cwd: options.cwd,
     });
 
+    let stdout = "";
+    let stderr = "";
+    let resolved = false;
+
+    // Add timeout to prevent indefinite hanging
+    const timeout = setTimeout(() => {
+      if (!resolved) {
+        resolved = true;
+        child.kill("SIGTERM");
+        reject(new Error("MCP inspector CLI timed out after 30 seconds"));
+      }
+    }, 30000);
+
     const child = spawn("npx", inspectorArgs, {
-      stdio: "inherit",
+      stdio: ["pipe", "pipe", "pipe"],
       cwd: options.cwd || process.cwd(),
       env: { ...process.env },
     });
 
+    child.stdout?.on("data", (data) => {
+      const output = data.toString();
+      stdout += output;
+      // Still show output for successful operations
+      if (!output.includes("Failed") && !output.includes("error")) {
+        process.stdout.write(output);
+      }
+    });
+
+    child.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
     child.on("close", (code) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
+
       if (code === 0) {
         resolve();
       } else {
-        reject(new Error(`Inspector CLI exited with code ${code}`));
+        // Parse the error output to provide better error messages
+        const errorOutput = stderr || stdout;
+        const toolNameMatch = args.find((arg) => args[args.indexOf(arg) - 1] === "--tool-name");
+        const errorInfo = parseInspectorError(errorOutput, toolNameMatch);
+
+        const enhancedError = new Error(errorInfo.message) as Error & {
+          mcpError: McpInspectorError;
+        };
+        enhancedError.mcpError = errorInfo;
+        reject(enhancedError);
       }
     });
 
     child.on("error", (error) => {
+      if (resolved) return;
+      resolved = true;
+      clearTimeout(timeout);
       reject(error);
     });
   });
@@ -192,13 +525,20 @@ export function createMCPCommand(): Command {
         registerDebugTools(commandMapper);
 
         // Register main application tools
+        log.debug("[MCP] About to register task tools");
         registerTaskTools(commandMapper);
+        log.debug("[MCP] About to register session tools");
         registerSessionTools(commandMapper);
         registerSessionWorkspaceTools(commandMapper);
 
         registerSessionFileTools(commandMapper);
         registerSessionEditTools(commandMapper);
-        registerGitTools(commandMapper);
+
+        // TEMPORARILY DISABLE git tools during MCP startup to fix hanging issue
+        // The git command registration causes circular dependency hangs during MCP startup
+        // TODO: Fix the circular dependency in createGitService and re-enable
+        // registerGitTools(commandMapper);
+
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
 
@@ -448,24 +788,76 @@ export function createMCPCommand(): Command {
       },
       []
     )
+    .option("--inspector", "Use MCP inspector CLI (legacy, slower)")
     .action(async (toolName: string, options) => {
       try {
         log.cli(`Calling tool: ${toolName}`);
 
-        const inspectorArgs = ["--method", "tools/call", "--tool-name", toolName];
+        if (options.inspector) {
+          // Use inspector CLI (legacy, known to hang)
+          const inspectorArgs = ["--method", "tools/call", "--tool-name", toolName];
 
-        // Add tool arguments
-        if (options.arg && options.arg.length > 0) {
-          for (const arg of options.arg) {
-            inspectorArgs.push("--tool-arg", arg);
+          // Add tool arguments
+          if (options.arg && options.arg.length > 0) {
+            for (const arg of options.arg) {
+              inspectorArgs.push("--tool-arg", arg);
+            }
           }
-        }
 
-        await runInspectorCli(inspectorArgs, {
-          repo: options.repo,
-        });
-      } catch (error) {
-        log.cliError(`Failed to call tool '${toolName}': ${getErrorMessage(error)}`);
+          await runInspectorCli(inspectorArgs, {
+            repo: options.repo,
+          });
+        } else {
+          // Use direct MCP client (default, faster, more reliable)
+          await callMcpToolDirectly(toolName, options.arg || [], {
+            repo: options.repo,
+          });
+        }
+      } catch (error: any) {
+        // Check if this is an enhanced MCP error
+        if (error.mcpError) {
+          const mcpError = error.mcpError as McpInspectorError;
+
+          // Provide user-friendly error messages based on error type
+          switch (mcpError.type) {
+            case "validation":
+              log.cliError(`❌ ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+              if (mcpError.missingParam) {
+                log.cli(
+                  `📋 To see all parameters for ${toolName}, run: minsky mcp inspect --method tools/list`
+                );
+              }
+              break;
+
+            case "timeout":
+              log.cliError(`⏱️  ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+              log.cli(`🚀 Try: minsky mcp call ${toolName} --direct (faster, more reliable)`);
+              log.cli(`🔄 Alternative: minsky ${toolName.replace(".", " ")} --json`);
+              break;
+
+            case "execution":
+              log.cliError(`🚫 ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+              break;
+
+            default:
+              log.cliError(`❌ ${mcpError.message}`);
+              if (mcpError.suggestion) {
+                log.cli(`💡 ${mcpError.suggestion}`);
+              }
+          }
+        } else {
+          // Fallback for non-MCP errors
+          log.cliError(`Failed to call tool '${toolName}': ${getErrorMessage(error)}`);
+        }
         exit(1);
       }
     });
