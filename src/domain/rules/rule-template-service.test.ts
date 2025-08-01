@@ -92,7 +92,7 @@ describe("RuleTemplateService", () => {
       service.registerTemplate(template);
 
       expect(service.getTemplate("test-rule")).toEqual(template);
-      expect(service.getTemplates()).toHaveLength(10); // 8 default + 1 beforeEach + 1 registered
+      expect(service.getTemplates()).toHaveLength(4); // 3 mocked default (beforeEach replaces one) + 1 registered
     });
 
     test("getTemplate returns undefined for non-existent template", () => {
@@ -118,7 +118,7 @@ describe("RuleTemplateService", () => {
       service.registerTemplate(template2);
 
       const templates = service.getTemplates();
-      expect(templates).toHaveLength(11); // 8 default + 1 beforeEach + 2 registered
+      expect(templates).toHaveLength(5); // 3 mocked default (beforeEach replaces one) + 2 registered
       expect(templates.some((t) => t.id === "rule1")).toBe(true);
       expect(templates.some((t) => t.id === "rule2")).toBe(true);
     });
