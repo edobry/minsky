@@ -9,7 +9,7 @@ import {
   getErrorMessage,
   createCommandFailureMessage,
 } from "../../errors/index";
-import { TaskIdSchema } from "../../domain/schemas";
+import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";

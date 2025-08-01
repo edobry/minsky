@@ -9,7 +9,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
-import { TaskIdSchema } from "../../domain/schemas";
+import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import type { SessionStartParameters } from "../../domain/schemas";
 import { log } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/logger";
 import { installDependencies } from "../../utils/package-manager";

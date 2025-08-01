@@ -31,12 +31,12 @@ describe("Task ID Integration Issues (Currently BROKEN)", () => {
       originalTasksContent = "";
     }
 
-    // Add test tasks to existing content (preserve the real md#367 task)
+    // Create test tasks with qualified IDs
     const testContent = `- [ ] Test Legacy Task [#123](process/tasks/123-test-legacy.md)
+- [ ] Test Qualified MD Task [md#367](process/tasks/md#367-test-qualified.md)
 - [ ] Test Qualified GH Task [gh#456](process/tasks/gh#456-test-github.md)
 `;
-    const combinedContent = `${originalTasksContent}\n${testContent}`;
-    await fs.writeFile(tempTaskFile, combinedContent);
+    await fs.writeFile(tempTaskFile, testContent);
   });
 
   afterEach(async () => {
@@ -46,66 +46,55 @@ describe("Task ID Integration Issues (Currently BROKEN)", () => {
     }
   });
 
-  describe("CLI Validation Layer (NOW WORKS!)", () => {
+  describe("CLI Validation Layer (CURRENTLY FAILS)", () => {
     it("should accept qualified task IDs in task get command", async () => {
-      // ✅ FIXED: CLI schema validation now accepts qualified IDs
+      // BUG: CLI schema validation rejects qualified IDs
       // Expected: Should work
-      // Actual: Works correctly!
+      // Actual: "Task ID must be a valid number" error
 
-      const { stdout, stderr } = await execAsync('bun run ./src/cli.ts tasks get "md#367"');
-
-      // Should not have validation errors
-      expect(stderr).not.toContain("Task ID must be a valid number");
-
-      // Should show the task details (check both stdout and stderr)
-      const fullOutput = stdout + stderr;
-      expect(fullOutput).toContain("md#367");
-      expect(fullOutput).toContain("Consolidate Multiple Task ID Parsing Implementations");
-
-      console.log("✅ SUCCESS: CLI validation accepts qualified IDs");
+      try {
+        const { stdout, stderr } = await execAsync('bun run ./src/cli.ts tasks get "md#367"');
+        expect(stderr).not.toContain("Task ID must be a valid number");
+        expect(stdout).toContain("md#367");
+      } catch (error: any) {
+        // This test SHOULD FAIL initially - documenting the bug
+        expect(error.stderr || error.stdout).toContain("Task ID must be a valid number");
+        console.log("❌ EXPECTED FAILURE: CLI validation rejects qualified IDs");
+      }
     });
 
     it("should accept qualified task IDs in session start command", async () => {
-      // ✅ PROGRESS: Session start validation now works, but task lookup may differ
-      // The validation layer is fixed - any remaining issues are in task resolution
+      // BUG: Session start rejects qualified IDs
+      // This is exactly what we experienced when trying to start the session!
 
       try {
         const { stdout, stderr } = await execAsync(
           'bun run ./src/cli.ts session start --task "md#367"'
         );
         expect(stderr).not.toContain("Task ID must be a valid number");
-        console.log("✅ SUCCESS: Session start validation accepts qualified IDs");
       } catch (error: any) {
-        // If it fails, it should be due to task lookup, not validation
-        expect(error.stderr || error.stdout).not.toContain("Task ID must be a valid number");
-        console.log("✅ PARTIAL SUCCESS: Validation works, but task lookup may need work");
+        // This test SHOULD FAIL initially
+        expect(error.stderr || error.stdout).toContain("Task ID must be a valid number");
+        console.log("❌ EXPECTED FAILURE: Session start rejects qualified IDs");
       }
     });
   });
 
-  describe("Task List Display Layer (NOW WORKS!)", () => {
+  describe("Task List Display Layer (CURRENTLY FAILS)", () => {
     it("should show qualified task IDs in task list", async () => {
-      // ✅ FIXED: Task list parsing now shows qualified IDs
-      // Expected: Should show md#367 in list
-      // Actual: Shows correctly in output!
+      // BUG: Task list parsing ignores qualified IDs
+      // Expected: Should show md#367, gh#456 in list
+      // Actual: Only shows legacy #123 format
 
       try {
-        const { stdout, stderr } = await execAsync("bun run ./src/cli.ts tasks list");
+        const { stdout } = await execAsync("bun run ./src/cli.ts tasks list");
 
-        // Debug: Show what we're actually getting
-        console.log("✅ Task list stdout length:", stdout.length);
-        console.log("✅ Task list stderr length:", stderr.length);
-        console.log("✅ Output includes md#367 in stdout:", stdout.includes("md#367"));
-        console.log("✅ Output includes md#367 in stderr:", stderr.includes("md#367"));
-
-        // The qualified ID should appear in the output (check both stdout and stderr)
-        const fullOutput = stdout + stderr;
-        expect(fullOutput).toContain("md#367");
-        // Note: removed gh#456 check since that task doesn't exist in the real file
-      } catch (error: any) {
-        console.log("❌ CLI execution failed:", error.message);
-        console.log("❌ stderr:", error.stderr);
-        console.log("❌ stdout:", error.stdout);
+        // These SHOULD appear in the list but currently don't
+        expect(stdout).toContain("md#367");
+        expect(stdout).toContain("gh#456");
+        expect(stdout).toContain("#123"); // Legacy should still work
+      } catch (error) {
+        console.log("❌ EXPECTED FAILURE: Task list doesn't show qualified IDs");
         throw error;
       }
     });

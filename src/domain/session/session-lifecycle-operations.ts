@@ -2,7 +2,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
-import { TaskIdSchema } from "../../domain/schemas";
+import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import type {
   SessionGetParams,
   SessionListParams,

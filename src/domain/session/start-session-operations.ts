@@ -6,7 +6,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import { TaskIdSchema } from "../../domain/schemas";
+import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import type { SessionStartParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { installDependencies } from "../../utils/package-manager";

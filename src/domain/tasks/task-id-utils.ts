@@ -1,123 +1,116 @@
 /**
- * Task ID utilities for Task 283: Separate Task ID Storage from Display Format
+ * Task ID utilities: PERMISSIVE IN, STRICT OUT approach
  *
- * This module implements the new approach where:
- * - Task IDs are stored as plain numbers/strings (e.g., "283")
- * - Task IDs are displayed with # prefix (e.g., "#283")
- * - Input accepts both formats but normalizes to plain for storage
+ * This module implements unified task ID handling where:
+ * - INPUT: Accepts any format (#283, 283, task#283, md#367, etc.) - PERMISSIVE IN
+ * - STORAGE: Always stores qualified format (md#283, gh#367) - STRICT OUT
+ * - DISPLAY: Always shows qualified format (md#283, gh#367) - STRICT OUT
+ * - Ensures internal consistency by normalizing all IDs to qualified format
  */
 
 /**
- * Normalize task ID input for storage using unified task ID system
- * Supports both legacy formats and qualified backend IDs
+ * Normalize task ID input for storage - PERMISSIVE IN, STRICT OUT
+ * Accepts any format, always returns qualified format for internal consistency
  *
- * @param userInput Task ID from user input (can be "283", "#283", "md#367", etc.)
- * @returns Normalized task ID for storage or null if invalid
+ * @param userInput Task ID from user input (can be "283", "#283", "task#283", "md#367", etc.)
+ * @returns Qualified task ID for storage (e.g., "md#283") or null if invalid
  */
 export function normalizeTaskIdForStorage(userInput: string): string | null {
   if (!userInput || typeof userInput !== "string") {
     return null;
   }
 
-  // Use unified task ID system for consistent handling
-  const {
-    isQualifiedTaskId,
-    isLegacyTaskId,
-    migrateUnqualifiedTaskId,
-  } = require("./unified-task-id");
+  let normalized = userInput.trim();
 
-  const trimmed = userInput.trim();
-
-  // If it's a qualified ID (md#367), return as-is
-  if (isQualifiedTaskId(trimmed)) {
-    return trimmed;
-  }
-
-  // If it's a legacy format, migrate it
-  if (isLegacyTaskId(trimmed)) {
-    return migrateUnqualifiedTaskId(trimmed, "md");
-  }
-
-  // Handle legacy numeric-only format
-  let normalized = trimmed;
-
-  // Handle formats like "task#283"
+  // Handle formats like "task#283" or "task#64" first (before checking qualified format)
   if (normalized.toLowerCase().startsWith("task#")) {
     normalized = normalized.substring(5);
   }
 
-  // Remove leading '#' characters for legacy format
+  // If it's already a qualified ID (md#367, gh#123), return as-is
+  if (/^[a-z-]+#\d+$/.test(normalized)) {
+    return normalized;
+  }
+
+  // Remove all leading '#' characters to get plain number
   while (normalized.startsWith("#")) {
     normalized = normalized.substring(1);
   }
 
-  // Check if the result is numeric (legacy format)
-  if (/^\d+$/.test(normalized) && normalized.length > 0) {
-    return `#${normalized}`; // Return legacy format with # prefix
+  // Check if the result is valid (numeric only)
+  if (!/^\d+$/.test(normalized) || normalized.length === 0) {
+    return null;
   }
 
-  return null;
+  // STRICT OUT: Always return qualified format (default to markdown backend)
+  return `md#${normalized}`;
 }
 
 /**
- * Format task ID for display (shows qualified backend ID)
+ * Format task ID for display - STRICT OUT
+ * Expects qualified format from storage, returns qualified format for display
  *
- * @param storageId Task ID from storage (e.g., "md#356", "gh#123", or legacy "283")
- * @returns Formatted task ID for display (e.g., "md#356", "gh#123", or "#283" for legacy)
+ * @param storageId Qualified task ID from storage (e.g., "md#356", "gh#123")
+ * @returns Qualified task ID for display (same as storage - qualified format)
  */
 export function formatTaskIdForDisplay(storageId: string): string {
   if (!storageId || typeof storageId !== "string") {
     return "";
   }
 
-  // If it's a qualified backend ID (md#123, gh#456), return as-is for multi-backend display
+  // STRICT OUT: Storage should already be qualified format, return as-is
   if (/^[a-z-]+#\d+$/.test(storageId)) {
     return storageId;
   }
 
-  // If it already has # prefix (legacy #123), return as-is
+  // Legacy fallback: If somehow we get plain numbers or #-prefixed, normalize to md#
   if (storageId.startsWith("#")) {
-    return storageId;
+    const number = storageId.substring(1);
+    return `md#${number}`;
   }
 
-  // For plain numeric IDs (legacy), add # prefix for backward compatibility
-  return `#${storageId}`;
+  if (/^\d+$/.test(storageId)) {
+    return `md#${storageId}`;
+  }
+
+  // Return as-is if we can't parse it
+  return storageId;
 }
 
 /**
- * Check if a task ID is in storage format (plain, no # prefix)
+ * Check if a task ID is in the correct internal format (qualified: md#123, gh#456)
  *
  * @param taskId Task ID to check
- * @returns True if in storage format, false if in display format or invalid
+ * @returns True if in qualified format, false otherwise
  */
 export function isStorageFormat(taskId: string): boolean {
   if (!taskId || typeof taskId !== "string") {
     return false;
   }
 
-  return !taskId.startsWith("#") && /^\d+$/.test(taskId.trim());
+  // STRICT OUT: Storage format is qualified format (md#123, gh#456)
+  return /^[a-z-]+#\d+$/.test(taskId.trim());
 }
 
 /**
- * Check if a task ID is in display format (# prefix)
+ * Check if a task ID is in the correct display format (qualified: md#123, gh#456)
+ * Note: With "strict out", display format equals storage format
  *
  * @param taskId Task ID to check
- * @returns True if in display format, false if in storage format or invalid
+ * @returns True if in qualified format, false otherwise
  */
 export function isDisplayFormat(taskId: string): boolean {
-  if (!taskId || typeof taskId !== "string") {
-    return false;
-  }
-
-  return taskId.startsWith("#") && /^#\d+$/.test(taskId.trim());
+  // With strict out approach, display format = storage format = qualified format
+  return isStorageFormat(taskId);
 }
 
 /**
- * Convert between storage and display formats
+ * Convert task ID to qualified format (PERMISSIVE IN, STRICT OUT)
+ * Both "storage" and "display" now return the same qualified format
  *
- * @param taskId Task ID in either format
- * @param targetFormat Target format ("storage" or "display")
- * @returns Task ID in target format or null if invalid
+ * @param taskId Task ID in any input format
+ * @param targetFormat Target format ("storage" or "display") - both return qualified format
+ * @returns Qualified task ID (md#123) or null if invalid
  */
 export function convertTaskIdFormat(
   taskId: string,
@@ -127,11 +120,14 @@ export function convertTaskIdFormat(
     return null;
   }
 
+  // Both storage and display formats are now qualified format
+  const qualifiedId = normalizeTaskIdForStorage(taskId);
+
   if (targetFormat === "storage") {
-    return normalizeTaskIdForStorage(taskId);
+    return qualifiedId;
   } else {
-    const storageId = normalizeTaskIdForStorage(taskId);
-    return storageId ? formatTaskIdForDisplay(storageId) : null;
+    // Display format is the same as storage format (qualified)
+    return qualifiedId ? formatTaskIdForDisplay(qualifiedId) : null;
   }
 }
 
@@ -146,17 +142,23 @@ export function isValidTaskIdInput(userInput: string): boolean {
 }
 
 /**
- * Extract numeric value from task ID (regardless of format)
+ * Extract numeric value from task ID (accepts any input format)
  *
- * @param taskId Task ID in any format
+ * @param taskId Task ID in any format (accepts legacy #123, md#123, etc.)
  * @returns Numeric value or null if invalid
  */
 export function getTaskIdNumber(taskId: string): number | null {
-  const storageId = normalizeTaskIdForStorage(taskId);
-  if (!storageId) {
+  const qualifiedId = normalizeTaskIdForStorage(taskId);
+  if (!qualifiedId) {
     return null;
   }
 
-  const num = parseInt(storageId, 10);
+  // Extract number from qualified format (md#123 -> 123)
+  const match = qualifiedId.match(/^[a-z-]+#(\d+)$/);
+  if (!match) {
+    return null;
+  }
+
+  const num = parseInt(match[1], 10);
   return isNaN(num) ? null : num;
 }
