@@ -23,6 +23,8 @@ import type {
   RepoStatus,
   PRInfo,
   MergeInfo,
+  ApprovalInfo,
+  ApprovalStatus,
 } from "./index";
 
 // Define a global for process to avoid linting errors
@@ -47,6 +49,9 @@ export class LocalGitBackend implements RepositoryBackend {
   private readonly repoName!: string;
   private sessionDb: SessionProviderInterface;
   private config: RepositoryBackendConfig;
+
+  // Local approval storage (in-memory for simplicity)
+  private approvals: Map<string, ApprovalInfo> = new Map();
 
   /**
    * Create a new LocalGitBackend instance
@@ -337,5 +342,73 @@ export class LocalGitBackend implements RepositoryBackend {
     };
 
     return await mergePreparedMergeCommitPR(options);
+  }
+
+  /**
+   * Approve a pull request in the local repository
+   * For local repositories, this stores approval metadata locally
+   */
+  async approvePullRequest(
+    prIdentifier: string | number,
+    reviewComment?: string
+  ): Promise<ApprovalInfo> {
+    const prId = String(prIdentifier);
+
+    // Get current git user for approval record
+    let approver = "local-user";
+    try {
+      const { stdout } = await execGitWithTimeout("get-user-name", "config user.name", {
+        workdir: process.cwd(),
+        timeout: 5000,
+      });
+      approver = stdout.trim() || "local-user";
+    } catch {
+      // Use default if git config fails
+    }
+
+    const approval: ApprovalInfo = {
+      reviewId: `local-${prId}-${Date.now()}`,
+      approvedBy: approver,
+      approvedAt: new Date().toISOString(),
+      comment: reviewComment,
+      platformData: {
+        platform: "local",
+        prIdentifier: prId,
+      },
+    };
+
+    // Store approval
+    this.approvals.set(prId, approval);
+
+    log.info("PR approved locally", { prIdentifier: prId, approver });
+
+    return approval;
+  }
+
+  /**
+   * Get approval status for a pull request in the local repository
+   * For local repositories, this checks locally stored approval metadata
+   */
+  async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
+    const prId = String(prIdentifier);
+    const approval = this.approvals.get(prId);
+
+    const status: ApprovalStatus = {
+      isApproved: !!approval,
+      approvals: approval ? [approval] : [],
+      requiredApprovals: 1, // Local repos only need one approval
+      canMerge: !!approval,
+      platformData: {
+        platform: "local",
+        prIdentifier: prId,
+      },
+    };
+
+    log.debug("Retrieved PR approval status", {
+      prIdentifier: prId,
+      isApproved: status.isApproved,
+    });
+
+    return status;
   }
 }
