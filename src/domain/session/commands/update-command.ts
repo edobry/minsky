@@ -74,6 +74,19 @@ export async function updateSessionFromParams(
 
       log.info(`Session '${resolvedContext.sessionName}' updated successfully`);
 
+      // Call backend hook for extensible post-update operations
+      // Future: This will support work item generation and AI-powered automation
+      if (deps.backend?.onSessionUpdated) {
+        await deps.backend.onSessionUpdated({
+          session,
+          workdir,
+          updateType: "pull", // This was a pull operation
+          context: {
+            // Future extensibility: add trigger events, automation config, etc.
+          },
+        });
+      }
+
       return session;
     } catch (error) {
       throw new MinskyError(`Failed to update session: ${getErrorMessage(error)}`);
