@@ -5,6 +5,11 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Task Status Commit Messages**: Fixed double hash bug in task status update commit messages
+  - Task status updates now generate correct commit messages with single hash (#347) instead of double hash (##347)
+  - Fixed in markdownTaskBackend.ts where commit message template was adding extra # prefix to already normalized task IDs
+  - Ensures conventional commit format compliance for task status changes
+
 - **Session MCP Tools Response Data**: Fixed all session MCP tools not returning complete response data
   - Fixed `createSuccessResponse` calls incorrectly using two object parameters instead of one
   - Affected tools: session.read_file, session.write_file, session.edit_file, session.search_replace,
