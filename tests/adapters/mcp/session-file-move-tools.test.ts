@@ -53,18 +53,18 @@ describe("Session File Move Tools Integration", () => {
 
     // Check that our new commands were registered
     const commandNames = registeredCommands.map((cmd) => cmd.name);
-    expect(commandNames).toContain("session_move_file");
-    expect(commandNames).toContain("session_rename_file");
+    expect(commandNames).toContain("session.move_file");
+    expect(commandNames).toContain("session.rename_file");
 
     // Verify the move file command has correct structure
-    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session_move_file");
+    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
     expect(moveCommand).toBeDefined();
     expect(moveCommand.description).toContain("Move a file");
     expect(moveCommand.handler).toBeDefined();
     expect(typeof moveCommand.handler).toBe("function");
 
     // Verify the rename file command has correct structure
-    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session_rename_file");
+    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session.rename_file");
     expect(renameCommand).toBeDefined();
     expect(renameCommand.description).toContain("Rename a file");
     expect(renameCommand.handler).toBeDefined();
@@ -84,7 +84,7 @@ describe("Session File Move Tools Integration", () => {
     sessionFileModule.registerSessionFileTools(mockCommandMapper);
 
     // Test session_move_file parameters
-    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session_move_file");
+    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
     const moveSchema = moveCommand.parameters;
 
     const validMoveData = {
@@ -99,7 +99,7 @@ describe("Session File Move Tools Integration", () => {
     expect(moveResult.success).toBe(true);
 
     // Test session_rename_file parameters
-    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session_rename_file");
+    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session.rename_file");
     const renameSchema = renameCommand.parameters;
 
     const validRenameData = {
@@ -126,7 +126,7 @@ describe("Session File Move Tools Integration", () => {
     sessionFileModule.registerSessionFileTools(mockCommandMapper);
 
     // Test invalid move command parameters (missing required fields)
-    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session_move_file");
+    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
     const moveSchema = moveCommand.parameters;
 
     const invalidMoveData = {
@@ -138,7 +138,7 @@ describe("Session File Move Tools Integration", () => {
     expect(moveResult.success).toBe(false);
 
     // Test invalid rename command parameters (missing required fields)
-    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session_rename_file");
+    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session.rename_file");
     const renameSchema = renameCommand.parameters;
 
     const invalidRenameData = {
@@ -163,7 +163,7 @@ describe("Session File Move Tools Integration", () => {
     sessionFileModule.registerSessionFileTools(mockCommandMapper);
 
     // Test session_move_file default values
-    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session_move_file");
+    const moveCommand = registeredCommands.find((cmd) => cmd.name === "session.move_file");
     const moveSchema = moveCommand.parameters;
 
     const moveDataWithDefaults = {
@@ -178,7 +178,7 @@ describe("Session File Move Tools Integration", () => {
     expect(moveResult.overwrite).toBe(false);
 
     // Test session_rename_file default values
-    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session_rename_file");
+    const renameCommand = registeredCommands.find((cmd) => cmd.name === "session.rename_file");
     const renameSchema = renameCommand.parameters;
 
     const renameDataWithDefaults = {

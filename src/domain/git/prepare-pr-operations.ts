@@ -453,11 +453,27 @@ Session requested: "${(options as any).session}"
       /"/g,
       String.fromCharCode(92) + String.fromCharCode(34)
     );
+
+    // 🔥 DEBUG: Log before merge attempt
+    log.debug("🔥 DEBUG: About to attempt merge", {
+      sourceBranch,
+      prBranch,
+      baseBranch,
+      workdir,
+      command: `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
+    });
+
     await execGitWithTimeout(
       "merge",
       `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
       { workdir, timeout: 180000 } // Increased to 3 minutes for complex merges
     );
+
+    // 🔥 DEBUG: Log after successful merge
+    log.debug("🔥 DEBUG: Merge completed successfully", {
+      sourceBranch,
+      prBranch,
+    });
 
     // VERIFICATION: Check that the merge commit has the correct message
     const logResult = await execGitWithTimeout("log", "log -1 --pretty=format:%B", {
@@ -483,6 +499,16 @@ Session requested: "${(options as any).session}"
 
     log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
   } catch (err) {
+    // 🔥 DEBUG: Log merge error details
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log.debug("🔥 DEBUG: Merge failed with error", {
+      error: errorMessage,
+      errorType: err?.constructor?.name,
+      sourceBranch,
+      prBranch,
+      workdir,
+    });
+
     // Clean up on error
     try {
       await execGitWithTimeout("merge --abort", "merge --abort", { workdir, timeout: 30000 });
@@ -494,13 +520,16 @@ Session requested: "${(options as any).session}"
     }
 
     // Check for conflict errors regardless of error type
-    const errorMessage = err instanceof Error ? err.message : String(err);
     if (errorMessage.includes("CONFLICT") || errorMessage.includes("Automatic merge failed")) {
+      // 🔥 DEBUG: Detected conflict, throwing MinskyError
+      log.debug("🔥 DEBUG: Throwing conflict error", { errorMessage });
       throw new MinskyError(
         "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
         { exitCode: 4 }
       );
     }
+    // 🔥 DEBUG: Non-conflict error, throwing generic MinskyError
+    log.debug("🔥 DEBUG: Throwing generic merge error", { errorMessage });
     throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err as any)}`);
   }
 
