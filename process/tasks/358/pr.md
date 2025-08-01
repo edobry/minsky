@@ -1,5 +1,3 @@
-# feat(#358): Decouple PR approval and merge operations
-
 ## Summary
 
 Implements separate PR approval and merge operations to align with industry-standard workflows and enable platform-native collaboration features. This foundational change separates the previously coupled `session approve` command into distinct `session pr approve` and `session pr merge` commands with proper security validation.
