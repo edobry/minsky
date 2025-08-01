@@ -516,7 +516,7 @@
 
 - [x] Implement Template-Based Rules Generation System [#289](process/tasks/289-implement-template-based-rules-generation-system.md)
 
-- [ ] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
+- [!] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
 - [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [#291](process/tasks/291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
 
