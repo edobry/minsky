@@ -410,10 +410,10 @@ export async function checkPrBranchExistsOptimized(
   if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
     log.debug("Using cached PR state", {
       sessionName,
-      exists: !!sessionRecord.prState.commitHash,
+      exists: sessionRecord.prState.exists,
       lastChecked: sessionRecord.prState.lastChecked,
     });
-    return !!sessionRecord.prState.commitHash;
+    return sessionRecord.prState.exists;
   }
 
   // Cache is stale or missing, perform git operations and update cache
@@ -425,27 +425,11 @@ export async function checkPrBranchExistsOptimized(
 
   const exists = await checkPrBranchExists(sessionName, gitService, currentDir);
 
-  // Get commit hash if branch exists
-  let commitHash = sessionRecord.prState?.commitHash;
-  if (exists) {
-    try {
-      const hashResult = await gitService.execInRepository(
-        currentDir,
-        `git rev-parse pr/${sessionName}`
-      );
-      commitHash = hashResult.trim();
-    } catch (error) {
-      log.debug(`Could not get commit hash for pr/${sessionName}`, { error });
-    }
-  } else {
-    commitHash = undefined;
-  }
-
   // Update the session record with fresh PR state
   const prBranch = `pr/${sessionName}`;
   const updatedPrState = {
     branchName: prBranch,
-    commitHash,
+    exists,
     lastChecked: new Date().toISOString(),
     createdAt: sessionRecord.prState?.createdAt || (exists ? new Date().toISOString() : undefined),
     mergedAt: sessionRecord.prState?.mergedAt,
@@ -459,7 +443,7 @@ export async function checkPrBranchExistsOptimized(
     lastChecked: updatedPrState.lastChecked,
   });
 
-  return !!commitHash;
+  return exists;
 }
 
 /**

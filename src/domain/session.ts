@@ -984,10 +984,10 @@ export async function checkPrBranchExistsOptimized(
   if (sessionRecord.prState && !isPrStateStale(sessionRecord.prState)) {
     log.debug("Using cached PR state", {
       sessionName,
-      exists: !!sessionRecord.prState.commitHash,
+      exists: sessionRecord.prState.exists,
       lastChecked: sessionRecord.prState.lastChecked,
     });
-    return !!sessionRecord.prState.commitHash;
+    return sessionRecord.prState.exists;
   }
 
   // Cache is stale or missing, perform git operations and update cache

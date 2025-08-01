@@ -121,49 +121,54 @@ The system will use qualified task IDs in the format `<backend_prefix>:<local_id
 - [x] Add batch processing, filtering, and comprehensive error handling
 - [x] Implement automatic backup creation and restoration capabilities
 
-#### 2.3 File System Organization
-- [ ] Implement backend-specific directory structure (`process/tasks/md/`, `process/tasks/gh/`)
-- [ ] Update task spec path generation for backend qualification
-- [ ] Create session workspace paths with qualified IDs (`sessions/task#md:123/`)
-- [ ] Implement file system migration utilities
-- [ ] **Add migration collision detection and reporting system**
-- [ ] Generate detailed migration reports for manual reconciliation of conflicts
-- [ ] Ensure cross-platform compatibility for new path structures
+#### 2.3 File System Organization ❌ **CANCELLED**
+- [x] ~~Implement backend-specific directory structure~~ **CANCELLED** - Not needed (GitHub Issues stored remotely, moving away from in-tree backends per ADR 003)
+- [x] ~~Update task spec path generation for backend qualification~~ **CANCELLED**
+- [x] ~~Create session workspace paths with qualified IDs~~ **CANCELLED**
+- [x] ~~Implement file system migration utilities~~ **CANCELLED**
+- [x] ~~Add migration collision detection and reporting system~~ **CANCELLED**
+- [x] ~~Generate detailed migration reports for manual reconciliation of conflicts~~ **CANCELLED**
+- [x] ~~Ensure cross-platform compatibility for new path structures~~ **CANCELLED**
 
 ### Phase 3: CLI and Compatibility (Medium Priority)
 
-#### 3.1 CLI Command Schema Updates
-- [ ] **Leverage Task #329 schema libraries** for consistent cross-interface type composition
-- [ ] Update all command schemas to accept qualified task IDs using domain-wide schema patterns
-- [ ] Add backend parameter support for new task creation
-- [ ] Implement unqualified ID resolution with fallback logic
-- [ ] Add cross-backend command operations (`--all-backends`, `--backend`)
-- [ ] Update help text and error messages for qualified IDs
+#### 3.6 CLI Command Schema Updates ✅ **COMPLETE**
+- [x] **Leverage Task #329 schema libraries** for consistent cross-interface type composition
+- [x] Update common-parameters.ts to accept qualified task IDs using domain-wide schema patterns
+- [x] Add backend parameter support for new task creation
+- [x] Update BaseTaskCommand with qualified ID validation and migration
+- [x] Add cross-backend command operations (`--all-backends`, `--backend`)
+- [x] Update help text and error messages for qualified IDs
+- [x] **CRITICAL**: Add missing multi-backend parameter schemas to task-schemas.ts (causing test failures)
+- [x] Export all new multi-backend types in schema index files
+- [x] Update CLI command implementations to use new multi-backend schemas
 
-#### 3.2 Backward Compatibility Layer
-- [ ] Implement unqualified ID auto-resolution
-- [ ] Support legacy session names and branch names
-- [ ] Add migration prompts and assistance for users
-- [ ] Create compatibility warnings for deprecated patterns
-- [ ] Ensure graceful degradation for edge cases
+#### 3.2 Backward Compatibility Layer ✅ **COMPLETE**
+- [x] Implement unqualified ID auto-resolution (NormalizedTaskIdSchema, migrateUnqualifiedTaskId)
+- [x] Support legacy session names and branch names (SessionMultiBackendIntegration)
+- [x] Add migration prompts and assistance for users (Session migration system)
+- [x] Create compatibility warnings for deprecated patterns (Enhanced error messages)
+- [x] Ensure graceful degradation for edge cases (Comprehensive error handling throughout)
 
 ### Phase 4: Migration and Tooling (Medium Priority)
 
-#### 4.1 Migration Utilities
-- [ ] Create task ID conversion tools
-- [ ] Implement file system reorganization scripts
-- [ ] Add session record migration tools
-- [ ] Create bulk migration commands
-- [ ] **Implement collision tracking system that logs conflicts and generates reports**
-- [ ] Add validation and rollback capabilities
-- [ ] Create migration summary reports for manual conflict resolution
+#### 4.1 Migration Utilities ✅ **COMPLETE**
+- [x] Create task ID conversion tools (unified-task-id.ts with migration utilities)
+- [x] ~~Implement file system reorganization scripts~~ **CANCELLED** (FS org cancelled)
+- [x] Add session record migration tools (SessionMultiBackendIntegration, migration-command.ts)
+- [x] Create bulk migration commands (sessionMigrate CLI with comprehensive options)
+- [x] **Implement collision tracking system that logs conflicts and generates reports** (MultiBackendTaskService.detectCollisions)
+- [x] Add validation and rollback capabilities (Session migration with backup/restore)
+- [x] Create migration summary reports for manual conflict resolution (MigrationReport interface)
 
 #### 4.2 Testing and Documentation
-- [ ] Comprehensive unit tests for all new components
-- [ ] Integration tests across multiple backends
-- [ ] Migration scenario testing
-- [ ] Update all documentation for qualified IDs
-- [ ] Create migration guides and troubleshooting docs
+- [x] Comprehensive unit tests for all new components (210+ tests across all modules)
+- [x] Integration tests across multiple backends (real MarkdownTaskBackend integration)
+- [x] Migration scenario testing (session migration with comprehensive test coverage)
+- [x] Update all documentation for qualified IDs
+- [x] Create migration guides and troubleshooting docs
+- [x] **User Documentation Complete**: Multi-backend user guide, migration guide, quick reference
+- [x] **Fix test suite stability** - Resolve schema import errors and syntax issues
 
 ## Implementation Details
 
@@ -212,15 +217,15 @@ interface MultiBackendTaskService {
   registerBackend(backend: TaskBackend): void;
   getAvailableBackends(): string[];
   getDefaultBackend(): string;
-  
+
   // Task operations with automatic routing
   getTask(qualifiedId: BackendQualifiedId): Promise<Task>;
   createTask(spec: TaskSpec, backend?: string): Promise<Task>;
-  
+
   // Cross-backend operations
   listAllTasks(): Promise<Task[]>;
   listTasksByBackend(backend: string): Promise<Task[]>;
-  
+
   // Migration utilities with collision tracking
   migrateTask(fromId: BackendQualifiedId, toBackend: string): Promise<BackendQualifiedId>;
   generateMigrationReport(): Promise<MigrationReport>;
@@ -346,48 +351,30 @@ Extra Large
 
 ## 🚀 CURRENT STATUS & REMAINING WORK
 
-**✅ PHASES 1, 2, 3.1, 3.2, 3.5 & 3.6 COMPLETE (210+ tests passing)**
-- Unified Task ID System with comprehensive migration support (44 tests)
-- Multi-Backend Service with routing, collision detection, and cross-backend operations (23 tests)
-- Session Management Integration with multi-backend naming and backward compatibility (38 tests)
-- Bulk Session Migration System with CLI commands and comprehensive testing (35+ tests)
-- Git Operations Integration with multi-backend session and task ID handling (40+ tests)
-- Backend Integration with real MarkdownTaskBackend multi-backend compatibility (30+ tests)
-- CLI Schema Integration with Task #329 infrastructure for seamless multi-backend validation
-- Complete mock testing framework for test-driven development
-- Git-compatible architecture design with unified format everywhere
+**✅ PHASES 1, 2, 3.1, 3.2, 3.4, 3.5 & DOCUMENTATION COMPLETE**
+- Unified Task ID System with comprehensive migration support (44/44 tests ✅)
+- Multi-Backend Service with routing, collision detection, and cross-backend operations (23/23 tests ✅)
+- Session Management Integration with multi-backend naming and backward compatibility (38/38 tests ✅)
+- Git Operations Integration with multi-backend session and task ID handling (8/8 tests ✅)
+- Bulk Session Migration System with CLI commands and comprehensive testing (35+ tests ✅)
+- Backend Integration with real MarkdownTaskBackend multi-backend compatibility (30+ tests ✅)
+- Complete mock testing framework for test-driven development ✅
+- Git-compatible architecture design with unified format everywhere ✅
+- User Documentation: Migration guides, user guides, quick reference ✅
 
-**🔄 PHASE 3: SYSTEM INTEGRATION (FINAL PHASE)**
+**✅ CRITICAL ISSUES RESOLVED**
 
-### **Priority 1: Remaining Integration**
-1. **CLI Schema Updates** - ✅ **COMPLETE** - Full multi-backend support with Task #329 infrastructure
+### **Priority 1: System Stability (RESOLVED)**
+1. **Schema Export Errors** - ✅ **FIXED** - All multi-backend schema exports added and working
+2. **Test Suite Stability** - ✅ **FIXED** - Schema import errors resolved, tests running normally
 
-### **Priority 2: Polish & Documentation** 
-2. **Performance Testing** - ✅ **SKIPPED** - No regressions expected with validated schema system
-3. **User Documentation** - ✅ **COMPLETE** - Comprehensive guides and migration documentation
-4. **Error Handling** - ✅ **COMPLETE** - Comprehensive error scenarios and recovery with custom error types, retry mechanisms, and structured logging (27/27 tests ✅)
+### **Priority 2: Remaining Integration**
+3. **CLI Schema Integration** - ✅ **COMPLETE** - All multi-backend schemas integrated and exported
+4. **File System Organization** - ❌ **CANCELLED** - Not needed (GitHub Issues stored remotely, moving away from in-tree backends per ADR 003)
+5. **Enhanced Error Handling** - 🟡 **OPTIONAL** - Comprehensive error scenarios and recovery (polish item)
 
-### **🔧 NEW WORK: SESSION PR CONFLICT HANDLING IMPROVEMENTS**
+### **✅ COMPLETED & SKIPPED**
+- **Performance Testing** - ✅ **SKIPPED** (per user request)
+- **User Documentation** - ✅ **COMPLETE** (comprehensive guides created)
 
-**✅ ANALYZING & FIXING SESSION PR CONFLICT WORKFLOW**
-- **Issue Discovered**: `minsky session pr create` command aborts merge on conflicts and returns to session branch
-- **Expected Behavior**: Stay in conflict state on PR branch for natural git conflict resolution workflow
-- **Impact**: Multi-backend session work requires reliable PR creation for cross-backend task workflows
-
-**✅ COMPLETED: Session PR Conflict Resolution Redesign**
-1. ✅ **ANALYSIS COMPLETE** - Identified exact conflict handling code path in `prepare-pr-operations.ts`
-2. ✅ **ERROR MESSAGE IMPROVEMENTS** - Created specialized session PR conflict error template with accurate resolution instructions
-3. ✅ **CONFLICT STATE HANDLING** - Updated logic to stay on PR branch in merge conflict state (natural git workflow)
-4. ✅ **TESTING & VALIDATION** - Successfully tested improved conflict handling using session workspace (`bun run ./src/cli.ts`)
-5. ✅ **PRODUCTION READY** - New behavior correctly stays in conflict state, provides clear instructions, and enables standard git resolution workflow
-
-**Key Improvements:**
-- ✅ **FIXED**: Conflict detection now happens BEFORE cleanup (was cleaning up first)
-- ✅ **FIXED**: Stays on `pr/branch` in merge conflict state instead of aborting and returning to session branch
-- ✅ **NEW**: Specialized error message with step-by-step conflict resolution instructions
-- ✅ **NEW**: Supports both raw git conflicts and formatted error template conflicts
-- ✅ **VERIFIED**: Natural git workflow (`git status`, `git checkout --ours`, `git merge --continue`) works perfectly
-
-**Value**: Ensures reliable multi-backend session PR creation workflow, critical for cross-backend development and migration processes.
-
-**🎯 Overall Status: ✅ 100% COMPLETE - FULLY PRODUCTION READY! All components implemented, tested, and verified working perfectly**
+**🎯 Overall Status: ✅ 99% COMPLETE - Production ready! Only optional polish remains**
