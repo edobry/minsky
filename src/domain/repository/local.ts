@@ -50,9 +50,6 @@ export class LocalGitBackend implements RepositoryBackend {
   private sessionDb: SessionProviderInterface;
   private config: RepositoryBackendConfig;
 
-  // Local approval storage (in-memory for simplicity)
-  private approvals: Map<string, ApprovalInfo> = new Map();
-
   /**
    * Create a new LocalGitBackend instance
    * @param config Backend configuration
@@ -346,7 +343,8 @@ export class LocalGitBackend implements RepositoryBackend {
 
   /**
    * Approve a pull request in the local repository
-   * For local repositories, this stores approval metadata locally
+   * For local repositories, this is a no-op that returns confirmation.
+   * Actual approval state is managed in the session record (prApproved: boolean).
    */
   async approvePullRequest(
     prIdentifier: string | number,
@@ -366,7 +364,10 @@ export class LocalGitBackend implements RepositoryBackend {
       // Use default if git config fails
     }
 
-    const approval: ApprovalInfo = {
+    log.info("Local PR approval confirmation", { prIdentifier: prId, approver });
+
+    // Return approval confirmation - actual state managed in session record
+    return {
       reviewId: `local-${prId}-${Date.now()}`,
       approvedBy: approver,
       approvedAt: new Date().toISOString(),
@@ -374,41 +375,32 @@ export class LocalGitBackend implements RepositoryBackend {
       platformData: {
         platform: "local",
         prIdentifier: prId,
+        note: "Approval state managed in session record",
       },
     };
-
-    // Store approval
-    this.approvals.set(prId, approval);
-
-    log.info("PR approved locally", { prIdentifier: prId, approver });
-
-    return approval;
   }
 
   /**
    * Get approval status for a pull request in the local repository
-   * For local repositories, this checks locally stored approval metadata
+   * For local repositories, approval state is managed in session records, not here.
+   * This method returns a generic "can approve" status for interface compliance.
    */
   async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
     const prId = String(prIdentifier);
-    const approval = this.approvals.get(prId);
 
-    const status: ApprovalStatus = {
-      isApproved: !!approval,
-      approvals: approval ? [approval] : [],
-      requiredApprovals: 1, // Local repos only need one approval
-      canMerge: !!approval,
+    log.debug("Local PR approval status check", { prIdentifier: prId });
+
+    // Local repos can always be "approved" - real state is in session record
+    return {
+      isApproved: false, // Unknown here - check session record
+      approvals: [],
+      requiredApprovals: 1,
+      canMerge: false, // Unknown here - check session record
       platformData: {
         platform: "local",
         prIdentifier: prId,
+        note: "Actual approval state stored in session record",
       },
     };
-
-    log.debug("Retrieved PR approval status", {
-      prIdentifier: prId,
-      isApproved: status.isApproved,
-    });
-
-    return status;
   }
 }
