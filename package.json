@@ -15,6 +15,8 @@
     "test:watch": "bun test --watch",
     "test:coverage": "bun test --coverage",
     "validate-commit": "bun scripts/validate-commit-message.ts",
+    "validate-imports": "bun scripts/validate-imports.ts",
+    "validate-all": "bun run validate-imports && bun run lint && bun run test",
     "secrets:gitleaks": "gitleaks detect --source . --verbose",
     "secrets:scan": "gitleaks detect --source . --verbose"
   },

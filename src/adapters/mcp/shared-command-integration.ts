@@ -176,9 +176,26 @@ export function registerSharedCommandsWithMcp(
             return result;
           } catch (error) {
             const duration = Date.now() - startTime;
+
+            // CRITICAL: Check for undefined reference errors that could indicate missing imports
+            const errorMessage = error instanceof Error ? error.message : String(error);
+            const isUndefinedReference =
+              errorMessage.includes("is not defined") ||
+              errorMessage.includes("undefined") ||
+              errorMessage.includes("ReferenceError");
+
+            if (isUndefinedReference) {
+              log.error(`🚨 CRITICAL: Possible missing import detected in ${command.id}`, {
+                error: errorMessage,
+                duration,
+                suggestion: "Check for missing imports in the command implementation",
+              });
+            }
+
             log.error(`[MCP] Command failed: ${command.id}`, {
-              error: error instanceof Error ? error.message : String(error),
+              error: errorMessage,
               duration,
+              isUndefinedReference,
             });
             throw error;
           }

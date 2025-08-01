@@ -69,7 +69,7 @@ test("should detect conflicts in git repository", () => {
 
 ### Required Response
 1. **Stop making complexity excuses immediately**
-2. **NEVER delete or skip tests because they seem "complex"** 
+2. **NEVER delete or skip tests because they seem "complex"**
 3. **Break down complex problems into manageable steps**
 4. **Fix EVERYTHING, no matter how complex**
 
