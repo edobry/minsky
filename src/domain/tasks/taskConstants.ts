@@ -101,7 +101,7 @@ export const TASK_REGEX_PATTERNS = {
    * Supports both numeric and alphanumeric task IDs
    */
   TASK_LINE: new RegExp(
-    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[#([A-Za-z0-9_]+)\\]\\([^)]+\\)`
+    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[([a-z-]*#?[A-Za-z0-9_]+)\\]\\([^)]+\\)`
   ),
 
   /**
@@ -129,13 +129,16 @@ export const TASK_PARSING_UTILS = {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
     if (!match) return null;
 
-    const [, checkbox, title, idNum] = match;
-    if (!checkbox || !title || !idNum) return null;
+    const [, checkbox, title, fullId] = match;
+    if (!checkbox || !title || !fullId) return null;
+
+    // Preserve the full ID format (both #123 legacy and md#123 qualified)
+    const id = fullId.startsWith("#") ? fullId : `#${fullId}`;
 
     return {
       checkbox: checkbox,
       title: title.trim(),
-      id: `#${idNum}`,
+      id: id,
     };
   },
 
