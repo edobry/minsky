@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { tmpdir } from "os";
 import { promises as fs } from "fs";
 import path from "path";
@@ -17,6 +17,30 @@ import {
   DEFAULT_MCP_CONFIG,
   DEFAULT_HYBRID_CONFIG,
 } from "./template-system";
+
+// Mock default templates to avoid command registry conflicts
+mock.module("./default-templates", () => ({
+  DEFAULT_TEMPLATES: [
+    {
+      id: "mock-default",
+      name: "Mock Default Template",
+      description: "Mock template for testing",
+      generateContent: () => "# Mock Default\n\nThis is a mock template.",
+    },
+    {
+      id: "minsky-workflow",
+      name: "Minsky Workflow",
+      description: "Mock minsky workflow template",
+      generateContent: () => "# Minsky Workflow\n\nMock workflow content.",
+    },
+    {
+      id: "test-template",
+      name: "Test Template",
+      description: "Another mock template",
+      generateContent: () => "# Test Template\n\nTest content.",
+    },
+  ],
+}));
 
 // One-time setup for commands
 let commandsRegistered = false;
@@ -229,7 +253,7 @@ describe("RuleTemplateService", () => {
       expect(result.rules.some((r) => r.id === "rule2")).toBe(true);
     });
 
-    test.skip("generates all rules when none specified", async () => {
+    test("generates all rules when none specified", async () => {
       const template: RuleTemplate = {
         id: "additional-rule",
         name: "Additional Rule",
@@ -463,7 +487,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(factoryService.getTemplates().length).toBeGreaterThanOrEqual(3); // Should have 3 default templates
     });
 
-    test.skip("generateRulesWithConfig generates rules correctly", async () => {
+    test("generateRulesWithConfig generates rules correctly", async () => {
       const result = await generateRulesWithConfig(testDir, DEFAULT_CLI_CONFIG, {
         selectedRules: ["minsky-workflow"],
         dryRun: true,
@@ -480,7 +504,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
   });
 
   describe("File System Integration", () => {
-    test.skip("creates actual rule files when not in dry run mode", async () => {
+    test("creates actual rule files when not in dry run mode", async () => {
       // Create directory structure
       await fs.mkdir(path.join(testDir, ".cursor", "rules"), { recursive: true });
 

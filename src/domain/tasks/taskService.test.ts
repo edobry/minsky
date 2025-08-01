@@ -17,17 +17,26 @@ import type { Task } from "./types";
 
 // Create a mock backend for testing
 function createMockBackend(): TaskBackend {
+  // Make the mock stateful to support status updates
+  let currentTasks = [
+    { id: "#001", title: "Task 1", status: "TODO" },
+    { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
+  ];
+
   return {
     name: "mock",
 
     // Mock data retrieval methods
-    getTasksData: mock(() =>
-      Promise.resolve({
+    getTasksData: mock(() => {
+      const content = currentTasks
+        .map((t) => `- [${t.status === "DONE" ? "x" : " "}] ${t.title} [${t.id}](#)`)
+        .join("\n");
+      return Promise.resolve({
         success: true,
-        content: "- [ ] Task 1 [#001](#)\n- [+] Task 2 [#002](#)",
+        content,
         filePath: "mock/tasks.md",
-      } as TaskReadOperationResult)
-    ),
+      } as TaskReadOperationResult);
+    }),
 
     getTaskSpecData: mock((specPath: unknown) =>
       Promise.resolve({
@@ -38,20 +47,11 @@ function createMockBackend(): TaskBackend {
     ),
 
     // Mock pure operations
-    parseTasks: mock((content: unknown) => {
-      // Simple parsing for testing
-      if (content.toString().includes("#001")) {
-        return [
-          { id: "#001", title: "Task 1", status: "TODO" },
-          { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
-        ];
-      }
-      return [];
-    }),
+    parseTasks: mock((content: unknown) => [...currentTasks]),
 
     formatTasks: mock((tasks: unknown) => {
-      // Simple formatting for testing
-      return tasks
+      currentTasks = [...(tasks as any[])];
+      return currentTasks
         .map((t) => `- [${t.status === "DONE" ? "x" : " "}] ${t.title} [${t.id}](#)`)
         .join("\n");
     }),
@@ -103,10 +103,18 @@ function createMockBackend(): TaskBackend {
     }),
 
     // Additional required methods to complete TaskBackend interface
-    listTasks: mock(() => Promise.resolve([])),
-    getTask: mock(() => Promise.resolve(null)),
-    getTaskStatus: mock(() => Promise.resolve(undefined)),
-    setTaskStatus: mock(() => Promise.resolve()),
+    listTasks: mock(() => Promise.resolve(currentTasks)),
+    getTask: mock((id: string) => Promise.resolve(currentTasks.find((t) => t.id === id) || null)),
+    getTaskStatus: mock((id: string) =>
+      Promise.resolve(currentTasks.find((t) => t.id === id)?.status)
+    ),
+    setTaskStatus: mock((id: string, status: string) => {
+      const task = currentTasks.find((t) => t.id === id);
+      if (task) {
+        task.status = status;
+      }
+      return Promise.resolve();
+    }),
     deleteTask: mock(() => Promise.resolve(true)),
     createTaskFromTitleAndDescription: mock((title: string, description: string) =>
       Promise.resolve({
@@ -200,7 +208,7 @@ describe("TaskService", () => {
   });
 
   describe("setTaskStatus", () => {
-    test.skip("should update a task's status", async () => {
+    test("should update a task's status", async () => {
       // Setup spy to check what's passed to saveTasksData
       const saveTasksDataSpy = mockBackend.saveTasksData as any;
       const formatTasksSpy = mockBackend.formatTasks as any;

@@ -211,7 +211,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       // continued processing and called setTaskStatus even after the merge failed
     });
 
-    test.skip("should continue processing when PR is genuinely already merged", async () => {
+    test("should continue processing when PR is genuinely already merged", async () => {
       // Arrange: Set up scenario where merge "fails" because already merged
       const mockGitService = createMockGitService({
         hasUncommittedChanges: mock(() => Promise.resolve(false)),
