@@ -522,7 +522,11 @@ Session requested: "${(options as any).session}"
     });
 
     // Check for conflict errors FIRST - before any cleanup
-    if (errorMessage.includes("CONFLICT") || errorMessage.includes("Automatic merge failed")) {
+    if (
+      errorMessage.includes("CONFLICT") ||
+      errorMessage.includes("Automatic merge failed") ||
+      errorMessage.includes("💥 Merge Conflicts Detected")
+    ) {
       // DON'T clean up on conflict - leave user in natural git merge conflict state
       // This allows them to use standard git workflow to resolve conflicts
       log.debug("Merge conflicts detected - staying in conflict state for user resolution", {
