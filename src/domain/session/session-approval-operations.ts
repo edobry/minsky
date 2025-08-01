@@ -129,10 +129,9 @@ export async function approveSessionPr(
     params.reviewComment
   );
 
-  // Update session record with approval
-  await sessionDB.updateSession(sessionNameToUse, {
-    prApproved: true,
-  });
+  // Note: Repository backend handles approval storage:
+  // - GitHub backend: stores approval in GitHub
+  // - Local backend: updates session record with prApproved: true
 
   if (!params.json) {
     log.cli("✅ Session PR approved successfully!");

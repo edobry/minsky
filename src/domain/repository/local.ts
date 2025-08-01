@@ -343,14 +343,22 @@ export class LocalGitBackend implements RepositoryBackend {
 
   /**
    * Approve a pull request in the local repository
-   * For local repositories, this is a no-op that returns confirmation.
-   * Actual approval state is managed in the session record (prApproved: boolean).
+   * For local repositories, this updates the session record with prApproved: true.
+   * (GitHub backend would update GitHub, local backend updates session record)
    */
   async approvePullRequest(
     prIdentifier: string | number,
     reviewComment?: string
   ): Promise<ApprovalInfo> {
     const prId = String(prIdentifier);
+
+    // Find session record by PR branch
+    const sessions = await this.sessionDb.getAllSessions();
+    const sessionRecord = sessions.find((s) => s.prBranch === prId);
+
+    if (!sessionRecord) {
+      throw new Error(`No session found with PR branch: ${prId}`);
+    }
 
     // Get current git user for approval record
     let approver = "local-user";
@@ -364,9 +372,17 @@ export class LocalGitBackend implements RepositoryBackend {
       // Use default if git config fails
     }
 
-    log.info("Local PR approval confirmation", { prIdentifier: prId, approver });
+    // Update session record with approval (this is where local backend stores approval)
+    await this.sessionDb.updateSession(sessionRecord.session, {
+      prApproved: true,
+    });
 
-    // Return approval confirmation - actual state managed in session record
+    log.info("Local PR approved - session record updated", {
+      prIdentifier: prId,
+      sessionName: sessionRecord.session,
+      approver,
+    });
+
     return {
       reviewId: `local-${prId}-${Date.now()}`,
       approvedBy: approver,
@@ -375,31 +391,63 @@ export class LocalGitBackend implements RepositoryBackend {
       platformData: {
         platform: "local",
         prIdentifier: prId,
-        note: "Approval state managed in session record",
+        sessionName: sessionRecord.session,
       },
     };
   }
 
   /**
    * Get approval status for a pull request in the local repository
-   * For local repositories, approval state is managed in session records, not here.
-   * This method returns a generic "can approve" status for interface compliance.
+   * For local repositories, checks the session record for prApproved status.
    */
   async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
     const prId = String(prIdentifier);
 
-    log.debug("Local PR approval status check", { prIdentifier: prId });
+    // Find session record by PR branch
+    const sessions = await this.sessionDb.getAllSessions();
+    const sessionRecord = sessions.find((s) => s.prBranch === prId);
 
-    // Local repos can always be "approved" - real state is in session record
+    if (!sessionRecord) {
+      log.debug("No session found for PR approval status check", { prIdentifier: prId });
+      return {
+        isApproved: false,
+        approvals: [],
+        requiredApprovals: 1,
+        canMerge: false,
+        platformData: {
+          platform: "local",
+          prIdentifier: prId,
+          error: "No session found with this PR branch",
+        },
+      };
+    }
+
+    const isApproved = !!sessionRecord.prApproved;
+
+    log.debug("Local PR approval status", {
+      prIdentifier: prId,
+      sessionName: sessionRecord.session,
+      isApproved,
+    });
+
     return {
-      isApproved: false, // Unknown here - check session record
-      approvals: [],
+      isApproved,
+      approvals: isApproved
+        ? [
+            {
+              reviewId: `local-${sessionRecord.session}`,
+              approvedBy: "local-user",
+              approvedAt: new Date().toISOString(), // We don't track when it was approved
+              platformData: { platform: "local", sessionName: sessionRecord.session },
+            },
+          ]
+        : [],
       requiredApprovals: 1,
-      canMerge: false, // Unknown here - check session record
+      canMerge: isApproved,
       platformData: {
         platform: "local",
         prIdentifier: prId,
-        note: "Actual approval state stored in session record",
+        sessionName: sessionRecord.session,
       },
     };
   }
