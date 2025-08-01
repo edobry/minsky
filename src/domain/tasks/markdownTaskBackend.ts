@@ -254,18 +254,40 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const spec = this.parseTaskSpec(specResult.content);
 
-    // Get existing tasks to determine new ID
+    // Get existing tasks from central file to determine new ID
     const existingTasksResult = await this.getTasksData();
-    if (!existingTasksResult.success || !existingTasksResult.content) {
-      throw new Error("Failed to read existing tasks");
-    }
 
-    const existingTasks = this.parseTasks(existingTasksResult.content);
-    const maxId = existingTasks.reduce((max, task) => {
+    // Handle empty or missing central tasks file gracefully
+    let existingTasks: TaskData[] = [];
+    if (existingTasksResult.success && existingTasksResult.content) {
+      existingTasks = this.parseTasks(existingTasksResult.content);
+    }
+    let maxId = existingTasks.reduce((max, task) => {
       // Use the new utility to extract numeric value from any format
       const id = getTaskIdNumber(task.id);
       return id !== null && id > max ? id : max;
     }, 0);
+
+    // Also scan filesystem for existing task files to get the true maximum ID
+    try {
+      const files = await readdir(this.tasksDirectory);
+      for (const file of files) {
+        // Extract ID from filename pattern: {id}-{title}.md
+        // Only consider reasonable task IDs (1-4 digits) to avoid timestamp-based IDs
+        const match = file.match(/^(\d{1,4})-/);
+        if (match) {
+          const fileId = parseInt(match[1], 10);
+          if (!isNaN(fileId) && fileId > maxId) {
+            maxId = fileId;
+          }
+        }
+      }
+    } catch (error) {
+      // If scanning fails, log but continue with central file maxId
+      log.warn("Failed to scan tasks directory for existing files", {
+        error: getErrorMessage(error as any),
+      });
+    }
 
     // Generate qualified backend ID for multi-backend storage (e.g., "md#285")
     const newId = `md#${maxId + 1}`; // Qualified format for storage

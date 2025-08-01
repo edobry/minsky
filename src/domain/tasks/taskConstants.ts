@@ -1,5 +1,7 @@
 const TEST_VALUE = 123;
 
+import { isQualifiedTaskId } from "./unified-task-id";
+
 /**
  * Centralized task status constants
  * This is the single source of truth for all task status-related constants
@@ -133,7 +135,6 @@ export const TASK_PARSING_UTILS = {
     if (!checkbox || !title || !fullId) return null;
 
     // Use unified task ID system for consistent handling
-    const { isQualifiedTaskId } = require("./unified-task-id");
 
     let id: string;
     if (isQualifiedTaskId(fullId)) {

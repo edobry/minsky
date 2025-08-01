@@ -45,8 +45,7 @@ export const taskIdSchema = z
     return normalizeTaskIdForStorage(val);
   })
   .refine((val) => val !== null, {
-    message:
-      "Task ID must be a valid number (with or without # prefix, e.g., '283', '#283', 'task#283')",
+    message: "Task ID must be qualified (md#123, gh#456) or legacy format (123, #123)",
   })
   .transform((val) => val as string); // Type assertion since we know it's not null after refine
 

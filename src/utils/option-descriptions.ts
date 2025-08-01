@@ -49,7 +49,8 @@ export const DEBUG_DESCRIPTION = "Show debug information";
 /**
  * Description for task ID option
  */
-export const TASK_ID_DESCRIPTION = "ID of the task (with or without # prefix)";
+export const TASK_ID_DESCRIPTION =
+  "ID of the task (qualified: md#123, gh#456, or legacy: 123, #123)";
 
 /**
  * Description for task status filter option

@@ -18,7 +18,8 @@ import type { Task } from "./types";
 // Import the new multi-backend interface
 import type { TaskBackend, TaskSpec, TaskFilters, TaskExportData } from "./multi-backend-service";
 
-const matter = require("gray-matter");
+// @ts-ignore - matter is a third-party library
+import matter from "gray-matter";
 
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
