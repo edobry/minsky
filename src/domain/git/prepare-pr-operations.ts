@@ -509,9 +509,6 @@ Session requested: "${(options as any).session}"
       workdir,
     });
 
-    // Get error message for conflict detection  
-    const errorMessage = err instanceof Error ? err.message : String(err);
-
     // Check for conflict errors FIRST - before any cleanup
     if (
       errorMessage.includes("CONFLICT") ||

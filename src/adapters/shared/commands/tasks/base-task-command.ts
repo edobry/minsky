@@ -61,7 +61,7 @@ export abstract class BaseTaskCommand {
       isQualifiedTaskId,
       isLegacyTaskId,
       migrateUnqualifiedTaskId,
-    } = require("../../../domain/tasks/unified-task-id");
+    } = require("../../../../domain/tasks/unified-task-id");
 
     // First, check if it's already a qualified ID
     if (isQualifiedTaskId(taskId)) {
