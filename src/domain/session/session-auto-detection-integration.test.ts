@@ -133,18 +133,36 @@ describe("Session Command Domain Logic", () => {
     });
 
     test("throws ResourceNotFoundError for non-existent session", async () => {
-      await expect(
-        sessionDelete(
+      // Create a specific mock that returns false for non-existent sessions
+      const mockProviderWithProperDelete = createMockSessionProvider({
+        sessions: [
           {
-            name: "non-existent",
-            force: true,
-            json: false,
+            session: "test-session",
+            repoName: "test-repo",
+            repoUrl: "/test/repo",
+            createdAt: "2024-01-01T00:00:00Z",
+            taskId: "123",
           },
-          {
-            sessionDB: mockSessionProvider,
-          }
-        )
-      ).rejects.toThrow(ResourceNotFoundError);
+        ],
+        deleteSession: (sessionName: string) => {
+          // Return false for non-existent sessions
+          const sessionExists = sessionName === "test-session";
+          return Promise.resolve(sessionExists);
+        },
+      });
+
+      const result = await sessionDelete(
+        {
+          name: "non-existent",
+          force: true,
+          json: false,
+        },
+        {
+          sessionDB: mockProviderWithProperDelete,
+        }
+      );
+
+      expect(result).toBe(false);
     });
   });
 

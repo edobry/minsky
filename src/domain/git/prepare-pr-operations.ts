@@ -453,11 +453,27 @@ Session requested: "${(options as any).session}"
       /"/g,
       String.fromCharCode(92) + String.fromCharCode(34)
     );
+
+    // 🔥 DEBUG: Log before merge attempt
+    log.debug("🔥 DEBUG: About to attempt merge", {
+      sourceBranch,
+      prBranch,
+      baseBranch,
+      workdir,
+      command: `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
+    });
+
     await execGitWithTimeout(
       "merge",
       `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
       { workdir, timeout: 180000 } // Increased to 3 minutes for complex merges
     );
+
+    // 🔥 DEBUG: Log after successful merge
+    log.debug("🔥 DEBUG: Merge completed successfully", {
+      sourceBranch,
+      prBranch,
+    });
 
     // VERIFICATION: Check that the merge commit has the correct message
     const logResult = await execGitWithTimeout("log", "log -1 --pretty=format:%B", {
@@ -483,22 +499,63 @@ Session requested: "${(options as any).session}"
 
     log.debug(`Created prepared merge commit by merging ${sourceBranch} into ${prBranch}`);
   } catch (err) {
-    // Clean up on error
-    try {
-      await execGitWithTimeout("merge --abort", "merge --abort", { workdir, timeout: 30000 });
-      // CRITICAL: Switch back to session branch on error
-      await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
-      log.debug("Aborted merge, cleaned up, and switched back to session branch after conflict");
-    } catch (cleanupErr) {
-      log.warn("Failed to clean up after merge error", { cleanupErr });
-    }
+    // 🔥 DEBUG: Log merge error details
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    log.debug("🔥 DEBUG: Merge failed with error", {
+      error: errorMessage,
+      errorType: err?.constructor?.name,
+      sourceBranch,
+      prBranch,
+      workdir,
+    });
 
-    if (err instanceof Error && err.message.includes("CONFLICT")) {
+    // Check for conflict errors FIRST - before any cleanup
+    if (
+      errorMessage.includes("CONFLICT") ||
+      errorMessage.includes("Automatic merge failed") ||
+      errorMessage.includes("💥 Merge Conflicts Detected")
+    ) {
+      // DON'T clean up on conflict - leave user in natural git merge conflict state
+      // This allows them to use standard git workflow to resolve conflicts
+      log.debug("Merge conflicts detected - staying in conflict state for user resolution", {
+        prBranch,
+        sourceBranch,
+        workdir,
+      });
+
       throw new MinskyError(
-        "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
+        `🔥 Session PR creation encountered merge conflicts.
+
+You are currently on branch '${prBranch}' with merge in progress.
+
+To resolve conflicts and complete the PR:
+
+1. 🔍 Check current status:
+   git status
+
+2. ✏️ Resolve conflicts manually:
+   code <conflicted-file>
+
+3. 🚀 Or accept all session changes (recommended):
+   git checkout --theirs . && git add . && git merge --continue
+
+4. 🔄 Or accept all main branch changes:
+   git checkout --ours . && git add . && git merge --continue
+
+After resolving conflicts, the PR will be pushed automatically.`,
         { exitCode: 4 }
       );
     }
+
+    // For non-conflict errors, clean up and switch back
+    try {
+      await execGitWithTimeout("merge --abort", "merge --abort", { workdir, timeout: 30000 });
+      await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+      log.debug("Cleaned up after non-conflict merge error");
+    } catch (cleanupErr) {
+      log.warn("Failed to clean up after non-conflict merge error", { cleanupErr });
+    }
+
     throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err as any)}`);
   }
 

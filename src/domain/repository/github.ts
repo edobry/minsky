@@ -50,7 +50,7 @@ export class GitHubBackend implements RepositoryBackend {
   private readonly repoName!: string;
   private readonly owner?: string;
   private readonly repo?: string;
-  private sessionDb: SessionProviderInterface;
+  private sessionDB: SessionProviderInterface;
   private gitService: GitService;
 
   /**
@@ -76,7 +76,7 @@ export class GitHubBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = createSessionProvider();
+    this.sessionDB = createSessionProvider();
     this.gitService = new GitService(this.baseDir);
   }
 
@@ -196,7 +196,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async getStatus(): Promise<RepositoryStatus> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDb.listSessions();
+      const sessions = await this.sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -307,7 +307,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     // If no session is provided, find one for this repository
     try {
-      const sessions = await this.sessionDb.listSessions();
+      const sessions = await this.sessionDB.listSessions();
       const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
@@ -393,7 +393,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async push(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDb.listSessions();
+      const sessions = await this.sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -436,7 +436,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async pull(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDb.listSessions();
+      const sessions = await this.sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -476,7 +476,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async checkout(branch: string): Promise<void> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDb.listSessions();
+      const sessions = await this.sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -529,7 +529,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDb.getSession(session);
+      const record = await this.sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }

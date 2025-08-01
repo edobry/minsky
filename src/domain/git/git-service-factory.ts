@@ -14,15 +14,21 @@ import { type GitServiceInterface } from "./types";
  * @returns A GitServiceInterface implementation
  */
 export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
-  // Dynamic import to avoid circular dependency - GitService is defined in git.ts
-  const GitServiceModule = require("../git");
-  const GitService = GitServiceModule.GitService || GitServiceModule.default?.GitService;
+  // Use lazy static import to avoid circular dependency and hanging during MCP startup
+  try {
+    const { GitService } = require("../git");
 
-  if (!GitService) {
-    throw new Error("GitService class not found - check git.ts exports");
+    if (!GitService) {
+      throw new Error("GitService class not found - check git.ts exports");
+    }
+
+    return new GitService(options?.baseDir);
+  } catch (error) {
+    // If require fails during MCP startup, provide a minimal fallback
+    throw new Error(
+      `Failed to load GitService: ${error instanceof Error ? error.message : String(error)}`
+    );
   }
-
-  return new GitService(options?.baseDir);
 }
 
 /**

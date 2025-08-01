@@ -12,6 +12,7 @@ import {
 } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { extractPrDescription } from "../session-update-operations";
+import { readFile } from "fs/promises";
 
 /**
  * Prepares a PR for a session based on parameters
@@ -47,37 +48,45 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
     // Get session working directory
     const workdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
 
-    // Check if PR branch already exists
-    const prBranchExists = await checkPrBranchExists(
-      resolvedContext.sessionName,
-      gitService,
-      workdir
-    );
-
-    if (prBranchExists) {
-      // Extract existing PR description
-      const existingPr = await extractPrDescription(
-        resolvedContext.sessionName,
-        gitService,
-        workdir
+    // Check if PR already exists based on session record
+    if (sessionRecord.prState?.commitHash) {
+      log.debug(
+        `PR already exists for session '${resolvedContext.sessionName}' with commit ${sessionRecord.prState.commitHash}`
       );
+      // Force recreation by clearing the prState and deleting git branch
+      try {
+        await gitService.execInRepository(
+          workdir,
+          `git branch -D pr/${resolvedContext.sessionName}`
+        );
+        log.debug(
+          `Deleted existing PR branch pr/${resolvedContext.sessionName} to force recreation`
+        );
+      } catch (error) {
+        log.debug(`Could not delete existing PR branch: ${error}`);
+      }
 
-      if (existingPr) {
-        log.info(`PR branch for session '${resolvedContext.sessionName}' already exists`);
-        return {
-          prBranch: `pr/${resolvedContext.sessionName}`,
-          baseBranch: baseBranch || "main",
-          title: existingPr.title,
-          body: existingPr.body,
-          // Include session information in the result for CLI formatting
-          session: {
-            session: sessionRecord.session,
-            taskId: sessionRecord.taskId,
-            repoName: sessionRecord.repoName,
-            branch: sessionRecord.branch,
-          },
-          sessionName: sessionRecord.session, // Alternative property name for formatter compatibility
-        };
+      // Clear prState to allow recreation
+      await sessionDb.updateSession(resolvedContext.sessionName, {
+        ...sessionRecord,
+        prState: undefined,
+      });
+    }
+
+    // TASK 360 FIX: Read body content from bodyPath if provided
+    let bodyContent = body;
+    if (!bodyContent && bodyPath) {
+      try {
+        bodyContent = await readFile(bodyPath, "utf-8");
+        if (debug) {
+          log.debug("Read body content from file", { bodyPath, contentLength: bodyContent.length });
+        }
+      } catch (error) {
+        throw new ValidationError(
+          `Failed to read body content from file: ${bodyPath}. ${getErrorMessage(error)}`,
+          "bodyPath",
+          bodyPath
+        );
       }
     }
 
@@ -87,9 +96,27 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       repo: workdir,
       baseBranch,
       title,
-      body,
+      body: bodyContent,
       branchName,
       debug,
+    });
+
+    // Get the commit hash of the prepared merge commit
+    const commitHashResult = await gitService.execInRepository(
+      workdir,
+      `git rev-parse pr/${resolvedContext.sessionName}`
+    );
+    const commitHash = commitHashResult.trim();
+
+    // Update session record with PR state
+    await sessionDb.updateSession(resolvedContext.sessionName, {
+      ...sessionRecord,
+      prState: {
+        branchName: result.prBranch,
+        commitHash: commitHash,
+        lastChecked: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      },
     });
 
     // Include session information in the result for CLI formatting

@@ -1,6 +1,6 @@
 import { beforeEach, afterEach, describe, test, expect } from "bun:test";
 import { mock } from "bun:test";
-import { sharedCommandRegistry } from "../command-registry";
+import { createSharedCommandRegistry } from "../command-registry";
 import { registerRulesCommands } from "./rules";
 
 // Mock workspace resolver
@@ -30,29 +30,30 @@ mock.module("../../../domain/rules/rule-template-service", () => ({
 }));
 
 describe("Rules Commands", () => {
-  beforeEach(() => {
-    // Clear the registry before each test
-    (sharedCommandRegistry as any).clear();
+  let testRegistry: ReturnType<typeof createSharedCommandRegistry>;
 
-    // Register commands
-    registerRulesCommands();
+  beforeEach(() => {
+    // Create a fresh registry for each test to avoid interference
+    testRegistry = createSharedCommandRegistry();
+
+    // Register commands in the test registry
+    registerRulesCommands(testRegistry);
   });
 
   afterEach(() => {
-    // Clear registry after each test
-    (sharedCommandRegistry as any).clear();
+    // No cleanup needed - each test gets a fresh registry
   });
 
   describe("rules.generate", () => {
     test("should be registered in command registry", () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
       expect(command?.name).toBe("generate");
       expect(command?.description).toBe("Generate new rules from templates");
     });
 
     test("should generate rules with default CLI configuration", async () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       if (command) {
@@ -67,7 +68,7 @@ describe("Rules Commands", () => {
     });
 
     test("should generate rules with MCP configuration", async () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       if (command) {
@@ -87,7 +88,7 @@ describe("Rules Commands", () => {
     });
 
     test("should generate rules with hybrid configuration", async () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       if (command) {
@@ -107,7 +108,7 @@ describe("Rules Commands", () => {
     });
 
     test("should handle specific rule selection", async () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       if (command) {
@@ -125,7 +126,7 @@ describe("Rules Commands", () => {
     });
 
     test("should support dry run mode", async () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       if (command) {
@@ -143,7 +144,7 @@ describe("Rules Commands", () => {
     });
 
     test("should support custom output directory", async () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       if (command) {
@@ -163,7 +164,7 @@ describe("Rules Commands", () => {
     test("should handle errors gracefully", async () => {
       // For this test we'll skip the complex mock override
       // since Bun's mocking works differently than Jest
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       // Test passes if command exists - error handling will be tested
@@ -174,7 +175,7 @@ describe("Rules Commands", () => {
     });
 
     test("should validate parameter schemas", () => {
-      const command = sharedCommandRegistry.getCommand("rules.generate");
+      const command = testRegistry.getCommand("rules.generate");
       expect(command).toBeDefined();
 
       if (command && command.parameters) {
@@ -204,7 +205,7 @@ describe("Rules Commands", () => {
 
   describe("rules.list", () => {
     test("should be registered in command registry", () => {
-      const command = sharedCommandRegistry.getCommand("rules.list");
+      const command = testRegistry.getCommand("rules.list");
       expect(command).toBeDefined();
       expect(command?.name).toBe("list");
     });
@@ -237,7 +238,7 @@ describe("Rules Commands", () => {
       const mockListRules = mock(() => Promise.resolve(mockRules));
       RuleService.prototype.listRules = mockListRules;
 
-      const command = sharedCommandRegistry.getCommand("rules.list");
+      const command = testRegistry.getCommand("rules.list");
       expect(command).toBeDefined();
 
       if (command) {
@@ -281,7 +282,7 @@ describe("Rules Commands", () => {
       const mockListRules = mock(() => Promise.resolve(mockRules));
       RuleService.prototype.listRules = mockListRules;
 
-      const command = sharedCommandRegistry.getCommand("rules.list");
+      const command = testRegistry.getCommand("rules.list");
       expect(command).toBeDefined();
 
       if (command) {

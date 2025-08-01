@@ -206,7 +206,7 @@ describe("Individual Service Mock Factories", () => {
       };
 
       const customOptions: MockTaskServiceOptions = {
-        mockGetTask: () => Promise.resolve(customTask),
+        getTask: () => Promise.resolve(customTask),
         getTaskStatus: () => Promise.resolve("IN_PROGRESS"),
         deleteTask: () => Promise.resolve(true),
       };
@@ -261,7 +261,7 @@ describe("Individual Service Mock Factories", () => {
       const mockSessionProvider = createMockSessionProvider({ sessions });
       const mockGitService = createMockGitService({ branchExists: true });
       const mockTaskService = createMockTaskService({
-        mockGetTask: () =>
+        getTask: () =>
           Promise.resolve({
             id: "#INT-001",
             title: "Integration Task",

@@ -209,6 +209,10 @@ export const sessionPrParamsSchema = z
   .refine((data) => !(data.body && data.bodyPath), {
     message: "Cannot provide both 'body' and 'bodyPath' - use one or the other",
     path: ["body"],
+  })
+  .refine((data) => data.body || data.bodyPath, {
+    message: "PR description is required. Please provide either --body or --body-path",
+    path: ["body"],
   });
 
 /**

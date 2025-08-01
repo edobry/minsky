@@ -16,6 +16,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { approveSessionFromParams } from "../session";
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
+import type { RepositoryBackend, MergeInfo } from "../repository/index";
 import {
   createMockSessionProvider,
   createMockGitService,
@@ -31,6 +32,21 @@ describe("Session Approve Task Status Commit", () => {
     error: mock(() => {}),
     warn: mock(() => {}),
   };
+
+  // Reusable mock for repository backend to prevent real shell execution
+  const createMockRepositoryBackend = () =>
+    mock((sessionRecord: any) =>
+      Promise.resolve({
+        getType: () => "local",
+        mergePullRequest: mock(() =>
+          Promise.resolve({
+            commitHash: "abc123commit",
+            mergeDate: new Date(),
+            mergedBy: "test-user",
+          })
+        ),
+      })
+    );
 
   beforeEach(() => {
     // Mock cleanup handled by bun:test automatically
@@ -123,6 +139,20 @@ describe("Session Approve Task Status Commit", () => {
       },
     });
 
+    // Mock repository backend to avoid filesystem validation
+    const mockRepositoryBackend: RepositoryBackend = {
+      getType: mock(() => "local"),
+      mergePullRequest: mock(() =>
+        Promise.resolve({
+          commitHash: "abc123def456",
+          mergeDate: "2025-07-30T23:14:24.213Z",
+          mergedBy: "Test User",
+        } as MergeInfo)
+      ),
+    } as any;
+
+    const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
+
     // Execute the session approval
     const result = await approveSessionFromParams(
       {
@@ -133,6 +163,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
+        createRepositoryBackend: mockCreateRepositoryBackend,
       }
     );
 
@@ -234,6 +265,20 @@ describe("Session Approve Task Status Commit", () => {
       },
     };
 
+    // Mock repository backend to avoid filesystem validation
+    const mockRepositoryBackend: RepositoryBackend = {
+      getType: mock(() => "local"),
+      mergePullRequest: mock(() =>
+        Promise.resolve({
+          commitHash: "def456abc789",
+          mergeDate: "2025-07-30T23:14:24.213Z",
+          mergedBy: "Test User",
+        } as MergeInfo)
+      ),
+    } as any;
+
+    const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
+
     // Execute the session approval
     const result = await approveSessionFromParams(
       {
@@ -244,6 +289,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
+        createRepositoryBackend: mockCreateRepositoryBackend,
       }
     );
 
@@ -345,6 +391,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
+        createRepositoryBackend: createMockRepositoryBackend(),
       }
     );
 
@@ -445,6 +492,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
+        createRepositoryBackend: createMockRepositoryBackend(),
       }
     );
 

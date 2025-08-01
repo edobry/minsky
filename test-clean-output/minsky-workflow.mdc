@@ -1,0 +1,201 @@
+---
+name: Minsky Workflow
+description: Core workflow orchestration guide for Minsky
+tags:
+  - workflow
+  - core
+  - required
+---
+# Minsky Workflow
+
+This rule defines the complete workflow for working with tasks and sessions in Minsky.
+
+## Core Workflow Steps
+
+### 1. Task Management
+
+
+**List Available Tasks (MCP)**
+```
+<function_calls>
+<invoke name="mcp_minsky-server_tasks_list">
+<parameter name="all">optional all value</parameter>
+<parameter name="status">optional status value</parameter>
+<parameter name="filter">optional filter value</parameter>
+<parameter name="limit">optional limit value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="workspace">optional workspace value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="backend">optional backend value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+```
+
+
+**Get Task Details**
+
+
+```
+<function_calls>
+<invoke name="mcp_minsky-server_tasks_get">
+<parameter name="taskId">required taskId value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="workspace">optional workspace value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="backend">optional backend value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+```
+
+
+**Check Task Status**
+
+
+```
+<function_calls>
+<invoke name="mcp_minsky-server_tasks_status_get">
+<parameter name="taskId">required taskId value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="workspace">optional workspace value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="backend">optional backend value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+```
+
+
+### 2. Session Management
+
+**Start New Session**
+
+
+```
+<function_calls>
+<invoke name="mcp_minsky-server_session_start">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="description">optional description value</parameter>
+<parameter name="branch">optional branch value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="json">optional json value</parameter>
+<parameter name="quiet">optional quiet value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="skipInstall">optional skipInstall value</parameter>
+<parameter name="packageManager">optional packageManager value</parameter>
+</invoke>
+</function_calls>
+```
+
+
+**Get Session Directory**
+
+
+```
+<function_calls>
+<invoke name="mcp_minsky-server_session_dir">
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+```
+
+
+### 3. Implementation Process
+
+1. **Create Session**: Use session.start with task ID
+2. **Work in Session**: All code changes happen in the session directory
+3. **Regular Commits**: Commit changes frequently
+4. **Create PR**: Use session.pr.create when ready for review
+5. **Update Status**: Set task status to IN-REVIEW
+
+### 4. Review & Completion
+
+**Create Pull Request**
+
+
+```
+<function_calls>
+<invoke name="mcp_minsky-server_session_pr_create">
+<parameter name="title">optional title value</parameter>
+<parameter name="body">optional body value</parameter>
+<parameter name="bodyPath">optional bodyPath value</parameter>
+<parameter name="name">optional name value</parameter>
+<parameter name="task">optional task value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="noStatusUpdate">optional noStatusUpdate value</parameter>
+<parameter name="debug">optional debug value</parameter>
+<parameter name="skipUpdate">optional skipUpdate value</parameter>
+<parameter name="autoResolveDeleteConflicts">optional autoResolveDeleteConflicts value</parameter>
+<parameter name="skipConflictCheck">optional skipConflictCheck value</parameter>
+</invoke>
+</function_calls>
+```
+
+
+**Update Task Status**
+
+
+```
+<function_calls>
+<invoke name="mcp_minsky-server_tasks_status_set">
+<parameter name="taskId">required taskId value</parameter>
+<parameter name="status">optional status value</parameter>
+<parameter name="repo">optional repo value</parameter>
+<parameter name="workspace">optional workspace value</parameter>
+<parameter name="session">optional session value</parameter>
+<parameter name="backend">optional backend value</parameter>
+<parameter name="json">optional json value</parameter>
+</invoke>
+</function_calls>
+```
+
+
+## Best Practices
+
+- Always work in sessions for code isolation
+- Use descriptive commit messages
+- Update task status at key milestones
+- Document any architectural decisions
+- Test changes before creating PRs
+
+## Command Parameters
+
+- `all`: Include all tasks regardless of status (Optional, Default: `false`)
+- `status`: Task status (Optional)
+- `filter`: Filter criteria for tasks (Optional)
+- `limit`: Maximum number of tasks to return (Optional)
+- `repo`: Repository path (Optional)
+- `workspace`: Workspace path (Optional)
+- `session`: Session identifier (Optional)
+- `backend`: Backend type (Optional)
+- `json`: Output in JSON format (Optional, Default: `false`)
+
+- `name`: Session name (Optional)
+- `task`: Task ID (Optional)
+- `description`: Task description for auto-creation (Optional)
+- `branch`: Git branch to use (Optional)
+- `repo`: Repository path (Optional)
+- `session`: Session identifier (Optional)
+- `json`: Output in JSON format (Optional, Default: `false`)
+- `quiet`: Suppress output (Optional, Default: `false`)
+- `noStatusUpdate`: Skip updating task status (Optional, Default: `false`)
+- `skipInstall`: Skip dependency installation (Optional, Default: `false`)
+- `packageManager`: Package manager to use (Optional)
+
+- `title`: PR title (Optional)
+- `body`: PR body content (Optional)
+- `bodyPath`: Path to file containing PR body (Optional)
+- `name`: Session name (Optional)
+- `task`: Task ID (Optional)
+- `repo`: Repository path (Optional)
+- `noStatusUpdate`: Skip updating task status (Optional, Default: `false`)
+- `debug`: Enable debug output (Optional, Default: `false`)
+- `skipUpdate`: Skip session update before PR (Optional, Default: `false`)
+- `autoResolveDeleteConflicts`: Automatically resolve delete conflicts (Optional, Default: `false`)
+- `skipConflictCheck`: Skip conflict detection (Optional, Default: `false`)

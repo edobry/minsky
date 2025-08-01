@@ -155,6 +155,44 @@ export function createMockFilesystem(
         }
       }
     }),
+    mkdtemp: createMock(async (prefix: unknown) => {
+      // Generate a unique temporary directory name
+      const timestamp = Date.now();
+      const random = Math.random().toString(36).substring(2, 8);
+      const tempDir = `${prefix}${timestamp}-${random}`;
+      directories.add(tempDir);
+      return tempDir;
+    }),
+    access: createMock(async (path: unknown) => {
+      if (!files.has(path as string) && !directories.has(path as string)) {
+        throw new Error(`ENOENT: no such file or directory, access '${path}'`);
+      }
+      // If file/directory exists, access succeeds (returns void)
+    }),
+    rm: createMock(async (path: unknown, options?: unknown) => {
+      const pathStr = path as string;
+      const opts = options as { recursive?: boolean; force?: boolean } | undefined;
+
+      // Remove the path itself
+      files.delete(pathStr);
+      directories.delete(pathStr);
+
+      // If recursive, remove all child paths
+      if (opts?.recursive) {
+        // Remove files
+        for (const filePath of Array.from(files.keys())) {
+          if (filePath.startsWith(`${pathStr}/`)) {
+            files.delete(filePath);
+          }
+        }
+        // Remove directories
+        for (const dirPath of Array.from(directories)) {
+          if (dirPath.startsWith(`${pathStr}/`)) {
+            directories.delete(dirPath);
+          }
+        }
+      }
+    }),
 
     // Access the internal state for validation in tests
     files: files,

@@ -29,7 +29,7 @@ export interface SessionRecord {
   branch?: string; // Branch property is already part of the interface
   prState?: {
     branchName: string;
-    exists: boolean;
+    commitHash: string; // Hash of the prepared merge commit
     lastChecked: string; // ISO timestamp
     createdAt?: string; // When PR branch was created
     mergedAt?: string; // When merged (for cleanup)
@@ -67,7 +67,7 @@ export interface Session {
   };
   prState?: {
     branchName: string;
-    exists: boolean;
+    commitHash: string; // Hash of the prepared merge commit
     lastChecked: string;
     createdAt?: string;
     mergedAt?: string;

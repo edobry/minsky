@@ -7,6 +7,8 @@
 import { z } from "zod";
 import {
   TaskIdSchema,
+  QualifiedTaskIdSchema,
+  NormalizedTaskIdSchema,
   BackendIdSchema,
   RepoIdSchema,
   WorkspacePathSchema,
@@ -175,6 +177,107 @@ export const TaskSpecParametersSchema = z
   .merge(BaseExecutionContextSchema);
 
 // ========================
+// MULTI-BACKEND TASK PARAMETERS
+// ========================
+
+/**
+ * Multi-backend task creation parameters
+ */
+export const MultiBackendTaskCreateParametersSchema = z
+  .object({
+    title: TaskTitleSchema,
+    description: TaskDescriptionSchema,
+    descriptionPath: TaskDescriptionPathSchema,
+    priority: TaskPrioritySchema,
+    tags: TaskTagsSchema,
+    assignee: TaskAssigneeSchema,
+    dueDate: TaskDueDateSchema,
+    force: ForceSchema,
+    backend: BackendIdSchema.optional(), // Optional backend selection
+  })
+  .merge(BaseBackendParametersSchema);
+
+/**
+ * Multi-backend task update parameters
+ */
+export const MultiBackendTaskUpdateParametersSchema = z
+  .object({
+    taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
+    title: TaskTitleSchema.optional(),
+    description: TaskDescriptionSchema,
+    descriptionPath: TaskDescriptionPathSchema,
+    priority: TaskPrioritySchema.optional(),
+    status: TaskStatusSchema.optional(),
+    tags: TaskTagsSchema,
+    assignee: TaskAssigneeSchema,
+    dueDate: TaskDueDateSchema,
+    force: ForceSchema,
+  })
+  .merge(BaseBackendParametersSchema);
+
+/**
+ * Multi-backend task deletion parameters
+ */
+export const MultiBackendTaskDeleteParametersSchema = z
+  .object({
+    taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
+    force: ForceSchema,
+  })
+  .merge(BaseBackendParametersSchema);
+
+/**
+ * Multi-backend task retrieval parameters
+ */
+export const MultiBackendTaskGetParametersSchema = z
+  .object({
+    taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
+  })
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
+
+/**
+ * Multi-backend task listing parameters
+ */
+export const MultiBackendTaskListParametersSchema = z
+  .object({
+    status: TaskStatusSchema.optional(),
+    priority: TaskPrioritySchema.optional(),
+    assignee: TaskAssigneeSchema,
+    tags: TaskTagsSchema,
+    backend: BackendIdSchema.optional(), // Filter by specific backend
+    backends: z.array(BackendIdSchema).optional(), // Filter by multiple backends
+  })
+  .merge(BaseListingParametersSchema)
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
+
+/**
+ * Cross-backend task search parameters
+ */
+export const CrossBackendTaskSearchParametersSchema = z
+  .object({
+    query: z.string().min(1, "Search query cannot be empty"),
+    backends: z.array(BackendIdSchema).optional(), // Search specific backends
+    status: TaskStatusSchema.optional(),
+    priority: TaskPrioritySchema.optional(),
+  })
+  .merge(BaseListingParametersSchema)
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
+
+/**
+ * Task migration parameters
+ */
+export const TaskMigrationParametersSchema = z
+  .object({
+    sourceTaskId: QualifiedTaskIdSchema, // Must be qualified for migration
+    targetBackend: BackendIdSchema,
+    force: ForceSchema,
+  })
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
+
+// ========================
 // TASK RESPONSE SCHEMAS
 // ========================
 
@@ -265,6 +368,24 @@ export type TaskGetParameters = z.infer<typeof TaskGetParametersSchema>;
 export type TaskListParameters = z.infer<typeof TaskListParametersSchema>;
 export type TaskStatusUpdateParameters = z.infer<typeof TaskStatusUpdateParametersSchema>;
 export type TaskSpecParameters = z.infer<typeof TaskSpecParametersSchema>;
+
+// Multi-backend type exports
+export type MultiBackendTaskCreateParameters = z.infer<
+  typeof MultiBackendTaskCreateParametersSchema
+>;
+export type MultiBackendTaskUpdateParameters = z.infer<
+  typeof MultiBackendTaskUpdateParametersSchema
+>;
+export type MultiBackendTaskDeleteParameters = z.infer<
+  typeof MultiBackendTaskDeleteParametersSchema
+>;
+export type MultiBackendTaskGetParameters = z.infer<typeof MultiBackendTaskGetParametersSchema>;
+export type MultiBackendTaskListParameters = z.infer<typeof MultiBackendTaskListParametersSchema>;
+export type CrossBackendTaskSearchParameters = z.infer<
+  typeof CrossBackendTaskSearchParametersSchema
+>;
+export type TaskMigrationParameters = z.infer<typeof TaskMigrationParametersSchema>;
+
 export type BaseTaskData = z.infer<typeof BaseTaskDataSchema>;
 export type TaskOperationResponse = z.infer<typeof TaskOperationResponseSchema>;
 export type TaskListResponse = z.infer<typeof TaskListResponseSchema>;

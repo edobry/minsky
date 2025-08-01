@@ -9,5 +9,8 @@ export const DEFAULT_DEV_PORT = 3000;
 export const BYTES_PER_KB = 1024;
 export const HTTP_OK = 200;
 
+// Time constants
+export const MINUTE_IN_SECONDS = 60;
+
 // Timeout constants
 export const DEFAULT_TIMEOUT_MS = 30000;

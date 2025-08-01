@@ -51,8 +51,8 @@ describe("Session Git Clone Bug Regression Test", () => {
       clone: cloneSpy,
     });
 
-    // Add branch method not covered by centralized factory
-    (mockGitService as any).branch = branchSpy;
+    // Add branchWithoutSession method not covered by centralized factory
+    (mockGitService as any).branchWithoutSession = branchSpy;
 
     const mockTaskService = createMockTaskService();
 
@@ -126,8 +126,10 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     const mockGitService = createMockGitService({
       clone: cloneSpy,
-      branch: branchSpy,
     });
+
+    // Add branchWithoutSession method not covered by centralized factory
+    (mockGitService as any).branchWithoutSession = branchSpy;
 
     const mockTaskService = createMockTaskService();
 
@@ -179,10 +181,10 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Verify session record has correct data
     expect(addSessionSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        session: "task#160",
+        session: "task160",
         taskId: "160",
         repoUrl: "local/minsky",
-        repoPath: "/test/sessions/task#160",
+        repoName: "local/minsky",
       })
     );
   });

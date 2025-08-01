@@ -1,0 +1,523 @@
+[0m[1mbun test [0m[2mv1.2.15 (df017990)[0m
+🧪 **Testing Provider Selection Logic**
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 15ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400423-sntq7zgyp/src/test.ts: 3 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400448-vqvz6vovq/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 0
+Export statements fixed: 3
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400452-pxln8ls4k/src/test.ts: 3 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 2ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 3ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400467-qufj92ns9/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 3 files to process
+💾 Saving changes...
+✅ Saved 3 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 3
+Files modified: 3
+Import statements fixed: 2
+Export statements fixed: 1
+Total transformations: 3
+Processing time: 10ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400471-jw2k7p3up/src/app.ts: 1 imports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400471-jw2k7p3up/src/components/Button.ts: 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400471-jw2k7p3up/src/utils/index.ts: 1 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 1
+Total transformations: 3
+Processing time: 3ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400483-rff1u3qwv/src/test.ts: 2 imports, 1 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 1
+Export statements fixed: 1
+Total transformations: 2
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400489-n78ty6k0m/src/test.ts: 1 imports, 1 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 2ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 3
+Total transformations: 6
+Processing time: 4ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400505-kubnhpx0p/src/complex.ts: 3 imports, 3 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 2ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 0 files to process
+💾 Saving changes...
+✅ Saved 0 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 0
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 1ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 0 files to process
+💾 Saving changes...
+✅ Saved 0 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 0
+Files modified: 0
+Import statements fixed: 0
+Export statements fixed: 0
+Total transformations: 0
+Processing time: 0ms
+Success rate: 100.0%
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 10 files to process
+💾 Saving changes...
+✅ Saved 10 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 10
+Files modified: 10
+Import statements fixed: 10
+Export statements fixed: 10
+Total transformations: 20
+Processing time: 5ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file0.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file1.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file2.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file3.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file4.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file5.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file6.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file7.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file8.ts: 1 imports, 1 exports
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400519-bj4x2k7o8/src/file9.ts: 1 imports, 1 exports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 4ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400527-cx41gjufv/src/test.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400533-907tklhwj/src/typescript.ts: 3 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 1ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400536-m3swpenx5/src/component.tsx: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 2
+Export statements fixed: 0
+Total transformations: 2
+Processing time: 1ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400539-421cd6ml9/src/bun-example.ts: 2 imports
+
+✅ Import extension fixing completed!
+🚀 Starting import extension fixer...
+📁 Found 1 files to process
+💾 Saving changes...
+✅ Saved 1 files
+
+📊 Import Extension Fixer Report
+================================
+Files processed: 1
+Files modified: 1
+Import statements fixed: 3
+Export statements fixed: 0
+Total transformations: 3
+Processing time: 2ms
+Success rate: 100.0%
+
+🔧 Files with changes:
+  /private/var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/import-fixer-test-1754003400542-0g6mrvk4z/src/nested/deep/component.ts: 3 imports
+
+✅ Import extension fixing completed!
+{"level":"error","message":"Invalid repository path: /definitely/does/not/exist/path/12345","timestamp":"2025-07-31T23:10:01.058Z"}
+{"error":"Git check-status failed: Command failed: git -C /tmp status --porcelain\nfatal: not a git repository (or any of the parent directories): .git\n\n\nCommand: git -C /tmp status --porcelain\nWorking directory: /tmp\nExecution time: 10ms","level":"error","message":"Auto-commit: Failed to commit task changes test commit","timestamp":"2025-07-31T23:10:01.073Z","workspacePath":"/tmp"}
+{"error":"Session parameter required for MCP interface.\n\nPlease provide one of:\n  session: \"task#158\"     // Session name\n  name: \"task#158\"        // Session name (alternative)\n  task: \"158\"            // Task ID\n\nExamples:\n  session.pr({ session: \"task#158\", title: \"Fix bug\" })\n  session.pr({ name: \"task#158\", title: \"Fix bug\" })\n  session.pr({ task: \"158\", title: \"Fix bug\" })\n\n💡 MCP tools don't auto-detect session context like CLI commands do.","interfaceType":"mcp","level":"error","message":"Session context resolution failed","params":{"title":"test"},"timestamp":"2025-07-31T23:10:01.132Z"}
+{"error":"No session context available.\n\nInterface: cli\nParameters: {\n  \"title\": \"test\"\n}\nWorking Directory: /Users/edobry/Projects/minsky\n\nTry running this command from a session workspace, or provide --name <session>","interfaceType":"cli","level":"error","message":"Session context resolution failed","params":{"title":"test"},"timestamp":"2025-07-31T23:10:01.132Z","workingDir":"/Users/edobry/Projects/minsky"}
+{"error":"Workdir is required for git clone operation","level":"error","message":"Error during git clone","repoUrl":"https://github.com/nonexistent/invalid-repo-12345.git","stack":"Error: Workdir is required for git clone operation\n    at cloneImpl (/Users/edobry/.local/state/minsky/sessions/task176/src/domain/git/clone-operations.ts:65:17)\n    at cloneImpl (/Users/edobry/.local/state/minsky/sessions/task176/src/domain/git/clone-operations.ts:40:3)\n    at processTicksAndRejections (native:7:39)","timestamp":"2025-07-31T23:10:01.214Z"}
+{"error":"Command failed","level":"error","message":"Could not determine default branch, falling back to 'main'","repoPath":"/test/repo","timestamp":"2025-07-31T23:10:01.273Z"}
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-3xVcuq/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-tjxLlu/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 2 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-xPLWiG/test.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 2
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+🎯 Variable Naming Fix Results:
+   Files processed: 0/1
+   Total fixes applied: 0
+   Success rate: 0.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 2 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-xcQ3cB/mixed.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 2
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 2 fixes
+🏷️  Processing 1 TypeScript files for variable naming fixes...
+✅ Fixed 1 naming issues in /var/folders/qg/bbhkjbqd5mx5ff1qhw0sctfc0000gn/T/variable-naming-test-GJHROR/complex-syntax.ts
+
+🎯 Variable Naming Fix Results:
+   Files processed: 1/1
+   Total fixes applied: 1
+   Success rate: 100.0%
+
+📊 Fix type breakdown:
+   underscore-prefix-mismatch: 1 fixes
+Custom config load time: 2ms
+Average access time: 0.000ms per operation

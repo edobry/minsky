@@ -1,0 +1,82 @@
+---
+description: Zero tolerance policy for skipped tests - every test must pass or be deleted
+---
+
+# No Skipped Tests Policy
+
+## Core Principle
+
+**CRITICAL RULE: NO SKIPPED TESTS ALLOWED**
+
+Every test in the codebase MUST either:
+1. **PASS** - Function correctly with proper mocking/setup
+2. **BE DELETED** - If testing obsolete/unused code
+
+**NEVER SKIP TESTS** - Skipped tests provide zero value and create false confidence.
+
+## Enforcement Protocol
+
+When encountering skipped tests:
+
+1. **Investigate the reason** for skipping
+2. **If code is still used**: Fix the test with proper mocking/DI
+3. **If code is obsolete**: Delete the test entirely
+4. **If unsure**: Ask for clarification, but NEVER leave it skipped
+
+## Common Patterns to Fix, Not Skip
+
+- **"Real operations"** → Use dependency injection and mocking
+- **"Integration tests"** → Mock external dependencies (filesystem, git, APIs)
+- **"Legacy code"** → Either fix the test or remove obsolete code entirely
+- **"Complex scenarios"** → Break down into mockable components
+
+## Examples of Proper Fixes
+
+```typescript
+// ❌ WRONG: Skipping because it uses real git operations
+test.skip("should detect conflicts in real git repository", () => {
+
+// ✅ RIGHT: Mock the git operations
+test("should detect conflicts in git repository", () => {
+  const mockGitService = createMockGitService();
+  // ... proper test with mocks
+});
+```
+
+## Success Metrics
+
+- **Current skipped tests**: Must trend to 0
+- **New tests**: NEVER allowed to be skipped
+- **Test suite health**: 100% pass rate with 0 skips
+
+## Rationale
+
+- Skipped tests rot and become useless over time
+- They provide false confidence in test coverage
+- They hide real issues that should be addressed
+- They violate the principle that "if it's worth testing, it's worth fixing"
+
+**Remember: A skipped test is a broken test that we're ignoring.**
+
+## Critical Violation: "Too Complex to Fix"
+
+**NEVER claim any test is "too complex to fix"**
+
+### Documented Failure Pattern
+**Pattern**: Claiming tests are "too complex to fix" and deleting them instead of fixing
+**User Signal**: "there is no such thing as 'too complex to fix', you must NEVER SAY THAT AGAIN"
+**Root Cause**: Process Error - giving up instead of systematically solving problems
+
+### Required Response
+1. **Stop making complexity excuses immediately**
+2. **NEVER delete or skip tests because they seem "complex"**
+3. **Break down complex problems into manageable steps**
+4. **Fix EVERYTHING, no matter how complex**
+
+### Problem-Solving Approach
+- **Command registry issues** → Mock the command registry properly
+- **Complex dependencies** → Use dependency injection and mocking
+- **Integration complexity** → Break down into isolated unit tests
+- **Setup complexity** → Create proper test fixtures and helpers
+
+**CRITICAL**: No problem is too complex to fix. Every test must pass or the code it tests must not exist.

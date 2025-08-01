@@ -22,21 +22,37 @@ export class TaskService {
   private backends: TaskBackend[] = [];
   private currentBackend: TaskBackend;
 
-  constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = (process as any).cwd(), backend = "markdown" } = options;
+  constructor(options: TaskServiceOptions & { backendType?: string; dbFilePath?: string } = {}) {
+    const { workspacePath = (process as any).cwd(), backend, backendType, dbFilePath } = options;
+
+    // Support both 'backend' and 'backendType' for backwards compatibility
+    const selectedBackendType = backend || backendType || "markdown";
 
     // Initialize backends
-    this.backends = [
-      new MarkdownTaskBackend(workspacePath),
-      new GitHubTaskBackend(workspacePath),
-      createJsonFileTaskBackend({ name: "json-file", workspacePath }),
-    ];
+    if (selectedBackendType === "json") {
+      this.backends = [
+        createJsonFileTaskBackend({
+          name: "json-file",
+          workspacePath,
+          dbFilePath,
+        }),
+        new MarkdownTaskBackend(workspacePath),
+        new GitHubTaskBackend(workspacePath),
+      ];
+    } else {
+      this.backends = [
+        new MarkdownTaskBackend(workspacePath),
+        new GitHubTaskBackend(workspacePath),
+        createJsonFileTaskBackend({ name: "json-file", workspacePath }),
+      ];
+    }
 
     // Set current backend
-    const selectedBackend = this.backends.find((b) => b.name === backend);
+    const currentBackendName = selectedBackendType === "json" ? "json-file" : selectedBackendType;
+    const selectedBackend = this.backends.find((b) => b.name === currentBackendName);
     if (!selectedBackend) {
       throw new Error(
-        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
+        `Backend '${currentBackendName}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
       );
     }
     this.currentBackend = selectedBackend;
@@ -64,6 +80,14 @@ export class TaskService {
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
     return this.currentBackend.createTask(specPath, options);
+  }
+
+  async createTaskFromTitleAndDescription(
+    title: string,
+    description: string,
+    options: CreateTaskOptions = {}
+  ): Promise<Task> {
+    return this.currentBackend.createTaskFromTitleAndDescription(title, description, options);
   }
 
   /**

@@ -203,8 +203,20 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       log.cli(result.message);
     } else if (result.success !== undefined) {
       log.cli(result.success ? "✅ Success" : "❌ Failed");
+
+      // Handle single error
       if (result.error) {
         log.cli(`Error: ${result.error}`);
+      }
+
+      // Handle error array (e.g., from rules generate command)
+      if (result.errors && Array.isArray(result.errors) && result.errors.length > 0) {
+        log.cli("Errors:");
+        result.errors.forEach((error: any, index: number) => {
+          const errorMsg =
+            typeof error === "string" ? error : error.message || JSON.stringify(error);
+          log.cli(`  ${index + 1}. ${errorMsg}`);
+        });
       }
     } else {
       // Fall back to JSON representation

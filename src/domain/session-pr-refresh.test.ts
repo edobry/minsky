@@ -111,9 +111,7 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should create new PR when no existing PR and title provided", async () => {
       // Mock PR branch doesn't exist
-      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")) = mock(() =>
-        Promise.resolve("")
-      ); // remote branch check (empty = doesn't exist)
+      mockGitService.execInRepository = mock(() => Promise.resolve("")); // remote branch check (empty = doesn't exist)
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({
@@ -141,9 +139,7 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should error when no existing PR and no title provided", async () => {
       // Mock PR branch doesn't exist
-      mockGitService.execInRepository = mock(() => Promise.resolve("not-exists")) = mock(() =>
-        Promise.resolve("")
-      ); // remote branch check (empty = doesn't exist)
+      mockGitService.execInRepository = mock(() => Promise.resolve("")); // remote branch check (empty = doesn't exist)
 
       await expect(
         sessionPrFromParams({
@@ -164,11 +160,8 @@ describe.skip("Session PR Refresh Functionality", () => {
     it("should error when PR exists but cannot extract description", async () => {
       // Mock PR branch exists but description extraction fails
       mockGitService.execInRepository = mock(() =>
-        Promise.resolve("not-exists")
-      ).mockImplementationOnce(() =>
         Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-      ) = // remote branch check
-        mock(() => Promise.reject(new Error("Git command failed"))); // get commit message fails
+      ); // remote branch check shows PR exists
 
       await expect(
         sessionPrFromParams({
@@ -184,16 +177,15 @@ describe.skip("Session PR Refresh Functionality", () => {
   describe("Title/Body Extraction", () => {
     it("should correctly parse commit message with title and body", async () => {
       // Mock PR branch exists with multi-line commit message
-      mockGitService.execInRepository = mock(() =>
-        Promise.resolve("not-exists")
-      ).mockImplementationOnce(() =>
-        Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-      ) = // remote branch check
-        mock(() =>
+      const execMock = mock(() => Promise.resolve("not-exists"))
+        .mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
+        .mockImplementationOnce(() =>
           Promise.resolve(
             "feat(#231): Add new feature\n\nThis is the detailed description\nwith multiple lines"
           )
         ); // get commit message
+
+      mockGitService.execInRepository = execMock;
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({
@@ -214,12 +206,11 @@ describe.skip("Session PR Refresh Functionality", () => {
 
     it("should handle commit message with title only", async () => {
       // Mock PR branch exists with single-line commit message
-      mockGitService.execInRepository = mock(() =>
-        Promise.resolve("not-exists")
-      ).mockImplementationOnce(() =>
-        Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-      ) = // remote branch check
-        mock(() => Promise.resolve("feat(#231): Simple title only")); // get commit message
+      const execMock = mock(() => Promise.resolve("not-exists"))
+        .mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
+        .mockImplementationOnce(() => Promise.resolve("feat(#231): Simple title only")); // get commit message
+
+      mockGitService.execInRepository = execMock;
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({
@@ -242,12 +233,14 @@ describe.skip("Session PR Refresh Functionality", () => {
   describe("Schema Validation", () => {
     it("should accept optional title parameter", async () => {
       // Mock PR branch exists
-      mockGitService.execInRepository
+      const execMock = mock(() => Promise.resolve("not-exists"))
         .mockImplementationOnce(() => Promise.resolve("not-exists"))
+        .mockImplementationOnce(() => Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")) // remote branch check
         .mockImplementationOnce(() =>
-          Promise.resolve("refs/heads/pr/task#231\torigin/pr/task#231")
-        ) = // remote branch check
-        mock(() => Promise.resolve("feat(#231): Existing title\n\nExisting body")); // get commit message
+          Promise.resolve("feat(#231): Existing title\n\nExisting body")
+        ); // get commit message
+
+      mockGitService.execInRepository = execMock;
 
       mockPreparePrFromParams = mock(() =>
         Promise.resolve({

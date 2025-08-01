@@ -126,7 +126,10 @@ export class SemanticErrorClassifier {
     } else {
       // For read operations, this is typically a file not found issue
       // unless the error message specifically mentions directory operations
-      isDirectoryIssue = errorMessage.includes("mkdir") || errorMessage.includes("directory");
+      // Note: Ignore the standard "no such file or directory" phrase in ENOENT messages
+      isDirectoryIssue =
+        errorMessage.includes("mkdir") ||
+        (errorMessage.includes("directory") && !errorMessage.includes("no such file or directory"));
     }
 
     const mappingKey = isDirectoryIssue ? "ENOENT_DIR" : "ENOENT_FILE";

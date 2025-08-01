@@ -24,6 +24,8 @@ export * from "./validation-utils";
 export {
   // Common identifiers
   TaskIdSchema,
+  QualifiedTaskIdSchema,
+  NormalizedTaskIdSchema,
   SessionIdSchema,
   RepoIdSchema,
   BackendIdSchema,
@@ -55,6 +57,15 @@ export {
   TaskSpecParametersSchema,
   TaskStatusUpdateParametersSchema,
 
+  // Multi-backend task operation schemas
+  MultiBackendTaskCreateParametersSchema,
+  MultiBackendTaskUpdateParametersSchema,
+  MultiBackendTaskDeleteParametersSchema,
+  MultiBackendTaskGetParametersSchema,
+  MultiBackendTaskListParametersSchema,
+  CrossBackendTaskSearchParametersSchema,
+  TaskMigrationParametersSchema,
+
   // Task response schemas
   TaskOperationResponseSchema,
   TaskListResponseSchema,
@@ -70,6 +81,15 @@ export {
   type TaskDeleteParameters,
   type TaskSpecParameters,
   type TaskStatusUpdateParameters,
+
+  // Multi-backend task types
+  type MultiBackendTaskCreateParameters,
+  type MultiBackendTaskUpdateParameters,
+  type MultiBackendTaskDeleteParameters,
+  type MultiBackendTaskGetParameters,
+  type MultiBackendTaskListParameters,
+  type CrossBackendTaskSearchParameters,
+  type TaskMigrationParameters,
 } from "./task-schemas";
 
 export {

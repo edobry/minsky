@@ -23,8 +23,66 @@ import {
 } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
+import type { SessionRecord } from "./types";
 import { updatePrStateOnMerge } from "./session-update-operations";
 import { createRepositoryBackendForSession } from "./repository-backend-detection";
+import {
+  createRepositoryBackend,
+  RepositoryBackendType,
+  type RepositoryBackend,
+  type RepositoryBackendConfig,
+} from "../repository/index";
+
+/**
+ * Create repository backend from session record's stored configuration
+ * instead of auto-detecting from git remote
+ */
+async function createRepositoryBackendFromSession(
+  sessionRecord: SessionRecord
+): Promise<RepositoryBackend> {
+  // Determine backend type from session configuration
+  let backendType: RepositoryBackendType;
+
+  if (sessionRecord.backendType) {
+    // Use explicitly set backend type
+    switch (sessionRecord.backendType) {
+      case "github":
+        backendType = RepositoryBackendType.GITHUB;
+        break;
+      case "remote":
+        backendType = RepositoryBackendType.REMOTE;
+        break;
+      case "local":
+      default:
+        backendType = RepositoryBackendType.LOCAL;
+        break;
+    }
+  } else {
+    // Infer backend type from repoUrl format for backward compatibility
+    if (sessionRecord.repoUrl.startsWith("/") || sessionRecord.repoUrl.startsWith("file://")) {
+      backendType = RepositoryBackendType.LOCAL;
+    } else if (sessionRecord.repoUrl.includes("github.com")) {
+      backendType = RepositoryBackendType.GITHUB;
+    } else {
+      backendType = RepositoryBackendType.REMOTE;
+    }
+  }
+
+  const config: RepositoryBackendConfig = {
+    type: backendType,
+    repoUrl: sessionRecord.repoUrl,
+  };
+
+  // Add GitHub-specific configuration if available
+  if (backendType === RepositoryBackendType.GITHUB && sessionRecord.github) {
+    config.github = {
+      owner: sessionRecord.github.owner || "",
+      repo: sessionRecord.github.repo || "",
+    };
+  }
+
+  return await createRepositoryBackend(config);
+}
 
 /**
  * Approves a session by merging its PR branch into the main branch
@@ -49,6 +107,7 @@ export async function approveSessionImpl(
     };
     workspaceUtils?: any;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
+    createRepositoryBackend?: (sessionRecord: SessionRecord) => Promise<RepositoryBackend>;
   }
 ): Promise<{
   session: string;
@@ -266,13 +325,15 @@ The task exists but has no associated session to approve.
   let mergedBy: string = "";
 
   try {
-    // Use repository backend to handle merging instead of direct git commands
+    // Use repository backend from session configuration instead of auto-detecting
     if (!params.json) {
-      log.cli("🔍 Auto-detecting repository backend...");
+      log.cli("🔍 Using session's repository configuration...");
     }
 
-    // Create repository backend based on current repository
-    const repositoryBackend = await createRepositoryBackendForSession(workingDirectory);
+    // Create repository backend from session record's stored configuration
+    const createBackendFn =
+      depsInput?.createRepositoryBackend || createRepositoryBackendFromSession;
+    const repositoryBackend = await createBackendFn(sessionRecord);
     const backendType = repositoryBackend.getType();
 
     if (!params.json) {
@@ -321,13 +382,33 @@ The task exists but has no associated session to approve.
     }
 
     // Use repository backend to merge the pull request
-    const mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+    let mergeResult;
+    try {
+      mergeResult = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+      isNewlyApproved = true;
+    } catch (mergeError) {
+      const errorMessage = getErrorMessage(mergeError);
+
+      // Handle "Already up to date" as a successful case - PR was already merged
+      if (errorMessage.includes("Already up to date")) {
+        log.debug("PR is already merged, treating as successful approval");
+        // Create a mock merge result for already-merged PR
+        mergeResult = {
+          commitHash: "already-merged",
+          mergeDate: new Date().toISOString(),
+          mergedBy: "already-merged",
+        };
+        isNewlyApproved = false; // Not newly approved, just already merged
+      } else {
+        // For any other merge error, re-throw to maintain existing behavior
+        throw mergeError;
+      }
+    }
 
     // Extract merge information from repository backend response
     commitHash = mergeResult.commitHash;
     mergeDate = mergeResult.mergeDate;
     mergedBy = mergeResult.mergedBy;
-    isNewlyApproved = true;
 
     if (!params.json) {
       if (backendType === "github") {
@@ -492,6 +573,23 @@ The task exists but has no associated session to approve.
           );
         }
         // Don't fail the entire operation if stash restoration fails
+      }
+    }
+
+    // Clean up local branches after successful merge
+    if (isNewlyApproved) {
+      try {
+        await cleanupLocalBranches(
+          deps.gitService,
+          workingDirectory,
+          prBranch,
+          sessionNameToUse,
+          taskId
+        );
+        log.debug("Successfully cleaned up local branches after merge");
+      } catch (cleanupError) {
+        // Log but don't fail the operation if cleanup fails
+        log.debug(`Branch cleanup failed (non-critical): ${getErrorMessage(cleanupError)}`);
       }
     }
 

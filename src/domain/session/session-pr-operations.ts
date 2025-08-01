@@ -21,6 +21,7 @@ import { createRepositoryBackendForSession } from "./repository-backend-detectio
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
+  createRepositoryBackend?: (sessionRecord: any) => Promise<any>;
 }
 
 /**
@@ -49,6 +50,13 @@ export async function sessionPrImpl(
       throw new ValidationError(message);
     }
     throw error;
+  }
+
+  // STEP 0.5: Validate that PR has a body or bodyPath (for new PRs)
+  if (!params.body && !params.bodyPath) {
+    throw new ValidationError(
+      "PR description is required. Please provide either --body or --body-path."
+    );
   }
 
   // STEP 1: Validate we're in a session workspace and on a session branch
@@ -207,7 +215,9 @@ Please provide a title for your pull request:
     log.cli("🔍 Auto-detecting repository backend...");
 
     // Create repository backend based on current repository
-    const repositoryBackend = await createRepositoryBackendForSession(currentDir);
+    const createBackendFn =
+      deps.createRepositoryBackend || (() => createRepositoryBackendForSession(currentDir));
+    const repositoryBackend = await createBackendFn(sessionName);
     const backendType = repositoryBackend.getType();
 
     log.cli(`📦 Using ${backendType} repository backend`);

@@ -58,7 +58,7 @@ You should still bias towards repeating as few lines of the original file as pos
 DO NOT omit spans of pre-existing code (or comments) without using the // ... existing code ... comment to indicate its absence. If you omit the existing code comment, the model may inadvertently delete these lines.
 If you plan on deleting a section, you must provide context before and after to delete it. If the initial code is \`code
 Block 1
-Block 2  
+Block 2
 Block 3
 code\`, and you want to remove Block 2, you would output \`// ... existing code ...
 Block 1
@@ -118,17 +118,13 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           contentLength: finalContent.length,
         });
 
-        return createSuccessResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-          },
-          {
-            edited: true,
-            created: !fileExists,
-            bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
-          }
-        );
+        return createSuccessResponse({
+          path: args.path,
+          session: args.sessionName,
+          edited: true,
+          created: !fileExists,
+          bytesWritten: Buffer.from(finalContent, "utf8").byteLength,
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file edit failed", {
@@ -187,18 +183,14 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
           replaceLength: args.replace.length,
         });
 
-        return createSuccessResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-          },
-          {
-            edited: true,
-            replaced: true,
-            searchText: args.search,
-            replaceText: args.replace,
-          }
-        );
+        return createSuccessResponse({
+          path: args.path,
+          session: args.sessionName,
+          edited: true,
+          replaced: true,
+          searchText: args.search,
+          replaceText: args.replace,
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session search replace failed", {

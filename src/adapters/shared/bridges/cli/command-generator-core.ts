@@ -6,7 +6,8 @@
  */
 import { Command } from "commander";
 import { log } from "../../../../utils/logger";
-import { handleCliError, outputResult } from "../../../cli/utils/index";
+import { handleCliError } from "../../../cli/utils/error-handler";
+import { outputResult } from "../../../cli/utils/index";
 import {
   sharedCommandRegistry,
   type CommandExecutionContext,

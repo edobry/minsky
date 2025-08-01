@@ -129,7 +129,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
-    console.error("DEBUG markdownTaskBackend setTaskStatus called with:", { id, status });
+    log.debug("markdownTaskBackend setTaskStatus called", { id, status });
 
     const result = await this.getTasksData();
     if (!result.success || !result.content) {
@@ -137,10 +137,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     const tasks = this.parseTasks(result.content);
-    console.error("DEBUG stored task IDs:", tasks.map((t) => t.id).slice(0, 5));
+    log.debug("stored task IDs", { taskIds: tasks.map((t) => t.id).slice(0, 5) });
 
     const taskIndex = tasks.findIndex((task) => task.id === id);
-    console.error("DEBUG findIndex result:", { searchId: id, taskIndex, found: taskIndex !== -1 });
+    log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
       throw new Error(`Task with id ${id} not found`);
@@ -205,7 +205,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           await gitService.execInRepository(workdir, "git add -A");
 
           // Commit with conventional commit message
-          const commitMessage = `chore(#${id}): update task status ${previousStatus} → ${status}`;
+          const commitMessage = `chore(${id}): update task status ${previousStatus} → ${status}`;
           await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
 
           log.cli("📤 Pushing changes...");
@@ -267,8 +267,8 @@ export class MarkdownTaskBackend implements TaskBackend {
       return id !== null && id > max ? id : max;
     }, 0);
 
-    // TASK 283: Generate plain ID format for storage (e.g., "285" instead of "#285")
-    const newId = String(maxId + 1); // Plain format for storage
+    // Generate qualified backend ID for multi-backend storage (e.g., "md#285")
+    const newId = `md#${maxId + 1}`; // Qualified format for storage
 
     // Generate proper spec path and move the temporary file
     // Use display format for spec path generation since filenames use display format

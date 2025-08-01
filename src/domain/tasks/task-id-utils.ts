@@ -8,54 +8,79 @@
  */
 
 /**
- * Normalize task ID input for storage (removes # prefix, validates format)
+ * Normalize task ID input for storage using unified task ID system
+ * Supports both legacy formats and qualified backend IDs
  *
- * @param userInput Task ID from user input (can be "283", "#283", "task#283", etc.)
- * @returns Plain task ID for storage (e.g., "283") or null if invalid
+ * @param userInput Task ID from user input (can be "283", "#283", "md#367", etc.)
+ * @returns Normalized task ID for storage or null if invalid
  */
 export function normalizeTaskIdForStorage(userInput: string): string | null {
   if (!userInput || typeof userInput !== "string") {
     return null;
   }
 
-  let normalized = userInput.trim();
+  // Use unified task ID system for consistent handling
+  const {
+    isQualifiedTaskId,
+    isLegacyTaskId,
+    migrateUnqualifiedTaskId,
+  } = require("./unified-task-id");
 
-  // Handle formats like "task#283" or "task#64"
+  const trimmed = userInput.trim();
+
+  // If it's a qualified ID (md#367), return as-is
+  if (isQualifiedTaskId(trimmed)) {
+    return trimmed;
+  }
+
+  // If it's a legacy format, migrate it
+  if (isLegacyTaskId(trimmed)) {
+    return migrateUnqualifiedTaskId(trimmed, "md");
+  }
+
+  // Handle legacy numeric-only format
+  let normalized = trimmed;
+
+  // Handle formats like "task#283"
   if (normalized.toLowerCase().startsWith("task#")) {
     normalized = normalized.substring(5);
   }
 
-  // Remove all leading '#' characters to get plain format
+  // Remove leading '#' characters for legacy format
   while (normalized.startsWith("#")) {
     normalized = normalized.substring(1);
   }
 
-  // Check if the result is valid (numeric only for now)
-  if (!/^\d+$/.test(normalized) || normalized.length === 0) {
-    return null;
+  // Check if the result is numeric (legacy format)
+  if (/^\d+$/.test(normalized) && normalized.length > 0) {
+    return `#${normalized}`; // Return legacy format with # prefix
   }
 
-  // Return plain format for storage (no # prefix)
-  return normalized;
+  return null;
 }
 
 /**
- * Format task ID for display (adds # prefix)
+ * Format task ID for display (shows qualified backend ID)
  *
- * @param storageId Plain task ID from storage (e.g., "283")
- * @returns Formatted task ID for display (e.g., "#283")
+ * @param storageId Task ID from storage (e.g., "md#356", "gh#123", or legacy "283")
+ * @returns Formatted task ID for display (e.g., "md#356", "gh#123", or "#283" for legacy)
  */
 export function formatTaskIdForDisplay(storageId: string): string {
   if (!storageId || typeof storageId !== "string") {
     return "";
   }
 
-  // If already has # prefix, return as-is
+  // If it's a qualified backend ID (md#123, gh#456), return as-is for multi-backend display
+  if (/^[a-z-]+#\d+$/.test(storageId)) {
+    return storageId;
+  }
+
+  // If it already has # prefix (legacy #123), return as-is
   if (storageId.startsWith("#")) {
     return storageId;
   }
 
-  // Add # prefix for display
+  // For plain numeric IDs (legacy), add # prefix for backward compatibility
   return `#${storageId}`;
 }
 

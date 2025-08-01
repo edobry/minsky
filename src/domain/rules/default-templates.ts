@@ -135,7 +135,7 @@ ${helpers.command("session.dir")}
 1. **Create Session**: Use session.start with task ID
 2. **Work in Session**: All code changes happen in the session directory
 3. **Regular Commits**: Commit changes frequently
-4. **Create PR**: Use session.pr when ready for review
+4. **Create PR**: Use session.pr.create when ready for review
 5. **Update Status**: Set task status to IN-REVIEW
 
 ### 4. Review & Completion
@@ -145,7 +145,7 @@ ${helpers.conditionalSection(
   isCliMode || isHybridMode,
   `
 \`\`\`bash
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 `,
   ""
@@ -154,7 +154,7 @@ ${helpers.conditionalSection(
   isMcpMode || isHybridMode,
   `
 \`\`\`
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 `,
   ""
@@ -194,7 +194,7 @@ ${helpers.parameterDoc("tasks.list")}
 
 ${helpers.parameterDoc("session.start")}
 
-${helpers.parameterDoc("session.pr")}
+${helpers.parameterDoc("session.pr.create")}
 `;
   },
   generateMeta: (context) => ({
@@ -281,16 +281,32 @@ These rules standardize the development environment:
 ## Command Reference Quick Guide
 
 ### Task Management Commands
-- **List tasks**: ${helpers.command("tasks.list")} - query available tasks
-- **Get task details**: ${helpers.command("tasks.get")} - retrieve task information
-- **Check status**: ${helpers.command("tasks.status.get")} - check task status
-- **Update status**: ${helpers.command("tasks.status.set")} - update task status
 
-### Session Management Commands  
-- **List sessions**: ${helpers.command("session.list")} - view all sessions
-- **Start session**: ${helpers.command("session.start")} - create new session
-- **Get session info**: ${helpers.command("session.get")} - retrieve session details
-- **Get session directory**: ${helpers.command("session.dir")} - get session path
+#### List Tasks
+${helpers.readableCommand("tasks.list", "Query available tasks")}
+
+#### Get Task Details
+${helpers.readableCommand("tasks.get", "Retrieve task information")}
+
+#### Check Task Status
+${helpers.readableCommand("tasks.status.get", "Check task status")}
+
+#### Update Task Status
+${helpers.readableCommand("tasks.status.set", "Update task status")}
+
+### Session Management Commands
+
+#### List Sessions
+${helpers.readableCommand("session.list", "View all sessions")}
+
+#### Start Session
+${helpers.readableCommand("session.start", "Create new session")}
+
+#### Get Session Info
+${helpers.readableCommand("session.get", "Retrieve session details")}
+
+#### Get Session Directory
+${helpers.readableCommand("session.dir", "Get session path")}
 
 ${helpers.conditionalSection(context.config.interface === "mcp", "mcp,hybrid", "")}
 
@@ -303,7 +319,7 @@ ${helpers.conditionalSection(context.config.interface === "cli", "cli,hybrid", "
 When a developer first joins the project, they should focus on:
 
 1. **minsky-workflow** - Understand the overall process
-2. **session-first-workflow** - Learn the critical session creation requirements  
+2. **session-first-workflow** - Learn the critical session creation requirements
 3. **creating-tasks** - Know how to document new work
 4. **module-organization** & **command-organization** - Understand the codebase structure
 
@@ -402,24 +418,52 @@ This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent i
 ## Available MCP Tools
 
 ### Task Management
-- ${helpers.command("tasks.list")} - list all tasks
-- ${helpers.command("tasks.get")} - get task by ID
-- ${helpers.command("tasks.status.get")} - check task status
-- ${helpers.command("tasks.status.set")} - update task status
-- ${helpers.command("tasks.create")} - create new task
+
+#### List All Tasks
+${helpers.readableCommand("tasks.list", "List all tasks")}
+
+#### Get Task by ID
+${helpers.readableCommand("tasks.get", "Get task by ID")}
+
+#### Check Task Status
+${helpers.readableCommand("tasks.status.get", "Check task status")}
+
+#### Update Task Status
+${helpers.readableCommand("tasks.status.set", "Update task status")}
+
+#### Create New Task
+${helpers.readableCommand("tasks.create", "Create new task")}
 
 ### Session Management
-- ${helpers.command("session.list")} - list all sessions
-- ${helpers.command("session.get")} - get session details
-- ${helpers.command("session.start")} - create new session
-- ${helpers.command("session.dir")} - get session directory
-- ${helpers.command("session.pr")} - create pull request
+
+#### List All Sessions
+${helpers.readableCommand("session.list", "List all sessions")}
+
+#### Get Session Details
+${helpers.readableCommand("session.get", "Get session details")}
+
+#### Create New Session
+${helpers.readableCommand("session.start", "Create new session")}
+
+#### Get Session Directory
+${helpers.readableCommand("session.dir", "Get session directory")}
+
+#### Create Pull Request
+${helpers.readableCommand("session.pr.create", "Create pull request")}
 
 ### Rules Management
-- ${helpers.command("rules.list")} - list all rules
-- ${helpers.command("rules.get")} - get rule by ID
-- ${helpers.command("rules.create")} - create new rule
-- ${helpers.command("rules.update")} - update existing rule
+
+#### List All Rules
+${helpers.readableCommand("rules.list", "List all rules")}
+
+#### Get Rule by ID
+${helpers.readableCommand("rules.get", "Get rule by ID")}
+
+#### Create New Rule
+${helpers.readableCommand("rules.create", "Create new rule")}
+
+#### Update Existing Rule
+${helpers.readableCommand("rules.update", "Update existing rule")}
 
 ## Usage Examples
 
@@ -429,7 +473,7 @@ ${helpers.command("tasks.list")}
 ${helpers.codeBlock(`taskId: "#123"\\n${helpers.command("tasks.get")}`, "bash")}
 \`\`\`
 
-### Session Management Example  
+### Session Management Example
 \`\`\`
 ${helpers.codeBlock(`task: "#123"\\n${helpers.command("session.start")}`, "bash")}
 ${helpers.codeBlock(`name: "task#123"\\n${helpers.command("session.dir")}`, "bash")}
@@ -475,7 +519,7 @@ This rule provides an overview of the Minsky workflow system and serves as an en
 The following rules form the complete Minsky workflow system:
 
 1. [**minsky-cli-usage**](mdc:.cursor/rules/minsky-cli-usage.mdc) - Guidelines for using the Minsky CLI for all task and session operations
-2. [**minsky-session-management**](mdc:.cursor/rules/minsky-session-management.mdc) - Procedures for creating and managing sessions  
+2. [**minsky-session-management**](mdc:.cursor/rules/minsky-session-management.mdc) - Procedures for creating and managing sessions
 3. [**task-implementation-workflow**](mdc:.cursor/rules/task-implementation-workflow.mdc) - Step-by-step process for implementing tasks
 4. [**task-status-protocol**](mdc:.cursor/rules/task-status-protocol.mdc) - Procedures for checking and updating task status
 5. [**pr-preparation-workflow**](mdc:.cursor/rules/pr-preparation-workflow.mdc) - Guidelines for preparing and submitting PRs
@@ -485,7 +529,7 @@ The following rules form the complete Minsky workflow system:
 **CRITICAL REQUIREMENT**: ALL task and session management MUST be done through the appropriate interface commands, not through direct file system operations. This includes:
 
 - Task listing, status checking, and status updates
-- Session creation, navigation, and management  
+- Session creation, navigation, and management
 - Task implementation and verification
 - PR preparation and submission
 
@@ -634,7 +678,7 @@ This rule provides a comprehensive workflow for implementing tasks from start to
 Before starting any task implementation, ensure:
 
 1. **Task exists and is properly specified** - Use ${helpers.command("tasks.get")} to verify
-2. **Task status is appropriate** - Check with ${helpers.command("tasks.status.get")} 
+2. **Task status is appropriate** - Check with ${helpers.command("tasks.status.get")}
 3. **You understand the requirements** - Review task specification thoroughly
 
 ## Implementation Workflow
@@ -697,7 +741,7 @@ Before starting any task implementation, ensure:
    - This indicates implementation is complete and ready for review
 
 2. **Create Pull Request**
-   - Generate PR using session PR command: ${helpers.command("session.pr")}
+   - Generate PR using session PR command: ${helpers.command("session.pr.create")}
    - Ensure PR description follows guidelines
    - Include task ID in PR title and description
 
@@ -725,7 +769,7 @@ Before moving to the next phase, ensure:
 - [ ] Code quality acceptable
 - [ ] Documentation complete
 
-### Before IN-REVIEW → DONE  
+### Before IN-REVIEW → DONE
 - [ ] PR created and properly described
 - [ ] All feedback addressed
 - [ ] Changes approved by reviewer
@@ -777,7 +821,7 @@ Use this checklist to ensure proper workflow adherence:
 - [ ] Task status checked and appropriate for implementation
 - [ ] Session created and verified
 - [ ] Task status updated to IN-PROGRESS at start
-- [ ] All implementation done in session workspace  
+- [ ] All implementation done in session workspace
 - [ ] Requirements thoroughly implemented
 - [ ] Tests written and passing
 - [ ] Task status updated to IN-REVIEW when complete
@@ -840,7 +884,7 @@ Sessions provide isolated development environments for working on specific tasks
 - Brings session up to date with latest changes from main branch
 - Handles merge conflicts and branch synchronization
 
-**Create pull request**: ${helpers.command("session.pr")}
+**Create pull request**: ${helpers.command("session.pr.create")}
 - Creates a pull request from the session branch
 - Integrates with task management and status updates
 
@@ -905,7 +949,7 @@ When task implementation is complete:
    - Run final tests in session workspace
    - Verify requirements are fully met
 
-2. **Create pull request**: ${helpers.command("session.pr")}
+2. **Create pull request**: ${helpers.command("session.pr.create")}
    - Generates PR from session branch
    - Links PR to associated task
    - Updates task status appropriately
@@ -960,7 +1004,7 @@ When task implementation is complete:
 # 1. Verify task exists and get details
 ${helpers.command("tasks.get")}
 
-# 2. Create session for the task  
+# 2. Create session for the task
 ${helpers.command("session.start")}
 
 # 3. Navigate to session workspace
@@ -1001,7 +1045,7 @@ ${helpers.command("session.update")}
 cd \$(${helpers.command("session.dir")})
 
 # 2. Create pull request from session
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ## Troubleshooting
@@ -1089,12 +1133,12 @@ Minsky uses the following task status values:
 **When**: Starting implementation work
 **Trigger**: Creating session and beginning implementation
 **Command**: ${helpers.command("tasks.status.set")} with status "IN-PROGRESS"
-**Requirements**: 
+**Requirements**:
 - Task specification is clear and complete
 - Session has been created for the task
 - You are ready to begin implementation
 
-### IN-PROGRESS → IN-REVIEW  
+### IN-PROGRESS → IN-REVIEW
 **When**: Implementation complete, ready for review
 **Trigger**: Creating pull request
 **Command**: ${helpers.command("tasks.status.set")} with status "IN-REVIEW"
@@ -1156,7 +1200,7 @@ Minsky uses the following task status values:
 ### Before PR Creation
 
 1. **Verify implementation is complete**
-2. **Update to IN-REVIEW**: ${helpers.command("tasks.status.set")} 
+2. **Update to IN-REVIEW**: ${helpers.command("tasks.status.set")}
 3. **Ensure status change is successful**
 4. **Proceed with PR creation only after status update**
 
@@ -1202,7 +1246,7 @@ ${helpers.command("tasks.status.set")}
 Some status transitions can be automated:
 
 - **Session creation** can auto-update TO IN-PROGRESS
-- **PR creation** can auto-update to IN-REVIEW  
+- **PR creation** can auto-update to IN-REVIEW
 - **PR merge** can auto-update to DONE
 
 Always verify automated updates occurred correctly.
@@ -1297,7 +1341,7 @@ Before creating a PR, ensure:
 
 ### Step 2: Create Pull Request
 
-**Generate PR from session**: ${helpers.command("session.pr")}
+**Generate PR from session**: ${helpers.command("session.pr.create")}
 - Creates PR from session branch to main branch
 - Automatically links PR to associated task
 - May update task status to IN-REVIEW
@@ -1331,7 +1375,7 @@ Brief description of what was changed and why.
 ### Added
 - List new features or functionality
 
-### Changed  
+### Changed
 - List modifications to existing functionality
 
 ### Fixed
@@ -1351,7 +1395,7 @@ Description of testing performed.
 Use these prefixes for PR titles:
 
 - **feat**: New feature
-- **fix**: Bug fix  
+- **fix**: Bug fix
 - **docs**: Documentation changes
 - **style**: Code style changes
 - **refactor**: Code refactoring
@@ -1362,7 +1406,7 @@ Use these prefixes for PR titles:
 ## PR Management Commands
 
 ### PR Creation
-**Create PR from session**: ${helpers.command("session.pr")}
+**Create PR from session**: ${helpers.command("session.pr.create")}
 - Primary method for creating PRs
 - Handles task integration automatically
 - Manages branch and status updates
@@ -1417,7 +1461,7 @@ cd \$(${helpers.command("session.dir")})
 ${helpers.command("tasks.status.set")}
 
 # 3. Create PR from session
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ### Scenario 2: Bug Fix PR
@@ -1430,7 +1474,7 @@ cd \$(${helpers.command("session.dir")})
 ${helpers.command("tasks.status.set")}
 
 # 3. Create PR with fix prefix
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ### Scenario 3: Documentation PR
@@ -1443,7 +1487,7 @@ cd \$(${helpers.command("session.dir")})
 ${helpers.command("tasks.status.set")}
 
 # 3. Create docs PR
-${helpers.command("session.pr")}
+${helpers.command("session.pr.create")}
 \`\`\`
 
 ## PR Best Practices
@@ -1494,7 +1538,7 @@ This workflow integrates with:
 Before creating PR:
 
 - [ ] All requirements implemented
-- [ ] Tests written and passing  
+- [ ] Tests written and passing
 - [ ] Task status is IN-REVIEW
 - [ ] Session is up to date
 - [ ] Changes are committed and pushed

@@ -727,20 +727,30 @@ export function createTaskService(options: TaskServiceOptions = {}): TaskService
 export async function createConfiguredTaskService(
   options: TaskServiceOptions = {}
 ): Promise<TaskService> {
+  const startTime = Date.now();
+  log.debug("[createConfiguredTaskService] Starting", { options });
+
   const { workspacePath = (process as any).cwd(), backend, ...otherOptions } = options;
 
   // If backend is explicitly provided, use the original function
   if (backend) {
-    return createTaskService(options);
+    log.debug("[createConfiguredTaskService] Backend explicitly provided", { backend });
+    const result = createTaskService(options);
+    const duration = Date.now() - startTime;
+    log.debug("[createConfiguredTaskService] Completed with explicit backend", { duration });
+    return result;
   }
 
   try {
     // Only try configuration resolution if we have an initialized configuration system
     let resolvedBackend = "json-file"; // safe fallback
+    log.debug("[createConfiguredTaskService] About to resolve backend from config");
 
     try {
       // Use configuration system to get the resolved backend
+      log.debug("[createConfiguredTaskService] About to call config get('backend')");
       resolvedBackend = get("backend") || "json-file";
+      log.debug("[createConfiguredTaskService] Config get completed", { resolvedBackend });
 
       log.debug("Resolved backend from configuration", {
         workspacePath,
@@ -756,16 +766,23 @@ export async function createConfiguredTaskService(
       });
     }
 
-    return createTaskService({
+    log.debug("[createConfiguredTaskService] About to create task service", { resolvedBackend });
+    const result = createTaskService({
       ...otherOptions,
       workspacePath,
       backend: resolvedBackend,
     });
+
+    const duration = Date.now() - startTime;
+    log.debug("[createConfiguredTaskService] Completed successfully", { duration });
+    return result;
   } catch (error) {
     // If any error occurs, fall back to default backend
+    const duration = Date.now() - startTime;
     log.warn("Failed to resolve configuration, using default backend", {
       workspacePath,
       error: getErrorMessage(error as any),
+      duration,
     });
 
     return createTaskService({

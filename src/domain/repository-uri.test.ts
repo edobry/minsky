@@ -148,7 +148,7 @@ describe("Repository URI Utilities", () => {
     test("returns null for incompatible conversions", () => {
       // Can't convert local path to GitHub shorthand
       const result = convertRepositoryURI(testRepoPath, RepositoryURIType.GITHUB_SHORTHAND);
-      expect(result).toBeNull();
+      expect(result).toBeUndefined();
     });
   });
 

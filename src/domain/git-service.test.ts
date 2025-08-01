@@ -4,8 +4,8 @@
  * @enhanced Enhanced with comprehensive method coverage and DI patterns
  */
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
-import { GitService } from "../git";
-import { createMock, setupTestMocks, mockModule } from "../../utils/test-utils/mocking";
+import { GitService } from "./git";
+import { createMock, setupTestMocks, mockModule } from "../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
 setupTestMocks();
