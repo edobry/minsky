@@ -6,21 +6,21 @@
  */
 
 import { describe, test, expect } from "bun:test";
-import { approveSession } from "./session-approval-operations";
+import { approveSessionPr } from "./session-approval-operations";
 import { ResourceNotFoundError } from "../../errors/index";
 
 describe("Session Approval Error Handling (Task #358 Updated)", () => {
   test("should handle missing session for task", async () => {
     // Test Case 1: Task with no associated session (like task 3283)
     await expect(
-      approveSession({
+      approveSessionPr({
         task: "3283", // Task with no session
         json: false,
       })
     ).rejects.toThrow(ResourceNotFoundError);
 
     try {
-      await approveSession({
+      await approveSessionPr({
         task: "3283",
         json: false,
       });
@@ -47,7 +47,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
 
     // Test Case 2: Task without session (using mocked sessionDB)
     try {
-      await approveSession(
+      await approveSessionPr(
         {
           task: "100", // Task without session
           json: false,
@@ -73,7 +73,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
   test("should require session name or task ID", async () => {
     // Test Case 3: No session name or task ID provided
     await expect(
-      approveSession({
+      approveSessionPr({
         json: false,
         // No session or task provided
       })
@@ -83,7 +83,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
   test("should provide clear error message for missing session", async () => {
     // Test that error messages are clear and concise for the new approve function
     try {
-      await approveSession({
+      await approveSessionPr({
         task: "9999",
         json: false,
       });
@@ -96,7 +96,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
 
         // Should be concise (not overly verbose)
         expect(message.split("\n").length).toBeLessThan(5); // Keep it simple
-        
+
         // Should have correct resource type
         expect((error as ResourceNotFoundError).resourceType).toBe("session");
         expect((error as ResourceNotFoundError).resourceId).toBe("9999");

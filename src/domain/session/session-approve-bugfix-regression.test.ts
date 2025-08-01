@@ -1,5 +1,5 @@
 import { describe, test, expect, mock } from "bun:test";
-import { approveSession } from "./session-approval-operations";
+import { approveSessionPr } from "./session-approval-operations";
 import {
   createMockGitService,
   createMockSessionProvider,
@@ -82,7 +82,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       };
 
       // Act: Run session approve with uncommitted changes
-      await approveSession(
+      await approveSessionPr(
         { task: "123", repo: "/test/repo" },
         {
           sessionDB: mockSessionDB,
@@ -174,7 +174,7 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       // Act & Assert: Command should throw error and NOT continue to task status update
       await expect(
-        approveSession(
+        approveSessionPr(
           { task: "123", repo: "/test/repo" },
           {
             sessionDB: mockSessionDB,
@@ -244,7 +244,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       });
 
       // Act: Command should succeed for genuinely already merged PRs
-      const result = await approveSession(
+      const result = await approveSessionPr(
         { task: "123", repo: "/test/repo" },
         {
           sessionDB: mockSessionDB,
@@ -304,7 +304,7 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       // Act: Command should fail but still restore stash
       try {
-        await approveSession(
+        await approveSessionPr(
           { task: "123", repo: "/test/repo" },
           {
             sessionDB: mockSessionDB,

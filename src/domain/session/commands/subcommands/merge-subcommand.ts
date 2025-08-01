@@ -1,5 +1,5 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
-import { mergeSession } from "../../session-merge-operations";
+import { mergeSessionPr } from "../../session-merge-operations";
 
 /**
  * Session merge subcommand (Task #358)
@@ -17,7 +17,7 @@ export const mergeSessionSubcommand: CommandExecutionHandler = async (params) =>
   const json = options?.json === true;
 
   try {
-    const result = await mergeSession({
+    const result = await mergeSessionPr({
       session: sessionId,
       json,
     });

@@ -143,11 +143,9 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
   }
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
-    const { mergeSession } = await import(
-      "../../../../domain/session/session-merge-operations"
-    );
+    const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
 
-    const result = await mergeSession({
+    const result = await mergeSessionPr({
       session: params.name,
       task: params.task,
       repo: params.repo,

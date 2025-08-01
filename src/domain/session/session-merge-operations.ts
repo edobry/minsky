@@ -87,7 +87,7 @@ export interface SessionMergeResult {
  *
  * Requires the PR to be approved first.
  */
-export async function mergeSession(
+export async function mergeSessionPr(
   params: SessionMergeParams,
   deps?: {
     sessionDB?: SessionProviderInterface;

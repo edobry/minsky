@@ -1,5 +1,5 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
-import { approveSession } from "../../session-approval-operations";
+import { approveSessionPr } from "../../session-approval-operations";
 
 /**
  * Session approve subcommand (Task #358 - Updated)
@@ -18,7 +18,7 @@ export const approveSessionSubcommand: CommandExecutionHandler = async (params) 
   const reviewComment = options?.comment || options?.reviewComment;
 
   try {
-    const result = await approveSession({
+    const result = await approveSessionPr({
       session: sessionId,
       json,
       reviewComment,

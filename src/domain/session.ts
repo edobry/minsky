@@ -38,7 +38,7 @@ import * as WorkspaceUtils from "./workspace";
 import { SessionDbAdapter } from "./session/session-db-adapter";
 import { createTaskFromDescription } from "./templates/session-templates";
 import { resolveSessionContextWithFeedback } from "./session/session-context-resolver";
-import { approveSession } from "./session/session-approval-operations";
+import { approveSessionPr } from "./session/session-approval-operations";
 import { sessionCommit } from "./session/session-commands";
 import { execGitWithTimeout } from "../utils/git-exec";
 import type { SessionRecord } from "./session/session-db";
@@ -1322,7 +1322,7 @@ export async function approveSessionFromParams(params: {
   wasAlreadyApproved: boolean;
 }> {
   // SECURITY: Use new approve-only operation
-  return await approveSession({
+  return await approveSessionPr({
     session: params.session,
     task: params.task,
     repo: params.repo,

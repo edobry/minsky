@@ -10,7 +10,7 @@
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import {
-  mergeSession,
+  mergeSessionPr,
   validateSessionApprovedForMerge,
   type SessionMergeParams,
 } from "./session-merge-operations";
@@ -145,7 +145,7 @@ describe("Session Merge Security Validation", () => {
     });
   });
 
-  describe("mergeSession - End-to-End Security Validation", () => {
+  describe("mergeSessionPr - End-to-End Security Validation", () => {
     it("should REJECT merge operation for unapproved session", async () => {
       // SECURITY TEST: Full merge operation should be blocked for unapproved PR
       const unapprovedSession: SessionRecord = {
@@ -164,8 +164,8 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSession(params)).rejects.toThrow(ValidationError);
-      await expect(mergeSession(params)).rejects.toThrow(/MERGE REJECTED.*must be approved/);
+      await expect(mergeSessionPr(params)).rejects.toThrow(ValidationError);
+      await expect(mergeSessionPr(params)).rejects.toThrow(/MERGE REJECTED.*must be approved/);
 
       // Repository backend should NEVER be called for unapproved sessions
       expect(mockRepositoryBackend.mergePullRequest).not.toHaveBeenCalled();
@@ -189,8 +189,8 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSession(params)).rejects.toThrow(ValidationError);
-      await expect(mergeSession(params)).rejects.toThrow(/has no PR branch/);
+      await expect(mergeSessionPr(params)).rejects.toThrow(ValidationError);
+      await expect(mergeSessionPr(params)).rejects.toThrow(/has no PR branch/);
 
       // Repository backend should NEVER be called for sessions without PR
       expect(mockRepositoryBackend.mergePullRequest).not.toHaveBeenCalled();
@@ -223,7 +223,7 @@ describe("Session Merge Security Validation", () => {
       };
 
       // This should succeed and call the repository backend
-      const result = await mergeSession(params);
+      const result = await mergeSessionPr(params);
 
       expect(result).toBeDefined();
       expect(result.session).toBe("approved-session");

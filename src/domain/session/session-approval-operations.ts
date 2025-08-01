@@ -42,7 +42,7 @@ export interface SessionApprovalResult {
  * 3. Calls repositoryBackend.approvePullRequest()
  * 4. Updates session record with prApproved: true
  */
-export async function approveSession(
+export async function approveSessionPr(
   params: SessionApprovalParams,
   deps?: {
     sessionDB?: SessionProviderInterface;
