@@ -259,17 +259,13 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           createdDirs: args.createDirs,
         });
 
-        return createSuccessResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relativeResolvedPath,
-          },
-          {
-            bytesWritten: args.content.length,
-            created: true, // File is being written
-          }
-        );
+        return createSuccessResponse({
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relativeResolvedPath,
+          bytesWritten: args.content.length,
+          created: true, // File is being written
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session file write failed", {
@@ -327,18 +323,14 @@ export function registerSessionWorkspaceTools(commandMapper: CommandMapper): voi
           directoryCount: directories.length,
         });
 
-        return createSuccessResponse(
-          {
-            path: args.path,
-            session: args.sessionName,
-            resolvedPath: relativeResolvedPath,
-          },
-          {
-            files: files.sort(),
-            directories: directories.sort(),
-            totalEntries: files.length + directories.length,
-          }
-        );
+        return createSuccessResponse({
+          path: args.path,
+          session: args.sessionName,
+          resolvedPath: relativeResolvedPath,
+          files: files.sort(),
+          directories: directories.sort(),
+          totalEntries: files.length + directories.length,
+        });
       } catch (error) {
         const errorMessage = getErrorMessage(error);
         log.error("Session directory list failed", {
