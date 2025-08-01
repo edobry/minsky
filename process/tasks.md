@@ -298,7 +298,7 @@
 
 - [x] Add BLOCKED Status Support [md#155](process/tasks/md#155-add-blocked-status-support.md)
 
-- [+] Remove .js Extensions from TypeScript Imports [md#156](process/tasks/md#156-remove-js-extensions-from-typescript-imports.md)
+- [x] Remove .js Extensions from TypeScript Imports [md#156](process/tasks/md#156-remove-js-extensions-from-typescript-imports.md)
 
 - [x] Review and Modernize Project Documentation Architecture [md#157](process/tasks/md#157-review-and-modernize-project-documentation-architecture.md)
 
