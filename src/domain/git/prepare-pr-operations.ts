@@ -509,27 +509,53 @@ Session requested: "${(options as any).session}"
       workdir,
     });
 
-    // Clean up on error
-    try {
-      await execGitWithTimeout("merge --abort", "merge --abort", { workdir, timeout: 30000 });
-      // CRITICAL: Switch back to session branch on error
-      await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
-      log.debug("Aborted merge, cleaned up, and switched back to session branch after conflict");
-    } catch (cleanupErr) {
-      log.warn("Failed to clean up after merge error", { cleanupErr });
-    }
+    // Check for conflict errors FIRST - before any cleanup
+    if (
+      errorMessage.includes("CONFLICT") ||
+      errorMessage.includes("Automatic merge failed") ||
+      errorMessage.includes("💥 Merge Conflicts Detected")
+    ) {
+      // DON'T clean up on conflict - leave user in natural git merge conflict state
+      // This allows them to use standard git workflow to resolve conflicts
+      log.debug("Merge conflicts detected - staying in conflict state for user resolution", {
+        prBranch,
+        sourceBranch,
+        workdir,
+      });
 
-    // Check for conflict errors regardless of error type
-    if (errorMessage.includes("CONFLICT") || errorMessage.includes("Automatic merge failed")) {
-      // 🔥 DEBUG: Detected conflict, throwing MinskyError
-      log.debug("🔥 DEBUG: Throwing conflict error", { errorMessage });
       throw new MinskyError(
-        "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
+        `🔥 Session PR creation encountered merge conflicts.
+
+You are currently on branch '${prBranch}' with merge in progress.
+
+To resolve conflicts and complete the PR:
+
+1. 🔍 Check current status:
+   git status
+
+2. ✏️ Resolve conflicts manually:
+   code <conflicted-file>
+
+3. 🚀 Or accept all session changes (recommended):
+   git checkout --theirs . && git add . && git merge --continue
+
+4. 🔄 Or accept all main branch changes:
+   git checkout --ours . && git add . && git merge --continue
+
+After resolving conflicts, the PR will be pushed automatically.`,
         { exitCode: 4 }
       );
     }
-    // 🔥 DEBUG: Non-conflict error, throwing generic MinskyError
-    log.debug("🔥 DEBUG: Throwing generic merge error", { errorMessage });
+
+    // For non-conflict errors, clean up and switch back
+    try {
+      await execGitWithTimeout("merge --abort", "merge --abort", { workdir, timeout: 30000 });
+      await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+      log.debug("Cleaned up after non-conflict merge error");
+    } catch (cleanupErr) {
+      log.warn("Failed to clean up after non-conflict merge error", { cleanupErr });
+    }
+
     throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err as any)}`);
   }
 
