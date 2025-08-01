@@ -106,7 +106,7 @@ describe("session pr command", () => {
       executedCommands.push(`git merge --no-ff ${sourceBranch} -m "${params.title}"`); // Merge source branch
       executedCommands.push(`git push origin pr/${sessionName}`); // Push PR branch
       executedCommands.push(`git switch ${sourceBranch}`); // Switch back to source branch (the critical fix!)
-      
+
       return { prBranch: `pr/${sessionName}`, commitHash: "abc123" };
     };
 
@@ -114,7 +114,7 @@ describe("session pr command", () => {
     await mockPreparePr({
       session: sessionName,
       title: "Test PR",
-      body: "Test body", 
+      body: "Test body",
       baseBranch: "main",
     });
 

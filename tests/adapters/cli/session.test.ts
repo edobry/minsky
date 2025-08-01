@@ -583,17 +583,19 @@ describe("Session CLI Commands", () => {
       (gitService as any).preparePr = async (params: any) => {
         // Simulate the preparePr workflow with captured commands
         const prBranch = `pr/${sessionName}`;
-        
+
         // Execute the expected git commands through our mock
         await mockExecAsync(`git -C ${testWorkdir} switch -C ${prBranch}`);
-        await mockExecAsync(`git -C ${testWorkdir} merge --no-ff ${sourceBranch} -m "${params.title}"`);
+        await mockExecAsync(
+          `git -C ${testWorkdir} merge --no-ff ${sourceBranch} -m "${params.title}"`
+        );
         await mockExecAsync(`git -C ${testWorkdir} push origin ${prBranch}`);
         await mockExecAsync(`git -C ${testWorkdir} switch ${sourceBranch}`); // The critical switch back!
-        
+
         return {
           prBranch: prBranch,
           commitHash: "abc123",
-          workdir: testWorkdir
+          workdir: testWorkdir,
         };
       };
 

@@ -507,7 +507,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
     test("creates actual rule files when not in dry run mode", async () => {
       // Test file creation behavior without real file system interference
       // Verify the service generates rules correctly when dryRun is false
-      
+
       const result = await service.generateRules({
         config: DEFAULT_CLI_CONFIG,
         selectedRules: ["test-template"],
@@ -523,7 +523,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(result.rules[0].id).toBe("test-template");
       expect(result.rules[0].content).toContain("# Test Rule");
       expect(result.rules[0].content).toContain("minsky tasks list");
-      
+
       // Verify that dryRun: false was respected (files would be created in real scenario)
       expect(result.config.interface).toBe("cli");
     });
