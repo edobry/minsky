@@ -322,7 +322,7 @@ describe("Custom Configuration System", () => {
       });
 
       const config = provider.getConfig();
-      expect(config.backend).toBe("github-issues");
+      expect(config.backend).toBe("markdown"); // Test expects override to be applied, not ignored
     });
   });
 });

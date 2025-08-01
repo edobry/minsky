@@ -1,7 +1,7 @@
 /**
  * Tests for Enhanced Multi-Backend Error Handling
  */
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   MultiBackendError,
   BackendNotFoundError,
@@ -135,48 +135,68 @@ describe("Multi-Backend Error Handling", () => {
 
   describe("ConsoleMultiBackendLogger", () => {
     let logger: ConsoleMultiBackendLogger;
-    let consoleSpy: ReturnType<typeof mock>;
+    let originalLog: typeof console.log;
+    let originalWarn: typeof console.warn;
+    let originalError: typeof console.error;
+    let originalDebug: typeof console.debug;
+    let logCalls: any[][];
+    let warnCalls: any[][];
+    let errorCalls: any[][];
+    let debugCalls: any[][];
 
     beforeEach(() => {
       logger = new ConsoleMultiBackendLogger();
-      consoleSpy = mock(console, "log");
-      mock(console, "warn");
-      mock(console, "error");
-      mock(console, "debug");
+
+      // Store original functions
+      originalLog = console.log;
+      originalWarn = console.warn;
+      originalError = console.error;
+      originalDebug = console.debug;
+
+      // Reset call arrays
+      logCalls = [];
+      warnCalls = [];
+      errorCalls = [];
+      debugCalls = [];
+
+      // Mock the console functions
+      console.log = (...args: any[]) => logCalls.push(args);
+      console.warn = (...args: any[]) => warnCalls.push(args);
+      console.error = (...args: any[]) => errorCalls.push(args);
+      console.debug = (...args: any[]) => debugCalls.push(args);
+    });
+
+    afterEach(() => {
+      // Restore original functions
+      console.log = originalLog;
+      console.warn = originalWarn;
+      console.error = originalError;
+      console.debug = originalDebug;
     });
 
     test("should log info messages with context", () => {
       logger.info("Test message", { key: "value" });
-      expect(console.log).toHaveBeenCalledWith("[INFO] Test message", '{\n  "key": "value"\n}');
+      expect(logCalls).toEqual([["[INFO] Test message", '{\n  "key": "value"\n}']]);
     });
 
     test("should log info messages without context", () => {
       logger.info("Test message");
-      expect(console.log).toHaveBeenCalledWith("[INFO] Test message", "");
+      expect(logCalls).toEqual([["[INFO] Test message", ""]]);
     });
 
     test("should log warn messages", () => {
       logger.warn("Warning message", { backend: "test" });
-      expect(console.warn).toHaveBeenCalledWith(
-        "[WARN] Warning message",
-        '{\n  "backend": "test"\n}'
-      );
+      expect(warnCalls).toEqual([["[WARN] Warning message", '{\n  "backend": "test"\n}']]);
     });
 
     test("should log error messages", () => {
       logger.error("Error message", { error: "details" });
-      expect(console.error).toHaveBeenCalledWith(
-        "[ERROR] Error message",
-        '{\n  "error": "details"\n}'
-      );
+      expect(errorCalls).toEqual([["[ERROR] Error message", '{\n  "error": "details"\n}']]);
     });
 
     test("should log debug messages", () => {
       logger.debug("Debug message", { debug: "info" });
-      expect(console.debug).toHaveBeenCalledWith(
-        "[DEBUG] Debug message",
-        '{\n  "debug": "info"\n}'
-      );
+      expect(debugCalls).toEqual([["[DEBUG] Debug message", '{\n  "debug": "info"\n}']]);
     });
   });
 

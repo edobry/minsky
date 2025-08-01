@@ -132,15 +132,24 @@ export function unifiedFormatToQualifiedId(unifiedFormat: string): string {
   return formatTaskId(backend, localId);
 }
 
-// Backward compatibility functions (no longer needed but kept for transition)
+// Git branch naming conversion functions
 export function sessionNameToBranchName(sessionName: string): string {
-  // Since we use unified format everywhere, no conversion needed
-  return sessionName;
+  // Convert colons to dashes for git branch compatibility
+  // task#md:123 → task#md-123
+  return sessionName.replace(/:/g, "-");
 }
 
 export function branchNameToSessionName(branchName: string): string {
-  // Since we use unified format everywhere, no conversion needed
-  return branchName;
+  // Convert dashes back to colons for session names
+  // task#md-123 → task#md:123
+  // task#gh-issue-123 → task#gh:issue-123
+  // Find the backend part and convert only the separator dash to colon
+  const match = branchName.match(/^(.+#)([^#-]+)-(.+)$/);
+  if (match) {
+    const [, prefix, backend, localId] = match;
+    return `${prefix}${backend}:${localId}`;
+  }
+  return branchName; // Return as-is if no conversion needed
 }
 
 // Migration utilities

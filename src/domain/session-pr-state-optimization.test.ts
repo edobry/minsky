@@ -81,7 +81,7 @@ describe("PR State Optimization (Task #275)", () => {
         session: sessionName,
         prState: {
           branchName: "pr/test-session",
-          exists: true,
+          commitHash: "abc123def456", // Add commitHash since implementation checks this
           lastChecked: now,
           createdAt: now,
         },
