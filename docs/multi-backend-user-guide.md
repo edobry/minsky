@@ -22,13 +22,14 @@ Legacy formats are automatically migrated to the default markdown backend:
 
 ```bash
 123         → md#123    # Plain number
-task#123    → md#123    # Task prefix format  
+task#123    → md#123    # Task prefix format
 #123        → md#123    # Hash prefix format
 ```
 
 ## Session and Branch Names
 
 ### Session Names
+
 ```bash
 task-md#123     # Session for markdown task 123
 task-gh#456     # Session for GitHub issue 456
@@ -36,6 +37,7 @@ task-json#789   # Session for JSON task 789
 ```
 
 ### Git Branch Names
+
 ```bash
 task-md#123     # Git-compatible branch name
 task-gh#456     # Same format as session names
@@ -220,6 +222,7 @@ git commit -m "feat: Implement auth (md#123, gh#456)"
 ### Common Issues
 
 #### Task ID Not Found
+
 ```bash
 # Error: Task 'xyz#123' not found
 # Solution: Check backend is correct and task exists
@@ -227,12 +230,14 @@ minsky tasks list --backend xyz
 ```
 
 #### Session Name Confusion
+
 ```bash
 # If unsure about session format:
 minsky session list  # Shows all sessions with qualified names
 ```
 
 #### Backend Not Available
+
 ```bash
 # Error: Backend 'gh' not configured
 # Solution: Configure GitHub backend first
@@ -242,6 +247,7 @@ minsky init --github-repo owner/repo
 ### Migration Issues
 
 #### Session Migration Fails
+
 ```bash
 # Check what would be migrated
 minsky session migrate --dry-run --verbose
@@ -251,6 +257,7 @@ minsky session migrate --batch-size 10
 ```
 
 #### Legacy Task ID Conflicts
+
 ```bash
 # If migration detects conflicts:
 minsky tasks list --all-backends | grep "123"  # Check for duplicates
@@ -296,6 +303,7 @@ minsky tasks status md#123,gh#456 DONE
 The multi-backend system works seamlessly across all interfaces:
 
 ### MCP Tools
+
 ```typescript
 // MCP tools automatically support qualified IDs
 await mcp.call("tasks.get", { taskId: "md#123" });
@@ -303,6 +311,7 @@ await mcp.call("session.start", { taskId: "gh#456" });
 ```
 
 ### API Integration
+
 ```typescript
 // REST API endpoints accept qualified IDs
 GET /api/tasks/md%23123
@@ -321,6 +330,7 @@ POST /api/sessions { taskId: "gh#456" }
 ### Extensibility
 
 The architecture supports adding new backends:
+
 - Implement `TaskBackend` interface
 - Register with `MultiBackendTaskService`
 - Choose unique prefix (e.g., `jira#`, `azure#`)
@@ -328,11 +338,13 @@ The architecture supports adding new backends:
 ## Getting Help
 
 ### Documentation
+
 - Architecture overview: `docs/architecture/multi-backend-task-system-design.md`
 - Implementation details: Task #356 specification
 - Schema reference: `src/domain/schemas/task-schemas.ts`
 
 ### Support Commands
+
 ```bash
 # Validate current configuration
 minsky config validate
@@ -345,10 +357,11 @@ minsky session validate
 ```
 
 ### Community Resources
+
 - GitHub Issues: Use `gh#` prefix for issues related to GitHub backend
 - Documentation Tasks: Use `md#` prefix for documentation improvements
 - Feature Requests: Create in appropriate backend with clear qualified ID references
 
 ---
 
-*This guide covers the multi-backend task system introduced in Task #356. For the latest updates and additional features, check the project changelog and task specifications.*
+_This guide covers the multi-backend task system introduced in Task #356. For the latest updates and additional features, check the project changelog and task specifications._

@@ -2,16 +2,17 @@
 
 ## Task ID Formats
 
-| Format | Example | Description |
-|--------|---------|-------------|
-| Qualified | `md#123` | Markdown backend, task 123 |
-| Qualified | `gh#456` | GitHub Issues backend, issue 456 |
-| Legacy | `123` | Auto-migrates to `md#123` |
-| Legacy | `task#123` | Auto-migrates to `md#123` |
+| Format    | Example    | Description                      |
+| --------- | ---------- | -------------------------------- |
+| Qualified | `md#123`   | Markdown backend, task 123       |
+| Qualified | `gh#456`   | GitHub Issues backend, issue 456 |
+| Legacy    | `123`      | Auto-migrates to `md#123`        |
+| Legacy    | `task#123` | Auto-migrates to `md#123`        |
 
 ## Common Commands
 
 ### Task Operations
+
 ```bash
 # Get task
 minsky tasks get md#123              # Specific backend
@@ -33,6 +34,7 @@ minsky tasks status 123 DONE        # Auto-migrates ID
 ```
 
 ### Session Operations
+
 ```bash
 # Start session
 minsky session start md#123          # Qualified ID
@@ -47,6 +49,7 @@ minsky session list                  # Shows both formats
 ```
 
 ### Cross-Backend Operations
+
 ```bash
 # Search across backends
 minsky tasks search "authentication" --backends md,gh
@@ -61,6 +64,7 @@ minsky tasks detect-collisions
 ## Session Migration
 
 ### Quick Migration
+
 ```bash
 # Preview migration
 minsky session migrate --dry-run
@@ -73,6 +77,7 @@ minsky session migrate-rollback --backup-id=<timestamp>
 ```
 
 ### Batch Migration
+
 ```bash
 # Small batches
 minsky session migrate --batch-size 10
@@ -87,12 +92,14 @@ minsky session migrate --verbose
 ## Git Integration
 
 ### Branch Names
-| Session Name | Git Branch | Description |
-|--------------|------------|-------------|
+
+| Session Name  | Git Branch    | Description                     |
+| ------------- | ------------- | ------------------------------- |
 | `task-md#123` | `task-md#123` | Git-compatible qualified branch |
-| `task123` | `task123` | Legacy branch (still works) |
+| `task123`     | `task123`     | Legacy branch (still works)     |
 
 ### PR Workflow
+
 ```bash
 # Start session
 minsky session start gh#456
@@ -107,6 +114,7 @@ minsky session pr --title "fix(gh#456): Authentication bug"
 ## Backend Configuration
 
 ### Initialize Backends
+
 ```bash
 # Markdown (default)
 minsky init                          # Markdown backend ready
@@ -120,16 +128,18 @@ minsky init --github-repo secondary/repo --backend-prefix gh2
 ```
 
 ### Backend Prefixes
-| Backend | Prefix | Example |
-|---------|--------|---------|
-| Markdown | `md` | `md#123` |
-| GitHub Issues | `gh` | `gh#456` |
-| JSON | `json` | `json#789` |
-| Custom | `custom` | `custom#123` |
+
+| Backend       | Prefix   | Example      |
+| ------------- | -------- | ------------ |
+| Markdown      | `md`     | `md#123`     |
+| GitHub Issues | `gh`     | `gh#456`     |
+| JSON          | `json`   | `json#789`   |
+| Custom        | `custom` | `custom#123` |
 
 ## Troubleshooting
 
 ### Common Issues
+
 ```bash
 # Task not found
 minsky tasks list --backend gh       # Check correct backend
@@ -145,6 +155,7 @@ minsky session migrate --dry-run     # Preview before migrating
 ```
 
 ### Validation Commands
+
 ```bash
 # System health
 minsky config validate
@@ -159,13 +170,15 @@ minsky session validate
 ## Legacy Compatibility
 
 ### What Still Works
+
 - ✅ `minsky tasks get 123`
-- ✅ `minsky session start 123`  
+- ✅ `minsky session start 123`
 - ✅ Legacy session directories
 - ✅ Old git branch names
 - ✅ Existing scripts and automation
 
 ### What Auto-Migrates
+
 - ✅ `123` → `md#123`
 - ✅ `task#123` → `md#123`
 - ✅ `#123` → `md#123`
@@ -175,6 +188,7 @@ minsky session validate
 ## Best Practices
 
 ### ID Usage
+
 ```bash
 # ✅ Good: Explicit qualified IDs
 minsky tasks get md#123
@@ -189,6 +203,7 @@ minsky session start 456
 ```
 
 ### Team Workflow
+
 ```bash
 # Team task assignment
 minsky tasks create --backend gh "Team feature"     # gh#789
@@ -201,6 +216,7 @@ git commit -m "feat(md#124): Add feature for gh#789"
 ```
 
 ### Backend Selection
+
 - **`md#`**: Personal tasks, documentation, internal work
 - **`gh#`**: Team collaboration, public issues, external contributions
 - **`json#`**: Programmatic tasks, automation, data processing
@@ -208,6 +224,7 @@ git commit -m "feat(md#124): Add feature for gh#789"
 ## Cheat Sheet
 
 ### Daily Commands
+
 ```bash
 # Create and start working on markdown task
 minsky tasks create "Fix bug X" | grep -o 'md#[0-9]*' | xargs minsky session start
@@ -220,6 +237,7 @@ minsky session start $(minsky tasks list --status IN-PROGRESS | head -1 | cut -d
 ```
 
 ### Status Updates
+
 ```bash
 # Bulk status updates
 minsky tasks status md#123,gh#456,json#789 DONE
@@ -229,6 +247,7 @@ minsky tasks status md#123 IN-REVIEW --notes "Ready for review"
 ```
 
 ### Team Coordination
+
 ```bash
 # See what everyone is working on
 minsky tasks list --status IN-PROGRESS --all-backends --assignee all

@@ -119,7 +119,7 @@ export function fixMockingConsistency(filePaths: string[]): FixResult[] {
       results.push(result);
     } catch (error) {
       // Only log errors in non-test environments to avoid test noise
-      if (!process.env.NODE_ENV?.includes('test') && !process.env.BUN_ENV?.includes('test')) {
+      if (!process.env.NODE_ENV?.includes("test") && !process.env.BUN_ENV?.includes("test")) {
         console.error(`❌ Error processing ${filePath}:`, error);
       }
       results.push({

@@ -49,13 +49,13 @@ interface Task {
 type BackendQualifiedId = `${BackendPrefix}:${string}`;
 
 // Backend prefixes
-type BackendPrefix = 'md' | 'gh' | 'json';
+type BackendPrefix = "md" | "gh" | "json";
 
 // Examples
 const examples: BackendQualifiedId[] = [
-  'md:123',    // Markdown backend task 123
-  'gh:456',    // GitHub Issues backend task 456
-  'json:789'   // JSON file backend task 789
+  "md:123", // Markdown backend task 123
+  "gh:456", // GitHub Issues backend task 456
+  "json:789", // JSON file backend task 789
 ];
 ```
 
@@ -159,7 +159,7 @@ function detectSessionFromPath(cwd: string): SessionInfo | null {
     return {
       taskId: `${backend}:${localId}`,
       backend,
-      localId
+      localId,
     };
   }
   return null;
@@ -172,20 +172,17 @@ function detectSessionFromPath(cwd: string): SessionInfo | null {
 
 ```typescript
 // Current branch names
-const current = [
-  'task#123',
-  'pr/task#123'
-];
+const current = ["task#123", "pr/task#123"];
 
 // Updated branch names
 const updated = [
-  'task#md:123',     // Session branch
-  'pr/task#md:123'   // PR branch
+  "task#md:123", // Session branch
+  "pr/task#md:123", // PR branch
 ];
 
 // Branch name generation
-function generateBranchName(taskId: BackendQualifiedId, type: 'session' | 'pr'): string {
-  const prefix = type === 'pr' ? 'pr/' : '';
+function generateBranchName(taskId: BackendQualifiedId, type: "session" | "pr"): string {
+  const prefix = type === "pr" ? "pr/" : "";
   return `${prefix}task#${taskId}`;
 }
 ```
@@ -231,12 +228,12 @@ process/
 function getTaskSpecPath(taskId: BackendQualifiedId, title: string): string {
   const { backend, localId } = parseTaskId(taskId);
   const normalizedTitle = normalizeTitle(title);
-  return join('process', 'tasks', backend, `${localId}-${normalizedTitle}.md`);
+  return join("process", "tasks", backend, `${localId}-${normalizedTitle}.md`);
 }
 
 // Session directory path generation
 function getSessionPath(taskId: BackendQualifiedId): string {
-  return join('sessions', `task#${taskId}`);
+  return join("sessions", `task#${taskId}`);
 }
 ```
 
@@ -247,16 +244,16 @@ function getSessionPath(taskId: BackendQualifiedId): string {
 ```typescript
 // All CLI commands need to support qualified task IDs
 const taskIdParam = z.union([
-  z.string().regex(/^[a-z]+:\d+$/),  // Qualified: "md:123"
-  z.string().regex(/^\d+$/),         // Unqualified: "123" (backward compatibility)
+  z.string().regex(/^[a-z]+:\d+$/), // Qualified: "md:123"
+  z.string().regex(/^\d+$/), // Unqualified: "123" (backward compatibility)
 ]);
 
 // Backend parameter for new tasks
-const backendParam = z.enum(['md', 'gh', 'json']).optional();
+const backendParam = z.enum(["md", "gh", "json"]).optional();
 
 // Examples
 interface TaskGetParams {
-  taskId: string;  // Accepts "md:123" or "123"
+  taskId: string; // Accepts "md:123" or "123"
   backend?: string; // For unqualified ID resolution
 }
 
@@ -294,11 +291,13 @@ minsky tasks migrate-all --from md --to gh
 ### Phase 1: Foundation (High Priority)
 
 1. **Task ID System Redesign**
+
    - Implement `BackendQualifiedId` type and utilities
    - Create parsing, validation, and formatting functions
    - Add backward compatibility for unqualified IDs
 
 2. **Backend Interface Updates**
+
    - Add `prefix` property to TaskBackend interface
    - Update all backend implementations
    - Add ID generation and validation methods
@@ -311,11 +310,13 @@ minsky tasks migrate-all --from md --to gh
 ### Phase 2: System Integration (High Priority)
 
 1. **Session Management Updates**
+
    - Update session naming for qualified IDs
    - Modify session records and database schema
    - Update auto-detection mechanisms
 
 2. **Git Operations Updates**
+
    - Update branch naming schemes
    - Modify PR, merge, and cleanup operations
    - Update all git command integrations
@@ -328,11 +329,13 @@ minsky tasks migrate-all --from md --to gh
 ### Phase 3: CLI and Compatibility (Medium Priority)
 
 1. **CLI Schema Updates**
+
    - Update all command schemas for qualified IDs
    - Add backend parameter support
    - Implement backward compatibility logic
 
 2. **Migration Tools**
+
    - Create task ID conversion utilities
    - Implement file system reorganization scripts
    - Add session record migration tools
@@ -345,6 +348,7 @@ minsky tasks migrate-all --from md --to gh
 ### Phase 4: Testing and Documentation (Medium Priority)
 
 1. **Comprehensive Testing**
+
    - Unit tests for all new components
    - Integration tests across backends
    - Migration testing scenarios
@@ -388,9 +392,11 @@ async function resolveUnqualifiedId(id: string): Promise<BackendQualifiedId> {
 ### High Risks
 
 1. **Breaking Changes**: Multi-backend changes could break existing workflows
+
    - **Mitigation**: Comprehensive backward compatibility, staged rollout
 
 2. **Data Loss**: Migration errors could lose task data
+
    - **Mitigation**: Backup systems, validation, rollback procedures
 
 3. **Performance Impact**: Multiple backends could slow operations
@@ -399,9 +405,11 @@ async function resolveUnqualifiedId(id: string): Promise<BackendQualifiedId> {
 ### Medium Risks
 
 1. **User Confusion**: New ID format may confuse users
+
    - **Mitigation**: Clear documentation, gradual transition, help commands
 
 2. **File Path Issues**: Longer paths may hit OS limits
+
    - **Mitigation**: Short prefixes, path compression, validation
 
 3. **CLI Complexity**: More parameters may complicate commands

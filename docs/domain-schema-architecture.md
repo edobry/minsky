@@ -20,6 +20,7 @@ The domain schemas are organized into modular libraries in `src/domain/schemas/`
 ### 2. Schema Organization Principles
 
 #### Interface-Agnostic Design
+
 All schemas are designed to work across CLI, MCP, and API interfaces without modification:
 
 ```typescript
@@ -37,6 +38,7 @@ const apiValidation = validateApiRequest(TaskCreateParametersSchema, requestBody
 ```
 
 #### Composition Over Duplication
+
 Schemas are built through composition of smaller, reusable components:
 
 ```typescript
@@ -49,9 +51,12 @@ export const BaseBackendParametersSchema = z.object({
 });
 
 // Composed schemas
-export const TaskGetParametersSchema = z.object({
-  taskId: TaskIdSchema,
-}).merge(BaseBackendParametersSchema).merge(BaseExecutionContextSchema);
+export const TaskGetParametersSchema = z
+  .object({
+    taskId: TaskIdSchema,
+  })
+  .merge(BaseBackendParametersSchema)
+  .merge(BaseExecutionContextSchema);
 ```
 
 ## Usage Examples
@@ -132,11 +137,7 @@ const readParams = {
   end_line_one_indexed_inclusive: 20,
 };
 
-const validation = validateOperationParameters(
-  FileReadSchema,
-  readParams,
-  "file read"
-);
+const validation = validateOperationParameters(FileReadSchema, readParams, "file read");
 ```
 
 ## Integration Patterns
@@ -153,17 +154,13 @@ export function createTaskCommand() {
     .option("--description <description>", "Task description")
     .option("--priority <priority>", "Task priority")
     .action(async (options) => {
-      const validation = validateCliArguments(
-        TaskCreateParametersSchema,
-        options,
-        "tasks create"
-      );
-      
+      const validation = validateCliArguments(TaskCreateParametersSchema, options, "tasks create");
+
       if (!validation.success) {
         console.error(validation.error);
         process.exit(1);
       }
-      
+
       // Use validated parameters
       await handleTaskCreation(validation.data);
     });
@@ -181,16 +178,12 @@ export const sessionStartTool = {
   description: "Start a new development session",
   inputSchema: zodToJsonSchema(SessionStartParametersSchema),
   handler: async (args: unknown) => {
-    const validation = validateMcpArguments(
-      SessionStartParametersSchema,
-      args,
-      "session.start"
-    );
-    
+    const validation = validateMcpArguments(SessionStartParametersSchema, args, "session.start");
+
     if (!validation.success) {
       return createValidationErrorResponse(validation, "session start");
     }
-    
+
     // Use validated parameters
     const result = await startSession(validation.data);
     return createSuccessResponse({ session: result });
@@ -205,16 +198,12 @@ export const sessionStartTool = {
 import { validateApiRequest, TaskListParametersSchema } from "src/domain/schemas";
 
 app.get("/api/tasks", async (req, res) => {
-  const validation = validateApiRequest(
-    TaskListParametersSchema,
-    req.query,
-    "GET /api/tasks"
-  );
-  
+  const validation = validateApiRequest(TaskListParametersSchema, req.query, "GET /api/tasks");
+
   if (!validation.success) {
     return res.status(400).json(createValidationErrorResponse(validation));
   }
-  
+
   // Use validated parameters
   const tasks = await listTasks(validation.data);
   res.json(createSuccessResponse({ tasks }));
@@ -224,26 +213,31 @@ app.get("/api/tasks", async (req, res) => {
 ## Benefits Achieved
 
 ### 1. Code Reuse
+
 - **Single source of truth** for domain concepts
 - **Same validation logic** across all interfaces
 - **Consistent parameter structures** everywhere
 
 ### 2. Type Safety
+
 - **Full TypeScript coverage** for all parameters and responses
 - **Compile-time validation** of schema usage
 - **Autocomplete and IntelliSense** support
 
 ### 3. Maintainability
+
 - **Easy updates** - change once, applies everywhere
 - **Clear separation** between interface and domain logic
 - **Standardized error handling** patterns
 
 ### 4. Consistency
+
 - **Identical behavior** across CLI, MCP, and API
 - **Uniform response formats** for all interfaces
 - **Standard validation messages** and error codes
 
 ### 5. Extensibility
+
 - **Easy to add new interfaces** using existing schemas
 - **Simple to extend existing schemas** with new fields
 - **Modular composition** allows flexible combinations
@@ -280,4 +274,4 @@ This architecture is designed to support future enhancements:
 
 ## Conclusion
 
-The domain-wide schema architecture provides a solid foundation for type-safe, consistent, and maintainable interfaces across the entire Minsky application. By centralizing domain concepts and validation logic, it reduces duplication, improves reliability, and makes the codebase more approachable for new developers. 
+The domain-wide schema architecture provides a solid foundation for type-safe, consistent, and maintainable interfaces across the entire Minsky application. By centralizing domain concepts and validation logic, it reduces duplication, improves reliability, and makes the codebase more approachable for new developers.

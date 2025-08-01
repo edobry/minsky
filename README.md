@@ -1119,8 +1119,7 @@ Sessions provide complete workspace isolation:
 - **Extensibility**: New interfaces can be added without changing domain logic
 - **Type Safety**: Full TypeScript support with runtime validation
 - **Maintainability**: Clear separation of concerns makes the codebase easier to understand and modify
-<<<<<<< HEAD
-
+  <<<<<<< HEAD
 
 ## 🔒 Security: Secret Scanning
 
@@ -1145,6 +1144,7 @@ This project includes **critical security measures** to prevent credential expos
 ### Setup Requirements
 
 **Install gitleaks:**
+
 ```bash
 # macOS
 brew install gitleaks
@@ -1177,7 +1177,6 @@ gitleaks protect --staged --source .
 
 This system prevented a **critical security incident** where real API keys were nearly committed to the repository.
 
-
 ## 🔒 Security: Secret Scanning
 
 This project includes **critical security measures** to prevent credential exposure:
@@ -1201,6 +1200,7 @@ This project includes **critical security measures** to prevent credential expos
 ### Setup Requirements
 
 **Install gitleaks:**
+
 ```bash
 # macOS
 brew install gitleaks

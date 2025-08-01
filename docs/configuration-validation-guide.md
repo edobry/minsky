@@ -9,13 +9,15 @@ Minsky's configuration system now supports **flexible validation** that allows u
 ## Validation Modes
 
 ### Default Mode (Permissive)
+
 - **Unknown fields**: Allowed with warnings
 - **Known fields**: Strictly validated
 - **Behavior**: Configuration loads successfully even with unknown fields
 
 ### Strict Mode
+
 - **Unknown fields**: Rejected with errors
-- **Known fields**: Strictly validated  
+- **Known fields**: Strictly validated
 - **Behavior**: Configuration fails to load if unknown fields are present
 
 ## Configuration Options
@@ -61,23 +63,26 @@ export MINSKY_VALIDATION_INCLUDE_CODE_IN_WARNINGS=true
 ### Scenario 1: Unknown AI Provider (Default Mode)
 
 **Configuration:**
+
 ```yaml
 ai:
   providers:
     openai:
       enabled: true
       apiKey: sk-...
-    morph:  # Unknown provider
+    morph: # Unknown provider
       enabled: true
       apiKey: sk-...
 ```
 
 **Result:**
+
 - ✅ Configuration loads successfully
-- ⚠️  Warning logged: "Unknown configuration field detected"
+- ⚠️ Warning logged: "Unknown configuration field detected"
 - 🚀 Application continues normally
 
 **Log Output:**
+
 ```
 Warning: Unknown configuration field detected { path: "ai.providers", message: "Unrecognized key(s) in object: 'morph'" }
 ```
@@ -85,6 +90,7 @@ Warning: Unknown configuration field detected { path: "ai.providers", message: "
 ### Scenario 2: Unknown AI Provider (Strict Mode)
 
 **Configuration:**
+
 ```yaml
 validation:
   strictMode: true
@@ -94,12 +100,13 @@ ai:
     openai:
       enabled: true
       apiKey: sk-...
-    morph:  # Unknown provider
+    morph: # Unknown provider
       enabled: true
       apiKey: sk-...
 ```
 
 **Result:**
+
 - ❌ Configuration fails to load
 - 🛑 Application startup blocked
 - 📝 Clear error message provided
@@ -107,18 +114,20 @@ ai:
 ### Scenario 3: Silent Unknown Fields
 
 **Configuration:**
+
 ```yaml
 validation:
   warnOnUnknown: false
 
 ai:
   providers:
-    morph:  # Unknown provider
+    morph: # Unknown provider
       enabled: true
       apiKey: sk-...
 ```
 
 **Result:**
+
 - ✅ Configuration loads successfully
 - 🔇 No warnings logged
 - 🚀 Application continues normally
@@ -130,21 +139,23 @@ ai:
 If you were relying on strict validation behavior (configurations failing on unknown fields), you need to explicitly enable strict mode:
 
 **Before (automatic strict validation):**
+
 ```yaml
 # Unknown fields would cause startup failure
 ai:
   providers:
-    custom_provider: { ... }  # This would fail
+    custom_provider: { ... } # This would fail
 ```
 
 **After (explicit strict mode):**
+
 ```yaml
 validation:
-  strictMode: true  # Restore previous behavior
+  strictMode: true # Restore previous behavior
 
 ai:
   providers:
-    custom_provider: { ... }  # This will still fail as expected
+    custom_provider: { ... } # This will still fail as expected
 ```
 
 ### Adding New Providers
@@ -158,7 +169,7 @@ ai:
     openai:
       enabled: true
       apiKey: sk-...
-    
+
     # Experimental providers (will generate warnings but won't break startup)
     experimental_provider:
       enabled: true
@@ -169,30 +180,33 @@ ai:
 ## Best Practices
 
 ### 1. Development Environment
+
 ```yaml
 validation:
-  strictMode: false        # Allow experimentation
-  warnOnUnknown: true      # Show warnings for debugging
-  includePathInWarnings: true    # Detailed path information
-  includeCodeInWarnings: true    # Include error codes for debugging
+  strictMode: false # Allow experimentation
+  warnOnUnknown: true # Show warnings for debugging
+  includePathInWarnings: true # Detailed path information
+  includeCodeInWarnings: true # Include error codes for debugging
 ```
 
 ### 2. Production Environment
+
 ```yaml
 validation:
-  strictMode: true         # Strict validation for stability
-  warnOnUnknown: true      # Log any unexpected fields
-  includePathInWarnings: true    # Helpful for troubleshooting
-  includeCodeInWarnings: false   # Cleaner logs
+  strictMode: true # Strict validation for stability
+  warnOnUnknown: true # Log any unexpected fields
+  includePathInWarnings: true # Helpful for troubleshooting
+  includeCodeInWarnings: false # Cleaner logs
 ```
 
 ### 3. CI/CD Environment
+
 ```yaml
 validation:
-  strictMode: true         # Catch configuration issues early
-  warnOnUnknown: true      # Log warnings for analysis
-  includePathInWarnings: true    # Full diagnostic information
-  includeCodeInWarnings: true    # Complete error details
+  strictMode: true # Catch configuration issues early
+  warnOnUnknown: true # Log warnings for analysis
+  includePathInWarnings: true # Full diagnostic information
+  includeCodeInWarnings: true # Complete error details
 ```
 
 ## Troubleshooting
@@ -200,11 +214,13 @@ validation:
 ### Unknown Field Warnings
 
 **Symptom:**
+
 ```
 Warning: Unknown configuration field detected { path: "ai.providers", message: "Unrecognized key(s) in object: 'morph'" }
 ```
 
 **Solutions:**
+
 1. **If expected**: Continue using the configuration (warnings are informational)
 2. **If typo**: Fix the field name to match a supported provider
 3. **If unwanted**: Remove the unknown field
@@ -213,11 +229,13 @@ Warning: Unknown configuration field detected { path: "ai.providers", message: "
 ### Configuration Load Failures
 
 **Symptom:**
+
 ```
 Configuration validation failed: ai.providers: Unrecognized key(s) in object: 'morph'
 ```
 
 **Solutions:**
+
 1. **Disable strict mode**: Set `validation.strictMode: false`
 2. **Fix configuration**: Remove or correct the unknown fields
 3. **Update Minsky**: Check if the field is supported in a newer version
@@ -259,4 +277,4 @@ For questions about configuration validation:
 1. **Check logs**: Look for validation warnings and error details
 2. **Review configuration**: Verify field names and structure
 3. **Consult documentation**: Check provider-specific configuration guides
-4. **Test validation**: Use different validation modes to diagnose issues 
+4. **Test validation**: Use different validation modes to diagnose issues

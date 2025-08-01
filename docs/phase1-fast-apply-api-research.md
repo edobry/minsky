@@ -9,11 +9,13 @@ Research validates that fast-apply APIs represent a **massive improvement** over
 ### 1. **Morph API** - The Market Leader
 
 **Performance Metrics:**
+
 - **Speed**: 4,500+ tokens/second (fastest available)
 - **Accuracy**: 98% (enterprise-grade)
 - **Pricing**: OpenAI API compatible, competitive rates
 
 **Key Features:**
+
 - OpenAI-compatible API for easy integration
 - Speculative decoding optimizations
 - Enterprise-ready with 99.9% uptime SLA
@@ -21,28 +23,32 @@ Research validates that fast-apply APIs represent a **massive improvement** over
 - MCP (Model Context Protocol) support
 
 **Integration Example:**
+
 ```typescript
-import { OpenAI } from 'openai';
+import { OpenAI } from "openai";
 
 const client = new OpenAI({
-  apiKey: 'your-api-key',
-  baseURL: 'https://api.morphllm.com/v1'
+  apiKey: "your-api-key",
+  baseURL: "https://api.morphllm.com/v1",
 });
 
 async function applyCodeUpdate(originalCode: string, updateSnippet: string) {
   const response = await client.chat.completions.create({
     model: "morph-v3-large",
-    messages: [{
-      role: "user",
-      content: `${originalContent}\n${editPattern}`
-    }]
+    messages: [
+      {
+        role: "user",
+        content: `${originalContent}\n${editPattern}`,
+      },
+    ],
   });
-  
+
   return response.choices[0].message.content;
 }
 ```
 
 **Advantages:**
+
 - ✅ **10x faster** than alternatives
 - ✅ **Production-proven** (trusted by hundreds of companies)
 - ✅ **Easy integration** (OpenAI-compatible)
@@ -51,22 +57,26 @@ async function applyCodeUpdate(originalCode: string, updateSnippet: string) {
 ### 2. **Relace API** - Strong Alternative
 
 **Performance Metrics:**
-- **Speed**: 2,000+ tokens/second 
+
+- **Speed**: 2,000+ tokens/second
 - **Accuracy**: ~98% accuracy
 - **Pricing**: Competitive with 4o-mini pricing
 
 **Key Features:**
+
 - Specialized training on lazy LLM outputs
 - Supports dozens of programming languages
 - Wide variety of merge scenarios
 - Available through Continue.dev integration
 
 **Use Cases:**
+
 - Working with natural "lazy" LLM outputs (// ... existing code ...)
 - Cross-language code editing
 - Integration with existing AI coding workflows
 
 **Advantages:**
+
 - ✅ **Handles lazy outputs** naturally
 - ✅ **Multi-language support**
 - ✅ **Continue.dev integration**
@@ -75,17 +85,20 @@ async function applyCodeUpdate(originalCode: string, updateSnippet: string) {
 ### 3. **Cursor Fast-Apply** - Proprietary Inspiration
 
 **Performance Metrics:**
+
 - **Speed**: 1,000+ tokens/second with speculative decoding
 - **Accuracy**: Outperforms GPT-4 and GPT-4o
 - **Approach**: Full-file rewrites vs. diffs
 
 **Key Insights:**
+
 - Uses speculative decoding for 9x speed improvements
 - Trained on full-file rewrites rather than diff formats
 - Custom evaluation with 450 full-file edits under 400 lines
 - Partners with Fireworks AI for deployment
 
 **Why Full-File Rewrites Work Better:**
+
 1. **More tokens for thinking** - allows model more forward passes
 2. **Training data alignment** - models see more full files than diffs
 3. **No line number issues** - eliminates tokenizer complications
@@ -93,11 +106,13 @@ async function applyCodeUpdate(originalCode: string, updateSnippet: string) {
 ## Alternative & Emerging Solutions
 
 ### Windsurf/Codeium
+
 - Focus on IDE integration rather than API provision
 - Uses existing providers for fast-apply functionality
 - Strong UX/UI focus
 
 ### Diffusion Models for Editing
+
 - Research shows ~2k tokens/second potential
 - Early-stage academic research
 - May become viable alternative in future
@@ -107,11 +122,13 @@ async function applyCodeUpdate(originalCode: string, updateSnippet: string) {
 ### Why Fast-Apply Works
 
 **Problem with Traditional Approaches:**
+
 - LLMs aren't naturally good at structured diff formats
 - String matching fails with formatting differences
 - Current implementation: **0% success rate**
 
 **Fast-Apply Solution:**
+
 - Let LLMs write naturally (lazy outputs)
 - Use specialized models for merging
 - 98% accuracy vs. 0% current success
@@ -119,16 +136,19 @@ async function applyCodeUpdate(originalCode: string, updateSnippet: string) {
 ### Speculative Decoding Innovation
 
 **Traditional LLM Inference:**
+
 ```
 Token N → Token N+1 → Token N+2 (sequential)
 ```
 
 **Speculative Decoding:**
+
 ```
 Predict tokens N+1, N+2, N+3 in parallel → Verify → Accept
 ```
 
 **Speed Improvements:**
+
 - Morph: 4,500 tokens/sec (9x faster than standard)
 - Cursor: 1,000 tokens/sec (13x faster than Llama-3-70b vanilla)
 
@@ -136,22 +156,24 @@ Predict tokens N+1, N+2, N+3 in parallel → Verify → Accept
 
 ### Current State vs. Fast-Apply
 
-| Metric | Current Implementation | Morph API | Relace API |
-|--------|----------------------|-----------|------------|
-| **Success Rate** | 0% | 98% | 98% |
-| **Speed** | N/A (fails) | 4,500 tok/s | 2,000 tok/s |
-| **Cost** | $0 (unusable) | ~$4o-mini | ~$4o-mini |
-| **Maintenance** | High (broken) | None | None |
-| **User Experience** | Broken | Instant | Instant |
+| Metric              | Current Implementation | Morph API   | Relace API  |
+| ------------------- | ---------------------- | ----------- | ----------- |
+| **Success Rate**    | 0%                     | 98%         | 98%         |
+| **Speed**           | N/A (fails)            | 4,500 tok/s | 2,000 tok/s |
+| **Cost**            | $0 (unusable)          | ~$4o-mini   | ~$4o-mini   |
+| **Maintenance**     | High (broken)          | None        | None        |
+| **User Experience** | Broken                 | Instant     | Instant     |
 
 ### ROI Calculation
 
 **Current Situation:**
+
 - Development time: Infinite (0% success rate)
 - User satisfaction: 0%
 - Maintenance cost: High (constant debugging)
 
 **With Fast-Apply:**
+
 - Development time: ~1 second per edit
 - User satisfaction: High (98% accuracy)
 - Maintenance cost: Low (provider handles complexity)
@@ -186,9 +208,9 @@ class FastApplyService {
   private providers: FastApplyProvider[] = [
     new MorphProvider(),
     new RelaceProvider(),
-    new LocalFallbackProvider() // Current implementation as last resort
+    new LocalFallbackProvider(), // Current implementation as last resort
   ];
-  
+
   async applyEdit(original: string, edit: string): Promise<string> {
     for (const provider of this.providers) {
       try {
@@ -208,7 +230,7 @@ class FastApplyService {
 // Enhanced session edit tool with fast-apply
 export function enhancedSessionEditFile(args: EditFileArgs) {
   const fastApplyService = new FastApplyService();
-  
+
   if (args.content.includes("// ... existing code ...")) {
     // Use fast-apply provider
     return fastApplyService.applyEdit(originalContent, args.content);
@@ -224,7 +246,7 @@ export function enhancedSessionEditFile(args: EditFileArgs) {
 ### Phase 2 Recommendations
 
 1. **Start with Morph API** - Market leader with best performance
-2. **Add Relace as backup** - Strong alternative with different strengths  
+2. **Add Relace as backup** - Strong alternative with different strengths
 3. **Keep current implementation** - As emergency fallback only
 4. **Implement evaluation framework** - Measure improvements
 
@@ -258,11 +280,13 @@ export function enhancedSessionEditFile(args: EditFileArgs) {
 ## Next Steps for Phase 2
 
 1. **Provider Integration Testing**
+
    - Set up Morph API account and test basic functionality
    - Test Relace API with current edit scenarios
    - Benchmark performance against failed current implementation
 
 2. **Architecture Design**
+
    - Implement provider abstraction layer
    - Design fallback mechanisms
    - Create configuration system
@@ -281,4 +305,4 @@ Fast-apply APIs represent a **critical solution** to our completely broken curre
 - **Enterprise support** vs. maintenance burden
 - **Proven reliability** vs. fundamental broken functionality
 
-**Recommendation**: Proceed immediately to Phase 2 implementation with Morph as primary provider and Relace as backup. 
+**Recommendation**: Proceed immediately to Phase 2 implementation with Morph as primary provider and Relace as backup.

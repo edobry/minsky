@@ -5,12 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+
 - **Task Status Commit Messages**: Fixed double hash bug in task status update commit messages
+
   - Task status updates now generate correct commit messages with single hash (#347) instead of double hash (##347)
   - Fixed in markdownTaskBackend.ts where commit message template was adding extra # prefix to already normalized task IDs
   - Ensures conventional commit format compliance for task status changes
 
 - **Session MCP Tools Response Data**: Fixed all session MCP tools not returning complete response data
+
   - Fixed `createSuccessResponse` calls incorrectly using two object parameters instead of one
   - Affected tools: session.read_file, session.write_file, session.edit_file, session.search_replace,
     session.move_file, session.rename_file, session.list_directory
@@ -20,12 +23,14 @@ All notable changes to this project will be documented in this file.
     createDirectoryListResponse) that were replaced during domain schema migration
 
 - **Session MCP Tools**: Re-enabled session MCP tools including session.pr.create
+
   - Fixed outdated "import issues" comment that was blocking session command registration
   - All session tools now available via MCP: list, get, start, delete, update, approve, conflicts
   - Added session PR management tools: session.pr.create, session.pr.list, session.pr.get
   - Session workspace file operations now available: read_file, write_file, list_directory, etc.
 
 - **MCP Server Schema Exports**: Fixed MCP server startup error due to missing schema exports
+
   - Added `QualifiedTaskIdSchema` for multi-backend task operations with backend prefixes
   - Added `NormalizedTaskIdSchema` for legacy ID migration and backend qualification
   - Added corresponding TypeScript type exports (`QualifiedTaskId`, `NormalizedTaskId`)
@@ -33,11 +38,13 @@ All notable changes to this project will be documented in this file.
   - MCP server now starts successfully with `minsky mcp start --with-inspector --http`
 
 - **Session Approve Display**: Fixed "Session: Unknown" display in session approval command output
+
   - Corrected property access in session approval formatter from `result.result` to `result.data`
   - Session name now displays correctly instead of showing "Unknown"
   - Aligns formatter with actual data structure returned by approval operations
 
 - **Session Approve Merge Strategy**: Fixed session approve creating new merge commits instead of fast-forwarding to prepared merge commits
+
   - Changed prepared-merge-commit-workflow to use `--ff-only` instead of `--no-ff` during approval
   - Resolves "Merge commits into main must use conventional commit format" validation errors
   - Session approve now correctly fast-forwards to the prepared merge commit as designed
@@ -50,7 +57,9 @@ All notable changes to this project will be documented in this file.
   - Session approve operations now work correctly for all session types
 
 ### Added
+
 - **Task #361**: Session outdated detection and display system
+
   - Created interim solution for detecting when sessions become outdated after PR merges to main
   - Implements sync status tracking with severity levels (current, stale, very-stale, ancient)
   - Adds `session outdated` command to list all outdated sessions with filtering options
@@ -60,6 +69,7 @@ All notable changes to this project will be documented in this file.
   - Serves as foundation for future automated sync workflow from Task #361
 
 - **Task #361**: Automated session sync workflow exploration
+
   - Created comprehensive exploration task for event-driven session synchronization
   - Introduces concept of system-generated work items distinct from user tasks
   - Defines AI-enhanced session relationship detection and conflict prediction
@@ -68,6 +78,7 @@ All notable changes to this project will be documented in this file.
   - Connects to task dependency system (#239) and AI features (#175) for intelligent workflow orchestration
 
 - **Task #359**: Session PR command restructuring with explicit subcommands ✅ **IMPLEMENTED**
+
   - **BREAKING CHANGE**: Replaced `session pr` with `session pr create` for explicit command structure
   - Implemented `session pr list` subcommand for listing PRs by session name, task ID, or status with filtering options
   - Implemented `session pr get [name] --task <id>` subcommand using same identifier pattern as `session get` command
@@ -79,6 +90,7 @@ All notable changes to this project will be documented in this file.
   - Enables comprehensive PR management workflow and future extensibility within Minsky CLI ecosystem
 
 - **Task #358**: PR approval and merge decoupling exploration
+
   - Created foundational task to explore separating PR approval from merge operations
   - Analyzes current coupling in session approve command and repository backends
   - Proposes enhanced repository backend interface with separate approval/merge methods
@@ -86,6 +98,7 @@ All notable changes to this project will be documented in this file.
   - Critical prerequisite for GitHub PR workflow implementation (Task #161)
 
 - **Task #138**: GitHub Issues backend production readiness improvements
+
   - **Documentation Package**: Comprehensive setup guide with token configuration, usage examples, troubleshooting, and best practices
   - **CLI Enhancements**: Added `minsky github test` and `minsky github status` commands for connectivity testing and configuration validation
   - **Integration Tests**: Created separate GitHub API integration test suite with cleanup and real API testing capability
@@ -99,6 +112,7 @@ All notable changes to this project will be documented in this file.
   - Phased implementation plan with backward compatibility strategy
 
 ### Changed
+
 - **Task #138**: Updated GitHub Issues backend task to depend on multi-backend architecture
   - Reduced scope from Extra Large (20-30h) to Medium (4-8h) by separating concerns
   - Updated to focus on adapting existing GitHub backend to multi-backend system
@@ -115,11 +129,14 @@ All notable changes to this project will be documented in this file.
   - Consistent masking across CLI and MCP interfaces
 
 ### Changed
+
 - **Rules List Command Optimization**: Excluded `content` field from `rules.list` command output for both CLI `--json` and MCP interfaces (#345)
   - Improves command usability by reducing output size and removing verbose rule content
   - Maintains all other rule information (id, title, description, tags, etc.)
   - Content can still be retrieved via `rules.get` command when needed
+
 ### Fixed
+
 - **Task #176: Comprehensive Session Database Architecture Fix** - Complete architectural overhaul achieving 99%+ performance improvement
   - Eliminated infinite loops in test suite (1.6+ billion ms → 2.02s execution time)
   - Fixed missing `createTaskFromTitleAndDescription` method in TaskService class
@@ -132,7 +149,7 @@ All notable changes to this project will be documented in this file.
   - **🏆 ULTIMATE ACHIEVEMENT**: Perfect test suite transformation - reduced skipped tests from 27 to ZERO (100% elimination)
     - **Phase 1 - Critical Test Fixes (13 tests)**: Fixed all major test suites with systematic approach
       - Fixed TaskService setTaskStatus test with stateful mocking for proper task status updates
-      - Fixed 3 RuleTemplateService tests by mocking default templates to avoid command registry conflicts  
+      - Fixed 3 RuleTemplateService tests by mocking default templates to avoid command registry conflicts
       - Fixed 2 Template System error handling tests with custom contexts for unknown command scenarios
       - Fixed ConflictDetectionService integration test with graceful error handling for missing directories
       - Fixed Session Approve bug regression test by implementing "Already up to date" handling in mergePullRequest
@@ -150,7 +167,8 @@ All notable changes to this project will be documented in this file.
     - Complete fulfillment of ZERO TOLERANCE POLICY through systematic mastery of complex challenges
     - Gold standard systematic approach provides template for future sophisticated test maintenance
 
-### ⚡ PERFORMANCE BREAKTHROUGH - Task 176 Phase 4 
+### ⚡ PERFORMANCE BREAKTHROUGH - Task 176 Phase 4
+
 - **🔥 CRITICAL FIX**: Eliminated infinite loops in `CustomConfigurationSystem` tests
   - **Performance improvement**: 1554316XXX.XXms → 345.00ms (99.999% faster)
   - **Root cause**: Real filesystem operations in configuration loading during tests
@@ -158,36 +176,43 @@ All notable changes to this project will be documented in this file.
   - **Impact**: Configuration tests now execute in normal time, test suite usable again
 
 ### Added
+
 - **Task 176 Phase 4**: Performance breakthrough with infinite loop elimination
   - `TestConfigurationProvider` class with complete dependency injection support
   - `TestConfigFactory` for test-specific configuration provider creation
   - Mock implementation of `loadConfiguration` function to prevent I/O during tests
   - Full `ConfigurationProvider` interface compliance with proper DI patterns
 
-### Changed  
+### Changed
+
 - **Configuration Testing Architecture**: Migrated from real filesystem operations to mocked implementations
 - **Test Performance**: Configuration tests now complete in milliseconds instead of infinite execution
 - **Backend Type Validation**: Updated test expectations to use valid enum values (`"markdown"`, `"json-file"`)
 
 ### Fixed
+
 - **CRITICAL**: Infinite loops in `CustomConfigurationProvider.initialize()` method
-- **Test Isolation**: Configuration tests no longer perform real filesystem operations  
+- **Test Isolation**: Configuration tests no longer perform real filesystem operations
 - **Type Safety**: Backend parameter validation now uses proper enum constraints
 - **ESLint Formatting**: Resolved all formatting issues in configuration test files
 
 ### Technical Debt Resolved
+
 - **Performance bottleneck**: Eliminated infinite loops that made test suite unusable
 - **Test reliability**: Configuration tests now consistently execute and complete
 - **Architecture compliance**: Applied Phase 4 dependency injection patterns to configuration domain
 
 ### Added - Task 176 Continuation
+
 - **Task 176 Continuation**: Dependency injection support for task command functions
   - Added optional `deps` parameter to `listTasksFromParams()` and `getTaskFromParams()`
   - Enhanced `getTaskStatusFromParams()` and `setTaskStatusFromParams()` with optional DI
   - `expandGitHubShorthand()` function for GitHub shorthand notation support (org/repo → full URL)
 
 ### Changed
+
 - **AI Commands**: Restructured from space-separated names to hierarchical structure:
+
   - `AI Validate` → `minsky core ai validate`
   - `AI Models List` → `minsky core ai models list`
   - `AI Models Refresh` → `minsky core ai models refresh`
@@ -195,6 +220,7 @@ All notable changes to this project will be documented in this file.
   - `AI Cache Clear` → `minsky core ai cache clear`
 
 - **Tasks Status Commands**: Converted from problematic dot notation to proper hierarchy:
+
   - `tasks.status.get` → `minsky tasks status get` (proper nesting)
   - `tasks.status.set` → `minsky tasks status set` (proper nesting)
 
@@ -203,13 +229,14 @@ All notable changes to this project will be documented in this file.
 - **Mock Setup**: Fixed mock workspace paths (`/tmp/mock-session-workdir`)
 
 ### Fixed
+
 - **Command Collision Errors**: Resolved "cannot add command 'AI' as already have command 'AI'" and similar duplication errors through consistent command key generation
 - **Complex Nesting Warnings**: Eliminated all "Complex command nesting not yet supported" warnings during CLI startup
 - **Inconsistent Command Architecture**: Unified command registration approach across all domains (tasks, AI, session, etc.)
 
 ### Documentation
-- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
+- **Task #176: Comprehensive Task Spec Update** - Updated task specification to reflect substantial progress: Status changed from TODO to IN-PROGRESS (75% complete). Documented major achievements including 891 passing tests (90.8% success rate), revolutionary codemod methodology breakthrough, and completion of core business logic infrastructure. Updated deliverables, success criteria, and scope to reflect current state.
 
 - **Task #289: Implemented Template-Based Rules Generation System**
 
@@ -1782,6 +1809,7 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 ### Added
 
 - **Cognitive Error Correction**: Fixed implementation-verification-protocol rule after Task #171 false completion claim
+
   - Original error: Trusted task documentation claiming "75% reduction achieved" without verification
   - Reality: session.ts was 2,218 lines (not 464 as claimed), 56 files still over 400 lines
   - Rule now enforces: Never accept completion claims without direct verification
@@ -1792,19 +1820,22 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **Mock Setup**: Fixed mock workspace paths (`/tmp/mock-session-workdir`)
 
 ### Fixed
+
 - **Type Casting Issues**: Fixed `convertRepositoryURI()` function type casting with proper `as unknown as UriFormat` pattern
 - **Import Resolution**: Fixed missing `childProcess` import and module resolution issues
 - **ESLint Formatting**: Resolved formatting issues in task command functions with optional dependency injection parameters
 - **Test Mocking Paths**: Corrected mock workspace paths to use proper temporary directories
 
 <<<<<<< HEAD
+
 ### Technical Debt
+
 - **Test Failures**: 6/10 task interface command tests still failing due to mock configuration issues
   - Root cause: `mockCreateTaskService` not properly returning mocked task service
   - Symptoms: Tests creating real filesystem operations instead of using `mockTaskService`
   - Next steps: Refine mock setup to ensure dependency injection returns proper mock objects
-- **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
-=======
+- # **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
+
 ### Removed
 
 ## 2025-01-24
@@ -1818,4 +1849,5 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **INTEGRATION**: Seamless integration with Task #359 subcommand structure
 
 Repository backend PR workflow delegation now works reliably regardless of uncommitted changes state.
->>>>>>> origin/main
+
+> > > > > > > origin/main

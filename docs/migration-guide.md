@@ -9,6 +9,7 @@ This guide helps you migrate from the legacy single-backend task system to the n
 ## What Changed
 
 ### Before (Legacy System)
+
 ```bash
 # Task IDs were simple numbers
 minsky tasks get 123
@@ -22,6 +23,7 @@ git branch task123
 ```
 
 ### After (Multi-Backend System)
+
 ```bash
 # Task IDs are now qualified with backend prefix
 minsky tasks get md#123        # Explicit markdown backend
@@ -40,18 +42,21 @@ git branch task-md#123
 ## Migration Timeline
 
 ### Phase 1: Automatic Compatibility (✅ Complete)
+
 - **Legacy task IDs continue working** with automatic migration
 - **Session detection enhanced** to handle both formats
 - **Git operations updated** to support qualified names
 - **No user action required**
 
 ### Phase 2: Enhanced Workflows (✅ Complete)
+
 - **CLI commands accept qualified IDs** for explicit backend selection
 - **Cross-backend operations** available (listing, searching)
 - **Backend-specific task creation** with `--backend` parameter
 - **Optional adoption** - use new features when ready
 
 ### Phase 3: Full Migration (📅 When Convenient)
+
 - **Bulk session migration** available for cleaner database
 - **Documentation updates** to use qualified IDs
 - **Team coordination** for consistent ID formats
@@ -130,7 +135,7 @@ Update any documentation or scripts that reference task IDs:
 echo "Working on task 123"
 git commit -m "fix: Resolve issue (task#123)"
 
-# After  
+# After
 echo "Working on task md#123"
 git commit -m "fix: Resolve issue (md#123)"
 ```
@@ -141,7 +146,8 @@ git commit -m "fix: Resolve issue (md#123)"
 
 **Situation**: Personal project with markdown tasks only
 
-**Migration**: 
+**Migration**:
+
 - ✅ No action required - everything works automatically
 - 🎯 Optional: Start using `md#` prefix for new tasks for clarity
 
@@ -158,6 +164,7 @@ minsky tasks create --backend md "New feature"  # → md#125
 **Situation**: Team wants to integrate GitHub Issues
 
 **Migration**:
+
 1. Configure GitHub backend: `minsky init --github-repo owner/repo`
 2. Start using GitHub issues: `minsky tasks list --backend gh`
 3. Create sessions for GitHub issues: `minsky session start gh#789`
@@ -175,6 +182,7 @@ minsky session pr --title "fix(gh#789): Authentication bug"
 **Situation**: Many existing tasks and sessions, want clean migration
 
 **Migration**:
+
 1. **Audit current state**
 2. **Plan migration window**
 3. **Bulk migrate sessions**
@@ -200,6 +208,7 @@ diff sessions-before-migration.txt sessions-after-migration.txt
 **Problem**: Unsure which sessions are migrated
 
 **Solution**: Use the list command to see current format
+
 ```bash
 minsky session list --verbose
 # Shows both legacy and migrated sessions clearly
@@ -210,6 +219,7 @@ minsky session list --verbose
 **Problem**: Existing git branches use old format
 
 **Solution**: Both formats work, git operations detect and handle correctly
+
 ```bash
 # Old branch still works
 git checkout task123
@@ -223,6 +233,7 @@ minsky session start md#456  # Creates task-md#456 branch
 **Problem**: Same number exists in multiple backends
 
 **Solution**: Use collision detection and resolution
+
 ```bash
 # Detect collisions
 minsky tasks detect-collisions
@@ -241,6 +252,7 @@ minsky tasks get gh#123  # GitHub issue
 **Problem**: Scripts hardcode legacy task IDs
 
 **Solution**: Update gradually or use auto-migration
+
 ```bash
 # Scripts continue working with auto-migration
 ./deploy-script.sh 123  # Auto-migrates to md#123
@@ -265,7 +277,7 @@ minsky tasks get gh#123  # GitHub issue
 minsky tasks get md#123
 minsky tasks list --all-backends
 
-# Verify session operations  
+# Verify session operations
 minsky session list
 minsky session start md#456
 
@@ -305,7 +317,7 @@ minsky tasks create --backend team "Special project task"  # → team#123
 For large-scale migrations, use the API:
 
 ```typescript
-import { SessionMigrationService } from './domain/session/migration-command';
+import { SessionMigrationService } from "./domain/session/migration-command";
 
 const migrationService = new SessionMigrationService(sessionDB);
 
@@ -313,8 +325,8 @@ const migrationService = new SessionMigrationService(sessionDB);
 const result = await migrationService.migrate({
   dryRun: false,
   createBackup: true,
-  filter: ['task123', 'task456'],
-  batchSize: 50
+  filter: ["task123", "task456"],
+  batchSize: 50,
 });
 
 console.log(`Migrated ${result.successful} sessions`);
@@ -331,6 +343,7 @@ console.log(`Migrated ${result.successful} sessions`);
 ## Best Practices After Migration
 
 ### 1. Consistent ID Usage
+
 ```bash
 # Use qualified IDs in team communication
 "Working on md#123 and gh#456"
@@ -340,21 +353,26 @@ git commit -m "feat(md#123): Add feature X"
 ```
 
 ### 2. Backend Selection Guidelines
+
 - **md#**: Internal tasks, documentation, personal projects
 - **gh#**: Public issues, team collaboration, external contributions
 - **json#**: Programmatic tasks, automation, integrations
 
 ### 3. Documentation Standards
+
 ```markdown
 # Before
+
 See task 123 for requirements
 
-# After  
+# After
+
 See task md#123 for requirements
 Related GitHub issue: gh#456
 ```
 
 ### 4. Monitoring and Maintenance
+
 ```bash
 # Regular collision checks
 minsky tasks detect-collisions
@@ -369,16 +387,19 @@ minsky config validate
 ## Getting Help
 
 ### During Migration
+
 - **Test in dry-run mode first**: `--dry-run` flag available for most operations
 - **Use verbose logging**: `--verbose` flag shows detailed migration steps
 - **Create backups**: `--backup` flag creates restoration points
 
 ### After Migration
+
 - **Check task #356**: Complete specification and implementation details
 - **Use debug mode**: `--debug` flag shows auto-migration behavior
 - **Validate setup**: `minsky config validate` checks system health
 
 ### Support Resources
+
 - **Migration logs**: Saved in `~/.local/state/minsky/logs/migration/`
 - **Backup files**: Stored in `~/.local/state/minsky/backups/`
 - **Configuration**: `~/.local/state/minsky/config.yaml`
