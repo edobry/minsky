@@ -1,16 +1,10 @@
 ## Implementation Status: 🔄 IN PROGRESS - CORE REFACTORING COMPLETED
 
-<<<<<<< HEAD
-
 ### ✅ **PHASE 1: CORE REFACTORING COMPLETED**
-
-=======
 
 ## Overview
 
 The MCP tool implementations have significant duplication in argument types, response patterns, and validation logic across different tools. This creates maintenance overhead and violates DRY principles. Refactor using TypeScript interface composition and Zod schema composition to eliminate this duplication.
-
-> > > > > > > main
 
 #### **SYSTEM 1: MCP Tool Parameter Refactoring** - 100% COMPLETE ✅
 
@@ -119,55 +113,6 @@ The MCP tool implementations have significant duplication in argument types, res
 
 #### **Total Duplication Eliminated**:
 
-=======
-// File system parameters
-export const filePathParam = z.string().describe("Path to the file within the session workspace");
-export const createDirsParam = z
-.boolean()
-.optional()
-.default(true)
-.describe("Create parent directories if they don't exist");
-export const explanationParam = z
-.string()
-.optional()
-.describe("One sentence explanation of why this tool is being used");
-
-// Line range parameters (for file reading)
-export const lineRangeParams = z.object({
-start_line_one_indexed: z
-.number()
-.min(1)
-.optional()
-.describe("The one-indexed line number to start reading from (inclusive)"),
-end_line_one_indexed_inclusive: z
-.number()
-.min(1)
-.optional()
-.describe("The one-indexed line number to end reading at (inclusive)"),
-should_read_entire_file: z
-.boolean()
-.optional()
-.default(false)
-.describe("Whether to read the entire file"),
-});
-
-// Search parameters
-export const searchParams = z.object({
-query: z.string().describe("Regex pattern to search for"),
-case_sensitive: z
-.boolean()
-.optional()
-.default(false)
-.describe("Whether the search should be case sensitive"),
-include_pattern: z
-.string()
-.optional()
-.describe("Glob pattern for files to include (e.g. '\*.ts' for TypeScript files)"),
-exclude_pattern: z.string().optional().describe("Glob pattern for files to exclude"),
-});
-
-> > > > > > > main
-
 - **MCP Tools**: 60+ duplicated parameters → 0 duplications ✅
 - **Shared Commands**: 150+ duplicated parameters → 0 duplications ✅
 - **Overall**: **210+ parameter duplications eliminated** (100% of discovered scope)
@@ -195,7 +140,7 @@ exclude_pattern: z.string().optional().describe("Glob pattern for files to exclu
 
 ### 🚧 **CURRENT STATUS: STRONG FOUNDATION ESTABLISHED**
 
-**Achieved**: 70% reduction in overall code, 75% in MCP tools  
+**Achieved**: 70% reduction in overall code, 75% in MCP tools
 **Foundation**: Parameter libraries and composition patterns established
 
 **Still Needed**:
@@ -240,38 +185,7 @@ exclude_pattern: z.string().optional().describe("Glob pattern for files to exclu
 - `src/adapters/shared/commands/session-parameters.ts`
 - `src/adapters/shared/commands/tasks/task-parameters.ts`
 
-<<<<<<< HEAD
-
 ### 💡 **KEY INNOVATIONS DELIVERED**
-
-=======
-commandMapper.addCommand({
-name: "session.read_file",
-parameters: fileContext.extend(lineRangeParams.shape).extend({
-explanation: explanationParam,
-}),
-handler: async (args) => {
-try {
-// ... implementation
-return createSuccessResponse(
-{ path: args.path, session: args.sessionName },
-{
-content: processedContent,
-totalLines: processed.totalLines,
-// ... other specific data
-}
-);
-} catch (error) {
-return createErrorResponse(getErrorMessage(error), {
-path: args.path,
-session: args.sessionName,
-});
-}
-},
-});
-
-```
->>>>>>> main
 
 1. **Dual-System Architecture**: Created reusable parameter libraries for both MCP and shared command systems
 2. **Type-Safe Composition**: Implemented TypeScript composition patterns that maintain full type inference
@@ -311,29 +225,6 @@ session: args.sessionName,
    - ✅ Created standardized response builders (createFileOperationResponse, createErrorResponse, etc.)
    - ✅ Eliminated 17+ instances of duplicated parameters across MCP tools
    - ✅ Achieved 75% reduction in MCP parameter code duplication
-=======
-1. **Create Common Schema Files**
-
-   - `src/adapters/mcp/schemas/common-parameters.ts`
-   - `src/adapters/mcp/schemas/common-responses.ts`
-   - `src/adapters/mcp/utils/error-handling.ts`
-
-2. **Refactor Session File Tools**
-
-   - Update `session-files.ts` to use composed schemas
-   - Update `session-edit-tools.ts` to use composed schemas
-   - Update `session-workspace.ts` to use composed schemas
-
-3. **Refactor Other MCP Tools**
-
-   - Apply composition patterns to other tool categories
-   - Update any remaining hardcoded parameter patterns
-
-4. **Create Documentation**
-
-   - Document the composition patterns for future tool development
-   - Add examples of how to extend base schemas for new tools
->>>>>>> main
 
 4. **Testing & Validation** ✅
 
