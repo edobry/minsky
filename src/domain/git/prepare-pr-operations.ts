@@ -493,7 +493,9 @@ Session requested: "${(options as any).session}"
       log.warn("Failed to clean up after merge error", { cleanupErr });
     }
 
-    if (err instanceof Error && err.message.includes("CONFLICT")) {
+    // Check for conflict errors regardless of error type
+    const errorMessage = err instanceof Error ? err.message : String(err);
+    if (errorMessage.includes("CONFLICT") || errorMessage.includes("Automatic merge failed")) {
       throw new MinskyError(
         "Merge conflicts occurred while creating prepared merge commit. Please resolve conflicts and retry.",
         { exitCode: 4 }

@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
     session.move_file, session.rename_file, session.list_directory
   - All session tools now properly return complete response data (content, metadata, operation results)
   - Tools were succeeding but missing crucial data fields like `content`, `bytesWritten`, `files`, etc.
+  - Removed unused legacy MCP response builders (createFileReadResponse, createFileOperationResponse, 
+    createDirectoryListResponse) that were replaced during domain schema migration
 
 - **Session MCP Tools**: Re-enabled session MCP tools including session.pr.create
   - Fixed outdated "import issues" comment that was blocking session command registration
