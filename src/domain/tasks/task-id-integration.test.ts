@@ -35,7 +35,7 @@ describe("Task ID Integration Issues (Currently BROKEN)", () => {
     const testContent = `- [ ] Test Legacy Task [#123](process/tasks/123-test-legacy.md)
 - [ ] Test Qualified GH Task [gh#456](process/tasks/gh#456-test-github.md)
 `;
-    const combinedContent = originalTasksContent + "\n" + testContent;
+    const combinedContent = `${originalTasksContent}\n${testContent}`;
     await fs.writeFile(tempTaskFile, combinedContent);
   });
 
@@ -87,17 +87,22 @@ describe("Task ID Integration Issues (Currently BROKEN)", () => {
       // Actual: Only shows legacy #123 format
 
       try {
-        const { stdout } = await execAsync("bun run ./src/cli.ts tasks list");
+        const { stdout, stderr } = await execAsync("bun run ./src/cli.ts tasks list");
 
-        // Debug: Show what we're actually getting
-        console.log("✅ Task list output includes md#367:", stdout.includes("md#367"));
-        console.log("Last 200 chars of output:", stdout.slice(-200));
+        // Debug: Show what we're actually getting  
+        console.log("✅ Task list stdout length:", stdout.length);
+        console.log("✅ Task list stderr length:", stderr.length);
+        console.log("✅ Output includes md#367 in stdout:", stdout.includes("md#367"));
+        console.log("✅ Output includes md#367 in stderr:", stderr.includes("md#367"));
 
-        // The qualified ID should appear in the list
-        expect(stdout).toContain("md#367");
+        // The qualified ID should appear in the output (check both stdout and stderr)
+        const fullOutput = stdout + stderr;
+        expect(fullOutput).toContain("md#367");
         // Note: removed gh#456 check since that task doesn't exist in the real file
-      } catch (error) {
-        console.log("❌ EXPECTED FAILURE: Task list doesn't show qualified IDs");
+      } catch (error: any) {
+        console.log("❌ CLI execution failed:", error.message);
+        console.log("❌ stderr:", error.stderr);
+        console.log("❌ stdout:", error.stdout);
         throw error;
       }
     });

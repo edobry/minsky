@@ -633,5 +633,3 @@
 - [+] Fix SQLite schema to persist PR metadata for session auto-updates [#366](process/tasks/366-fix-sqlite-schema-to-persist-pr-metadata-for-session-auto-updates.md)
 
 - [ ] Consolidate Multiple Task ID Parsing Implementations [md#367](process/tasks/md#367-consolidate-multiple-task-id-parsing-implementations.md)
-- [ ] Test Legacy Task [#123](process/tasks/123-test-legacy.md)
-- [ ] Test Qualified GH Task [gh#456](process/tasks/gh#456-test-github.md)

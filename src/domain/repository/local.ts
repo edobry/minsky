@@ -46,7 +46,7 @@ export class LocalGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
   private readonly repoUrl!: string;
   private readonly repoName!: string;
-  private sessionDb: SessionProviderInterface;
+  private sessionDB: SessionProviderInterface;
   private config: RepositoryBackendConfig;
 
   /**
@@ -58,7 +58,7 @@ export class LocalGitBackend implements RepositoryBackend {
     this.baseDir = join(xdgStateHome, "minsky");
     this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = createSessionProvider();
+    this.sessionDB = createSessionProvider();
     this.config = config;
   }
 
@@ -292,7 +292,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDb.getSession(session);
+      const record = await this.sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
@@ -323,7 +323,7 @@ export class LocalGitBackend implements RepositoryBackend {
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDb.getSession(session);
+      const record = await this.sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }

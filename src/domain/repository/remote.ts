@@ -47,7 +47,7 @@ export class RemoteGitBackend implements RepositoryBackend {
   private readonly repoUrl!: string;
   private readonly repoName!: string;
   private readonly defaultBranch?: string;
-  private sessionDb: SessionProviderInterface;
+  private sessionDB: SessionProviderInterface;
 
   /**
    * Create a new RemoteGitBackend instance
@@ -66,7 +66,7 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDb = createSessionProvider();
+    this.sessionDB = createSessionProvider();
   }
 
   /**
@@ -311,7 +311,7 @@ Repository: ${this.repoUrl}
       // 3. Push to remote repository
 
       // This is a more complete implementation that would work with actual repositories
-      const sessions = await this.sessionDb.listSessions();
+      const sessions = await this.sessionDB.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
       if (currentSessions.length === 0) {
@@ -375,7 +375,7 @@ Repository: ${this.repoUrl}
       }
 
       // Get all sessions for this repository
-      const sessions = await this.sessionDb.listSessions();
+      const sessions = await this.sessionDB.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
       if (currentSessions.length === 0) {
@@ -440,7 +440,7 @@ Repository: ${this.repoUrl}
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDb.getSession(session);
+      const record = await this.sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
@@ -471,7 +471,7 @@ Repository: ${this.repoUrl}
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDb.getSession(session);
+      const record = await this.sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
