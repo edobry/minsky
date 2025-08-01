@@ -627,3 +627,5 @@
 - [ ] Implement Linear Backend for Multi-Backend Task System [#363](process/tasks/363-implement-linear-backend-for-multi-backend-task-system.md)
 
 - [x] Fix missing session.pr command in template system causing 5 template generation failures [#364](process/tasks/364-fix-missing-session-pr-command-in-template-system-causing-5-template-generation-failures.md)
+
+- [+] Fix misleading template messages and missing CLI error details in rules generation [#365](process/tasks/365-fix-misleading-template-messages-and-missing-cli-error-details-in-rules-generation.md)
