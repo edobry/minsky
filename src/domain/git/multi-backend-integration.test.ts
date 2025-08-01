@@ -1,6 +1,14 @@
 import { describe, it, expect, mock } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
 import type { SessionProviderInterface, SessionRecord } from "../session/types";
+import { mockModule, createMock } from "../../utils/test-utils/mocking";
+
+// Mock the git-exec module to prevent real git execution
+mockModule("../../utils/git-exec", () => ({
+  execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
+  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+}));
 
 // Mock dependencies for testing
 function createMockDependencies() {
@@ -24,6 +32,12 @@ function createMockDependencies() {
     }
     if (command === "git symbolic-ref --short HEAD") {
       return "task-md#123";
+    }
+    if (command === "git rev-parse --abbrev-ref HEAD") {
+      return "task-md#123";
+    }
+    if (command.startsWith("git rev-parse")) {
+      return "abc123def456"; // Mock commit hash
     }
     return "";
   });

@@ -239,7 +239,24 @@ export class SessionMigrationService {
       const batch = sessions.slice(i, i + batchSize);
       const currentBatch = Math.floor(i / batchSize) + 1;
 
-      const batchResults = batch.map((session) => this.migrateSession(session));
+      const batchResults = batch.map((session) => {
+        try {
+          return this.migrateSession(session);
+        } catch (error) {
+          // Handle any errors that occur during migration
+          return {
+            original: session,
+            success: false,
+            error: error instanceof Error ? error.message : String(error),
+            changes: {
+              sessionNameChanged: false,
+              taskIdChanged: false,
+              backendAdded: false,
+              legacyIdPreserved: false,
+            },
+          };
+        }
+      });
       results.push(...batchResults);
 
       if (onProgress) {

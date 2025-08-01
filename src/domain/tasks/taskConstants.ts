@@ -132,8 +132,20 @@ export const TASK_PARSING_UTILS = {
     const [, checkbox, title, fullId] = match;
     if (!checkbox || !title || !fullId) return null;
 
-    // Preserve the full ID format (both #123 legacy and md#123 qualified)
-    const id = fullId.startsWith("#") ? fullId : `#${fullId}`;
+    // Use unified task ID system for consistent handling
+    const { isQualifiedTaskId } = require("../unified-task-id");
+    
+    let id: string;
+    if (isQualifiedTaskId(fullId)) {
+      // Qualified ID (md#367) - return as-is
+      id = fullId;
+    } else if (fullId.startsWith("#")) {
+      // Legacy format with # prefix (#123) - return as-is  
+      id = fullId;
+    } else {
+      // Legacy format without # prefix (123) - add # prefix
+      id = `#${fullId}`;
+    }
 
     return {
       checkbox: checkbox,

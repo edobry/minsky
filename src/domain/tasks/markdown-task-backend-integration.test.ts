@@ -121,7 +121,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     it("should handle existing legacy tasks with #123 format", async () => {
       // Create a legacy format tasks.md file
       const legacyContent = `- [ ] #001 Legacy Task One
-- [x] #002 Legacy Task Two  
+- [x] #002 Legacy Task Two
 - [ ] #003 Legacy Task Three`;
 
       await fs.writeFile(tasksFile, legacyContent, "utf-8");
@@ -306,8 +306,8 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
       // Read the raw file content
       const content = await fs.readFile(tasksFile, "utf-8");
 
-      expect(content).toContain("- [ ] #1 Persisted Task");
-      expect(content).toContain("- [x] #2 Done Task");
+      expect(content).toContain("- [ ] md#1 Persisted Task");
+      expect(content).toContain("- [x] md#2 Done Task");
     });
   });
 });

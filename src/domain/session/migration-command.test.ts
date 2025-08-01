@@ -359,8 +359,12 @@ describe("Session Migration Command", () => {
 
         const migrationService = new SessionMigrationService(sessionDB);
 
-        // Should not throw, but should handle the error
-        await expect(migrationService.migrate({ backup: false })).resolves.not.toThrow();
+        // Should return result with failed status, not throw
+        const result = await migrationService.migrate({ backup: false });
+
+        expect(result).toBeDefined();
+        expect(result.progress.failed).toBeGreaterThan(0);
+        expect(result.results.every((r) => !r.success)).toBe(true);
       });
     });
 
