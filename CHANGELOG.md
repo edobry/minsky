@@ -5,6 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Session MCP Tools**: Re-enabled session MCP tools including session.pr.create
+  - Fixed outdated "import issues" comment that was blocking session command registration
+  - All session tools now available via MCP: list, get, start, delete, update, approve, conflicts
+  - Added session PR management tools: session.pr.create, session.pr.list, session.pr.get
+  - Session workspace file operations now available: read_file, write_file, list_directory, etc.
+
 - **MCP Server Schema Exports**: Fixed MCP server startup error due to missing schema exports
   - Added `QualifiedTaskIdSchema` for multi-backend task operations with backend prefixes
   - Added `NormalizedTaskIdSchema` for legacy ID migration and backend qualification
