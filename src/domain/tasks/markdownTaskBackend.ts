@@ -205,7 +205,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           await gitService.execInRepository(workdir, "git add -A");
 
           // Commit with conventional commit message
-          const commitMessage = `chore(#${id}): update task status ${previousStatus} → ${status}`;
+          const commitMessage = `chore(${id}): update task status ${previousStatus} → ${status}`;
           await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
 
           log.cli("📤 Pushing changes...");
