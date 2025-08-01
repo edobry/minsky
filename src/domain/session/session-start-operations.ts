@@ -30,6 +30,10 @@ import type {
   Session,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
 import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
+import {
+  SessionMultiBackendIntegration,
+  SessionBackwardCompatibility,
+} from "./multi-backend-integration";
 
 /**
  * Implementation of session start functionality
@@ -139,8 +143,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
 
-      // Use the task ID as the session name
-      sessionName = `task${taskId}`;
+      // Generate session name using multi-backend integration
+      sessionName = SessionMultiBackendIntegration.generateSessionName(taskId);
     }
 
     if (!sessionName) {
@@ -200,14 +204,17 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Prepare session record but don't add to DB yet
-    const sessionRecord: SessionRecord = {
+    const baseSessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
-      taskId,
+      taskId: taskId ? SessionBackwardCompatibility.toStorageFormat(taskId) : undefined,
       branch: branch || sessionName,
     };
+
+    // Enhance session record with multi-backend information
+    const sessionRecord = SessionMultiBackendIntegration.enhanceSessionRecord(baseSessionRecord);
 
     let sessionAdded = false;
     // Define branchName outside try block so it's available in return statement
