@@ -124,27 +124,39 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
 }
 
 /**
- * Normalize a task ID to standard format (pure function)
+ * Normalize task ID to consistent format using unified task ID system
+ * Supports both legacy formats (#XXX) and qualified formats (md#XXX, gh#XXX)
  * @param id Task ID to normalize
- * @returns Normalized task ID or null if invalid
+ * @returns Normalized task ID or undefined if invalid
  */
 export function normalizeTaskId(id: string): string | undefined {
   if (!id) return undefined;
 
-  // If already in #XXX format, validate and return
+  // Use unified task ID system for consistent handling
+  const {
+    isQualifiedTaskId,
+    isLegacyTaskId,
+    migrateUnqualifiedTaskId,
+  } = require("./unified-task-id");
+
+  // If it's already a qualified ID, return as-is
+  if (isQualifiedTaskId(id)) {
+    return id;
+  }
+
+  // If it's a legacy format, migrate to qualified format
+  if (isLegacyTaskId(id)) {
+    return migrateUnqualifiedTaskId(id, "md"); // Default to markdown backend
+  }
+
+  // If already in #XXX format, keep for backward compatibility
   if (/^#[a-zA-Z0-9_]+$/.test(id)) {
     return id;
   }
 
-  // If purely alphanumeric, convert to #XXX format
+  // If purely alphanumeric, convert to #XXX format (legacy compatibility)
   if (/^[a-zA-Z0-9_]+$/.test(id)) {
     return `#${id}`;
-  }
-
-  // If in different format, try to extract alphanumeric portion
-  const match = id.match(/([a-zA-Z0-9_]+)/);
-  if (match && match[1]) {
-    return `#${match[1]}`;
   }
 
   return undefined;

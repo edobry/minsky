@@ -1,14 +1,22 @@
-import { describe, it, expect, mock } from "bun:test";
-import { preparePrImpl } from "./prepare-pr-operations";
-import type { SessionProviderInterface, SessionRecord } from "../session/types";
+// Mock the git-exec module FIRST before any imports
 import { mockModule, createMock } from "../../utils/test-utils/mocking";
 
-// Mock the git-exec module to prevent real git execution
 mockModule("../../utils/git-exec", () => ({
   execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
   gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
 }));
+
+// Also try mocking with absolute path
+mockModule("/Users/edobry/Projects/minsky/src/utils/git-exec", () => ({
+  execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
+  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+}));
+
+import { describe, it, expect, mock } from "bun:test";
+import { preparePrImpl } from "./prepare-pr-operations";
+import type { SessionProviderInterface, SessionRecord } from "../session/types";
 
 // Mock dependencies for testing
 function createMockDependencies() {
