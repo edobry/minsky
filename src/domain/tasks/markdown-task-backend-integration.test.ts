@@ -34,6 +34,9 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   function createMockMarkdownBackend(filesystem: any, workspacePath: string): TaskBackend {
     let taskCounter = 0;
 
+    // Store task descriptions separately (simulates spec files)
+    const taskDescriptions = new Map<string, string>();
+
     return {
       name: "markdown",
 
@@ -90,18 +93,24 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
         const searchIdNormalized = normalizeId(id);
 
-        return (
-          tasks.find((task) => {
-            const taskIdNormalized = normalizeId(task.id);
+        const foundTask = tasks.find((task) => {
+          const taskIdNormalized = normalizeId(task.id);
 
-            return (
-              task.id === id || // Exact match
-              task.id === `md#${id}` || // Add md# prefix
-              task.id.replace("md#", "") === id || // Remove md# prefix
-              taskIdNormalized === searchIdNormalized // Numeric match (handles leading zeros)
-            );
-          }) || null
-        );
+          return (
+            task.id === id || // Exact match
+            task.id === `md#${id}` || // Add md# prefix
+            task.id.replace("md#", "") === id || // Remove md# prefix
+            taskIdNormalized === searchIdNormalized // Numeric match (handles leading zeros)
+          );
+        });
+
+        if (foundTask) {
+          // Add description from separate storage
+          const description = taskDescriptions.get(foundTask.id) || "";
+          return { ...foundTask, description };
+        }
+
+        return null;
       },
 
       async getTaskStatus(id: string) {
@@ -126,7 +135,26 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         // Handle both string paths and object parameters
         if (typeof specPath === "object" && specPath.title) {
           // Called with object like createTask({ title: "...", description: "..." })
-          return this.createTaskFromTitleAndDescription(specPath.title, specPath.description || "");
+          taskCounter++;
+          const taskId = `md#${taskCounter}`;
+          const task = {
+            id: taskId,
+            title: specPath.title,
+            description: specPath.description || "",
+            status: specPath.status || TASK_STATUS.TODO,
+          };
+
+          // Store description separately
+          if (specPath.description) {
+            taskDescriptions.set(taskId, specPath.description);
+          }
+
+          const tasks = await this.listTasks();
+          tasks.push(task);
+          const markdownContent = formatTasksToMarkdown(tasks);
+          await filesystem.writeFile(tasksFile, markdownContent, "utf-8");
+
+          return task;
         }
 
         const content = await filesystem.readFile(String(specPath), "utf-8");
@@ -150,12 +178,18 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
       async createTaskFromTitleAndDescription(title: string, description: string) {
         taskCounter++;
+        const taskId = `md#${taskCounter}`;
         const task = {
-          id: `md#${taskCounter}`,
+          id: taskId,
           title,
           description,
           status: TASK_STATUS.TODO,
         };
+
+        // Store description separately
+        if (description) {
+          taskDescriptions.set(taskId, description);
+        }
 
         const tasks = await this.listTasks();
         tasks.push(task);
@@ -173,6 +207,12 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         );
 
         if (filteredTasks.length < initialLength) {
+          // Clean up description for deleted task
+          const deletedTasks = tasks.filter(
+            (task) => !filteredTasks.find((ft) => ft.id === task.id)
+          );
+          deletedTasks.forEach((task) => taskDescriptions.delete(task.id));
+
           const content = formatTasksToMarkdown(filteredTasks);
           await filesystem.writeFile(tasksFile, content, "utf-8");
           return true;
@@ -185,6 +225,59 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
         const idNum = taskId.replace(/^md#/, "");
         return join(workspacePath, "process", "tasks", `${idNum}-${normalizedTitle}.md`);
+      },
+
+      async exportTask(id: string) {
+        const task = await this.getTask(id);
+        if (!task) {
+          throw new Error(`Task not found: ${id}`);
+        }
+
+        return {
+          backend: "md",
+          spec: {
+            title: task.title,
+            description: task.description,
+            status: task.status,
+          },
+          metadata: {
+            originalId: task.id,
+            exportedFrom: "markdown",
+          },
+          exportedAt: new Date().toISOString(),
+        };
+      },
+
+      async importTask(importData: any) {
+        const { spec } = importData;
+
+        taskCounter++;
+        const task = {
+          id: `md#${taskCounter}`,
+          title: spec.title,
+          description: spec.description,
+          status: spec.status,
+        };
+
+        const tasks = await this.listTasks();
+        tasks.push(task);
+        const markdownContent = formatTasksToMarkdown(tasks);
+        await filesystem.writeFile(tasksFile, markdownContent, "utf-8");
+
+        return task;
+      },
+
+      validateLocalId: (id: string) => {
+        // Valid local IDs are positive integers (no zero, no negative, no decimals, no letters)
+        if (typeof id !== "string" || id === "") return false;
+
+        const num = parseInt(id, 10);
+        return (
+          !isNaN(num) && // Must be a valid number
+          num > 0 && // Must be positive (no zero)
+          num.toString() === id && // Must be pure integer (no decimals, letters)
+          !id.includes(".") // No decimal points
+        );
       },
     };
   }
@@ -453,7 +546,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   });
 
   describe("Export/Import Operations", () => {
-    it.skip("should export tasks correctly", async () => {
+    it("should export tasks correctly", async () => {
       const task = await backend.createTask({
         title: "Export Test Task",
         description: "Testing export functionality",
@@ -470,7 +563,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
       expect(exportData.exportedAt).toBeDefined();
     });
 
-    it.skip("should import tasks correctly", async () => {
+    it("should import tasks correctly", async () => {
       const importData = {
         spec: {
           title: "Imported Task",
@@ -492,7 +585,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   });
 
   describe("Local ID Validation", () => {
-    it.skip("should validate local IDs correctly", () => {
+    it("should validate local IDs correctly", () => {
       expect(backend.validateLocalId("123")).toBe(true);
       expect(backend.validateLocalId("1")).toBe(true);
       expect(backend.validateLocalId("999")).toBe(true);
