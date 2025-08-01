@@ -5,10 +5,12 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-- **Session Read File Tool**: Fixed session.read_file tool not returning actual file content
-  - Corrected `createSuccessResponse` call that was incorrectly passing content as second parameter
-  - Tool now properly returns `content` field with the actual file contents
-  - Maintains all existing functionality: line range support, metadata, summaries
+- **Session MCP Tools Response Data**: Fixed all session MCP tools not returning complete response data
+  - Fixed `createSuccessResponse` calls incorrectly using two object parameters instead of one
+  - Affected tools: session.read_file, session.write_file, session.edit_file, session.search_replace, 
+    session.move_file, session.rename_file, session.list_directory
+  - All session tools now properly return complete response data (content, metadata, operation results)
+  - Tools were succeeding but missing crucial data fields like `content`, `bytesWritten`, `files`, etc.
 
 - **Session MCP Tools**: Re-enabled session MCP tools including session.pr.create
   - Fixed outdated "import issues" comment that was blocking session command registration
