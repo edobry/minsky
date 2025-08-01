@@ -7,11 +7,11 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 - **Session MCP Tools Response Data**: Fixed all session MCP tools not returning complete response data
   - Fixed `createSuccessResponse` calls incorrectly using two object parameters instead of one
-  - Affected tools: session.read_file, session.write_file, session.edit_file, session.search_replace, 
+  - Affected tools: session.read_file, session.write_file, session.edit_file, session.search_replace,
     session.move_file, session.rename_file, session.list_directory
   - All session tools now properly return complete response data (content, metadata, operation results)
   - Tools were succeeding but missing crucial data fields like `content`, `bytesWritten`, `files`, etc.
-  - Removed unused legacy MCP response builders (createFileReadResponse, createFileOperationResponse, 
+  - Removed unused legacy MCP response builders (createFileReadResponse, createFileOperationResponse,
     createDirectoryListResponse) that were replaced during domain schema migration
 
 - **Session MCP Tools**: Re-enabled session MCP tools including session.pr.create
