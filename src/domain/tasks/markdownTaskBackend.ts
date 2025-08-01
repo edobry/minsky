@@ -267,8 +267,8 @@ export class MarkdownTaskBackend implements TaskBackend {
       return id !== null && id > max ? id : max;
     }, 0);
 
-    // TASK 283: Generate plain ID format for storage (e.g., "285" instead of "#285")
-    const newId = String(maxId + 1); // Plain format for storage
+    // Generate qualified backend ID for multi-backend storage (e.g., "md#285")
+    const newId = `md#${maxId + 1}`; // Qualified format for storage
 
     // Generate proper spec path and move the temporary file
     // Use display format for spec path generation since filenames use display format

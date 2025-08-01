@@ -40,22 +40,27 @@ export function normalizeTaskIdForStorage(userInput: string): string | null {
 }
 
 /**
- * Format task ID for display (adds # prefix)
+ * Format task ID for display (shows qualified backend ID)
  *
- * @param storageId Plain task ID from storage (e.g., "283")
- * @returns Formatted task ID for display (e.g., "#283")
+ * @param storageId Task ID from storage (e.g., "md#356", "gh#123", or legacy "283")
+ * @returns Formatted task ID for display (e.g., "md#356", "gh#123", or "#283" for legacy)
  */
 export function formatTaskIdForDisplay(storageId: string): string {
   if (!storageId || typeof storageId !== "string") {
     return "";
   }
 
-  // If already has # prefix, return as-is
+  // If it's a qualified backend ID (md#123, gh#456), return as-is for multi-backend display
+  if (/^[a-z-]+#\d+$/.test(storageId)) {
+    return storageId;
+  }
+
+  // If it already has # prefix (legacy #123), return as-is
   if (storageId.startsWith("#")) {
     return storageId;
   }
 
-  // Add # prefix for display
+  // For plain numeric IDs (legacy), add # prefix for backward compatibility
   return `#${storageId}`;
 }
 

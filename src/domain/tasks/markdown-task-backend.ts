@@ -262,8 +262,8 @@ export class MarkdownTaskBackend implements TaskBackend {
     let currentTask: Partial<Task> | null = null;
 
     for (const line of lines) {
-      // Check for task line (e.g., "- [ ] #123 Task title")
-      const taskMatch = line.match(/^-\s*\[([x\s])\]\s*(#?\d+)\s+(.+)$/);
+      // Check for task line - supports both legacy (#123) and qualified (md#123) formats
+      const taskMatch = line.match(/^-\s*\[([x\s])\]\s*([a-z-]*#?\d+)\s+(.+)$/);
       if (taskMatch) {
         if (currentTask && currentTask.id && currentTask.title) {
           tasks.push(currentTask as Task);
@@ -275,7 +275,16 @@ export class MarkdownTaskBackend implements TaskBackend {
 
         if (checkbox && id && title) {
           const status = checkbox === "x" ? TASK_STATUS.DONE : TASK_STATUS.TODO;
-          const qualifiedId = id.startsWith("#") ? `md${id}` : `md#${id}`;
+
+          // Convert to qualified format if needed
+          let qualifiedId: string;
+          if (id.includes("#")) {
+            // Either "md#123" (already qualified) or "#123" (legacy)
+            qualifiedId = id.startsWith("#") ? `md${id}` : id;
+          } else {
+            // Plain number "123"
+            qualifiedId = `md#${id}`;
+          }
 
           currentTask = {
             id: qualifiedId,
@@ -314,8 +323,9 @@ export class MarkdownTaskBackend implements TaskBackend {
     return tasks
       .map((task) => {
         const checkbox = task.status === TASK_STATUS.DONE ? "x" : " ";
-        const localId = task.id.replace(/^md#/, "");
-        let output = `- [${checkbox}] #${localId} ${task.title}`;
+        // Keep qualified ID format in storage for multi-backend consistency
+        const displayId = task.id; // Use full qualified ID (md#123)
+        let output = `- [${checkbox}] ${displayId} ${task.title}`;
 
         if (task.description && task.description.trim()) {
           output += `\n${task.description.trim()}`;

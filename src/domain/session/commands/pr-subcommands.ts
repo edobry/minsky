@@ -95,7 +95,7 @@ export async function sessionPrList(params: {
     // Filter sessions that have PR information
     let filteredSessions = sessions.filter((session) => {
       // Include sessions that have prState or pullRequest info
-      return session.prState?.exists || session.pullRequest;
+      return !!session.prState?.commitHash || session.pullRequest;
     });
 
     // Apply filters
@@ -119,7 +119,7 @@ export async function sessionPrList(params: {
         sessionName: session.session,
         taskId: session.taskId,
         prNumber: pr?.number,
-        status: pr?.state || (prState?.exists ? "unknown" : "unknown"),
+        status: pr?.state || (prState?.commitHash ? "created" : "not_found"),
         title: pr?.title || `PR for ${session.session}`,
         url: pr?.url,
         updatedAt: pr?.updatedAt || prState?.lastChecked,
@@ -197,7 +197,7 @@ export async function sessionPrGet(params: {
     const pr = sessionRecord.pullRequest;
     const prState = sessionRecord.prState;
 
-    if (!pr && !prState?.exists) {
+    if (!pr && !prState?.commitHash) {
       throw new ResourceNotFoundError(
         `No pull request found for session '${resolvedContext.sessionName}'. ` +
           `Use 'minsky session pr create' to create a PR first.`
@@ -211,7 +211,7 @@ export async function sessionPrGet(params: {
       sessionName: sessionRecord.session,
       taskId: sessionRecord.taskId,
       branch: prState?.branchName || pr?.headBranch || `pr/${sessionRecord.session}`,
-      status: pr?.state || (prState?.exists ? "unknown" : "unknown"),
+      status: pr?.state || (prState?.commitHash ? "created" : "not_found"),
       url: pr?.url,
       createdAt: pr?.createdAt || prState?.createdAt,
       updatedAt: pr?.updatedAt || prState?.lastChecked,
