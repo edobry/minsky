@@ -28,7 +28,7 @@ Enable end-to-end GitHub Issues task backend usage by implementing the repositor
 ### Success Criteria
 1. **Repository Backend Auto-Detection**: Automatically detect and instantiate GitHub repository backend when working in GitHub repositories
 2. **Task Backend Compatibility**: GitHub Issues task backend works seamlessly when GitHub repository backend is detected
-3. **Multi-Backend Task IDs**: Implement backend-qualified task IDs (`gh:123`, `md:456`) to prevent conflicts
+3. **Multi-Backend Task IDs**: Implement backend-qualified task IDs (`gh#123`, `md#456`) to prevent conflicts
 4. **Backward Compatibility**: Existing unqualified task IDs continue to work during transition
 5. **End-to-End Workflow**: Complete task creation → session management → PR workflow using GitHub Issues
 
@@ -107,7 +107,7 @@ function validateTaskBackendCompatibility(repoBackend: string, taskBackend: stri
 
 Implement the multi-backend task ID system:
 
-**Format**: `backend:id` (e.g., `gh:123`, `md:456`, `json:789`)
+**Format**: `backend#id` (e.g., `gh#123`, `md#456`, `json#789`)
 
 **Implementation**:
 - ✅ Update task ID parsing to handle qualified IDs
@@ -145,7 +145,7 @@ Update session operations to work with repository backend detection:
 4. **Test compatibility matrix** (all backend combinations)
 
 ### Phase 3: Backend-Qualified Task IDs (4-5 hours)
-1. **Update task ID parsing** to handle `backend:id` format  
+1. **Update task ID parsing** to handle `backend#id` format  
 2. **Implement backward compatibility** for unqualified IDs
 3. **Update task creation** to use qualified format by default
 4. **Update all task operations** (get, update, delete, list)
@@ -161,7 +161,7 @@ Update session operations to work with repository backend detection:
 ### Functional Requirements
 - [ ] **Auto-Detection**: Repository backend automatically detected from git remote
 - [ ] **Compatibility**: GitHub Issues backend works only with GitHub repository backend
-- [ ] **Task IDs**: New tasks use backend-qualified IDs (`gh:123`)
+- [ ] **Task IDs**: New tasks use backend-qualified IDs (`gh#123`)
 - [ ] **Backward Compatibility**: Existing unqualified task IDs continue working
 - [ ] **Error Messages**: Clear guidance when incompatible backends detected
 
@@ -273,7 +273,7 @@ Update session operations to work with repository backend detection:
 ### Architectural Decisions
 - Repository backend detection happens at TaskService creation time
 - Task backend compatibility validation occurs before backend instantiation  
-- Backend-qualified task IDs use consistent `backend:id` format
+- Backend-qualified task IDs use consistent `backend#id` format
 - Unqualified task IDs resolve to currently configured backend for compatibility
 
 ### Performance Considerations
