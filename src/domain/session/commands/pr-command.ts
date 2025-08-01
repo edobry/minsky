@@ -47,41 +47,42 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
     // Get session working directory
     const workdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
 
-    // Check if PR branch already exists
-    const prBranchExists = await checkPrBranchExists(
-      resolvedContext.sessionName,
-      gitService,
-      workdir
-    );
-
-    if (prBranchExists) {
-      // Extract existing PR description
-      const existingPr = await extractPrDescription(
-        resolvedContext.sessionName,
-        gitService,
-        workdir
+    // Check if PR already exists based on session record
+    if (sessionRecord.prState?.commitHash) {
+      log.debug(
+        `PR already exists for session '${resolvedContext.sessionName}' with commit ${sessionRecord.prState.commitHash}`
       );
-
-      if (existingPr) {
-        log.info(`PR branch for session '${resolvedContext.sessionName}' already exists`);
-        return {
-          prBranch: `pr/${resolvedContext.sessionName}`,
-          baseBranch: baseBranch || "main",
-          title: existingPr.title,
-          body: existingPr.body,
-          // Include session information in the result for CLI formatting
-          session: {
-            session: sessionRecord.session,
-            taskId: sessionRecord.taskId,
-            repoName: sessionRecord.repoName,
-            branch: sessionRecord.branch,
-          },
-          sessionName: sessionRecord.session, // Alternative property name for formatter compatibility
-        };
+      // Force recreation by clearing the prState and deleting git branch
+      try {
+        await gitService.execInRepository(
+          workdir,
+          `git branch -D pr/${resolvedContext.sessionName}`
+        );
+        log.debug(
+          `Deleted existing PR branch pr/${resolvedContext.sessionName} to force recreation`
+        );
+      } catch (error) {
+        log.debug(`Could not delete existing PR branch: ${error}`);
       }
+
+      // Clear prState to allow recreation
+      await sessionDb.updateSession(resolvedContext.sessionName, {
+        ...sessionRecord,
+        prState: undefined,
+      });
     }
 
     // Prepare PR using git domain function
+    console.log("🔥 CONSOLE DEBUG: About to call preparePrFromParams", {
+      session: resolvedContext.sessionName,
+      repo: workdir,
+      baseBranch,
+      title,
+      body,
+      branchName,
+      debug,
+    });
+
     const result = await preparePrFromParams({
       session: resolvedContext.sessionName,
       repo: workdir,
@@ -90,6 +91,26 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       body,
       branchName,
       debug,
+    });
+
+    console.log("🔥 CONSOLE DEBUG: preparePrFromParams completed", result);
+
+    // Get the commit hash of the prepared merge commit
+    const commitHashResult = await gitService.execInRepository(
+      workdir,
+      `git rev-parse pr/${resolvedContext.sessionName}`
+    );
+    const commitHash = commitHashResult.trim();
+
+    // Update session record with PR state
+    await sessionDb.updateSession(resolvedContext.sessionName, {
+      ...sessionRecord,
+      prState: {
+        branchName: result.prBranch,
+        commitHash: commitHash,
+        lastChecked: new Date().toISOString(),
+        createdAt: new Date().toISOString(),
+      },
     });
 
     // Include session information in the result for CLI formatting
