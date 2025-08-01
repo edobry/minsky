@@ -184,12 +184,12 @@ describe("sessionReviewFromParams", () => {
     const result = await sessionReviewFromParams({ task: "#123" }, deps);
 
     // Verify calls with individual spies
-    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("123");
+    expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("md#123");
     expect(getSessionWorkdirSpy).toHaveBeenCalledWith("task123");
     expect(execInRepositorySpy.mock.calls.length).toBeGreaterThan(0);
 
     // Verify result
-    expect(result.taskId).toBe("123");
+    expect(result.taskId).toBe("md#123");
   });
 
   test("throws ValidationError when no session detected", async () => {
