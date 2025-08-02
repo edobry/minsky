@@ -318,7 +318,8 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           if ((result as any).quiet) {
             // In quiet mode, only output session directory path
             if ((result as any).session) {
-              const sessionDir = `/path/to/sessions/${(result as any).session.session}`;
+              const { getMinskyStateDir } = require("../../utils/paths");
+              const sessionDir = `${getMinskyStateDir()}/sessions/${(result as any).session.session}`;
               log.cli(sessionDir);
             }
             return;

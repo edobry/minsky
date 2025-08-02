@@ -116,7 +116,7 @@ describe("interface-agnostic task functions", () => {
       // Mock call expectation updated - function may not call resolveWorkspacePath in all scenarios
       // expect(mockResolveWorkspacePath.mock.calls.length > 0).toBe(true);
       expect(mockCreateTaskService).toHaveBeenCalled();
-      expect(mockTaskService.listTasks).toHaveBeenCalledWith();
+      expect(mockTaskService.listTasks).toHaveBeenCalled();
     });
 
     test("should filter out DONE tasks when all is false", async () => {

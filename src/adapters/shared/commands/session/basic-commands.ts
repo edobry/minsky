@@ -128,7 +128,11 @@ export class SessionStartCommand extends BaseSessionCommand<any, any> {
       packageManager: params.packageManager,
     });
 
-    return this.createSuccessResult({ session });
+    return this.createSuccessResult({
+      session,
+      quiet: params.quiet,
+      json: params.json,
+    });
   }
 }
 
