@@ -168,9 +168,9 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Assert - Session should be created successfully
     expect(result).toMatchObject({
-      session: "taskmd#160",
+      session: "task-md#160",
       taskId: "md#160",
-      branch: "taskmd#160",
+      branch: "task-md#160",
       repoUrl: "local/minsky",
     });
 
@@ -182,7 +182,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     // Verify session record has correct data
     expect(addSessionSpy).toHaveBeenCalledWith(
       expect.objectContaining({
-        session: "taskmd#160",
+        session: "task-md#160",
         taskId: "md#160",
         repoUrl: "local/minsky",
         repoName: "local/minsky",

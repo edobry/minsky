@@ -62,27 +62,30 @@ describe("Session Approve Branch Cleanup", () => {
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-        getTask: () => Promise.resolve({ 
-          id: TEST_TASK_ID, 
-          title: TEST_TASK_TITLE, 
-          status: TEST_TASK_STATUS, 
-          createdAt: new Date().toISOString() 
-        }),
+        getTask: () =>
+          Promise.resolve({
+            id: TEST_TASK_ID,
+            title: TEST_TASK_TITLE,
+            status: TEST_TASK_STATUS,
+            createdAt: new Date().toISOString(),
+          }),
       }),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
       resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
-      createRepositoryBackendForSession: () => Promise.resolve({
-        getType: () => TEST_BACKEND_TYPE,
-        approvePullRequest: () => Promise.resolve({
-          reviewId: TEST_REVIEW_ID,
-          approvedBy: TEST_USER_NAME,
-          approvedAt: new Date().toISOString(),
-          prNumber: TEST_PR_NUMBER,
+      createRepositoryBackendForSession: () =>
+        Promise.resolve({
+          getType: () => TEST_BACKEND_TYPE,
+          approvePullRequest: () =>
+            Promise.resolve({
+              reviewId: TEST_REVIEW_ID,
+              approvedBy: TEST_USER_NAME,
+              approvedAt: new Date().toISOString(),
+              prNumber: TEST_PR_NUMBER,
+            }),
         }),
-      }),
     };
 
     // Test branch cleanup approval
@@ -97,7 +100,7 @@ describe("Session Approve Branch Cleanup", () => {
       sessions: [
         {
           session: TEST_SESSION_NAME,
-          repoName: TEST_REPO_NAME, 
+          repoName: TEST_REPO_NAME,
           repoUrl: TEST_REPO_PATH,
           taskId: TEST_TASK_ID,
           prBranch: TEST_PR_BRANCH, // Added required prBranch
@@ -114,27 +117,30 @@ describe("Session Approve Branch Cleanup", () => {
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-        getTask: () => Promise.resolve({ 
-          id: TEST_TASK_ID, 
-          title: TEST_TASK_TITLE, 
-          status: TEST_TASK_STATUS, 
-          createdAt: new Date().toISOString() 
-        }),
+        getTask: () =>
+          Promise.resolve({
+            id: TEST_TASK_ID,
+            title: TEST_TASK_TITLE,
+            status: TEST_TASK_STATUS,
+            createdAt: new Date().toISOString(),
+          }),
       }),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
       resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
-      createRepositoryBackendForSession: () => Promise.resolve({
-        getType: () => TEST_BACKEND_TYPE,
-        approvePullRequest: () => Promise.resolve({
-          reviewId: TEST_REVIEW_ID,
-          approvedBy: TEST_USER_NAME,
-          approvedAt: new Date().toISOString(),
-          prNumber: TEST_PR_NUMBER,
+      createRepositoryBackendForSession: () =>
+        Promise.resolve({
+          getType: () => TEST_BACKEND_TYPE,
+          approvePullRequest: () =>
+            Promise.resolve({
+              reviewId: TEST_REVIEW_ID,
+              approvedBy: TEST_USER_NAME,
+              approvedAt: new Date().toISOString(),
+              prNumber: TEST_PR_NUMBER,
+            }),
         }),
-      }),
     };
 
     // Test graceful handling of cleanup failures
@@ -144,7 +150,7 @@ describe("Session Approve Branch Cleanup", () => {
   });
 
   test("should not attempt branch cleanup for already approved sessions", async () => {
-    // Clean DI approach 
+    // Clean DI approach
     const mockSessionDB = createMockSessionProvider({
       sessions: [
         {
@@ -167,30 +173,33 @@ describe("Session Approve Branch Cleanup", () => {
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-        getTask: () => Promise.resolve({ 
-          id: TEST_TASK_ID, 
-          title: TEST_TASK_TITLE, 
-          status: TEST_TASK_STATUS, 
-          createdAt: new Date().toISOString() 
-        }),
+        getTask: () =>
+          Promise.resolve({
+            id: TEST_TASK_ID,
+            title: TEST_TASK_TITLE,
+            status: TEST_TASK_STATUS,
+            createdAt: new Date().toISOString(),
+          }),
       }),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
       resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
-      createRepositoryBackendForSession: () => Promise.resolve({
-        getType: () => TEST_BACKEND_TYPE,
-        approvePullRequest: () => Promise.resolve({
-          reviewId: TEST_REVIEW_ID,
-          approvedBy: TEST_USER_NAME,
-          approvedAt: new Date().toISOString(),
-          prNumber: TEST_PR_NUMBER,
+      createRepositoryBackendForSession: () =>
+        Promise.resolve({
+          getType: () => TEST_BACKEND_TYPE,
+          approvePullRequest: () =>
+            Promise.resolve({
+              reviewId: TEST_REVIEW_ID,
+              approvedBy: TEST_USER_NAME,
+              approvedAt: new Date().toISOString(),
+              prNumber: TEST_PR_NUMBER,
+            }),
         }),
-      }),
     };
 
-    // Test already approved session 
+    // Test already approved session
     const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps);
     expect(result.sessionName).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
