@@ -8,8 +8,8 @@
 
 - [ ] debug taskId format [md#369](process/tasks/md#369-debug-taskid-format.md)
 
-<<<<<<< Updated upstream
 - [+] unique debug test 12345 [md#370](process/tasks/md#370-unique-debug-test-12345.md)
-=======
+
 - [ ] unique debug test 12345 [md#370](process/tasks/md#370-unique-debug-test-12345.md)
->>>>>>> Stashed changes
+
+- [+] debug test with log.cli [md#371](process/tasks/md#371-debug-test-with-log-cli.md)
