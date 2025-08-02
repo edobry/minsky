@@ -271,9 +271,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       );
       taskId = createdTask.id;
       if (!quiet) {
-        // Display qualified format for consistency with lookup
-        const displayId = taskId.startsWith("#") ? `md${taskId}` : `md#${taskId}`;
-        log.cli(`Created task ${displayId}: ${taskSpec.title}`);
+        // Display the task ID (taskId is already in the correct format from TaskService)
+        log.cli(`Created task ${taskId}: ${taskSpec.title}`);
       }
     }
 

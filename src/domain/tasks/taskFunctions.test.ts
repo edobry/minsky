@@ -29,6 +29,10 @@ const TEST_TASK_ID_002 = "002";
 const TEST_TASK_ID_003 = "003";
 const LEGACY_PREFIX = "#";
 
+// Helper to construct expected format - normalizeTaskId uses mixed logic
+const expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
+const expectQualifiedFormat = (id: string) => normalizeTaskIdForStorage(id);
+
 describe("Task Functions", () => {
   describe("normalizeTaskId", () => {
     test("should return canonical form for valid IDs", () => {
