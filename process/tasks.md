@@ -642,9 +642,16 @@
 
 - [ ] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
-- [ ] testing stuff [md#001](process/tasks/001-testing-stuff.md)
-- [ ] testing stuff [#001](process/tasks/001-testing-stuff.md)
+- [ ] testing stuff [md#001](process/tasks/md#001-testing-stuff.md)
 
-- [ ] testing stuff again [#002](process/tasks/002-testing-stuff-again.md)
+- [ ] testing stuff [md#001](process/tasks/md#001-testing-stuff.md)
 
-- [ ] final test [#003](process/tasks/003-final-test.md)
+- [ ] testing stuff again [md#002](process/tasks/md#002-testing-stuff-again.md)
+
+- [ ] final test [md#003](process/tasks/md#003-final-test.md)
+
+- [ ] Add AI-powered rule suggestion for context construction MVP - Task 182 [md#004](process/tasks/md#004-add-ai-powered-rule-suggestion-for-context-construction-mvp-task-182.md)
+
+- [ ] testing the fix [md#005](process/tasks/md#005-testing-the-fix.md)
+
+- [+] testing config system backend detection [md#372](process/tasks/md#372-testing-config-system-backend-detection.md)
