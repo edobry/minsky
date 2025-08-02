@@ -15,6 +15,7 @@ import {
   type CategoryCommandOptions,
 } from "../shared/bridges/cli-bridge";
 import { log } from "../../utils/logger";
+import { getMinskyStateDir } from "../../utils/paths";
 
 /**
  * Private CLI bridge instance - should not be exported or accessed directly
@@ -318,7 +319,6 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           if ((result as any).quiet) {
             // In quiet mode, only output session directory path
             if ((result as any).session) {
-              const { getMinskyStateDir } = require("../../utils/paths");
               const sessionDir = `${getMinskyStateDir()}/sessions/${(result as any).session.session}`;
               log.cli(sessionDir);
             }

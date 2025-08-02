@@ -666,8 +666,6 @@
 
 - [+] final verification test [md#377](process/tasks/md#377-final-verification-test.md)
 
-- [ ] final verification test [md#377](process/tasks/md#377-final-verification-test.md)
-
 - [+] testing quiet mode [md#378](process/tasks/md#378-testing-quiet-mode.md)
 
 - [+] testing fixed quiet mode [md#379](process/tasks/md#379-testing-fixed-quiet-mode.md)
@@ -683,3 +681,7 @@
 - [+] normal mode demo [md#382](process/tasks/md#382-normal-mode-demo.md)
 
 - [+] quiet mode demo [md#383](process/tasks/md#383-quiet-mode-demo.md)
+
+- [ ] quiet mode demo [md#383](process/tasks/md#383-quiet-mode-demo.md)
+
+- [+] testing static imports [md#384](process/tasks/md#384-testing-static-imports.md)

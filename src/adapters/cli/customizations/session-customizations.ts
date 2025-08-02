@@ -5,6 +5,7 @@
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
 import { log } from "../../../utils/logger";
+import { getMinskyStateDir } from "../../../utils/paths";
 
 /**
  * Get session command customizations configuration
@@ -56,7 +57,6 @@ export function getSessionCustomizations(): {
             if ((result as any).quiet) {
               // In quiet mode, only output session directory path
               if ((result as any).session) {
-                const { getMinskyStateDir } = require("../../../utils/paths");
                 const sessionDir = `${getMinskyStateDir()}/sessions/${(result as any).session.session}`;
                 log.cli(sessionDir);
               }

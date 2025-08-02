@@ -120,12 +120,22 @@ describe("interface-agnostic task functions", () => {
     });
 
     test("should filter out DONE tasks when all is false", async () => {
-      mockTaskService.listTasks = mock(() =>
-        Promise.resolve([
-          { ...mockTask, status: TASK_STATUS.TODO },
-          { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
-        ])
-      );
+      const allTasks = [
+        { ...mockTask, status: TASK_STATUS.TODO },
+        { ...mockTask, id: "#124", status: TASK_STATUS.DONE },
+      ];
+
+      // Mock should implement the same filtering logic as the real TaskService
+      mockTaskService.listTasks = mock((options = {}) => {
+        if (!options.all) {
+          return Promise.resolve(
+            allTasks.filter(
+              (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
+            )
+          );
+        }
+        return Promise.resolve(allTasks);
+      });
 
       const params = { all: false };
 
