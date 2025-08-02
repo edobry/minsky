@@ -650,4 +650,16 @@
 
 - [ ] Test to see exact MCP error [md#003](process/tasks/md#003-test-to-see-exact-mcp-error.md)
 
-- [+] Test task for MCP session debugging [md#377](process/tasks/md#377-test-task-for-mcp-session-debugging.md)
+- [+] Test MCP session start with description [md#377](process/tasks/md#377-test-mcp-session-start-with-description.md)
+
+- [ ] Fix the authentication bug [md#378](process/tasks/md#378-fix-the-authentication-bug.md)
+
+- [ ] Fix the authentication bug [md#379](process/tasks/md#379-fix-the-authentication-bug.md)
+
+- [ ] Fix the authentication bug [md#380](process/tasks/md#380-fix-the-authentication-bug.md)
+
+- [ ] Fix the authentication bug [md#381](process/tasks/md#381-fix-the-authentication-bug.md)
+
+- [+] Fresh test of MCP session start functionality [md#382](process/tasks/md#382-fresh-test-of-mcp-session-start-functionality.md)
+
+- [+] Test without dependency install [md#383](process/tasks/md#383-test-without-dependency-install.md)
