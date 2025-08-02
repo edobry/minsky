@@ -681,3 +681,5 @@
 - [ ] final quiet mode test [md#381](process/tasks/md#381-final-quiet-mode-test.md)
 
 - [+] normal mode demo [md#382](process/tasks/md#382-normal-mode-demo.md)
+
+- [+] quiet mode demo [md#383](process/tasks/md#383-quiet-mode-demo.md)
