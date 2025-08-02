@@ -29,6 +29,7 @@ import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
 import { createConfiguredTaskService } from "./tasks/taskService";
 import { taskIdToSessionName } from "./tasks/unified-task-id";
+import { createTaskFromTitleAndDescription } from "./tasks/taskCommands";
 import { execAsync } from "../utils/exec";
 import { extractPrDescription } from "./session/session-update-operations";
 import {
@@ -265,10 +266,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Auto-create task if description is provided but no task ID
     if (description && !taskId) {
       const taskSpec = createTaskFromDescription(description);
-      const createdTask = await deps.taskService.createTaskFromTitleAndDescription(
-        taskSpec.title,
-        taskSpec.description
-      );
+      const createdTask = await createTaskFromTitleAndDescription({
+        title: taskSpec.title,
+        description: taskSpec.description,
+      });
       taskId = createdTask.id;
       if (!quiet) {
         // Display the task ID (taskId is already in the correct format from TaskService)
