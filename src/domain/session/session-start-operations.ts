@@ -128,8 +128,18 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       );
       taskId = createdTask.id;
       if (!quiet) {
+        // Debug: log the actual taskId value
+        console.log(`DEBUG: Raw taskId from createTask: "${taskId}"`);
+        console.log(`DEBUG: taskId.startsWith("md#"): ${taskId.startsWith("md#")}`);
+        console.log(`DEBUG: taskId.startsWith("#"): ${taskId.startsWith("#")}`);
+
         // Display qualified format for consistency with lookup
-        const displayId = taskId.startsWith("#") ? `md${taskId}` : `md#${taskId}`;
+        const displayId = taskId.startsWith("md#")
+          ? taskId
+          : taskId.startsWith("#")
+            ? `md${taskId}`
+            : `md#${taskId}`;
+        console.log(`DEBUG: Final displayId: "${displayId}"`);
         log.cli(`Created task ${displayId}: ${taskSpec.title}`);
       }
     }

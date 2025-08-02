@@ -34,20 +34,11 @@ export class ListTasksOperation extends BaseTaskOperation<TaskListParams, any[]>
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 
-    // Get tasks
-    let tasks = await taskService.listTasks();
-
-    // Filter by status if provided
-    if (params.filter) {
-      tasks = tasks.filter((task: any) => task.status === params.filter);
-    } else {
-      // Unless "all" is provided, filter out DONE and CLOSED tasks
-      if (!params.all) {
-        tasks = tasks.filter(
-          (task: any) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
-        );
-      }
-    }
+    // Get tasks - delegate all filtering to domain layer
+    const tasks = await taskService.listTasks({
+      status: params.filter as string,
+      all: params.all,
+    });
 
     return tasks;
   }

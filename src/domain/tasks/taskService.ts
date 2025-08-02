@@ -8,7 +8,7 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
 import { normalizeTaskId } from "./taskFunctions";
-import { TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
+import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
@@ -49,6 +49,8 @@ export interface DeleteTaskOptions {
 export interface TaskListOptions {
   /** Filter by status */
   status?: string;
+  /** Include all tasks (including DONE and CLOSED) - default: false */
+  all?: boolean;
 }
 
 /**
@@ -201,8 +203,16 @@ export class TaskService {
 
     const tasks = this.currentBackend.parseTasks(result.content);
 
+    // Apply status filter if provided (takes precedence over default filtering)
     if (options?.status) {
       return tasks.filter((task) => task.status === options.status);
+    }
+
+    // Apply default business rule: hide DONE and CLOSED tasks unless all=true
+    if (!options?.all) {
+      return tasks.filter(
+        (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
+      );
     }
 
     return tasks;

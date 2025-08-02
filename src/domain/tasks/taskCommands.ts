@@ -76,19 +76,11 @@ export async function listTasksFromParams(
       backend: validParams.backend || "markdown",
     });
 
-    // Get tasks with filters
-    let tasks = await taskService.listTasks();
-
-    // Apply filters
-    if (validParams.filter) {
-      const filterValue = validParams.filter as string;
-      tasks = tasks.filter((task) => task.status === filterValue);
-    }
-
-    if (validParams.all !== true) {
-      // Filter out DONE tasks by default
-      tasks = tasks.filter((task) => task.status !== "DONE");
-    }
+    // Get tasks with filters - delegate filtering to domain layer
+    const tasks = await taskService.listTasks({
+      status: validParams.filter as string,
+      all: validParams.all,
+    });
 
     return tasks;
   } catch (error) {
