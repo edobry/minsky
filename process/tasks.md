@@ -13,3 +13,9 @@
 - [ ] unique debug test 12345 [md#370](process/tasks/md#370-unique-debug-test-12345.md)
 
 - [+] debug test with log.cli [md#371](process/tasks/md#371-debug-test-with-log-cli.md)
+
+- [ ] debug test with log.cli [md#371](process/tasks/md#371-debug-test-with-log-cli.md)
+
+- [ ] final display test [md#372](process/tasks/md#372-final-display-test.md)
+
+- [+] test corrected file fix [md#373](process/tasks/md#373-test-corrected-file-fix.md)
