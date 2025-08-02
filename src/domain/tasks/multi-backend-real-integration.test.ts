@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
 import { promises as fs } from "fs";
-// import { MultiBackendTaskServiceImpl } from "./multi-backend-service"; // File no longer exists
+import { MultiBackendTaskServiceImpl } from "./multi-backend-service";
 import { MarkdownTaskBackend } from "./markdown-task-backend";
 import { TASK_STATUS } from "./taskConstants";
 
-describe.skip("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
-  let service: any; // MultiBackendTaskServiceImpl no longer exists
+describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
+  let service: MultiBackendTaskServiceImpl;
   let markdownBackend: MarkdownTaskBackend;
   let tempDir: string;
 
@@ -20,8 +20,8 @@ describe.skip("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     markdownBackend = new MarkdownTaskBackend(tempDir);
 
     // Initialize service with real backend
-    // service = new MultiBackendTaskServiceImpl(); // Class no longer exists
-    // service.registerBackend(markdownBackend); // Service no longer exists
+    service = new MultiBackendTaskServiceImpl();
+    service.registerBackend(markdownBackend);
   });
 
   afterEach(async () => {
