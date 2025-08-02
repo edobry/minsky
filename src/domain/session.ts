@@ -1317,6 +1317,8 @@ export async function approveSessionFromParams(
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
     resolveRepoPath?: typeof resolveRepoPath;
+    createRepositoryBackendForSession?: (workingDirectory: string) => Promise<any>;
+    getCurrentSession?: (repoPath: string) => Promise<string | null>;
   }
 ): Promise<{
   sessionName: string;
@@ -1330,10 +1332,21 @@ export async function approveSessionFromParams(
   };
   wasAlreadyApproved: boolean;
 }> {
+  let sessionToUse = params.session;
+
+  // Handle session detection from repo path (CLI interface concern)
+  if (!sessionToUse && !params.task && params.repo) {
+    const getCurrentSessionFunc = depsInput?.getCurrentSession || getCurrentSession;
+    const detectedSession = await getCurrentSessionFunc(params.repo);
+    if (detectedSession) {
+      sessionToUse = detectedSession;
+    }
+  }
+
   // SECURITY: Use new approve-only operation
   return await approveSessionPr(
     {
-      session: params.session,
+      session: sessionToUse,
       task: params.task,
       repo: params.repo,
       json: params.json,
