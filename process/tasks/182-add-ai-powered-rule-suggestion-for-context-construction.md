@@ -186,6 +186,116 @@ See Task 202 for advanced features including:
 
 ---
 
-**Estimated Effort:** Small-Medium (1-2 weeks)
-**Risk Level:** Low (basic implementation with proven technologies)
-**Blocking:** Task 160 (AI completion backend)
+## 🔄 REVISED IMPLEMENTATION PLAN (Post-Architecture Analysis)
+
+### Critical Issues Identified
+
+1. **Dependency Mismatch**: Task 250 (embedding infrastructure) is still in BACKLOG but listed as "required" dependency
+2. **Architecture Evolution**: Task 160 (AI backend) is now complete with advanced capabilities we can leverage
+3. **Command Overlap**: Task 082 (context commands) overlaps with this task's scope
+
+### Revised Strategy: AI-First Implementation
+
+**Approach**: Make AI completion the primary approach using Task 160's full capabilities
+
+#### Phase 1: Enhanced AI-Based Implementation (IMMEDIATE)
+
+**Key Changes**:
+- **Structured Output**: Use Vercel AI SDK's structured output for reliable JSON responses
+- **Sophisticated Prompting**: Leverage rule metadata (descriptions, tags, globs) for better matching
+- **Multi-Provider Optimization**: Use different models for different query types
+- **Context Enhancement**: Include workspace context (files, commits, project type)
+
+**Enhanced Service Interface**:
+```typescript
+interface RuleSuggestionRequest {
+  query: string;
+  workspaceRules: Rule[];
+  contextHints: {
+    currentFiles?: string[];
+    recentCommits?: string[];
+    projectType?: string;
+  };
+}
+
+interface RuleSuggestionResponse {
+  suggestions: Array<{
+    ruleId: string;
+    relevanceScore: number;
+    reasoning: string;
+    confidenceLevel: 'high' | 'medium' | 'low';
+  }>;
+  queryAnalysis: {
+    intent: string;
+    keywords: string[];
+    suggestedCategories: string[];
+  };
+}
+```
+
+#### Phase 2: Context Command Coordination (PARALLEL)
+
+**Integration with Task 082**:
+```bash
+minsky context suggest-rules <query>  # This task (182)
+minsky context analyze              # Task 082 (future)
+minsky context visualize           # Task 082 (future)
+```
+
+**Shared Infrastructure**: Rule loading, context discovery, output formatting
+
+#### Phase 3: Future Enhancement (POST-TASK 250)
+
+**When Task 250 is available**:
+- Add embedding-based pre-filtering for large rule sets
+- Use reranking to improve AI suggestion quality
+- Implement hybrid scoring (embedding similarity + AI reasoning)
+- Maintain AI completion as reliable fallback
+
+### Updated Implementation Steps
+
+1. **Enhanced Domain Service** (`src/domain/context/rule-suggestion.ts`)
+   - Leverage `AICompletionService` with structured output
+   - Advanced rule metadata analysis and context gathering
+   - Multi-model optimization for different query patterns
+
+2. **Coordinated Command Structure** (`src/commands/context/`)
+   - Create unified context command with suggest-rules subcommand
+   - Design for future integration with Task 082 commands
+   - Shared context utilities and formatting
+
+3. **Performance Optimization**
+   - Rule metadata caching with file system watching
+   - AI response caching with query similarity detection
+   - Target <500ms response time through intelligent caching
+
+### Updated Dependencies
+
+- **✅ Task 160**: AI completion backend (COMPLETE - ready for integration)
+- **🔄 Task 250**: Fast retrieval APIs (FUTURE ENHANCEMENT - not blocking)
+- **🤝 Task 082**: Context commands (COORDINATION REQUIRED)
+- **🔮 Task 302**: MCP resources (FUTURE INTEGRATION OPPORTUNITY)
+
+### Risk Assessment
+
+**Low Risk**: AI backend integration, rule system integration, command structure
+**Medium Risk**: Performance requirements, AI prompt engineering, Task 082 coordination
+**Previously High Risk (Now Mitigated)**: Dependency on Task 250 (moved to future enhancement)
+
+### Success Criteria (Updated)
+
+- [x] AI completion backend available (Task 160 complete)
+- [ ] `minsky context suggest-rules <query>` command with enhanced AI-based suggestions
+- [ ] Structured output with relevance scoring and reasoning
+- [ ] Performance <500ms target through intelligent caching
+- [ ] Context command structure ready for Task 082 integration
+- [ ] Extensible architecture for future embedding integration
+
+---
+
+**Original Estimated Effort:** Small-Medium (1-2 weeks)
+**Revised Estimated Effort:** Small-Medium (1-2 weeks, but more robust implementation)
+**Original Risk Level:** Low (basic implementation with proven technologies)
+**Revised Risk Level:** Low-Medium (enhanced implementation, coordination with Task 082)
+**Original Blocking:** Task 160 (AI completion backend)
+**Revised Blocking:** None (Task 160 complete, Task 250 moved to future enhancement)

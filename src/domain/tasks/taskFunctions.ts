@@ -59,8 +59,11 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       }
     }
 
+    // Normalize ID to qualified format for internal storage consistency
+    const normalizedId = normalizeTaskIdForStorage(id) || id;
+
     tasks.push({
-      id,
+      id: normalizedId,
       title,
       status,
       description: description.trim(),

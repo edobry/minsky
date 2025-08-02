@@ -20,14 +20,28 @@ import {
   formatTaskSpecToMarkdown,
   isValidTaskStatus,
 } from "./taskFunctions";
+import { normalizeTaskIdForStorage } from "./task-id-utils";
+
+// Test constants - extract repeated strings
+const TEST_TASK_ID_ALPHA = "TEST_VALUE";
+const TEST_TASK_ID_NUMERIC = "001";
+const TEST_TASK_ID_002 = "002";
+const TEST_TASK_ID_003 = "003";
+const LEGACY_PREFIX = "#";
 
 describe("Task Functions", () => {
   describe("normalizeTaskId", () => {
     test("should return canonical form for valid IDs", () => {
-      expect(normalizeTaskId("TEST_VALUE")).toBe("#TEST_VALUE");
-      expect(normalizeTaskId("#TEST_VALUE")).toBe("#TEST_VALUE");
-      expect(normalizeTaskId("001")).toBe("#001");
-      expect(normalizeTaskId("#001")).toBe("#001");
+      // Since normalizeTaskId returns legacy format for backward compatibility,
+      // test what it actually returns, not what we think it should return
+      expect(normalizeTaskId(TEST_TASK_ID_ALPHA)).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
+      expect(normalizeTaskId(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`)).toBe(
+        `${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`
+      );
+      expect(normalizeTaskId(TEST_TASK_ID_NUMERIC)).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`);
+      expect(normalizeTaskId(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`)).toBe(
+        `${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`
+      );
     });
 
     test("should handle various prefix patterns", () => {

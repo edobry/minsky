@@ -654,4 +654,8 @@
 
 - [ ] testing the fix [md#005](process/tasks/md#005-testing-the-fix.md)
 
+<<<<<<< Updated upstream
 - [+] testing config system backend detection [md#372](process/tasks/md#372-testing-config-system-backend-detection.md)
+=======
+- [ ] testing config system backend detection [md#372](process/tasks/md#372-testing-config-system-backend-detection.md)
+>>>>>>> Stashed changes

@@ -27,6 +27,7 @@ import { createGitService } from "./git";
 import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
+import { createConfiguredTaskService } from "./tasks/taskService";
 import { taskIdToSessionName } from "./tasks/unified-task-id";
 import { execAsync } from "../utils/exec";
 import { extractPrDescription } from "./session/session-update-operations";
@@ -202,10 +203,9 @@ export async function startSessionFromParams(
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
-      new TaskService({
+      (await createConfiguredTaskService({
         workspacePath: process.cwd(),
-        backend: "markdown",
-      }),
+      })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
     resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath,
   };
