@@ -318,13 +318,31 @@ describe("Interface-Agnostic Task Command Functions", () => {
         description: "This is a test task",
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "155") {
-          return mockTask;
-        }
-        return null;
-      });
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "155" || taskId === "md#155") {
+            return { ...mockTask, id: "md#155" };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -333,7 +351,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const result = await getTaskFromParams(params, mockDeps);
-      expect(result).toEqual(mockTask);
+      expect(result).toEqual({ ...mockTask, id: "md#155" });
     });
 
     test("should throw error when task not found", async () => {
@@ -342,7 +360,25 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async () => null);
+      const mockTaskService = {
+        getTask: async () => null,
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -350,7 +386,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         createTaskService: async (options: any) => mockTaskService,
       };
 
-      await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow("Task 999 not found");
+      await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow("Task md#999 not found");
     });
 
     test("should handle task ID normalization", async () => {
@@ -365,13 +401,31 @@ describe("Interface-Agnostic Task Command Functions", () => {
         status: TASK_STATUS.BLOCKED,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "155") {
-          return mockTask;
-        }
-        return null;
-      });
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "155" || taskId === "md#155") {
+            return { ...mockTask, id: "md#155" };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -380,7 +434,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const result = await getTaskFromParams(params, mockDeps);
-      expect(result).toEqual(mockTask);
+      expect(result).toEqual({ ...mockTask, id: "md#155" });
     });
 
     test("should handle custom repo path", async () => {
@@ -396,13 +450,31 @@ describe("Interface-Agnostic Task Command Functions", () => {
         status: TASK_STATUS.BLOCKED,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "155") {
-          return mockTask;
-        }
-        return null;
-      });
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "155" || taskId === "md#155") {
+            return { ...mockTask, id: "md#155" };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
@@ -411,7 +483,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const result = await getTaskFromParams(params, mockDeps);
-      expect(result).toEqual(mockTask);
+      expect(result).toEqual({ ...mockTask, id: "md#155" });
     });
   });
 
