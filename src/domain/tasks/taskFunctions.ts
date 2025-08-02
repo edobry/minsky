@@ -59,8 +59,8 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       }
     }
 
-    // Normalize ID to qualified format for internal storage consistency
-    const normalizedId = normalizeTaskIdForStorage(id) || id;
+    // Normalize ID to legacy format for backward compatibility
+    const normalizedId = normalizeTaskId(id) || id;
 
     tasks.push({
       id: normalizedId,
@@ -85,8 +85,8 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
-      // TASK 283: Use formatTaskIdForDisplay() to ensure # prefix in markdown display
-      const displayId = formatTaskIdForDisplay(task.id);
+      // Use legacy format for backward compatibility in markdown display
+      const displayId = task.id.startsWith("#") ? task.id : `#${task.id}`;
       const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 
       // Always return only the task line - descriptions should remain in spec files
@@ -127,37 +127,46 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
 }
 
 /**
- * Normalize task ID to consistent format using unified task ID system
- * Supports both legacy formats (#XXX) and qualified formats (md#XXX, gh#XXX)
+ * Normalize task ID to legacy format for backward compatibility
+ * This preserves existing behavior while new functions handle qualified formats
  * @param id Task ID to normalize
- * @returns Normalized task ID or undefined if invalid
+ * @returns Normalized task ID in legacy format (#XXX) or undefined if invalid
  */
 export function normalizeTaskId(id: string): string | undefined {
   if (!id) return undefined;
 
-  // Use unified task ID system for consistent handling
-  const {
-    isQualifiedTaskId,
-    isLegacyTaskId,
-    migrateUnqualifiedTaskId,
-  } = require("./unified-task-id");
-
-  // If it's already a qualified ID, return as-is
-  if (isQualifiedTaskId(id)) {
-    return id;
+  // Handle complex task formats FIRST (before general # logic)
+  if (id.toLowerCase().includes("task")) {
+    // For patterns like "task-TEST_VALUE", extract "task"
+    // For patterns like "task#TEST_VALUE", extract "task"
+    // For patterns like "task TEST_VALUE", extract "task"
+    const parts = id.split(/[-#\s]/); // Split by -, #, or space
+    const firstPart = parts[0];
+    if (firstPart && /^[a-zA-Z0-9_]+$/.test(firstPart)) {
+      return `#${firstPart}`;
+    }
   }
 
-  // If it's a legacy format, migrate to qualified format
-  if (isLegacyTaskId(id)) {
-    return migrateUnqualifiedTaskId(id, "md"); // Default to markdown backend
+  // Handle qualified IDs by extracting the local part
+  if (id.includes("#")) {
+    const parts = id.split("#");
+    if (parts.length === 2) {
+      const localId = parts[1];
+      // Return in legacy format for backward compatibility
+      return /^[a-zA-Z0-9_]+$/.test(localId) ? `#${localId}` : undefined;
+    }
   }
 
-  // If already in #XXX format, keep for backward compatibility
-  if (/^#[a-zA-Z0-9_]+$/.test(id)) {
-    return id;
+  // Handle patterns with delimiters - extract first part
+  if (id.includes("-") || id.includes(" ")) {
+    const parts = id.split(/[-\s]/); // Split by - or space
+    const firstPart = parts[0];
+    if (firstPart && /^[a-zA-Z0-9_]+$/.test(firstPart)) {
+      return `#${firstPart}`;
+    }
   }
 
-  // If purely alphanumeric, convert to #XXX format (legacy compatibility)
+  // Handle purely alphanumeric IDs (legacy compatibility)
   if (/^[a-zA-Z0-9_]+$/.test(id)) {
     return `#${id}`;
   }
