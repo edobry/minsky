@@ -669,3 +669,5 @@
 - [ ] final verification test [md#377](process/tasks/md#377-final-verification-test.md)
 
 - [+] testing quiet mode [md#378](process/tasks/md#378-testing-quiet-mode.md)
+
+- [+] testing fixed quiet mode [md#379](process/tasks/md#379-testing-fixed-quiet-mode.md)
