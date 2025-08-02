@@ -3,7 +3,7 @@
 ## Status
 TODO
 
-## Priority  
+## Priority
 HIGH
 
 ## Description
@@ -58,7 +58,7 @@ export async function someTaskOperation(params) {
   return result;
 }
 
-// ❌ Operation class that just wraps domain calls  
+// ❌ Operation class that just wraps domain calls
 class SomeTaskOperation {
   async execute(params) {
     const service = await this.setupService();
@@ -74,7 +74,7 @@ class SomeTaskOperation {
 class TaskService {
   async listTasks(options: {
     all?: boolean;           // Include DONE/CLOSED tasks
-    status?: TaskStatus;     // Filter by specific status  
+    status?: TaskStatus;     // Filter by specific status
     filter?: string;         // Legacy filter parameter
     limit?: number;          // Pagination
   } = {}): Promise<Task[]> {
@@ -102,7 +102,7 @@ program.command('tasks list')
 
 **MCP adapters should become**:
 ```typescript
-// src/adapters/mcp/tasks.ts  
+// src/adapters/mcp/tasks.ts
 commandMapper.addCommand('tasks.list', async (mcpArgs) => {
   const taskService = container.get(TaskService);
   const tasks = await taskService.listTasks(mcpArgs);
@@ -115,17 +115,17 @@ commandMapper.addCommand('tasks.list', async (mcpArgs) => {
 1. **Audit current application layer functions**:
    - List all functions in `taskCommands.ts` and `operations/`
    - Identify which are just passthroughs vs. have real orchestration value
-   
+
 2. **Move business logic to domain layer**:
    - Parameter validation → Domain method signatures
-   - Default behaviors → Domain method implementations  
+   - Default behaviors → Domain method implementations
    - Filtering rules → Domain business logic
-   
+
 3. **Update interface layers**:
    - Remove calls to application layer functions
    - Inject and call domain services directly
    - Keep only protocol-specific logic (parsing, formatting)
-   
+
 4. **Remove obsolete application layer code**:
    - Delete unnecessary files
    - Update imports throughout codebase
@@ -135,7 +135,7 @@ commandMapper.addCommand('tasks.list', async (mcpArgs) => {
 
 **Application layer files (likely candidates for deletion)**:
 - `src/domain/tasks/taskCommands.ts`
-- `src/domain/tasks/taskCommands-modular.ts`  
+- `src/domain/tasks/taskCommands-modular.ts`
 - `src/domain/tasks/operations/query-operations.ts`
 - `src/domain/tasks/operations/crud-operations.ts`
 
@@ -145,7 +145,7 @@ commandMapper.addCommand('tasks.list', async (mcpArgs) => {
 
 **Interface layer files (to be simplified)**:
 - `src/adapters/cli/` - CLI command handlers
-- `src/adapters/mcp/` - MCP tool registrations  
+- `src/adapters/mcp/` - MCP tool registrations
 - `src/adapters/shared/commands/` - Shared command implementations
 
 ### Benefits Expected
