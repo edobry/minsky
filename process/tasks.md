@@ -19,3 +19,5 @@
 - [ ] final display test [md#372](process/tasks/md#372-final-display-test.md)
 
 - [+] test corrected file fix [md#373](process/tasks/md#373-test-corrected-file-fix.md)
+
+- [+] final test of complete fix [md#374](process/tasks/md#374-final-test-of-complete-fix.md)
