@@ -638,9 +638,9 @@
 
 - [ ] Multi-Backend System Polish & Optimization [md#369](process/tasks/md#369-multi-backend-system-polish-optimization.md)
 
-- [ ] Add minsky tasks similar command for finding related completed tasks [md#370](process/tasks/md#370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
+- [+] Add minsky tasks similar command for finding related completed tasks [md#370](process/tasks/md#370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
 
-- [ ] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
+- [+] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
 - [ ] testing stuff [md#001](process/tasks/md#001-testing-stuff.md)
 
@@ -656,4 +656,10 @@
 
 - [+] testing config system backend detection [md#372](process/tasks/md#372-testing-config-system-backend-detection.md)
 
+- [+] test corrected file fix [md#373](process/tasks/md#373-test-corrected-file-fix.md)
+
+- [+] final test of complete fix [md#374](process/tasks/md#374-final-test-of-complete-fix.md)
+
 - [ ] Collapse Unnecessary Application Layer in Task Architecture [md#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
+
+- [+] testing final display fix [md#376](process/tasks/md#376-testing-final-display-fix.md)
