@@ -6,6 +6,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Session Start Task ID Bugs**: Fixed multiple task ID generation and lookup issues in session start
+
+  - Fixed JsonFileTaskBackend ID sequencing: now uses `getNextTaskId()` instead of incorrect `tasks.length + 1` approach
+  - Fixed format consistency: session start messages now display qualified IDs (md#123) instead of plain format
+  - Fixed lookup flexibility: JsonFileTaskBackend.getTask() now handles both qualified and plain ID formats
+  - Added comprehensive test suite reproducing the bugs without file system dependencies
+  - Resolves core issues from task md#368 around session start task ID generation
+
 - **Task Status Commit Messages**: Fixed double hash bug in task status update commit messages
 
   - Task status updates now generate correct commit messages with single hash (#347) instead of double hash (##347)
