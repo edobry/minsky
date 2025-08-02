@@ -633,5 +633,3 @@
 - [+] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
 - [+] Collapse Unnecessary Application Layer in Task Architecture [md#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
-
-- [+] Final test of MCP timeout fix [md#376](process/tasks/md#376-final-test-of-mcp-timeout-fix.md)
