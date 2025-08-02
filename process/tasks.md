@@ -610,7 +610,7 @@
 
 - [x] Make tasks status set do the same stash/commit/push/stash flow as session operations like approve in description sessions [md#355](process/tasks/md#355-make-tasks-status-set-do-the-same-stash-commit-push-stash-flow-as-session-operations-like-approve-in-description-sessions.md)
 
-- [+] Implement Multi-Backend Task System Architecture [md#356](process/tasks/md#356-implement-multi-backend-task-system-architecture.md)
+- [x] Implement Multi-Backend Task System Architecture [md#356](process/tasks/md#356-implement-multi-backend-task-system-architecture.md)
 
 - [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [md#357](process/tasks/md#357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
@@ -640,6 +640,11 @@
 
 - [ ] Add minsky tasks similar command for finding related completed tasks [md#370](process/tasks/md#370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
 
-- [ ] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system-mise-asdf-docker.md)
+- [ ] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
+- [ ] testing stuff [md#001](process/tasks/001-testing-stuff.md)
 - [ ] testing stuff [#001](process/tasks/001-testing-stuff.md)
+
+- [ ] testing stuff again [#002](process/tasks/002-testing-stuff-again.md)
+
+- [ ] final test [#003](process/tasks/003-final-test.md)

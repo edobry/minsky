@@ -227,7 +227,7 @@ describe("Session Start Consistency Tests", () => {
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
         })
-      ).rejects.toThrow("Session 'task160' already exists");
+      ).rejects.toThrow("Session 'task-md#160' already exists");
 
       // Verify no git operations were attempted
       expect(gitCloneSpy).not.toHaveBeenCalled();
@@ -240,7 +240,7 @@ describe("Session Start Consistency Tests", () => {
         Promise.resolve([
           {
             session: "different-session",
-            taskId: "160",
+            taskId: "md#160", // Use qualified task ID format to match
             repoUrl: "local/minsky",
             repoName: "local-minsky",
             createdAt: new Date().toISOString(),
@@ -267,7 +267,7 @@ describe("Session Start Consistency Tests", () => {
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
         })
-      ).rejects.toThrow("A session for task 160 already exists");
+      ).rejects.toThrow("A session for task md#160 already exists");
 
       // Verify no git operations were attempted
       expect(gitCloneSpy).not.toHaveBeenCalled();
@@ -365,8 +365,8 @@ describe("Session Start Consistency Tests", () => {
 
       // Verify return value includes session information
       expect(result).toMatchObject({
-        session: "task160",
-        taskId: "160",
+        session: "task-md#160",
+        taskId: "md#160",
       });
     });
   });

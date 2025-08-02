@@ -19,8 +19,8 @@ import type { Task } from "./types";
 function createMockBackend(): TaskBackend {
   // Make the mock stateful to support status updates
   let currentTasks = [
-    { id: "#001", title: "Task 1", status: "TODO" },
-    { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
+    { id: "md#001", title: "Task 1", status: "TODO" },
+    { id: "md#002", title: "Task 2", status: "IN-PROGRESS" },
   ];
 
   return {
@@ -147,7 +147,7 @@ describe("TaskService", () => {
       expect(mockBackend.getTasksData).toHaveBeenCalled();
       expect(mockBackend.parseTasks).toHaveBeenCalled();
       expect(tasks).toHaveLength(2);
-      expect(tasks[0].id).toBe("#001");
+      expect(tasks[0].id).toBe("md#001");
       expect(tasks[1].status).toBe("IN-PROGRESS");
     });
 
@@ -155,7 +155,7 @@ describe("TaskService", () => {
       const tasks = await taskService.listTasks({ status: "TODO" });
 
       expect(tasks.length).toBe(1);
-      expect(tasks[0].id).toBe("#001");
+      expect(tasks[0].id).toBe("md#001");
     });
 
     test("should return empty array if data retrieval fails", async () => {
@@ -175,10 +175,10 @@ describe("TaskService", () => {
 
   describe("getTask", () => {
     test("should find a task by ID", async () => {
-      const task = await taskService.getTask("#001");
+      const task = await taskService.getTask("md#001");
 
       expect(task).not.toBeNull();
-      expect(task?.id).toBe("#001");
+      expect(task?.id).toBe("md#001"); // Updated to qualified format
       expect(task?.title).toBe("Task 1");
     });
 
@@ -186,7 +186,7 @@ describe("TaskService", () => {
       const task = await taskService.getTask("002");
 
       expect(task).not.toBeNull();
-      expect(task?.id).toBe("#002");
+      expect(task?.id).toBe("md#002"); // Updated to qualified format
     });
 
     test("should return null if task not found", async () => {
@@ -197,7 +197,7 @@ describe("TaskService", () => {
 
   describe("getTaskStatus", () => {
     test("should get a task's status", async () => {
-      const status = await taskService.getTaskStatus("#002");
+      const status = await taskService.getTaskStatus("md#002");
       expect(status).toBe("IN-PROGRESS");
     });
 
@@ -213,7 +213,7 @@ describe("TaskService", () => {
       const saveTasksDataSpy = mockBackend.saveTasksData as any;
       const formatTasksSpy = mockBackend.formatTasks as any;
 
-      await taskService.setTaskStatus("#001", "DONE");
+      await taskService.setTaskStatus("md#001", "DONE");
 
       // Verify data retrieval methods were called
       expect(mockBackend.getTasksData).toHaveBeenCalled();
@@ -221,12 +221,12 @@ describe("TaskService", () => {
 
       // Note: Implementation may have changed - focus on the end result
       // Verify that the status was actually updated by testing the final state
-      const updatedTask = await taskService.getTask("#001");
+      const updatedTask = await taskService.getTask("md#001");
       expect(updatedTask?.status).toBe("DONE");
     });
 
     test("should throw error for invalid status", async () => {
-      await expect(taskService.setTaskStatus("#001", "INVALID")).rejects.toThrow(
+      await expect(taskService.setTaskStatus("md#001", "INVALID")).rejects.toThrow(
         /Status must be one of/
       );
     });
@@ -349,7 +349,7 @@ describe("TaskService", () => {
           const titleMatch = content.match(/# Task [^:]*: (.+)/);
           const title = titleMatch ? titleMatch[1] : "Test Task";
           return {
-            id: "#001",
+            id: "md#001",
             title,
             description: "Mock task description",
           };
@@ -362,13 +362,13 @@ describe("TaskService", () => {
         getTask: async () => null,
         getTaskStatus: async () => null,
         setTaskStatus: async () => {},
-        createTask: async () => ({ id: "#001", title: "Mock Task", status: "TODO" }) as any,
-        updateTask: async () => ({ id: "#001", title: "Mock Task", status: "TODO" }) as any,
+        createTask: async () => ({ id: "md#001", title: "Mock Task", status: "TODO" }) as any,
+        updateTask: async () => ({ id: "md#001", title: "Mock Task", status: "TODO" }) as any,
         deleteTask: async () => true,
 
         createTaskFromTitleAndDescription: async (title: string, description: string) => {
           // Generate task ID and spec path
-          const taskId = "#001";
+          const taskId = "md#001";
           const specPath = `process/tasks/001-${title.toLowerCase().replace(/\s+/g, "-")}.md`;
 
           // Create spec content

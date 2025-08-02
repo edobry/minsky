@@ -31,6 +31,7 @@ import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
+import { getNextTaskId } from "./taskFunctions";
 
 // TaskState is now imported from schemas/storage
 
@@ -261,7 +262,25 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 
   async getTask(id: string): Promise<Task | null> {
-    return this.getTaskById(id);
+    // Try exact ID first
+    let task = await this.getTaskById(id);
+    if (task) return task;
+
+    // If not found and ID is qualified (md#123), try plain format (123)
+    if (id.includes("#")) {
+      const plainId = id.split("#")[1];
+      task = await this.getTaskById(plainId);
+      if (task) return task;
+    }
+
+    // If not found and ID is plain (123), try qualified format (md#123)
+    if (!id.includes("#") && /^\d+$/.test(id)) {
+      const qualifiedId = `md#${id}`;
+      task = await this.getTaskById(qualifiedId);
+      if (task) return task;
+    }
+
+    return null;
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
@@ -387,9 +406,8 @@ ${description}
       // Get all existing tasks to determine the new task's ID
       const tasks = await this.getAllTasks();
 
-      // TASK 283: Generate plain ID format for storage (e.g., "284" instead of "#284")
-      const nextIdNumber = tasks.length + 1;
-      taskId = String(nextIdNumber); // Plain format for storage
+      // TASK 283: Generate plain ID format for storage using proper max ID logic
+      taskId = getNextTaskId(tasks); // Uses max existing ID + 1, returns plain format
     }
 
     // Create the new task data

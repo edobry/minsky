@@ -211,12 +211,11 @@ The MCP tool implementations have significant duplication in argument types, res
    - ✅ `src/adapters/mcp/schemas/common-responses.ts` (179 lines) - Response builders and interfaces
    - ✅ `src/adapters/mcp/utils/error-handling.ts` (78 lines) - Error handling utilities
 
-<<<<<<< HEAD
-2. **MCP Tool Refactoring** ✅
+<<<<<<< HEAD 2. **MCP Tool Refactoring** ✅
 
-   - ✅ `session-files.ts` - Updated imports to use new schema organization
-   - ✅ `session-edit-tools.ts` - Updated imports + standardized error handling
-   - ✅ `session-workspace.ts` - Updated imports + fixed session.read_file + standardized responses
+- ✅ `session-files.ts` - Updated imports to use new schema organization
+- ✅ `session-edit-tools.ts` - Updated imports + standardized error handling
+- ✅ `session-workspace.ts` - Updated imports + fixed session.read_file + standardized responses
 
 3. **Implementation Achievements** ✅
 
@@ -250,4 +249,7 @@ The MCP tool implementations have significant duplication in argument types, res
 **Dependencies**: Task #288 error handling completion recommended for full integration
 
 **Status**: 🔄 TASK IN PROGRESS - FOUNDATION COMPLETE, INTEGRATION & VALIDATION NEEDED
+
+```
+
 ```

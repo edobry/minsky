@@ -111,7 +111,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       const createdTask = await deps.taskService.createTask(taskSpec.title);
       taskId = createdTask.id;
       if (!quiet) {
-        log.cli(`Created task ${taskId}: ${taskSpec.title}`);
+        // Display qualified format for consistency with lookup
+        const displayId = taskId.startsWith("#") ? `md${taskId}` : `md#${taskId}`;
+        log.cli(`Created task ${displayId}: ${taskSpec.title}`);
       }
     }
 
