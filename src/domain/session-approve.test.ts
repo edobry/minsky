@@ -25,6 +25,73 @@ mock.module("../utils/logger", () => ({
 const TEST_VALUE = 123;
 
 describe("Session Approve", () => {
+  test("simple approval test with working mock", async () => {
+    const mockSessionDB = createMockSessionProvider({
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "265",
+          prBranch: "pr/test-branch",
+          createdAt: new Date().toISOString(),
+        },
+      ],
+    });
+
+    // Verify mock works
+    const session = await mockSessionDB.getSession("test-session");
+    expect(session).not.toBeNull();
+
+    // Now test with minimal deps
+    const mockGitService = createMockGitService({
+      execInRepository: () => Promise.resolve("abcdef123456"),
+    });
+
+    const mockTaskService = createMockTaskService({
+      setTaskStatus: () => Promise.resolve(),
+      getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
+      getTask: () =>
+        Promise.resolve({
+          id: "265",
+          title: "Test",
+          status: "TODO",
+          createdAt: new Date().toISOString(),
+        }),
+    });
+
+    const simpleDeps = {
+      sessionDB: mockSessionDB,
+      gitService: mockGitService,
+      taskService: mockTaskService,
+      workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
+        getRepoWorkspace: () => "/test/workdir",
+        getCurrentWorkingDirectory: () => "/test/workdir",
+      }),
+      resolveRepoPath: () => Promise.resolve("/test/repo"),
+      createRepositoryBackendForSession: () =>
+        Promise.resolve({
+          getType: () => "test-backend",
+          approvePullRequest: () =>
+            Promise.resolve({
+              reviewId: "test-review-123",
+              approvedBy: "test-user",
+              approvedAt: new Date().toISOString(),
+              prNumber: "123",
+            }),
+        }),
+    };
+
+    // This should work since we know the mock has the right session
+    try {
+      const result = await approveSessionFromParams({ session: "test-session" }, simpleDeps);
+      expect(result.sessionName).toBe("test-session");
+    } catch (error) {
+      console.log("Error details:", error);
+      throw error;
+    }
+  });
+
   test("successfully approves and merges a PR branch", async () => {
     // Create trackable spies for methods we need to verify (simplified typing)
     let getSessionSpy = createMock();
@@ -34,6 +101,7 @@ describe("Session Approve", () => {
         repoName: "test-repo",
         repoUrl: "/test/repo/path",
         taskId: "265",
+        prBranch: "pr/test-branch",
         createdAt: new Date().toISOString(),
       })
     );
@@ -46,6 +114,7 @@ describe("Session Approve", () => {
           repoName: "test-repo",
           repoUrl: "/test/repo/path",
           taskId: "265",
+          prBranch: "pr/test-branch",
           createdAt: new Date().toISOString(),
         });
       }
@@ -80,8 +149,16 @@ describe("Session Approve", () => {
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy,
-      getSessionByTaskId: getSessionByTaskIdSpy,
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "265",
+          prBranch: "pr/test-branch",
+          createdAt: new Date().toISOString(),
+        },
+      ],
     });
 
     // Add getSessionWorkdir method not covered by centralized factory
@@ -208,8 +285,16 @@ describe("Session Approve", () => {
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy,
-      getSessionByTaskId: getSessionByTaskIdSpy,
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "265",
+          prBranch: "pr/test-branch",
+          createdAt: new Date().toISOString(),
+        },
+      ],
     });
 
     // Add getSessionWorkdir method not covered by centralized factory
@@ -481,8 +566,16 @@ describe("Session Approve", () => {
 
     // Create mocks using centralized factories with spy integration
     const mockSessionDB = createMockSessionProvider({
-      getSession: getSessionSpy,
-      getSessionByTaskId: getSessionByTaskIdSpy,
+      sessions: [
+        {
+          session: "test-session",
+          repoName: "test-repo",
+          repoUrl: "/test/repo/path",
+          taskId: "265",
+          prBranch: "pr/test-branch",
+          createdAt: new Date().toISOString(),
+        },
+      ],
     });
 
     // Add getSessionWorkdir method not covered by centralized factory

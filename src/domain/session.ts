@@ -1303,13 +1303,22 @@ export async function sessionPrFromParams(
  * This function now only performs approval. Use 'session merge' separately to merge.
  * This prevents unauthorized merges and ensures proper code review workflow.
  */
-export async function approveSessionFromParams(params: {
-  session?: string;
-  task?: string;
-  repo?: string;
-  json?: boolean;
-  reviewComment?: string;
-}): Promise<{
+export async function approveSessionFromParams(
+  params: {
+    session?: string;
+    task?: string;
+    repo?: string;
+    json?: boolean;
+    reviewComment?: string;
+  },
+  depsInput?: {
+    sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    taskService?: TaskServiceInterface;
+    workspaceUtils?: WorkspaceUtilsInterface;
+    resolveRepoPath?: typeof resolveRepoPath;
+  }
+): Promise<{
   sessionName: string;
   taskId?: string;
   prBranch?: string;
@@ -1322,13 +1331,16 @@ export async function approveSessionFromParams(params: {
   wasAlreadyApproved: boolean;
 }> {
   // SECURITY: Use new approve-only operation
-  return await approveSessionPr({
-    session: params.session,
-    task: params.task,
-    repo: params.repo,
-    json: params.json,
-    reviewComment: params.reviewComment,
-  });
+  return await approveSessionPr(
+    {
+      session: params.session,
+      task: params.task,
+      repo: params.repo,
+      json: params.json,
+      reviewComment: params.reviewComment,
+    },
+    depsInput
+  );
 }
 
 /**

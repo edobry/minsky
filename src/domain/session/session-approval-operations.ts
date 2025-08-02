@@ -10,6 +10,9 @@ import { MinskyError, ValidationError, ResourceNotFoundError } from "../../error
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
 import { createRepositoryBackendForSession } from "./repository-backend-detection";
 import type { ApprovalInfo } from "../repository/approval-types";
+import type { GitServiceInterface } from "../git/git-service-interface";
+import type { TaskServiceInterface } from "../tasks/task-service-interface";
+import type { WorkspaceUtilsInterface } from "../workspace";
 
 /**
  * Parameters for session approval operation
@@ -46,6 +49,11 @@ export async function approveSessionPr(
   params: SessionApprovalParams,
   deps?: {
     sessionDB?: SessionProviderInterface;
+    gitService?: GitServiceInterface;
+    taskService?: TaskServiceInterface;
+    workspaceUtils?: WorkspaceUtilsInterface;
+    resolveRepoPath?: any;
+    createRepositoryBackendForSession?: (workingDirectory: string) => Promise<any>;
   }
 ): Promise<SessionApprovalResult> {
   if (!params.json) {
@@ -98,7 +106,7 @@ export async function approveSessionPr(
     }
 
     return {
-      session: sessionNameToUse,
+      sessionName: sessionNameToUse,
       taskId: sessionRecord.taskId,
       prBranch: sessionRecord.prBranch,
       approvalInfo: {
@@ -113,7 +121,9 @@ export async function approveSessionPr(
 
   // Create repository backend for this session
   const workingDirectory = params.repo || sessionRecord.repoUrl || process.cwd();
-  const repositoryBackend = await createRepositoryBackendForSession(workingDirectory);
+  const createBackendFunc =
+    deps?.createRepositoryBackendForSession || createRepositoryBackendForSession;
+  const repositoryBackend = await createBackendFunc(workingDirectory);
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for approval`);
@@ -139,7 +149,7 @@ export async function approveSessionPr(
   }
 
   return {
-    session: sessionNameToUse,
+    sessionName: sessionNameToUse,
     taskId: sessionRecord.taskId,
     prBranch: sessionRecord.prBranch,
     approvalInfo,
