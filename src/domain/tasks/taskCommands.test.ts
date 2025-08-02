@@ -73,13 +73,31 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "155") {
-          return { id: "155", status: TASK_STATUS.BLOCKED };
-        }
-        return null;
-      });
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "155" || taskId === "md#155") {
+            return { id: "md#155", status: TASK_STATUS.BLOCKED };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -122,9 +140,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "157") {
-          return { id: "157", status: TASK_STATUS.IN_PROGRESS };
+        // Handle both input format and qualified format since function normalizes IDs
+        if (taskId === "157" || taskId === "md#157") {
+          return { id: "md#157", status: TASK_STATUS.IN_PROGRESS };
         }
         return null;
       });
@@ -146,9 +164,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "158") {
-          return { id: "158", status: TASK_STATUS.DONE };
+        // Handle both input format and qualified format since function normalizes IDs
+        if (taskId === "158" || taskId === "md#158") {
+          return { id: "md#158", status: TASK_STATUS.DONE };
         }
         return null;
       });
@@ -178,7 +196,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       };
 
       await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow(
-        "Task 999 not found or has no status"
+        "Task md#999 not found or has no status"
       );
     });
 

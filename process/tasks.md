@@ -633,3 +633,9 @@
 - [+] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
 - [+] Collapse Unnecessary Application Layer in Task Architecture [md#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
+
+- [+] Test MCP session start with restarted server [md#376](process/tasks/md#376-test-mcp-session-start-with-restarted-server.md)
+
+- [ ] Test MCP session start with restarted server after cleanup [md#378](process/tasks/md#378-test-mcp-session-start-with-restarted-server-after-cleanup.md)
+
+- [ ] Test MCP session start after fixing duplicate task ID bug [md#379](process/tasks/md#379-test-mcp-session-start-after-fixing-duplicate-task-id-bug.md)
