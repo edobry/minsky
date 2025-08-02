@@ -1,5 +1,3 @@
-- [x] Add `--task` Option to `session get` Command [md#004](process/tasks/md#004-add-task-option-to-session-get-command.md)
-
 - [x] Add `--quiet` Option to `session start` for Programmatic Output [md#006](process/tasks/md#006-add-quiet-option-to-session-start-for-programmatic-output.md)
 
 - [x] Add `minsky tasks create` Command [md#007](process/tasks/md#007-add-minsky-tasks-create-command.md)
@@ -634,32 +632,4 @@
 
 - [+] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
-- [ ] Add AI-powered rule suggestion for context construction MVP - Task 182 [md#004](process/tasks/md#004-add-ai-powered-rule-suggestion-for-context-construction-mvp-task-182.md)
-
 - [+] Collapse Unnecessary Application Layer in Task Architecture [md#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
-
-- [ ] Test session to reproduce the createTaskFromTitleAndDescription error [md#001](process/tasks/md#001-test-session-to-reproduce-the-createtaskfromtitleanddescription-error.md)
-
-- [ ] Test session for MCP fix verification [md#001](process/tasks/md#001-test-session-for-mcp-fix-verification.md)
-
-- [ ] Test session for MCP fix verification [md#376](process/tasks/md#376-test-session-for-mcp-fix-verification.md)
-
-- [ ] Test session for MCP fix verification - round 2 [md#001](process/tasks/md#001-test-session-for-mcp-fix-verification-round-2.md)
-
-- [ ] Test session to see the actual MCP error [md#002](process/tasks/md#002-test-session-to-see-the-actual-mcp-error.md)
-
-- [ ] Test to see exact MCP error [md#003](process/tasks/md#003-test-to-see-exact-mcp-error.md)
-
-- [+] Test MCP session start with description [md#377](process/tasks/md#377-test-mcp-session-start-with-description.md)
-
-- [ ] Fix the authentication bug [md#378](process/tasks/md#378-fix-the-authentication-bug.md)
-
-- [ ] Fix the authentication bug [md#379](process/tasks/md#379-fix-the-authentication-bug.md)
-
-- [ ] Fix the authentication bug [md#380](process/tasks/md#380-fix-the-authentication-bug.md)
-
-- [ ] Fix the authentication bug [md#381](process/tasks/md#381-fix-the-authentication-bug.md)
-
-- [+] Fresh test of MCP session start functionality [md#382](process/tasks/md#382-fresh-test-of-mcp-session-start-functionality.md)
-
-- [+] Test without dependency install [md#383](process/tasks/md#383-test-without-dependency-install.md)

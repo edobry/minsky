@@ -454,6 +454,7 @@ ${description}
       if (!saveResult.success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
           error: saveResult.error?.message || "Unknown error",
+          filePath: this.tasksFilePath,
         });
         return false;
       }
