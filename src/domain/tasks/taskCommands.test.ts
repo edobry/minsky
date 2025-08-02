@@ -115,13 +115,31 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "156") {
-          return { id: "156", status: TASK_STATUS.TODO };
-        }
-        return null;
-      });
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "156" || taskId === "md#156") {
+            return { id: "md#156", status: TASK_STATUS.TODO };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -206,13 +224,31 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "155") {
-          return { id: "155", status: TASK_STATUS.BLOCKED };
-        }
-        return null;
-      });
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "155" || taskId === "md#155") {
+            return { id: "md#155", status: TASK_STATUS.BLOCKED };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -231,13 +267,31 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Task 283: Use storage format for task ID comparison
-        if (taskId === "155") {
-          return { id: "155", status: TASK_STATUS.BLOCKED };
-        }
-        return null;
-      });
+      const mockTaskService = {
+        getTask: async (taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "155" || taskId === "md#155") {
+            return { id: "md#155", status: TASK_STATUS.BLOCKED };
+          }
+          return null;
+        },
+        listTasks: async () => [],
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
