@@ -1,12 +1,4 @@
-- [x] Update `session start` Command to Support Task IDs [md#001](process/tasks/md#001-update-session-start-command-to-support-task-ids.md)
-
-- [x] Store Session Repos Under Per-Repo Directories and Add repoName to Session DB [md#002](process/tasks/md#002-store-session-repos-under-per-repo-directories-and-add-reponame-to-session-db.md)
-
-- [x] Add `init` command to set up a project for Minsky [md#003](process/tasks/md#003-add-init-command-to-set-up-a-project-for-minsky.md)
-
 - [x] Add `--task` Option to `session get` Command [md#004](process/tasks/md#004-add-task-option-to-session-get-command.md)
-
-- [x] Add `git push` Command to Simplify Pushing Branches [md#005](process/tasks/md#005-add-git-push-command-to-simplify-pushing-branches.md)
 
 - [x] Add `--quiet` Option to `session start` for Programmatic Output [md#006](process/tasks/md#006-add-quiet-option-to-session-start-for-programmatic-output.md)
 
@@ -642,46 +634,6 @@
 
 - [+] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
-- [ ] testing stuff [md#001](process/tasks/md#001-testing-stuff.md)
-
-- [ ] testing stuff [md#001](process/tasks/md#001-testing-stuff.md)
-
-- [ ] testing stuff again [md#002](process/tasks/md#002-testing-stuff-again.md)
-
-- [ ] final test [md#003](process/tasks/md#003-final-test.md)
-
 - [ ] Add AI-powered rule suggestion for context construction MVP - Task 182 [md#004](process/tasks/md#004-add-ai-powered-rule-suggestion-for-context-construction-mvp-task-182.md)
 
-- [ ] testing the fix [md#005](process/tasks/md#005-testing-the-fix.md)
-
-- [+] testing config system backend detection [md#372](process/tasks/md#372-testing-config-system-backend-detection.md)
-
-- [+] test corrected file fix [md#373](process/tasks/md#373-test-corrected-file-fix.md)
-
-- [+] final test of complete fix [md#374](process/tasks/md#374-final-test-of-complete-fix.md)
-
 - [+] Collapse Unnecessary Application Layer in Task Architecture [md#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
-
-- [+] testing final display fix [md#376](process/tasks/md#376-testing-final-display-fix.md)
-
-- [+] final verification test [md#377](process/tasks/md#377-final-verification-test.md)
-
-- [+] testing quiet mode [md#378](process/tasks/md#378-testing-quiet-mode.md)
-
-- [+] testing fixed quiet mode [md#379](process/tasks/md#379-testing-fixed-quiet-mode.md)
-
-- [ ] testing fixed quiet mode [md#379](process/tasks/md#379-testing-fixed-quiet-mode.md)
-
-- [+] testing fixed quiet mode 2 [md#380](process/tasks/md#380-testing-fixed-quiet-mode-2.md)
-
-- [+] final quiet mode test [md#381](process/tasks/md#381-final-quiet-mode-test.md)
-
-- [ ] final quiet mode test [md#381](process/tasks/md#381-final-quiet-mode-test.md)
-
-- [+] normal mode demo [md#382](process/tasks/md#382-normal-mode-demo.md)
-
-- [+] quiet mode demo [md#383](process/tasks/md#383-quiet-mode-demo.md)
-
-- [ ] quiet mode demo [md#383](process/tasks/md#383-quiet-mode-demo.md)
-
-- [+] testing static imports [md#384](process/tasks/md#384-testing-static-imports.md)
