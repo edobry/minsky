@@ -17,6 +17,7 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
+import { taskIdToSessionName } from "../tasks/unified-task-id";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;
@@ -125,8 +126,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
 
-      // Use the task ID as the session name
-      sessionName = `task${taskId}`;
+      // Use the task ID as the session name with proper formatting
+      sessionName = taskIdToSessionName(taskId);
     }
 
     if (!sessionName) {

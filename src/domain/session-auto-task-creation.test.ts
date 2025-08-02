@@ -112,9 +112,9 @@ describe("Session Auto-Task Creation", () => {
       resolveRepoPath: mockResolveRepoPath,
     });
 
-    // Verify session was created with task ID (adjust expectation to match actual behavior)
-    expect(result.taskId).toBe("001"); // Code returns normalized ID without #
-    expect(result.session).toBe("task001"); // Session name follows normalized ID
+    // Verify session was created with task ID (qualified format)
+    expect(result.taskId).toBe("md#001"); // Code returns qualified ID format
+    expect(result.session).toBe("task-md#001"); // Session name follows qualified ID format with hyphen
   });
 
   test("should not auto-create task when task ID is provided", async () => {

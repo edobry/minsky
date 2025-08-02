@@ -131,9 +131,13 @@ describe("Session Approve", () => {
     const mockTaskService = createMockTaskService({
       setTaskStatus: () => Promise.resolve(),
       getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-      getTask: () => Promise.resolve({
-        id: TEST_TASK_ID, title: TEST_TASK_TITLE, status: TEST_TASK_STATUS, createdAt: new Date().toISOString(),
-      }),
+      getTask: () =>
+        Promise.resolve({
+          id: TEST_TASK_ID,
+          title: TEST_TASK_TITLE,
+          status: TEST_TASK_STATUS,
+          createdAt: new Date().toISOString(),
+        }),
     });
 
     const testDeps = {
@@ -145,19 +149,24 @@ describe("Session Approve", () => {
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
       resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
-      createRepositoryBackendForSession: () => Promise.resolve({
-        getType: () => TEST_BACKEND_TYPE,
-        approvePullRequest: () => Promise.resolve({
-          reviewId: TEST_REVIEW_ID,
-          approvedBy: TEST_USER_NAME,
-          approvedAt: new Date().toISOString(),
-          prNumber: TEST_PR_NUMBER,
+      createRepositoryBackendForSession: () =>
+        Promise.resolve({
+          getType: () => TEST_BACKEND_TYPE,
+          approvePullRequest: () =>
+            Promise.resolve({
+              reviewId: TEST_REVIEW_ID,
+              approvedBy: TEST_USER_NAME,
+              approvedAt: new Date().toISOString(),
+              prNumber: TEST_PR_NUMBER,
+            }),
         }),
-      }),
     };
 
     // Test by session name
-    const resultBySession = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps);
+    const resultBySession = await approveSessionFromParams(
+      { session: TEST_SESSION_NAME },
+      testDeps
+    );
     expect(resultBySession.sessionName).toBe(TEST_SESSION_NAME);
     expect(resultBySession.taskId).toBe(TEST_TASK_ID);
 
@@ -190,22 +199,30 @@ describe("Session Approve", () => {
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-        getTask: () => Promise.resolve({ id: "456", title: TEST_TASK_TITLE, status: TEST_TASK_STATUS, createdAt: new Date().toISOString() }),
+        getTask: () =>
+          Promise.resolve({
+            id: "456",
+            title: TEST_TASK_TITLE,
+            status: TEST_TASK_STATUS,
+            createdAt: new Date().toISOString(),
+          }),
       }),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
         getRepoWorkspace: () => TEST_WORKDIR,
         getCurrentWorkingDirectory: () => TEST_WORKDIR,
       }),
       resolveRepoPath: () => Promise.resolve(TEST_REPO_PATH),
-      createRepositoryBackendForSession: () => Promise.resolve({
-        getType: () => TEST_BACKEND_TYPE,
-        approvePullRequest: () => Promise.resolve({
-          reviewId: "test-review-456",
-          approvedBy: TEST_USER_NAME,
-          approvedAt: new Date().toISOString(),
-          prNumber: "456",
+      createRepositoryBackendForSession: () =>
+        Promise.resolve({
+          getType: () => TEST_BACKEND_TYPE,
+          approvePullRequest: () =>
+            Promise.resolve({
+              reviewId: "test-review-456",
+              approvedBy: TEST_USER_NAME,
+              approvedAt: new Date().toISOString(),
+              prNumber: "456",
+            }),
         }),
-      }),
       getCurrentSession: () => Promise.resolve("current-session"), // Mock session detection
     };
 
@@ -250,7 +267,7 @@ describe("Session Approve", () => {
       expect(false).toBe(true);
     } catch (error) {
       expect(error instanceof ResourceNotFoundError).toBe(true);
-      expect((error as Error).message).toContain("Session \"non-existent\" not found");
+      expect((error as Error).message).toContain('Session "non-existent" not found');
     }
   });
 });

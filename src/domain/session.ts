@@ -27,6 +27,7 @@ import { createGitService } from "./git";
 import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
+import { taskIdToSessionName } from "./tasks/unified-task-id";
 import { execAsync } from "../utils/exec";
 import { extractPrDescription } from "./session/session-update-operations";
 import {
@@ -289,8 +290,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
 
-      // Use the task ID as the session name
-      sessionName = `task${taskId}`;
+      // Use the task ID as the session name with proper formatting
+      sessionName = taskIdToSessionName(taskId);
     }
 
     if (!sessionName) {

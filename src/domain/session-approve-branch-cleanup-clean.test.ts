@@ -62,11 +62,11 @@ describe("Session Approve Branch Cleanup", () => {
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-        getTask: () => Promise.resolve({ 
-          id: TEST_TASK_ID, 
-          title: TEST_TASK_TITLE, 
-          status: TEST_TASK_STATUS, 
-          createdAt: new Date().toISOString() 
+        getTask: () => Promise.resolve({
+          id: TEST_TASK_ID,
+          title: TEST_TASK_TITLE,
+          status: TEST_TASK_STATUS,
+          createdAt: new Date().toISOString()
         }),
       }),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
@@ -97,7 +97,7 @@ describe("Session Approve Branch Cleanup", () => {
       sessions: [
         {
           session: TEST_SESSION_NAME,
-          repoName: TEST_REPO_NAME, 
+          repoName: TEST_REPO_NAME,
           repoUrl: TEST_REPO_PATH,
           taskId: TEST_TASK_ID,
           prBranch: TEST_PR_BRANCH, // Added required prBranch
@@ -114,11 +114,11 @@ describe("Session Approve Branch Cleanup", () => {
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-        getTask: () => Promise.resolve({ 
-          id: TEST_TASK_ID, 
-          title: TEST_TASK_TITLE, 
-          status: TEST_TASK_STATUS, 
-          createdAt: new Date().toISOString() 
+        getTask: () => Promise.resolve({
+          id: TEST_TASK_ID,
+          title: TEST_TASK_TITLE,
+          status: TEST_TASK_STATUS,
+          createdAt: new Date().toISOString()
         }),
       }),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
@@ -144,7 +144,7 @@ describe("Session Approve Branch Cleanup", () => {
   });
 
   test("should not attempt branch cleanup for already approved sessions", async () => {
-    // Clean DI approach 
+    // Clean DI approach
     const mockSessionDB = createMockSessionProvider({
       sessions: [
         {
@@ -167,11 +167,11 @@ describe("Session Approve Branch Cleanup", () => {
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
-        getTask: () => Promise.resolve({ 
-          id: TEST_TASK_ID, 
-          title: TEST_TASK_TITLE, 
-          status: TEST_TASK_STATUS, 
-          createdAt: new Date().toISOString() 
+        getTask: () => Promise.resolve({
+          id: TEST_TASK_ID,
+          title: TEST_TASK_TITLE,
+          status: TEST_TASK_STATUS,
+          createdAt: new Date().toISOString()
         }),
       }),
       workspaceUtils: createPartialMock<WorkspaceUtilsInterface>({
@@ -190,7 +190,7 @@ describe("Session Approve Branch Cleanup", () => {
       }),
     };
 
-    // Test already approved session 
+    // Test already approved session
     const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, testDeps);
     expect(result.sessionName).toBe(TEST_SESSION_NAME);
     expect(result.taskId).toBe(TEST_TASK_ID);
