@@ -671,3 +671,9 @@
 - [+] testing quiet mode [md#378](process/tasks/md#378-testing-quiet-mode.md)
 
 - [+] testing fixed quiet mode [md#379](process/tasks/md#379-testing-fixed-quiet-mode.md)
+
+- [ ] testing fixed quiet mode [md#379](process/tasks/md#379-testing-fixed-quiet-mode.md)
+
+- [+] testing fixed quiet mode 2 [md#380](process/tasks/md#380-testing-fixed-quiet-mode-2.md)
+
+- [+] final quiet mode test [md#381](process/tasks/md#381-final-quiet-mode-test.md)
