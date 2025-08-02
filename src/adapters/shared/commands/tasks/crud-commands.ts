@@ -5,8 +5,8 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { type CommandExecutionContext } from "../../command-registry";
+import { createConfiguredTaskService, TaskService } from "../../../../domain/tasks/taskService";
 import {
-  listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
   createTaskFromTitleAndDescription,
@@ -68,13 +68,17 @@ export class TasksListCommand extends BaseTaskCommand {
   async execute(params: TasksListParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.list execution");
 
-    // List tasks with filters
-    const tasks = await listTasksFromParams({
-      ...this.createTaskParams(params),
+    // Create TaskService directly (no application layer!)
+    const taskParams = this.createTaskParams(params);
+    const taskService = await createConfiguredTaskService({
+      workspacePath: process.cwd(), // Could inject this via context in future
+      backend: taskParams.backend || "markdown",
+    });
+
+    // Call domain layer directly with rich parameter interface
+    const tasks = await taskService.listTasks({
+      status: params.status || params.filter,
       all: params.all,
-      status: params.status,
-      filter: params.filter,
-      limit: params.limit,
     });
 
     this.debug(`Found ${tasks.length} tasks`);
