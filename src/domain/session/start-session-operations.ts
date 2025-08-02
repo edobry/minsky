@@ -121,7 +121,20 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
-      const normalizedTaskId = TaskIdSchema.parse(taskId);
+      let normalizedTaskId: string;
+      try {
+        normalizedTaskId = TaskIdSchema.parse(taskId);
+      } catch (validationError) {
+        // Fallback: if Zod validation fails, try manual normalization
+        const manualNormalized = normalizeTaskIdForStorage(taskId);
+        if (manualNormalized) {
+          normalizedTaskId = manualNormalized;
+        } else {
+          throw new ValidationError(
+            `Invalid task ID format: '${taskId}'. Please provide either a qualified task ID (md#123, gh#456) or legacy format (123, task#123, #123).`
+          );
+        }
+      }
       taskId = normalizedTaskId;
 
       // Verify the task exists
