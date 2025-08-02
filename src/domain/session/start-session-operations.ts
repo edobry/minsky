@@ -108,7 +108,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Auto-create task if description is provided but no task ID
     if (description && !taskId) {
       const taskSpec = createTaskFromDescription(description);
-      const createdTask = await deps.taskService.createTask(taskSpec.title);
+      const createdTask = await deps.taskService.createTaskFromTitleAndDescription(
+        taskSpec.title,
+        taskSpec.description
+      );
       taskId = createdTask.id;
       if (!quiet) {
         // Display the task ID (taskId is already in the correct format from TaskService)
