@@ -637,3 +637,17 @@
 - [ ] Add AI-powered rule suggestion for context construction MVP - Task 182 [md#004](process/tasks/md#004-add-ai-powered-rule-suggestion-for-context-construction-mvp-task-182.md)
 
 - [+] Collapse Unnecessary Application Layer in Task Architecture [md#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
+
+- [ ] Test session to reproduce the createTaskFromTitleAndDescription error [md#001](process/tasks/md#001-test-session-to-reproduce-the-createtaskfromtitleanddescription-error.md)
+
+- [ ] Test session for MCP fix verification [md#001](process/tasks/md#001-test-session-for-mcp-fix-verification.md)
+
+- [ ] Test session for MCP fix verification [md#376](process/tasks/md#376-test-session-for-mcp-fix-verification.md)
+
+- [ ] Test session for MCP fix verification - round 2 [md#001](process/tasks/md#001-test-session-for-mcp-fix-verification-round-2.md)
+
+- [ ] Test session to see the actual MCP error [md#002](process/tasks/md#002-test-session-to-see-the-actual-mcp-error.md)
+
+- [ ] Test to see exact MCP error [md#003](process/tasks/md#003-test-to-see-exact-mcp-error.md)
+
+- [+] Test task for MCP session debugging [md#377](process/tasks/md#377-test-task-for-mcp-session-debugging.md)
