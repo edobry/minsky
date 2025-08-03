@@ -84,21 +84,38 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
     const tasks = await this.parseTasks();
+    
+    // Use the same sophisticated ID matching logic as getTask
+    let taskIndex = -1;
+    let targetTask: Task | null = null;
+    
+    // Handle both qualified (md#123) and local (123) IDs
     const localId = taskId.replace(/^md#/, "");
 
-    const taskIndex = tasks.findIndex((t) => {
-      const tLocalId = t.id.replace(/^(md#|#)/, "");
-      return tLocalId === localId;
-    });
+    // First try exact match with qualified ID
+    taskIndex = tasks.findIndex((t) => t.id === taskId || t.id === `md#${localId}`);
+    
+    // If not found, try legacy format matching
+    if (taskIndex === -1) {
+      const numericId = parseInt(localId.replace(/^#/, ""), 10);
+      if (!isNaN(numericId)) {
+        taskIndex = tasks.findIndex((t) => {
+          const taskNumericId = parseInt(t.id.replace(/^(md#|#)/, ""), 10);
+          return !isNaN(taskNumericId) && taskNumericId === numericId;
+        });
+      }
+    }
 
     if (taskIndex === -1) {
       throw new ResourceNotFoundError(`Task ${taskId} not found`);
     }
+    
+    targetTask = tasks[taskIndex];
 
     // Update the task with proper type safety
     const baseTask = tasks[taskIndex]!; // Safe after index check
     const updatedTask: Task = {
-      id: `md#${localId}`, // Ensure qualified ID
+      id: targetTask.id, // Use the existing task ID (already qualified)
       title: updates.title ?? baseTask.title,
       status: updates.status ?? baseTask.status,
       description: updates.description ?? baseTask.description,
@@ -264,7 +281,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     for (const line of lines) {
       // Check for task line - supports both legacy (#123) and qualified (md#123) formats
-      const taskMatch = line.match(/^-\s*\[([x\s])\]\s*([a-z-]*#?\d+)\s+(.+)$/);
+      const taskMatch = line.match(/^-\s*\[([x\s+])\]\s*([a-z-]*#?\d+)\s+(.+)$/);
       if (taskMatch) {
         if (currentTask && currentTask.id && currentTask.title) {
           tasks.push(currentTask as Task);
@@ -275,7 +292,14 @@ export class MarkdownTaskBackend implements TaskBackend {
         const title = taskMatch[3];
 
         if (checkbox && id && title) {
-          const status = checkbox === "x" ? TASK_STATUS.DONE : TASK_STATUS.TODO;
+          let status: TaskStatus;
+          if (checkbox === "x") {
+            status = TASK_STATUS.DONE;
+          } else if (checkbox === "+") {
+            status = TASK_STATUS.IN_PROGRESS;
+          } else {
+            status = TASK_STATUS.TODO;
+          }
 
           // Convert to qualified format if needed
           let qualifiedId: string;
@@ -323,7 +347,14 @@ export class MarkdownTaskBackend implements TaskBackend {
   private formatTasksToMarkdown(tasks: Task[]): string {
     return tasks
       .map((task) => {
-        const checkbox = task.status === TASK_STATUS.DONE ? "x" : " ";
+        let checkbox: string;
+        if (task.status === TASK_STATUS.DONE) {
+          checkbox = "x";
+        } else if (task.status === TASK_STATUS.IN_PROGRESS) {
+          checkbox = "+";
+        } else {
+          checkbox = " ";
+        }
         // Keep qualified ID format in storage for multi-backend consistency
         const displayId = task.id; // Use full qualified ID (md#123)
         let output = `- [${checkbox}] ${displayId} ${task.title}`;

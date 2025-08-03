@@ -139,7 +139,24 @@ export class MarkdownTaskBackend implements TaskBackend {
     const tasks = this.parseTasks(result.content);
     log.debug("stored task IDs", { taskIds: tasks.map((t) => t.id).slice(0, 5) });
 
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+    // Use the same sophisticated ID matching logic as getTask would use
+    let taskIndex = -1;
+    const localId = id.replace(/^md#/, "");
+    
+    // First try exact match with qualified ID
+    taskIndex = tasks.findIndex((t) => t.id === id || t.id === `md#${localId}`);
+    
+    // If not found, try legacy format matching
+    if (taskIndex === -1) {
+      const numericId = parseInt(localId.replace(/^#/, ""), 10);
+      if (!isNaN(numericId)) {
+        taskIndex = tasks.findIndex((t) => {
+          const taskNumericId = parseInt(t.id.replace(/^(md#|#)/, ""), 10);
+          return !isNaN(taskNumericId) && taskNumericId === numericId;
+        });
+      }
+    }
+    
     log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
