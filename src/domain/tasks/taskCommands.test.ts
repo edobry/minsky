@@ -530,8 +530,23 @@ describe("Interface-Agnostic Task Command Functions", () => {
       ];
 
       const mockTaskService = {
-        ...createMockTaskService(async () => null),
-        listTasks: async () => mockTasks,
+        listTasks: async () => [{ id: "#155", title: "Task 1", status: TASK_STATUS.BLOCKED }],
+        getTask: async () => null,
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
       };
 
       const mockDeps = {
@@ -557,8 +572,26 @@ describe("Interface-Agnostic Task Command Functions", () => {
       ];
 
       const mockTaskService = {
-        ...createMockTaskService(async () => null),
-        listTasks: async () => mockTasks,
+        listTasks: async () => [
+          { id: "#155", title: "Task 1", status: TASK_STATUS.BLOCKED },
+          { id: "#156", title: "Task 2", status: TASK_STATUS.TODO },
+        ],
+        getTask: async () => null,
+        getTaskStatus: async () => undefined,
+        setTaskStatus: async () => {},
+        createTask: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
+        deleteTask: async () => false,
+        getWorkspacePath: () => "/test/path",
+        getBackendForTask: async () => "markdown",
+        createTaskFromTitleAndDescription: async () => ({
+          id: "#test",
+          title: "Test",
+          status: "TODO",
+        }),
       };
 
       const mockDeps = {
