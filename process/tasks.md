@@ -624,7 +624,7 @@
 
 - [x] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/367-consolidate-multiple-task-id-parsing-implementations.md)
 
-- [ ] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
+- [+] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
 
 - [ ] Multi-Backend System Polish & Optimization [#369](process/tasks/369-multi-backend-system-polish-optimization.md)
 
