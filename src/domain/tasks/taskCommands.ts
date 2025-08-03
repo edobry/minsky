@@ -543,11 +543,23 @@ export async function createTaskFromTitleAndDescription(
       repo: validParams.repo,
     });
 
-    // Create task service
-    const taskService = deps.createTaskService({
-      workspacePath,
-      backend: validParams.backend,
-    });
+    // Create task service with GitHub repository override support
+    let taskService;
+    if (validParams.backend === "github-issues" && validParams.githubRepo) {
+      // Use repository backend integration with GitHub override
+      const { TaskService } = await import("./taskService");
+      taskService = await TaskService.createWithRepositoryBackend({
+        workspacePath,
+        backend: validParams.backend,
+        githubRepoOverride: validParams.githubRepo,
+      });
+    } else {
+      // Use default task service creation
+      taskService = deps.createTaskService({
+        workspacePath,
+        backend: validParams.backend,
+      });
+    }
 
     // Read description from file if descriptionPath is provided
     let description = validParams.description;

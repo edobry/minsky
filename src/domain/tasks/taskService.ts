@@ -607,7 +607,7 @@ ${description}
     let taskBackend;
     const effectiveBackend = backend || "markdown"; // Default to markdown
 
-        if (effectiveBackend === "github-issues") {
+    if (effectiveBackend === "github-issues") {
       // Create GitHub Issues backend with repository backend info
       if (githubRepoOverride) {
         // When using GitHub override, create a mock GitHub repository backend
@@ -616,14 +616,14 @@ ${description}
           repoUrl: `git@github.com:${githubRepoOverride}.git`, // Mock URL for override
         });
         taskBackend = await createGitHubBackendWithRepositoryInfo(
-          githubRepoBackend, 
-          workspacePath, 
+          githubRepoBackend,
+          workspacePath,
           githubRepoOverride
         );
       } else {
         taskBackend = await createGitHubBackendWithRepositoryInfo(
-          repoBackend, 
-          workspacePath, 
+          repoBackend,
+          workspacePath,
           githubRepoOverride
         );
       }

@@ -135,21 +135,21 @@ describe("GitHub URL Parsing", () => {
 describe("GitHub Repository Override (New Feature)", () => {
   test("should parse GitHub repository string correctly", async () => {
     const { parseGitHubRepoString } = await import("./taskService");
-    
+
     const result = parseGitHubRepoString("microsoft/vscode");
     expect(result).toEqual({ owner: "microsoft", repo: "vscode" });
   });
 
   test("should handle whitespace in repository string", async () => {
     const { parseGitHubRepoString } = await import("./taskService");
-    
+
     const result = parseGitHubRepoString("  microsoft/vscode  ");
     expect(result).toEqual({ owner: "microsoft", repo: "vscode" });
   });
 
   test("should return null for invalid repository format", async () => {
     const { parseGitHubRepoString } = await import("./taskService");
-    
+
     expect(parseGitHubRepoString("invalid-format")).toBeNull();
     expect(parseGitHubRepoString("too/many/slashes")).toBeNull();
     expect(parseGitHubRepoString("")).toBeNull();
