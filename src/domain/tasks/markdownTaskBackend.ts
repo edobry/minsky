@@ -61,6 +61,7 @@ import { readdir } from "fs/promises";
  */
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
+  prefix = "md"; // Backend prefix for qualified IDs
   private readonly workspacePath: string;
   private readonly tasksFilePath: string;
   private readonly tasksDirectory: string;
@@ -510,7 +511,9 @@ ${description}
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    // Ensure specPath is a string
+    const pathStr = String(specPath || "");
+    const fullPath = pathStr.startsWith("/") ? pathStr : join(this.workspacePath, pathStr);
     return readTaskSpecFile(fullPath);
   }
 

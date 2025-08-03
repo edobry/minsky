@@ -158,6 +158,58 @@ The rule should provide specific, actionable error messages:
 
 This directly addresses the root cause of test failures in Task 176 and prevents future filesystem race conditions.
 
+## 🆕 **NEW REQUIREMENTS ADDED (Post-Task Start)**
+
+**📋 CONTEXT**: Following systematic test fixing that achieved 100% test success rate, we discovered the need for automated prevention of test anti-patterns beyond filesystem operations. This extends Task #332's scope to include comprehensive test architecture pattern enforcement.
+
+### **EXTENSION: Additional Test Anti-Pattern Detection**
+
+**🎯 Objective**: Extend the ESLint rule approach to include broader test architecture patterns, preventing regression of test anti-patterns that caused reliability issues.
+
+**📊 Background**: During test fixing, we identified critical anti-patterns beyond filesystem operations:
+- Global module mocks causing cross-test interference
+- Unreliable factory-generated mocks
+- CLI execution in unit tests (architectural violation)
+- Magic string duplication in tests
+
+**🛠️ Proposed Extensions**:
+
+1. **Pre-commit Hook Enhancement**
+   - Add checks for global `mock.module()` usage
+   - Add warnings for `createMockTaskService(async ...)` patterns
+   - Add verification that tests call domain functions (not CLI)
+   - Extend existing secret scanning with test pattern validation
+
+2. **ESLint Rule Expansion**
+   - Extend existing `no-jest-patterns` rule to catch test anti-patterns
+   - Add warnings for global module mocking outside test-utils
+   - Detect CLI execution patterns in test files (`execAsync.*cli.ts`)
+   - Add automatic suggestions for proper patterns
+
+3. **Development Workflow Integration**
+   - Integrate pattern checks into existing lint workflow
+   - Add test architecture verification to CI/CD pipeline
+   - Create automated suggestions for pattern improvements
+   - Extend existing quality gates with test reliability checks
+
+**📋 Implementation Plan**:
+
+1. **Phase 1**: Extend existing pre-commit hooks with test pattern checks
+2. **Phase 2**: Enhance `no-jest-patterns` ESLint rule with anti-pattern detection
+3. **Phase 3**: Integrate into CI/CD pipeline for continuous monitoring
+4. **Phase 4**: Create automated pattern improvement suggestions
+
+**✅ Success Criteria** (Added to Task #332):
+- [ ] Pre-commit hooks prevent global module mock usage
+- [ ] ESLint rules catch and suggest fixes for test anti-patterns
+- [ ] CI/CD pipeline validates test architecture patterns
+- [ ] Developer workflow includes test pattern guidance
+- [ ] Zero regression of identified test anti-patterns
+
+**🔗 Approach**: Treat as separate concerns from filesystem operations - enhance existing `no-jest-patterns` rule rather than expanding the `no-real-fs-in-tests` rule.
+
+**⏱️ Estimated Addition**: 1-2 weeks additional work integrated with existing Task #332 completion timeline.
+
 ## Requirements
 
 ## Solution
