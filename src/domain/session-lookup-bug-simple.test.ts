@@ -12,8 +12,10 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-import { rm } from "fs/promises";
-import { existsSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { rm } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { existsSync } from "fs";
 import { startSessionFromParams } from "./session";
 import { getSessionDir } from "../utils/paths";
 

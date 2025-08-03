@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
-import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { mkdtempSync, rmSync, writeFileSync, readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 
