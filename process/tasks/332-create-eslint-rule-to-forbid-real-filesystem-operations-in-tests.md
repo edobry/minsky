@@ -216,7 +216,7 @@ The rule successfully detects and warns about all the pathological patterns iden
 
 **Test Coverage Examples**:
 - `src/domain/tasks/json-backend.test.ts`: ✅ Detected tmpdir, Date.now(), mkdirSync
-- `src/domain/storage/json-file-storage.test.ts`: ✅ Detected global counters  
+- `src/domain/storage/json-file-storage.test.ts`: ✅ Detected global counters
 - `src/domain/session-pr-state-optimization.test.ts`: ✅ Detected gitCallCount global variable
 - `tests/consolidated-utilities/variable-naming-fixer.test.ts`: ✅ Detected extensive filesystem operations
 
@@ -234,7 +234,7 @@ Clear, actionable error messages implemented:
 
 Created comprehensive test file demonstrating all problematic patterns. The rule successfully detected **15 warnings** in this single test file, covering:
 - Filesystem imports
-- Global counters  
+- Global counters
 - Timestamp uniqueness patterns
 - Dynamic imports
 - process.cwd() usage
@@ -245,7 +245,7 @@ Created comprehensive test file demonstrating all problematic patterns. The rule
 ### ✅ Success Criteria Met
 
 1. ✅ **ESLint rule detects and prevents real filesystem operations in tests**
-2. ✅ **Rule integrated into project ESLint configuration**  
+2. ✅ **Rule integrated into project ESLint configuration**
 3. ✅ **Clear error messages with mocking alternatives**
 4. ✅ **Prevents the exact patterns that caused issues in Task 176**
 5. ✅ **WARN mode implementation prevents workflow disruption**
@@ -253,7 +253,7 @@ Created comprehensive test file demonstrating all problematic patterns. The rule
 ### Key Benefits Achieved
 
 - **Race Condition Prevention**: Detects patterns that cause parallel test conflicts
-- **Test Isolation Enforcement**: Prevents shared global state in tests  
+- **Test Isolation Enforcement**: Prevents shared global state in tests
 - **Deterministic Testing**: Eliminates timestamp-based "uniqueness" patterns
 - **Developer Guidance**: Provides specific alternatives for each violation
 - **Non-Disruptive**: WARN mode allows gradual migration without blocking development
@@ -326,3 +326,131 @@ The rule is currently configured in **WARN mode** as requested to prevent breaki
 - **Zero false positives** in separation logic
 
 This approach successfully prevents **ALL** identified test interference patterns while maintaining clean architectural separation.
+
+---
+
+## 🐛 **CRITICAL BUG FIXES DISCOVERED DURING IMPLEMENTATION**
+
+During Task #332 implementation, multiple critical bugs in the session PR system were discovered and fixed, which were blocking the entire PR creation workflow:
+
+### **🐛 Bug #1: `sessionDb` Variable Name Case Mismatch**
+
+**Files Fixed**:
+- `src/domain/session/commands/pr-command.ts`
+- `src/domain/session/commands/pr-subcommands.ts`
+
+**Issue**: Variable declared as `sessionDB` (uppercase 'B') but used as `sessionDb` (lowercase 'b'), causing `sessionDb is not defined` errors.
+
+**Root Cause**:
+```typescript
+// Line 28: Variable declared as sessionDB
+const sessionDB = await createSessionProvider(/* ... */);
+
+// Lines 70, 112: Used as sessionDb (undefined!)
+await sessionDb.updateSession(/* ... */); // ❌ ReferenceError
+```
+
+**Fix**: ✅ **COMPLETED** - Changed all references to use consistent `sessionDB` casing.
+
+**Impact**: **SYSTEM-WIDE** - This bug was blocking **ALL** session PR operations for all users.
+
+### **🐛 Bug #2: Missing `prBranch` Field in Session Records**
+
+**Files Fixed**:
+- `src/domain/session/commands/pr-command.ts` (PR creation logic)
+
+**Issue**: Session approval validation checks for `sessionRecord.prBranch` but PR creation wasn't setting this field.
+
+**Root Cause**:
+```typescript
+// PR approval validation in session-approval-operations.ts:97
+if (!sessionRecord.prBranch) {
+  throw new ValidationError(`Session "${sessionName}" has no PR branch`);
+}
+
+// But PR creation was only setting prState, not prBranch
+await sessionDB.updateSession(resolvedContext.sessionName, {
+  prState: { /* ... */ }  // ❌ Missing prBranch field!
+});
+```
+
+**Fix**: ✅ **COMPLETED** - Added `prBranch` field to session record updates:
+```typescript
+await sessionDB.updateSession(resolvedContext.sessionName, {
+  ...sessionRecord,
+  prBranch: result.prBranch,  // ✅ Now sets prBranch field
+  prState: { /* ... */ }
+});
+```
+
+**Impact**: **WORKFLOW BLOCKING** - Session PR approval was failing with "has no PR branch" error.
+
+### **🐛 Bug #3: Database Schema Missing Columns**
+
+**Files Fixed**:
+- `src/domain/storage/schemas/session-schema.ts` (Schema definitions)
+
+**Issue**: SQLite database schema missing critical columns like `prBranch`, `prState`, and other `SessionRecord` interface fields.
+
+**Root Cause**:
+```sql
+-- Existing schema (missing many fields)
+CREATE TABLE sessions (
+  session TEXT PRIMARY KEY,
+  repoName TEXT NOT NULL,
+  taskId TEXT,
+  branch TEXT
+  -- ❌ MISSING: prBranch, prState, backendType, github, etc.
+);
+```
+
+**Fix**: ✅ **COMPLETED** - Updated Drizzle schema to include all `SessionRecord` fields:
+- Added `prBranch TEXT` column
+- Added `prState TEXT` column (JSON serialized)
+- Added `prApproved TEXT` column
+- Added `backendType TEXT` column
+- Added `github TEXT` column (JSON serialized)
+- Added `remote TEXT` column (JSON serialized)
+- Added `pullRequest TEXT` column (JSON serialized)
+
+**Impact**: **DATA PERSISTENCE** - Session PR metadata was being silently lost due to missing database columns.
+
+### **🔧 Import Path Corrections**
+
+**Files Fixed**:
+- `src/domain/session/commands/pr-subcommands.ts`
+
+**Issue**: Incorrect import path causing module resolution failures.
+
+**Fix**: ✅ **COMPLETED** - Corrected import path from `../../session` to `../` for proper module resolution.
+
+### **📊 Bug Fix Validation**
+
+**Before Fixes**:
+```bash
+❌ minsky session pr create → "sessionDb is not defined"
+❌ minsky session pr approve → "Session has no PR branch"
+❌ Session metadata → Silently lost due to missing DB columns
+```
+
+**After Fixes**:
+```bash
+✅ minsky session pr create → "Pull request ready for review!"
+✅ minsky session pr approve → Successfully approves PR
+✅ Session metadata → Properly persisted with prBranch field
+```
+
+### **🎯 System Impact**
+
+These bug fixes restored **CRITICAL WORKFLOW FUNCTIONALITY**:
+
+1. **Session PR Creation**: Now works correctly without variable reference errors
+2. **Session PR Approval**: Now properly validates and approves PRs
+3. **Data Persistence**: Session PR metadata now persists correctly in database
+4. **Workflow Continuity**: Complete session-to-PR workflow now functional
+
+**Priority**: **CRITICAL** - These bugs were blocking the entire Minsky session PR workflow system.
+
+**Discovery Method**: Found during Task #332 PR creation testing when `minsky session pr create` failed with `sessionDb is not defined` error, leading to systematic investigation of the session PR system.
+
+This demonstrates the importance of comprehensive testing during feature implementation, as these critical infrastructure bugs were only discovered when attempting to use the PR creation workflow in practice.
