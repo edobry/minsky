@@ -598,7 +598,8 @@ ${description}
     });
 
     // 3. Validate task backend compatibility if backend is specified
-    if (backend) {
+    // Skip validation for GitHub Issues backend when githubRepoOverride is provided
+    if (backend && !(backend === "github-issues" && githubRepoOverride)) {
       validateTaskBackendCompatibility(repoBackendType, backend);
     }
 
@@ -606,13 +607,26 @@ ${description}
     let taskBackend;
     const effectiveBackend = backend || "markdown"; // Default to markdown
 
-    if (effectiveBackend === "github-issues") {
+        if (effectiveBackend === "github-issues") {
       // Create GitHub Issues backend with repository backend info
-      taskBackend = await createGitHubBackendWithRepositoryInfo(
-        repoBackend, 
-        workspacePath, 
-        githubRepoOverride
-      );
+      if (githubRepoOverride) {
+        // When using GitHub override, create a mock GitHub repository backend
+        const githubRepoBackend = await createRepositoryBackend({
+          type: RepositoryBackendType.GITHUB,
+          repoUrl: `git@github.com:${githubRepoOverride}.git`, // Mock URL for override
+        });
+        taskBackend = await createGitHubBackendWithRepositoryInfo(
+          githubRepoBackend, 
+          workspacePath, 
+          githubRepoOverride
+        );
+      } else {
+        taskBackend = await createGitHubBackendWithRepositoryInfo(
+          repoBackend, 
+          workspacePath, 
+          githubRepoOverride
+        );
+      }
     } else {
       // Use existing backend creation for markdown/json-file
       taskBackend =
@@ -884,11 +898,13 @@ async function createGitHubBackendWithRepositoryInfo(
 
   // Use GitHub repository override if provided, otherwise extract from repository backend
   let githubInfo: { owner: string; repo: string };
-  
+
   if (githubRepoOverride) {
     const parsedInfo = parseGitHubRepoString(githubRepoOverride);
     if (!parsedInfo) {
-      throw new Error(`Invalid GitHub repository format: ${githubRepoOverride}. Expected "owner/repo"`);
+      throw new Error(
+        `Invalid GitHub repository format: ${githubRepoOverride}. Expected "owner/repo"`
+      );
     }
     githubInfo = parsedInfo;
   } else {
@@ -897,7 +913,7 @@ async function createGitHubBackendWithRepositoryInfo(
     if (!config?.repoUrl) {
       throw new Error("Repository backend does not provide configuration with repoUrl");
     }
-    
+
     const extractedInfo = extractGitHubInfoFromRepoUrl(config.repoUrl);
     if (!extractedInfo) {
       throw new Error(`Failed to extract GitHub info from repository URL: ${config.repoUrl}`);
@@ -905,11 +921,12 @@ async function createGitHubBackendWithRepositoryInfo(
     githubInfo = extractedInfo;
   }
 
-  // Get GitHub token from environment
-  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  // Get GitHub token from configuration system
+  const { get } = await import("../configuration/index");
+  const githubToken = get("github.token");
   if (!githubToken) {
     throw new Error(
-      "GitHub token not found. Please set GITHUB_TOKEN or GH_TOKEN environment variable."
+      "GitHub token not found. Please configure GitHub token using 'minsky init' or set GITHUB_TOKEN environment variable."
     );
   }
 
@@ -950,18 +967,16 @@ export function extractGitHubInfoFromRepoUrl(
  * Parse GitHub repository string in "owner/repo" format
  * Used for GitHub repository override functionality
  */
-export function parseGitHubRepoString(
-  repoString: string
-): { owner: string; repo: string } | null {
+export function parseGitHubRepoString(repoString: string): { owner: string; repo: string } | null {
   // Parse "owner/repo" format
   const match = repoString.match(/^([^\/]+)\/([^\/]+)$/);
-  
+
   if (match && match[1] && match[2]) {
     return {
       owner: match[1].trim(),
       repo: match[2].trim(),
     };
   }
-  
+
   return null;
 }
