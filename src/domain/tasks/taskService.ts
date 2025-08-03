@@ -14,6 +14,10 @@ import { get } from "../configuration/index";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
 import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
+import { detectRepositoryBackendType } from "../session/repository-backend-detection";
+import { validateTaskBackendCompatibility } from "./taskBackendCompatibility";
+import type { RepositoryBackend } from "../repository/index";
+import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
 
 /**
  * Options for the TaskService
@@ -565,6 +569,59 @@ ${description}
   }
 
   /**
+   * Create TaskService with repository backend integration and validation
+   * Implements Task #357: Integrates repository backend auto-detection with task backend compatibility
+   */
+  static async createWithRepositoryBackend(options: {
+    workspacePath: string;
+    backend?: string;
+    customBackends?: TaskBackend[];
+  }): Promise<TaskService> {
+    const { workspacePath, backend, customBackends } = options;
+
+    log.debug("Creating TaskService with repository backend integration", {
+      workspacePath,
+      backend,
+      hasCustomBackends: !!customBackends,
+    });
+
+    // 1. Detect repository backend type
+    const repoBackendType = detectRepositoryBackendType(workspacePath);
+    log.debug("Detected repository backend type", { repoBackendType });
+
+    // 2. Create repository backend instance
+    const repoBackend = await createRepositoryBackend({
+      type: repoBackendType,
+      repoUrl: workspacePath, // Will be resolved by the backend
+    });
+
+    // 3. Validate task backend compatibility if backend is specified
+    if (backend) {
+      validateTaskBackendCompatibility(repoBackendType, backend);
+    }
+
+    // 4. Create task backend with repository info
+    let taskBackend;
+    const effectiveBackend = backend || "markdown"; // Default to markdown
+
+    if (effectiveBackend === "github-issues") {
+      // Create GitHub Issues backend with repository backend info
+      taskBackend = await createGitHubBackendWithRepositoryInfo(repoBackend, workspacePath);
+    } else {
+      // Use existing backend creation for markdown/json-file
+      taskBackend = effectiveBackend === "markdown" 
+        ? createMarkdownTaskBackend({ name: "markdown", workspacePath })
+        : createJsonFileTaskBackend({ name: "json-file", workspacePath });
+    }
+
+    return new TaskService({
+      workspacePath,
+      backend: effectiveBackend,
+      customBackends: customBackends || [taskBackend],
+    });
+  }
+
+  /**
    * Create TaskService with enhanced backend configuration
    * This eliminates the need for external workspace resolution
    */
@@ -801,4 +858,66 @@ export async function createConfiguredTaskService(
       backend: "json-file", // safe fallback
     });
   }
+}
+
+/**
+ * Create GitHub Issues task backend using repository backend information
+ * Replaces direct git parsing with repository backend integration
+ */
+async function createGitHubBackendWithRepositoryInfo(
+  repositoryBackend: RepositoryBackend,
+  workspacePath: string
+): Promise<TaskBackend> {
+  // Get GitHub information from repository backend
+  const repoType = repositoryBackend.getType();
+  if (repoType !== RepositoryBackendType.GITHUB) {
+    throw new Error(`Expected GitHub repository backend, got: ${repoType}`);
+  }
+
+  // Extract GitHub configuration from repository backend
+  // This replaces the direct git parsing from the old implementation
+  const repoUrl = repositoryBackend.getRepoUrl();
+  const githubInfo = extractGitHubInfoFromRepoUrl(repoUrl);
+  
+  if (!githubInfo) {
+    throw new Error(`Failed to extract GitHub info from repository URL: ${repoUrl}`);
+  }
+
+  // Get GitHub token from environment
+  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  if (!githubToken) {
+    throw new Error(
+      "GitHub token not found. Please set GITHUB_TOKEN or GH_TOKEN environment variable."
+    );
+  }
+
+  return createGitHubIssuesTaskBackend({
+    name: "github-issues",
+    workspacePath,
+    githubToken,
+    owner: githubInfo.owner,
+    repo: githubInfo.repo,
+  });
+}
+
+/**
+ * Extract GitHub owner and repo from repository URL
+ * Pure function replacement for the git parsing logic
+ */
+export function extractGitHubInfoFromRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
+  // Parse GitHub repository from various URL formats
+  // SSH: git@github.com:owner/repo.git
+  // HTTPS: https://github.com/owner/repo.git
+  const sshMatch = repoUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+  const httpsMatch = repoUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+
+  const match = sshMatch || httpsMatch;
+  if (match && match[1] && match[2]) {
+    return {
+      owner: match[1],
+      repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
+    };
+  }
+
+  return null;
 }
