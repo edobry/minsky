@@ -1,6 +1,6 @@
 /**
- * @fileoverview ESLint rule to prevent Jest patterns and enforce Bun test patterns
- * @author Task #300
+ * @fileoverview ESLint rule to prevent Jest patterns and encourage Bun test patterns
+ * @author Original Jest migration rule - refactored to focus only on Jest patterns
  */
 
 //------------------------------------------------------------------------------
@@ -11,7 +11,7 @@ export default {
   meta: {
     type: "problem",
     docs: {
-      description: "prevent Jest patterns and enforce Bun test patterns",
+      description: "prevent Jest patterns and encourage Bun test patterns",
       category: "Best Practices",
       recommended: true,
     },
@@ -30,23 +30,10 @@ export default {
         "Use Bun mock patterns: mock(() => Promise.resolve(value)) instead of .mockResolvedValue()",
       mockRejectedValue:
         "Use Bun mock patterns: mock(() => Promise.reject(error)) instead of .mockRejectedValue()",
-
-      // NEW: Test Anti-Pattern Messages (Task #332 extension)
-      globalModuleMock:
-        "Global mock.module() detected. Use test-scoped mocking in test-utils or within describe blocks to prevent cross-test interference.",
-      unreliableFactoryMock:
-        "Unreliable factory mock pattern '{{pattern}}' detected. Use explicit mock patterns with fixed return values instead.",
-      cliExecutionInTest:
-        "CLI execution '{{pattern}}' detected in test file. Tests should call domain functions directly, not CLI interfaces.",
-      magicStringDuplication:
-        "Magic string '{{value}}' appears to be duplicated. Extract to shared constants or test-utils to prevent inconsistencies.",
     },
   },
 
   create(context) {
-    // Track magic strings for duplication detection
-    const magicStrings = new Map(); // string -> array of locations
-
     // Check if current file is a test file
     const filename = context.getFilename();
     const isTestFile =
@@ -54,11 +41,11 @@ export default {
       /\/(tests?|__tests__|spec)\//i.test(filename);
 
     if (!isTestFile) {
-      return {}; // Only apply anti-pattern detection to test files
+      return {}; // Only apply Jest pattern detection to test files
     }
 
     return {
-      // Check import statements
+      // Check import statements for Jest imports
       ImportDeclaration(node) {
         if (
           node.source.value === "jest" ||
@@ -88,8 +75,9 @@ export default {
         }
       },
 
-      // Check for jest.fn() calls
+      // Check for Jest function calls
       CallExpression(node) {
+        // Check for jest.fn() calls
         if (
           node.callee.type === "MemberExpression" &&
           node.callee.object.name === "jest" &&
@@ -284,92 +272,6 @@ export default {
             },
           });
         }
-
-        // NEW: Global mock.module() detection (Task #332 extension)
-        if (
-          node.callee.type === "MemberExpression" &&
-          node.callee.object.name === "mock" &&
-          node.callee.property.name === "module"
-        ) {
-          // Check if this is at module level (not within describe/test blocks)
-          let parent = node.parent;
-          let isInTestBlock = false;
-
-          while (parent) {
-            if (
-              parent.type === "CallExpression" &&
-              parent.callee &&
-              parent.callee.name &&
-              ["describe", "it", "test", "beforeEach", "afterEach"].includes(parent.callee.name)
-            ) {
-              isInTestBlock = true;
-              break;
-            }
-            parent = parent.parent;
-          }
-
-          if (!isInTestBlock) {
-            context.report({
-              node,
-              messageId: "globalModuleMock",
-            });
-          }
-        }
-
-        // NEW: Unreliable factory mock patterns (Task #332 extension)
-        if (
-          node.callee.type === "Identifier" &&
-          /^createMock.*$/.test(node.callee.name) &&
-          node.arguments.length > 0 &&
-          node.arguments[0].type === "ArrowFunctionExpression"
-        ) {
-          const firstArg = context.getSourceCode().getText(node.arguments[0]);
-          if (firstArg.includes("async") || firstArg.includes("await")) {
-            context.report({
-              node,
-              messageId: "unreliableFactoryMock",
-              data: { pattern: `${node.callee.name}(${firstArg.substring(0, 30)}...)` },
-            });
-          }
-        }
-
-        // NEW: CLI execution pattern detection (Task #332 extension)
-        if (
-          node.callee.type === "Identifier" &&
-          (node.callee.name === "execAsync" ||
-            node.callee.name === "spawn" ||
-            node.callee.name === "exec")
-        ) {
-          const args = node.arguments;
-          if (args.length > 0 && args[0].type === "Literal") {
-            const command = args[0].value;
-            if (typeof command === "string" && command.includes("cli.ts")) {
-              context.report({
-                node,
-                messageId: "cliExecutionInTest",
-                data: { pattern: `${node.callee.name}("${command}")` },
-              });
-            }
-          }
-        }
-
-        // NEW: CLI execution via template literals (Task #332 extension)
-        if (
-          node.callee.type === "Identifier" &&
-          (node.callee.name === "execAsync" || node.callee.name === "spawn") &&
-          node.arguments.length > 0 &&
-          node.arguments[0].type === "TemplateLiteral"
-        ) {
-          const templateLiteral = node.arguments[0];
-          const templateText = context.getSourceCode().getText(templateLiteral);
-          if (templateText.includes("cli.ts") || templateText.includes("bun run")) {
-            context.report({
-              node,
-              messageId: "cliExecutionInTest",
-              data: { pattern: `${node.callee.name}(\`${templateText.substring(0, 30)}...\`)` },
-            });
-          }
-        }
       },
 
       // Check variable declarations that might be Jest mocks
@@ -391,74 +293,6 @@ export default {
               return null; // Let the CallExpression handler deal with jest.mock
             },
           });
-        }
-      },
-
-      // NEW: Magic string duplication detection (Task #332 extension)
-      Literal(node) {
-        if (typeof node.value === "string" && node.value.length > 15) {
-          // Only track longer strings (15+ chars) to reduce noise
-          // Skip common test strings that are expected to be duplicated
-          const skipPatterns = [
-            /^test.*$/i,
-            /^should.*$/i,
-            /^expect.*$/i,
-            /^describe.*$/i,
-            /^it .*$/i,
-            /^Error.*$/i,
-            /^Mock.*$/i,
-            /^\/.*\/$/, // paths
-            /^http.*$/i, // URLs
-            /^TODO$/i,
-            /^IN-PROGRESS$/i,
-            /^DONE$/i,
-            /^BLOCKED$/i,
-            /^IN_PROGRESS$/i,
-            /^\/test\/workspace$/i,
-            /^\/mock\/.*$/i,
-            /^minsky:.*$/i,
-            /^github-issues$/i,
-            /^session\..*$/i,
-            /^custom-session$/i,
-            /^local-minsky$/i,
-            /^task-.*$/i,
-            /^md#.*$/i,
-            /^gh#.*$/i,
-            /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}.*$/i, // ISO dates
-            /^#\d+$/i, // ID patterns
-          ];
-
-          const shouldSkip = skipPatterns.some((pattern) => pattern.test(node.value));
-          if (shouldSkip) return;
-
-          if (!magicStrings.has(node.value)) {
-            magicStrings.set(node.value, []);
-          }
-
-          magicStrings.get(node.value).push({
-            node,
-            line: node.loc.start.line,
-            column: node.loc.start.column,
-          });
-        }
-      },
-
-      // NEW: Report magic string duplications at end of file (Task #332 extension)
-      "Program:exit"() {
-        for (const [stringValue, locations] of magicStrings.entries()) {
-          // Only report if there are 3+ duplicates to reduce noise
-          if (locations.length > 2) {
-            // Report all but the first occurrence as duplications
-            for (let i = 1; i < locations.length; i++) {
-              context.report({
-                node: locations[i].node,
-                messageId: "magicStringDuplication",
-                data: {
-                  value: stringValue.substring(0, 50) + (stringValue.length > 50 ? "..." : ""),
-                },
-              });
-            }
-          }
         }
       },
     };

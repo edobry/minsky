@@ -35,7 +35,7 @@ const mockFs = {
 
 describe("Real-World Workflow Testing", () => {
   // ✅ FIXED: Move module mocks inside describe block to prevent cross-test interference
-  
+
   // Mock the fs modules
   mock.module("fs", () => ({
     existsSync: mockFs.existsSync,

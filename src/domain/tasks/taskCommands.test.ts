@@ -174,7 +174,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
         getBackendForTask: mock(() => Promise.resolve("markdown")),
-        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        createTaskFromTitleAndDescription: mock(() =>
+          Promise.resolve({ id: "#test", title: "Test", status: "TODO" })
+        ),
       };
 
       const mockDeps = {
@@ -209,7 +211,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
         getBackendForTask: mock(() => Promise.resolve("markdown")),
-        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        createTaskFromTitleAndDescription: mock(() =>
+          Promise.resolve({ id: "#test", title: "Test", status: "TODO" })
+        ),
       };
 
       const mockDeps = {
@@ -238,7 +242,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
         getBackendForTask: mock(() => Promise.resolve("markdown")),
-        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        createTaskFromTitleAndDescription: mock(() =>
+          Promise.resolve({ id: "#test", title: "Test", status: "TODO" })
+        ),
       };
 
       const mockDeps = {
@@ -538,15 +544,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockTaskService = {
         // ✅ FIXED: Use explicit mock methods instead of unreliable async factory
         getTask: mock(() => Promise.resolve(null)),
-        listTasks: mock(() => Promise.resolve([])),
+        listTasks: mock(() => Promise.resolve(mockTasks)),
         getTaskStatus: mock(() => Promise.resolve(undefined)),
         setTaskStatus: mock(() => Promise.resolve()),
         createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
         deleteTask: mock(() => Promise.resolve(false)),
         getWorkspacePath: mock(() => "/test/path"),
         getBackendForTask: mock(() => Promise.resolve("markdown")),
-        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
-        listTasks: async () => mockTasks,
+        createTaskFromTitleAndDescription: mock(() =>
+          Promise.resolve({ id: "#test", title: "Test", status: "TODO" })
+        ),
       };
 
       const mockDeps = {
@@ -814,7 +821,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
           deleteTask: mock(() => Promise.resolve(false)),
           getWorkspacePath: mock(() => "/test/path"),
           getBackendForTask: mock(() => Promise.resolve("markdown")),
-          createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+          createTaskFromTitleAndDescription: mock(() =>
+            Promise.resolve({ id: "#test", title: "Test", status: "TODO" })
+          ),
         }),
       };
 
@@ -840,7 +849,9 @@ describe("Interface-Agnostic Task Command Functions", () => {
           deleteTask: mock(() => Promise.resolve(false)),
           getWorkspacePath: mock(() => "/test/path"),
           getBackendForTask: mock(() => Promise.resolve("markdown")),
-          createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+          createTaskFromTitleAndDescription: mock(() =>
+            Promise.resolve({ id: "#test", title: "Test", status: "TODO" })
+          ),
         }),
       };
 

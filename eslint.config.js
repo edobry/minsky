@@ -10,6 +10,10 @@ import noUnsafeGitExec from "./src/eslint-rules/no-unsafe-git-exec.js";
 import noJestPatterns from "./src/eslint-rules/no-jest-patterns.js";
 import noTestsDirectories from "./src/eslint-rules/no-tests-directories.js";
 import noRealFsInTests from "./src/eslint-rules/no-real-fs-in-tests.js";
+import noGlobalModuleMocks from "./src/eslint-rules/no-global-module-mocks.js";
+import noUnreliableFactoryMocks from "./src/eslint-rules/no-unreliable-factory-mocks.js";
+import noCliExecutionInTests from "./src/eslint-rules/no-cli-execution-in-tests.js";
+import noMagicStringDuplication from "./src/eslint-rules/no-magic-string-duplication.js";
 
 export default [
   js.configs.recommended,
@@ -96,6 +100,10 @@ export default [
           "no-jest-patterns": noJestPatterns,
           "no-tests-directories": noTestsDirectories,
           "no-real-fs-in-tests": noRealFsInTests,
+          "no-global-module-mocks": noGlobalModuleMocks,
+          "no-unreliable-factory-mocks": noUnreliableFactoryMocks,
+          "no-cli-execution-in-tests": noCliExecutionInTests,
+          "no-magic-string-duplication": noMagicStringDuplication,
         },
       },
     },
@@ -115,7 +123,7 @@ export default [
       "custom/no-underscore-prefix-mismatch": "error", // Prevents underscore prefix declaration/usage mismatches
 
       // === TEST PATTERN ENFORCEMENT ===
-      "custom/no-jest-patterns": "error", // Re-enabled after systematic Jest pattern migration
+      "custom/no-jest-patterns": "error", // Jest migration patterns only
       "custom/no-real-fs-in-tests": [
         "warn", // Warn mode to prevent workflow disruption
         {
@@ -126,7 +134,18 @@ export default [
           allowGlobalCounters: false, // whether global counters are allowed
           allowDynamicImports: false, // whether dynamic imports are allowed
         },
-      ], // Comprehensive test interference prevention per Task #332 enhanced requirements
+      ], // Filesystem interference prevention
+      "custom/no-global-module-mocks": "error", // Prevent cross-test interference from global mocking
+      "custom/no-unreliable-factory-mocks": "error", // Prevent race conditions from async factory patterns
+      "custom/no-cli-execution-in-tests": "warn", // Warn about architectural violations
+      "custom/no-magic-string-duplication": [
+        "warn", // Warn mode to encourage but not block
+        {
+          minLength: 15,
+          minOccurrences: 3,
+          skipPatterns: [], // Use defaults
+        },
+      ], // Encourage extraction of duplicated strings
 
       // === TEST ORGANIZATION ===
       "custom/no-tests-directories": "warn", // Encourage co-located test files over __tests__ directories
