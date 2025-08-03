@@ -116,7 +116,17 @@ export default [
 
       // === TEST PATTERN ENFORCEMENT ===
       "custom/no-jest-patterns": "error", // Re-enabled after systematic Jest pattern migration
-      "custom/no-real-fs-in-tests": "warn", // Warn about filesystem operations in tests to prevent race conditions
+      "custom/no-real-fs-in-tests": [
+        "warn", // Warn mode to prevent workflow disruption
+        {
+          allowedModules: ["mock"], // modules that CAN import fs for mocking
+          testPatterns: ["**/*.test.ts", "**/tests/**"], // test file patterns
+          strictMode: true, // fails on ANY problematic pattern
+          allowTimestamps: false, // whether Date.now() is ever allowed
+          allowGlobalCounters: false, // whether global counters are allowed
+          allowDynamicImports: false, // whether dynamic imports are allowed
+        },
+      ], // Comprehensive test interference prevention per Task #332 enhanced requirements
 
       // === TEST ORGANIZATION ===
       "custom/no-tests-directories": "warn", // Encourage co-located test files over __tests__ directories
