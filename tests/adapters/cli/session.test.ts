@@ -112,11 +112,15 @@ describe("Session CLI Commands", () => {
           return testData.mockSessions;
         }
 
-        // Implement the same filtering logic as SQLite storage
+        // FORMAT MIGRATION: Updated filtering logic to handle qualified format
         const normalizedTaskId = options.taskId.replace(/^#/, "");
         return testData.mockSessions.filter((s) => {
           if (!s.taskId) return false;
-          return s.taskId.replace(/^#/, "") === normalizedTaskId;
+          // Extract number from qualified format (md#160 -> 160) or handle unqualified
+          const sessionTaskNumber = s.taskId.includes("#")
+            ? s.taskId.split("#")[1]
+            : s.taskId.replace(/^#/, "");
+          return sessionTaskNumber === normalizedTaskId;
         });
       });
 
@@ -129,7 +133,7 @@ describe("Session CLI Commands", () => {
       expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
       expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
       expect(session?.session).toBe("task#160"); // Fixed: correct session returned
-      expect(session?.taskId).toBe("160"); // Fixed: correct taskId in storage format
+      expect(session?.taskId).toBe("md#160"); // FORMAT MIGRATION: Now expects qualified format
     });
 
     test("EDGE CASE: multiple sessions with same task ID but different formats", () => {

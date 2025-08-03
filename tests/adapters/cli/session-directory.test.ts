@@ -52,7 +52,7 @@ describe("session dir command", () => {
 
     // Assert with manual call tracking
     expect(getSessionByTaskIdCalls.length).toBeGreaterThan(0);
-    expect(getSessionByTaskIdCalls[0]).toBe("160"); // Normalized to storage format (no # prefix)
+    expect(getSessionByTaskIdCalls[0]).toBe("md#160"); // FORMAT MIGRATION: Now expects qualified format
     expect(typeof result).toBe("string");
     expect(result).toContain("task#160");
     expect(result).not.toContain("/004");
@@ -72,9 +72,9 @@ describe("session dir command", () => {
     // Act: Test with task ID without # prefix
     await getSessionDirFromParams({ task: "160" }, { sessionDB: testData.mockSessionDB });
 
-    // Assert: Should call with normalized task ID (storage format - no # prefix)
+    // Assert: Should call with normalized task ID (qualified format)
     expect(getSessionByTaskIdCalls.length).toBeGreaterThan(0);
-    expect(getSessionByTaskIdCalls[0]).toBe("160"); // Normalized to storage format
+    expect(getSessionByTaskIdCalls[0]).toBe("md#160"); // FORMAT MIGRATION: Now expects qualified format
   });
 
   test("should handle null taskId sessions correctly", () => {
@@ -110,11 +110,15 @@ describe("session dir command", () => {
         return testData.mockSessions;
       }
 
-      // Implement the same filtering logic as SQLite storage
+      // FORMAT MIGRATION: Updated filtering logic to handle qualified format
       const normalizedTaskId = options.taskId.replace(/^#/, "");
       return testData.mockSessions.filter((s) => {
         if (!s.taskId) return false;
-        return s.taskId.replace(/^#/, "") === normalizedTaskId;
+        // Extract number from qualified format (md#160 -> 160) or handle unqualified
+        const sessionTaskNumber = s.taskId.includes("#")
+          ? s.taskId.split("#")[1]
+          : s.taskId.replace(/^#/, "");
+        return sessionTaskNumber === normalizedTaskId;
       });
     });
 
@@ -127,7 +131,7 @@ describe("session dir command", () => {
     expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
     expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
     expect(session?.session).toBe("task#160"); // Fixed: correct session returned
-    expect(session?.taskId).toBe("160"); // Fixed: correct taskId format (storage format without #)
+    expect(session?.taskId).toBe("md#160"); // FORMAT MIGRATION: Now expects qualified format
   });
 
   test("EDGE CASE: multiple sessions with same task ID but different formats", () => {
