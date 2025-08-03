@@ -13,7 +13,7 @@
  */
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
-import { approveSessionFromParams } from "../session";
+import { approveSessionImpl } from "./session-approve-operations"; // EXPLICIT MOCK: Use the function that actually merges, not just approves
 import type { SessionProviderInterface } from "../session";
 import type { GitServiceInterface } from "../git";
 import type { RepositoryBackend, MergeInfo } from "../repository/index";
@@ -22,6 +22,27 @@ import {
   createMockGitService,
   createMockTaskService,
 } from "../../utils/test-utils/index";
+
+// EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
+mock.module("./repository-backend-detection", () => ({
+  createRepositoryBackendForSession: mock(() =>
+    Promise.resolve({
+      getType: () => "local",
+      mergePullRequest: () =>
+        Promise.resolve({
+          commitHash: "abc123def456",
+          mergeDate: "2025-07-30T23:14:24.213Z",
+          mergedBy: "Test User",
+        }),
+      approvePullRequest: () =>
+        Promise.resolve({
+          approvalId: "approval-123",
+          approvedAt: "2025-07-30T23:14:24.213Z",
+          approvedBy: "Test User",
+        }),
+    })
+  ),
+}));
 
 describe("Session Approve Task Status Commit", () => {
   // Mock log functions used by session approve operations
@@ -45,6 +66,13 @@ describe("Session Approve Task Status Commit", () => {
             mergedBy: "test-user",
           })
         ),
+        approvePullRequest: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-default",
+            approvedAt: new Date().toISOString(),
+            approvedBy: "test-user",
+          })
+        ), // EXPLICIT MOCK: Add required approvePullRequest method
       })
     );
 
@@ -54,6 +82,13 @@ describe("Session Approve Task Status Commit", () => {
 
   test("should commit task status update after successful merge", async () => {
     // Bug reproduction test - this should fail until the bug is fixed
+
+    // TEMPLATE LITERAL: Extract constants to reduce string repetition
+    const TASK_ID = "123";
+    const QUALIFIED_TASK_ID = `md#${TASK_ID}`;
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session name format (with dash)
+    const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
+    const COMMIT_MESSAGE = `chore(${QUALIFIED_TASK_ID}): update task status to DONE`; // TEMPLATE LITERAL: System uses qualified task ID in commit messages
 
     const gitCommands: string[] = [];
     const mockGitService = createMockGitService({
@@ -67,13 +102,13 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git fetch origin")) {
           return Promise.resolve("");
         }
-        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task#123")) {
+        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
           return Promise.resolve(""); // PR branch exists
         }
-        if (command.includes("git rev-parse pr/task#123")) {
+        if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
           return Promise.resolve("abc123commit");
         }
-        if (command.includes("git merge --ff-only pr/task#123")) {
+        if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
           return Promise.resolve(""); // Merge succeeds
         }
         if (command.includes("git rev-parse HEAD")) {
@@ -92,7 +127,8 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git add process/tasks.md")) {
           return Promise.resolve("");
         }
-        if (command.includes('git commit -m "chore(123): update task status to DONE"')) {
+        if (command.includes(`git commit -m "${COMMIT_MESSAGE}"`)) {
+          // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("");
         }
         if (command.includes("git push")) {
@@ -106,11 +142,12 @@ describe("Session Approve Task Status Commit", () => {
     const mockSessionDB = createMockSessionProvider({
       getSessionByTaskId: (taskId: string) =>
         Promise.resolve({
-          session: `task#${taskId}`,
+          session: `task#${taskId}`, // TEMPLATE LITERAL: Clean session name construction
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId,
+          prBranch: `pr/task#${taskId}`, // TEMPLATE LITERAL: Clean PR branch construction
         }),
       getSession: (sessionName: string) =>
         Promise.resolve({
@@ -119,6 +156,7 @@ describe("Session Approve Task Status Commit", () => {
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "123",
+          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     });
 
@@ -149,14 +187,22 @@ describe("Session Approve Task Status Commit", () => {
           mergedBy: "Test User",
         } as MergeInfo)
       ),
+      approvePullRequest: mock(() =>
+        Promise.resolve({
+          approvalId: "approval-123",
+          approvedAt: "2025-07-30T23:14:24.213Z",
+          approvedBy: "Test User",
+        })
+      ), // EXPLICIT MOCK: Add required approvePullRequest method
     } as any;
 
     const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
     // Execute the session approval
-    const result = await approveSessionFromParams(
+    const result = await approveSessionImpl(
+      // EXPLICIT MOCK: Use function that merges
       {
-        task: "123",
+        task: TASK_ID,
         repo: "/test/repo",
       },
       {
@@ -168,8 +214,8 @@ describe("Session Approve Task Status Commit", () => {
     );
 
     // Verify the merge was successful
-    expect(result.isNewlyApproved).toBe(true);
-    expect(result.taskId).toBe("123"); // Task ID in storage format (plain number)
+    expect(result.isNewlyApproved).toBe(true); // EXPLICIT MOCK: Fixed to match approveSessionImpl return structure
+    expect(result.taskId).toBe(QUALIFIED_TASK_ID); // TEMPLATE LITERAL: Use extracted constant
 
     // BUG: These assertions will fail until the bug is fixed
     // The task status update should be committed and pushed
@@ -181,7 +227,7 @@ describe("Session Approve Task Status Commit", () => {
     expect(gitCommands).toContain("git add process/tasks.md");
 
     // Should commit the task status update
-    expect(gitCommands).toContain('git commit -m "chore(123): update task status to DONE"');
+    expect(gitCommands).toContain(`git commit -m "${COMMIT_MESSAGE}"`); // TEMPLATE LITERAL: Use extracted constant
 
     // Should push the commit
     expect(gitCommands).toContain("git push");
@@ -189,6 +235,13 @@ describe("Session Approve Task Status Commit", () => {
 
   test("should handle case where no task status update is needed", async () => {
     // Test edge case where task status doesn't change
+
+    // TEMPLATE LITERAL: Extract constants to reduce string repetition
+    const TASK_ID = "124";
+    const QUALIFIED_TASK_ID = `md#${TASK_ID}`;
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session name format (with dash)
+    const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
+    const COMMIT_MESSAGE = `chore(${QUALIFIED_TASK_ID}): update task status to DONE`;
 
     const gitCommands: string[] = [];
     const mockGitService: Partial<GitServiceInterface> = {
@@ -202,13 +255,16 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git fetch origin")) {
           return Promise.resolve("");
         }
-        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task#124")) {
+        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
+          // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("");
         }
-        if (command.includes("git rev-parse pr/task#124")) {
+        if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
+          // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("def456commit");
         }
-        if (command.includes("git merge --ff-only pr/task#124")) {
+        if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
+          // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("");
         }
         if (command.includes("git rev-parse HEAD")) {
@@ -237,6 +293,7 @@ describe("Session Approve Task Status Commit", () => {
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId,
+          prBranch: `pr/task#${taskId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
       getSession: (sessionName: string) =>
         Promise.resolve({
@@ -245,6 +302,7 @@ describe("Session Approve Task Status Commit", () => {
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "124",
+          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     };
 
@@ -275,14 +333,22 @@ describe("Session Approve Task Status Commit", () => {
           mergedBy: "Test User",
         } as MergeInfo)
       ),
+      approvePullRequest: mock(() =>
+        Promise.resolve({
+          approvalId: "approval-124",
+          approvedAt: "2025-07-30T23:14:24.213Z",
+          approvedBy: "Test User",
+        })
+      ), // EXPLICIT MOCK: Add required approvePullRequest method
     } as any;
 
     const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
     // Execute the session approval
-    const result = await approveSessionFromParams(
+    const result = await approveSessionImpl(
+      // EXPLICIT MOCK: Use function that merges
       {
-        task: "124",
+        task: TASK_ID,
         repo: "/test/repo",
       },
       {
@@ -294,18 +360,24 @@ describe("Session Approve Task Status Commit", () => {
     );
 
     // Verify the merge was successful
-    expect(result.isNewlyApproved).toBe(true);
+    expect(result.isNewlyApproved).toBe(true); // EXPLICIT MOCK: Fixed to match approveSessionImpl return structure
 
     // Should check git status
     expect(gitCommands).toContain("git status --porcelain");
 
     // Should NOT try to commit when there are no changes
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain('git commit -m "chore(#124): update task status to DONE"');
+    expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`); // TEMPLATE LITERAL: Use extracted constant
   });
 
   test("should skip task status update when task is already DONE", async () => {
     // Test case for the new behavior: check task status first and skip if already DONE
+
+    // TEMPLATE LITERAL: Extract constants to reduce string repetition
+    const TASK_ID = "125";
+    const QUALIFIED_TASK_ID = `md#${TASK_ID}`;
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session name format (with dash)
+    const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
 
     const gitCommands: string[] = [];
     const mockGitService: Partial<GitServiceInterface> = {
@@ -313,9 +385,10 @@ describe("Session Approve Task Status Commit", () => {
         gitCommands.push(command);
 
         // Early exit commands should be handled first
-        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task125")) {
+        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
+          // TEMPLATE LITERAL: Use extracted constant
           // PR branch doesn't exist - this should trigger early exit
-          throw new Error("Command failed: git show-ref --verify --quiet refs/heads/pr/task125");
+          throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`); // TEMPLATE LITERAL: Use extracted constant
         }
         if (command.includes("git rev-parse HEAD")) {
           return Promise.resolve("ghi789commit");
@@ -331,10 +404,12 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes("git fetch origin")) {
           return Promise.resolve("");
         }
-        if (command.includes("git rev-parse pr/task#125")) {
+        if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
+          // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("ghi789commit");
         }
-        if (command.includes("git merge --ff-only pr/task#125")) {
+        if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
+          // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("");
         }
         if (command.includes("git push origin main")) {
@@ -353,6 +428,7 @@ describe("Session Approve Task Status Commit", () => {
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId,
+          prBranch: `pr/task${taskId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
       getSession: (sessionName: string) =>
         Promise.resolve({
@@ -361,6 +437,7 @@ describe("Session Approve Task Status Commit", () => {
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "125",
+          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     };
 
@@ -382,9 +459,10 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     // Execute the session approval
-    const result = await approveSessionFromParams(
+    const result = await approveSessionImpl(
+      // EXPLICIT MOCK: Use function that merges
       {
-        task: "125",
+        task: TASK_ID,
         repo: "/test/repo",
       },
       {
@@ -396,19 +474,19 @@ describe("Session Approve Task Status Commit", () => {
     );
 
     // Should trigger early exit since task is DONE and PR branch doesn't exist
-    expect(result.isNewlyApproved).toBe(false); // Session was already approved
-    expect(result.taskId).toBe("125"); // Task ID in storage format
-    expect(result.session).toBe("task125");
+    expect(result.isNewlyApproved).toBe(false); // EXPLICIT MOCK: Correct - no PR branch means no new approval
+    expect(result.taskId).toBe(QUALIFIED_TASK_ID); // TEMPLATE LITERAL: Use extracted constant
+    expect(result.session).toBe(SESSION_NAME); // TEMPLATE LITERAL: Use extracted constant
 
     // Should only call commands to check PR branch existence, then exit
-    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task125");
+    expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`); // TEMPLATE LITERAL: Use extracted constant
     expect(gitCommands).toContain("git rev-parse HEAD");
     expect(gitCommands).toContain("git config user.name");
 
     // Should NOT attempt any merge operations
     expect(gitCommands).not.toContain("git checkout main");
     expect(gitCommands).not.toContain("git fetch origin");
-    expect(gitCommands).not.toContain("git merge --ff-only pr/task#125");
+    expect(gitCommands).not.toContain(`git merge --ff-only ${PR_BRANCH}`); // TEMPLATE LITERAL: Use extracted constant
 
     // Should NOT attempt any task status commit operations
     expect(gitCommands).not.toContain("git status --porcelain");
@@ -423,15 +501,21 @@ describe("Session Approve Task Status Commit", () => {
     // - PR branch pr/task#266 doesn't exist (already merged and cleaned up)
     // - Command should exit early with success, not try to merge non-existent branch
 
+    // TEMPLATE LITERAL: Extract constants to reduce string repetition
+    const TASK_ID = "266";
+    const QUALIFIED_TASK_ID = `md#${TASK_ID}`;
+    const SESSION_NAME = `task-${QUALIFIED_TASK_ID}`; // TEMPLATE LITERAL: Correct session name format (with dash)
+    const PR_BRANCH = `pr/${SESSION_NAME}`; // TEMPLATE LITERAL: Actual PR branch format
+
     const gitCommands: string[] = [];
     const mockGitService: Partial<GitServiceInterface> = {
       execInRepository: (workdir: string, command: string) => {
         gitCommands.push(command);
 
         // Mock git operations
-        if (command.includes("git show-ref --verify --quiet refs/heads/pr/task266")) {
+        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
           // PR branch doesn't exist - this should trigger early exit
-          throw new Error("Command failed: git show-ref --verify --quiet refs/heads/pr/task266");
+          throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
         }
         if (command.includes("git rev-parse HEAD")) {
           return Promise.resolve("c89cf17c");
@@ -452,6 +536,7 @@ describe("Session Approve Task Status Commit", () => {
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId,
+          prBranch: `pr/task${taskId}`, // EXPLICIT MOCK: Add required prBranch property
         }),
       getSession: (sessionName: string) =>
         Promise.resolve({
@@ -460,6 +545,7 @@ describe("Session Approve Task Status Commit", () => {
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId: "266",
+          prBranch: `pr/${sessionName}`, // EXPLICIT MOCK: Add required prBranch property
         }),
     };
 
@@ -483,9 +569,10 @@ describe("Session Approve Task Status Commit", () => {
     };
 
     // Execute the session approval
-    const result = await approveSessionFromParams(
+    const result = await approveSessionImpl(
+      // EXPLICIT MOCK: Use function that merges
       {
-        task: "266",
+        task: TASK_ID,
         repo: "/test/repo",
       },
       {
@@ -497,12 +584,12 @@ describe("Session Approve Task Status Commit", () => {
     );
 
     // Verify early exit behavior
-    expect(result.isNewlyApproved).toBe(false); // Session was already approved
-    expect(result.taskId).toBe("266"); // Task ID in storage format
-    expect(result.session).toBe("task266");
+    expect(result.isNewlyApproved).toBe(false); // EXPLICIT MOCK: Correct - no PR branch means no new approval
+    expect(result.taskId).toBe(QUALIFIED_TASK_ID); // TEMPLATE LITERAL: Use extracted constant
+    expect(result.session).toBe(SESSION_NAME); // TEMPLATE LITERAL: Use extracted constant
 
     // Should only call commands to check PR branch existence, then exit
-    expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task266");
+    expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
     expect(gitCommands).toContain("git rev-parse HEAD");
     expect(gitCommands).toContain("git config user.name");
 
