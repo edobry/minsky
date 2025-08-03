@@ -578,6 +578,8 @@
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
+- [ ] Create ESLint rule to forbid real filesystem operations in tests [#332](process/tasks/332-create-eslint-rule-to-forbid-real-filesystem-operations-in-tests.md)
+
 - [x] Implement Pre-Commit Secret Scanning with Husky [#341](process/tasks/341-implement-pre-commit-secret-scanning-with-husky.md)
 
 - [x] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
