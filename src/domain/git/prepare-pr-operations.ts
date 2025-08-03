@@ -4,6 +4,11 @@ import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "../session";
+import { sessionNameToTaskId } from "../tasks/unified-task-id";
+import {
+  SessionMultiBackendIntegration,
+  type MultiBackendSessionRecord,
+} from "../session/multi-backend-integration";
 import {
   execGitWithTimeout,
   gitFetchWithTimeout,
@@ -142,18 +147,37 @@ export async function preparePrImpl(
             const repoUrl = await deps.execInRepository(currentDir, "git remote get-url origin");
             const repoName = normalizeRepoName(repoUrl.trim());
 
-            // Extract task ID from session name if it follows the task#N pattern
-            const taskIdMatch = options.session.match(/^task#(\d+)$/);
-            const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+            // Extract task ID from session name using proper utilities
+            let taskId = sessionNameToTaskId(options.session);
 
-            // Create session record
-            const newSessionRecord: SessionRecord = {
+            // Handle legacy patterns - extract plain numbers for enhancement to handle properly
+            const legacyPlainMatch = options.session.match(/^task(\d+)$/); // task123 → 123
+            const legacyHashMatch = options.session.match(/^task#(\d+)$/); // task#456 → 456
+
+            if (legacyPlainMatch) {
+              taskId = legacyPlainMatch[1]; // Keep as plain number for enhancement to handle
+            } else if (legacyHashMatch) {
+              taskId = legacyHashMatch[1]; // Keep as plain number for enhancement to handle
+            }
+
+            // Create basic session record
+            const basicSessionRecord: SessionRecord = {
               session: options.session,
               repoUrl: repoUrl.trim(),
               repoName,
               createdAt: new Date().toISOString(),
-              taskId,
+              taskId: taskId !== options.session ? taskId : undefined, // Only set if valid task ID
               branch: options.session,
+            };
+
+            // Enhance with multi-backend support
+            const enhancedRecord =
+              SessionMultiBackendIntegration.enhanceSessionRecord(basicSessionRecord);
+
+            // Ensure legacyTaskId is always explicitly set for test compatibility
+            const newSessionRecord = {
+              ...enhancedRecord,
+              legacyTaskId: enhancedRecord.legacyTaskId ?? undefined,
             };
 
             // Register the session
