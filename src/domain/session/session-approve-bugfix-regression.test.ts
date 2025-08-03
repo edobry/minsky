@@ -20,6 +20,28 @@ mock.module("../../utils/logger", () => ({
   log: mockLog,
 }));
 
+// EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
+mock.module("./repository-backend-detection", () => ({
+  createRepositoryBackendForSession: mock(() =>
+    Promise.resolve({
+      getType: () => "local",
+      mergePullRequest: () =>
+        Promise.resolve({
+          commitHash: "abc123def456",
+          mergeDate: "2025-07-30T23:14:24.213Z",
+          mergedBy: "Test User",
+        }),
+      approvePullRequest: mock(() =>
+        Promise.resolve({
+          approvalId: "approval-123",
+          approvedAt: "2025-07-30T23:14:24.213Z",
+          approvedBy: "Test User",
+        })
+      ),
+    })
+  ),
+}));
+
 describe("Session Approve - Bug Regression Tests", () => {
   describe("Bug #1: Untracked Files Auto-Stash", () => {
     // Bug Report: Session approve fails with untracked files that would be overwritten by merge
@@ -28,6 +50,13 @@ describe("Session Approve - Bug Regression Tests", () => {
     // Fix: Added -u flag to stashChanges methods
 
     test("should stash untracked files that would be overwritten by merge", async () => {
+      // Test constants to reduce error surface area
+      const SESSION_NAME = "test-session";
+      const REPO_NAME = "test-repo";
+      const REPO_PATH = "/test/repo";
+      const TASK_ID = "123";
+      const PR_BRANCH = `pr/${SESSION_NAME}`;
+
       // Arrange: Set up scenario with uncommitted changes (simulating untracked files)
       const mockGitService = createMockGitService({
         stashChanges: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
@@ -55,19 +84,21 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = createMockSessionProvider({
         getSessionByTaskId: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
         getSession: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
       });
 
@@ -75,7 +106,7 @@ describe("Session Approve - Bug Regression Tests", () => {
         getTaskStatus: mock(() => Promise.resolve("IN-PROGRESS")), // Ensure task is not DONE
         getTask: mock(() =>
           Promise.resolve({
-            id: "123",
+            id: TASK_ID,
             title: "Test Task",
             status: "IN-PROGRESS",
           })
@@ -98,7 +129,7 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       // Act: Run session approve with uncommitted changes
       await approveSessionPr(
-        { task: "123", repo: "/test/repo" },
+        { task: TASK_ID, repo: REPO_PATH },
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
@@ -108,8 +139,8 @@ describe("Session Approve - Bug Regression Tests", () => {
       );
 
       // Assert: Verify stash operations were called
-      expect(mockGitService.stashChanges).toHaveBeenCalledWith("/test/repo");
-      expect(mockGitService.popStash).toHaveBeenCalledWith("/test/repo");
+      expect(mockGitService.stashChanges).toHaveBeenCalledWith(REPO_PATH);
+      expect(mockGitService.popStash).toHaveBeenCalledWith(REPO_PATH);
 
       // CRITICAL: This test verifies that stashChanges is called, which now includes -u flag
       // The implementation should handle both tracked and untracked files
@@ -139,6 +170,13 @@ describe("Session Approve - Bug Regression Tests", () => {
     // Fix: Restructured error handling to fail fast on merge errors except genuine "already merged"
 
     test("should fail fast when fast-forward merge is not possible", async () => {
+      // Test constants to reduce error surface area
+      const SESSION_NAME = "test-session";
+      const REPO_NAME = "test-repo";
+      const REPO_PATH = "/test/repo";
+      const TASK_ID = "123";
+      const PR_BRANCH = `pr/${SESSION_NAME}`;
+
       // Arrange: Set up scenario where fast-forward merge fails
       const mockGitService = createMockGitService({
         execInRepository: mock((workdir, command) => {
@@ -161,19 +199,21 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = createMockSessionProvider({
         getSessionByTaskId: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
         getSession: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
       });
 
@@ -222,6 +262,13 @@ describe("Session Approve - Bug Regression Tests", () => {
     });
 
     test("should continue processing when PR is genuinely already merged", async () => {
+      // Test constants to reduce error surface area
+      const SESSION_NAME = "test-session";
+      const REPO_NAME = "test-repo";
+      const REPO_PATH = "/test/repo";
+      const TASK_ID = "123";
+      const PR_BRANCH = `pr/${SESSION_NAME}`;
+
       // Arrange: Set up scenario where merge "fails" because already merged
       const mockGitService = createMockGitService({
         hasUncommittedChanges: mock(() => Promise.resolve(false)),
@@ -246,19 +293,21 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = createMockSessionProvider({
         getSessionByTaskId: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
         getSession: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
       });
 
@@ -310,6 +359,13 @@ describe("Session Approve - Bug Regression Tests", () => {
     });
 
     test("should restore stash even when merge fails", async () => {
+      // Test constants to reduce error surface area
+      const SESSION_NAME = "test-session";
+      const REPO_NAME = "test-repo";
+      const REPO_PATH = "/test/repo";
+      const TASK_ID = "123";
+      const PR_BRANCH = `pr/${SESSION_NAME}`;
+
       // Arrange: Set up scenario with stashed changes and merge failure
       const mockGitService = createMockGitService({
         hasUncommittedChanges: mock(() => Promise.resolve(true)),
@@ -332,19 +388,21 @@ describe("Session Approve - Bug Regression Tests", () => {
       const mockSessionDB = createMockSessionProvider({
         getSessionByTaskId: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
         getSession: () =>
           Promise.resolve({
-            session: "test-session",
-            repoName: "test-repo",
-            repoUrl: "/test/repo",
-            taskId: "123",
+            session: SESSION_NAME,
+            repoName: REPO_NAME,
+            repoUrl: REPO_PATH,
+            taskId: TASK_ID,
             createdAt: new Date().toISOString(),
+            prBranch: PR_BRANCH, // EXPLICIT MOCK: Add required prBranch property
           }),
       });
 
