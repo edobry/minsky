@@ -84,17 +84,17 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
     const tasks = await this.parseTasks();
-    
+
     // Use the same sophisticated ID matching logic as getTask
     let taskIndex = -1;
     let targetTask: Task | null = null;
-    
+
     // Handle both qualified (md#123) and local (123) IDs
     const localId = taskId.replace(/^md#/, "");
 
     // First try exact match with qualified ID
     taskIndex = tasks.findIndex((t) => t.id === taskId || t.id === `md#${localId}`);
-    
+
     // If not found, try legacy format matching
     if (taskIndex === -1) {
       const numericId = parseInt(localId.replace(/^#/, ""), 10);
@@ -109,7 +109,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (taskIndex === -1) {
       throw new ResourceNotFoundError(`Task ${taskId} not found`);
     }
-    
+
     targetTask = tasks[taskIndex];
 
     // Update the task with proper type safety

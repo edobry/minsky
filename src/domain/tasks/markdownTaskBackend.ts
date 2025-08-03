@@ -142,10 +142,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     // Use the same sophisticated ID matching logic as getTask would use
     let taskIndex = -1;
     const localId = id.replace(/^md#/, "");
-    
+
     // First try exact match with qualified ID
     taskIndex = tasks.findIndex((t) => t.id === id || t.id === `md#${localId}`);
-    
+
     // If not found, try legacy format matching
     if (taskIndex === -1) {
       const numericId = parseInt(localId.replace(/^#/, ""), 10);
@@ -156,7 +156,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         });
       }
     }
-    
+
     log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
