@@ -582,6 +582,179 @@ setupTestMocks(); // Masks cross-test interference
 // Remove: mock.module("../utils/logger", ...)
 ```
 
+## ⚠️ Critical Test Architecture Protocol
+
+**Addresses systematic test fixing approach and architectural anti-patterns**
+
+### Test Architecture Error Patterns
+
+**Pattern 1: Papering Over vs Root Cause Investigation**
+- **Error**: Using workarounds to mask problems instead of fixing root cause
+- **User Signal**: "we dont want to do automatic mock cleanup bc that just papers over cross-test interference. instead hunt down what's causing this"
+- **Root Cause**: Process Error - wrong methodology for debugging test issues
+- **Correct Approach**: Hunt down actual causes instead of masking symptoms
+
+**Pattern 2: CLI Execution in Tests (Architectural Anti-Pattern)**
+- **Error**: Testing CLI interface instead of domain logic
+- **User Signal**: "tests should not execute the CLI ever, they should call domain/util functions only"
+- **Root Cause**: Architectural Error - testing wrong layer, violating separation of concerns
+- **Correct Approach**: Test domain functions directly with dependency injection, not CLI processes
+
+**Pattern 3: Global Module Mocks Causing Cross-Test Interference**
+- **Error**: Using persistent global mocks that interfere across tests
+- **Discovery**: Tests pass in isolation but fail in full suite due to global state pollution
+- **Root Cause**: Test Isolation Error - global mocks persist and affect unrelated tests
+- **Correct Approach**: Remove global module mocks, use dependency injection pattern
+
+**Pattern 4: Avoiding Logic Testing with Bypass Flags**
+- **Error**: Using bypass flags to avoid testing the actual logic under test
+- **User Signal**: "why are you setting force, doesnt that avoid the logic we're trying to test?"
+- **Root Cause**: Testing Error - avoiding the actual logic under test with workarounds
+- **Correct Approach**: Test the actual conditional logic with proper mocking, not bypass it
+
+### Mandatory Test Architecture Verification
+
+**Before any test fixing, verify:**
+- [ ] Am I testing domain functions directly (not CLI execution)?
+- [ ] Am I using explicit mocks (not unreliable factory functions)?
+- [ ] Am I investigating root causes (not papering over with workarounds)?
+- [ ] Am I avoiding global module mocks that cause cross-test interference?
+- [ ] Am I testing the actual logic (not bypassing with force flags)?
+
+### Enhanced Error Detection for Test Architecture
+
+When user signals test architecture error with phrases like:
+- "hunt down what's causing this"
+- "tests should not execute the CLI ever"
+- "doesn't that avoid the logic we're trying to test?"
+- "we dont want to do automatic mock cleanup"
+
+**Immediate Response Protocol:**
+1. **STOP ALL WORKAROUND APPROACHES** immediately (global mocks, bypass flags, etc.)
+2. **INVESTIGATE ROOT CAUSE** using proper debugging methodology
+3. **APPLY ARCHITECTURAL PRINCIPLES** (domain testing, dependency injection, explicit mocks)
+4. **DOCUMENT THE PATTERN** in test architecture rules
+
+### Test Architecture Success Patterns (100% Success Rate)
+
+**Proven Patterns from systematic test fixing achievement:**
+
+1. **Explicit Mock Pattern**: Define complete mock objects, don't use unreliable factories
+2. **Template Literal Pattern**: Use constants and template literals, avoid magic strings
+3. **Format Alignment Pattern**: Ensure mock formats match system formats exactly
+4. **Domain Function Testing**: Call domain functions directly with dependency injection
+5. **Testable Design Pattern**: Extract pure business logic from I/O operations
+6. **Root Cause Investigation**: Hunt down actual problems, don't mask symptoms
+
+**CRITICAL**: Any test architecture violation requires immediate rule updates and systematic application of proven patterns.
+
+## ESLint Integration
+
+### Automated Pattern Enforcement (⚠️ TEMPORARILY DISABLED)
+
+The Minsky project includes a custom ESLint rule `no-jest-patterns` that detects Jest patterns and provides Bun alternatives. **Currently disabled** pending systematic migration.
+
+**Rule Configuration:**
+
+```javascript
+// eslint.config.js - TEMPORARILY DISABLED
+export default [
+  {
+    plugins: {
+      custom: {
+        rules: {
+          "no-jest-patterns": noJestPatterns,
+        },
+      },
+    },
+    rules: {
+      "custom/no-jest-patterns": "off", // TODO: Re-enable after migration
+    },
+  },
+];
+```
+
+**Detected Patterns & Auto-fixes:**
+
+- `jest.fn()` → `mock()` (with appropriate import)
+- `.mockReturnValue()` → `mock(() => returnValue)`
+- `.mockResolvedValue()` → `mock(() => Promise.resolve(value))`
+- `.mockRejectedValue()` → `mock(() => Promise.reject(error))`
+- `jest.mock()` → Suggests using `mockModule()` from test-utils
+- Jest imports → Suggests Bun test imports
+
+**Usage:**
+
+```bash
+# Check for Jest patterns
+bun lint
+
+# Auto-fix simple patterns
+bun lint --fix
+```
+
+**Current Status**: Rule temporarily disabled due to existing Jest patterns. Will be re-enabled after systematic migration.
+
+## Performance Considerations
+
+### Mock Reuse
+
+- Use centralized factories to reduce mock creation overhead
+- Clear mocks in `beforeEach` rather than recreating them
+- Avoid unnecessary deep object mocking
+
+### Test Isolation
+
+```typescript
+describe("Tests", () => {
+  beforeEach(() => {
+    // Clear state, don't recreate mocks
+    mockService.method.mockClear();
+
+    // Reset to known state
+    mockService.method.mockImplementation(() => "default");
+  });
+});
+```
+
+## Migration Checklist
+
+When migrating a test file:
+
+- [ ] Replace Jest imports with Bun imports
+- [ ] Convert manual mocks to centralized factories  
+- [ ] Replace `.mockReturnValue()` with `.mockImplementation()`
+- [ ] Replace `.mockResolvedValue()` with `.mockImplementation(() => Promise.resolve())`
+- [ ] Update mock clearing to use `mockClear()` not `mockReset()`
+- [ ] Ensure all service dependencies use centralized factories
+- [ ] **Apply proven success patterns from this rule**
+- [ ] **Avoid global module mocks that cause cross-test interference**
+- [ ] **Use explicit mocks instead of unreliable factory functions**
+- [ ] **Test domain functions directly, not CLI execution**
+- [ ] Test that all tests pass with new patterns
+- [ ] Verify no Jest patterns remain in the file
+
+## Debugging Test Issues
+
+### Common Problems and Solutions
+
+1. **"mockMethod is not a function"**
+   - Ensure you're using centralized factories
+   - Check that all required methods are included in factory
+
+2. **Mock not being called**
+   - Verify mock is properly injected into service under test
+   - Check that dependency injection is working correctly
+
+3. **Tests affecting each other**
+   - Ensure proper mock clearing in `beforeEach`
+   - Use test isolation patterns
+   - **CRITICAL**: Check for global module mocks causing cross-test interference
+
+4. **Tests pass in isolation but fail in full suite**
+   - **ROOT CAUSE**: Global module mocks persisting across tests
+   - **SOLUTION**: Remove global `mock.module()` calls, use dependency injection
+
 ## Benefits of Following These Patterns
 
 1. **Proven Success**: 100% test success rate achieved through systematic approach
