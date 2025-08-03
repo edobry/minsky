@@ -6,7 +6,8 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-import { mkdir } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { mkdir } from "fs/promises";
 import { updateSessionFromParams } from "../../../src/domain/session";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";

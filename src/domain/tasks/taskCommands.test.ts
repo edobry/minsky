@@ -18,7 +18,8 @@ import { TASK_STATUS } from "./taskConstants";
 import type { TaskService } from "./taskService";
 
 import path from "path";
-import fs from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import fs from "fs/promises";
 
 describe("Interface-Agnostic Task Command Functions", () => {
   const testWorkspacePath = "/tmp/test-minsky-workspace";

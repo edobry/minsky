@@ -6,7 +6,8 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { SessionPathResolver } from "./session-path-resolver";
 import { createRobustTempDir } from "../../utils/tempdir";
-import { writeFile, mkdir, rm } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { writeFile, mkdir, rm } from "fs/promises";
 import { join } from "path";
 import { InvalidPathError } from "../workspace/workspace-backend";
 

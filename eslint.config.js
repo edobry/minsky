@@ -9,6 +9,7 @@ import noExcessiveAsUnknown from "./src/eslint-rules/no-excessive-as-unknown.js"
 import noUnsafeGitExec from "./src/eslint-rules/no-unsafe-git-exec.js";
 import noJestPatterns from "./src/eslint-rules/no-jest-patterns.js";
 import noTestsDirectories from "./src/eslint-rules/no-tests-directories.js";
+import noRealFsInTests from "./src/eslint-rules/no-real-fs-in-tests.js";
 
 export default [
   js.configs.recommended,
@@ -94,6 +95,7 @@ export default [
           "no-unsafe-git-exec": noUnsafeGitExec,
           "no-jest-patterns": noJestPatterns,
           "no-tests-directories": noTestsDirectories,
+          "no-real-fs-in-tests": noRealFsInTests,
         },
       },
     },
@@ -114,6 +116,7 @@ export default [
 
       // === TEST PATTERN ENFORCEMENT ===
       "custom/no-jest-patterns": "error", // Re-enabled after systematic Jest pattern migration
+      "custom/no-real-fs-in-tests": "warn", // Warn about filesystem operations in tests to prevent race conditions
 
       // === TEST ORGANIZATION ===
       "custom/no-tests-directories": "warn", // Encourage co-located test files over __tests__ directories

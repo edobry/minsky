@@ -4,7 +4,8 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { CommandMapper } from "../../../src/mcp/command-mapper";
 import { createMock, setupTestMocks, mockModule } from "../../../src/utils/test-utils/mocking";
-import { readFile, writeFile } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { readFile, writeFile } from "fs/promises";
 
 // Set up automatic mock cleanup
 setupTestMocks();
