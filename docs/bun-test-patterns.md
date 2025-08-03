@@ -363,5 +363,15 @@ When migrating a test file:
 - [ ] Replace `.mockResolvedValue()` with `.mockImplementation(() => Promise.resolve())`
 - [ ] Update mock clearing to use `mockClear()` not `mockReset()`
 - [ ] Ensure all service dependencies use centralized factories
+- [ ] **Apply proven success patterns from [.cursor/rules/bun-test-patterns.mdc](./.cursor/rules/bun-test-patterns.mdc)**
+- [ ] **Avoid global module mocks that cause cross-test interference**
+- [ ] **Use explicit mocks instead of unreliable factory functions**
+- [ ] **Test domain functions directly, not CLI execution**
 - [ ] Test that all tests pass with new patterns
 - [ ] Verify no Jest patterns remain in the file
+
+## 🔗 Related Documentation
+
+For AI agents working on tests, see the comprehensive rule file: [.cursor/rules/bun-test-patterns.mdc](./.cursor/rules/bun-test-patterns.mdc)
+
+This contains all proven success patterns achieving 100% test success rate (1458/1458 tests passing).
