@@ -59,8 +59,9 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       // Arrange: Set up scenario with uncommitted changes (simulating untracked files)
       const mockGitService = createMockGitService({
-        stashChanges: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
-        popStash: mock(() => Promise.resolve({ workdir: "/test", stashed: true })),
+        hasUncommittedChanges: mock(() => Promise.resolve(true)), // CRITICAL: Has uncommitted changes
+        stashChanges: mock(() => Promise.resolve({ workdir: REPO_PATH, stashed: true })),
+        popStash: mock(() => Promise.resolve({ workdir: REPO_PATH, stashed: true })),
         execInRepository: mock((workdir, command) => {
           if (command.includes("git show-ref")) {
             return Promise.resolve(""); // PR branch exists
@@ -77,9 +78,6 @@ describe("Session Approve - Bug Regression Tests", () => {
           return Promise.resolve("");
         }),
       });
-
-      // Mock hasUncommittedChanges separately
-      mockGitService.hasUncommittedChanges = mock(() => Promise.resolve(true));
 
       const mockSessionDB = createMockSessionProvider({
         getSessionByTaskId: () =>
@@ -123,6 +121,13 @@ describe("Session Approve - Bug Regression Tests", () => {
             mergedBy: "Test User",
           } as MergeInfo)
         ),
+        approvePullRequest: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          })
+        ),
       } as any;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -134,7 +139,7 @@ describe("Session Approve - Bug Regression Tests", () => {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
-          createRepositoryBackend: mockCreateRepositoryBackend,
+          createRepositoryBackendForSession: mockCreateRepositoryBackend, // FIXED: correct dependency name
         }
       );
 
@@ -237,6 +242,13 @@ describe("Session Approve - Bug Regression Tests", () => {
             "Command failed: git merge --ff-only pr/task#295\nhint: Diverging branches can't be fast-forwarded"
           );
         }),
+        approvePullRequest: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          })
+        ),
       } as any;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -244,12 +256,12 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Act & Assert: Command should throw error and NOT continue to task status update
       await expect(
         approveSessionPr(
-          { task: "123", repo: "/test/repo" },
+          { task: TASK_ID, repo: REPO_PATH },
           {
             sessionDB: mockSessionDB,
             gitService: mockGitService,
             taskService: mockTaskService,
-            createRepositoryBackend: mockCreateRepositoryBackend,
+            createRepositoryBackendForSession: mockCreateRepositoryBackend, // FIXED: correct dependency name
           }
         )
       ).rejects.toThrow("Diverging branches can't be fast-forwarded");
@@ -333,24 +345,31 @@ describe("Session Approve - Bug Regression Tests", () => {
             // This represents an "already merged" scenario
           } as MergeInfo)
         ),
+        approvePullRequest: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          })
+        ),
       } as any;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
 
       // Act: Command should succeed for genuinely already merged PRs
       const result = await approveSessionPr(
-        { task: "123", repo: "/test/repo" },
+        { task: TASK_ID, repo: REPO_PATH },
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
-          createRepositoryBackend: mockCreateRepositoryBackend,
+          createRepositoryBackendForSession: mockCreateRepositoryBackend, // FIXED: correct dependency name
         }
       );
 
       // Assert: Should complete successfully and update task status
       expect(result).toBeDefined();
-      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("123", "DONE");
+      expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith(TASK_ID, "DONE");
 
       // This verifies the fix correctly distinguishes between
       // "already merged" (OK to continue) vs other merge errors (fail fast)
@@ -423,6 +442,13 @@ describe("Session Approve - Bug Regression Tests", () => {
         mergePullRequest: mock(() => {
           throw new Error("Merge conflict detected");
         }),
+        approvePullRequest: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          })
+        ),
       } as any;
 
       const mockCreateRepositoryBackend = mock(() => Promise.resolve(mockRepositoryBackend));
@@ -430,12 +456,12 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Act: Command should fail but still restore stash
       try {
         await approveSessionPr(
-          { task: "123", repo: "/test/repo" },
+          { task: TASK_ID, repo: REPO_PATH },
           {
             sessionDB: mockSessionDB,
             gitService: mockGitService,
             taskService: mockTaskService,
-            createRepositoryBackend: mockCreateRepositoryBackend,
+            createRepositoryBackendForSession: mockCreateRepositoryBackend, // FIXED: correct dependency name
           }
         );
       } catch (error) {
