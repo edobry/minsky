@@ -10,17 +10,7 @@ import {
 import type { WorkspaceUtilsInterface } from "./workspace";
 
 // Mock logger
-const mockLog = {
-  debug: mock(() => {}),
-  info: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  cli: mock(() => {}),
-};
-
-mock.module("../utils/logger", () => ({
-  log: mockLog,
-}));
+// Remove global module mock - use dependency injection instead
 
 const TEST_VALUE = 123;
 
