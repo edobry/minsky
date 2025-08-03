@@ -42,13 +42,13 @@ export const postgresSessions = pgTable("sessions", {
   // PR-related fields (Task #332/#366)
   prBranch: varchar("pr_branch", { length: 255 }),
   prApproved: varchar("pr_approved", { length: 10 }), // Store as JSON boolean string
-  prState: text("pr_state"), // Store as JSON
+  prState: pgText("pr_state"), // Store as JSON
 
   // Backend configuration
   backendType: varchar("backend_type", { length: 50 }),
-  github: text("github"), // Store as JSON
-  remote: text("remote"), // Store as JSON
-  pullRequest: text("pull_request"), // Store as JSON
+  github: pgText("github"), // Store as JSON
+  remote: pgText("remote"), // Store as JSON
+  pullRequest: pgText("pull_request"), // Store as JSON
 });
 
 // Type exports for better type inference
