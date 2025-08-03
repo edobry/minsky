@@ -33,8 +33,8 @@ describe("Session Multi-Backend Integration", () => {
       });
 
       it("should fallback to legacy format for invalid IDs", () => {
-        expect(SessionMultiBackendIntegration.generateSessionName("invalid")).toBe("taskinvalid");
-        expect(SessionMultiBackendIntegration.generateSessionName("abc123")).toBe("taskabc123");
+        expect(SessionMultiBackendIntegration.generateSessionName("invalid")).toBe("task-invalid");
+        expect(SessionMultiBackendIntegration.generateSessionName("abc123")).toBe("task-abc123");
       });
 
       it("should throw for empty task ID", () => {
@@ -229,7 +229,7 @@ describe("Session Multi-Backend Integration", () => {
           taskId: "123",
         };
 
-        expect(SessionMultiBackendIntegration.getDisplayTaskId(record)).toBe("#123");
+        expect(SessionMultiBackendIntegration.getDisplayTaskId(record)).toBe("md#123");
       });
 
       it("should handle records without task IDs", () => {
@@ -329,9 +329,9 @@ describe("Session Multi-Backend Integration", () => {
       });
 
       it("should normalize legacy IDs", () => {
-        expect(SessionBackwardCompatibility.toStorageFormat("#123")).toBe("123");
-        expect(SessionBackwardCompatibility.toStorageFormat("task#456")).toBe("456");
-        expect(SessionBackwardCompatibility.toStorageFormat("789")).toBe("789");
+        expect(SessionBackwardCompatibility.toStorageFormat("#123")).toBe("md#123");
+        expect(SessionBackwardCompatibility.toStorageFormat("task#456")).toBe("md#456");
+        expect(SessionBackwardCompatibility.toStorageFormat("789")).toBe("md#789");
       });
 
       it("should handle invalid IDs gracefully", () => {
@@ -346,8 +346,8 @@ describe("Session Multi-Backend Integration", () => {
       });
 
       it("should format legacy IDs for display", () => {
-        expect(SessionBackwardCompatibility.toDisplayFormat("123")).toBe("#123");
-        expect(SessionBackwardCompatibility.toDisplayFormat("456")).toBe("#456");
+        expect(SessionBackwardCompatibility.toDisplayFormat("123")).toBe("md#123");
+        expect(SessionBackwardCompatibility.toDisplayFormat("456")).toBe("md#456");
       });
     });
 
