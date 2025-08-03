@@ -33,37 +33,38 @@ const mockFs = {
   }),
 };
 
-// Mock the fs modules
-mock.module("fs", () => ({
-  existsSync: mockFs.existsSync,
-  mkdirSync: mockFs.mkdirSync,
-  rmSync: mockFs.rmSync,
-  readFileSync: mockFs.readFileSync,
-  writeFileSync: mockFs.writeFileSync,
-}));
-
-// Mock fs/promises module for async operations
-mock.module("fs/promises", () => ({
-  writeFile: mock(async (path: string, data: string) => {
-    mockFileSystem.set(path, data);
-  }),
-  unlink: mock(async (path: string) => {
-    mockFileSystem.delete(path);
-  }),
-  readFile: mock(async (path: string) => {
-    if (!mockFileSystem.has(path)) {
-      throw new Error(`ENOENT: no such file or directory, open '${path}'`);
-    }
-    return mockFileSystem.get(path);
-  }),
-}));
-
-// Mock path module
-mock.module("path", () => ({
-  join: mock((...parts: string[]) => parts.join("/")),
-}));
-
 describe("Real-World Workflow Testing", () => {
+  // ✅ FIXED: Move module mocks inside describe block to prevent cross-test interference
+  
+  // Mock the fs modules
+  mock.module("fs", () => ({
+    existsSync: mockFs.existsSync,
+    mkdirSync: mockFs.mkdirSync,
+    rmSync: mockFs.rmSync,
+    readFileSync: mockFs.readFileSync,
+    writeFileSync: mockFs.writeFileSync,
+  }));
+
+  // Mock fs/promises module for async operations
+  mock.module("fs/promises", () => ({
+    writeFile: mock(async (path: string, data: string) => {
+      mockFileSystem.set(path, data);
+    }),
+    unlink: mock(async (path: string) => {
+      mockFileSystem.delete(path);
+    }),
+    readFile: mock(async (path: string) => {
+      if (!mockFileSystem.has(path)) {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+      }
+      return mockFileSystem.get(path);
+    }),
+  }));
+
+  // Mock path module
+  mock.module("path", () => ({
+    join: mock((...parts: string[]) => parts.join("/")),
+  }));
   const testBaseDir = "/mock/test-workspace";
   const testProcessDir = "/mock/test-workspace/process";
   const testJsonPath = "/mock/test-workspace/process/tasks.json";

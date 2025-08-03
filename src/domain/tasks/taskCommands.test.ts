@@ -158,13 +158,24 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Handle both input format and qualified format since function normalizes IDs
-        if (taskId === "157" || taskId === "md#157") {
-          return { id: "md#157", status: TASK_STATUS.IN_PROGRESS };
-        }
-        return null;
-      });
+      // ✅ FIXED: Use explicit mock instead of unreliable async factory
+      const mockTaskService = {
+        getTask: mock((taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "157" || taskId === "md#157") {
+            return Promise.resolve({ id: "md#157", status: TASK_STATUS.IN_PROGRESS });
+          }
+          return Promise.resolve(null);
+        }),
+        listTasks: mock(() => Promise.resolve([])),
+        getTaskStatus: mock(() => Promise.resolve(undefined)),
+        setTaskStatus: mock(() => Promise.resolve()),
+        createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        deleteTask: mock(() => Promise.resolve(false)),
+        getWorkspacePath: mock(() => "/test/path"),
+        getBackendForTask: mock(() => Promise.resolve("markdown")),
+        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -182,13 +193,24 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async (taskId) => {
-        // Handle both input format and qualified format since function normalizes IDs
-        if (taskId === "158" || taskId === "md#158") {
-          return { id: "md#158", status: TASK_STATUS.DONE };
-        }
-        return null;
-      });
+      // ✅ FIXED: Use explicit mock instead of unreliable async factory
+      const mockTaskService = {
+        getTask: mock((taskId: string) => {
+          // Handle both input format and qualified format since function normalizes IDs
+          if (taskId === "158" || taskId === "md#158") {
+            return Promise.resolve({ id: "md#158", status: TASK_STATUS.DONE });
+          }
+          return Promise.resolve(null);
+        }),
+        listTasks: mock(() => Promise.resolve([])),
+        getTaskStatus: mock(() => Promise.resolve(undefined)),
+        setTaskStatus: mock(() => Promise.resolve()),
+        createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        deleteTask: mock(() => Promise.resolve(false)),
+        getWorkspacePath: mock(() => "/test/path"),
+        getBackendForTask: mock(() => Promise.resolve("markdown")),
+        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -206,7 +228,18 @@ describe("Interface-Agnostic Task Command Functions", () => {
         json: false,
       };
 
-      const mockTaskService = createMockTaskService(async () => null);
+      // ✅ FIXED: Use explicit mock instead of unreliable async factory
+      const mockTaskService = {
+        getTask: mock(() => Promise.resolve(null)),
+        listTasks: mock(() => Promise.resolve([])),
+        getTaskStatus: mock(() => Promise.resolve(undefined)),
+        setTaskStatus: mock(() => Promise.resolve()),
+        createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        deleteTask: mock(() => Promise.resolve(false)),
+        getWorkspacePath: mock(() => "/test/path"),
+        getBackendForTask: mock(() => Promise.resolve("markdown")),
+        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+      };
 
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
@@ -503,7 +536,16 @@ describe("Interface-Agnostic Task Command Functions", () => {
       ];
 
       const mockTaskService = {
-        ...createMockTaskService(async () => null),
+        // ✅ FIXED: Use explicit mock methods instead of unreliable async factory
+        getTask: mock(() => Promise.resolve(null)),
+        listTasks: mock(() => Promise.resolve([])),
+        getTaskStatus: mock(() => Promise.resolve(undefined)),
+        setTaskStatus: mock(() => Promise.resolve()),
+        createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        deleteTask: mock(() => Promise.resolve(false)),
+        getWorkspacePath: mock(() => "/test/path"),
+        getBackendForTask: mock(() => Promise.resolve("markdown")),
+        createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
         listTasks: async () => mockTasks,
       };
 
@@ -762,7 +804,18 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => createMockTaskService(async () => null),
+        // ✅ FIXED: Use explicit mock instead of unreliable async factory
+        createTaskService: async (options: any) => ({
+          getTask: mock(() => Promise.resolve(null)),
+          listTasks: mock(() => Promise.resolve([])),
+          getTaskStatus: mock(() => Promise.resolve(undefined)),
+          setTaskStatus: mock(() => Promise.resolve()),
+          createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+          deleteTask: mock(() => Promise.resolve(false)),
+          getWorkspacePath: mock(() => "/test/path"),
+          getBackendForTask: mock(() => Promise.resolve("markdown")),
+          createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        }),
       };
 
       await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow();
@@ -777,7 +830,18 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => createMockTaskService(async () => null),
+        // ✅ FIXED: Use explicit mock instead of unreliable async factory
+        createTaskService: async (options: any) => ({
+          getTask: mock(() => Promise.resolve(null)),
+          listTasks: mock(() => Promise.resolve([])),
+          getTaskStatus: mock(() => Promise.resolve(undefined)),
+          setTaskStatus: mock(() => Promise.resolve()),
+          createTask: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+          deleteTask: mock(() => Promise.resolve(false)),
+          getWorkspacePath: mock(() => "/test/path"),
+          getBackendForTask: mock(() => Promise.resolve("markdown")),
+          createTaskFromTitleAndDescription: mock(() => Promise.resolve({ id: "#test", title: "Test", status: "TODO" })),
+        }),
       };
 
       await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow();

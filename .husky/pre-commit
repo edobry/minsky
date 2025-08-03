@@ -33,6 +33,48 @@ fi
 
 echo "✅ No variable naming issues found."
 
+echo "🔍 Checking for test anti-patterns..."
+
+# NEW: Test Pattern Validation (Task #332 extension)
+# Check for global mock.module() usage outside describe blocks
+echo "  → Checking for global module mocks..."
+STAGED_TEST_FILES=$(git diff --cached --name-only | grep -E '\.(test|spec)\.(ts|js)$' || true)
+if [ -n "$STAGED_TEST_FILES" ]; then
+  if echo "$STAGED_TEST_FILES" | xargs grep -l "mock\.module" 2>/dev/null | xargs grep -n "mock\.module" 2>/dev/null | grep -v "describe\|it\|test\|beforeEach\|afterEach" | grep -q "mock\.module"; then
+    echo "❌ Global mock.module() usage detected outside test blocks!"
+    echo "💡 Move mock.module() calls inside describe/it blocks or to test-utils."
+    echo "$STAGED_TEST_FILES" | xargs grep -n "mock\.module" 2>/dev/null | grep -v "describe\|it\|test\|beforeEach\|afterEach" | head -5 || true
+    echo "   (Showing first 5 matches - there may be more)"
+    exit 1
+  fi
+fi
+
+# Check for unreliable factory mock patterns  
+echo "  → Checking for unreliable factory mock patterns..."
+if [ -n "$STAGED_TEST_FILES" ]; then
+  if echo "$STAGED_TEST_FILES" | xargs grep -l "createMockTaskService" 2>/dev/null | xargs grep -n "createMockTaskService.*async" 2>/dev/null | grep -q .; then
+    echo "⚠️  Unreliable factory mock patterns detected!"
+    echo "💡 Use explicit mock patterns with fixed return values instead of async factories."
+    echo "$STAGED_TEST_FILES" | xargs grep -n "createMockTaskService.*async" 2>/dev/null | head -3 || true
+    echo "   (Showing first 3 matches - there may be more)"
+    echo "   Continuing commit with WARNING..."
+  fi
+fi
+
+# Check for CLI execution in test files
+echo "  → Checking for CLI execution in tests..."
+if [ -n "$STAGED_TEST_FILES" ]; then
+  if echo "$STAGED_TEST_FILES" | xargs grep -l "execAsync\|spawn" 2>/dev/null | xargs grep -n "execAsync.*cli\.ts\|spawn.*cli\.ts" 2>/dev/null | grep -q .; then
+    echo "⚠️  CLI execution detected in test files!"
+    echo "💡 Tests should call domain functions directly, not CLI interfaces."
+    echo "$STAGED_TEST_FILES" | xargs grep -n "execAsync.*cli\.ts\|spawn.*cli\.ts" 2>/dev/null | head -3 || true
+    echo "   (Showing first 3 matches - there may be more)" 
+    echo "   Continuing commit with WARNING..."
+  fi
+fi
+
+echo "✅ Test pattern validation completed."
+
 # Run linting (suppress warnings to reduce noise, only show errors)
 echo "🔍 Running ESLint..."
 if ! npm run lint -- --quiet; then
