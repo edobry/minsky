@@ -385,10 +385,12 @@ describe("Session Approve Task Status Commit", () => {
         gitCommands.push(command);
 
         // Early exit commands should be handled first
-        if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
-          // TEMPLATE LITERAL: Use extracted constant
+        if (command.includes(`git show-ref --verify --quiet refs/heads/pr/task-md#125`)) {
+          // EXPLICIT MOCK: Use correct PR branch name with dash (task-md#125)
           // PR branch doesn't exist - this should trigger early exit
-          throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`); // TEMPLATE LITERAL: Use extracted constant
+          throw new Error(
+            `Command failed: git show-ref --verify --quiet refs/heads/pr/task-md#125`
+          );
         }
         if (command.includes("git rev-parse HEAD")) {
           return Promise.resolve("ghi789commit");
@@ -423,12 +425,12 @@ describe("Session Approve Task Status Commit", () => {
     const mockSessionDB: Partial<SessionProviderInterface> = {
       getSessionByTaskId: (taskId: string) =>
         Promise.resolve({
-          session: `task${taskId}`, // taskId is already "#125", so this becomes "task#125"
+          session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#125)
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId,
-          prBranch: `pr/task${taskId}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
         }),
       getSession: (sessionName: string) =>
         Promise.resolve({
@@ -476,10 +478,10 @@ describe("Session Approve Task Status Commit", () => {
     // Should trigger early exit since task is DONE and PR branch doesn't exist
     expect(result.isNewlyApproved).toBe(false); // EXPLICIT MOCK: Correct - no PR branch means no new approval
     expect(result.taskId).toBe(QUALIFIED_TASK_ID); // TEMPLATE LITERAL: Use extracted constant
-    expect(result.session).toBe(SESSION_NAME); // TEMPLATE LITERAL: Use extracted constant
+    expect(result.session).toBe("task-md#125"); // EXPLICIT MOCK: Use correct session name with dash
 
     // Should only call commands to check PR branch existence, then exit
-    expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`); // TEMPLATE LITERAL: Use extracted constant
+    expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/pr/task-md#125`); // EXPLICIT MOCK: Use correct PR branch with dash
     expect(gitCommands).toContain("git rev-parse HEAD");
     expect(gitCommands).toContain("git config user.name");
 
@@ -531,12 +533,12 @@ describe("Session Approve Task Status Commit", () => {
     const mockSessionDB: Partial<SessionProviderInterface> = {
       getSessionByTaskId: (taskId: string) =>
         Promise.resolve({
-          session: `task${taskId}`, // taskId is already "#266", so this becomes "task#266"
+          session: `task-${taskId}`, // EXPLICIT MOCK: Add dash for correct session format (task-md#266)
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: new Date().toISOString(),
           taskId,
-          prBranch: `pr/task${taskId}`, // EXPLICIT MOCK: Add required prBranch property
+          prBranch: `pr/task-${taskId}`, // EXPLICIT MOCK: Add dash for correct PR branch format
         }),
       getSession: (sessionName: string) =>
         Promise.resolve({
