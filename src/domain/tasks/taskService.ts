@@ -576,13 +576,15 @@ ${description}
     workspacePath: string;
     backend?: string;
     customBackends?: TaskBackend[];
+    githubRepoOverride?: string; // Format: "owner/repo"
   }): Promise<TaskService> {
-    const { workspacePath, backend, customBackends } = options;
+    const { workspacePath, backend, customBackends, githubRepoOverride } = options;
 
     log.debug("Creating TaskService with repository backend integration", {
       workspacePath,
       backend,
       hasCustomBackends: !!customBackends,
+      githubRepoOverride,
     });
 
     // 1. Detect repository backend type
@@ -606,12 +608,17 @@ ${description}
 
     if (effectiveBackend === "github-issues") {
       // Create GitHub Issues backend with repository backend info
-      taskBackend = await createGitHubBackendWithRepositoryInfo(repoBackend, workspacePath);
+      taskBackend = await createGitHubBackendWithRepositoryInfo(
+        repoBackend, 
+        workspacePath, 
+        githubRepoOverride
+      );
     } else {
       // Use existing backend creation for markdown/json-file
-      taskBackend = effectiveBackend === "markdown" 
-        ? createMarkdownTaskBackend({ name: "markdown", workspacePath })
-        : createJsonFileTaskBackend({ name: "json-file", workspacePath });
+      taskBackend =
+        effectiveBackend === "markdown"
+          ? createMarkdownTaskBackend({ name: "markdown", workspacePath })
+          : createJsonFileTaskBackend({ name: "json-file", workspacePath });
     }
 
     return new TaskService({
@@ -866,7 +873,8 @@ export async function createConfiguredTaskService(
  */
 async function createGitHubBackendWithRepositoryInfo(
   repositoryBackend: RepositoryBackend,
-  workspacePath: string
+  workspacePath: string,
+  githubRepoOverride?: string
 ): Promise<TaskBackend> {
   // Get GitHub information from repository backend
   const repoType = repositoryBackend.getType();
@@ -874,13 +882,27 @@ async function createGitHubBackendWithRepositoryInfo(
     throw new Error(`Expected GitHub repository backend, got: ${repoType}`);
   }
 
-  // Extract GitHub configuration from repository backend
-  // This replaces the direct git parsing from the old implementation
-  const repoUrl = repositoryBackend.getRepoUrl();
-  const githubInfo = extractGitHubInfoFromRepoUrl(repoUrl);
+  // Use GitHub repository override if provided, otherwise extract from repository backend
+  let githubInfo: { owner: string; repo: string };
   
-  if (!githubInfo) {
-    throw new Error(`Failed to extract GitHub info from repository URL: ${repoUrl}`);
+  if (githubRepoOverride) {
+    const parsedInfo = parseGitHubRepoString(githubRepoOverride);
+    if (!parsedInfo) {
+      throw new Error(`Invalid GitHub repository format: ${githubRepoOverride}. Expected "owner/repo"`);
+    }
+    githubInfo = parsedInfo;
+  } else {
+    // Extract GitHub configuration from repository backend
+    const config = repositoryBackend.getConfig?.();
+    if (!config?.repoUrl) {
+      throw new Error("Repository backend does not provide configuration with repoUrl");
+    }
+    
+    const extractedInfo = extractGitHubInfoFromRepoUrl(config.repoUrl);
+    if (!extractedInfo) {
+      throw new Error(`Failed to extract GitHub info from repository URL: ${config.repoUrl}`);
+    }
+    githubInfo = extractedInfo;
   }
 
   // Get GitHub token from environment
@@ -904,7 +926,9 @@ async function createGitHubBackendWithRepositoryInfo(
  * Extract GitHub owner and repo from repository URL
  * Pure function replacement for the git parsing logic
  */
-export function extractGitHubInfoFromRepoUrl(repoUrl: string): { owner: string; repo: string } | null {
+export function extractGitHubInfoFromRepoUrl(
+  repoUrl: string
+): { owner: string; repo: string } | null {
   // Parse GitHub repository from various URL formats
   // SSH: git@github.com:owner/repo.git
   // HTTPS: https://github.com/owner/repo.git
@@ -919,5 +943,25 @@ export function extractGitHubInfoFromRepoUrl(repoUrl: string): { owner: string; 
     };
   }
 
+  return null;
+}
+
+/**
+ * Parse GitHub repository string in "owner/repo" format
+ * Used for GitHub repository override functionality
+ */
+export function parseGitHubRepoString(
+  repoString: string
+): { owner: string; repo: string } | null {
+  // Parse "owner/repo" format
+  const match = repoString.match(/^([^\/]+)\/([^\/]+)$/);
+  
+  if (match && match[1] && match[2]) {
+    return {
+      owner: match[1].trim(),
+      repo: match[2].trim(),
+    };
+  }
+  
   return null;
 }
