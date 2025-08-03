@@ -604,7 +604,7 @@
 
 - [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
-- [+] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
+- [x] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
 
