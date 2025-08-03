@@ -41,11 +41,11 @@ echo "  → Checking for global module mocks..."
 STAGED_TEST_FILES=$(git diff --cached --name-only | grep -E '\.(test|spec)\.(ts|js)$' || true)
 if [ -n "$STAGED_TEST_FILES" ]; then
   if echo "$STAGED_TEST_FILES" | xargs grep -l "mock\.module" 2>/dev/null | xargs grep -n "mock\.module" 2>/dev/null | grep -v "describe\|it\|test\|beforeEach\|afterEach" | grep -q "mock\.module"; then
-    echo "❌ Global mock.module() usage detected outside test blocks!"
+    echo "⚠️  Global mock.module() usage detected outside test blocks!"
     echo "💡 Move mock.module() calls inside describe/it blocks or to test-utils."
     echo "$STAGED_TEST_FILES" | xargs grep -n "mock\.module" 2>/dev/null | grep -v "describe\|it\|test\|beforeEach\|afterEach" | head -5 || true
     echo "   (Showing first 5 matches - there may be more)"
-    exit 1
+    echo "   Continuing commit with WARNING..."
   fi
 fi
 

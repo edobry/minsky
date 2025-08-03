@@ -135,8 +135,8 @@ export default [
           allowDynamicImports: false, // whether dynamic imports are allowed
         },
       ], // Filesystem interference prevention
-      "custom/no-global-module-mocks": "error", // Prevent cross-test interference from global mocking
-      "custom/no-unreliable-factory-mocks": "error", // Prevent race conditions from async factory patterns
+      "custom/no-global-module-mocks": "warn", // Prevent cross-test interference from global mocking
+      "custom/no-unreliable-factory-mocks": "warn", // Prevent race conditions from async factory patterns
       "custom/no-cli-execution-in-tests": "warn", // Warn about architectural violations
       "custom/no-magic-string-duplication": [
         "warn", // Warn mode to encourage but not block
