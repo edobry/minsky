@@ -9,25 +9,32 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { pgTable, varchar, timestamp, text as pgText } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 
-// SQLite Schema - CONSISTENT snake_case FOR ALL COLUMNS
+// SQLite Schema - CONSISTENT snake_case with Drizzle JSON support
 export const sqliteSessions = sqliteTable("sessions", {
   session: text("session")!.primaryKey(),
-  repoName: text("repo_name")!.notNull(), // Use snake_case consistently
-  repoUrl: text("repo_url")!.notNull(), // Use snake_case consistently
-  createdAt: text("created_at").notNull(), // Use snake_case consistently
-  taskId: text("task_id"), // Use snake_case consistently
+  repoName: text("repo_name")!.notNull(),
+  repoUrl: text("repo_url")!.notNull(),
+  createdAt: text("created_at").notNull(),
+  taskId: text("task_id"),
   branch: text("branch"),
 
-  // PR-related fields - snake_case (consistent)
+  // PR-related fields with automatic JSON parsing
   prBranch: text("pr_branch"),
-  prApproved: text("pr_approved"), // Store as JSON boolean string
-  prState: text("pr_state"), // Store as JSON
+  prApproved: text("pr_approved", { mode: "json" }).$type<boolean>(),
+  prState: text("pr_state", { mode: "json" }).$type<{
+    branchName: string;
+    exists: boolean;
+    lastChecked: string;
+    createdAt: string;
+    mergedAt?: string;
+    commitHash?: string;
+  }>(),
 
-  // Backend configuration - snake_case (consistent)
+  // Backend configuration with automatic JSON parsing
   backendType: text("backend_type"),
-  github: text("github"), // Store as JSON
-  remote: text("remote"), // Store as JSON
-  pullRequest: text("pull_request"), // Store as JSON
+  github: text("github", { mode: "json" }).$type<any>(),
+  remote: text("remote", { mode: "json" }).$type<any>(),
+  pullRequest: text("pull_request", { mode: "json" }).$type<any>(),
 });
 
 // PostgreSQL Schema
@@ -59,6 +66,7 @@ export type PostgresSessionInsert = typeof postgresSessions.$inferInsert;
 
 /**
  * Convert SessionRecord to SQLite insert format
+ * Drizzle handles JSON serialization automatically for json mode columns
  */
 export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
   return {
@@ -69,44 +77,21 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     taskId: record.taskId || null,
     branch: record.branch || null,
 
-    // PR-related fields
+    // JSON fields - Drizzle handles serialization automatically
     prBranch: record.prBranch || null,
-    prApproved: record.prApproved ? JSON.stringify(record.prApproved) : null,
-    prState: record.prState ? JSON.stringify(record.prState) : null,
+    prApproved: record.prApproved || null,
+    prState: record.prState || null,
 
-    // Backend configuration
+    // Backend configuration - Drizzle handles JSON serialization
     backendType: record.backendType || null,
-    github: record.github ? JSON.stringify(record.github) : null,
-    remote: record.remote ? JSON.stringify(record.remote) : null,
-    pullRequest: record.pullRequest ? JSON.stringify(record.pullRequest) : null,
+    github: record.github || null,
+    remote: record.remote || null,
+    pullRequest: record.pullRequest || null,
   };
 }
 
-/**
- * Convert SQLite record to SessionRecord format
- * FIXED: Drizzle returns camelCase field names, not snake_case
- */
-export function fromSqliteSelect(record: any): SessionRecord {
-  return {
-    session: record.session,
-    repoName: record.repoName, // Drizzle returns camelCase field names
-    repoUrl: record.repoUrl, // Drizzle returns camelCase field names
-    createdAt: record.createdAt, // Drizzle returns camelCase field names
-    taskId: record.taskId || undefined, // Drizzle returns camelCase field names
-    branch: record.branch || undefined,
-
-    // PR-related fields - Drizzle returns camelCase field names
-    prBranch: record.prBranch || undefined,
-    prApproved: record.prApproved ? JSON.parse(record.prApproved) : undefined,
-    prState: record.prState ? JSON.parse(record.prState) : undefined,
-
-    // Backend configuration - Drizzle returns camelCase field names
-    backendType: record.backendType || undefined,
-    github: record.github ? JSON.parse(record.github) : undefined,
-    remote: record.remote ? JSON.parse(record.remote) : undefined,
-    pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
-  };
-}
+// fromSqliteSelect is NO LONGER NEEDED!
+// Drizzle automatically handles JSON parsing and field mapping.
 
 /**
  * Convert SessionRecord to PostgreSQL insert format

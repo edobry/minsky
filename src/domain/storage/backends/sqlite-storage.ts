@@ -15,7 +15,7 @@ import type {
   DatabaseWriteResult,
   DatabaseQueryOptions,
 } from "../database-storage";
-import { sqliteSessions, fromSqliteSelect, toSqliteInsert } from "../schemas/session-schema";
+import { sqliteSessions, toSqliteInsert } from "../schemas/session-schema";
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
 import { dirname } from "path";
@@ -170,7 +170,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
         .where(eq(sessionsTable.session, id))
         .limit(1);
 
-      return result[0] ? (fromSqliteSelect(result[0]) as TEntity) : null;
+      return (result[0] as TEntity) || null;
     } catch (error) {
       const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
@@ -216,7 +216,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       }
 
       const sessions = await query;
-      return sessions.map((session) => fromSqliteSelect(session) as TEntity);
+      return sessions as TEntity[];
     } catch (error) {
       const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get sessions: ${errorMessage}`);
