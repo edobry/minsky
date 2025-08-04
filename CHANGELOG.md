@@ -32,6 +32,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **GitHub Status UX**: Fixed misleading configuration warnings in `minsky gh status` command
+  - Now shows positive "✅ Using auto-detection from git remote" when auto-detection works
+  - Only warns about missing configuration when both explicit config AND auto-detection fail
+  - Provides helpful verbose context about when explicit configuration is optional
+  - Resolves contradiction where system reported "ready to use" while showing configuration warnings
+- **GitHub Token Detection**: Fixed GitHub token detection to use configuration system instead of environment variables only
+  - Updated `showGitHubStatus` and `getGitHubBackendConfig` functions to use `getConfiguration()`
+  - Tokens in `~/.config/minsky/config.yaml` are now properly detected
+  - Improved error messages to mention both environment variables and config file options
+
 - **Test Architecture & Reliability**: Achieved 100% test success rate (1458/1458 tests passing) with major architectural improvements
 
   - **CRITICAL**: Fixed Task ID Integration tests to use domain functions instead of CLI execution - eliminated test anti-patterns
