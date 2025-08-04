@@ -1,5 +1,10 @@
 import { execGitWithTimeout } from "../../utils/git-exec";
-import { MinskyError, getErrorMessage } from "../../errors/index";
+import {
+  MinskyError,
+  SessionConflictError,
+  GitOperationError,
+  getErrorMessage,
+} from "../../errors/index";
 import { log } from "../../utils/logger";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import type { PRInfo, MergeInfo } from "../repository/index";
@@ -97,7 +102,7 @@ export async function createPreparedMergeCommitPR(
 
       // If this is a merge conflict, provide clear guidance
       if (errorMessage.includes("conflict") || errorMessage.includes("CONFLICT")) {
-        throw new MinskyError(
+        throw new SessionConflictError(
           `🔥 Session branch has conflicts with ${baseBranch} branch.\n\n` +
             `PR creation requires a clean session branch. Please resolve conflicts first:\n\n` +
             `1. 🔍 Check conflicts: git status\n` +
@@ -112,10 +117,11 @@ export async function createPreparedMergeCommitPR(
       }
 
       // For other merge errors, provide generic guidance
-      throw new MinskyError(
+      throw new GitOperationError(
         `Failed to validate merge compatibility: ${errorMessage}\n\n` +
           `Please ensure your session branch is up to date:\n` +
-          `   minsky session update`
+          `   minsky session update`,
+        `merge --no-commit --no-ff origin/${baseBranch}`
       );
     }
 

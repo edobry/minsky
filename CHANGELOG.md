@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+<<<<<<< HEAD
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system
 
   - **REPOSITORY BACKEND COMPATIBILITY**: Added validation system to ensure GitHub Issues backend only works with GitHub repository backends
@@ -14,6 +15,24 @@ All notable changes to this project will be documented in this file.
   - **BYPASS VALIDATION**: When GitHub repository override is provided, compatibility validation is bypassed to allow usage in non-GitHub workspaces
   - **CLI AUTO-REGISTRATION**: GitHub repository parameter automatically registered in CLI from Zod schema definitions
   - **DIRECT API INTEGRATION**: GitHub Issues backend now creates issues directly via GitHub API, eliminating problematic temporary file workflows
+=======
+- **Documentation Consolidation**: Completed Option 2 documentation strategy (single source of truth approach)
+  - **ARCHITECTURE**: Enhanced `.cursor/rules/bun-test-patterns.mdc` with comprehensive test pattern guidance
+  - **INTEGRATION**: Added ESLint integration guide, performance considerations, migration checklist, debugging guide
+  - **REORGANIZATION**: Moved Critical Test Architecture Protocol from self-improvement.mdc to proper test-specific location
+  - **PLANNING**: Created 5 systematic cleanup tasks for test architecture improvements (md#380 series)
+  - **MONITORING**: Extended Task #322 with test pattern monitoring and prevention requirements
+
+### Changed
+
+- **Documentation Structure**: Consolidated `docs/bun-test-patterns.md` into `.cursor/rules/bun-test-patterns.mdc` as single source of truth
+- **Rule Organization**: Moved Critical Test Architecture Protocol to proper location in bun-test-patterns.mdc
+- **Task Enhancement**: Extended Task #322 with NEW requirements for test pattern monitoring and prevention (clearly marked as post-task-start additions)
+
+### Removed
+
+- **Duplicate Documentation**: Deleted `docs/bun-test-patterns.md` file (clean consolidation approach - no deprecated files)
+>>>>>>> origin/main
 
 ### Fixed
 

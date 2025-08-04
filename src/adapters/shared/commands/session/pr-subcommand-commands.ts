@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, SessionConflictError, getErrorMessage } from "../../../../errors/index";
 import {
   sessionPrCreateCommandParams,
   sessionPrListCommandParams,
@@ -135,7 +135,10 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     const errorMessage = getErrorMessage(error);
 
     // Handle specific error types with friendly messages
-    if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
+    if (error instanceof SessionConflictError) {
+      // Pass through SessionConflictError as-is - it has proper messaging
+      return error;
+    } else if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
       return new MinskyError(
         `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Try with --skip-update to avoid session updates\n• Or manually resolve conflicts and retry\n\nTechnical details: ${errorMessage}`
       );
