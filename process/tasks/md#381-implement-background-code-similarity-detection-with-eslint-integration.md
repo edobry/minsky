@@ -161,7 +161,7 @@ module.exports = {
       Program(node) {
         // Query similarity database for current file
         const findings = querySimilarityDB(context.getFilename(), dbPath);
-        
+
         findings.forEach(finding => {
           if (finding.similarity_score >= threshold) {
             context.report({
@@ -218,7 +218,7 @@ npm run similarity:analyze-incremental
 ```typescript
 class SimilarityDaemon {
   private interval: NodeJS.Timeout;
-  
+
   start(intervalMs = 300000) { // 5 minutes
     this.interval = setInterval(async () => {
       await this.runIncrementalAnalysis();
@@ -248,20 +248,20 @@ module.exports = {
       'node_modules/**'
     ]
   },
-  
+
   eslint: {
     enabled: true,
     warnThreshold: 0.7,
     errorThreshold: 0.9,
     dbPath: '.similarity/similarity.db'
   },
-  
+
   background: {
     mode: 'watcher', // 'watcher' | 'daemon' | 'git-hooks'
     intervalMs: 300000,
     incrementalOnly: true
   },
-  
+
   output: {
     dbPath: '.similarity/similarity.db',
     reportPath: '.similarity/reports',
