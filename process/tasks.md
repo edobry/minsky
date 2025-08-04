@@ -644,4 +644,4 @@
 
 - [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
 
-- [ ] Implement Background Code Similarity Detection with ESLint Integration [#md#381](process/tasks/md#381-implement-background-code-similarity-detection-with-eslint-integration.md)
+- [ ] CLI Test Should Be 382 [md#382](process/tasks/md#382-cli-test-should-be-382.md)
