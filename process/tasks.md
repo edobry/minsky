@@ -644,4 +644,8 @@
 
 - [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
 
-- [ ] Create ESLint rule to prevent direct environment variable access outside configuration system [#md#381](process/tasks/md#381-create-eslint-rule-to-prevent-direct-environment-variable-access-outside-configuration-system.md)
+- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [#384](process/tasks/384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
+
+- [ ] Add support for knowledge bases and documentation systems [#385](process/tasks/385-add-support-for-knowledge-bases-and-documentation-systems.md)
+
+- [ ] Fix git commands not being available over MCP by uncommenting the registerGitTools call in the MCP command registration [md#386](process/tasks/md#386-fix-git-commands-not-being-available-over-mcp-by-uncommenting-the-registergittools-call-in-the-mcp-command-registration.md)

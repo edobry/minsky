@@ -279,33 +279,11 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (existingTasksResult.success && existingTasksResult.content) {
       existingTasks = this.parseTasks(existingTasksResult.content);
     }
-    let maxId = existingTasks.reduce((max, task) => {
+    const maxId = existingTasks.reduce((max, task) => {
       // Use the new utility to extract numeric value from any format
       const id = getTaskIdNumber(task.id);
       return id !== null && id > max ? id : max;
     }, 0);
-
-    // Also scan filesystem for existing task files to get the true maximum ID
-    try {
-      const files = await readdir(this.tasksDirectory);
-      for (const file of files) {
-        // Extract ID from filename pattern: {id}-{title}.md
-        // Only consider legitimate task files, exclude temporary files and timestamp-based IDs
-        // Pattern: {1-4 digit ID} followed by dash and non-digit (to avoid temp-task-title-timestamp pattern)
-        const match = file.match(/^(\d{1,4})-[^0-9]/);
-        if (match) {
-          const fileId = parseInt(match[1], 10);
-          if (!isNaN(fileId) && fileId > maxId) {
-            maxId = fileId;
-          }
-        }
-      }
-    } catch (error) {
-      // If scanning fails, log but continue with central file maxId
-      log.warn("Failed to scan tasks directory for existing files", {
-        error: getErrorMessage(error as any),
-      });
-    }
 
     // Generate qualified backend ID for multi-backend storage (e.g., "md#285")
     const newId = `md#${maxId + 1}`; // Qualified format for storage
