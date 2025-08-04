@@ -19,7 +19,9 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     log.cli("📊 GitHub Backend Status\n");
 
     // Step 1: Check authentication setup
-    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    const { getConfiguration } = await import("../../domain/configuration/index");
+    const config = getConfiguration();
+    const githubToken = config.github.token;
 
     if (githubToken) {
       log.cli("✅ Authentication: GitHub token configured");
@@ -64,9 +66,10 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     }
 
     // Step 3: Check repository detection
+    let repoConfig: any = null;
     try {
       const workdir = process.cwd();
-      const repoConfig = getGitHubBackendConfig(workdir);
+      repoConfig = getGitHubBackendConfig(workdir);
 
       log.cli(`\n🏗️  Repository Detection:`);
 
@@ -97,24 +100,39 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
 
       log.cli(`\n⚙️  GitHub Configuration:`);
 
-      if (githubConfig) {
-        if (githubConfig.organization && githubConfig.repository) {
-          log.cli(
-            `✅ Repository configured: ${githubConfig.organization}/${githubConfig.repository}`
-          );
-        } else {
-          log.cli("⚠️  GitHub configuration incomplete");
-          log.cli("   Missing organization or repository configuration");
-        }
+      const hasExplicitConfig = githubConfig?.organization && githubConfig?.repository;
+      const hasAutoDetection = !!repoConfig;
 
-        if (verbose) {
-          log.cli(`   Organization: ${githubConfig.organization || "Not set"}`);
-          log.cli(`   Repository: ${githubConfig.repository || "Not set"}`);
-          log.cli(`   Base URL: ${githubConfig.baseUrl || "Default (github.com)"}`);
+      if (hasExplicitConfig) {
+        // Explicit configuration is present and complete
+        log.cli(
+          `✅ Repository configured: ${githubConfig.organization}/${githubConfig.repository}`
+        );
+        if (hasAutoDetection && verbose) {
+          log.cli("   Note: Auto-detection also available as fallback");
         }
+      } else if (hasAutoDetection) {
+        // No explicit config, but auto-detection works
+        log.cli("✅ Using auto-detection from git remote");
+        log.cli(`   Auto-detected: ${repoConfig.owner}/${repoConfig.repo}`);
+        if (verbose) {
+          log.cli("   Explicit configuration not required when auto-detection works");
+        }
+      } else if (githubConfig && !hasExplicitConfig) {
+        // Partial explicit config and no auto-detection
+        log.cli("⚠️  GitHub configuration incomplete");
+        log.cli("   Missing organization or repository configuration");
+        log.cli("   Auto-detection also unavailable (not in a GitHub repository)");
       } else {
-        log.cli("⚠️  No GitHub configuration found");
-        log.cli("   Using auto-detection based on git remote");
+        // No explicit config and no auto-detection
+        log.cli("⚠️  No GitHub repository configuration found");
+        log.cli("   Set up explicit config or use in a cloned GitHub repository");
+      }
+
+      if (verbose && githubConfig) {
+        log.cli(`   Organization: ${githubConfig.organization || "Not set"}`);
+        log.cli(`   Repository: ${githubConfig.repository || "Not set"}`);
+        log.cli(`   Base URL: ${githubConfig.baseUrl || "Default (github.com)"}`);
       }
     } catch (error) {
       if (verbose) {

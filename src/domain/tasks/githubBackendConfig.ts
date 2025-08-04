@@ -101,12 +101,16 @@ export function getGitHubBackendConfig(
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
   const { logErrors = false } = options || {};
 
-  // Check for GitHub token in environment
-  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  // Check for GitHub token using configuration system
+  const { getConfiguration } = require("../configuration/index");
+  const config = getConfiguration();
+  const githubToken = config.github.token;
 
   if (!githubToken) {
     if (logErrors) {
-      log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
+      log.error(
+        "GitHub token not found. Set GITHUB_TOKEN environment variable or add token to ~/.config/minsky/config.yaml"
+      );
     }
     return null;
   }
@@ -210,12 +214,16 @@ export function getGitHubBackendConfigFromRepo(
 ): Partial<GitHubIssuesTaskBackendOptions> | null {
   const { logErrors = false } = options || {};
 
-  // Check for GitHub token in environment
-  const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+  // Check for GitHub token using configuration system
+  const { getConfiguration } = require("../configuration/index");
+  const config = getConfiguration();
+  const githubToken = config.github.token;
 
   if (!githubToken) {
     if (logErrors) {
-      log.error("GitHub token not found in environment. Set GITHUB_TOKEN or GH_TOKEN in .env file");
+      log.error(
+        "GitHub token not found. Set GITHUB_TOKEN environment variable or add token to ~/.config/minsky/config.yaml"
+      );
     }
     return null;
   }
