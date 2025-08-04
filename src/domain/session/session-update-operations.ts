@@ -476,7 +476,10 @@ export async function updatePrStateOnCreation(
     mergedAt: undefined,
   };
 
-  await sessionDB.updateSession(sessionName, { prState });
+  await sessionDB.updateSession(sessionName, {
+    prBranch,
+    prState,
+  });
 
   log.debug("Updated PR state on creation", {
     sessionName,
