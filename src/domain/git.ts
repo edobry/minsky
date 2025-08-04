@@ -481,7 +481,7 @@ export class GitService implements GitServiceInterface {
     }
   }
 
-  async pullLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
+  async fetchLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
       const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
@@ -498,7 +498,7 @@ export class GitService implements GitServiceInterface {
       // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
-      throw new Error(`Failed to pull latest changes: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to fetch latest changes: ${getErrorMessage(err as any)}`);
     }
   }
 

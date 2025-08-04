@@ -450,7 +450,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await this.gitService.pullLatest(workdir);
+      const pullResult = await this.gitService.fetchLatest(workdir);
 
       return {
         success: true,
