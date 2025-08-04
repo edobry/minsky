@@ -428,10 +428,11 @@ Session requested: "${(options as any).session}"
   // Create commit message for merge commit (Task #025)
   try {
     // Use preserved message from recovery if no new title provided
-    // FIXED: Only use title for merge commit to avoid husky conventional commits validation issues
     let commitMessage =
       options.title || existingPrMessage || `Merge ${sourceBranch} into ${prBranch}`;
-    // Note: body is intentionally not included in merge commit message to avoid validation issues
+    if (options.body) {
+      commitMessage += `\n\n${options.body}`;
+    }
 
     // If we're reusing a preserved message, log it for transparency
     if (!options.title && existingPrMessage) {
@@ -483,12 +484,12 @@ Session requested: "${(options as any).session}"
       prBranch,
       baseBranch,
       workdir,
-      command: `merge --no-ff --no-verify ${sourceBranch} -m "${escapedCommitMessage}"`,
+      command: `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
     });
 
     await execGitWithTimeout(
       "merge",
-      `merge --no-ff --no-verify ${sourceBranch} -m "${escapedCommitMessage}"`,
+      `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
       { workdir, timeout: 180000 } // Increased to 3 minutes for complex merges
     );
 
@@ -556,16 +557,19 @@ To resolve conflicts and complete the PR:
 1. 🔍 Check current status:
    git status
 
-2. ✏️ Resolve conflicts manually:
+2. ✏️ Resolve conflicts manually (recommended):
    code <conflicted-file>
+   # Then stage and commit resolved files:
+   git add <resolved-files>
+   git commit --no-edit
 
-3. 🚀 Or accept all session changes (recommended):
+3. 🚀 Or accept all session changes (use with caution):
    git checkout --theirs . && git add . && git merge --continue
 
-4. 🔄 Or accept all main branch changes:
+4. 🔄 Or accept all main branch changes (use with caution):
    git checkout --ours . && git add . && git merge --continue
 
-After resolving conflicts, the PR will be pushed automatically.`,
+After resolving conflicts, re-run the PR creation command to complete the process.`,
         { exitCode: 4 }
       );
     }
