@@ -85,25 +85,25 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
 /**
  * Convert SQLite record to SessionRecord format
  */
-export function fromSqliteSelect(record: SqliteSessionRecord): SessionRecord {
+export function fromSqliteSelect(record: any): SessionRecord {
   return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl,
-    createdAt: record.createdAt,
-    taskId: record.taskId || undefined,
+    session: record.session,
+    repoName: record.repo_name || record.repoName,
+    repoUrl: record.repo_url || record.repoUrl,
+    createdAt: record.created_at || record.createdAt,
+    taskId: record.task_id || record.taskId || undefined,
     branch: record.branch || undefined,
 
-    // PR-related fields
-    prBranch: record.prBranch || undefined,
-    prApproved: record.prApproved ? JSON.parse(record.prApproved) : undefined,
-    prState: record.prState ? JSON.parse(record.prState) : undefined,
+    // PR-related fields - map from snake_case database columns to camelCase
+    prBranch: record.pr_branch || undefined,
+    prApproved: record.pr_approved ? JSON.parse(record.pr_approved) : undefined,
+    prState: record.pr_state ? JSON.parse(record.pr_state) : undefined,
 
-    // Backend configuration
-    backendType: (record.backendType as any) || undefined,
+    // Backend configuration - map from snake_case database columns to camelCase
+    backendType: record.backend_type || undefined,
     github: record.github ? JSON.parse(record.github) : undefined,
     remote: record.remote ? JSON.parse(record.remote) : undefined,
-    pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
+    pullRequest: record.pull_request ? JSON.parse(record.pull_request) : undefined,
   };
 }
 
