@@ -646,8 +646,8 @@
 
 - [ ] CLI Test Should Be 382 [#382](process/tasks/382-cli-test-should-be-382.md)
 
-- [ ] Test Central File Source of Truth [#383](process/tasks/383-test-central-file-source-of-truth.md)
+- [ ] Test Central File Source of Truth [md#383](process/tasks/md#383-test-central-file-source-of-truth.md)
 
-- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [#384](process/tasks/384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
+- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [md#384](process/tasks/md#384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
 
 - [ ] Add support for knowledge bases and documentation systems [md#385](process/tasks/md#385-add-support-for-knowledge-bases-and-documentation-systems.md)
