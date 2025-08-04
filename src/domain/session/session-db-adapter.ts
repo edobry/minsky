@@ -6,7 +6,7 @@
  * It provides seamless integration with JSON, SQLite, and PostgreSQL storage backends.
  */
 
-import type { SessionProviderInterface, SessionRecord } from "../session";
+import type { SessionProviderInterface, SessionRecord } from "./types";
 
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
