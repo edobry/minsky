@@ -95,8 +95,9 @@ export async function createPreparedMergeCommitPR(
         timeout: 30000,
       });
 
-      // If we get here, merge would succeed - abort the test merge
-      await gitExec("merge", "merge --abort", { workdir, timeout: 10000 });
+      // If we get here, merge would succeed - clean up the test merge
+      // --no-commit flag means no merge transaction was started, so use reset instead of abort
+      await gitExec("reset", "reset --hard HEAD", { workdir, timeout: 10000 });
     } catch (mergeTestError) {
       const errorMessage = getErrorMessage(mergeTestError as any);
 
