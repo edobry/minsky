@@ -7,7 +7,7 @@ import type { SessionRecord, PullRequestInfo } from "../session-db";
 import type { SessionProviderInterface } from "../types";
 import { createSessionProvider } from "../";
 import { createGitService } from "../../git";
-import { sessionPr } from "./pr-command"; // Use existing implementation for create
+import { sessionPr } from "./pr-command"; // Use modern implementation
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import {
   MinskyError,

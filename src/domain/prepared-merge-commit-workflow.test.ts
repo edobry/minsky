@@ -12,7 +12,7 @@ const TEST_ARRAY_SIZE = 3;
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitService } from "./git";
-import { sessionPrFromParams } from "./session";
+// ❌ DEPRECATED: sessionPrFromParams - tests for legacy implementation
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
 
@@ -178,19 +178,8 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       );
     });
 
-    test("sessionPrFromParams SHOULD call preparePr with correct parameters", async () => {
-      // This test demonstrates that sessionPrFromParams should use dependency injection
-      // to call preparePr, but currently it calls preparePrFromParams statically.
-      // This is an architectural limitation that requires a larger refactor.
-
-      // For now, we'll skip this test as it requires global state mutation to mock,
-      // which violates the no-dynamic-imports rule and proper DI principles.
-
-      // TODO: Refactor sessionPrFromParams to accept preparePr as a dependency
-      // so that it can be properly mocked without global state mutation.
-
-      expect(true).toBe(true); // Placeholder assertion
-    });
+    // ❌ REMOVED: sessionPrFromParams test - function was deprecated and removed
+    // Modern PR creation is tested in session-pr-refresh.test.ts
   });
 
   describe("Fast-Forward Merge Verification", () => {
