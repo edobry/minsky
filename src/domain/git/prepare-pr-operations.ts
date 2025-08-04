@@ -354,6 +354,15 @@ Session requested: "${(options as any).session}"
     sourceBranch = branchResult.stdout.trim();
   }
 
+  // CRITICAL: PR creation must only be from session branches, not PR branches
+  if (sourceBranch.startsWith("pr/")) {
+    throw new MinskyError(
+      `Cannot create PR from PR branch '${sourceBranch}'. ` +
+        `PRs must be created from session branches only. ` +
+        `Switch to your session branch first (e.g., '${sourceBranch.slice(3)}').`
+    );
+  }
+
   // Create PR branch name with pr/ prefix - always use the current git branch name
   // Fix for task #95: Don't use title for branch naming
   const prBranchName = options.branchName || sourceBranch;
