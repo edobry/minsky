@@ -21,13 +21,16 @@ export async function testGitHubConnection(options: TestOptions = {}): Promise<v
     }
 
     // Step 1: Check authentication
-    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    const { getConfiguration } = await import("../../domain/configuration/index");
+    const config = getConfiguration();
+    const githubToken = config.github.token;
 
     if (!githubToken) {
       log.cli("❌ No GitHub token found");
       log.cli("");
       log.cli("Please set up authentication:");
       log.cli('  export GITHUB_TOKEN="your_token_here"');
+      log.cli("  Or add token to ~/.config/minsky/config.yaml");
       log.cli("  Or use: gh auth login");
       log.cli("");
       log.cli("See: minsky docs github-setup");

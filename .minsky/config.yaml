@@ -1,4 +1,4 @@
 version: 1
 
-# Task Backend Configuration - GitHub Issues backend for testing
-backend: "github-issues"
+# Task Backend Configuration - Markdown backend for local task management
+backend: "markdown"

@@ -546,11 +546,13 @@ Repository: https://github.com/${this.owner}/${this.repo}
         timeout: 60000,
       });
 
-      // Get GitHub token from environment
-      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
       if (!githubToken) {
         throw new MinskyError(
-          "GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable"
+          "GitHub token not found. Set GITHUB_TOKEN environment variable or add token to ~/.config/minsky/config.yaml"
         );
       }
 
@@ -716,11 +718,13 @@ Repository: https://github.com/${this.owner}/${this.repo}
     }
 
     try {
-      // Get GitHub token from environment
-      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
       if (!githubToken) {
         throw new MinskyError(
-          "GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable"
+          "GitHub token not found. Set GITHUB_TOKEN environment variable or add token to ~/.config/minsky/config.yaml"
         );
       }
 
