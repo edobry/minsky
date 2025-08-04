@@ -64,7 +64,7 @@ export async function sessionPr(params: SessionPrParams): Promise<{
       message: `Pull request created successfully on branch ${result.prBranch}`,
     };
   } catch (error) {
-    log.error("Explicit session PR failed", {
+    log.debug("Explicit session PR failed", {
       error: error instanceof Error ? error.message : String(error),
       session: params.session,
     });
@@ -120,7 +120,7 @@ export async function pureSessionUpdate(params: SessionUpdateParams): Promise<{
       message: result.message || "Session updated successfully",
     };
   } catch (error) {
-    log.error("Pure session update failed", {
+    log.debug("Pure session update failed", {
       error: error instanceof Error ? error.message : String(error),
       session: params.session,
     });
@@ -160,7 +160,7 @@ export async function pureSessionApprove(params: SessionApproveParams): Promise<
       message: result.message || "Session approved successfully",
     };
   } catch (error) {
-    log.error("Pure session approve failed", {
+    log.debug("Pure session approve failed", {
       error: error instanceof Error ? error.message : String(error),
       session: params.session,
     });
@@ -218,7 +218,7 @@ export async function sessionCommit(params: {
       pushed: pushResult.pushed,
     };
   } catch (error) {
-    log.error("Session commit failed", {
+    log.debug("Session commit failed", {
       error: error instanceof Error ? error.message : String(error),
       session: params.session,
     });
