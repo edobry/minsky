@@ -644,8 +644,8 @@
 
 - [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
 
-- [ ] Implement Background Code Similarity Detection with ESLint Integration [#md#381](process/tasks/md#381-implement-background-code-similarity-detection-with-eslint-integration.md)
+- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [#384](process/tasks/384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
 
-- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [md#384](process/tasks/md#384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
+- [ ] Add support for knowledge bases and documentation systems [#385](process/tasks/385-add-support-for-knowledge-bases-and-documentation-systems.md)
 
-- [ ] Add support for knowledge bases and documentation systems [md#385](process/tasks/md#385-add-support-for-knowledge-bases-and-documentation-systems.md)
+- [+] Fix git commands not being available over MCP by uncommenting the registerGitTools call in the MCP command registration [#386](process/tasks/386-fix-git-commands-not-being-available-over-mcp-by-uncommenting-the-registergittools-call-in-the-mcp-command-registration.md)
