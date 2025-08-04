@@ -483,12 +483,12 @@ Session requested: "${(options as any).session}"
       prBranch,
       baseBranch,
       workdir,
-      command: `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
+      command: `merge --no-ff --no-verify ${sourceBranch} -m "${escapedCommitMessage}"`,
     });
 
     await execGitWithTimeout(
       "merge",
-      `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
+      `merge --no-ff --no-verify ${sourceBranch} -m "${escapedCommitMessage}"`,
       { workdir, timeout: 180000 } // Increased to 3 minutes for complex merges
     );
 
