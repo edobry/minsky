@@ -252,7 +252,7 @@ Please provide a title for your pull request:
             backend: "markdown",
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+          log.cli(`Updated task ${sessionRecord.taskId} status to IN-REVIEW`);
         } catch (error) {
           log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
         }
