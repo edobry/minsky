@@ -97,7 +97,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       const { createSessionProvider } = await import("../../../../domain/session");
       const sessionDB = createSessionProvider();
       const sessionRecord = await sessionDB.getSession(sessionName);
-      
+
       // Session must exist and have PR state indicating a valid PR was created
       if (!sessionRecord || !sessionRecord.prState || !sessionRecord.prBranch) {
         return false;
