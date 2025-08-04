@@ -92,17 +92,23 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
     }
 
     // Prepare PR using session operations layer (proper architecture)
-    const result = await sessionPrImpl({
-      sessionName: resolvedContext.sessionName,
-      workdir,
-      baseBranch,
-      title,
-      body: bodyContent,
-      skipUpdate: params.skipUpdate,
-      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-      skipConflictCheck: params.skipConflictCheck,
-      debug,
-    });
+    const result = await sessionPrImpl(
+      {
+        session: resolvedContext.sessionName,
+        task: params.task,
+        repo: params.repo,
+        title,
+        body: bodyContent,
+        skipUpdate: params.skipUpdate,
+        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+        skipConflictCheck: params.skipConflictCheck,
+        debug,
+      },
+      {
+        sessionDB,
+        gitService,
+      }
+    );
 
     // Get the commit hash of the prepared merge commit
     const commitHashResult = await gitService.execInRepository(
