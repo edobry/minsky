@@ -1,3 +1,7 @@
+---
+description: Use when designing or reviewing any user-facing output including CLI commands, error messages, status reporting, verbose modes, and user interface text. Apply to ensure all output provides actionable value rather than noise.
+---
+
 # Meaningful Output Principles
 
 Principles for ensuring every piece of information displayed to users serves a clear purpose and provides actionable value.
@@ -14,7 +18,7 @@ Before including any information in user-facing output, verify it passes this te
 
 ```
 [ ] Actionable: Helps user make a decision or take action
-[ ] Diagnostic: Helps user debug or understand system state  
+[ ] Diagnostic: Helps user debug or understand system state
 [ ] Confirmatory: Verifies user's expectation or assumption
 [ ] Informative: Provides context user lacks and needs
 ```
@@ -30,7 +34,7 @@ If it fails all four categories, it's noise.
    Rate limit: 4233/5000 remaining         ← Actionable: shows quota status
 ```
 
-### ❌ Meaningless Output  
+### ❌ Meaningless Output
 ```
 ✅ Authentication: GitHub token configured
    Token source: configuration system      ← Noise: restates obvious information
@@ -42,7 +46,7 @@ If it fails all four categories, it's noise.
 ### 1. Redundant Status Messages
 **Problem**: Restating information already conveyed
 ```
-❌ "✅ Success: Operation completed successfully"  
+❌ "✅ Success: Operation completed successfully"
 ✅ "✅ Database migration completed"
 ```
 
@@ -73,7 +77,7 @@ Verbose output should provide **additional diagnostic value**, not just **more n
 
 ### ✅ Good Verbose Information
 - Timing information for performance debugging
-- Token prefixes for credential verification  
+- Token prefixes for credential verification
 - Detailed error context for troubleshooting
 - Configuration paths for system understanding
 
@@ -93,7 +97,7 @@ Show **current state** and **next actions**, not **how system works internally**
 ❌ "Configuration loaded from environment and file sources"
 ```
 
-### Error Messages  
+### Error Messages
 Focus on **user action** and **resolution path**, not **internal failure details**
 ```
 ✅ "GitHub token not found. Set GITHUB_TOKEN or add to config file"
@@ -110,7 +114,7 @@ The line provided zero actionable value - users already knew authentication was 
 
 Apply during:
 - CLI output design and review
-- Error message construction  
+- Error message construction
 - Status and progress reporting
 - Verbose mode implementation
 - User interface text creation
@@ -119,7 +123,133 @@ Apply during:
 
 Before committing any user-facing output:
 1. Apply the Information Value Test to each line
-2. Remove lines that fail all four value categories  
+2. Remove lines that fail all four value categories
+3. Verify remaining output serves user goals
+4. Test with actual users when possible
+
+**Goal**: Every piece of information should make users more effective, not just more informed.
+# Meaningful Output Principles
+
+Principles for ensuring every piece of information displayed to users serves a clear purpose and provides actionable value.
+
+## Core Principle
+
+**Every output line must answer: "How does this help the user accomplish their goal?"**
+
+If the answer is unclear or "it doesn't," remove the line.
+
+## The Information Value Test
+
+Before including any information in user-facing output, verify it passes this test:
+
+```
+[ ] Actionable: Helps user make a decision or take action
+[ ] Diagnostic: Helps user debug or understand system state
+[ ] Confirmatory: Verifies user's expectation or assumption
+[ ] Informative: Provides context user lacks and needs
+```
+
+If it fails all four categories, it's noise.
+
+## Examples of Meaningful vs Meaningless Output
+
+### ✅ Meaningful Output
+```
+✅ Authentication: GitHub token configured
+   Token prefix: gith...                    ← Diagnostic: verify correct token
+   Rate limit: 4233/5000 remaining         ← Actionable: shows quota status
+```
+
+### ❌ Meaningless Output
+```
+✅ Authentication: GitHub token configured
+   Token source: configuration system      ← Noise: restates obvious information
+   System: operational                     ← Noise: provides no value
+```
+
+## Common Anti-Patterns to Avoid
+
+### 1. Redundant Status Messages
+**Problem**: Restating information already conveyed
+```
+❌ "✅ Success: Operation completed successfully"
+✅ "✅ Database migration completed"
+```
+
+### 2. Implementation Detail Exposure
+**Problem**: Showing internal system mechanics without user benefit
+```
+❌ "Token source: configuration system"
+✅ "Token prefix: gith..." (helps verify correct token)
+```
+
+### 3. Noise Padding
+**Problem**: Adding lines to make output "look complete"
+```
+❌ Adding "Processing..." when no wait time expected
+❌ "System status: normal" when system status isn't relevant
+```
+
+### 4. Obvious State Announcements
+**Problem**: Telling users what they can already see
+```
+❌ "Verbose mode enabled" (when user passed --verbose)
+❌ "Configuration loaded" (when showing config values)
+```
+
+## Verbose Mode Guidelines
+
+Verbose output should provide **additional diagnostic value**, not just **more noise**.
+
+### ✅ Good Verbose Information
+- Timing information for performance debugging
+- Token prefixes for credential verification
+- Detailed error context for troubleshooting
+- Configuration paths for system understanding
+
+### ❌ Bad Verbose Information
+- Restating main output in different words
+- Internal process steps with no user benefit
+- System state that users can't act upon
+- Implementation details without diagnostic value
+
+## Application in CLI Commands
+
+### Status Commands
+Show **current state** and **next actions**, not **how system works internally**
+```
+✅ "GitHub Issues backend needs setup:"
+✅ "   Configure backend in .minsky/config.yaml:"
+❌ "Configuration loaded from environment and file sources"
+```
+
+### Error Messages
+Focus on **user action** and **resolution path**, not **internal failure details**
+```
+✅ "GitHub token not found. Set GITHUB_TOKEN or add to config file"
+❌ "Token resolution failed in configuration loader module"
+```
+
+## Documentation Reference
+
+This principle was derived from removing "Token source: configuration system" from GitHub status output (commit ec76afd9d) when user questioned: "what exactly is the point of 'Token source: configuration system'"
+
+The line provided zero actionable value - users already knew authentication was configured from the status line above it.
+
+## When to Apply This Rule
+
+Apply during:
+- CLI output design and review
+- Error message construction
+- Status and progress reporting
+- Verbose mode implementation
+- User interface text creation
+
+## Enforcement
+
+Before committing any user-facing output:
+1. Apply the Information Value Test to each line
+2. Remove lines that fail all four value categories
 3. Verify remaining output serves user goals
 4. Test with actual users when possible
 
