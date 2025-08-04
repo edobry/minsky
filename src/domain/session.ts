@@ -1040,7 +1040,7 @@ export async function updatePrStateOnCreation(
   // CRITICAL FIX: Set both prState AND prBranch fields for approval validation
   await sessionDB.updateSession(sessionName, {
     prState,
-    prBranch  // This is the field that session approval validation checks for
+    prBranch, // This is the field that session approval validation checks for
   });
 
   log.debug("Updated PR state on creation", {
