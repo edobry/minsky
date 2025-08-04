@@ -19,7 +19,9 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     log.cli("📊 GitHub Backend Status\n");
 
     // Step 1: Check authentication setup
-    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    const { getConfiguration } = await import("../../domain/configuration/index");
+    const config = getConfiguration();
+    const githubToken = config.github.token;
 
     if (githubToken) {
       log.cli("✅ Authentication: GitHub token configured");
