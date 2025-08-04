@@ -722,7 +722,7 @@ describe("Tests", () => {
 When migrating a test file:
 
 - [ ] Replace Jest imports with Bun imports
-- [ ] Convert manual mocks to centralized factories  
+- [ ] Convert manual mocks to centralized factories
 - [ ] Replace `.mockReturnValue()` with `.mockImplementation()`
 - [ ] Replace `.mockResolvedValue()` with `.mockImplementation(() => Promise.resolve())`
 - [ ] Update mock clearing to use `mockClear()` not `mockReset()`
@@ -758,7 +758,7 @@ When migrating a test file:
 ## Benefits of Following These Patterns
 
 1. **Proven Success**: 100% test success rate achieved through systematic approach
-2. **Architectural Clarity**: Clear separation between business logic and I/O operations  
+2. **Architectural Clarity**: Clear separation between business logic and I/O operations
 3. **Test Reliability**: No cross-test interference or isolation issues
 4. **Performance**: Fast test execution with proper dependency injection
 5. **Maintainability**: Template literals and explicit mocks reduce maintenance burden
