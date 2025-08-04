@@ -73,50 +73,10 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
   }
 
   private async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
-    // Check if there's an existing PR branch to determine if we can refresh
-    const currentDir = process.cwd();
-    const isSessionWorkspace = currentDir.includes("/sessions/");
-
-    let sessionName = params.name;
-    if (!sessionName && isSessionWorkspace) {
-      // Try to detect session name from current directory
-      const pathParts = currentDir.split("/");
-      const sessionsIndex = pathParts.indexOf("sessions");
-      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
-        sessionName = pathParts[sessionsIndex + 1];
-      }
-    }
-
-    if (!sessionName) {
-      return false;
-    }
-
-    try {
-      const { createGitService } = await import("../../../../domain/git");
-      const gitService = createGitService();
-      const prBranch = `pr/${sessionName}`;
-
-      // Check if branch exists locally
-      const localBranchOutput = await gitService.execInRepository(
-        currentDir,
-        `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
-      );
-      const localBranchExists = localBranchOutput.trim() !== "not-exists";
-
-      if (localBranchExists) {
-        return true;
-      }
-
-      // Check if branch exists remotely
-      const remoteBranchOutput = await gitService.execInRepository(
-        currentDir,
-        `git ls-remote --heads origin ${prBranch}`
-      );
-      return remoteBranchOutput.trim().length > 0;
-    } catch (error) {
-      // If we can't check branch existence, assume it doesn't exist
-      return false;
-    }
+    // STRICT: Body is always required for new PR creation
+    // This method was allowing bypasses based on stale remote branches
+    // For proper PR refresh functionality, implement explicit --refresh flag
+    return false;
   }
 
   private handlePrError(error: any, params: any): Error {
