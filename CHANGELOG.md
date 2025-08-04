@@ -4,7 +4,25 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system
+
+  - **REPOSITORY BACKEND COMPATIBILITY**: Added validation system to ensure GitHub Issues backend only works with GitHub repository backends
+  - **GITHUB REPOSITORY OVERRIDE**: New `--github-repo` CLI option allows specifying custom GitHub repository (format: "owner/repo") independent of workspace repository
+  - **CONFIGURATION INTEGRATION**: GitHub token now sourced from Minsky configuration system instead of environment variables
+  - **BYPASS VALIDATION**: When GitHub repository override is provided, compatibility validation is bypassed to allow usage in non-GitHub workspaces
+  - **CLI AUTO-REGISTRATION**: GitHub repository parameter automatically registered in CLI from Zod schema definitions
+  - **DIRECT API INTEGRATION**: GitHub Issues backend now creates issues directly via GitHub API, eliminating problematic temporary file workflows
+
 ### Fixed
+
+- **PR Creation Error Messages**: Improved merge conflict guidance to prevent dangerous automatic conflict resolution
+
+  - **MANUAL RESOLUTION PRIORITY**: Changed recommendations to prioritize manual conflict resolution over automated approaches
+  - **DANGEROUS GUIDANCE REMOVAL**: Removed "(recommended)" label from "accept all session changes" option and added "use with caution" warnings
+  - **WORKFLOW CLARIFICATION**: Fixed misleading claim that PR would be pushed automatically after conflict resolution
+  - **USER INSTRUCTION ACCURACY**: Clarified that users must re-run PR creation command after resolving merge conflicts
 
 - **Test Architecture & Reliability**: Achieved 100% test success rate (1458/1458 tests passing) with major architectural improvements
 
