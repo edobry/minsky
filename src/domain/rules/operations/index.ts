@@ -41,6 +41,21 @@ export {
   createSearchRulesOperation,
 } from "./core-operations";
 
+// Import for local use in createAllRuleOperations
+import {
+  createListRulesOperation,
+  createGetRuleOperation,
+  createCreateRuleOperation,
+  createUpdateRuleOperation,
+  createSearchRulesOperation,
+} from "./core-operations";
+import {
+  createReadRuleFileOperation,
+  createWriteRuleFileOperation,
+  createListRulesDirectoryOperation,
+} from "./file-operations";
+import { RuleOperationRegistry } from "./base-rule-operation";
+
 // Factory for creating all rule operations
 export function createAllRuleOperations(deps: RuleOperationDependencies) {
   return {

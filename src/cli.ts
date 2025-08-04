@@ -13,6 +13,7 @@ import { exit } from "./utils/process";
 import { registerAllSharedCommands } from "./adapters/shared/commands/index";
 import { createMCPCommand } from "./commands/mcp/index";
 import { createGitHubCommand } from "./commands/github/index";
+import { createContextCommand } from "./commands/context/index";
 import {
   setupCommonCommandCustomizations,
   registerAllCommands,
@@ -45,6 +46,9 @@ export async function createCli(): Promise<Command> {
 
   // Add GitHub command for testing and status
   cli.addCommand(createGitHubCommand());
+
+  // Add Context command for AI-powered rule suggestions
+  cli.addCommand(createContextCommand());
 
   // Set error handler
   cli.configureOutput({
