@@ -78,6 +78,47 @@ export async function createPreparedMergeCommitPR(
     // Ensure we're on the source branch
     await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
 
+    // CRITICAL: Test merge compatibility BEFORE creating PR branch
+    // This ensures we never switch to PR branch with potential conflicts
+    try {
+      // Fetch latest base branch to ensure we're testing against current state
+      await gitExec("fetch", "fetch origin", { workdir, timeout: 30000 });
+
+      // Test merge without actually merging (--no-commit --no-ff)
+      await gitExec("merge", `merge --no-commit --no-ff origin/${baseBranch}`, {
+        workdir,
+        timeout: 30000,
+      });
+
+      // If we get here, merge would succeed - abort the test merge
+      await gitExec("merge", "merge --abort", { workdir, timeout: 10000 });
+    } catch (mergeTestError) {
+      const errorMessage = getErrorMessage(mergeTestError as any);
+
+      // If this is a merge conflict, provide clear guidance
+      if (errorMessage.includes("conflict") || errorMessage.includes("CONFLICT")) {
+        throw new MinskyError(
+          `🔥 Session branch has conflicts with ${baseBranch} branch.\n\n` +
+            `PR creation requires a clean session branch. Please resolve conflicts first:\n\n` +
+            `1. 🔍 Check conflicts: git status\n` +
+            `2. ✏️ Resolve conflicts manually in your editor\n` +
+            `3. 📝 Stage resolved files: git add <resolved-files>\n` +
+            `4. ✅ Commit resolution: git commit\n` +
+            `5. 🔄 Try PR creation again\n\n` +
+            `💡 Or run session update to automatically merge latest changes:\n` +
+            `   minsky session update\n\n` +
+            `Technical details: ${errorMessage}`
+        );
+      }
+
+      // For other merge errors, provide generic guidance
+      throw new MinskyError(
+        `Failed to validate merge compatibility: ${errorMessage}\n\n` +
+          `Please ensure your session branch is up to date:\n` +
+          `   minsky session update`
+      );
+    }
+
     // Create and checkout the PR branch
     try {
       await gitExec("branch", `branch ${prBranch}`, { workdir, timeout: 30000 });

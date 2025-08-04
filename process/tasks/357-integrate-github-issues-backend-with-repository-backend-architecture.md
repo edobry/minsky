@@ -267,6 +267,50 @@ Update session operations to work with repository backend detection:
 
 - None identified - all prerequisite work completed
 
+### Critical Issues Discovered During Implementation
+
+#### Session PR Workflow Architectural Bug
+
+**Problem**: Session PR creation bypasses session layer and goes directly to git layer, violating core session workflow principles.
+
+**Root Cause**: `src/domain/session/commands/pr-command.ts` incorrectly imports and calls `preparePrFromParams` from git layer instead of using session PR operations layer.
+
+**Impact**:
+- Session update (merge main → session branch) is skipped entirely
+- Merge conflicts are handled on PR branch instead of session branch  
+- Users are left stranded on PR branch (`pr/task-name`) after conflicts
+- Violates fundamental rule: users should never work directly on PR branches
+
+**Correct Workflow**:
+1. Start on session branch (`task-name`)
+2. Run session update (merge main → session branch) 
+3. If conflicts → resolve on session branch, stay there
+4. Only after clean session branch → create PR branch
+5. User remains on session branch, never switches to PR branch
+
+**Current Broken Workflow**:
+1. Start on session branch ✅
+2. Skip session update entirely ❌
+3. Create PR branch immediately ❌  
+4. Switch to PR branch ❌
+5. Try to merge on PR branch ❌
+6. Leave user on PR branch with conflicts ❌
+
+**Evidence**: Error message shows `You are currently on branch 'pr/task-md#357' with merge in progress` proving user was switched to PR branch during conflict resolution.
+
+**Fix Required**: Session PR command must use session PR operations layer (which includes proper session update) instead of bypassing to git layer.
+
+**DEEPER ROOT CAUSE DISCOVERED**: Even after fixing session command layer, the git workflow itself has a fundamental flaw:
+
+- `createPreparedMergeCommitPR` in `src/domain/git/prepared-merge-commit-workflow.ts`
+- Line 95: Switches TO PR branch 
+- Line 105: Attempts merge ON PR branch ← **If conflicts occur, user stranded on PR branch**
+- Line 117: Switches back to source branch ← **Never reached if merge fails**
+
+**Core Problem**: Git workflow tries to merge session branch INTO PR branch, putting conflicts on PR branch where users shouldn't work. 
+
+**Required Fix**: Ensure session branch is clean via session update BEFORE creating PR branch. Never attempt merges on PR branch that could fail.
+
 ### Follow-up Tasks
 
 - Enhanced repository backend support (GitLab, custom Git servers)
