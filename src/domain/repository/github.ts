@@ -551,8 +551,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const config = getConfiguration();
       const githubToken = config.github.token;
       if (!githubToken) {
+        // Get environment variable names that map to github.token
+        const githubTokenEnvVars = Object.entries(environmentMappings)
+          .filter(([_, configPath]) => configPath === "github.token")
+          .map(([envVar, _]) => envVar);
+
+        const configFile = `${getUserConfigDir()}/config.yaml`;
+        const primaryEnvVar = githubTokenEnvVars[0] || "GITHUB_TOKEN";
+
         throw new MinskyError(
-          "GitHub token not found. Set GITHUB_TOKEN environment variable or add token to ~/.config/minsky/config.yaml"
+          `GitHub token not found. Set ${primaryEnvVar} environment variable or add token to ${configFile}`
         );
       }
 
@@ -723,8 +731,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const config = getConfiguration();
       const githubToken = config.github.token;
       if (!githubToken) {
+        // Get environment variable names that map to github.token
+        const githubTokenEnvVars = Object.entries(environmentMappings)
+          .filter(([_, configPath]) => configPath === "github.token")
+          .map(([envVar, _]) => envVar);
+
+        const configFile = `${getUserConfigDir()}/config.yaml`;
+        const primaryEnvVar = githubTokenEnvVars[0] || "GITHUB_TOKEN";
+
         throw new MinskyError(
-          "GitHub token not found. Set GITHUB_TOKEN environment variable or add token to ~/.config/minsky/config.yaml"
+          `GitHub token not found. Set ${primaryEnvVar} environment variable or add token to ${configFile}`
         );
       }
 

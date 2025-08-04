@@ -5,7 +5,7 @@
  */
 
 import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
-import { get } from "../../domain/configuration";
+import { get, getConfiguration } from "../../domain/configuration";
 import { log } from "../../utils/logger";
 
 interface StatusOptions {
@@ -19,19 +19,17 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     log.cli("📊 GitHub Backend Status\n");
 
     // Step 1: Check authentication setup
-    const { getConfiguration } = await import("../../domain/configuration/index");
     const config = getConfiguration();
     const githubToken = config.github.token;
 
     if (githubToken) {
       log.cli("✅ Authentication: GitHub token configured");
       if (verbose) {
-        log.cli(`   Token source: ${process.env.GITHUB_TOKEN ? "GITHUB_TOKEN" : "GH_TOKEN"}`);
         log.cli(`   Token prefix: ${githubToken.substring(0, 4)}...`);
       }
     } else {
       log.cli("❌ Authentication: No GitHub token found");
-      log.cli("   Set GITHUB_TOKEN environment variable or use 'gh auth login'");
+      log.cli("   Set up authentication via environment variables or config file");
     }
 
     // Step 2: Check configuration

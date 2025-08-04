@@ -48,12 +48,29 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+<<<<<<< HEAD
 - **PR Creation Error Messages**: Improved merge conflict guidance to prevent dangerous automatic conflict resolution
 
   - **MANUAL RESOLUTION PRIORITY**: Changed recommendations to prioritize manual conflict resolution over automated approaches
   - **DANGEROUS GUIDANCE REMOVAL**: Removed "(recommended)" label from "accept all session changes" option and added "use with caution" warnings
   - **WORKFLOW CLARIFICATION**: Fixed misleading claim that PR would be pushed automatically after conflict resolution
   - **USER INSTRUCTION ACCURACY**: Clarified that users must re-run PR creation command after resolving merge conflicts
+=======
+- **GitHub Status UX**: Fixed misleading configuration warnings in `minsky gh status` command
+  - Now shows positive "✅ Using auto-detection from git remote" when auto-detection works
+  - Only warns about missing configuration when both explicit config AND auto-detection fail
+  - Provides helpful verbose context about when explicit configuration is optional
+  - Resolves contradiction where system reported "ready to use" while showing configuration warnings
+- **GitHub Token Detection**: Fixed GitHub token detection to use configuration system instead of environment variables only
+  - Updated `showGitHubStatus` and `getGitHubBackendConfig` functions to use `getConfiguration()`
+  - Tokens in `~/.config/minsky/config.yaml` are now properly detected
+  - Improved error messages to mention both environment variables and config file options
+- **Dynamic Configuration Paths**: Replaced hardcoded environment variable names and config paths with dynamic values from configuration system
+  - Status command now shows actual detected token source instead of hardcoded env var names
+  - Error messages use dynamic environment variable names from `environmentMappings`
+  - Config file paths use `getUserConfigDir()` for accurate user-specific paths
+  - Eliminates maintenance burden of keeping hardcoded strings synchronized
+>>>>>>> origin/main
 
 - **Test Architecture & Reliability**: Achieved 100% test success rate (1458/1458 tests passing) with major architectural improvements
 
@@ -1868,6 +1885,15 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 
 ### Fixed
 
+- **Session PR Architecture**: Fixed fundamental bugs in session PR workflow
+  - **CRITICAL**: Users no longer get switched to PR branches during conflicts
+  - **STRING MATCHING**: Replaced hacky `errorMessage.includes("CONFLICT")` with typed `SessionConflictError`
+  - **DUAL CODE PATHS**: Consolidated two separate PR creation workflows into single source of truth
+  - **BACKEND MISUSE**: Fixed prepared merge commit workflow misuse (now local/remote backends only)
+  - **GIT LAYER SEPARATION**: Removed task status updates from git layer for clean architectural separation
+  - **PR BRANCH NAMING**: Fixed incorrect title-based naming, now uses session name (`pr/task-md#357`)
+  - **STATUS UPDATE TIMING**: Task status update now happens only after successful PR creation
+  - **MERGE SIMULATION**: Fixed `merge --abort` bug when no merge transaction is active
 - **MCP Tool Naming Consistency**: Standardized tool naming to use dots (MCP convention) instead of underscores
   - `session.read_file`, `session.write_file`, `session.edit_file`, etc.
   - Follows MCP namespacing best practices for better organization
@@ -1919,5 +1945,3 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **INTEGRATION**: Seamless integration with Task #359 subcommand structure
 
 Repository backend PR workflow delegation now works reliably regardless of uncommitted changes state.
-
-> > > > > > > origin/main
