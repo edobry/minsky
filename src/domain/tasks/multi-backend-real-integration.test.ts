@@ -3,12 +3,12 @@ import { join } from "path";
 // Use mock.module() to mock filesystem operations
 // import { promises as fs } from "fs";
 import { MultiBackendTaskServiceImpl } from "./multi-backend-service";
-import { MarkdownTaskBackend } from "./markdown-task-backend";
+import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { TASK_STATUS } from "./taskConstants";
 
 describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
   let service: MultiBackendTaskServiceImpl;
-  let markdownBackend: MarkdownTaskBackend;
+  let markdownBackend: any;
   let tempDir: string;
 
   beforeEach(async () => {
@@ -18,7 +18,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     await fs.mkdir(join(tempDir, "process"), { recursive: true });
 
     // Initialize backends
-    markdownBackend = new MarkdownTaskBackend(tempDir);
+    markdownBackend = createMarkdownTaskBackend({ name: "markdown", workspacePath: tempDir });
 
     // Initialize service with real backend
     service = new MultiBackendTaskServiceImpl();
