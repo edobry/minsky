@@ -35,7 +35,28 @@ export class MarkdownTaskBackend implements TaskBackend {
   async createTask(spec: TaskSpec): Promise<Task> {
     // Get next available task ID
     const tasks = await this.parseTasks();
-    const maxId = Math.max(0, ...tasks.map((t) => parseInt(t.id.replace(/^(md#|#)/, ""), 10) || 0));
+    let maxId = Math.max(0, ...tasks.map((t) => parseInt(t.id.replace(/^(md#|#)/, ""), 10) || 0));
+
+    // Also scan filesystem for existing task files to get the true maximum ID
+    try {
+      const fs = await import("fs/promises");
+      const path = await import("path");
+      const tasksDir = path.join(this.workspacePath, "process", "tasks");
+      const files = await fs.readdir(tasksDir);
+      for (const file of files) {
+        // Extract ID from filename pattern: {id}-{title}.md or {backend}#{id}-{title}.md
+        const match = file.match(/^(?:md#)?(\d{1,4})-[^0-9]/);
+        if (match) {
+          const fileId = parseInt(match[1], 10);
+          if (!isNaN(fileId) && fileId > maxId) {
+            maxId = fileId;
+          }
+        }
+      }
+    } catch (error) {
+      // If scanning fails, continue with central file maxId
+    }
+
     const nextId = maxId + 1;
     const qualifiedId = `md#${nextId}`;
 
