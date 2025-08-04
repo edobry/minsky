@@ -428,11 +428,10 @@ Session requested: "${(options as any).session}"
   // Create commit message for merge commit (Task #025)
   try {
     // Use preserved message from recovery if no new title provided
+    // FIXED: Only use title for merge commit to avoid husky conventional commits validation issues
     let commitMessage =
       options.title || existingPrMessage || `Merge ${sourceBranch} into ${prBranch}`;
-    if (options.body) {
-      commitMessage += `\n\n${options.body}`;
-    }
+    // Note: body is intentionally not included in merge commit message to avoid validation issues
 
     // If we're reusing a preserved message, log it for transparency
     if (!options.title && existingPrMessage) {
