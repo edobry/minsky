@@ -6,6 +6,8 @@
 
 import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
 import { get, getConfiguration } from "../../domain/configuration";
+import { environmentMappings } from "../../domain/configuration/sources/environment";
+import { getUserConfigDir } from "../../domain/configuration/sources/user";
 import { log } from "../../utils/logger";
 
 interface StatusOptions {
@@ -25,7 +27,13 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     if (githubToken) {
       log.cli("✅ Authentication: GitHub token configured");
       if (verbose) {
-        log.cli(`   Token source: ${process.env.GITHUB_TOKEN ? "GITHUB_TOKEN" : "GH_TOKEN"}`);
+        // Get environment variable names that map to github.token
+        const githubTokenEnvVars = Object.entries(environmentMappings)
+          .filter(([_, configPath]) => configPath === "github.token")
+          .map(([envVar, _]) => envVar);
+
+        const detectedEnvVar = githubTokenEnvVars.find((envVar) => process.env[envVar]);
+        log.cli(`   Token source: ${detectedEnvVar || "config file"}`);
         log.cli(`   Token prefix: ${githubToken.substring(0, 4)}...`);
       }
     } else {
