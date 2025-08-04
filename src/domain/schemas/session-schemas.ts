@@ -155,7 +155,7 @@ export const SessionPRParametersSchema = z
     debug: z.boolean().default(false),
     noStatusUpdate: z.boolean().default(false),
     skipConflictCheck: z.boolean().default(false),
-    skipUpdate: z.boolean().default(false),
+
     autoResolveDeleteConflicts: z.boolean().default(false),
   })
   .merge(BaseBackendParametersSchema);

@@ -61,7 +61,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
         repo: params.repo,
         noStatusUpdate: params.noStatusUpdate,
         debug: params.debug,
-        skipUpdate: params.skipUpdate,
+
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipConflictCheck: params.skipConflictCheck,
       });
@@ -140,11 +140,11 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       return error;
     } else if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
       return new MinskyError(
-        `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Try with --skip-update to avoid session updates\n• Or manually resolve conflicts and retry\n\nTechnical details: ${errorMessage}`
+        `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Resolve conflicts manually and retry\n• Use --auto-resolve-delete-conflicts for simple conflicts\n\nTechnical details: ${errorMessage}`
       );
     } else if (errorMessage.includes("Failed to create prepared merge commit")) {
       return new MinskyError(
-        `❌ Failed to create PR branch merge commit.\n\nThis could be due to:\n• Merge conflicts between your session branch and base branch\n• Remote PR branch already exists with different content\n• Network issues with git operations\n\n💡 Try these solutions:\n• Run 'git status' to check for conflicts\n• Use --skip-update to bypass session updates\n• Check your git remote connection\n\nTechnical details: ${errorMessage}`
+        `❌ Failed to create PR branch merge commit.\n\nThis could be due to:\n• Merge conflicts between your session branch and base branch\n• Remote PR branch already exists with different content\n• Network issues with git operations\n\n💡 Try these solutions:\n• Run 'git status' to check for conflicts\n• Resolve conflicts in your session branch first\n• Check your git remote connection\n\nTechnical details: ${errorMessage}`
       );
     } else if (
       errorMessage.includes("Permission denied") ||
@@ -169,7 +169,6 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       title: params.title,
       hasBody: !!params.body,
       hasBodyPath: !!params.bodyPath,
-      skipUpdate: params.skipUpdate,
     };
   }
 }

@@ -230,12 +230,7 @@ export const sessionPrCommandParams = {
     defaultValue: false,
   },
   debug: commonSessionParams.debug,
-  skipUpdate: {
-    schema: z.boolean(),
-    description: "Skip session update before PR",
-    required: false,
-    defaultValue: false,
-  },
+
   autoResolveDeleteConflicts: {
     schema: z.boolean(),
     description: "Automatically resolve delete conflicts",
@@ -287,12 +282,7 @@ export const sessionPrCreateCommandParams = {
     defaultValue: false,
   },
   debug: commonSessionParams.debug,
-  skipUpdate: {
-    schema: z.boolean(),
-    description: "Skip session update before PR",
-    required: false,
-    defaultValue: false,
-  },
+
   autoResolveDeleteConflicts: {
     schema: z.boolean(),
     description: "Automatically resolve delete conflicts",

@@ -226,10 +226,7 @@ export async function updateSessionImpl(
           log.cli(`✅ ${updateResult.reason}`);
 
           if (updateResult.reason?.includes("already in base")) {
-            log.cli(
-              "\n💡 Your session changes are already merged. You can create a PR with --skip-update:"
-            );
-            log.cli('   minsky session pr --title "Your PR title" --skip-update');
+            log.cli("\n💡 Your session changes are already merged. Proceeding with PR creation...");
           }
 
           return {
@@ -256,7 +253,6 @@ export async function updateSessionImpl(
 
             if (analysis.sessionChangesInBase) {
               log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
-              log.cli('   minsky session pr --title "Your PR title" --skip-update');
             }
           }
 

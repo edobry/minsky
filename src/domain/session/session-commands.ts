@@ -17,7 +17,7 @@ export interface SessionPrParams {
   body?: string;
   bodyPath?: string;
   noStatusUpdate?: boolean;
-  skipUpdate?: boolean;
+
   skipConflictCheck?: boolean;
   autoResolveDeleteConflicts?: boolean;
   debug?: boolean;
@@ -52,7 +52,7 @@ export async function sessionPr(params: SessionPrParams): Promise<{
       body: params.body,
       bodyPath: params.bodyPath,
       noStatusUpdate: params.noStatusUpdate || false,
-      skipUpdate: params.skipUpdate || false,
+
       skipConflictCheck: params.skipConflictCheck || false,
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
       debug: params.debug || false,
