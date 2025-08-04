@@ -644,4 +644,10 @@
 
 - [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
 
-- [ ] CLI Test Should Be 382 [md#382](process/tasks/md#382-cli-test-should-be-382.md)
+- [ ] CLI Test Should Be 382 [#382](process/tasks/382-cli-test-should-be-382.md)
+
+- [ ] Test Central File Source of Truth [#383](process/tasks/383-test-central-file-source-of-truth.md)
+
+- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [#384](process/tasks/384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
+
+- [ ] Add support for knowledge bases and documentation systems [md#385](process/tasks/md#385-add-support-for-knowledge-bases-and-documentation-systems.md)
