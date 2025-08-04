@@ -648,4 +648,6 @@
 
 - [ ] Add support for knowledge bases and documentation systems [#385](process/tasks/385-add-support-for-knowledge-bases-and-documentation-systems.md)
 
-- [ ] Fix git commands not being available over MCP by uncommenting the registerGitTools call in the MCP command registration [md#386](process/tasks/md#386-fix-git-commands-not-being-available-over-mcp-by-uncommenting-the-registergittools-call-in-the-mcp-command-registration.md)
+- [ ] Fix git commands not being available over MCP by uncommenting the registerGitTools call in the MCP command registration [#386](process/tasks/386-fix-git-commands-not-being-available-over-mcp-by-uncommenting-the-registergittools-call-in-the-mcp-command-registration.md)
+
+- [+] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
