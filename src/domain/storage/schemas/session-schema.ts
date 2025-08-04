@@ -84,27 +84,27 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
 
 /**
  * Convert SQLite record to SessionRecord format
- * FIXED: Consistent snake_case database columns to camelCase TypeScript fields
+ * FIXED: Drizzle returns camelCase field names, not snake_case
  */
 export function fromSqliteSelect(record: any): SessionRecord {
   return {
     session: record.session,
-    repoName: record.repo_name, // snake_case DB → camelCase TS
-    repoUrl: record.repo_url, // snake_case DB → camelCase TS
-    createdAt: record.created_at, // snake_case DB → camelCase TS
-    taskId: record.task_id || undefined, // snake_case DB → camelCase TS
+    repoName: record.repoName, // Drizzle returns camelCase field names
+    repoUrl: record.repoUrl, // Drizzle returns camelCase field names
+    createdAt: record.createdAt, // Drizzle returns camelCase field names
+    taskId: record.taskId || undefined, // Drizzle returns camelCase field names
     branch: record.branch || undefined,
 
-    // PR-related fields - snake_case DB → camelCase TS
-    prBranch: record.pr_branch || undefined,
-    prApproved: record.pr_approved ? JSON.parse(record.pr_approved) : undefined,
-    prState: record.pr_state ? JSON.parse(record.pr_state) : undefined,
+    // PR-related fields - Drizzle returns camelCase field names
+    prBranch: record.prBranch || undefined,
+    prApproved: record.prApproved ? JSON.parse(record.prApproved) : undefined,
+    prState: record.prState ? JSON.parse(record.prState) : undefined,
 
-    // Backend configuration - snake_case DB → camelCase TS
-    backendType: record.backend_type || undefined,
+    // Backend configuration - Drizzle returns camelCase field names
+    backendType: record.backendType || undefined,
     github: record.github ? JSON.parse(record.github) : undefined,
     remote: record.remote ? JSON.parse(record.remote) : undefined,
-    pullRequest: record.pull_request ? JSON.parse(record.pull_request) : undefined,
+    pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
   };
 }
 
