@@ -25,8 +25,6 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     if (githubToken) {
       log.cli("✅ Authentication: GitHub token configured");
       if (verbose) {
-        // Show generic token source - configuration system handles the details
-        log.cli(`   Token source: configuration system`);
         log.cli(`   Token prefix: ${githubToken.substring(0, 4)}...`);
       }
     } else {
