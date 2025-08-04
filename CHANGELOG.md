@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **MCP Session Commands**: Implemented `session.commit` command for MCP interface
+  - **IMPLEMENTATION**: Added SessionCommitCommand class with proper parameter validation
+  - **INTEGRATION**: Registered session.commit in shared command registry for MCP availability
+  - **FUNCTIONALITY**: Enables committing and pushing changes within session workspace via MCP
+  - **VERIFICATION**: Command now properly appears in MCP tools list and is callable externally
+
 - **Task Management**: Created Task md#380 "Design Release-Based Changelog Management System" to address the scalability issues with the current append-only changelog approach
   - **SCOPE**: Research backend capabilities for release management (database vs repo backend vs hybrid)
   - **ARCHITECTURE**: Design release-based changelog system with version organization
