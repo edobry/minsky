@@ -217,9 +217,6 @@ Please provide a title for your pull request:
     const createBackendFn =
       deps.createRepositoryBackend || (() => createRepositoryBackendForSession(currentDir));
     const repositoryBackend = await createBackendFn(sessionName);
-    const backendType = repositoryBackend.getType();
-
-    log.cli(`📦 Using ${backendType} repository backend`);
 
     // Use repository backend to create pull request
     const baseBranch = params.baseBranch || "main";
@@ -232,14 +229,6 @@ Please provide a title for your pull request:
     );
 
     log.cli(`✅ Pull request created successfully!`);
-
-    if (backendType === "github") {
-      log.cli(`🔗 GitHub PR: ${prInfo.url}`);
-      log.cli(`📝 PR #${prInfo.number}: ${titleToUse}`);
-    } else {
-      log.cli(`🌿 PR branch: ${prInfo.number}`);
-      log.cli(`📝 Prepared merge commit ready for approval`);
-    }
 
     // Update PR state cache after successful creation
     await updatePrStateOnCreation(sessionName, deps.sessionDB);

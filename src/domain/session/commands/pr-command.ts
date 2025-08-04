@@ -99,7 +99,6 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
         repo: params.repo,
         title,
         body: bodyContent,
-        skipUpdate: params.skipUpdate,
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipConflictCheck: params.skipConflictCheck,
         debug,

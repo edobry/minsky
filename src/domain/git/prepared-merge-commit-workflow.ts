@@ -184,6 +184,10 @@ export async function createPreparedMergeCommitPR(
       }
     }
 
+    // Log local/remote repository specific PR information
+    log.cli(`🌿 PR branch: ${prBranch}`);
+    log.cli(`📝 Prepared merge commit ready for approval`);
+
     return {
       number: prBranch, // Use branch name as identifier for local/remote repos
       url: prBranch, // Use branch name as URL for local/remote repos

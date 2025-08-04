@@ -581,6 +581,10 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       const pr = prResponse.data;
 
+      // Log GitHub-specific PR information
+      log.cli(`🔗 GitHub PR: ${pr.html_url}`);
+      log.cli(`📝 PR #${pr.number}: ${title}`);
+
       return {
         number: pr.number,
         url: pr.html_url,
