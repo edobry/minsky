@@ -41,6 +41,11 @@ All notable changes to this project will be documented in this file.
   - Updated `showGitHubStatus` and `getGitHubBackendConfig` functions to use `getConfiguration()`
   - Tokens in `~/.config/minsky/config.yaml` are now properly detected
   - Improved error messages to mention both environment variables and config file options
+- **Dynamic Configuration Paths**: Replaced hardcoded environment variable names and config paths with dynamic values from configuration system
+  - Status command now shows actual detected token source instead of hardcoded env var names
+  - Error messages use dynamic environment variable names from `environmentMappings`
+  - Config file paths use `getUserConfigDir()` for accurate user-specific paths
+  - Eliminates maintenance burden of keeping hardcoded strings synchronized
 
 - **Test Architecture & Reliability**: Achieved 100% test success rate (1458/1458 tests passing) with major architectural improvements
 
