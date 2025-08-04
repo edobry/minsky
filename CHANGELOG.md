@@ -6,19 +6,25 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system
+- **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 
-  - **REPOSITORY BACKEND COMPATIBILITY**: Added validation system to ensure GitHub Issues backend only works with GitHub repository backends
-  - **GITHUB REPOSITORY OVERRIDE**: New `--github-repo` CLI option allows specifying custom GitHub repository (format: "owner/repo") independent of workspace repository
-  - **CONFIGURATION INTEGRATION**: GitHub token now sourced from Minsky configuration system instead of environment variables
-  - **BYPASS VALIDATION**: When GitHub repository override is provided, compatibility validation is bypassed to allow usage in non-GitHub workspaces
-  - **CLI AUTO-REGISTRATION**: GitHub repository parameter automatically registered in CLI from Zod schema definitions
-  - **DIRECT API INTEGRATION**: GitHub Issues backend now creates issues directly via GitHub API, eliminating problematic temporary file workflows
+  - **AUTO-DETECTION**: Automatically detects GitHub repositories via `.git/config` remote URLs for seamless task creation
+  - **REPOSITORY OVERRIDE**: New `--github-repo owner/repo` CLI option for custom GitHub repositories independent of workspace
+  - **BACKEND COMPATIBILITY**: Validation system ensures GitHub Issues backend only works with compatible repository backends  
+  - **BACKEND-QUALIFIED TASK IDS**: Support for `backend#id` format (e.g., `gh#123`, `md#456`) with backward compatibility
+  - **CONFIGURATION INTEGRATION**: GitHub token sourced from Minsky configuration system with proper error handling
+  - **CLI AUTO-REGISTRATION**: GitHub repository parameter automatically registered via parameter discovery system
+  - **PRODUCTION READY**: End-to-end tested integration ready for production use with comprehensive error handling
 
-- **Critical Architecture Fixes**: Resolved fundamental session PR workflow bugs
+- **Major Architectural Improvements**: Comprehensive system cleanup and modernization [Task #357]
 
-  - **SESSION BRANCH ENFORCEMENT**: Users now stay on session branches during conflicts instead of being switched to PR branches
-  - **UNIFIED CONFLICT DETECTION**: Consolidated two separate PR creation code paths to use single ConflictDetectionService
+  - **PR IMPLEMENTATION CONSOLIDATION**: Consolidated 4 duplicate PR implementations into 1 modern implementation
+  - **DATABASE SCHEMA MAPPING**: Fixed critical Drizzle ORM field mapping between snake_case DB and camelCase TypeScript
+  - **ENHANCED ERROR HANDLING**: Custom error classes (`SessionConflictError`, `ValidationError`) with actionable guidance
+  - **CLEAN SEPARATION OF CONCERNS**: Proper CLI → Session → Repository Backend architectural layering
+  - **NO SKIPPED TESTS**: Eliminated all deprecated code paths and test debt for maintainable codebase
+  - **SESSION BRANCH ENFORCEMENT**: Users stay on session branches during conflicts instead of being switched to PR branches
+  - **UNIFIED CONFLICT DETECTION**: Single ConflictDetectionService for all merge compatibility checks
   - **PROPER ERROR TYPES**: Replaced hacky string matching (`errorMessage.includes("CONFLICT")`) with typed SessionConflictError handling
   - **BACKEND SEPARATION**: Fixed architectural violation where preparePrImpl incorrectly delegated to createPreparedMergeCommitPR (local/remote backend only)
   - **PRE-FLIGHT VALIDATION**: PR creation now validates merge compatibility before creating PR branches, preventing conflicts on PR branches
