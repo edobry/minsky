@@ -6,6 +6,7 @@ import {
   getErrorMessage,
 } from "../../errors/index";
 import { log } from "../../utils/logger";
+import { ConflictDetectionService } from "./conflict-detection";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import type { PRInfo, MergeInfo } from "../repository/index";
 
@@ -86,23 +87,13 @@ export async function createPreparedMergeCommitPR(
     // CRITICAL: Test merge compatibility BEFORE creating PR branch
     // This ensures we never switch to PR branch with potential conflicts
     try {
-      // Fetch latest base branch to ensure we're testing against current state
-      await gitExec("fetch", "fetch origin", { workdir, timeout: 30000 });
-
-      // Test merge without actually merging (--no-commit --no-ff)
-      await gitExec("merge", `merge --no-commit --no-ff origin/${baseBranch}`, {
+      const conflictPrediction = await ConflictDetectionService.predictConflicts(
         workdir,
-        timeout: 30000,
-      });
+        sourceBranch,
+        baseBranch
+      );
 
-      // If we get here, merge would succeed - clean up the test merge
-      // --no-commit flag means no merge transaction was started, so use reset instead of abort
-      await gitExec("reset", "reset --hard HEAD", { workdir, timeout: 10000 });
-    } catch (mergeTestError) {
-      const errorMessage = getErrorMessage(mergeTestError as any);
-
-      // If this is a merge conflict, provide clear guidance
-      if (errorMessage.includes("conflict") || errorMessage.includes("CONFLICT")) {
+      if (conflictPrediction.hasConflicts) {
         throw new SessionConflictError(
           `🔥 Session branch has conflicts with ${baseBranch} branch.\n\n` +
             `PR creation requires a clean session branch. Please resolve conflicts first:\n\n` +
@@ -113,16 +104,27 @@ export async function createPreparedMergeCommitPR(
             `5. 🔄 Try PR creation again\n\n` +
             `💡 Or run session update to automatically merge latest changes:\n` +
             `   minsky session update\n\n` +
-            `Technical details: ${errorMessage}`
+            `Conflict details: ${conflictPrediction.userGuidance}`,
+          sourceBranch,
+          baseBranch
         );
       }
 
-      // For other merge errors, provide generic guidance
-      throw new GitOperationError(
-        `Failed to validate merge compatibility: ${errorMessage}\n\n` +
+      log.debug("Merge compatibility confirmed - no conflicts detected", {
+        sourceBranch,
+        baseBranch,
+        conflictType: conflictPrediction.conflictType,
+      });
+    } catch (error) {
+      if (error instanceof SessionConflictError) {
+        throw error; // Re-throw conflict errors as-is
+      }
+
+      // For other prediction errors, provide generic guidance
+      throw new MinskyError(
+        `Failed to validate merge compatibility: ${getErrorMessage(error as any)}\n\n` +
           `Please ensure your session branch is up to date:\n` +
-          `   minsky session update`,
-        `merge --no-commit --no-ff origin/${baseBranch}`
+          `   minsky session update`
       );
     }
 
