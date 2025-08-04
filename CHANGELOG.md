@@ -22,6 +22,12 @@ All notable changes to this project will be documented in this file.
   - **PROPER ERROR TYPES**: Replaced hacky string matching (`errorMessage.includes("CONFLICT")`) with typed SessionConflictError handling
   - **BACKEND SEPARATION**: Fixed architectural violation where preparePrImpl incorrectly delegated to createPreparedMergeCommitPR (local/remote backend only)
   - **PRE-FLIGHT VALIDATION**: PR creation now validates merge compatibility before creating PR branches, preventing conflicts on PR branches
+- **Task Management**: Created Task md#380 "Design Release-Based Changelog Management System" to address the scalability issues with the current append-only changelog approach
+  - **SCOPE**: Research backend capabilities for release management (database vs repo backend vs hybrid)
+  - **ARCHITECTURE**: Design release-based changelog system with version organization
+  - **MIGRATION**: Plan transition from current single-file append approach to release-organized format
+  - **AUTOMATION**: Integrate with existing git/task workflows and release preparation
+  - **STANDARDS**: Follow Keep a Changelog format with semantic versioning support
 
 - **Documentation Consolidation**: Completed Option 2 documentation strategy (single source of truth approach)
   - **ARCHITECTURE**: Enhanced `.cursor/rules/bun-test-patterns.mdc` with comprehensive test pattern guidance
