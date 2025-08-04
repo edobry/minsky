@@ -5,7 +5,7 @@
  */
 
 import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
-import { get } from "../../domain/configuration";
+import { get, getConfiguration } from "../../domain/configuration";
 import { log } from "../../utils/logger";
 
 interface StatusOptions {
@@ -19,7 +19,6 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     log.cli("📊 GitHub Backend Status\n");
 
     // Step 1: Check authentication setup
-    const { getConfiguration } = await import("../../domain/configuration/index");
     const config = getConfiguration();
     const githubToken = config.github.token;
 

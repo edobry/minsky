@@ -5,6 +5,7 @@
  */
 
 import { Octokit } from "@octokit/rest";
+import { getConfiguration } from "../../domain/configuration/index";
 import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
 import { log } from "../../utils/logger";
 
@@ -21,7 +22,6 @@ export async function testGitHubConnection(options: TestOptions = {}): Promise<v
     }
 
     // Step 1: Check authentication
-    const { getConfiguration } = await import("../../domain/configuration/index");
     const config = getConfiguration();
     const githubToken = config.github.token;
 
