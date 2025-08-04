@@ -1,5 +1,6 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { writeFile, mkdir, rm, readFile } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { writeFile, mkdir, rm, readFile } from "fs/promises";
 import { join } from "path";
 import { ValidationError } from "../errors/index";
 

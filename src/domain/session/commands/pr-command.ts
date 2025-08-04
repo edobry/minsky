@@ -67,8 +67,9 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       }
 
       // Clear prState to allow recreation
-      await sessionDb.updateSession(resolvedContext.sessionName, {
+      await sessionDB.updateSession(resolvedContext.sessionName, {
         ...sessionRecord,
+        prBranch: undefined, // Clear prBranch field too
         prState: undefined,
       });
     }
@@ -109,8 +110,9 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
     const commitHash = commitHashResult.trim();
 
     // Update session record with PR state
-    await sessionDb.updateSession(resolvedContext.sessionName, {
+    await sessionDB.updateSession(resolvedContext.sessionName, {
       ...sessionRecord,
+      prBranch: result.prBranch, // Set prBranch field for approval validation
       prState: {
         branchName: result.prBranch,
         commitHash: commitHash,
