@@ -52,12 +52,9 @@ export async function sessionPrImpl(
     throw error;
   }
 
-  // STEP 0.5: Validate that PR has a body or bodyPath (for new PRs)
-  if (!params.body && !params.bodyPath) {
-    throw new ValidationError(
-      "PR description is required. Please provide either --body or --body-path."
-    );
-  }
+  // STEP 0.5: Body validation is handled at the command layer
+  // Command layer checks if this is a new PR vs existing PR refresh
+  // and enforces body requirement accordingly
 
   // STEP 1: Validate we're in a session workspace and on a session branch
   const currentDir = process.cwd();

@@ -46,7 +46,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
 
       if (!canRefresh) {
         throw new Error(
-          'PR description is required for meaningful pull requests.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr create --title "fix: Bug fix" --body-path process/tasks/189/pr.md'
+          'PR description is required for new pull request creation.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr create --title "fix: Bug fix" --body-path process/tasks/189/pr.md\n\nNote: If updating an existing PR, the body requirement is optional.'
         );
       }
     }
@@ -73,10 +73,62 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
   }
 
   private async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
-    // STRICT: Body is always required for new PR creation
-    // This method was allowing bypasses based on stale remote branches
-    // For proper PR refresh functionality, implement explicit --refresh flag
-    return false;
+    // Check if there's a valid existing PR registered in the session record
+    // This allows updates to existing PRs without requiring body again
+    const currentDir = process.cwd();
+    const isSessionWorkspace = currentDir.includes("/sessions/");
+
+    let sessionName = params.name;
+    if (!sessionName && isSessionWorkspace) {
+      // Try to detect session name from current directory
+      const pathParts = currentDir.split("/");
+      const sessionsIndex = pathParts.indexOf("sessions");
+      if (sessionsIndex >= 0 && sessionsIndex < pathParts.length - 1) {
+        sessionName = pathParts[sessionsIndex + 1];
+      }
+    }
+
+    if (!sessionName) {
+      return false;
+    }
+
+    try {
+      // Check if session has a valid PR record (not just stale branches)
+      const { createSessionProvider } = await import("../../../../domain/session");
+      const sessionDB = createSessionProvider();
+      const sessionRecord = await sessionDB.getSession(sessionName);
+      
+      // Session must exist and have PR state indicating a valid PR was created
+      if (!sessionRecord || !sessionRecord.prState || !sessionRecord.prBranch) {
+        return false;
+      }
+
+      // Verify the PR branch actually exists (not just stale)
+      const { createGitService } = await import("../../../../domain/git");
+      const gitService = createGitService();
+      const prBranch = sessionRecord.prBranch;
+
+      // Check if branch exists locally or remotely
+      const localBranchOutput = await gitService.execInRepository(
+        currentDir,
+        `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
+      );
+      const localBranchExists = localBranchOutput.trim() !== "not-exists";
+
+      if (localBranchExists) {
+        return true;
+      }
+
+      // Check if branch exists remotely
+      const remoteBranchOutput = await gitService.execInRepository(
+        currentDir,
+        `git ls-remote --heads origin ${prBranch}`
+      );
+      return remoteBranchOutput.trim().length > 0;
+    } catch (error) {
+      // If we can't verify session/PR state, require body for safety
+      return false;
+    }
   }
 
   private handlePrError(error: any, params: any): Error {
