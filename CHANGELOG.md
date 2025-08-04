@@ -6,7 +6,6 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-<<<<<<< HEAD
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system
 
   - **REPOSITORY BACKEND COMPATIBILITY**: Added validation system to ensure GitHub Issues backend only works with GitHub repository backends
@@ -15,7 +14,15 @@ All notable changes to this project will be documented in this file.
   - **BYPASS VALIDATION**: When GitHub repository override is provided, compatibility validation is bypassed to allow usage in non-GitHub workspaces
   - **CLI AUTO-REGISTRATION**: GitHub repository parameter automatically registered in CLI from Zod schema definitions
   - **DIRECT API INTEGRATION**: GitHub Issues backend now creates issues directly via GitHub API, eliminating problematic temporary file workflows
-=======
+
+- **Critical Architecture Fixes**: Resolved fundamental session PR workflow bugs
+
+  - **SESSION BRANCH ENFORCEMENT**: Users now stay on session branches during conflicts instead of being switched to PR branches
+  - **UNIFIED CONFLICT DETECTION**: Consolidated two separate PR creation code paths to use single ConflictDetectionService
+  - **PROPER ERROR TYPES**: Replaced hacky string matching (`errorMessage.includes("CONFLICT")`) with typed SessionConflictError handling
+  - **BACKEND SEPARATION**: Fixed architectural violation where preparePrImpl incorrectly delegated to createPreparedMergeCommitPR (local/remote backend only)
+  - **PRE-FLIGHT VALIDATION**: PR creation now validates merge compatibility before creating PR branches, preventing conflicts on PR branches
+
 - **Documentation Consolidation**: Completed Option 2 documentation strategy (single source of truth approach)
   - **ARCHITECTURE**: Enhanced `.cursor/rules/bun-test-patterns.mdc` with comprehensive test pattern guidance
   - **INTEGRATION**: Added ESLint integration guide, performance considerations, migration checklist, debugging guide
@@ -32,7 +39,6 @@ All notable changes to this project will be documented in this file.
 ### Removed
 
 - **Duplicate Documentation**: Deleted `docs/bun-test-patterns.md` file (clean consolidation approach - no deprecated files)
->>>>>>> origin/main
 
 ### Fixed
 
@@ -1886,15 +1892,13 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **ESLint Formatting**: Resolved formatting issues in task command functions with optional dependency injection parameters
 - **Test Mocking Paths**: Corrected mock workspace paths to use proper temporary directories
 
-<<<<<<< HEAD
-
 ### Technical Debt
 
 - **Test Failures**: 6/10 task interface command tests still failing due to mock configuration issues
   - Root cause: `mockCreateTaskService` not properly returning mocked task service
   - Symptoms: Tests creating real filesystem operations instead of using `mockTaskService`
   - Next steps: Refine mock setup to ensure dependency injection returns proper mock objects
-- # **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
+- **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
 
 ### Removed
 
