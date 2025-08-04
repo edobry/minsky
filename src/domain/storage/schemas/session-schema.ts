@@ -9,21 +9,21 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { pgTable, varchar, timestamp, text as pgText } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 
-// SQLite Schema
+// SQLite Schema - MATCHING ACTUAL DATABASE COLUMNS
 export const sqliteSessions = sqliteTable("sessions", {
   session: text("session")!.primaryKey(),
-  repoName: text("repo_name")!.notNull(),
-  repoUrl: text("repo_url")!.notNull(),
-  createdAt: text("created_at").notNull(),
-  taskId: text("task_id"),
+  repoName: text("repoName")!.notNull(), // Keep actual column name
+  repoUrl: text("repoUrl")!.notNull(), // Keep actual column name
+  createdAt: text("createdAt").notNull(), // Keep actual column name
+  taskId: text("taskId"), // Keep actual column name
   branch: text("branch"),
 
-  // PR-related fields (Task #332/#366)
+  // PR-related fields (Task #332/#366) - these are correct snake_case
   prBranch: text("pr_branch"),
   prApproved: text("pr_approved"), // Store as JSON boolean string
   prState: text("pr_state"), // Store as JSON
 
-  // Backend configuration
+  // Backend configuration - these are correct snake_case
   backendType: text("backend_type"),
   github: text("github"), // Store as JSON
   remote: text("remote"), // Store as JSON
@@ -84,22 +84,23 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
 
 /**
  * Convert SQLite record to SessionRecord format
+ * FIXED: Handle mixed camelCase (old) and snake_case (new) column names
  */
 export function fromSqliteSelect(record: any): SessionRecord {
   return {
     session: record.session,
-    repoName: record.repo_name || record.repoName,
-    repoUrl: record.repo_url || record.repoUrl,
-    createdAt: record.created_at || record.createdAt,
-    taskId: record.task_id || record.taskId || undefined,
+    repoName: record.repoName, // Direct access - camelCase column
+    repoUrl: record.repoUrl, // Direct access - camelCase column
+    createdAt: record.createdAt, // Direct access - camelCase column
+    taskId: record.taskId || undefined, // Direct access - camelCase column
     branch: record.branch || undefined,
 
-    // PR-related fields - map from snake_case database columns to camelCase
+    // PR-related fields - these use snake_case columns (correct)
     prBranch: record.pr_branch || undefined,
     prApproved: record.pr_approved ? JSON.parse(record.pr_approved) : undefined,
     prState: record.pr_state ? JSON.parse(record.pr_state) : undefined,
 
-    // Backend configuration - map from snake_case database columns to camelCase
+    // Backend configuration - these use snake_case columns (correct)
     backendType: record.backend_type || undefined,
     github: record.github ? JSON.parse(record.github) : undefined,
     remote: record.remote ? JSON.parse(record.remote) : undefined,
