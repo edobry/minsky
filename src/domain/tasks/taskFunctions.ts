@@ -85,8 +85,18 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
-      // Use legacy format for backward compatibility in markdown display
-      const displayId = task.id.startsWith("#") ? task.id : `#${task.id}`;
+      // Unified ID Format: STRICT OUT - display qualified IDs as-is, add # prefix to legacy formats
+      let displayId: string;
+      if (/^[a-z-]+#\d+$/.test(task.id)) {
+        // Already qualified format (md#380, gh#456) - display as-is
+        displayId = task.id;
+      } else if (task.id.startsWith("#")) {
+        // Legacy #-prefixed format (#378) - keep as-is
+        displayId = task.id;
+      } else {
+        // Plain numeric (378) - add # prefix
+        displayId = `#${task.id}`;
+      }
       const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 
       // Always return only the task line - descriptions should remain in spec files

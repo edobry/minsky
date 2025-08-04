@@ -642,4 +642,4 @@
 
 - [ ] Test MCP session start after fixing duplicate task ID bug [#379](process/tasks/379-test-mcp-session-start-after-fixing-duplicate-task-id-bug.md)
 
-- [ ] Design Release-Based Changelog Management System [#md#380](process/tasks/md#380-design-release-based-changelog-management-system.md)
+- [ ] Design Release-Based Changelog Management System [md#380](process/tasks/md#380-design-release-based-changelog-management-system.md)
