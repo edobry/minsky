@@ -6,8 +6,6 @@
 
 import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
 import { get, getConfiguration } from "../../domain/configuration";
-import { environmentMappings } from "../../domain/configuration/sources/environment";
-import { getUserConfigDir } from "../../domain/configuration/sources/user";
 import { log } from "../../utils/logger";
 
 interface StatusOptions {
@@ -27,18 +25,13 @@ export async function showGitHubStatus(options: StatusOptions = {}): Promise<voi
     if (githubToken) {
       log.cli("✅ Authentication: GitHub token configured");
       if (verbose) {
-        // Get environment variable names that map to github.token
-        const githubTokenEnvVars = Object.entries(environmentMappings)
-          .filter(([_, configPath]) => configPath === "github.token")
-          .map(([envVar, _]) => envVar);
-
-        const detectedEnvVar = githubTokenEnvVars.find((envVar) => process.env[envVar]);
-        log.cli(`   Token source: ${detectedEnvVar || "config file"}`);
+        // Show generic token source - configuration system handles the details
+        log.cli(`   Token source: configuration system`);
         log.cli(`   Token prefix: ${githubToken.substring(0, 4)}...`);
       }
     } else {
       log.cli("❌ Authentication: No GitHub token found");
-      log.cli("   Set GITHUB_TOKEN environment variable or use 'gh auth login'");
+      log.cli("   Set up authentication via environment variables or config file");
     }
 
     // Step 2: Check configuration
