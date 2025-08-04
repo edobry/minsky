@@ -289,10 +289,10 @@ export class MarkdownTaskBackend implements TaskBackend {
     try {
       const files = await readdir(this.tasksDirectory);
       for (const file of files) {
-        // Extract ID from filename pattern: {id}-{title}.md
+        // Extract ID from filename pattern: {id}-{title}.md or {backend}#{id}-{title}.md
         // Only consider legitimate task files, exclude temporary files and timestamp-based IDs
-        // Pattern: {1-4 digit ID} followed by dash and non-digit (to avoid temp-task-title-timestamp pattern)
-        const match = file.match(/^(\d{1,4})-[^0-9]/);
+        // Pattern: optional backend prefix, then {1-4 digit ID} followed by dash and non-digit (to avoid temp-task-title-timestamp pattern)
+        const match = file.match(/^(?:md#)?(\d{1,4})-[^0-9]/);
         if (match) {
           const fileId = parseInt(match[1], 10);
           if (!isNaN(fileId) && fileId > maxId) {

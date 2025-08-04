@@ -644,4 +644,4 @@
 
 - [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
 
-- [ ] Create ESLint rule to prevent direct environment variable access outside configuration system [#md#381](process/tasks/md#381-create-eslint-rule-to-prevent-direct-environment-variable-access-outside-configuration-system.md)
+- [ ] Add Support for Knowledge Bases and Documentation Systems [#md#381](process/tasks/md#381-add-support-for-knowledge-bases-and-documentation-systems.md)
