@@ -369,7 +369,7 @@ During implementation of this task, a significant architectural improvement was 
 
 Multiple redundant PR creation implementations existed:
 1. `sessionPrFromParams()` in `session.ts` - Legacy implementation with architectural violations
-2. `sessionPr()` in `session-commands.ts` - Redundant wrapper calling legacy implementation  
+2. `sessionPr()` in `session-commands.ts` - Redundant wrapper calling legacy implementation
 3. `sessionPrImpl()` in `session-pr-operations.ts` - Modern implementation with proper repository backend delegation
 4. `sessionPr()` in `pr-command.ts` - CLI adapter calling modern implementation
 
@@ -393,3 +393,106 @@ Multiple redundant PR creation implementations existed:
 4. **No Skipped Tests**: All deprecated tests either removed or updated to test modern code
 
 This consolidation ensures that the GitHub Issues backend integration uses the same high-quality, well-tested PR creation workflow as all other repository backends.
+
+## Database Schema Mapping Fix (Completed)
+
+A critical database schema mapping issue was identified and resolved during testing of the session PR approval workflow.
+
+### Problem Identified
+
+**SQLite storage backend was not properly mapping database fields to TypeScript interface fields:**
+- Database column: `pr_branch` (snake_case)
+- TypeScript interface field: `prBranch` (camelCase)
+- Drizzle ORM queries were returning raw database records without proper field conversion
+
+### Root Cause
+
+Methods like `getEntity()` and `getEntities()` in `SqliteStorage` were casting results directly without using schema conversion functions:
+
+```typescript
+// BROKEN - Direct casting without field mapping
+return (result[0] as TEntity) || null;
+
+// FIXED - Proper field mapping via conversion functions  
+return result[0] ? (fromSqliteSelect(result[0]) as TEntity) : null;
+```
+
+### Solution Implemented
+
+**Complete Drizzle ORM Configuration:**
+1. **Import schema conversion functions** (`fromSqliteSelect`, `toSqliteInsert`) from `session-schema.ts`
+2. **Update `getEntity()`** to use `fromSqliteSelect()` for proper field mapping
+3. **Update `getEntities()`** to map all results through `fromSqliteSelect()`
+4. **Update `createEntity()`** to use `toSqliteInsert()` for database writes
+5. **Update `writeState()`** to use `toSqliteInsert()` for batch operations
+6. **Update `updateEntity()`** to use proper schema conversion for all fields
+
+### Technical Impact
+
+This ensures all database operations correctly map between:
+- **Database**: snake_case columns (`pr_branch`, `backend_type`, etc.)
+- **TypeScript**: camelCase interface fields (`prBranch`, `backendType`, etc.)
+
+The fix enables proper persistence and retrieval of all SessionRecord fields, including the critical `prBranch` field required for session PR approval validation.
+
+## ✅ IMPLEMENTATION STATUS SUMMARY
+
+### Core Requirements: COMPLETED ✅
+
+1. **✅ GitHub Issues Backend Integration** - Fully implemented and tested
+   - Auto-detects GitHub repositories via `.git/config` remote URLs
+   - Creates GitHub issues as tasks with proper metadata mapping
+   - Integrates seamlessly with existing repository backend architecture
+   - Validates task backend compatibility to prevent mismatched configurations
+
+2. **✅ Repository Override Feature** - Fully implemented and tested
+   - CLI parameter `--github-repo owner/repo` for custom GitHub repositories
+   - Auto-registration of CLI parameters via parameter discovery
+   - Works with both auto-detected and manually specified repositories
+
+3. **✅ Backend-Qualified Task IDs** - Fully implemented and tested  
+   - Support for `backend#id` format (e.g., `gh#123`, `md#456`)
+   - Backward compatibility with existing unqualified task IDs
+   - Proper task ID parsing and validation across all systems
+
+### Architectural Improvements: COMPLETED ✅
+
+4. **✅ PR Implementation Consolidation** - Major architectural cleanup completed
+   - Consolidated 4 duplicate PR implementations into 1 modern implementation
+   - Eliminated all skipped tests and deprecated code paths
+   - Clean separation of concerns between CLI → Session → Repository Backend layers
+
+5. **✅ Database Schema Mapping** - Critical infrastructure fix completed
+   - Fixed Drizzle ORM field mapping between snake_case DB and camelCase TypeScript
+   - All database operations now properly handle complete SessionRecord schema
+   - Enables reliable persistence of session metadata including PR tracking fields
+
+6. **✅ Error Handling & User Experience** - Comprehensive improvements completed
+   - Custom error classes (`SessionConflictError`, `ValidationError`) for better error categorization
+   - Enhanced error messages with actionable guidance
+   - Robust conflict detection and resolution workflows
+
+### Integration Validation: COMPLETED ✅
+
+7. **✅ End-to-End GitHub Workflow** - Fully tested and validated
+   - Successfully created GitHub issues via `minsky tasks create --github-repo edobry/minsky`
+   - Confirmed auto-detection works in GitHub repository contexts
+   - Validated proper task metadata synchronization between systems
+
+8. **✅ Session PR Creation** - Working with modern architecture
+   - PR creation successfully uses consolidated modern implementation
+   - Proper merge conflict detection and resolution
+   - Session metadata correctly persisted with Drizzle schema mapping
+
+### Current Implementation: PRODUCTION READY 🚀
+
+**The GitHub Issues backend integration is complete and fully functional.** Users can now:
+
+- ✅ Create tasks as GitHub issues when working in GitHub repositories
+- ✅ Use repository auto-detection for seamless backend selection  
+- ✅ Override repository settings when needed with `--github-repo`
+- ✅ Benefit from consolidated PR workflow with modern, maintainable code
+- ✅ Experience improved error handling and user guidance
+- ✅ Rely on robust database operations with proper field mapping
+
+**All core requirements have been successfully implemented and tested.** The integration is ready for production use with comprehensive error handling, proper architectural separation, and reliable database operations.
