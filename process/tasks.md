@@ -644,4 +644,6 @@
 
 - [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
 
-- [ ] Implement Background Code Similarity Detection with ESLint Integration [#md#381](process/tasks/md#381-implement-background-code-similarity-detection-with-eslint-integration.md)
+- [ ] Implement Background Code Similarity Detection with ESLint Integration [#383](process/tasks/383-implement-background-code-similarity-detection-with-eslint-integration.md)
+
+- [ ] Implement Background Code Similarity Detection with ESLint Integration [#md#384](process/tasks/md#384-implement-background-code-similarity-detection-with-eslint-integration.md)
