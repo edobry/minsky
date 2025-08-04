@@ -15,6 +15,7 @@ import type {
   DatabaseWriteResult,
   DatabaseQueryOptions,
 } from "../database-storage";
+import { sqliteSessions, fromSqliteSelect, toSqliteInsert } from "../schemas/session-schema";
 import { log } from "../../../utils/logger";
 import { mkdirSync, existsSync } from "fs";
 import { dirname } from "path";
@@ -26,16 +27,8 @@ export interface SqliteStorageConfig {
   timeout?: number;
 }
 
-// Drizzle schema definition
-const sessionsTable = sqliteTable("sessions", {
-  session: text("session").primaryKey(),
-  repoName: text("repoName").notNull(),
-  repoUrl: text("repoUrl"),
-  createdAt: text("createdAt").notNull(),
-  taskId: text("taskId"),
-  branch: text("branch"),
-  repoPath: text("repoPath"),
-});
+// Use the standard schema definition from session-schema.ts
+const sessionsTable = sqliteSessions;
 
 type SessionRecord = typeof sessionsTable.$inferSelect;
 type NewSessionRecord = typeof sessionsTable.$inferInsert;
@@ -151,16 +144,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 
         // Insert new sessions
         if (sessions.length > 0) {
-          const sessionRecords: NewSessionRecord[] = sessions.map((session: TEntity) => ({
-            session: session.session,
-            repoName: session.repoName,
-            repoUrl: session.repoUrl || null,
-            createdAt: session.createdAt,
-            taskId: session.taskId || null,
-            branch: session.branch || null,
-            repoPath: session.repoPath || null,
-          }));
-
+          const sessionRecords = sessions.map((session: TEntity) => toSqliteInsert(session as any));
           await tx.insert(sessionsTable).values(sessionRecords);
         }
       });
@@ -186,7 +170,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
         .where(eq(sessionsTable.session, id))
         .limit(1);
 
-      return (result[0] as TEntity) || null;
+      return result[0] ? (fromSqliteSelect(result[0]) as TEntity) : null;
     } catch (error) {
       const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
@@ -232,7 +216,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       }
 
       const sessions = await query;
-      return sessions as TEntity[];
+      return sessions.map((session) => fromSqliteSelect(session) as TEntity);
     } catch (error) {
       const errorMessage = getErrorMessage(error as any);
       log.error(`Failed to get sessions: ${errorMessage}`);
@@ -246,16 +230,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
     }
 
     try {
-      const sessionRecord: NewSessionRecord = {
-        session: entity.session,
-        repoName: entity.repoName,
-        repoUrl: entity.repoUrl || null,
-        createdAt: entity.createdAt,
-        taskId: entity.taskId || null,
-        branch: entity.branch || null,
-        repoPath: entity.repoPath || null,
-      };
-
+      const sessionRecord = toSqliteInsert(entity as any);
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
@@ -277,14 +252,12 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
         return null;
       }
 
-      // Prepare update data
-      const updateData: Partial<NewSessionRecord> = {};
-      if (updates.repoName !== undefined) updateData.repoName = updates.repoName;
-      if (updates.repoUrl !== undefined) updateData.repoUrl = updates.repoUrl;
-      if (updates.createdAt !== undefined) updateData.createdAt = updates.createdAt;
-      if (updates.taskId !== undefined) updateData.taskId = updates.taskId;
-      if (updates.branch !== undefined) updateData.branch = updates.branch;
-      if (updates.repoPath !== undefined) updateData.repoPath = updates.repoPath;
+      // Prepare update data using schema conversion
+      const mergedEntity = { ...existing, ...updates };
+      const updateData = toSqliteInsert(mergedEntity as any);
+
+      // Remove the session field from updates (it's the primary key)
+      delete updateData.session;
 
       if (Object.keys(updateData).length === 0) {
         return existing; // No updates needed
