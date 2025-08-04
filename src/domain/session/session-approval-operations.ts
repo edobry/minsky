@@ -9,10 +9,68 @@ import { log } from "../../utils/logger";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
 import { createRepositoryBackendForSession } from "./repository-backend-detection";
+import {
+  createRepositoryBackend,
+  RepositoryBackendType,
+  type RepositoryBackend,
+  type RepositoryBackendConfig,
+} from "../repository/index";
+import type { SessionRecord } from "./types";
 import type { ApprovalInfo } from "../repository/approval-types";
 import type { GitServiceInterface } from "../git/git-service-interface";
 import type { TaskServiceInterface } from "../tasks/task-service-interface";
 import type { WorkspaceUtilsInterface } from "../workspace";
+
+/**
+ * Create repository backend from session record's stored configuration
+ * instead of auto-detecting from git remote
+ */
+async function createRepositoryBackendFromSession(
+  sessionRecord: SessionRecord
+): Promise<RepositoryBackend> {
+  // Determine backend type from session configuration
+  let backendType: RepositoryBackendType;
+
+  if (sessionRecord.backendType) {
+    // Use explicitly set backend type
+    switch (sessionRecord.backendType) {
+      case "github":
+        backendType = RepositoryBackendType.GITHUB;
+        break;
+      case "remote":
+        backendType = RepositoryBackendType.REMOTE;
+        break;
+      case "local":
+      default:
+        backendType = RepositoryBackendType.LOCAL;
+        break;
+    }
+  } else {
+    // Infer backend type from repoUrl format for backward compatibility
+    if (sessionRecord.repoUrl.startsWith("/") || sessionRecord.repoUrl.startsWith("file://")) {
+      backendType = RepositoryBackendType.LOCAL;
+    } else if (sessionRecord.repoUrl.includes("github.com")) {
+      backendType = RepositoryBackendType.GITHUB;
+    } else {
+      backendType = RepositoryBackendType.REMOTE;
+    }
+  }
+
+  const config: RepositoryBackendConfig = {
+    type: backendType,
+    repoUrl: sessionRecord.repoUrl,
+  };
+
+  // Add GitHub-specific configuration if available
+  if (backendType === RepositoryBackendType.GITHUB && sessionRecord.github) {
+    config.github = {
+      owner: sessionRecord.github.owner || "",
+      repo: sessionRecord.github.repo || "",
+    };
+  }
+
+  return await createRepositoryBackend(config);
+}
 
 /**
  * Parameters for session approval operation
@@ -119,11 +177,9 @@ export async function approveSessionPr(
     };
   }
 
-  // Create repository backend for this session
-  const workingDirectory = params.repo || sessionRecord.repoUrl || process.cwd();
-  const createBackendFunc =
-    deps?.createRepositoryBackendForSession || createRepositoryBackendForSession;
-  const repositoryBackend = await createBackendFunc(workingDirectory);
+  // Create repository backend for this session using stored configuration
+  // Use the session record's stored backend config instead of auto-detection
+  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for approval`);
