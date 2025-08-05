@@ -4,12 +4,8 @@
 
 import type { AICompletionService, AIObjectGenerationRequest } from "../ai/types";
 import type { RulesService } from "../rules/types";
-import type {
-  RuleSuggestionRequest,
-  RuleSuggestionResponse,
-  RuleSuggestionConfig,
-  RuleSuggestionError,
-} from "./types";
+import type { RuleSuggestionRequest, RuleSuggestionResponse, RuleSuggestionConfig } from "./types";
+import { RuleSuggestionError } from "./types";
 
 export class DefaultRuleSuggestionService {
   constructor(
@@ -123,9 +119,11 @@ export class DefaultRuleSuggestionService {
         queryAnalysis: response.queryAnalysis,
       };
     } catch (error) {
-      // Fallback to basic analysis if AI fails - silently for now since AI is not configured
+      // Fallback to keyword-based matching when AI is unavailable
+      // AI service failed, using keyword-based fallback
+      const fallbackSuggestions = this.generateFallbackSuggestions(request);
       return {
-        suggestions: [],
+        suggestions: fallbackSuggestions,
         queryAnalysis: await this.analyzeQuery(request.query, request.contextHints),
       };
     }
@@ -162,6 +160,60 @@ Also analyze the query to extract:
 - suggestedCategories: general categories this relates to
 
 Only suggest rules that are actually relevant. If no rules match well, return empty suggestions.`;
+  }
+
+  private generateFallbackSuggestions(request: RuleSuggestionRequest): any[] {
+    const query = request.query.toLowerCase();
+    const queryWords = query.split(/\s+/).filter((word) => word.length > 2);
+
+    const suggestions: any[] = [];
+
+    for (const rule of request.workspaceRules) {
+      const ruleText = `${rule.id} ${rule.name || ""} ${rule.description || ""}`.toLowerCase();
+
+      let relevanceScore = 0;
+      let matchedKeywords: string[] = [];
+
+      // Look for meaningful keyword matches (not just any substring)
+      for (const queryWord of queryWords) {
+        if (queryWord.length < 3) continue; // Skip very short words
+
+        // Exact word boundary matches in rule text
+        const wordBoundaryRegex = new RegExp(`\\b${queryWord}\\b`);
+        if (wordBoundaryRegex.test(ruleText)) {
+          matchedKeywords.push(queryWord);
+          relevanceScore += 0.4;
+        }
+        // Partial matches in rule ID or name (more specific)
+        else if (
+          rule.id.toLowerCase().includes(queryWord) ||
+          (rule.name && rule.name.toLowerCase().includes(queryWord))
+        ) {
+          matchedKeywords.push(queryWord);
+          relevanceScore += 0.3;
+        }
+        // Less specific partial matches in description
+        else if (rule.description && rule.description.toLowerCase().includes(queryWord)) {
+          matchedKeywords.push(queryWord);
+          relevanceScore += 0.2;
+        }
+      }
+
+      // Apply minimum relevance threshold and require at least one match
+      if (relevanceScore >= (this.config.minRelevanceScore ?? 0.1) && matchedKeywords.length > 0) {
+        suggestions.push({
+          ruleId: rule.id,
+          relevanceScore: Math.min(relevanceScore, 1.0),
+          reasoning: `Matched: ${matchedKeywords.join(", ")}`,
+          confidenceLevel: relevanceScore > 0.6 ? "high" : relevanceScore > 0.3 ? "medium" : "low",
+        });
+      }
+    }
+
+    // Sort by relevance and limit results
+    return suggestions
+      .sort((a, b) => b.relevanceScore - a.relevanceScore)
+      .slice(0, this.config.maxSuggestions ?? 5);
   }
 
   private async analyzeQuery(query: string, contextHints: any): Promise<any> {
