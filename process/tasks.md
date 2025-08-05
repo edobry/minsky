@@ -654,10 +654,12 @@
 
 - [ ] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
 
-- [ ] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+- [+] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
 
 - [ ] Refactor session dependencies for unified dependency injection pattern [#389](process/tasks/389-refactor-session-dependencies-for-unified-dependency-injection-pattern.md)
 
 - [ ] Add AI telemetry and verbose output for debugging AI requests [#390](process/tasks/390-add-ai-telemetry-and-verbose-output-for-debugging-ai-requests.md)
 
 - [ ] Add config commands to MCP server [#391](process/tasks/391-add-config-commands-to-mcp-server.md)
+
+- [ ] Systematic Global Module Mock Cleanup [md#392](process/tasks/md#392-systematic-global-module-mock-cleanup.md)
