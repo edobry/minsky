@@ -6,9 +6,9 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { mkdir } from "fs/promises";
+import { mkdir } from "fs/promises";
 import { updateSessionFromParams } from "../../../src/domain/session";
+import { createMockGitService } from "../../../src/utils/test-utils/dependencies";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 import type { SessionTestData } from "./session-test-utilities";
@@ -21,24 +21,17 @@ describe("session update command", () => {
   beforeEach(() => {
     testData = createSessionTestData();
 
-    mockGitService = {
-      getSessionWorkdir: (repoName: string, sessionName: string) =>
-        join(testData.tempDir, repoName, "sessions", sessionName),
+    mockGitService = createMockGitService({
+      getSessionWorkdir: () => join(testData.tempDir, "test-repo", "sessions", "test-session"),
       execInRepository: async (workdir: string, command: string) => {
         if (command.includes("git remote get-url origin")) {
           return "https://github.com/test/repo.git";
         }
         return "";
       },
-      getCurrentBranch: async (workdir: string) => "task#168", // Added missing method
-      fetchDefaultBranch: async (workdir: string) => "main", // Added missing method
+      getCurrentBranch: async () => "task#168",
       hasUncommittedChanges: async () => false,
-      stashChanges: async () => undefined,
-      pullLatest: async () => undefined,
-      mergeBranch: async () => ({ conflicts: false }),
-      push: async () => undefined,
-      popStash: async () => undefined,
-    };
+    });
   });
 
   afterEach(async () => {

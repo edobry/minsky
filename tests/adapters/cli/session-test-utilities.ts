@@ -5,10 +5,8 @@
  */
 
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { mkdir, rmdir } from "fs/promises";
-// Use mock.module() to mock filesystem operations
-// import { existsSync } from "fs";
+import { mkdir, rmdir } from "fs/promises";
+import { existsSync } from "fs";
 import { mock } from "bun:test";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
@@ -163,26 +161,9 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
   }
 }
 
-export function createGitServiceMock(): GitServiceInterface {
-  return {
-    getCurrentBranch: mock(() => Promise.resolve("main")),
-    getRemoteUrl: mock(() => Promise.resolve("https://github.com/edobry/minsky")),
-    getRepoPath: mock(() => Promise.resolve("/Users/edobry/Projects/minsky")),
-    clone: mock(() => Promise.resolve(undefined)),
-    checkout: mock(() => Promise.resolve(undefined)),
-    createBranch: mock(() => Promise.resolve(undefined)),
-    push: mock(() => Promise.resolve(undefined)),
-    pull: mock(() => Promise.resolve(undefined)),
-    merge: mock(() => Promise.resolve(undefined)),
-    getStatus: mock(() => Promise.resolve({ hasChanges: false, changes: [] })),
-    add: mock(() => Promise.resolve(undefined)),
-    commit: mock(() => Promise.resolve(undefined)),
-    reset: mock(() => Promise.resolve(undefined)),
-    stash: mock(() => Promise.resolve(undefined)),
-    stashPop: mock(() => Promise.resolve(undefined)),
-    getCommitHash: mock(() => Promise.resolve("abc123")),
-  } as GitServiceInterface;
-}
+// GitService mock functionality moved to centralized utilities:
+// Use createMockGitService from '../../../src/utils/test-utils/dependencies'
+// This provides a complete, maintained mock with all interface methods.
 
 // Helper function to create session records for testing
 export function createSessionRecord(overrides?: any): any {

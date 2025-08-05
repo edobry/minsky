@@ -486,6 +486,7 @@ export interface MockGitServiceOptions {
   getSessionWorkdir?: () => string;
   stashChanges?: () => Promise<{ workdir: string; stashed: boolean }>;
   pullLatest?: () => Promise<{ workdir: string; updated: boolean }>;
+  fetchLatest?: () => Promise<{ workdir: string; updated: boolean }>;
   mergeBranch?: () => Promise<{ workdir: string; merged: boolean; conflicts: boolean }>;
   push?: () => Promise<{ workdir: string; pushed: boolean }>;
   popStash?: () => Promise<{ workdir: string; stashed: boolean }>;
@@ -541,6 +542,9 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
 
     pullLatest:
       options.pullLatest || (() => Promise.resolve({ workdir: "/mock/workdir", updated: true })),
+
+    fetchLatest:
+      options.fetchLatest || (() => Promise.resolve({ workdir: "/mock/workdir", updated: true })),
 
     mergeBranch:
       options.mergeBranch ||
