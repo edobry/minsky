@@ -62,7 +62,8 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
     format: RuleFormat;
     debug?: boolean;
   }): Promise<Rule> {
-    const filePath = this.getRuleFilePath(params.id, params.format);
+    const normalizedId = this.normalizeRuleId(params.id);
+    const filePath = this.getRuleFilePath(normalizedId, params.format);
 
     if (params.debug) {
       this.logDebug("Reading rule file", { filePath, format: params.format });
@@ -91,7 +92,7 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
       }
 
       return {
-        id: params.id,
+        id: normalizedId,
         name: data.name,
         description: data.description,
         globs: data.globs,
@@ -116,7 +117,7 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
 
       // Return a basic rule object with just the content
       return {
-        id: params.id,
+        id: normalizedId,
         content: extractedContent,
         format: params.format,
         path: filePath,

@@ -1,7 +1,6 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { RuleService } from "./rules";
-// Use mock.module() to mock filesystem operations
-// import * as fs from "fs";
+import * as fs from "fs";
 import * as path from "path";
 import { createCleanTempDir } from "../utils/test-utils/cleanup";
 

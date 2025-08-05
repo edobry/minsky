@@ -202,6 +202,37 @@ export class DefaultAICompletionService implements AICompletionService {
   }
 
   /**
+   * Generate structured object using AI provider
+   */
+  async generateObject(request: any): Promise<any> {
+    try {
+      const model = await this.getLanguageModel(request.provider, request.model);
+
+      log.debug("Starting AI object generation", {
+        provider: request.provider,
+        model: request.model,
+        hasSchema: !!request.schema,
+      });
+
+      const result = await generateObject({
+        model,
+        messages: request.messages,
+        schema: request.schema,
+        temperature: request.temperature || 0.3,
+      });
+
+      return result.object;
+    } catch (error) {
+      log.debug("AI object generation failed", {
+        error: error instanceof Error ? error.message : error,
+        provider: request.provider,
+        model: request.model,
+      });
+      throw this.transformError(error, request.provider, request.model);
+    }
+  }
+
+  /**
    * Get available models for a provider
    */
   async getAvailableModels(provider?: string): Promise<AIModel[]> {
@@ -330,12 +361,15 @@ export class DefaultAICompletionService implements AICompletionService {
     let model: LanguageModel;
 
     switch (resolvedProvider) {
-      case "openai":
-        model = openai(resolvedModel, {
+      case "openai": {
+        // Create OpenAI provider instance with API key
+        const openaiProvider = createOpenAI({
           apiKey: providerConfig.apiKey,
           baseURL: providerConfig.baseURL,
         });
+        model = openaiProvider(resolvedModel);
         break;
+      }
 
       case "anthropic":
         model = anthropic(resolvedModel, {

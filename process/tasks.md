@@ -334,7 +334,7 @@
 
 - [x] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
-- [+] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
+- [x] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
@@ -653,3 +653,11 @@
 - [x] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
 
 - [ ] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
+
+- [ ] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+
+- [ ] Refactor session dependencies for unified dependency injection pattern [#389](process/tasks/389-refactor-session-dependencies-for-unified-dependency-injection-pattern.md)
+
+- [ ] Add AI telemetry and verbose output for debugging AI requests [#390](process/tasks/390-add-ai-telemetry-and-verbose-output-for-debugging-ai-requests.md)
+
+- [ ] Add config commands to MCP server [md#391](process/tasks/md#391-add-config-commands-to-mcp-server.md)

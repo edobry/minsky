@@ -6,8 +6,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { readSessionDbFile, writeSessionsToFile } from "./session-db-io";
 import { initializeSessionDbState, type SessionDbState } from "./session-db";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
+import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
 import { setupTestMocks } from "../../utils/test-utils/mocking";
 
 // Set up automatic mock cleanup
