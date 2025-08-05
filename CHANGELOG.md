@@ -14,7 +14,7 @@ All notable changes to this project will be documented in this file.
 
   - **AUTO-DETECTION**: Automatically detects GitHub repositories via `.git/config` remote URLs for seamless task creation
   - **REPOSITORY OVERRIDE**: New `--github-repo owner/repo` CLI option for custom GitHub repositories independent of workspace
-  - **BACKEND COMPATIBILITY**: Validation system ensures GitHub Issues backend only works with compatible repository backends  
+  - **BACKEND COMPATIBILITY**: Validation system ensures GitHub Issues backend only works with compatible repository backends
   - **BACKEND-QUALIFIED TASK IDS**: Support for `backend#id` format (e.g., `gh#123`, `md#456`) with backward compatibility
   - **CONFIGURATION INTEGRATION**: GitHub token sourced from Minsky configuration system with proper error handling
   - **CLI AUTO-REGISTRATION**: GitHub repository parameter automatically registered via parameter discovery system
