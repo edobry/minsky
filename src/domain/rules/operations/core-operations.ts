@@ -45,8 +45,10 @@ export class ListRulesOperation extends BaseRuleOperation<RuleOptions, Rule[]> {
 
       for (const file of files) {
         try {
+          // Strip extension consistently to create clean ID
+          const cleanId = file.replace(/\.mdc$/, "");
           const rule = await this.readFileOp.execute({
-            id: file.replace(/\\.mdc$/, ""),
+            id: cleanId,
             format,
             debug: options.debug,
           });

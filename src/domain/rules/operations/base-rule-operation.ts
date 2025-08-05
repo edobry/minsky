@@ -95,14 +95,17 @@ export abstract class BaseRuleOperation<TParams, TResult> {
    * Get the full path for a rule file
    */
   protected getRuleFilePath(id: string, format: RuleFormat): string {
-    return join(this.getRuleDirPath(format), `${id}.mdc`);
+    const normalizedId = this.normalizeRuleId(id);
+    // Always add .mdc extension since IDs are always extensionless
+    return join(this.getRuleDirPath(format), `${normalizedId}.mdc`);
   }
 
   /**
-   * Remove file extension from rule ID if present
+   * Normalize rule ID by removing file extension if present
    */
   protected normalizeRuleId(id: string): string {
-    return id.replace(/\\.mdc$/, "");
+    // Strip .mdc extension to ensure clean, extensionless IDs
+    return id.replace(/\.mdc$/, "");
   }
 
   /**
