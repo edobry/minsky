@@ -15,10 +15,12 @@ export const mergeSessionSubcommand: CommandExecutionHandler = async (params) =>
   }
 
   const json = options?.json === true;
+  const taskId = options?.task as string | undefined;
 
   try {
     const result = await mergeSessionPr({
       session: sessionId,
+      task: taskId,
       json,
     });
 

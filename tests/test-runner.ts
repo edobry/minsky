@@ -1,7 +1,8 @@
 #!/usr/bin/env bun
 
 import { spawn } from "child_process";
-import { readdirSync, statSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { readdirSync, statSync } from "fs";
 import { join } from "path";
 
 interface TestResult {

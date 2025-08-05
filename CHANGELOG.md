@@ -4,7 +4,83 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
+
 ### Fixed
+
+- **Session Merge Task Backend Integration**: Session merge command now properly delegates to configured task backend instead of hardcoding default backend, ensuring GitHub Issues and other configured backends work correctly with merge operations [Task #357]
+
+  - **AUTO-DETECTION**: Automatically detects GitHub repositories via `.git/config` remote URLs for seamless task creation
+  - **REPOSITORY OVERRIDE**: New `--github-repo owner/repo` CLI option for custom GitHub repositories independent of workspace
+  - **BACKEND COMPATIBILITY**: Validation system ensures GitHub Issues backend only works with compatible repository backends
+  - **BACKEND-QUALIFIED TASK IDS**: Support for `backend#id` format (e.g., `gh#123`, `md#456`) with backward compatibility
+  - **CONFIGURATION INTEGRATION**: GitHub token sourced from Minsky configuration system with proper error handling
+  - **CLI AUTO-REGISTRATION**: GitHub repository parameter automatically registered via parameter discovery system
+  - **PRODUCTION READY**: End-to-end tested integration ready for production use with comprehensive error handling
+
+- **Major Architectural Improvements**: Comprehensive system cleanup and modernization [Task #357]
+
+  - **PR IMPLEMENTATION CONSOLIDATION**: Consolidated 4 duplicate PR implementations into 1 modern implementation
+  - **DATABASE SCHEMA MAPPING**: Fixed critical Drizzle ORM field mapping between snake_case DB and camelCase TypeScript
+  - **ENHANCED ERROR HANDLING**: Custom error classes (`SessionConflictError`, `ValidationError`) with actionable guidance
+  - **CLEAN SEPARATION OF CONCERNS**: Proper CLI → Session → Repository Backend architectural layering
+  - **NO SKIPPED TESTS**: Eliminated all deprecated code paths and test debt for maintainable codebase
+  - **SESSION BRANCH ENFORCEMENT**: Users stay on session branches during conflicts instead of being switched to PR branches
+  - **UNIFIED CONFLICT DETECTION**: Single ConflictDetectionService for all merge compatibility checks
+  - **PROPER ERROR TYPES**: Replaced hacky string matching (`errorMessage.includes("CONFLICT")`) with typed SessionConflictError handling
+  - **BACKEND SEPARATION**: Fixed architectural violation where preparePrImpl incorrectly delegated to createPreparedMergeCommitPR (local/remote backend only)
+  - **PRE-FLIGHT VALIDATION**: PR creation now validates merge compatibility before creating PR branches, preventing conflicts on PR branches
+- **Task Management**: Created Task md#380 "Design Release-Based Changelog Management System" to address the scalability issues with the current append-only changelog approach
+  - **SCOPE**: Research backend capabilities for release management (database vs repo backend vs hybrid)
+  - **ARCHITECTURE**: Design release-based changelog system with version organization
+  - **MIGRATION**: Plan transition from current single-file append approach to release-organized format
+  - **AUTOMATION**: Integrate with existing git/task workflows and release preparation
+  - **STANDARDS**: Follow Keep a Changelog format with semantic versioning support
+
+- **Documentation Consolidation**: Completed Option 2 documentation strategy (single source of truth approach)
+  - **ARCHITECTURE**: Enhanced `.cursor/rules/bun-test-patterns.mdc` with comprehensive test pattern guidance
+  - **INTEGRATION**: Added ESLint integration guide, performance considerations, migration checklist, debugging guide
+  - **REORGANIZATION**: Moved Critical Test Architecture Protocol from self-improvement.mdc to proper test-specific location
+  - **PLANNING**: Created 5 systematic cleanup tasks for test architecture improvements (md#380 series)
+  - **MONITORING**: Extended Task #322 with test pattern monitoring and prevention requirements
+
+### Changed
+
+- **Documentation Structure**: Consolidated `docs/bun-test-patterns.md` into `.cursor/rules/bun-test-patterns.mdc` as single source of truth
+- **Rule Organization**: Moved Critical Test Architecture Protocol to proper location in bun-test-patterns.mdc
+- **Task Enhancement**: Extended Task #322 with NEW requirements for test pattern monitoring and prevention (clearly marked as post-task-start additions)
+
+### Removed
+
+- **Duplicate Documentation**: Deleted `docs/bun-test-patterns.md` file (clean consolidation approach - no deprecated files)
+
+### Fixed
+
+<<<<<<< HEAD
+- **PR Creation Error Messages**: Improved merge conflict guidance to prevent dangerous automatic conflict resolution
+
+  - **MANUAL RESOLUTION PRIORITY**: Changed recommendations to prioritize manual conflict resolution over automated approaches
+  - **DANGEROUS GUIDANCE REMOVAL**: Removed "(recommended)" label from "accept all session changes" option and added "use with caution" warnings
+  - **WORKFLOW CLARIFICATION**: Fixed misleading claim that PR would be pushed automatically after conflict resolution
+  - **USER INSTRUCTION ACCURACY**: Clarified that users must re-run PR creation command after resolving merge conflicts
+=======
+- **GitHub Status UX**: Fixed misleading configuration warnings in `minsky gh status` command
+  - Now shows positive "✅ Using auto-detection from git remote" when auto-detection works
+  - Only warns about missing configuration when both explicit config AND auto-detection fail
+  - Provides helpful verbose context about when explicit configuration is optional
+  - Resolves contradiction where system reported "ready to use" while showing configuration warnings
+- **GitHub Token Detection**: Fixed GitHub token detection to use configuration system instead of environment variables only
+  - Updated `showGitHubStatus` and `getGitHubBackendConfig` functions to use `getConfiguration()`
+  - Tokens in `~/.config/minsky/config.yaml` are now properly detected
+  - Improved error messages to mention both environment variables and config file options
+- **Dynamic Configuration Paths**: Replaced hardcoded environment variable names and config paths with dynamic values from configuration system
+  - Status command now shows actual detected token source instead of hardcoded env var names
+  - Error messages use dynamic environment variable names from `environmentMappings`
+  - Config file paths use `getUserConfigDir()` for accurate user-specific paths
+  - Eliminates maintenance burden of keeping hardcoded strings synchronized
+>>>>>>> origin/main
 
 - **Test Architecture & Reliability**: Achieved 100% test success rate (1458/1458 tests passing) with major architectural improvements
 
@@ -1819,6 +1895,15 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 
 ### Fixed
 
+- **Session PR Architecture**: Fixed fundamental bugs in session PR workflow
+  - **CRITICAL**: Users no longer get switched to PR branches during conflicts
+  - **STRING MATCHING**: Replaced hacky `errorMessage.includes("CONFLICT")` with typed `SessionConflictError`
+  - **DUAL CODE PATHS**: Consolidated two separate PR creation workflows into single source of truth
+  - **BACKEND MISUSE**: Fixed prepared merge commit workflow misuse (now local/remote backends only)
+  - **GIT LAYER SEPARATION**: Removed task status updates from git layer for clean architectural separation
+  - **PR BRANCH NAMING**: Fixed incorrect title-based naming, now uses session name (`pr/task-md#357`)
+  - **STATUS UPDATE TIMING**: Task status update now happens only after successful PR creation
+  - **MERGE SIMULATION**: Fixed `merge --abort` bug when no merge transaction is active
 - **MCP Tool Naming Consistency**: Standardized tool naming to use dots (MCP convention) instead of underscores
   - `session.read_file`, `session.write_file`, `session.edit_file`, etc.
   - Follows MCP namespacing best practices for better organization
@@ -1849,15 +1934,13 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **ESLint Formatting**: Resolved formatting issues in task command functions with optional dependency injection parameters
 - **Test Mocking Paths**: Corrected mock workspace paths to use proper temporary directories
 
-<<<<<<< HEAD
-
 ### Technical Debt
 
 - **Test Failures**: 6/10 task interface command tests still failing due to mock configuration issues
   - Root cause: `mockCreateTaskService` not properly returning mocked task service
   - Symptoms: Tests creating real filesystem operations instead of using `mockTaskService`
   - Next steps: Refine mock setup to ensure dependency injection returns proper mock objects
-- # **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
+- **Mock Expectations**: Test expectations for `listTasks` calls need alignment with actual function signatures
 
 ### Removed
 
@@ -1872,5 +1955,3 @@ _See: SpecStory history [2025-06-18_18-00-continue-linter-fixes](mdc:.specstory/
 - **INTEGRATION**: Seamless integration with Task #359 subcommand structure
 
 Repository backend PR workflow delegation now works reliably regardless of uncommitted changes state.
-
-> > > > > > > origin/main

@@ -9,7 +9,7 @@ import {
   type SessionRecord,
   type SessionProviderInterface,
 } from "./session";
-import { TaskService, TASK_STATUS } from "./tasks";
+
 import {
   MinskyError,
   createSessionNotFoundMessage,
@@ -349,50 +349,9 @@ export class GitService implements GitServiceInterface {
       getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
     };
 
-    const result = await this.prWithDependencies(options, deps);
-
-    try {
-      // Use the same logic as prWithDependencies to get workdir and branch
-      const workdir = await this.getWorkingDirectoryForOptions(options, deps);
-      const branch = await this.getCurrentBranchForOptions(workdir, options, deps);
-
-      const taskId = await this.determineTaskId(options, workdir, branch, deps);
-
-      if (taskId && !options.noStatusUpdate) {
-        try {
-          const taskService = new TaskService({
-            workspacePath: workdir,
-            backend: "markdown",
-          });
-
-          const previousStatus = await taskService.getTaskStatus(taskId);
-
-          await taskService.setTaskStatus(taskId, TASK_STATUS.IN_REVIEW);
-
-          result.statusUpdateResult = {
-            taskId,
-            previousStatus,
-            newStatus: TASK_STATUS.IN_REVIEW,
-          };
-
-          if (options.debug) {
-            log.debug(
-              `Updated task ${taskId} status: ${previousStatus || "unknown"} → ${TASK_STATUS.IN_REVIEW}`
-            );
-          }
-        } catch (error) {
-          if (options.debug) {
-            log.debug(`Failed to update task status: ${getErrorMessage(error as any)}`);
-          }
-        }
-      }
-    } catch (error) {
-      if (options.debug) {
-        log.debug(`Task status update skipped: ${getErrorMessage(error as any)}`);
-      }
-    }
-
-    return result;
+    // Git layer should only handle git operations, not task management
+    // Task status updates are the responsibility of the session layer
+    return await this.prWithDependencies(options, deps);
   }
 
   async prWithDependencies(options: PrOptions, deps: PrDependencies): Promise<PrResult> {
@@ -522,12 +481,12 @@ export class GitService implements GitServiceInterface {
     }
   }
 
-  async pullLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
+  async fetchLatest(workdir: string, remote: string = "origin"): Promise<PullResult> {
     try {
       // Get current commit hash before fetch
       const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Fetch latest changes from remote (don't pull current branch)
+      // Fetch latest changes from remote (don't merge anything)
       // This gets all refs from remote without merging anything
       await execAsync(`git -C ${workdir} fetch ${remote}`);
 
@@ -539,7 +498,7 @@ export class GitService implements GitServiceInterface {
       // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
-      throw new Error(`Failed to pull latest changes: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to fetch latest changes: ${getErrorMessage(err as any)}`);
     }
   }
 

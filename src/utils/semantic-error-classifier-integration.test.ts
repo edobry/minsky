@@ -3,7 +3,8 @@
  * Addresses senior engineer concern about heuristic brittleness
  */
 
-import { mkdtemp, rmdir, writeFile, mkdir } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { mkdtemp, rmdir, writeFile, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 import { SemanticErrorClassifier, ErrorContext } from "./semantic-error-classifier";

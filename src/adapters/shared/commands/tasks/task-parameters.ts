@@ -52,6 +52,12 @@ export const taskCreationParams = {
     description: "Path to file containing task description",
     required: false,
   },
+  githubRepo: {
+    schema: z.string(),
+    description:
+      "GitHub repository override in 'owner/repo' format (only for github-issues backend)",
+    required: false,
+  },
 };
 
 /**

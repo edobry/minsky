@@ -152,6 +152,12 @@ export const taskCreateFromTitleAndDescriptionParamsSchema = z
       .string()
       .optional()
       .describe("Specify task backend (markdown, json-file, github-issues)"),
+    githubRepo: z
+      .string()
+      .optional()
+      .describe(
+        "GitHub repository override in 'owner/repo' format (only for github-issues backend)"
+      ),
   })
   .merge(commonCommandOptionsSchema)
   .refine((data) => data.description || data.descriptionPath, {

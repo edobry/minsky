@@ -334,7 +334,7 @@
 
 - [x] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
-- [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
+- [+] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
@@ -578,7 +578,7 @@
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
-- [-] Create ESLint rule to forbid real filesystem operations in tests [#332](process/tasks/332-create-eslint-rule-to-forbid-real-filesystem-operations-in-tests.md)
+- [x] Create ESLint rule to forbid real filesystem operations in tests [#332](process/tasks/332-create-eslint-rule-to-forbid-real-filesystem-operations-in-tests.md)
 
 - [x] Implement Pre-Commit Secret Scanning with Husky [#341](process/tasks/341-implement-pre-commit-secret-scanning-with-husky.md)
 
@@ -604,13 +604,13 @@
 
 - [x] Implement Multi-Backend Task System Architecture [#356](process/tasks/356-implement-multi-backend-task-system-architecture.md)
 
-- [+] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
+- [x] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
-- [+] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
+- [ ] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
 
-- [x] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
+- [+] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
 
 - [ ] Explore Automated Session Sync Workflow on PR Merge [#361](process/tasks/361-explore-automated-session-sync-workflow-on-pr-merge.md)
 
@@ -641,3 +641,15 @@
 - [ ] Test MCP session start with restarted server after cleanup [#378](process/tasks/378-test-mcp-session-start-with-restarted-server-after-cleanup.md)
 
 - [ ] Test MCP session start after fixing duplicate task ID bug [#379](process/tasks/379-test-mcp-session-start-after-fixing-duplicate-task-id-bug.md)
+
+- [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
+
+- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [#384](process/tasks/384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
+
+- [ ] Add support for knowledge bases and documentation systems [#385](process/tasks/385-add-support-for-knowledge-bases-and-documentation-systems.md)
+
+- [ ] Fix git commands not being available over MCP by uncommenting the registerGitTools call in the MCP command registration [#386](process/tasks/386-fix-git-commands-not-being-available-over-mcp-by-uncommenting-the-registergittools-call-in-the-mcp-command-registration.md)
+
+- [x] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
+
+- [ ] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)

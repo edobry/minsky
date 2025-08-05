@@ -97,6 +97,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
   // Updated to use PR subcommands instead of single pr command
   const {
+    createSessionCommitCommand,
     createSessionApproveCommand,
     createSessionInspectCommand,
     createSessionPrCreateCommand,
@@ -116,6 +117,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     update: createSessionUpdateCommand(deps),
 
     // Workflow commands
+    commit: createSessionCommitCommand(deps),
     approve: createSessionApproveCommand(deps),
     inspect: createSessionInspectCommand(deps),
 
@@ -145,6 +147,7 @@ export async function setupSessionCommandRegistry(
   registry.register("session.dir", commands.dir);
   registry.register("session.delete", commands.delete);
   registry.register("session.update", commands.update);
+  registry.register("session.commit", commands.commit);
   // NOTE: session.approve removed in favor of session.pr.approve (Task #358)
   registry.register("session.inspect", commands.inspect);
   registry.register("session.conflicts", commands.conflicts);

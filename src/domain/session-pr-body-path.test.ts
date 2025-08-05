@@ -1,9 +1,10 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { writeFile, mkdir, rm, readFile } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { writeFile, mkdir, rm, readFile } from "fs/promises";
 import { join } from "path";
 import { ValidationError } from "../errors/index";
 
-describe("sessionPrFromParams bodyPath file reading functionality", () => {
+describe("Session PR bodyPath file reading functionality", () => {
   const testDir = "/tmp/minsky-test-body-path";
   const testFilePath = join(testDir, "test-body.txt");
   const testContent = "This is the PR body content from file";
@@ -61,7 +62,7 @@ describe("sessionPrFromParams bodyPath file reading functionality", () => {
     await writeFile(absoluteTestFilePath, testContent);
 
     try {
-      // Test relative path resolution (this is how sessionPrFromParams handles it)
+      // Test relative path resolution (this is how modern session PR handles it)
       const filePath = require("path").resolve(relativeFilePath);
       const content = await readFile(filePath, "utf-8");
 

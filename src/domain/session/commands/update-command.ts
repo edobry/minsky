@@ -57,7 +57,7 @@ export async function updateSessionFromParams(
     // Perform git operations to sync with remote
     try {
       // Fetch latest changes
-      await deps.gitService.pullLatest(workdir);
+      await deps.gitService.fetchLatest(workdir);
 
       // If branch is specified, checkout to that branch
       if (branch) {

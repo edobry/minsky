@@ -21,6 +21,7 @@ import type {
   PRInfo,
   MergeInfo,
 } from "./index";
+import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 
 const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;
@@ -450,7 +451,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const workdir = this.getSessionWorkdir(sessionName);
 
       // Use GitService for pulling changes
-      const pullResult = await this.gitService.pullLatest(workdir);
+      const pullResult = await this.gitService.fetchLatest(workdir);
 
       return {
         success: true,
@@ -546,11 +547,21 @@ Repository: https://github.com/${this.owner}/${this.repo}
         timeout: 60000,
       });
 
-      // Get GitHub token from environment
-      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
       if (!githubToken) {
+        // Get environment variable names that map to github.token
+        const githubTokenEnvVars = Object.entries(environmentMappings)
+          .filter(([_, configPath]) => configPath === "github.token")
+          .map(([envVar, _]) => envVar);
+
+        const configFile = `${getUserConfigDir()}/config.yaml`;
+        const primaryEnvVar = githubTokenEnvVars[0] || "GITHUB_TOKEN";
+
         throw new MinskyError(
-          "GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable"
+          `GitHub token not found. Set ${primaryEnvVar} environment variable or add token to ${configFile}`
         );
       }
 
@@ -570,6 +581,10 @@ Repository: https://github.com/${this.owner}/${this.repo}
       });
 
       const pr = prResponse.data;
+
+      // Log GitHub-specific PR information
+      log.cli(`🔗 GitHub PR: ${pr.html_url}`);
+      log.cli(`📝 PR #${pr.number}: ${title}`);
 
       return {
         number: pr.number,
@@ -716,11 +731,21 @@ Repository: https://github.com/${this.owner}/${this.repo}
     }
 
     try {
-      // Get GitHub token from environment
-      const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
       if (!githubToken) {
+        // Get environment variable names that map to github.token
+        const githubTokenEnvVars = Object.entries(environmentMappings)
+          .filter(([_, configPath]) => configPath === "github.token")
+          .map(([envVar, _]) => envVar);
+
+        const configFile = `${getUserConfigDir()}/config.yaml`;
+        const primaryEnvVar = githubTokenEnvVars[0] || "GITHUB_TOKEN";
+
         throw new MinskyError(
-          "GitHub token not found. Set GITHUB_TOKEN or GH_TOKEN environment variable"
+          `GitHub token not found. Set ${primaryEnvVar} environment variable or add token to ${configFile}`
         );
       }
 
@@ -868,6 +893,328 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // Fallback for any other errors
       throw new MinskyError(
         `Failed to merge GitHub pull request: ${getErrorMessage(error as any)}`
+      );
+    }
+  }
+
+  /**
+   * Find the PR number for a given branch name
+   * Searches through open and closed PRs to find one with the matching head branch
+   */
+  private async findPRNumberForBranch(branchName: string): Promise<number> {
+    try {
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
+      if (!githubToken) {
+        throw new MinskyError("GitHub token not configured");
+      }
+
+      // Create Octokit instance
+      const octokit = new Octokit({
+        auth: githubToken,
+      });
+
+      // Search for pull requests with this head branch
+      // First try open PRs, then closed ones
+      for (const state of ["open", "closed"] as const) {
+        const pullsResponse = await octokit.rest.pulls.list({
+          owner: this.owner,
+          repo: this.repo,
+          state,
+          head: `${this.owner}:${branchName}`, // Format: owner:branch
+          per_page: 100,
+        });
+
+        const matchingPR = pullsResponse.data.find((pr) => pr.head.ref === branchName);
+        if (matchingPR) {
+          return matchingPR.number;
+        }
+      }
+
+      // If not found with owner prefix, try without it (for forks)
+      for (const state of ["open", "closed"] as const) {
+        const pullsResponse = await octokit.rest.pulls.list({
+          owner: this.owner,
+          repo: this.repo,
+          state,
+          per_page: 100,
+        });
+
+        const matchingPR = pullsResponse.data.find((pr) => pr.head.ref === branchName);
+        if (matchingPR) {
+          return matchingPR.number;
+        }
+      }
+
+      throw new MinskyError(`No pull request found for branch: ${branchName}`);
+    } catch (error) {
+      if (error instanceof MinskyError) {
+        throw error;
+      }
+      throw new MinskyError(
+        `Failed to find PR number for branch ${branchName}: ${getErrorMessage(error as any)}`
+      );
+    }
+  }
+
+  /**
+   * Approve a GitHub pull request using the GitHub API
+   * Creates a review with 'APPROVE' state on the specified pull request
+   */
+  async approvePullRequest(
+    prIdentifier: string | number,
+    reviewComment?: string
+  ): Promise<ApprovalInfo> {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to approve pull requests");
+    }
+
+    let prNumber: number;
+
+    // If prIdentifier is already a number, use it directly
+    if (typeof prIdentifier === "number") {
+      prNumber = prIdentifier;
+    } else {
+      // If it's a string, check if it's a numeric PR number or a branch name
+      const parsedNumber = parseInt(prIdentifier, 10);
+      if (!isNaN(parsedNumber) && String(parsedNumber) === prIdentifier) {
+        // It's a valid PR number as string
+        prNumber = parsedNumber;
+      } else {
+        // It's a branch name, need to find the PR number for this branch
+        prNumber = await this.findPRNumberForBranch(prIdentifier);
+      }
+    }
+
+    try {
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
+      if (!githubToken) {
+        // Get environment variable names that map to github.token
+        const githubTokenEnvVars = Object.entries(environmentMappings)
+          .filter(([_, configPath]) => configPath === "github.token")
+          .map(([envVar, _]) => envVar);
+
+        const configFile = `${getUserConfigDir()}/config.yaml`;
+        const primaryEnvVar = githubTokenEnvVars[0] || "GITHUB_TOKEN";
+
+        throw new MinskyError(
+          `GitHub token not found. Set ${primaryEnvVar} environment variable or add token to ${configFile}`
+        );
+      }
+
+      // Create Octokit instance
+      const octokit = new Octokit({
+        auth: githubToken,
+      });
+
+      // Get the PR details first to validate it exists and is open
+      const prResponse = await octokit.rest.pulls.get({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: prNumber,
+      });
+
+      const pr = prResponse.data;
+
+      if (pr.state !== "open") {
+        throw new MinskyError(`Pull request #${prNumber} is not open (current state: ${pr.state})`);
+      }
+
+      // Create an approval review on the pull request
+      const reviewResponse = await octokit.rest.pulls.createReview({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: prNumber,
+        body: reviewComment || "Approved via Minsky session workflow",
+        event: "APPROVE",
+      });
+
+      const review = reviewResponse.data;
+
+      // Get the current user info for the approval record
+      const userResponse = await octokit.rest.users.getAuthenticated();
+      const approver = userResponse.data.login;
+
+      log.info("GitHub PR approved successfully", {
+        prNumber,
+        reviewId: review.id,
+        approver,
+        owner: this.owner,
+        repo: this.repo,
+      });
+
+      return {
+        reviewId: String(review.id),
+        approvedBy: approver,
+        approvedAt: review.submitted_at || new Date().toISOString(),
+        comment: reviewComment,
+        platformData: {
+          platform: "github",
+          prNumber,
+          reviewUrl: review.html_url,
+          owner: this.owner,
+          repo: this.repo,
+          reviewState: review.state,
+        },
+      };
+    } catch (error) {
+      // Enhanced error handling for different types of GitHub API errors
+      const errorMessage = getErrorMessage(error as any);
+
+      // Token permissions issues
+      if (errorMessage.includes("401") || errorMessage.includes("Bad credentials")) {
+        throw new MinskyError(
+          `🔑 GitHub Authentication Error\n\n` +
+            `Your GitHub token is invalid or expired.\n\n` +
+            `💡 To fix this:\n` +
+            `  • Generate a new GitHub token at: https://github.com/settings/tokens\n` +
+            `  • Ensure the token has 'repo' and 'pull_requests:write' permissions\n` +
+            `  • Update your GITHUB_TOKEN environment variable or config file`
+        );
+      }
+
+      // Insufficient permissions for approval
+      if (errorMessage.includes("403")) {
+        throw new MinskyError(
+          `🚫 GitHub Permission Error\n\n` +
+            `You don't have permission to approve pull requests in ${this.owner}/${this.repo}.\n\n` +
+            `💡 To fix this:\n` +
+            `  • Ensure your GitHub token has 'repo' permissions\n` +
+            `  • Verify you have write access to the repository\n` +
+            `  • Contact the repository owner if you need additional permissions`
+        );
+      }
+
+      // PR not found
+      if (errorMessage.includes("404")) {
+        throw new MinskyError(
+          `🔍 Pull Request Not Found\n\n` +
+            `Pull request #${prNumber} does not exist in ${this.owner}/${this.repo}.\n\n` +
+            `💡 Please verify:\n` +
+            `  • The PR number is correct\n` +
+            `  • The repository owner/name is correct\n` +
+            `  • The PR hasn't been deleted`
+        );
+      }
+
+      // Rate limiting
+      if (errorMessage.includes("rate limit") || errorMessage.includes("403")) {
+        throw new MinskyError(
+          `⏱️ GitHub Rate Limit Exceeded\n\n` +
+            `Too many API requests to GitHub. Please wait before trying again.\n\n` +
+            `💡 To avoid this:\n` +
+            `  • Wait a few minutes before trying again\n` +
+            `  • Use a GitHub token for higher rate limits`
+        );
+      }
+
+      // Network issues
+      if (
+        errorMessage.includes("network") ||
+        errorMessage.includes("timeout") ||
+        errorMessage.includes("enotfound")
+      ) {
+        throw new MinskyError(
+          `🌐 Network Connection Error\n\n` +
+            `Unable to connect to GitHub API.\n\n` +
+            `💡 To fix this:\n` +
+            `  • Check your internet connection\n` +
+            `  • Verify GitHub is accessible (https://githubstatus.com)\n` +
+            `  • Try again in a few moments`
+        );
+      }
+
+      // Fallback for any other errors
+      throw new MinskyError(
+        `Failed to approve GitHub pull request: ${getErrorMessage(error as any)}`
+      );
+    }
+  }
+
+  /**
+   * Get approval status for a GitHub pull request
+   * Checks the reviews and approval status via GitHub API
+   */
+  async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to check PR approval status");
+    }
+
+    const prNumber = typeof prIdentifier === "string" ? parseInt(prIdentifier, 10) : prIdentifier;
+    if (isNaN(prNumber)) {
+      throw new MinskyError(`Invalid PR number: ${prIdentifier}`);
+    }
+
+    try {
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
+      if (!githubToken) {
+        throw new MinskyError("GitHub token not configured");
+      }
+
+      // Create Octokit instance
+      const octokit = new Octokit({
+        auth: githubToken,
+      });
+
+      // Get PR details and reviews
+      const [prResponse, reviewsResponse] = await Promise.all([
+        octokit.rest.pulls.get({
+          owner: this.owner,
+          repo: this.repo,
+          pull_number: prNumber,
+        }),
+        octokit.rest.pulls.listReviews({
+          owner: this.owner,
+          repo: this.repo,
+          pull_number: prNumber,
+        }),
+      ]);
+
+      const pr = prResponse.data;
+      const reviews = reviewsResponse.data;
+
+      // Count approvals and rejections
+      const approvals = reviews.filter((review) => review.state === "APPROVED");
+      const rejections = reviews.filter((review) => review.state === "CHANGES_REQUESTED");
+
+      // Determine if approved (has at least one approval and no pending change requests)
+      const isApproved = approvals.length > 0 && rejections.length === 0;
+      const canMerge = isApproved && pr.mergeable && pr.state === "open";
+
+      return {
+        isApproved,
+        canMerge,
+        approvalCount: approvals.length,
+        rejectionCount: rejections.length,
+        totalReviews: reviews.length,
+        approvals: approvals.map((review) => ({
+          reviewId: String(review.id),
+          approvedBy: review.user?.login || "unknown",
+          approvedAt: review.submitted_at || "",
+          comment: review.body || undefined,
+        })),
+        platformData: {
+          platform: "github",
+          prNumber,
+          prState: pr.state,
+          mergeable: pr.mergeable,
+          owner: this.owner,
+          repo: this.repo,
+          requiresReview: true, // GitHub typically requires reviews
+          minimumApprovals: 1, // Default, could be configured per repo
+        },
+      };
+    } catch (error) {
+      throw new MinskyError(
+        `Failed to get GitHub PR approval status: ${getErrorMessage(error as any)}`
       );
     }
   }

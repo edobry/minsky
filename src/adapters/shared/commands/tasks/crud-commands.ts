@@ -46,6 +46,7 @@ interface TasksCreateParams extends BaseTaskParams {
   description?: string;
   descriptionPath?: string;
   force?: boolean;
+  githubRepo?: string;
 }
 
 /**
@@ -180,6 +181,7 @@ export class TasksCreateCommand extends BaseTaskCommand {
       repo: params.repo,
       workspace: params.workspace,
       session: params.session,
+      githubRepo: params.githubRepo,
     });
 
     this.debug("Task created successfully");
