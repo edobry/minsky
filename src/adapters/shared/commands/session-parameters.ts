@@ -187,12 +187,7 @@ export const sessionPrCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-  skipUpdate: {
-    schema: z.boolean(),
-    description: "Skip session update before creating PR",
-    required: false,
-    defaultValue: false,
-  },
+
   autoResolveDeleteConflicts: {
     schema: z.boolean(),
     description: "Automatically resolve delete/modify conflicts by accepting deletions",

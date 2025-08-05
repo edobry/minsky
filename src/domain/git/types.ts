@@ -46,9 +46,9 @@ export interface GitServiceInterface {
   stashChanges(repoPath: string): Promise<StashResult>;
 
   /**
-   * Pull latest changes from a remote
+   * Fetch latest changes from a remote
    */
-  pullLatest(repoPath: string, remote?: string): Promise<PullResult>;
+  fetchLatest(repoPath: string, remote?: string): Promise<PullResult>;
 
   /**
    * Merge a branch into the current branch

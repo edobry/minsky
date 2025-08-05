@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { createWorkspaceResolvingJsonBackend } from "./json-backend";
-import { rmSync, mkdirSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { rmSync, mkdirSync } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
 

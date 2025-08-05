@@ -5,10 +5,10 @@
 
 // Export the adapter and its interface
 export {
-  SessionAdapter,
+  SessionDbAdapter,
   createSessionProvider,
-  type LocalSessionProviderInterface,
-} from "./session-adapter";
+  type SessionProviderInterface,
+} from "./session-db-adapter";
 
 // Export core types from session-db
 export type { SessionDbState } from "./session-db";
@@ -35,7 +35,7 @@ export {
 } from "./session-db-io";
 
 // Create factory function for dependency injection instead of singleton
-import { createSessionProvider as createSessionProviderInternal } from "./session-adapter";
+import { createSessionProvider as createSessionProviderInternal } from "./session-db-adapter";
 
 /**
  * Creates a new SessionDB instance for dependency injection

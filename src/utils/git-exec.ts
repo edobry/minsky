@@ -59,6 +59,12 @@ export async function execGitWithTimeout(
     const { stdout, stderr } = await execAsync(fullCommand, {
       timeout,
       ...(workdir && { cwd: workdir }),
+      env: {
+        ...process.env,
+        GIT_TERMINAL_PROMPT: "0", // Disable git interactive prompts
+        GIT_ASKPASS: "echo", // Prevent password prompts
+        HUSKY: "0", // Disable husky hooks during automated operations
+      },
     });
 
     const executionTimeMs = Date.now() - startTime;

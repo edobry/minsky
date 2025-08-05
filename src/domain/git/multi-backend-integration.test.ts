@@ -14,21 +14,6 @@ mockModule("/Users/edobry/Projects/minsky/src/utils/git-exec", () => ({
   gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
 }));
 
-// Mock the logger to prevent test isolation issues in full test suite
-mockModule("../../utils/logger", () => ({
-  log: {
-    debug: createMock(() => {}),
-    info: createMock(() => {}),
-    warn: createMock(() => {}),
-    error: createMock(() => {}),
-    cli: createMock(() => {}), // Fix for "log.cli is not a function" error
-    cliWarn: createMock(() => {}),
-    cliError: createMock(() => {}),
-    cliDebug: createMock(() => {}),
-    setLevel: createMock(() => {}),
-  },
-}));
-
 import { describe, it, expect, mock } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
 import type { SessionProviderInterface, SessionRecord } from "../session/types";

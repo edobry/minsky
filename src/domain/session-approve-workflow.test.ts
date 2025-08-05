@@ -29,16 +29,7 @@ import {
 import type { WorkspaceUtilsInterface } from "./workspace";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 
-// Module-level mocks for git utilities to prevent real command execution
-mock.module("../utils/git-exec", () => ({
-  execGitWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
-  gitFetchWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
-}));
-
-mock.module("../utils/exec", () => ({
-  execAsync: mock(() => Promise.resolve({ stdout: "", stderr: "" })),
-}));
+// Remove global module mocks - use dependency injection instead
 
 // Set up automatic mock cleanup
 setupTestMocks();

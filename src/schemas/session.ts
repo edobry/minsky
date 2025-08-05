@@ -199,7 +199,7 @@ export const sessionPrParamsSchema = z
     baseBranch: z.string().optional().describe("Base branch for PR (defaults to main)"),
     debug: flagSchema("Enable debug output"),
     noStatusUpdate: flagSchema("Skip updating task status"),
-    skipUpdate: flagSchema("Skip session update before creating PR"),
+
     autoResolveDeleteConflicts: flagSchema(
       "Automatically resolve delete/modify conflicts by accepting deletions"
     ),

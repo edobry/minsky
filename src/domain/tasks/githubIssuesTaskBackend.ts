@@ -614,40 +614,37 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     description: string,
     options: CreateTaskOptions = {}
   ): Promise<Task> {
-    // Generate a task specification file content
-    const taskSpecContent = this.generateTaskSpecification(title, description);
-
-    // Create a temporary file path for the spec
-    const fs = await import("fs/promises");
-    const path = await import("path");
-    const os = await import("os");
-
-    const tempDir = os.tmpdir();
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
-
     try {
-      // Write the spec content to the temporary file
-      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+      // Create GitHub issue directly via API - no temp files needed!
+      const response = await this.octokit.rest.issues.create({
+        owner: this.owner,
+        repo: this.repo,
+        title,
+        body: description || "",
+        labels: this.getLabelsForTaskStatus("TODO"), // Default to TODO status
+      });
 
-      // Use the existing createTask method
-      const task = await this.createTask(tempSpecPath, options);
+      // Generate task ID using GitHub issue number
+      const taskId = `gh#${response.data.number}`;
 
-      // Clean up the temporary file
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (error) {
-        // Ignore cleanup errors
-      }
+      log.debug("Created GitHub issue successfully", {
+        taskId,
+        issueNumber: response.data.number,
+        title,
+      });
 
-      return task;
+      return {
+        id: taskId,
+        title,
+        status: "TODO",
+        description,
+        // Note: No specPath needed for direct API creation
+      };
     } catch (error) {
-      // Clean up the temporary file on error
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
+      log.error("Failed to create GitHub issue", {
+        title,
+        error: getErrorMessage(error),
+      });
       throw error;
     }
   }

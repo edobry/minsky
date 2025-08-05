@@ -5,6 +5,9 @@
  */
 
 import { Octokit } from "@octokit/rest";
+import { getConfiguration } from "../../domain/configuration/index";
+import { environmentMappings } from "../../domain/configuration/sources/environment";
+import { getUserConfigDir } from "../../domain/configuration/sources/user";
 import { getGitHubBackendConfig } from "../../domain/tasks/githubBackendConfig";
 import { log } from "../../utils/logger";
 
@@ -21,13 +24,27 @@ export async function testGitHubConnection(options: TestOptions = {}): Promise<v
     }
 
     // Step 1: Check authentication
-    const githubToken = process.env.GITHUB_TOKEN || process.env.GH_TOKEN;
+    const config = getConfiguration();
+    const githubToken = config.github.token;
 
     if (!githubToken) {
       log.cli("❌ No GitHub token found");
       log.cli("");
       log.cli("Please set up authentication:");
-      log.cli('  export GITHUB_TOKEN="your_token_here"');
+
+      // Get environment variable names that map to github.token
+      const githubTokenEnvVars = Object.entries(environmentMappings)
+        .filter(([_, configPath]) => configPath === "github.token")
+        .map(([envVar, _]) => envVar);
+
+      // Show primary environment variable option
+      if (githubTokenEnvVars[0]) {
+        log.cli(`  export ${githubTokenEnvVars[0]}="your_token_here"`);
+      }
+
+      // Show config file option with dynamic path
+      const configFile = `${getUserConfigDir()}/config.yaml`;
+      log.cli(`  Or add token to ${configFile}`);
       log.cli("  Or use: gh auth login");
       log.cli("");
       log.cli("See: minsky docs github-setup");

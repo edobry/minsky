@@ -66,7 +66,7 @@ const mockTaskService = {
 ```typescript
 // ❌ PROBLEMATIC: Magic strings and repetition
 expect(result.taskId).toBe("md#125");
-expect(result.session).toBe("task-md#125"); 
+expect(result.session).toBe("task-md#125");
 expect(gitCommands).toContain("git commit -m \"chore(md#125): update task status to DONE\"");
 expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task-md#125");
 
@@ -85,7 +85,7 @@ expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRA
 
 **Key Benefits**:
 - ✅ Single source of truth for each identifier
-- ✅ Reduced surface area for errors  
+- ✅ Reduced surface area for errors
 - ✅ Easier maintenance and refactoring
 - ✅ Consistent format across all usages
 - ✅ Template literals automatically handle complex string construction
@@ -109,7 +109,7 @@ const mockSessionDB = {
 // ✅ FIXED: Session DB mock returns correct format
 const mockSessionDB = {
   getSessionByTaskId: (taskId: string) => Promise.resolve({
-    session: `task-${taskId}`, // → "task-md#125" (with dash) ✅  
+    session: `task-${taskId}`, // → "task-md#125" (with dash) ✅
     taskId,
     prBranch: `pr/task-${taskId}`, // → "pr/task-md#125" (with dash) ✅
   })

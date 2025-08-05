@@ -355,7 +355,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const prId = String(prIdentifier);
 
     // Find session record by PR branch
-    const sessions = await this.sessionDb.getAllSessions();
+    const sessions = await this.sessionDB.listSessions();
     const sessionRecord = sessions.find((s) => s.prBranch === prId);
 
     if (!sessionRecord) {
@@ -375,7 +375,7 @@ export class LocalGitBackend implements RepositoryBackend {
     }
 
     // Update session record with approval (this is where local backend stores approval)
-    await this.sessionDb.updateSession(sessionRecord.session, {
+    await this.sessionDB.updateSession(sessionRecord.session, {
       prApproved: true,
     });
 
@@ -406,7 +406,7 @@ export class LocalGitBackend implements RepositoryBackend {
     const prId = String(prIdentifier);
 
     // Find session record by PR branch
-    const sessions = await this.sessionDb.getAllSessions();
+    const sessions = await this.sessionDB.listSessions();
     const sessionRecord = sessions.find((s) => s.prBranch === prId);
 
     if (!sessionRecord) {

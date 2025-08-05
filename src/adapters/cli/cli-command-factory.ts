@@ -448,9 +448,6 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           },
 
           // === ADVANCED PARAMETERS (Expert-level control) ===
-          skipUpdate: {
-            description: "Skip session update before creating PR (use with --advanced)",
-          },
           noStatusUpdate: {
             description: "Skip updating task status (use with --advanced)",
           },

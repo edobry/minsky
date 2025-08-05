@@ -8,18 +8,7 @@ import {
 } from "../utils/test-utils/dependencies";
 import type { WorkspaceUtilsInterface } from "./workspace";
 
-// Mock logger
-const mockLog = {
-  debug: mock(() => {}),
-  info: mock(() => {}),
-  warn: mock(() => {}),
-  error: mock(() => {}),
-  cli: mock(() => {}),
-};
-
-mock.module("../utils/logger", () => ({
-  log: mockLog,
-}));
+// Remove global module mock - use dependency injection instead
 
 // Test constants to avoid magic strings
 const TEST_SESSION_NAME = "test-session";
