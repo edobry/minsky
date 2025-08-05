@@ -361,12 +361,15 @@ export class DefaultAICompletionService implements AICompletionService {
     let model: LanguageModel;
 
     switch (resolvedProvider) {
-      case "openai":
-        model = openai(resolvedModel, {
+      case "openai": {
+        // Create OpenAI provider instance with API key
+        const openaiProvider = createOpenAI({
           apiKey: providerConfig.apiKey,
           baseURL: providerConfig.baseURL,
         });
+        model = openaiProvider(resolvedModel);
         break;
+      }
 
       case "anthropic":
         model = anthropic(resolvedModel, {

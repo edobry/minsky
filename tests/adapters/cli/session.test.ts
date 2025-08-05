@@ -7,13 +7,15 @@
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { mkdir, rmdir } from "fs/promises";
-// Use mock.module() to mock filesystem operations
-// import { existsSync } from "fs";
+import { mkdir, rmdir } from "fs/promises";
+import { existsSync } from "fs";
 import { getSessionDirFromParams, updateSessionFromParams } from "../../../src/domain/session";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import {
+  createMockGitService,
+  createMockSessionProvider,
+} from "../../../src/utils/test-utils/dependencies";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
 import type { GitServiceInterface } from "../../../src/domain/git";
@@ -166,24 +168,17 @@ describe("Session CLI Commands", () => {
     let mockGitService: any;
 
     beforeEach(() => {
-      mockGitService = {
-        getSessionWorkdir: (repoName: string, sessionName: string) =>
-          join(tempDir, repoName, "sessions", sessionName),
+      mockGitService = createMockGitService({
+        getSessionWorkdir: () => join(tempDir, "test-repo", "sessions", "test-session"),
         execInRepository: async (workdir: string, command: string) => {
           if (command.includes("git remote get-url origin")) {
             return "https://github.com/test/repo.git";
           }
           return "";
         },
-        getCurrentBranch: async (workdir: string) => "task#168", // Added missing method
-        fetchDefaultBranch: async (workdir: string) => "main", // Added missing method
+        getCurrentBranch: async () => "task#168",
         hasUncommittedChanges: async () => false,
-        stashChanges: async () => undefined,
-        pullLatest: async () => undefined,
-        mergeBranch: async () => ({ conflicts: false }),
-        push: async () => undefined,
-        popStash: async () => undefined,
-      };
+      });
     });
 
     test("TASK #168 FIX: should auto-detect session name from current directory when not provided", async () => {
