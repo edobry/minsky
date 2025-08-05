@@ -40,34 +40,14 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Use node-config to get sessiondb configuration, with fallback to defaults
-      let sessionDbConfig: any;
+      // Get configuration using the custom configuration system
+      // Configuration should already be initialized by the CLI entry point
+      const config = getConfiguration();
+      const sessionDbConfig = config.sessiondb || {};
 
-      try {
-        // Get configuration using the custom configuration system
-        const config = getConfiguration();
-        if (config.sessiondb) {
-          sessionDbConfig = config.sessiondb;
-        } else {
-          log.debug("Session database configuration not found in config, using defaults");
-          sessionDbConfig = null;
-        }
-      } catch (error) {
-        // Fallback to defaults when config is not available (e.g., running from outside project directory)
-        log.debug("Configuration not available, using default session storage settings", {
-          error: getErrorMessage(error as any),
-        });
-        sessionDbConfig = null;
-      }
-
-      // Additional check: if sessionDbConfig is null/undefined, use defaults
-      if (!sessionDbConfig || typeof sessionDbConfig !== "object") {
-        sessionDbConfig = {};
-      }
-
-      // Build storage configuration
+      // Build storage configuration using values from config system (already defaulted)
       const storageConfig: Partial<StorageConfig> = {
-        backend: sessionDbConfig.backend || "json",
+        backend: sessionDbConfig.backend, // No fallback - config system provides defaults
         enableIntegrityCheck: sessionDbConfig.enableIntegrityCheck ?? true,
         autoMigrate: sessionDbConfig.autoMigrate ?? false,
         promptOnIntegrityIssues: sessionDbConfig.promptOnIntegrityIssues ?? false,

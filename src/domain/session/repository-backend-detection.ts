@@ -9,8 +9,33 @@ import {
 } from "../repository/index";
 
 /**
+ * Detect repository backend type directly from a repository URL
+ * More efficient than detectRepositoryBackendType when you already have the URL
+ */
+export function detectRepositoryBackendTypeFromUrl(repoUrl: string): RepositoryBackendType {
+  // GitHub detection
+  if (repoUrl.includes("github.com")) {
+    return RepositoryBackendType.GITHUB;
+  }
+
+  // GitLab detection (for future use)
+  if (repoUrl.includes("gitlab.com")) {
+    return RepositoryBackendType.REMOTE; // Treat as remote for now
+  }
+
+  // Local repository detection
+  if (repoUrl.startsWith("/") || repoUrl.startsWith("file://")) {
+    return RepositoryBackendType.LOCAL;
+  }
+
+  // Default to remote for everything else
+  return RepositoryBackendType.REMOTE;
+}
+
+/**
  * Auto-detect repository backend type from git remote URL
  * Following KISS principle - simple detection based on immediate git remote URL
+ * Use detectRepositoryBackendTypeFromUrl() if you already have the URL
  */
 export function detectRepositoryBackendType(workdir: string): RepositoryBackendType {
   try {
@@ -49,8 +74,38 @@ export function detectRepositoryBackendType(workdir: string): RepositoryBackendT
 }
 
 /**
+ * Create a repository backend instance for a session using the stored repoUrl
+ * More efficient than createRepositoryBackendForSession when you have the repoUrl
+ */
+export async function createRepositoryBackendFromSessionUrl(
+  repoUrl: string,
+  workdir: string
+): Promise<RepositoryBackend> {
+  const backendType = detectRepositoryBackendTypeFromUrl(repoUrl);
+
+  const config: RepositoryBackendConfig = {
+    type: backendType,
+    repoUrl: repoUrl,
+  };
+
+  // Add GitHub-specific configuration if detected
+  if (backendType === RepositoryBackendType.GITHUB) {
+    const githubInfo = extractGitHubInfoFromUrl(repoUrl);
+    if (githubInfo) {
+      config.github = {
+        owner: githubInfo.owner,
+        repo: githubInfo.repo,
+      };
+    }
+  }
+
+  return await createRepositoryBackend(config, workdir);
+}
+
+/**
  * Create a repository backend instance based on auto-detection
  * Session commands can use this to get the appropriate backend for PR operations
+ * Use createRepositoryBackendFromSessionUrl() if you already have the repoUrl
  */
 export async function createRepositoryBackendForSession(
   workdir: string

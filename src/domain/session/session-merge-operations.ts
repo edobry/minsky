@@ -8,8 +8,16 @@
 import { log } from "../../utils/logger";
 import { MinskyError, ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
-import { createRepositoryBackendForSession } from "./repository-backend-detection";
-import type { MergeInfo } from "../repository/index";
+import {
+  detectRepositoryBackendTypeFromUrl,
+  extractGitHubInfoFromUrl,
+} from "./repository-backend-detection";
+import {
+  createRepositoryBackend,
+  RepositoryBackendType,
+  type RepositoryBackendConfig,
+  type MergeInfo,
+} from "../repository/index";
 import type { SessionRecord } from "./types";
 
 /**
@@ -134,8 +142,30 @@ export async function mergeSessionPr(
   validateSessionApprovedForMerge(sessionRecord, sessionNameToUse);
 
   // Create repository backend for this session
-  const workingDirectory = params.repo || sessionRecord.repoUrl || process.cwd();
-  const repositoryBackend = await createRepositoryBackendForSession(workingDirectory);
+  // Use stored repoUrl for backend detection to avoid redundant git commands
+  const repoUrl = params.repo || sessionRecord.repoUrl || process.cwd();
+  const backendType = detectRepositoryBackendTypeFromUrl(repoUrl);
+
+  // For merge operations, we still need a working directory (session workspace)
+  const workingDirectory = await sessionDB.getSessionWorkdir(sessionNameToUse);
+
+  const config: RepositoryBackendConfig = {
+    type: backendType,
+    repoUrl: repoUrl,
+  };
+
+  // Add GitHub-specific configuration if detected
+  if (backendType === RepositoryBackendType.GITHUB) {
+    const githubInfo = extractGitHubInfoFromUrl(repoUrl);
+    if (githubInfo) {
+      config.github = {
+        owner: githubInfo.owner,
+        repo: githubInfo.repo,
+      };
+    }
+  }
+
+  const repositoryBackend = await createRepositoryBackend(config);
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for merge`);
