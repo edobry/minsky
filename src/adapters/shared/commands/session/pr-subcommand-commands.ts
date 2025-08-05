@@ -302,7 +302,7 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
       const { pullRequest } = result;
 
       const output = [
-        `PR ${pullRequest.number ? `#${pullRequest.number}` : "(no number)"}: ${pullRequest.title}`,
+        `${pullRequest.number ? `PR #${pullRequest.number}: ` : ""}${pullRequest.title}`,
         "",
         `Session:     ${pullRequest.sessionName}`,
         `Task:        ${pullRequest.taskId ? `#${pullRequest.taskId}` : "none"}`,
