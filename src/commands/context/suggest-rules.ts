@@ -209,7 +209,6 @@ function outputHumanReadableResults(
       const scoreFormatted = (suggestion.relevanceScore * 100).toFixed(0);
 
       console.log(`${index + 1}. ${suggestion.ruleName || suggestion.ruleId} ${confidenceEmoji}`);
-      console.log(`   ID: ${suggestion.ruleId}`);
       console.log(`   Relevance: ${scoreFormatted}% (${suggestion.confidenceLevel} confidence)`);
       console.log(`   Reasoning: ${suggestion.reasoning}`);
       console.log();
