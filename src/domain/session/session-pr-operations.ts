@@ -8,7 +8,7 @@ import {
 import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
-import { TASK_STATUS, TaskService } from "../tasks";
+import { TASK_STATUS, TaskService, createConfiguredTaskService } from "../tasks";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
 import {
@@ -250,9 +250,8 @@ Please provide a title for your pull request:
       const sessionRecord = await deps.sessionDB.getSession(sessionName);
       if (sessionRecord?.taskId) {
         try {
-          const taskService = new TaskService({
+          const taskService = await createConfiguredTaskService({
             workspacePath: process.cwd(),
-            backend: "markdown",
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
           log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);

@@ -14,7 +14,7 @@ import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
-import { TaskService, TASK_STATUS, type TaskServiceInterface } from "../tasks";
+import { TaskService, TASK_STATUS, type TaskServiceInterface, createConfiguredTaskService } from "../tasks";
 import { execAsync } from "../../utils/exec";
 import {
   type WorkspaceUtilsInterface,
@@ -143,9 +143,8 @@ export async function approveSessionImpl(
     // Use injected TaskService or create default one for validation
     const taskService = depsInput?.taskService?.getTask
       ? depsInput.taskService
-      : new TaskService({
+      : await createConfiguredTaskService({
           workspacePath: params.repo || process.cwd(),
-          backend: "markdown", // Use default backend for validation
         });
 
     try {
@@ -242,10 +241,9 @@ The task exists but has no associated session to approve.
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
-      new TaskService({
+      (await createConfiguredTaskService({
         workspacePath: originalRepoPath,
-        backend: "markdown",
-      }),
+      })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };

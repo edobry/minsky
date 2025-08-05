@@ -1281,9 +1281,8 @@ export async function sessionPrFromParams(
     const sessionRecord = await sessionDb.getSession(sessionName);
     if (sessionRecord?.taskId) {
       try {
-        const taskService = new TaskService({
+        const taskService = await createConfiguredTaskService({
           workspacePath: process.cwd(),
-          backend: "markdown",
         });
         await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
         log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
@@ -1867,10 +1866,9 @@ export async function sessionReviewFromParams(
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
-      new TaskService({
+      (await createConfiguredTaskService({
         workspacePath: params.repo || process.cwd(),
-        backend: "markdown",
-      }),
+      })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
