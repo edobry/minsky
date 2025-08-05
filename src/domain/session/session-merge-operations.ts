@@ -23,6 +23,7 @@ import { createGitService } from "../git";
 import { TASK_STATUS } from "../tasks/taskConstants";
 import { getErrorMessage } from "../../errors";
 import type { SessionRecord } from "./types";
+import { cleanupSessionImpl } from "./session-lifecycle-operations";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -76,6 +77,7 @@ export interface SessionMergeParams {
   task?: string;
   repo?: string;
   json?: boolean;
+  cleanupSession?: boolean; // Session cleanup after merge (default: true)
 }
 
 /**
@@ -309,10 +311,10 @@ export async function mergeSessionPr(
     }
   }
 
-  // Optional session cleanup after successful merge
+  // Session cleanup after successful merge (default: enabled)
   let sessionCleanup: SessionMergeResult["sessionCleanup"];
 
-  if (params.cleanupSession) {
+  if (params.cleanupSession !== false) {
     try {
       if (!params.json) {
         log.cli("🧹 Cleaning up session artifacts...");

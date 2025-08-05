@@ -203,11 +203,17 @@ export const sessionApproveCommandParams = {
     schema: z.boolean(),
     description: "Clean up session directories and database record after merge",
     required: false,
-    defaultValue: false,
+    defaultValue: true,
   },
   cleanupSession: {
     schema: z.boolean(),
     description: "Clean up session directories and database record after merge (alias)",
+    required: false,
+    defaultValue: true,
+  },
+  noCleanup: {
+    schema: z.boolean(),
+    description: "Skip session cleanup after merge (preserves session files)",
     required: false,
     defaultValue: false,
   },

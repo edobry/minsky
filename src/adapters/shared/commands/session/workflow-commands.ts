@@ -185,12 +185,16 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { mergeSessionPr } = await import("../../../../domain/session/session-merge-operations");
 
+    // Cleanup is enabled by default, but can be disabled with --no-cleanup
+    const shouldCleanup = params.noCleanup !== true && 
+      (params.cleanup !== false && params.cleanupSession !== false);
+
     const result = await mergeSessionPr({
       session: params.name,
       task: params.task,
       repo: params.repo,
       json: params.json,
-      cleanupSession: params.cleanup || params.cleanupSession,
+      cleanupSession: shouldCleanup,
     });
 
     return this.createSuccessResult({ result });
