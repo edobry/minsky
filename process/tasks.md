@@ -606,7 +606,7 @@
 
 - [x] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
-- [ ] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
+- [x] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
 
@@ -660,4 +660,4 @@
 
 - [ ] Add AI telemetry and verbose output for debugging AI requests [#390](process/tasks/390-add-ai-telemetry-and-verbose-output-for-debugging-ai-requests.md)
 
-- [ ] Add config commands to MCP server [md#391](process/tasks/md#391-add-config-commands-to-mcp-server.md)
+- [ ] Add config commands to MCP server [#391](process/tasks/391-add-config-commands-to-mcp-server.md)
