@@ -5,7 +5,7 @@
  * real business logic: parameter validation, ID normalization, workspace resolution, etc.
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import {
   getTaskStatusFromParams,
   getTaskFromParams,
@@ -16,10 +16,9 @@ import {
 } from "./taskCommands";
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskService } from "./taskService";
+import { createMockTaskService } from "../../utils/test-utils/dependencies";
 
 import path from "path";
-// Use mock.module() to mock filesystem operations
-// import fs from "fs/promises";
 
 describe("Interface-Agnostic Task Command Functions", () => {
   const testWorkspacePath = "/tmp/test-minsky-workspace";
@@ -40,32 +39,15 @@ describe("Interface-Agnostic Task Command Functions", () => {
       createTaskFromTitleAndDescription: async () => ({}),
     }) as any;
 
-  beforeEach(async () => {
-    // Create test workspace structure
-    await fs.mkdir(path.join(testWorkspacePath, "process"), { recursive: true });
+  // Create mock tasks data for dependency injection
+  const mockTasks = [
+    { id: "155", title: "Add BLOCKED Status Support", status: TASK_STATUS.BLOCKED },
+    { id: "156", title: "Some other task", status: TASK_STATUS.TODO },
+    { id: "157", title: "In progress task", status: TASK_STATUS.IN_PROGRESS },
+    { id: "158", title: "Done task", status: TASK_STATUS.DONE },
+  ];
 
-    // Create a test tasks.md file with task 155 having BLOCKED status
-    const tasksContent = `# Tasks
-
-## Active Tasks
-
-- [~] Add BLOCKED Status Support [#155](process/tasks/155-add-blocked-status-support.md)
-- [ ] Some other task [#156](process/tasks/156-other-task.md)
-- [+] In progress task [#157](process/tasks/157-in-progress.md)
-- [x] Done task [#158](process/tasks/158-done-task.md)
-`;
-
-    await fs.writeFile(testTasksFile, tasksContent, "utf8");
-  });
-
-  afterEach(async () => {
-    // Clean up test workspace
-    try {
-      await fs.rm(testWorkspacePath, { recursive: true, force: true });
-    } catch {
-      // Ignore cleanup errors
-    }
-  });
+  // No filesystem operations needed with dependency injection
 
   describe("getTaskStatusFromParams", () => {
     test("should return BLOCKED status for task 155 with [~] checkbox", async () => {

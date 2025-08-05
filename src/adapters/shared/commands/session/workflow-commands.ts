@@ -190,6 +190,7 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
       task: params.task,
       repo: params.repo,
       json: params.json,
+      cleanupSession: params.cleanup || params.cleanupSession,
     });
 
     return this.createSuccessResult({ result });

@@ -11,6 +11,7 @@ import { join } from "path";
 import { log } from "../../utils/logger";
 import type { GitHubIssuesTaskBackendOptions } from "./githubIssuesTaskBackend";
 import { getErrorMessage } from "../../errors/index";
+import { getConfiguration } from "../configuration/index";
 
 // Load environment variables from .env file only if it exists
 const envPath = join((process as any).cwd(), ".env");
@@ -102,7 +103,6 @@ export function getGitHubBackendConfig(
   const { logErrors = false } = options || {};
 
   // Check for GitHub token using configuration system
-  const { getConfiguration } = require("../configuration/index");
   const config = getConfiguration();
   const githubToken = config.github.token;
 
@@ -215,7 +215,6 @@ export function getGitHubBackendConfigFromRepo(
   const { logErrors = false } = options || {};
 
   // Check for GitHub token using configuration system
-  const { getConfiguration } = require("../configuration/index");
   const config = getConfiguration();
   const githubToken = config.github.token;
 

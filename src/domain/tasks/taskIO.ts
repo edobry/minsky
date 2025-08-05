@@ -225,9 +225,22 @@ export function getTaskSpecsDirectoryPath(workspacePath: string): string {
  * @returns Path to the task spec file
  */
 export function getTaskSpecFilePath(taskId: string, title: string, workspacePath: string): string {
-  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+  // Handle qualified task IDs (md#388) and legacy formats (#388, 388)
+  let taskIdForPath: string;
+
+  if (taskId.includes("#") && !taskId.startsWith("#")) {
+    // Qualified ID like "md#388" - use as-is
+    taskIdForPath = taskId;
+  } else if (taskId.startsWith("#")) {
+    // Legacy format like "#388" - remove the # prefix
+    taskIdForPath = taskId.slice(1);
+  } else {
+    // Plain numeric like "388" - use as-is
+    taskIdForPath = taskId;
+  }
+
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-  return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdNum}-${normalizedTitle}.md`);
+  return join(getTaskSpecsDirectoryPath(workspacePath), `${taskIdForPath}-${normalizedTitle}.md`);
 }
 
 /**
@@ -243,9 +256,22 @@ export function getTaskSpecRelativePath(
   title: string,
   _workspacePath: string
 ): string {
-  const taskIdNum = taskId.startsWith("#") ? taskId.slice(1) : taskId;
+  // Handle qualified task IDs (md#388) and legacy formats (#388, 388)
+  let taskIdForPath: string;
+
+  if (taskId.includes("#") && !taskId.startsWith("#")) {
+    // Qualified ID like "md#388" - use as-is
+    taskIdForPath = taskId;
+  } else if (taskId.startsWith("#")) {
+    // Legacy format like "#388" - remove the # prefix
+    taskIdForPath = taskId.slice(1);
+  } else {
+    // Plain numeric like "388" - use as-is
+    taskIdForPath = taskId;
+  }
+
   const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
 
   // Always return paths relative to workspace root
-  return join("process", "tasks", `${taskIdNum}-${normalizedTitle}.md`);
+  return join("process", "tasks", `${taskIdForPath}-${normalizedTitle}.md`);
 }

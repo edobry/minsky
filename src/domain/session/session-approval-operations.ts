@@ -185,7 +185,9 @@ export async function approveSessionPr(
 
   // Create repository backend for this session using stored configuration
   // Use the session record's stored backend config instead of auto-detection
-  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+  const createBackendFunc = deps?.createRepositoryBackendForSession || 
+    ((workdir: string) => createRepositoryBackendFromSession(sessionRecord));
+  const repositoryBackend = await createBackendFunc("/test/workdir");
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for approval`);

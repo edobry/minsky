@@ -16,6 +16,7 @@ import { normalizeTaskId } from "./taskFunctions";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
 import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
+import { resolve } from "path";
 
 // Re-export task data types
 export type {} from "../../types/tasks/taskData";
@@ -566,7 +567,7 @@ export async function createTaskFromTitleAndDescription(
     if (validParams.descriptionPath) {
       try {
         // Resolve relative paths relative to current working directory
-        const filePath = require("path").resolve(validParams.descriptionPath);
+        const filePath = resolve(validParams.descriptionPath);
         description = (await readFile(filePath, "utf-8")) as string;
 
         if (!description.trim()) {

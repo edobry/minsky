@@ -308,10 +308,64 @@ export async function mergeSessionPr(
     }
   }
 
+  // Optional session cleanup after successful merge
+  let sessionCleanup: SessionMergeResult['sessionCleanup'];
+
+  if (params.cleanupSession) {
+    try {
+      if (!params.json) {
+        log.cli("🧹 Cleaning up session artifacts...");
+      }
+
+      const cleanupResult = await cleanupSessionImpl(
+        {
+          sessionName: sessionNameToUse,
+          taskId: sessionRecord.taskId,
+          force: true, // After successful merge, we can force cleanup
+        },
+        { sessionDB }
+      );
+
+      sessionCleanup = {
+        performed: true,
+        directoriesRemoved: cleanupResult.directoriesRemoved,
+        errors: cleanupResult.errors,
+      };
+
+      if (!params.json) {
+        if (cleanupResult.directoriesRemoved.length > 0) {
+          log.cli(`✅ Cleaned up ${cleanupResult.directoriesRemoved.length} session directories`);
+        }
+        if (cleanupResult.errors.length > 0) {
+          log.cli(`⚠️  ${cleanupResult.errors.length} cleanup errors occurred`);
+        }
+        if (cleanupResult.sessionDeleted) {
+          log.cli("✅ Session record removed from database");
+        }
+      }
+
+    } catch (cleanupError) {
+      const errorMsg = `Session cleanup failed: ${getErrorMessage(cleanupError)}`;
+      log.error(errorMsg, { sessionName: sessionNameToUse, error: cleanupError });
+
+      sessionCleanup = {
+        performed: false,
+        directoriesRemoved: [],
+        errors: [errorMsg],
+      };
+
+      if (!params.json) {
+        log.cli(`⚠️  Warning: ${errorMsg}`);
+        log.cli("💡 You can manually clean up with: minsky session delete " + sessionNameToUse);
+      }
+    }
+  }
+
   return {
     session: sessionNameToUse,
     taskId: sessionRecord.taskId,
     prBranch: sessionRecord.prBranch,
     mergeInfo,
+    sessionCleanup,
   };
 }

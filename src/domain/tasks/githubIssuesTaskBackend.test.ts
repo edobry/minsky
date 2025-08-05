@@ -66,7 +66,7 @@ describe("GitHubIssuesTaskBackend", () => {
       const tasks = backend.parseTasks(issuesJson);
 
       expect(tasks.length).toBe(1);
-      expect(tasks[0]?.id).toBe("#001");
+      expect(tasks[0]?.id).toBe("gh#001");
       expect(tasks[0]?.title).toBe("Test Issue #001");
       expect(tasks[0]?.description).toBe("Test description");
       expect(tasks[0]?.status).toBe("TODO");

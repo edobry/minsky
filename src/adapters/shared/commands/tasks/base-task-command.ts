@@ -8,6 +8,7 @@ import { CommandCategory, type CommandExecutionContext } from "../../command-reg
 import { normalizeTaskId } from "../../../../domain/tasks";
 import { ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
+import { isQualifiedTaskId, isLegacyTaskId, migrateUnqualifiedTaskId } from "../../../../domain/tasks/unified-task-id";
 
 /**
  * Common interface for task command parameters
@@ -57,11 +58,7 @@ export abstract class BaseTaskCommand {
    */
   protected validateAndNormalizeTaskId(taskId: string): string {
     // Import unified task ID utilities
-    const {
-      isQualifiedTaskId,
-      isLegacyTaskId,
-      migrateUnqualifiedTaskId,
-    } = require("../../../../domain/tasks/unified-task-id");
+    // Use static imports for better performance
 
     // First, check if it's already a qualified ID
     if (isQualifiedTaskId(taskId)) {
