@@ -19,10 +19,8 @@
 
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { mkdir, rmdir, access } from "fs/promises";
-// Use mock.module() to mock filesystem operations
-// import { existsSync } from "fs";
+import { mkdir, rmdir, access } from "fs/promises";
+import { existsSync } from "fs";
 import { startSessionFromParams, listSessionsFromParams } from "./session";
 import { createMock } from "../utils/test-utils/mocking";
 import {

@@ -7,10 +7,8 @@
 
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { rm, mkdir } from "fs/promises";
-// Use mock.module() to mock filesystem operations
-// import { existsSync } from "fs";
+import { rm, mkdir } from "fs/promises";
+import { existsSync } from "fs";
 import { GitService } from "./git";
 
 describe("Session Lookup Bug Integration Test", () => {

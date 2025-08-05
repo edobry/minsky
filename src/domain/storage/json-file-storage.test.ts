@@ -11,8 +11,7 @@ const TEST_VALUE = 123;
 
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { existsSync, mkdirSync, rmSync } from "fs";
+import { existsSync, mkdirSync, rmSync } from "fs";
 import { randomUUID } from "crypto";
 import { createJsonFileStorage } from "./json-file-storage";
 import type { DatabaseStorage } from "./database-storage";
