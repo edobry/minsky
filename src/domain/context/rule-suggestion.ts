@@ -123,8 +123,7 @@ export class DefaultRuleSuggestionService {
         queryAnalysis: response.queryAnalysis,
       };
     } catch (error) {
-      // Fallback to basic analysis if AI fails
-      console.warn("AI service failed, using fallback analysis:", error);
+      // Fallback to basic analysis if AI fails - silently for now since AI is not configured
       return {
         suggestions: [],
         queryAnalysis: await this.analyzeQuery(request.query, request.contextHints),

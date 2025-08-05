@@ -223,7 +223,11 @@ export class DefaultAICompletionService implements AICompletionService {
 
       return result.object;
     } catch (error) {
-      log.error("AI object generation failed", { error, request });
+      log.debug("AI object generation failed", {
+        error: error instanceof Error ? error.message : error,
+        provider: request.provider,
+        model: request.model,
+      });
       throw this.transformError(error, request.provider, request.model);
     }
   }
