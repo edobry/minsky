@@ -486,7 +486,7 @@ export class GitService implements GitServiceInterface {
       // Get current commit hash before fetch
       const { stdout: beforeHash } = await execAsync(`git -C ${workdir} rev-parse HEAD`);
 
-      // Fetch latest changes from remote (don't pull current branch)
+      // Fetch latest changes from remote (don't merge anything)
       // This gets all refs from remote without merging anything
       await execAsync(`git -C ${workdir} fetch ${remote}`);
 

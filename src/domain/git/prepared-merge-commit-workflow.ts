@@ -84,6 +84,19 @@ export async function createPreparedMergeCommitPR(
     // Ensure we're on the source branch
     await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
 
+    // CRITICAL: Update local base branch to match remote before PR creation
+    // This ensures the PR merge base includes the latest remote changes
+    try {
+      await gitExec("fetch", `fetch origin ${baseBranch}`, { workdir, timeout: 60000 });
+      await gitExec("switch", `switch ${baseBranch}`, { workdir, timeout: 30000 });
+      await gitExec("reset", `reset --hard origin/${baseBranch}`, { workdir, timeout: 30000 });
+      await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+      log.debug(`Updated local ${baseBranch} to match origin/${baseBranch}`);
+    } catch (error) {
+      log.warn(`Failed to update local ${baseBranch} branch: ${getErrorMessage(error)}`);
+      // Continue with PR creation using current base branch state
+    }
+
     // CRITICAL: Test merge compatibility BEFORE creating PR branch
     // This ensures we never switch to PR branch with potential conflicts
     try {
