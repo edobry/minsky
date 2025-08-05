@@ -18,7 +18,7 @@ import {
   type RepositoryBackendConfig,
   type MergeInfo,
 } from "../repository/index";
-import { createTaskService } from "../tasks/taskService";
+import { createConfiguredTaskService } from "../tasks/taskService";
 import { createGitService } from "../git";
 import { TASK_STATUS } from "../tasks/taskConstants";
 import { getErrorMessage } from "../../errors";
@@ -119,10 +119,6 @@ export async function mergeSessionPr(
   // Set up session provider
   const sessionDB = deps?.sessionDB || createSessionProvider();
 
-  // Set up services for task status update
-  const taskService = deps?.taskService || createTaskService();
-  const gitService = deps?.gitService || createGitService();
-
   // Resolve session name
   let sessionNameToUse = params.session;
 
@@ -155,6 +151,18 @@ export async function mergeSessionPr(
   // CRITICAL SECURITY VALIDATION: Use centralized approval validation
   // This ensures consistent security enforcement across all merge operations
   validateSessionApprovedForMerge(sessionRecord, sessionNameToUse);
+
+  // Get the original repo path for task updates (not session workspace)
+  const originalRepoPath = params.repo || sessionRecord.repoUrl || process.cwd();
+
+  // Set up dependencies with proper task backend configuration
+  // Use createConfiguredTaskService to respect the configured backend (like GitHub Issues)
+  const taskService =
+    deps?.taskService ||
+    (await createConfiguredTaskService({
+      workspacePath: originalRepoPath,
+    }));
+  const gitService = deps?.gitService || createGitService();
 
   // Create repository backend for this session
   // Use stored repoUrl for backend detection to avoid redundant git commands
