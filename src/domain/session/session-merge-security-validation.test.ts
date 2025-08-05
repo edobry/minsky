@@ -19,9 +19,14 @@ import type { SessionRecord } from "./types";
 
 // Mock dependencies
 const mockSessionProvider = {
+  listSessions: mock(() => Promise.resolve([])),
   getSession: mock(),
-  updateSession: mock(),
   getSessionByTaskId: mock(),
+  addSession: mock(() => Promise.resolve()),
+  updateSession: mock(),
+  deleteSession: mock(() => Promise.resolve(true)),
+  getRepoPath: mock(() => Promise.resolve("/test/repo/path")),
+  getSessionWorkdir: mock(() => Promise.resolve("/test/session/workdir")),
 };
 
 const mockRepositoryBackend = {
@@ -231,7 +236,10 @@ describe("Session Merge Security Validation", () => {
       };
 
       // This should succeed and call the repository backend
-      const result = await mergeSessionPr(params);
+      const result = await mergeSessionPr(params, {
+        sessionDB: mockSessionProvider,
+        createRepositoryBackend: () => Promise.resolve(mockRepositoryBackend),
+      });
 
       expect(result).toBeDefined();
       expect(result.session).toBe("approved-session");

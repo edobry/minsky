@@ -92,9 +92,11 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     // This uses the same logic as the main sessionPr command
     if (!sessionName && params.task) {
       try {
-        const { resolveSessionContextWithFeedback } = await import("../../../../domain/session/session-context-resolver");
+        const { resolveSessionContextWithFeedback } = await import(
+          "../../../../domain/session/session-context-resolver"
+        );
         const { createSessionProvider } = await import("../../../../domain/session");
-        
+
         const sessionProvider = createSessionProvider();
         const resolvedContext = await resolveSessionContextWithFeedback({
           session: params.name,
@@ -103,7 +105,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
           sessionProvider,
           allowAutoDetection: true,
         });
-        
+
         sessionName = resolvedContext.sessionName;
       } catch (error) {
         // If session resolution fails, we can't determine if PR can be refreshed

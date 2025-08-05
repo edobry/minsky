@@ -14,7 +14,8 @@ const TEST_VALUE = 123;
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 import { GitHubBackend } from "./repository/github";
 import { join } from "path";
-import { mkdtemp, mkdir } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { mkdtemp, mkdir } from "fs/promises";
 import { tmpdir } from "os";
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 // Set up automatic mock cleanup

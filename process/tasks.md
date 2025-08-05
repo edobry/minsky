@@ -628,7 +628,7 @@
 
 - [x] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
 
-- [+] Multi-Backend System Polish & Optimization [#369](process/tasks/369-multi-backend-system-polish-optimization.md)
+- [x] Multi-Backend System Polish & Optimization [#369](process/tasks/369-multi-backend-system-polish-optimization.md)
 
 - [+] Add minsky tasks similar command for finding related completed tasks [#370](process/tasks/370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
 
@@ -663,3 +663,4 @@
 - [ ] Add config commands to MCP server [#391](process/tasks/391-add-config-commands-to-mcp-server.md)
 
 - [ ] Systematic Global Module Mock Cleanup [#392](process/tasks/392-systematic-global-module-mock-cleanup.md)
+- [ ] Audit and fix task backend consistency across session operations [md#388](process/tasks/md#388-audit-and-fix-task-backend-consistency-across-session-operations.md)

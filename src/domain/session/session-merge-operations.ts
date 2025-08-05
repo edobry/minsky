@@ -188,7 +188,8 @@ export async function mergeSessionPr(
     }
   }
 
-  const repositoryBackend = await createRepositoryBackend(config);
+  const createBackendFunc = deps?.createRepositoryBackend || createRepositoryBackend;
+  const repositoryBackend = await createBackendFunc(config);
 
   if (!params.json) {
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for merge`);
@@ -309,7 +310,7 @@ export async function mergeSessionPr(
   }
 
   // Optional session cleanup after successful merge
-  let sessionCleanup: SessionMergeResult['sessionCleanup'];
+  let sessionCleanup: SessionMergeResult["sessionCleanup"];
 
   if (params.cleanupSession) {
     try {
@@ -343,7 +344,6 @@ export async function mergeSessionPr(
           log.cli("✅ Session record removed from database");
         }
       }
-
     } catch (cleanupError) {
       const errorMsg = `Session cleanup failed: ${getErrorMessage(cleanupError)}`;
       log.error(errorMsg, { sessionName: sessionNameToUse, error: cleanupError });
@@ -356,7 +356,7 @@ export async function mergeSessionPr(
 
       if (!params.json) {
         log.cli(`⚠️  Warning: ${errorMsg}`);
-        log.cli("💡 You can manually clean up with: minsky session delete " + sessionNameToUse);
+        log.cli(`💡 You can manually clean up with: minsky session delete ${sessionNameToUse}`);
       }
     }
   }

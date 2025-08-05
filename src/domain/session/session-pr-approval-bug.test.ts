@@ -35,6 +35,9 @@ describe("Session PR Approval Bug", () => {
   let sessionName: string;
 
   beforeEach(async () => {
+    // Initialize configuration for tests
+    await initializeConfiguration(await createTestProvider({}));
+
     sessionDB = createSessionProvider();
     sessionName = "test-pr-approval-session";
 

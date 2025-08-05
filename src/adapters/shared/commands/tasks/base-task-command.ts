@@ -8,7 +8,11 @@ import { CommandCategory, type CommandExecutionContext } from "../../command-reg
 import { normalizeTaskId } from "../../../../domain/tasks";
 import { ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import { isQualifiedTaskId, isLegacyTaskId, migrateUnqualifiedTaskId } from "../../../../domain/tasks/unified-task-id";
+import {
+  isQualifiedTaskId,
+  isLegacyTaskId,
+  migrateUnqualifiedTaskId,
+} from "../../../../domain/tasks/unified-task-id";
 
 /**
  * Common interface for task command parameters

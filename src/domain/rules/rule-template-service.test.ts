@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { tmpdir } from "os";
-import { promises as fs } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { promises as fs } from "fs";
 import path from "path";
 import {
   RuleTemplateService,

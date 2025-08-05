@@ -7,8 +7,10 @@
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-import { mkdir, rmdir } from "fs/promises";
-import { existsSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { mkdir, rmdir } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { existsSync } from "fs";
 import { getSessionDirFromParams, updateSessionFromParams } from "../../../src/domain/session";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";

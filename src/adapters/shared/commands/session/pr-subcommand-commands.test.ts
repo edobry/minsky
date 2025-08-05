@@ -1,17 +1,17 @@
 /**
  * Test for PR Detection Bug Fix
- * 
+ *
  * Bug: Session PR create command fails to detect existing PRs when invoked with --task parameter
- * 
+ *
  * Issue Description:
  * When running `minsky session pr create --task md#368`, the command fails with:
  * "PR description is required for new pull request creation"
- * 
+ *
  * Root Cause:
- * The checkIfPrCanBeRefreshed() method only checks for explicit session name or 
+ * The checkIfPrCanBeRefreshed() method only checks for explicit session name or
  * current working directory detection, but doesn't use the same session resolution
  * logic as the main command (resolveSessionContextWithFeedback).
- * 
+ *
  * Steps to Reproduce:
  * 1. Have an existing session with PR state for a task
  * 2. Run session pr create with --task parameter (not --name)
@@ -93,15 +93,13 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       };
 
       // Spy on imports to inject mocks
-      const sessionImportSpy = spyOn(
+      const sessionImportSpy = (spyOn(
         await import("../../../../domain/session"),
         "createSessionProvider"
-      ).mockReturnValue(mockSessionProvider as any);
+      ) = mock(() => mockSessionProvider as any));
 
-      const gitImportSpy = spyOn(
-        await import("../../../../domain/git"),
-        "createGitService"
-      ).mockReturnValue(mockGitService as any);
+      const gitImportSpy = (spyOn(await import("../../../../domain/git"), "createGitService") =
+        mock(() => mockGitService as any));
 
       const resolverImportSpy = spyOn(
         await import("../../../../domain/session/session-context-resolver"),
@@ -127,7 +125,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
     it("should still require body for truly new PRs (regression check)", async () => {
       // Ensure we don't break the legitimate case where body is required
       const taskId = "md#999";
-      
+
       const mockSessionProvider = {
         getSession: mock(async () => null), // No existing session
       };
@@ -136,10 +134,10 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         throw new Error("Session not found for task md#999");
       });
 
-      const sessionImportSpy = spyOn(
+      const sessionImportSpy = (spyOn(
         await import("../../../../domain/session"),
         "createSessionProvider"
-      ).mockReturnValue(mockSessionProvider as any);
+      ) = mock(() => mockSessionProvider as any));
 
       const resolverImportSpy = spyOn(
         await import("../../../../domain/session/session-context-resolver"),
