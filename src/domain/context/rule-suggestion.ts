@@ -74,7 +74,7 @@ export class DefaultRuleSuggestionService {
     // Build prompt for AI analysis
     const prompt = this.buildAnalysisPrompt(request);
 
-    console.log("🤖 Analyzing query with AI...");
+    console.log("🤔 Thinking...");
 
     try {
       // Use AI service to analyze query and suggest rules
