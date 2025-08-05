@@ -158,6 +158,14 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         }
         break;
 
+      case "rules.search":
+        if ("rules" in result) {
+          this.formatRulesListResult(result.rules);
+        } else {
+          this.formatGenericObject(result);
+        }
+        break;
+
       case "debug.echo":
         formatDebugEchoDetails(result);
         break;
