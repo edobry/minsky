@@ -202,6 +202,33 @@ export class DefaultAICompletionService implements AICompletionService {
   }
 
   /**
+   * Generate structured object using AI provider
+   */
+  async generateObject(request: any): Promise<any> {
+    try {
+      const model = await this.getLanguageModel(request.provider, request.model);
+
+      log.debug("Starting AI object generation", {
+        provider: request.provider,
+        model: request.model,
+        hasSchema: !!request.schema,
+      });
+
+      const result = await generateObject({
+        model,
+        messages: request.messages,
+        schema: request.schema,
+        temperature: request.temperature || 0.3,
+      });
+
+      return result.object;
+    } catch (error) {
+      log.error("AI object generation failed", { error, request });
+      throw this.transformError(error, request.provider, request.model);
+    }
+  }
+
+  /**
    * Get available models for a provider
    */
   async getAvailableModels(provider?: string): Promise<AIModel[]> {
