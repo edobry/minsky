@@ -90,7 +90,9 @@ export async function createRepositoryBackendForSession(
 /**
  * Extract GitHub owner and repo from URL
  */
-function extractGitHubInfoFromUrl(remoteUrl: string): { owner: string; repo: string } | null {
+export function extractGitHubInfoFromUrl(
+  remoteUrl: string
+): { owner: string; repo: string } | null {
   try {
     // SSH: git@github.com:owner/repo.git
     // HTTPS: https://github.com/owner/repo.git

@@ -73,15 +73,6 @@ export interface SessionRecord {
   taskId?: string;
   branch?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
-  github?: {
-    owner?: string;
-    repo?: string;
-    token?: string;
-  };
-  remote?: {
-    authMethod?: "ssh" | "https" | "token";
-    depth?: number;
-  };
   prState?: {
     branchName: string;
     exists: boolean;

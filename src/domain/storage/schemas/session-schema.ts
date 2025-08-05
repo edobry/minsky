@@ -32,8 +32,6 @@ export const sqliteSessions = sqliteTable("sessions", {
 
   // Backend configuration with automatic JSON parsing
   backendType: text("backend_type"),
-  github: text("github", { mode: "json" }).$type<any>(),
-  remote: text("remote", { mode: "json" }).$type<any>(),
   pullRequest: text("pull_request", { mode: "json" }).$type<any>(),
 });
 
@@ -53,8 +51,6 @@ export const postgresSessions = pgTable("sessions", {
 
   // Backend configuration
   backendType: varchar("backend_type", { length: 50 }),
-  github: pgText("github"), // Store as JSON
-  remote: pgText("remote"), // Store as JSON
   pullRequest: pgText("pull_request"), // Store as JSON
 });
 
@@ -84,8 +80,6 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
 
     // Backend configuration - Drizzle handles JSON serialization
     backendType: record.backendType || null,
-    github: record.github || null,
-    remote: record.remote || null,
     pullRequest: record.pullRequest || null,
   };
 }
