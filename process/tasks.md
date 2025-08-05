@@ -606,7 +606,7 @@
 
 - [x] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
-- [x] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
+- [ ] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
 
@@ -626,7 +626,7 @@
 
 - [x] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/367-consolidate-multiple-task-id-parsing-implementations.md)
 
-- [+] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
+- [x] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
 
 - [ ] Multi-Backend System Polish & Optimization [#369](process/tasks/369-multi-backend-system-polish-optimization.md)
 
