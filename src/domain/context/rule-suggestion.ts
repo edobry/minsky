@@ -110,7 +110,7 @@ export class DefaultRuleSuggestionService {
       };
     } catch (error) {
       // Fallback to keyword-based matching when AI is unavailable
-      // AI service failed, falling back to keyword matching
+      console.log("⚠️  AI unavailable, using keyword-based fallback");
       const fallbackSuggestions = this.generateFallbackSuggestions(request);
       return {
         suggestions: fallbackSuggestions,
