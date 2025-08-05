@@ -164,8 +164,12 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionPr(params)).rejects.toThrow(ValidationError);
-      await expect(mergeSessionPr(params)).rejects.toThrow(/MERGE REJECTED.*must be approved/);
+      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
+        ValidationError
+      );
+      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
+        /MERGE REJECTED.*must be approved/
+      );
 
       // Repository backend should NEVER be called for unapproved sessions
       expect(mockRepositoryBackend.mergePullRequest).not.toHaveBeenCalled();
@@ -189,8 +193,12 @@ describe("Session Merge Security Validation", () => {
       };
 
       // The merge operation should be REJECTED
-      await expect(mergeSessionPr(params)).rejects.toThrow(ValidationError);
-      await expect(mergeSessionPr(params)).rejects.toThrow(/has no PR branch/);
+      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
+        ValidationError
+      );
+      await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
+        /has no PR branch/
+      );
 
       // Repository backend should NEVER be called for sessions without PR
       expect(mockRepositoryBackend.mergePullRequest).not.toHaveBeenCalled();
