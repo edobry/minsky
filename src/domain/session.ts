@@ -1232,10 +1232,9 @@ Task ${taskIdToUse} exists but has no associated session to approve.
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
-      new TaskService({
+      (await createConfiguredTaskService({
         workspacePath: originalRepoPath,
-        backend: "markdown",
-      }),
+      })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
@@ -1672,10 +1671,9 @@ export async function sessionReviewFromParams(
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
-      new TaskService({
+      (await createConfiguredTaskService({
         workspacePath: params.repo || process.cwd(),
-        backend: "markdown",
-      }),
+      })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };

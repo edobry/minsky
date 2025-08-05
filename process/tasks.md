@@ -663,4 +663,17 @@
 - [ ] Add config commands to MCP server [#391](process/tasks/391-add-config-commands-to-mcp-server.md)
 
 - [ ] Systematic Global Module Mock Cleanup [#392](process/tasks/392-systematic-global-module-mock-cleanup.md)
-- [ ] Audit and fix task backend consistency across session operations [md#388](process/tasks/md#388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+
+- [ ] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+
+- [+] Replace Unreliable Mock Factories with Explicit Mock Pattern [#393](process/tasks/393-replace-unreliable-mock-factories-with-explicit-mock-pattern.md)
+
+- [ ] Replace Unreliable Mock Factories with Explicit Mock Pattern [#393](process/tasks/393-replace-unreliable-mock-factories-with-explicit-mock-pattern.md)
+
+- [ ] Testable Design Pattern Expansion [#394](process/tasks/394-testable-design-pattern-expansion.md)
+
+- [ ] Dependency Injection Enhancement for Test Reliability [#395](process/tasks/395-dependency-injection-enhancement-for-test-reliability.md)
+
+- [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
+
+- [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)

@@ -214,13 +214,13 @@ export async function cleanupSessionImpl(
 
     // 2. Determine session directories to clean up
     const sessionDirectories = await getSessionDirectoriesToCleanup(sessionName, taskId);
-    
+
     if (dryRun) {
       log.debug("Dry run mode: would remove directories", { directories: sessionDirectories });
       return {
         sessionDeleted: false,
         directoriesRemoved: sessionDirectories,
-        errors: []
+        errors: [],
       };
     }
 
@@ -268,15 +268,14 @@ export async function cleanupSessionImpl(
       sessionName,
       sessionDeleted,
       directoriesRemoved: directoriesRemoved.length,
-      errors: errors.length
+      errors: errors.length,
     });
 
     return {
       sessionDeleted,
       directoriesRemoved,
-      errors
+      errors,
     };
-
   } catch (error) {
     const errorMsg = `Session cleanup failed: ${getErrorMessage(error)}`;
     log.error(errorMsg, { sessionName, error });
@@ -288,14 +287,14 @@ export async function cleanupSessionImpl(
  * Get all session directories that should be cleaned up
  */
 async function getSessionDirectoriesToCleanup(
-  sessionName: string, 
+  sessionName: string,
   taskId?: string
 ): Promise<string[]> {
   const directories: string[] = [];
-  
+
   // Standard session directory patterns
   const baseSessionPath = `${process.env.HOME}/.local/state/minsky/sessions`;
-  
+
   // Try different naming patterns that might exist
   const possibleDirs = [
     `${baseSessionPath}/${sessionName}`,
@@ -327,7 +326,7 @@ async function validateSessionSafeForCleanup(
   // - Check if task is DONE
   // - Check if PR is merged
   // - Check for uncommitted changes
-  
+
   if (!sessionRecord) {
     log.debug(`Session ${sessionName} not found in database, allowing cleanup`);
     return;
