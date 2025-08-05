@@ -310,8 +310,11 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
         `Status:      ${pullRequest.status}`,
         `Created:     ${pullRequest.createdAt || "unknown"}`,
         `Updated:     ${pullRequest.updatedAt || "unknown"}`,
-        `URL:         ${pullRequest.url || "not available"}`,
       ];
+
+      if (pullRequest.url) {
+        output.push(`URL:         ${pullRequest.url}`);
+      }
 
       if (pullRequest.description) {
         output.push("", "Description:");
