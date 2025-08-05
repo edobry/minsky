@@ -8,6 +8,10 @@ All notable changes to this project will be documented in this file.
 
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 
+### Fixed
+
+- **Session Merge Task Backend Integration**: Session merge command now properly delegates to configured task backend instead of hardcoding default backend, ensuring GitHub Issues and other configured backends work correctly with merge operations [Task #357]
+
   - **AUTO-DETECTION**: Automatically detects GitHub repositories via `.git/config` remote URLs for seamless task creation
   - **REPOSITORY OVERRIDE**: New `--github-repo owner/repo` CLI option for custom GitHub repositories independent of workspace
   - **BACKEND COMPATIBILITY**: Validation system ensures GitHub Issues backend only works with compatible repository backends  
