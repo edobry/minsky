@@ -167,10 +167,10 @@ export function registerAiCommands(): void {
           exit(1);
         }
 
-        const configService = new DefaultAIConfigurationService({
+        const mockConfigService = {
           loadConfiguration: () => Promise.resolve({ resolved: config }),
-        } as any);
-        const completionService = new DefaultAICompletionService(configService);
+        } as any;
+        const completionService = new DefaultAICompletionService(mockConfigService);
 
         const request = {
           prompt,

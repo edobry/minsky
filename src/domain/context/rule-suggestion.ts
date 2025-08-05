@@ -2,6 +2,7 @@
  * AI-powered rule suggestion service
  */
 
+import { z } from "zod";
 import type { AICompletionService, AIObjectGenerationRequest } from "../ai/types";
 import type { RulesService } from "../rules/types";
 import type { RuleSuggestionRequest, RuleSuggestionResponse, RuleSuggestionConfig } from "./types";
@@ -77,34 +78,21 @@ export class DefaultRuleSuggestionService {
       // Use AI service to analyze query and suggest rules
       const response = await this.aiService.generateObject({
         messages: [{ role: "user", content: prompt }],
-        schema: {
-          type: "object",
-          properties: {
-            suggestions: {
-              type: "array",
-              items: {
-                type: "object",
-                properties: {
-                  ruleId: { type: "string" },
-                  relevanceScore: { type: "number", minimum: 0, maximum: 1 },
-                  reasoning: { type: "string" },
-                  confidenceLevel: { type: "string", enum: ["high", "medium", "low"] },
-                },
-                required: ["ruleId", "relevanceScore", "reasoning", "confidenceLevel"],
-              },
-            },
-            queryAnalysis: {
-              type: "object",
-              properties: {
-                intent: { type: "string" },
-                keywords: { type: "array", items: { type: "string" } },
-                suggestedCategories: { type: "array", items: { type: "string" } },
-              },
-              required: ["intent", "keywords", "suggestedCategories"],
-            },
-          },
-          required: ["suggestions", "queryAnalysis"],
-        },
+        schema: z.object({
+          suggestions: z.array(
+            z.object({
+              ruleId: z.string(),
+              relevanceScore: z.number().min(0).max(1),
+              reasoning: z.string(),
+              confidenceLevel: z.enum(["high", "medium", "low"]),
+            })
+          ),
+          queryAnalysis: z.object({
+            intent: z.string(),
+            keywords: z.array(z.string()),
+            suggestedCategories: z.array(z.string()),
+          }),
+        }),
         model: this.config.aiModel || "gpt-4o",
         temperature: 0.3,
       });
@@ -120,7 +108,7 @@ export class DefaultRuleSuggestionService {
       };
     } catch (error) {
       // Fallback to keyword-based matching when AI is unavailable
-      // AI service failed, using keyword-based fallback
+      // AI service failed, falling back to keyword matching
       const fallbackSuggestions = this.generateFallbackSuggestions(request);
       return {
         suggestions: fallbackSuggestions,

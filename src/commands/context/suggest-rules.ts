@@ -80,10 +80,10 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
     exit(1);
   }
 
-  const configService = new DefaultAIConfigurationService({
+  const mockConfigService = {
     loadConfiguration: () => Promise.resolve({ resolved: config }),
-  } as any);
-  const aiService = new DefaultAICompletionService(configService);
+  } as any;
+  const aiService = new DefaultAICompletionService(mockConfigService);
   const rulesService = new ModularRulesService(workspacePath);
 
   // Create suggestion service with configuration
