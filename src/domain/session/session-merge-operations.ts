@@ -18,6 +18,10 @@ import {
   type RepositoryBackendConfig,
   type MergeInfo,
 } from "../repository/index";
+import { createTaskService } from "../tasks/taskService";
+import { createGitService } from "../git";
+import { TASK_STATUS } from "../tasks/taskConstants";
+import { getErrorMessage } from "../../errors";
 import type { SessionRecord } from "./types";
 
 /**
@@ -99,6 +103,13 @@ export async function mergeSessionPr(
   params: SessionMergeParams,
   deps?: {
     sessionDB?: SessionProviderInterface;
+    taskService?: {
+      setTaskStatus?: (taskId: string, status: string) => Promise<any>;
+      getTaskStatus?: (taskId: string) => Promise<string | undefined>;
+      getBackendForTask?: (taskId: string) => Promise<any>;
+      getTask?: (taskId: string) => Promise<any>;
+    };
+    gitService?: any;
   }
 ): Promise<SessionMergeResult> {
   if (!params.json) {
@@ -107,6 +118,10 @@ export async function mergeSessionPr(
 
   // Set up session provider
   const sessionDB = deps?.sessionDB || createSessionProvider();
+
+  // Set up services for task status update
+  const taskService = deps?.taskService || createTaskService();
+  const gitService = deps?.gitService || createGitService();
 
   // Resolve session name
   let sessionNameToUse = params.session;
@@ -184,6 +199,105 @@ export async function mergeSessionPr(
   if (!params.json) {
     log.cli("✅ Session PR merged successfully!");
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
+  }
+
+  // Update task status to DONE if we have a task ID and it's not already DONE
+  const taskId = sessionRecord.taskId;
+  if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
+    try {
+      // Check current status first to avoid unnecessary updates
+      const currentStatus = await taskService.getTaskStatus(taskId);
+
+      if (currentStatus !== TASK_STATUS.DONE) {
+        if (!params.json) {
+          log.cli(`📋 Updating task ${taskId} status to DONE...`);
+        }
+        log.debug(`Updating task ${taskId} status from ${currentStatus} to DONE`);
+        await taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
+
+        // After updating task status, check if there are uncommitted changes that need to be committed
+        try {
+          const statusOutput = await gitService.execInRepository(
+            workingDirectory,
+            "git status --porcelain"
+          );
+          const hasUncommittedChanges = statusOutput.trim().length > 0;
+
+          if (hasUncommittedChanges) {
+            if (!params.json) {
+              log.cli("📝 Committing task status update...");
+            }
+            log.debug("Task status update created uncommitted changes, committing them");
+
+            // Stage the tasks.md file (or any other changed files from task status update)
+            await gitService.execInRepository(workingDirectory, "git add process/tasks.md");
+
+            // Commit the task status update with conventional commits format
+            try {
+              await gitService.execInRepository(
+                workingDirectory,
+                `git commit -m "chore(${taskId}): update task status to DONE"`
+              );
+              log.debug(`Committed task ${taskId} status update`);
+
+              // Try to push the commit
+              try {
+                await gitService.execInRepository(workingDirectory, "git push");
+                log.debug(`Pushed task ${taskId} status update`);
+                if (!params.json) {
+                  log.cli("✅ Task status updated and committed");
+                }
+              } catch (pushError) {
+                // Log but don't fail if push fails
+                log.warn("Failed to push task status commit", {
+                  taskId,
+                  error: getErrorMessage(pushError),
+                });
+                if (!params.json) {
+                  log.cli("⚠️  Task status updated but failed to push");
+                }
+              }
+            } catch (commitError) {
+              // Handle pre-commit hook failures gracefully
+              const errorMsg = getErrorMessage(commitError as Error);
+              if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
+                if (!params.json) {
+                  log.cli("⚠️  Task status updated but commit had linting issues");
+                  log.cli("💡 Run 'bun run lint:fix' to address any remaining issues");
+                }
+                log.warn("Task status commit failed due to pre-commit checks");
+              } else {
+                throw commitError;
+              }
+            }
+          } else {
+            log.debug("No uncommitted changes from task status update");
+            if (!params.json) {
+              log.cli("✅ Task status updated");
+            }
+          }
+        } catch (commitError) {
+          // Log the error but don't fail the whole operation
+          const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
+          log.error(errorMsg, { taskId, error: commitError });
+          if (!params.json) {
+            log.cli(`⚠️  Warning: ${errorMsg}`);
+          }
+        }
+      } else {
+        log.debug(`Task ${taskId} is already DONE, skipping status update`);
+        if (!params.json) {
+          log.cli("ℹ️  Task is already marked as DONE");
+        }
+      }
+    } catch (error) {
+      // Log the error but don't fail the whole operation
+      const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
+      log.error(errorMsg, { taskId, error });
+      if (!params.json) {
+        log.cli(`⚠️  Warning: ${errorMsg}`);
+      }
+    }
   }
 
   return {
