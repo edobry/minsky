@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Session PR Output Formatting**: Cleaned up `minsky session pr get` output by removing unnecessary "(no number)" placeholder for local repo backend PRs, improving readability
 - **Session Merge Task Backend Integration**: Session merge command now properly delegates to configured task backend instead of hardcoding default backend, ensuring GitHub Issues and other configured backends work correctly with merge operations [Task #357]
 
   - **AUTO-DETECTION**: Automatically detects GitHub repositories via `.git/config` remote URLs for seamless task creation

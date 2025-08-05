@@ -305,7 +305,7 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
         `${pullRequest.number ? `PR #${pullRequest.number}: ` : ""}${pullRequest.title}`,
         "",
         `Session:     ${pullRequest.sessionName}`,
-        `Task:        ${pullRequest.taskId ? `#${pullRequest.taskId}` : "none"}`,
+        `Task:        ${pullRequest.taskId || "none"}`,
         `Branch:      ${pullRequest.branch}`,
         `Status:      ${pullRequest.status}`,
         `Created:     ${pullRequest.createdAt || "unknown"}`,
