@@ -40,8 +40,17 @@ export async function simulateMergeImpl(
         // Merge failed, analyze conflicts
         const conflictFiles = await deps.analyzeConflictFiles(repoPath);
 
-        // Abort the merge
-        await deps.execAsync(`git -C ${repoPath} merge --abort`);
+        // Only abort merge if there's actually a merge in progress
+        // --no-commit flag means merge might not have started a transaction
+        try {
+          // Check if there's a merge to abort by looking for MERGE_HEAD
+          await deps.execAsync(`test -f ${repoPath}/.git/MERGE_HEAD`);
+          // If MERGE_HEAD exists, we can safely abort
+          await deps.execAsync(`git -C ${repoPath} merge --abort`);
+        } catch (mergeHeadError) {
+          // No MERGE_HEAD means no merge transaction to abort, just reset
+          await deps.execAsync(`git -C ${repoPath} reset --hard HEAD`);
+        }
 
         return conflictFiles;
       }

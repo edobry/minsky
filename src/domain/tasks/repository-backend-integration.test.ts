@@ -132,5 +132,34 @@ describe("GitHub URL Parsing", () => {
   });
 });
 
+describe("GitHub Repository Override (New Feature)", () => {
+  test("should parse GitHub repository string correctly", async () => {
+    const { parseGitHubRepoString } = await import("./taskService");
+
+    const result = parseGitHubRepoString("microsoft/vscode");
+    expect(result).toEqual({ owner: "microsoft", repo: "vscode" });
+  });
+
+  test("should handle whitespace in repository string", async () => {
+    const { parseGitHubRepoString } = await import("./taskService");
+
+    const result = parseGitHubRepoString("  microsoft/vscode  ");
+    expect(result).toEqual({ owner: "microsoft", repo: "vscode" });
+  });
+
+  test("should return null for invalid repository format", async () => {
+    const { parseGitHubRepoString } = await import("./taskService");
+
+    expect(parseGitHubRepoString("invalid-format")).toBeNull();
+    expect(parseGitHubRepoString("too/many/slashes")).toBeNull();
+    expect(parseGitHubRepoString("")).toBeNull();
+    expect(parseGitHubRepoString("/repo")).toBeNull();
+    expect(parseGitHubRepoString("owner/")).toBeNull();
+  });
+
+  // Note: Full integration test would require valid workspace and GitHub token
+  // The parsing functionality is thoroughly tested above
+});
+
 // Note: Full TaskService integration tests would require mocking repository backends
 // and setting up test environments, which we'll handle in a separate integration test suite

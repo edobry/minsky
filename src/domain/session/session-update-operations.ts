@@ -165,10 +165,10 @@ export async function updateSessionImpl(
     }
 
     try {
-      // Pull latest changes
-      log.debug("Pulling latest changes", { workdir, remote: remote || "origin" });
-      await deps.gitService.pullLatest(workdir, remote || "origin");
-      log.debug("Latest changes pulled");
+      // Fetch latest changes
+      log.debug("Fetching latest changes", { workdir, remote: remote || "origin" });
+      await deps.gitService.fetchLatest(workdir, remote || "origin");
+      log.debug("Latest changes fetched");
 
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
       const branchToMerge = branch || (await deps.gitService.fetchDefaultBranch(workdir));
@@ -226,10 +226,7 @@ export async function updateSessionImpl(
           log.cli(`✅ ${updateResult.reason}`);
 
           if (updateResult.reason?.includes("already in base")) {
-            log.cli(
-              "\n💡 Your session changes are already merged. You can create a PR with --skip-update:"
-            );
-            log.cli('   minsky session pr --title "Your PR title" --skip-update');
+            log.cli("\n💡 Your session changes are already merged. Proceeding with PR creation...");
           }
 
           return {
@@ -256,7 +253,6 @@ export async function updateSessionImpl(
 
             if (analysis.sessionChangesInBase) {
               log.cli(`\n💡 Your changes appear to already be in ${branchToMerge}. Try:`);
-              log.cli('   minsky session pr --title "Your PR title" --skip-update');
             }
           }
 
@@ -480,7 +476,10 @@ export async function updatePrStateOnCreation(
     mergedAt: undefined,
   };
 
-  await sessionDB.updateSession(sessionName, { prState });
+  await sessionDB.updateSession(sessionName, {
+    prBranch,
+    prState,
+  });
 
   log.debug("Updated PR state on creation", {
     sessionName,

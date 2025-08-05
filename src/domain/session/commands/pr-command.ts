@@ -1,7 +1,7 @@
 import type { SessionPRParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { preparePrFromParams } from "../../git";
+import { sessionPrImpl } from "../session-pr-operations";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionPrResult, SessionProviderInterface } from "../types";
 import {
@@ -91,16 +91,23 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       }
     }
 
-    // Prepare PR using git domain function
-    const result = await preparePrFromParams({
-      session: resolvedContext.sessionName,
-      repo: workdir,
-      baseBranch,
-      title,
-      body: bodyContent,
-      branchName,
-      debug,
-    });
+    // Prepare PR using session operations layer (proper architecture)
+    const result = await sessionPrImpl(
+      {
+        session: resolvedContext.sessionName,
+        task: params.task,
+        repo: params.repo,
+        title,
+        body: bodyContent,
+        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+        skipConflictCheck: params.skipConflictCheck,
+        debug,
+      },
+      {
+        sessionDB,
+        gitService,
+      }
+    );
 
     // Get the commit hash of the prepared merge commit
     const commitHashResult = await gitService.execInRepository(

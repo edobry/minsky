@@ -9,7 +9,7 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { pgTable, varchar, timestamp, text as pgText } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 
-// SQLite Schema
+// SQLite Schema - CONSISTENT snake_case with Drizzle JSON support
 export const sqliteSessions = sqliteTable("sessions", {
   session: text("session")!.primaryKey(),
   repoName: text("repo_name")!.notNull(),
@@ -18,16 +18,21 @@ export const sqliteSessions = sqliteTable("sessions", {
   taskId: text("task_id"),
   branch: text("branch"),
 
-  // PR-related fields (Task #332/#366)
+  // PR-related fields with automatic JSON parsing
   prBranch: text("pr_branch"),
-  prApproved: text("pr_approved"), // Store as JSON boolean string
-  prState: text("pr_state"), // Store as JSON
+  prApproved: text("pr_approved", { mode: "json" }).$type<boolean>(),
+  prState: text("pr_state", { mode: "json" }).$type<{
+    branchName: string;
+    exists: boolean;
+    lastChecked: string;
+    createdAt: string;
+    mergedAt?: string;
+    commitHash?: string;
+  }>(),
 
-  // Backend configuration
+  // Backend configuration with automatic JSON parsing
   backendType: text("backend_type"),
-  github: text("github"), // Store as JSON
-  remote: text("remote"), // Store as JSON
-  pullRequest: text("pull_request"), // Store as JSON
+  pullRequest: text("pull_request", { mode: "json" }).$type<any>(),
 });
 
 // PostgreSQL Schema
@@ -46,8 +51,6 @@ export const postgresSessions = pgTable("sessions", {
 
   // Backend configuration
   backendType: varchar("backend_type", { length: 50 }),
-  github: pgText("github"), // Store as JSON
-  remote: pgText("remote"), // Store as JSON
   pullRequest: pgText("pull_request"), // Store as JSON
 });
 
@@ -59,6 +62,7 @@ export type PostgresSessionInsert = typeof postgresSessions.$inferInsert;
 
 /**
  * Convert SessionRecord to SQLite insert format
+ * Drizzle handles JSON serialization automatically for json mode columns
  */
 export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
   return {
@@ -69,43 +73,19 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     taskId: record.taskId || null,
     branch: record.branch || null,
 
-    // PR-related fields
+    // JSON fields - Drizzle handles serialization automatically
     prBranch: record.prBranch || null,
-    prApproved: record.prApproved ? JSON.stringify(record.prApproved) : null,
-    prState: record.prState ? JSON.stringify(record.prState) : null,
+    prApproved: record.prApproved || null,
+    prState: record.prState || null,
 
-    // Backend configuration
+    // Backend configuration - Drizzle handles JSON serialization
     backendType: record.backendType || null,
-    github: record.github ? JSON.stringify(record.github) : null,
-    remote: record.remote ? JSON.stringify(record.remote) : null,
-    pullRequest: record.pullRequest ? JSON.stringify(record.pullRequest) : null,
+    pullRequest: record.pullRequest || null,
   };
 }
 
-/**
- * Convert SQLite record to SessionRecord format
- */
-export function fromSqliteSelect(record: SqliteSessionRecord): SessionRecord {
-  return {
-    session: record!.session,
-    repoName: record!.repoName,
-    repoUrl: record!.repoUrl,
-    createdAt: record.createdAt,
-    taskId: record.taskId || undefined,
-    branch: record.branch || undefined,
-
-    // PR-related fields
-    prBranch: record.prBranch || undefined,
-    prApproved: record.prApproved ? JSON.parse(record.prApproved) : undefined,
-    prState: record.prState ? JSON.parse(record.prState) : undefined,
-
-    // Backend configuration
-    backendType: (record.backendType as any) || undefined,
-    github: record.github ? JSON.parse(record.github) : undefined,
-    remote: record.remote ? JSON.parse(record.remote) : undefined,
-    pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
-  };
-}
+// fromSqliteSelect is NO LONGER NEEDED!
+// Drizzle automatically handles JSON parsing and field mapping.
 
 /**
  * Convert SessionRecord to PostgreSQL insert format

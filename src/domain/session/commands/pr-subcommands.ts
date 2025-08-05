@@ -7,7 +7,7 @@ import type { SessionRecord, PullRequestInfo } from "../session-db";
 import type { SessionProviderInterface } from "../types";
 import { createSessionProvider } from "../";
 import { createGitService } from "../../git";
-import { sessionPr } from "./pr-command"; // Use existing implementation for create
+import { sessionPr } from "./pr-command"; // Use modern implementation
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import {
   MinskyError,
@@ -30,7 +30,7 @@ export async function sessionPrCreate(params: {
   repo?: string;
   noStatusUpdate?: boolean;
   debug?: boolean;
-  skipUpdate?: boolean;
+
   autoResolveDeleteConflicts?: boolean;
   skipConflictCheck?: boolean;
 }): Promise<{
@@ -51,7 +51,7 @@ export async function sessionPrCreate(params: {
     debug: params.debug || false,
     noStatusUpdate: params.noStatusUpdate || false,
     skipConflictCheck: params.skipConflictCheck || false,
-    skipUpdate: params.skipUpdate || false,
+
     autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
   });
 
