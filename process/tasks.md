@@ -174,7 +174,7 @@
 
 - [x] Improve CLI Adapter Structure for Shared Options [#096](process/tasks/096-improve-cli-adapter-structure-for-shared-options.md)
 
-- [x] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
+- [+] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
 
 - [x] Create Shared Adapter Layer for CLI and MCP Interfaces [#098](process/tasks/098-create-shared-adapter-layer-for-cli-and-mcp-interfaces.md)
 

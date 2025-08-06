@@ -81,7 +81,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       this.db.exec("PRAGMA cache_size = 1000;");
       this.db.exec("PRAGMA temp_store = memory;");
 
-      // Create tables using Drizzle
+            // Create tables using Drizzle
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS sessions (
           session TEXT PRIMARY KEY,
@@ -93,6 +93,33 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
           repoPath TEXT
         )
       `);
+
+      // Add missing columns if they don't exist (migration)
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN prBranch TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN prApproved TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN prState TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN backendType TEXT");
+      } catch (e) {
+        // Column already exists
+      }
+      try {
+        this.db.exec("ALTER TABLE sessions ADD COLUMN pullRequest TEXT");
+      } catch (e) {
+        // Column already exists
+      }
 
       this.initialized = true;
       log.debug("SQLite storage initialized with Drizzle ORM", { dbPath: this.dbPath });

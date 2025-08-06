@@ -63,7 +63,7 @@ export async function sessionPrImpl(
   // STEP 1: Validate we're in a session workspace and on a session branch (CLI only)
   const currentDir = options?.workingDirectory || process.cwd();
   const interfaceType = options?.interface || "cli";
-  
+
   // Only validate workspace for CLI interface
   if (interfaceType === "cli") {
     const isSessionWorkspace = currentDir.includes("/sessions/");
@@ -86,7 +86,7 @@ export async function sessionPrImpl(
 
   // STEP 3: Determine session name from explicit parameter or directory (CLI only)
   let sessionName = params.session;
-  
+
   // For CLI interface, try to extract session name from directory if not explicitly provided
   if (!sessionName && interfaceType === "cli") {
     const pathParts = currentDir.split("/");
@@ -95,9 +95,10 @@ export async function sessionPrImpl(
   }
 
   if (!sessionName) {
-    const errorMessage = interfaceType === "mcp" 
-      ? "Session parameter is required for MCP interface. Please provide session name or task ID."
-      : "Could not determine session name from current directory or parameters";
+    const errorMessage =
+      interfaceType === "mcp"
+        ? "Session parameter is required for MCP interface. Please provide session name or task ID."
+        : "Could not determine session name from current directory or parameters";
     throw new MinskyError(errorMessage);
   }
 
@@ -172,7 +173,7 @@ Please provide a title for your pull request:
 
 📋 Examples:
    minsky session pr --title "feat: Add new feature"
-   minsky session pr --title "fix: Bug fix" 
+   minsky session pr --title "fix: Bug fix"
    minsky session pr --title "docs: Update documentation"
 
 💡 Or use conventional commit format with task ID:

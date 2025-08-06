@@ -21,22 +21,25 @@ import { log } from "../../utils/logger";
  * Session PR Create implementation
  * Replaces the current session pr command behavior
  */
-export async function sessionPrCreate(params: {
-  title?: string;
-  body?: string;
-  bodyPath?: string;
-  name?: string;
-  task?: string;
-  repo?: string;
-  noStatusUpdate?: boolean;
-  debug?: boolean;
+export async function sessionPrCreate(
+  params: {
+    title?: string;
+    body?: string;
+    bodyPath?: string;
+    name?: string;
+    task?: string;
+    repo?: string;
+    noStatusUpdate?: boolean;
+    debug?: boolean;
 
-  autoResolveDeleteConflicts?: boolean;
-  skipConflictCheck?: boolean;
-}, options?: {
-  interface?: "cli" | "mcp";
-  workingDirectory?: string;
-}): Promise<{
+    autoResolveDeleteConflicts?: boolean;
+    skipConflictCheck?: boolean;
+  },
+  options?: {
+    interface?: "cli" | "mcp";
+    workingDirectory?: string;
+  }
+): Promise<{
   prBranch: string;
   baseBranch: string;
   title?: string;
@@ -44,19 +47,22 @@ export async function sessionPrCreate(params: {
   pullRequest?: PullRequestInfo;
 }> {
   // Delegate to existing session pr implementation
-  const result = await sessionPr({
-    session: params.name,
-    task: params.task,
-    repo: params.repo,
-    title: params.title || "",
-    body: params.body,
-    bodyPath: params.bodyPath,
-    debug: params.debug || false,
-    noStatusUpdate: params.noStatusUpdate || false,
-    skipConflictCheck: params.skipConflictCheck || false,
+  const result = await sessionPr(
+    {
+      session: params.name,
+      task: params.task,
+      repo: params.repo,
+      title: params.title || "",
+      body: params.body,
+      bodyPath: params.bodyPath,
+      debug: params.debug || false,
+      noStatusUpdate: params.noStatusUpdate || false,
+      skipConflictCheck: params.skipConflictCheck || false,
 
-    autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
-  }, options);
+      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
+    },
+    options
+  );
 
   // TODO: In future implementation, also update session record with pullRequest info
   // For now, return the basic result with placeholder for pullRequest

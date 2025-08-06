@@ -59,8 +59,8 @@
  * - SECONDARY: Boundary-aware scope limitation to test files
  * - TERTIARY: Dependency injection promotion following established patterns
  *
- * JUSTIFICATION: This codemod follows Task #178 best practices by using AST-based 
- * transformations, implementing comprehensive boundary validation, and promoting 
+ * JUSTIFICATION: This codemod follows Task #178 best practices by using AST-based
+ * transformations, implementing comprehensive boundary validation, and promoting
  * the established dependency injection pattern over global filesystem mocking.
  * It addresses the root cause (commented imports leading to infinite loops) while
  * maintaining the architectural preference for dependency injection.
@@ -130,13 +130,13 @@ export class TestFilesystemImportsCodemod {
         try {
           const sourceFile = this.project.addSourceFileAtPath(filePath);
           const transformResult = await this.transformFile(sourceFile);
-          
+
           result.results.push(transformResult);
           result.filesProcessed++;
-          
+
           if (transformResult.success) {
             result.transformationsApplied += transformResult.transformationsApplied;
-            
+
             // Save the file if transformations were applied
             if (transformResult.transformationsApplied > 0) {
               await sourceFile.save();
@@ -157,7 +157,7 @@ export class TestFilesystemImportsCodemod {
       console.log(`   Files processed: ${result.filesProcessed}/${result.totalFiles}`);
       console.log(`   Total transformations: ${result.transformationsApplied}`);
       console.log(`   Errors: ${result.errors.length}`);
-      
+
       if (result.errors.length > 0) {
         console.log(`\n❌ Errors encountered:`);
         result.errors.forEach(error => console.log(`   ${error}`));
@@ -177,9 +177,9 @@ export class TestFilesystemImportsCodemod {
   private findTestFilesWithCommentedImports(directory: string): string[] {
     const glob = require("glob");
     const fs = require("fs");
-    
+
     // Find all test files
-    const testFiles = glob.sync("**/*.test.ts", { 
+    const testFiles = glob.sync("**/*.test.ts", {
       cwd: directory,
       absolute: true,
       ignore: ["node_modules/**", "dist/**", "build/**"]
@@ -187,19 +187,19 @@ export class TestFilesystemImportsCodemod {
 
     // Filter for files with commented filesystem imports
     const targetFiles: string[] = [];
-    
+
     for (const filePath of testFiles) {
       try {
         const content = fs.readFileSync(filePath, 'utf8');
-        
+
         // Look for commented filesystem import patterns
-        const hasCommentedFsImports = 
+        const hasCommentedFsImports =
           content.includes('// Use mock.module() to mock filesystem operations') ||
           content.includes('// import { promises as fs } from "fs"') ||
           content.includes('// import { writeFile, mkdir, rm') ||
           content.includes('// import { existsSync') ||
           content.includes('// import { mkdtemp, rmdir');
-        
+
         if (hasCommentedFsImports) {
           targetFiles.push(filePath);
         }
@@ -228,33 +228,33 @@ export class TestFilesystemImportsCodemod {
       // Find comments indicating mocked filesystem operations
       const sourceText = sourceFile.getFullText();
       const lines = sourceText.split('\n');
-      
+
       for (let i = 0; i < lines.length; i++) {
         const line = lines[i];
-        
+
         // Check for commented filesystem imports with mocking intent
         if (line.includes('// Use mock.module() to mock filesystem operations')) {
           const nextLine = lines[i + 1];
-          if (nextLine && nextLine.includes('// import {') && 
+          if (nextLine && nextLine.includes('// import {') &&
               (nextLine.includes('fs"') || nextLine.includes('fs/promises"'))) {
-            
+
             // Transform this pattern to dependency injection comment
             const transformedComment = this.createDependencyInjectionComment(nextLine);
-            
+
             // Replace the lines using AST manipulation
             const startPos = sourceFile.getLineAndColumnAtPos(sourceFile.getPos());
             const lineNode = sourceFile.getDescendantAtPos(sourceFile.getPos());
-            
+
             if (lineNode) {
               // Track the transformation
               result.originalPattern = `${line}\n${nextLine}`;
               result.newPattern = transformedComment;
               result.transformationsApplied++;
-              
+
               // Apply the transformation by replacing the comment
               const lineStart = sourceFile.getLineStartPos(i + 1);
               const lineEnd = sourceFile.getLineEndPos(i + 2);
-              
+
               sourceFile.replaceText([lineStart, lineEnd], transformedComment);
             }
           }
@@ -275,7 +275,7 @@ export class TestFilesystemImportsCodemod {
   private createDependencyInjectionComment(originalImportLine: string): string {
     const extractedImports = originalImportLine.match(/import \{ ([^}]+) \}/);
     const importList = extractedImports ? extractedImports[1] : "filesystem operations";
-    
+
     return `// Use dependency injection with mocks instead of real filesystem operations
 // Example: Pass mock implementations via function parameters or test utilities
 // Original pattern: ${originalImportLine.trim()}`;
@@ -287,14 +287,14 @@ export class TestFilesystemImportsCodemod {
  */
 async function main() {
   const targetDirectory = process.argv[2] || ".";
-  
+
   console.log("🚀 Starting AST-based test filesystem imports transformation...");
   console.log(`📁 Target directory: ${targetDirectory}`);
   console.log("📋 Following Task #178 methodology with boundary validation\n");
-  
+
   const codemod = new TestFilesystemImportsCodemod();
   const result = await codemod.execute(targetDirectory);
-  
+
   if (result.success) {
     console.log("\n✅ Transformation completed successfully!");
     console.log("🎯 All transformations follow dependency injection best practices");
