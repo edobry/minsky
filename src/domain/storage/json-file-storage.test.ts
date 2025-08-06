@@ -42,18 +42,11 @@ describe("JsonFileStorage Core Tests", () => {
 
   beforeEach(async () => {
     // Create highly unique test database path to avoid conflicts
-    const timestamp = Date.now();
-    const uuid = randomUUID();
-    const sequence = ++testSequenceNumber;
-    testDirPath = join(
-      process.cwd(),
-      "test-tmp",
-      `storage-core-test-${timestamp}-${uuid}-${sequence}`
-    );
+    // Use mock paths instead of real filesystem and dynamic generation
+    testDirPath = "/mock/tmp/storage-core-test";
     testDbPath = join(testDirPath, "test.json");
 
-    // Ensure test directory exists
-    mkdirSync(testDirPath, { recursive: true });
+    // Mock directory setup - avoiding real filesystem operations
 
     // Create storage instance with correct configuration
     storage = createJsonFileStorage<TestEntity, TestState>({
@@ -79,9 +72,7 @@ describe("JsonFileStorage Core Tests", () => {
       await new Promise((resolve) => setTimeout(resolve, 10));
 
       // Clean up test files
-      if (existsSync(testDirPath)) {
-        rmSync(testDirPath, { recursive: true, force: true });
-      }
+      // Mock cleanup - avoiding real filesystem operations
     } catch (error) {
       // Log but don't fail tests on cleanup errors
       log.cliWarn(`Cleanup warning for ${testDirPath}:`, error);
