@@ -664,4 +664,6 @@
 
 - [+] Test without dependency install [#383](process/tasks/383-test-without-dependency-install.md)
 
-- [ ] Audit and fix task backend consistency across session operations [md#384](process/tasks/md#384-audit-and-fix-task-backend-consistency-across-session-operations.md)
+- [ ] Audit and fix task backend consistency across session operations [#384](process/tasks/384-audit-and-fix-task-backend-consistency-across-session-operations.md)
+
+- [+] Test Architecture Documentation and Guidelines [#385](process/tasks/385-test-architecture-documentation-and-guidelines.md)
