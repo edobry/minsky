@@ -430,7 +430,7 @@ ${description}
         return false;
       }
 
-            // Parse tasks and find the one to delete using existing utility
+      // Parse tasks and find the one to delete using existing utility
       const tasks = this.parseTasks(tasksResult.content);
       const taskToDelete = getTaskById(tasks, id);
 

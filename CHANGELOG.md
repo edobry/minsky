@@ -10,6 +10,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **MCP tasks.list Output Format**: Fixed MCP `tasks.list` command returning newline-delimited string instead of structured JSON data. The issue was in the shared command integration where the `json` parameter was being deleted from MCP args, causing `formatResult()` to default to string formatting. Fixed by making shared commands respect the execution context's `format: "json"` setting for proper structured data output in MCP responses.
 - **Task Delete Functionality**: Fixed task deletion bug where qualified task IDs (e.g., `md#399`) were not properly handled during deletion operations. The MarkdownTaskBackend now uses the existing `getTaskById` utility function for consistent task ID comparison across all formats, ensuring reliable deletion of tasks regardless of ID format used.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 - **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.

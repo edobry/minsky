@@ -87,7 +87,7 @@ export class TasksListCommand extends BaseTaskCommand {
         tasks,
         message: `Found ${tasks.length} tasks`,
       },
-      params.json
+      params.json || ctx.format === "json"
     );
   }
 }
