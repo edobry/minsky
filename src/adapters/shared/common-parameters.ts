@@ -8,6 +8,7 @@
 
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
+import { isQualifiedTaskId, isLegacyTaskId } from "../../domain/tasks/unified-task-id";
 
 /**
  * Core common parameters used across multiple command categories
@@ -235,8 +236,6 @@ export const TaskParameters = {
   taskId: {
     schema: z.string().refine(
       (value) => {
-        // Import here to avoid circular dependencies
-        const { isQualifiedTaskId, isLegacyTaskId } = require("../../domain/tasks/unified-task-id");
         return isQualifiedTaskId(value) || isLegacyTaskId(value);
       },
       {
@@ -256,11 +255,6 @@ export const TaskParameters = {
       .string()
       .refine(
         (value) => {
-          // Import here to avoid circular dependencies
-          const {
-            isQualifiedTaskId,
-            isLegacyTaskId,
-          } = require("../../domain/tasks/unified-task-id");
           return isQualifiedTaskId(value) || isLegacyTaskId(value);
         },
         {

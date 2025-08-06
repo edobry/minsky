@@ -16,6 +16,7 @@ import { normalizeTaskId } from "./taskFunctions";
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
 import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
+import { resolve } from "path";
 
 // Re-export task data types
 export type {} from "../../types/tasks/taskData";
@@ -543,18 +544,30 @@ export async function createTaskFromTitleAndDescription(
       repo: validParams.repo,
     });
 
-    // Create task service
-    const taskService = deps.createTaskService({
-      workspacePath,
-      backend: validParams.backend,
-    });
+    // Create task service with GitHub repository override support
+    let taskService;
+    if (validParams.backend === "github-issues" && validParams.githubRepo) {
+      // Use repository backend integration with GitHub override
+      const { TaskService } = await import("./taskService");
+      taskService = await TaskService.createWithRepositoryBackend({
+        workspacePath,
+        backend: validParams.backend,
+        githubRepoOverride: validParams.githubRepo,
+      });
+    } else {
+      // Use default task service creation
+      taskService = deps.createTaskService({
+        workspacePath,
+        backend: validParams.backend,
+      });
+    }
 
     // Read description from file if descriptionPath is provided
     let description = validParams.description;
     if (validParams.descriptionPath) {
       try {
         // Resolve relative paths relative to current working directory
-        const filePath = require("path").resolve(validParams.descriptionPath);
+        const filePath = resolve(validParams.descriptionPath);
         description = (await readFile(filePath, "utf-8")) as string;
 
         if (!description.trim()) {

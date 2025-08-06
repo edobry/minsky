@@ -6,7 +6,7 @@
 import { z } from "zod";
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
-import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { MinskyError, SessionConflictError, getErrorMessage } from "../../../../errors/index";
 import {
   sessionPrCreateCommandParams,
   sessionPrListCommandParams,
@@ -46,7 +46,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
 
       if (!canRefresh) {
         throw new Error(
-          'PR description is required for meaningful pull requests.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr create --title "fix: Bug fix" --body-path process/tasks/189/pr.md'
+          'PR description is required for new pull request creation.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr create --title "fix: Bug fix" --body-path process/tasks/189/pr.md\n\nNote: If updating an existing PR, the body requirement is optional.'
         );
       }
     }
@@ -61,7 +61,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
         repo: params.repo,
         noStatusUpdate: params.noStatusUpdate,
         debug: params.debug,
-        skipUpdate: params.skipUpdate,
+
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipConflictCheck: params.skipConflictCheck,
       });
@@ -73,7 +73,8 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
   }
 
   private async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
-    // Check if there's an existing PR branch to determine if we can refresh
+    // Check if there's a valid existing PR registered in the session record
+    // This allows updates to existing PRs without requiring body again
     const currentDir = process.cwd();
     const isSessionWorkspace = currentDir.includes("/sessions/");
 
@@ -87,16 +88,52 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       }
     }
 
+    // BUG FIX: If no session name resolved yet, try task-to-session resolution
+    // This uses the same logic as the main sessionPr command
+    if (!sessionName && params.task) {
+      try {
+        const { resolveSessionContextWithFeedback } = await import(
+          "../../../../domain/session/session-context-resolver"
+        );
+        const { createSessionProvider } = await import("../../../../domain/session");
+
+        const sessionProvider = createSessionProvider();
+        const resolvedContext = await resolveSessionContextWithFeedback({
+          session: params.name,
+          task: params.task,
+          repo: params.repo,
+          sessionProvider,
+          allowAutoDetection: true,
+        });
+
+        sessionName = resolvedContext.sessionName;
+      } catch (error) {
+        // If session resolution fails, we can't determine if PR can be refreshed
+        return false;
+      }
+    }
+
     if (!sessionName) {
       return false;
     }
 
     try {
+      // Check if session has a valid PR record (not just stale branches)
+      const { createSessionProvider } = await import("../../../../domain/session");
+      const sessionDB = createSessionProvider();
+      const sessionRecord = await sessionDB.getSession(sessionName);
+
+      // Session must exist and have PR state indicating a valid PR was created
+      if (!sessionRecord || !sessionRecord.prState || !sessionRecord.prBranch) {
+        return false;
+      }
+
+      // Verify the PR branch actually exists (not just stale)
       const { createGitService } = await import("../../../../domain/git");
       const gitService = createGitService();
-      const prBranch = `pr/${sessionName}`;
+      const prBranch = sessionRecord.prBranch;
 
-      // Check if branch exists locally
+      // Check if branch exists locally or remotely
       const localBranchOutput = await gitService.execInRepository(
         currentDir,
         `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
@@ -114,7 +151,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       );
       return remoteBranchOutput.trim().length > 0;
     } catch (error) {
-      // If we can't check branch existence, assume it doesn't exist
+      // If we can't verify session/PR state, require body for safety
       return false;
     }
   }
@@ -123,13 +160,16 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     const errorMessage = getErrorMessage(error);
 
     // Handle specific error types with friendly messages
-    if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
+    if (error instanceof SessionConflictError) {
+      // Pass through SessionConflictError as-is - it has proper messaging
+      return error;
+    } else if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
       return new MinskyError(
-        `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Try with --skip-update to avoid session updates\n• Or manually resolve conflicts and retry\n\nTechnical details: ${errorMessage}`
+        `🔥 Git merge conflict detected while creating PR branch.\n\nThis usually happens when:\n• The PR branch already exists with different content\n• There are conflicting changes between your session and the base branch\n\n💡 Quick fixes:\n• Resolve conflicts manually and retry\n• Use --auto-resolve-delete-conflicts for simple conflicts\n\nTechnical details: ${errorMessage}`
       );
     } else if (errorMessage.includes("Failed to create prepared merge commit")) {
       return new MinskyError(
-        `❌ Failed to create PR branch merge commit.\n\nThis could be due to:\n• Merge conflicts between your session branch and base branch\n• Remote PR branch already exists with different content\n• Network issues with git operations\n\n💡 Try these solutions:\n• Run 'git status' to check for conflicts\n• Use --skip-update to bypass session updates\n• Check your git remote connection\n\nTechnical details: ${errorMessage}`
+        `❌ Failed to create PR branch merge commit.\n\nThis could be due to:\n• Merge conflicts between your session branch and base branch\n• Remote PR branch already exists with different content\n• Network issues with git operations\n\n💡 Try these solutions:\n• Run 'git status' to check for conflicts\n• Resolve conflicts in your session branch first\n• Check your git remote connection\n\nTechnical details: ${errorMessage}`
       );
     } else if (
       errorMessage.includes("Permission denied") ||
@@ -154,7 +194,6 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       title: params.title,
       hasBody: !!params.body,
       hasBodyPath: !!params.bodyPath,
-      skipUpdate: params.skipUpdate,
     };
   }
 }
@@ -288,16 +327,19 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
       const { pullRequest } = result;
 
       const output = [
-        `PR ${pullRequest.number ? `#${pullRequest.number}` : "(no number)"}: ${pullRequest.title}`,
+        `${pullRequest.number ? `PR #${pullRequest.number}: ` : ""}${pullRequest.title}`,
         "",
         `Session:     ${pullRequest.sessionName}`,
-        `Task:        ${pullRequest.taskId ? `#${pullRequest.taskId}` : "none"}`,
+        `Task:        ${pullRequest.taskId || "none"}`,
         `Branch:      ${pullRequest.branch}`,
         `Status:      ${pullRequest.status}`,
         `Created:     ${pullRequest.createdAt || "unknown"}`,
         `Updated:     ${pullRequest.updatedAt || "unknown"}`,
-        `URL:         ${pullRequest.url || "not available"}`,
       ];
+
+      if (pullRequest.url) {
+        output.push(`URL:         ${pullRequest.url}`);
+      }
 
       if (pullRequest.description) {
         output.push("", "Description:");

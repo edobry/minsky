@@ -5,8 +5,10 @@
  */
 
 import { join } from "path";
-import { mkdir, rmdir } from "fs/promises";
-import { existsSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { mkdir, rmdir } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { existsSync } from "fs";
 import { mock } from "bun:test";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
@@ -43,7 +45,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "160", // Session with task ID (storage format)
+      taskId: "md#160", // FORMAT MIGRATION: Updated to qualified format
       branch: "task#160",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#160",
       backendType: "local",
@@ -54,7 +56,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "170", // Session with task ID (storage format)
+      taskId: "md#170", // FORMAT MIGRATION: Updated to qualified format
       branch: "task#170",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#170",
       backendType: "local",
@@ -66,7 +68,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "168", // Storage format
+      taskId: "md#168", // FORMAT MIGRATION: Updated to qualified format
       branch: "test-existing-session",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/test-existing-session",
       backendType: "local",
@@ -77,7 +79,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "42", // Storage format
+      taskId: "md#42", // FORMAT MIGRATION: Updated to qualified format
       branch: "task#42",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#42",
       backendType: "local",
@@ -88,7 +90,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "236", // Storage format
+      taskId: "md#236", // FORMAT MIGRATION: Updated to qualified format
       branch: "task#236",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/task#236",
       backendType: "local",
@@ -99,7 +101,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#999",
+      taskId: "md#999", // FORMAT MIGRATION: Updated to qualified format
       branch: "missing-workspace-session",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/missing-workspace-session",
       backendType: "local",
@@ -110,7 +112,7 @@ export function createSessionTestData(): SessionTestData {
       repoName: "local-minsky",
       repoUrl: "https://github.com/edobry/minsky",
       createdAt: "2024-01-01T00:00:00.000Z",
-      taskId: "#888",
+      taskId: "md#888", // FORMAT MIGRATION: Updated to qualified format
       branch: "dirty-session",
       repoPath: "/Users/edobry/.local/state/minsky/sessions/dirty-session",
       backendType: "local",
@@ -161,26 +163,9 @@ export async function cleanupSessionTestData(tempDir: string): Promise<void> {
   }
 }
 
-export function createGitServiceMock(): GitServiceInterface {
-  return {
-    getCurrentBranch: mock(() => Promise.resolve("main")),
-    getRemoteUrl: mock(() => Promise.resolve("https://github.com/edobry/minsky")),
-    getRepoPath: mock(() => Promise.resolve("/Users/edobry/Projects/minsky")),
-    clone: mock(() => Promise.resolve(undefined)),
-    checkout: mock(() => Promise.resolve(undefined)),
-    createBranch: mock(() => Promise.resolve(undefined)),
-    push: mock(() => Promise.resolve(undefined)),
-    pull: mock(() => Promise.resolve(undefined)),
-    merge: mock(() => Promise.resolve(undefined)),
-    getStatus: mock(() => Promise.resolve({ hasChanges: false, changes: [] })),
-    add: mock(() => Promise.resolve(undefined)),
-    commit: mock(() => Promise.resolve(undefined)),
-    reset: mock(() => Promise.resolve(undefined)),
-    stash: mock(() => Promise.resolve(undefined)),
-    stashPop: mock(() => Promise.resolve(undefined)),
-    getCommitHash: mock(() => Promise.resolve("abc123")),
-  } as GitServiceInterface;
-}
+// GitService mock functionality moved to centralized utilities:
+// Use createMockGitService from '../../../src/utils/test-utils/dependencies'
+// This provides a complete, maintained mock with all interface methods.
 
 // Helper function to create session records for testing
 export function createSessionRecord(overrides?: any): any {

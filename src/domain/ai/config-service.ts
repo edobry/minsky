@@ -25,34 +25,16 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
 
   async getProviderConfig(provider: string): Promise<AIProviderConfig | null> {
     try {
-      // Use the unified configuration system (no more bespoke credential resolution)
-      const result = await (this.configService as any).loadConfiguration((process as any).cwd());
-      const config = (result as any).resolved;
-
-      // Get provider-specific config from the unified configuration
-      const providerConfig = config.ai?.providers?.[provider];
-
-      // If no provider config exists, return null
-      if (!providerConfig) {
-        return null;
+      // Check if this is a mock config service with loadConfiguration method
+      if ("loadConfiguration" in this.configService) {
+        const result = await (this.configService as any).loadConfiguration((process as any).cwd());
+        const config = (result as any).resolved;
+        return await this.parseProviderConfig(provider, config);
       }
 
-      // Extract API key from unified config (schema-based configuration uses camelCase)
-      const apiKey = providerConfig.apiKey || providerConfig.api_key; // Support both formats for compatibility
-
-      // If no API key is available, we can't use this provider
-      if (!apiKey) {
-        return null;
-      }
-
-      // Create provider config from unified configuration (support both camelCase and snake_case)
-      return {
-        provider: provider as AIProvider,
-        apiKey,
-        baseURL: providerConfig.baseUrl || providerConfig.base_url,
-        defaultModel: providerConfig.model || providerConfig.default_model,
-        supportedCapabilities: await this.getProviderCapabilities(provider),
-      };
+      // Use the real configuration provider's getConfig method
+      const config = (this.configService as any).getConfig();
+      return await this.parseProviderConfig(provider, config);
     } catch (error) {
       log.debug(`Failed to get provider config for ${provider}`, { error });
       return null;
@@ -147,5 +129,35 @@ export class DefaultAIConfigurationService implements AIConfigurationService {
     };
 
     return capabilityMap[provider as keyof typeof capabilityMap] || [];
+  }
+
+  private async parseProviderConfig(
+    provider: string,
+    config: any
+  ): Promise<AIProviderConfig | null> {
+    // Get provider-specific config from the unified configuration
+    const providerConfig = config.ai?.providers?.[provider];
+
+    // If no provider config exists, return null
+    if (!providerConfig) {
+      return null;
+    }
+
+    // Extract API key from unified config (schema-based configuration uses camelCase)
+    const apiKey = providerConfig.apiKey || providerConfig.api_key; // Support both formats for compatibility
+
+    // If no API key is available, we can't use this provider
+    if (!apiKey) {
+      return null;
+    }
+
+    // Create provider config from unified configuration (support both camelCase and snake_case)
+    return {
+      provider: provider as AIProvider,
+      apiKey,
+      baseURL: providerConfig.baseUrl || providerConfig.base_url,
+      defaultModel: providerConfig.model || providerConfig.default_model,
+      supportedCapabilities: await this.getProviderCapabilities(provider),
+    };
   }
 }

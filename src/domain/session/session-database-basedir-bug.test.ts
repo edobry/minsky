@@ -46,6 +46,10 @@ describe("Session Database BaseDir Bug", () => {
       getSessionByTaskId: mock(),
       getSessionWorkdir: mock(),
       listSessions: mock(() => Promise.resolve([])),
+      addSession: mock(() => Promise.resolve()),
+      updateSession: mock(() => Promise.resolve()),
+      deleteSession: mock(() => Promise.resolve(true)),
+      getRepoPath: mock(() => Promise.resolve("/test/repo")),
     };
 
     mockGitService = {
@@ -55,9 +59,23 @@ describe("Session Database BaseDir Bug", () => {
     };
 
     mockTaskService = {
-      getTaskStatus: mock(),
-      setTaskStatus: mock(),
-      getBackendForTask: mock(),
+      getTask: mock(() =>
+        Promise.resolve({
+          id: "md#335",
+          title: "Test Task 335",
+          status: "IN-PROGRESS",
+        })
+      ),
+      getTaskStatus: mock(() => Promise.resolve("IN-PROGRESS")),
+      setTaskStatus: mock(() => Promise.resolve()),
+      getBackendForTask: mock(() => Promise.resolve("md")),
+      listTasks: mock(() => Promise.resolve([])),
+      createTask: mock(() => Promise.resolve({ id: "md#335", title: "Test", status: "TODO" })),
+      deleteTask: mock(() => Promise.resolve(false)),
+      getWorkspacePath: mock(() => "/test/workspace"),
+      createTaskFromTitleAndDescription: mock(() =>
+        Promise.resolve({ id: "md#335", title: "Test", status: "TODO" })
+      ),
     };
   });
 
@@ -69,7 +87,7 @@ describe("Session Database BaseDir Bug", () => {
       session: "task335",
       repoUrl: "/test/repo",
       repoName: "test-repo",
-      taskId: "335",
+      taskId: "md#335",
       createdAt: new Date().toISOString(),
     };
 
@@ -123,7 +141,7 @@ describe("Session Database BaseDir Bug", () => {
       session: "task335",
       repoUrl: "/test/repo",
       repoName: "test-repo",
-      taskId: "335",
+      taskId: "md#335",
       createdAt: new Date().toISOString(),
     };
 

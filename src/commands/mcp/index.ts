@@ -108,7 +108,7 @@ function parseInspectorError(output: string, toolName?: string): McpInspectorErr
 async function callMcpToolDirectly(
   toolName: string,
   args: string[],
-  options: { repo?: string } = {}
+  options: { repo?: string; timeout?: number } = {}
 ): Promise<void> {
   return new Promise((resolve, reject) => {
     const serverArgs = ["mcp", "start"];
@@ -129,15 +129,16 @@ async function callMcpToolDirectly(
 
     log.debug(`Child process spawned with PID: ${child.pid}`);
 
-    // Timeout for the operation
+    // Configurable timeout for the operation - use longer timeout for session operations
+    const timeoutMs = options.timeout || (toolName.startsWith("session.") ? 60000 : 10000);
     const timeout = setTimeout(() => {
       if (!resolved) {
         resolved = true;
         log.debug(`Killing child process ${child.pid} due to timeout`);
         child.kill("SIGTERM");
-        reject(new Error(`Tool '${toolName}' timed out after 10 seconds`));
+        reject(new Error(`Tool '${toolName}' timed out after ${timeoutMs / 1000} seconds`));
       }
-    }, 10000);
+    }, timeoutMs);
 
     // Convert args array to object
     const argsObj: Record<string, string> = {};
@@ -788,6 +789,11 @@ export function createMCPCommand(): Command {
       },
       []
     )
+    .option(
+      "--timeout <seconds>",
+      "Timeout in seconds (default: 10s for most tools, 60s for session operations)",
+      (value: string) => parseInt(value, 10)
+    )
     .option("--inspector", "Use MCP inspector CLI (legacy, slower)")
     .action(async (toolName: string, options) => {
       try {
@@ -811,6 +817,7 @@ export function createMCPCommand(): Command {
           // Use direct MCP client (default, faster, more reliable)
           await callMcpToolDirectly(toolName, options.arg || [], {
             repo: options.repo,
+            timeout: options.timeout ? options.timeout * 1000 : undefined, // Convert seconds to milliseconds
           });
         }
       } catch (error: any) {

@@ -7,11 +7,17 @@
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-import { mkdir, rmdir } from "fs/promises";
-import { existsSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { mkdir, rmdir } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { existsSync } from "fs";
 import { getSessionDirFromParams, updateSessionFromParams } from "../../../src/domain/session";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import {
+  createMockGitService,
+  createMockSessionProvider,
+} from "../../../src/utils/test-utils/dependencies";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
 import type { GitServiceInterface } from "../../../src/domain/git";
@@ -112,11 +118,15 @@ describe("Session CLI Commands", () => {
           return testData.mockSessions;
         }
 
-        // Implement the same filtering logic as SQLite storage
+        // FORMAT MIGRATION: Updated filtering logic to handle qualified format
         const normalizedTaskId = options.taskId.replace(/^#/, "");
         return testData.mockSessions.filter((s) => {
           if (!s.taskId) return false;
-          return s.taskId.replace(/^#/, "") === normalizedTaskId;
+          // Extract number from qualified format (md#160 -> 160) or handle unqualified
+          const sessionTaskNumber = s.taskId.includes("#")
+            ? s.taskId.split("#")[1]
+            : s.taskId.replace(/^#/, "");
+          return sessionTaskNumber === normalizedTaskId;
         });
       });
 
@@ -129,7 +139,7 @@ describe("Session CLI Commands", () => {
       expect(mockStorage.getEntities).toHaveBeenCalledWith({ taskId: "160" });
       expect(sessions).toHaveLength(1); // Fixed: returns only filtered sessions
       expect(session?.session).toBe("task#160"); // Fixed: correct session returned
-      expect(session?.taskId).toBe("160"); // Fixed: correct taskId in storage format
+      expect(session?.taskId).toBe("md#160"); // FORMAT MIGRATION: Now expects qualified format
     });
 
     test("EDGE CASE: multiple sessions with same task ID but different formats", () => {
@@ -160,24 +170,17 @@ describe("Session CLI Commands", () => {
     let mockGitService: any;
 
     beforeEach(() => {
-      mockGitService = {
-        getSessionWorkdir: (repoName: string, sessionName: string) =>
-          join(tempDir, repoName, "sessions", sessionName),
+      mockGitService = createMockGitService({
+        getSessionWorkdir: () => join(tempDir, "test-repo", "sessions", "test-session"),
         execInRepository: async (workdir: string, command: string) => {
           if (command.includes("git remote get-url origin")) {
             return "https://github.com/test/repo.git";
           }
           return "";
         },
-        getCurrentBranch: async (workdir: string) => "task#168", // Added missing method
-        fetchDefaultBranch: async (workdir: string) => "main", // Added missing method
+        getCurrentBranch: async () => "task#168",
         hasUncommittedChanges: async () => false,
-        stashChanges: async () => undefined,
-        pullLatest: async () => undefined,
-        mergeBranch: async () => ({ conflicts: false }),
-        push: async () => undefined,
-        popStash: async () => undefined,
-      };
+      });
     });
 
     test("TASK #168 FIX: should auto-detect session name from current directory when not provided", async () => {

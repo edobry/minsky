@@ -61,6 +61,7 @@ import { readdir } from "fs/promises";
  */
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
+  prefix = "md"; // Backend prefix for qualified IDs
   private readonly workspacePath: string;
   private readonly tasksFilePath: string;
   private readonly tasksDirectory: string;
@@ -139,7 +140,24 @@ export class MarkdownTaskBackend implements TaskBackend {
     const tasks = this.parseTasks(result.content);
     log.debug("stored task IDs", { taskIds: tasks.map((t) => t.id).slice(0, 5) });
 
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+    // Use the same sophisticated ID matching logic as getTask would use
+    let taskIndex = -1;
+    const localId = id.replace(/^md#/, "");
+
+    // First try exact match with qualified ID
+    taskIndex = tasks.findIndex((t) => t.id === id || t.id === `md#${localId}`);
+
+    // If not found, try legacy format matching
+    if (taskIndex === -1) {
+      const numericId = parseInt(localId.replace(/^#/, ""), 10);
+      if (!isNaN(numericId)) {
+        taskIndex = tasks.findIndex((t) => {
+          const taskNumericId = parseInt(t.id.replace(/^(md#|#)/, ""), 10);
+          return !isNaN(taskNumericId) && taskNumericId === numericId;
+        });
+      }
+    }
+
     log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
@@ -262,33 +280,11 @@ export class MarkdownTaskBackend implements TaskBackend {
     if (existingTasksResult.success && existingTasksResult.content) {
       existingTasks = this.parseTasks(existingTasksResult.content);
     }
-    let maxId = existingTasks.reduce((max, task) => {
+    const maxId = existingTasks.reduce((max, task) => {
       // Use the new utility to extract numeric value from any format
       const id = getTaskIdNumber(task.id);
       return id !== null && id > max ? id : max;
     }, 0);
-
-    // Also scan filesystem for existing task files to get the true maximum ID
-    try {
-      const files = await readdir(this.tasksDirectory);
-      for (const file of files) {
-        // Extract ID from filename pattern: {id}-{title}.md
-        // Only consider legitimate task files, exclude temporary files and timestamp-based IDs
-        // Pattern: {1-4 digit ID} followed by dash and non-digit (to avoid temp-task-title-timestamp pattern)
-        const match = file.match(/^(\d{1,4})-[^0-9]/);
-        if (match) {
-          const fileId = parseInt(match[1], 10);
-          if (!isNaN(fileId) && fileId > maxId) {
-            maxId = fileId;
-          }
-        }
-      }
-    } catch (error) {
-      // If scanning fails, log but continue with central file maxId
-      log.warn("Failed to scan tasks directory for existing files", {
-        error: getErrorMessage(error as any),
-      });
-    }
 
     // Generate qualified backend ID for multi-backend storage (e.g., "md#285")
     const newId = `md#${maxId + 1}`; // Qualified format for storage
@@ -454,6 +450,7 @@ ${description}
       if (!saveResult.success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
           error: saveResult.error?.message || "Unknown error",
+          filePath: this.tasksFilePath,
         });
         return false;
       }
@@ -492,7 +489,9 @@ ${description}
   }
 
   async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
-    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    // Ensure specPath is a string
+    const pathStr = String(specPath || "");
+    const fullPath = pathStr.startsWith("/") ? pathStr : join(this.workspacePath, pathStr);
     return readTaskSpecFile(fullPath);
   }
 

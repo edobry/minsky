@@ -24,7 +24,7 @@ This usually happens when:
 • There are conflicting changes between your session and the base branch
 
 💡 Quick fixes:
-• Try with --skip-update to avoid session updates
+• Resolve conflicts manually and retry
 • Or manually resolve conflicts and retry
 
 Technical details: ${errorMessage}`
@@ -42,7 +42,7 @@ This could be due to:
 
 💡 Try these solutions:
 • Run 'git status' to check for conflicts
-• Use --skip-update to bypass session updates
+• Resolve conflicts in your session branch first
 • Check your git remote connection
 
 Technical details: ${errorMessage}`

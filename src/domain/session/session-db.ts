@@ -73,15 +73,6 @@ export interface SessionRecord {
   taskId?: string;
   branch?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
-  github?: {
-    owner?: string;
-    repo?: string;
-    token?: string;
-  };
-  remote?: {
-    authMethod?: "ssh" | "https" | "token";
-    depth?: number;
-  };
   prState?: {
     branchName: string;
     exists: boolean;
@@ -90,6 +81,10 @@ export interface SessionRecord {
     mergedAt?: string; // When merged (for cleanup)
   };
   pullRequest?: PullRequestInfo;
+
+  // NEW: Simple PR approval tracking (Task #358)
+  prBranch?: string; // PR branch if one exists ("pr/session-name")
+  prApproved?: boolean; // Whether this session's PR is approved
 }
 
 /**

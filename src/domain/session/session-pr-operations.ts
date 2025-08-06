@@ -52,12 +52,9 @@ export async function sessionPrImpl(
     throw error;
   }
 
-  // STEP 0.5: Validate that PR has a body or bodyPath (for new PRs)
-  if (!params.body && !params.bodyPath) {
-    throw new ValidationError(
-      "PR description is required. Please provide either --body or --body-path."
-    );
-  }
+  // STEP 0.5: Body validation is handled at the command layer
+  // Command layer checks if this is a new PR vs existing PR refresh
+  // and enforces body requirement accordingly
 
   // STEP 1: Validate we're in a session workspace and on a session branch
   const currentDir = process.cwd();
@@ -170,44 +167,46 @@ Please provide a title for your pull request:
     }
   }
 
-  // STEP 6: Enhanced session update with conflict detection (unless --skip-update is specified)
-  if (!params.skipUpdate) {
-    log.cli("🔍 Checking for conflicts before PR creation...");
+  // STEP 6: Enhanced session update with automatic conflict detection
+  log.cli("🔍 Checking for conflicts before PR creation...");
 
-    try {
-      // Use enhanced update with conflict detection options
-      await updateSessionFromParams({
-        name: sessionName,
-        repo: params.repo,
-        json: false,
-        force: false,
-        noStash: false,
-        noPush: false,
-        dryRun: false,
-        skipConflictCheck: params.skipConflictCheck,
-        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-        skipIfAlreadyMerged: true, // Skip update if changes already merged
-      });
-      log.cli("✅ Session updated successfully");
-    } catch (error) {
-      const errorMessage = getErrorMessage(error);
+  try {
+    // Use enhanced update with conflict detection options
+    await updateSessionFromParams({
+      name: sessionName,
+      repo: params.repo,
+      json: false,
+      force: false,
+      noStash: false,
+      noPush: false,
+      dryRun: false,
+      skipConflictCheck: params.skipConflictCheck,
+      autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+      skipIfAlreadyMerged: true, // Automatically skip if changes already merged
+    });
+    log.cli("✅ Session updated successfully");
+  } catch (error) {
+    const errorMessage = getErrorMessage(error);
 
-      // Enhanced error handling for common conflict scenarios
-      if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
-        log.cli(
-          "💡 Your session changes are already in the base branch. Proceeding with PR creation..."
-        );
-      } else if (errorMessage.includes("conflicts")) {
-        log.cli("⚠️  Merge conflicts detected. Consider using conflict resolution options:");
-        log.cli("   • --auto-resolve-delete-conflicts: Auto-resolve delete/modify conflicts");
-        log.cli("   • --skip-update: Skip update entirely if changes are already merged");
-        throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
-      } else {
-        throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
-      }
+    // Enhanced error handling for common conflict scenarios
+    if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
+      log.cli(
+        "💡 Your session changes are already in the base branch. Proceeding with PR creation..."
+      );
+    } else if (errorMessage.includes("conflicts")) {
+      log.cli("⚠️  Merge conflicts detected. Please resolve conflicts manually:");
+      log.cli("   1. 🔍 Check conflicts: git status");
+      log.cli("   2. ✏️ Resolve conflicts manually in your editor");
+      log.cli("   3. 📝 Stage resolved files: git add <resolved-files>");
+      log.cli("   4. ✅ Commit resolution: git commit");
+      log.cli("   5. 🔄 Try PR creation again");
+      log.cli("");
+      log.cli("💡 Or use automatic conflict resolution:");
+      log.cli("   • --auto-resolve-delete-conflicts: Auto-resolve delete/modify conflicts");
+      throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
+    } else {
+      throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
     }
-  } else {
-    log.cli("⏭️  Skipping session update (--skip-update specified)");
   }
 
   // STEP 7: Create repository backend and delegate PR creation
@@ -218,9 +217,6 @@ Please provide a title for your pull request:
     const createBackendFn =
       deps.createRepositoryBackend || (() => createRepositoryBackendForSession(currentDir));
     const repositoryBackend = await createBackendFn(sessionName);
-    const backendType = repositoryBackend.getType();
-
-    log.cli(`📦 Using ${backendType} repository backend`);
 
     // Use repository backend to create pull request
     const baseBranch = params.baseBranch || "main";
@@ -234,14 +230,6 @@ Please provide a title for your pull request:
 
     log.cli(`✅ Pull request created successfully!`);
 
-    if (backendType === "github") {
-      log.cli(`🔗 GitHub PR: ${prInfo.url}`);
-      log.cli(`📝 PR #${prInfo.number}: ${titleToUse}`);
-    } else {
-      log.cli(`🌿 PR branch: ${prInfo.number}`);
-      log.cli(`📝 Prepared merge commit ready for approval`);
-    }
-
     // Update PR state cache after successful creation
     await updatePrStateOnCreation(sessionName, deps.sessionDB);
 
@@ -254,7 +242,7 @@ Please provide a title for your pull request:
             workspacePath: process.cwd(),
           });
           await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-          log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
+          log.cli(`Updated task ${sessionRecord.taskId} status to IN-REVIEW`);
         } catch (error) {
           log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
         }

@@ -35,6 +35,16 @@ export function formatSessionDetails(session: Record<string, any>): void {
     log.cli(`   Updated: ${date.toLocaleDateString()} ${date.toLocaleTimeString()}`);
   }
 
+  // PR information
+  if (session.prBranch) {
+    log.cli(`   PR Branch: ${session.prBranch}`);
+    if (session.prApproved) {
+      log.cli(`   PR Status: ✅ Approved`);
+    } else {
+      log.cli(`   PR Status: ⏳ Pending approval`);
+    }
+  }
+
   log.cli("");
 }
 

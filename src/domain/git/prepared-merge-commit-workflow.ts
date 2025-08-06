@@ -1,6 +1,12 @@
 import { execGitWithTimeout } from "../../utils/git-exec";
-import { MinskyError, getErrorMessage } from "../../errors/index";
+import {
+  MinskyError,
+  SessionConflictError,
+  GitOperationError,
+  getErrorMessage,
+} from "../../errors/index";
 import { log } from "../../utils/logger";
+import { ConflictDetectionService } from "./conflict-detection";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import type { PRInfo, MergeInfo } from "../repository/index";
 
@@ -39,11 +45,11 @@ export async function createPreparedMergeCommitPR(
   options: PreparedMergeCommitOptions,
   deps: PreparedMergeCommitDependencies = {}
 ): Promise<PRInfo> {
-  const { title, body, sourceBranch, baseBranch, workdir } = options;
+  const { title, body, sourceBranch, baseBranch, workdir, session } = options;
   const gitExec = deps.execGitWithTimeout || execGitWithTimeout;
 
-  // Generate PR branch name from title
-  const prBranchName = titleToBranchName(title);
+  // Generate PR branch name - use session name if provided (for session PRs), otherwise use title
+  const prBranchName = session ? session : titleToBranchName(title);
   const prBranch = `pr/${prBranchName}`;
 
   let stashCreated = false;
@@ -77,6 +83,63 @@ export async function createPreparedMergeCommitPR(
 
     // Ensure we're on the source branch
     await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+
+    // CRITICAL: Update local base branch to match remote before PR creation
+    // This ensures the PR merge base includes the latest remote changes
+    try {
+      await gitExec("fetch", `fetch origin ${baseBranch}`, { workdir, timeout: 60000 });
+      await gitExec("switch", `switch ${baseBranch}`, { workdir, timeout: 30000 });
+      await gitExec("reset", `reset --hard origin/${baseBranch}`, { workdir, timeout: 30000 });
+      await gitExec("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+      log.debug(`Updated local ${baseBranch} to match origin/${baseBranch}`);
+    } catch (error) {
+      log.warn(`Failed to update local ${baseBranch} branch: ${getErrorMessage(error)}`);
+      // Continue with PR creation using current base branch state
+    }
+
+    // CRITICAL: Test merge compatibility BEFORE creating PR branch
+    // This ensures we never switch to PR branch with potential conflicts
+    try {
+      const conflictPrediction = await ConflictDetectionService.predictConflicts(
+        workdir,
+        sourceBranch,
+        baseBranch
+      );
+
+      if (conflictPrediction.hasConflicts) {
+        throw new SessionConflictError(
+          `🔥 Session branch has conflicts with ${baseBranch} branch.\n\n` +
+            `PR creation requires a clean session branch. Please resolve conflicts first:\n\n` +
+            `1. 🔍 Check conflicts: git status\n` +
+            `2. ✏️ Resolve conflicts manually in your editor\n` +
+            `3. 📝 Stage resolved files: git add <resolved-files>\n` +
+            `4. ✅ Commit resolution: git commit\n` +
+            `5. 🔄 Try PR creation again\n\n` +
+            `💡 Or run session update to automatically merge latest changes:\n` +
+            `   minsky session update\n\n` +
+            `Conflict details: ${conflictPrediction.userGuidance}`,
+          sourceBranch,
+          baseBranch
+        );
+      }
+
+      log.debug("Merge compatibility confirmed - no conflicts detected", {
+        sourceBranch,
+        baseBranch,
+        conflictType: conflictPrediction.conflictType,
+      });
+    } catch (error) {
+      if (error instanceof SessionConflictError) {
+        throw error; // Re-throw conflict errors as-is
+      }
+
+      // For other prediction errors, provide generic guidance
+      throw new MinskyError(
+        `Failed to validate merge compatibility: ${getErrorMessage(error as any)}\n\n` +
+          `Please ensure your session branch is up to date:\n` +
+          `   minsky session update`
+      );
+    }
 
     // Create and checkout the PR branch
     try {
@@ -133,6 +196,10 @@ export async function createPreparedMergeCommitPR(
         });
       }
     }
+
+    // Log local/remote repository specific PR information
+    log.cli(`🌿 PR branch: ${prBranch}`);
+    log.cli(`📝 Prepared merge commit ready for approval`);
 
     return {
       number: prBranch, // Use branch name as identifier for local/remote repos

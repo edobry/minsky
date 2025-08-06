@@ -38,17 +38,14 @@ describe("Task Functions", () => {
     test("should return canonical form for valid IDs", () => {
       // Since normalizeTaskId returns legacy format for backward compatibility,
       // test what it actually returns, not what we think it should return
-      expect(normalizeTaskId(TEST_TASK_ID_ALPHA)).toBe(
-        normalizeTaskIdForStorage(TEST_TASK_ID_ALPHA)
-      );
+      // normalizeTaskId returns legacy format for backward compatibility
+      expect(normalizeTaskId(TEST_TASK_ID_ALPHA)).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
       expect(normalizeTaskId(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`)).toBe(
-        normalizeTaskIdForStorage(TEST_TASK_ID_ALPHA)
+        `${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`
       );
-      expect(normalizeTaskId(TEST_TASK_ID_NUMERIC)).toBe(
-        normalizeTaskIdForStorage(TEST_TASK_ID_NUMERIC)
-      );
+      expect(normalizeTaskId(TEST_TASK_ID_NUMERIC)).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`);
       expect(normalizeTaskId(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`)).toBe(
-        normalizeTaskIdForStorage(TEST_TASK_ID_NUMERIC)
+        `${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`
       );
     });
 

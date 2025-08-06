@@ -29,7 +29,7 @@ import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
 import { createConfiguredTaskService } from "./tasks/taskService";
 import { taskIdToSessionName } from "./tasks/unified-task-id";
-import { createTaskFromTitleAndDescription } from "./tasks/taskCommands";
+
 import { execAsync } from "../utils/exec";
 import { extractPrDescription } from "./session/session-update-operations";
 import {
@@ -266,10 +266,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Auto-create task if description is provided but no task ID
     if (description && !taskId) {
       const taskSpec = createTaskFromDescription(description);
-      const createdTask = await createTaskFromTitleAndDescription({
-        title: taskSpec.title,
-        description: taskSpec.description,
-      });
+      const createdTask = await deps.taskService.createTaskFromTitleAndDescription(
+        taskSpec.title,
+        taskSpec.description
+      );
       taskId = createdTask.id;
       if (!quiet) {
         // Display the task ID (taskId is already in the correct format from TaskService)
@@ -740,7 +740,7 @@ export async function updateSessionFromParams(
     try {
       // Pull latest changes
       log.debug("Pulling latest changes", { workdir, remote: remote || "origin" });
-      await deps.gitService.pullLatest(workdir, remote || "origin");
+      await deps.gitService.fetchLatest(workdir, remote || "origin");
       log.debug("Latest changes pulled");
 
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"
@@ -1037,7 +1037,11 @@ export async function updatePrStateOnCreation(
     mergedAt: undefined,
   };
 
-  await sessionDB.updateSession(sessionName, { prState });
+  // CRITICAL FIX: Set both prState AND prBranch fields for approval validation
+  await sessionDB.updateSession(sessionName, {
+    prState,
+    prBranch, // This is the field that session approval validation checks for
+  });
 
   log.debug("Updated PR state on creation", {
     sessionName,
@@ -1077,7 +1081,8 @@ export async function updatePrStateOnMerge(
 }
 
 /**
- * Interface-agnostic function for creating a PR for a session
+ * ❌ DEPRECATED: sessionPrFromParams() - legacy implementation
+ * Use sessionPrImpl() from session-pr-operations.ts via pr-command.ts adapter instead.
  */
 export async function sessionPrFromParams(
   params: SessionPrParams,
@@ -1091,208 +1096,9 @@ export async function sessionPrFromParams(
   title?: string;
   body?: string;
 }> {
-  // STEP 0: Validate parameters using schema
-  try {
-    // Import schema here to avoid circular dependency issues
-    const { sessionPrParamsSchema } = await import("../schemas/session.js");
-    sessionPrParamsSchema.parse(params);
-  } catch (error) {
-    if (error instanceof Error && error.name === "ZodError") {
-      // Extract the validation error message from ZodError
-      const zodError = error as any; // ZodError type
-      const message = zodError.errors?.[0]?.message || "Invalid parameters";
-      throw new ValidationError(message);
-    }
-    throw error;
-  }
-
-  // STEP 1: Resolve session context using name/task parameters
-  const { resolveSessionContextWithFeedback } = await import("./session/session-context-resolver");
-  const resolvedContext = await resolveSessionContextWithFeedback({
-    session: params.name,
-    task: params.task,
-    repo: params.repo,
-    sessionProvider: depsInput?.sessionDB || createSessionProvider(),
-    allowAutoDetection: true,
-  });
-  const sessionName = resolvedContext.sessionName;
-
-  // STEP 2: Initialize git service for session operations
-  const gitService = depsInput?.gitService || createGitService();
-
-  // Handle body content - read from file if bodyPath is provided
-  let bodyContent: string | undefined = params.body;
-  if (params.bodyPath) {
-    try {
-      // Resolve relative paths relative to current working directory
-      const filePath = require("path").resolve(params.bodyPath);
-      bodyContent = (await readFile(filePath, "utf-8")) as string;
-
-      if (!bodyContent?.trim()) {
-        throw new ValidationError(`Body file is empty: ${params.bodyPath}`);
-      }
-
-      log.debug(`Read PR body from file: ${filePath}`, {
-        fileSize: bodyContent.length,
-        bodyPath: params.bodyPath,
-      });
-    } catch (error) {
-      if (error instanceof ValidationError) {
-        throw error;
-      }
-
-      const errorMessage = getErrorMessage(error);
-      if (errorMessage.includes("ENOENT") || errorMessage.includes("no such file")) {
-        throw new ValidationError(`Body file not found: ${params.bodyPath}`);
-      } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
-        throw new ValidationError(`Permission denied reading body file: ${params.bodyPath}`);
-      } else {
-        throw new ValidationError(`Failed to read body file: ${params.bodyPath}. ${errorMessage}`);
-      }
-    }
-  }
-
-  // STEP 3: Initialize session database
-  const sessionDb = depsInput?.sessionDB || createSessionProvider();
-
-  // STEP 4: Get session workspace directory (needed for git operations)
-  const sessionWorkdir = await sessionDb.getSessionWorkdir(sessionName);
-  if (!sessionWorkdir) {
-    throw new MinskyError(`Session workspace directory not found for session: ${sessionName}`);
-  }
-  const currentDir: string = sessionWorkdir;
-
-  log.debug(`Creating PR for session: ${sessionName}`, {
-    session: sessionName,
-    title: params.title,
-    hasBody: !!bodyContent,
-    bodySource: params.bodyPath ? "file" : "parameter",
-    baseBranch: params.baseBranch,
-  });
-
-  // STEP 4.5: PR Branch Detection and Title/Body Handling
-  // This implements the new refresh functionality
-  const prBranchExists = await checkPrBranchExistsOptimized(
-    sessionName,
-    gitService,
-    currentDir,
-    sessionDb
+  throw new Error(
+    "❌ DEPRECATED: sessionPrFromParams() has been removed. Use sessionPr() from './session/commands/pr-command.ts' instead."
   );
-
-  let titleToUse = params.title;
-  let bodyToUse = bodyContent;
-
-  if (!titleToUse && prBranchExists) {
-    // Case: Existing PR + no title → Auto-reuse existing title/body (refresh)
-    log.cli("🔄 Refreshing existing PR (reusing title and body)...");
-
-    const existingDescription = await extractPrDescription(sessionName, gitService, currentDir);
-    if (existingDescription) {
-      titleToUse = existingDescription.title;
-      bodyToUse = existingDescription.body;
-      log.cli(`📝 Reusing existing title: "${titleToUse}"`);
-    } else {
-      // Fallback if we can't extract description
-      throw new MinskyError(
-        `PR branch pr/${sessionName} exists but could not extract existing title/body. Please provide --title explicitly.`
-      );
-    }
-  } else if (!titleToUse && !prBranchExists) {
-    // Case: No PR + no title → Error (need title for first creation)
-    throw new MinskyError(
-      `PR branch pr/${sessionName} doesn't exist. Please provide --title for initial PR creation.`
-    );
-  } else if (titleToUse && prBranchExists) {
-    // Case: Existing PR + new title → Use new title/body (update)
-    log.cli("📝 Updating existing PR with new title/body...");
-  } else if (titleToUse && !prBranchExists) {
-    // Case: No PR + title → Normal creation flow
-    log.cli("✨ Creating new PR...");
-  }
-
-  // STEP 4.6: Conditional body/bodyPath validation
-  // For new PR creation, we need either body or bodyPath (unless we extracted from existing)
-  if (!bodyToUse && !params.bodyPath && (!prBranchExists || !titleToUse)) {
-    // Only require body/bodyPath when:
-    // 1. No existing PR to reuse from (prBranchExists=false), OR
-    // 2. Existing PR but new title provided (titleToUse=true) indicating update
-    if (!prBranchExists) {
-      log.cli(
-        "💡 Tip: For new PRs, consider providing --body or --body-path for a complete description"
-      );
-      // Allow empty body for new PRs (user choice)
-    }
-  }
-
-  // STEP 5: Enhanced session update with conflict detection (unless --skip-update is specified)
-  if (!params.skipUpdate) {
-    log.cli("🔍 Checking for conflicts before PR creation...");
-
-    try {
-      // Use enhanced update with conflict detection options
-      await updateSessionFromParams({
-        name: sessionName,
-        repo: params.repo,
-        json: false,
-        force: false,
-        noStash: false,
-        noPush: false,
-        dryRun: false,
-        skipConflictCheck: params.skipConflictCheck,
-        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-        skipIfAlreadyMerged: true, // Skip update if changes already merged
-      });
-      log.cli("✅ Session updated successfully");
-    } catch (error) {
-      const errorMessage = getErrorMessage(error);
-
-      // Enhanced error handling for common conflict scenarios
-      if (errorMessage.includes("already in base") || errorMessage.includes("already merged")) {
-        log.cli(
-          "💡 Your session changes are already in the base branch. Proceeding with PR creation..."
-        );
-      } else if (errorMessage.includes("conflicts")) {
-        log.cli("⚠️  Merge conflicts detected. Consider using conflict resolution options:");
-        log.cli("   • --auto-resolve-delete-conflicts: Auto-resolve delete/modify conflicts");
-        log.cli("   • --skip-update: Skip update entirely if changes are already merged");
-        throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
-      } else {
-        throw new MinskyError(`Failed to update session before creating PR: ${errorMessage}`);
-      }
-    }
-  } else {
-    log.cli("⏭️  Skipping session update (--skip-update specified)");
-  }
-
-  // STEP 6: Now proceed with PR creation
-  const result = await preparePrFromParams({
-    session: sessionName,
-    title: titleToUse,
-    body: bodyToUse,
-    baseBranch: params.baseBranch,
-    debug: params.debug,
-  });
-
-  // Update PR state cache after successful creation
-  await updatePrStateOnCreation(sessionName, sessionDb);
-
-  // Update task status to IN-REVIEW if associated with a task
-  if (!params.noStatusUpdate) {
-    const sessionRecord = await sessionDb.getSession(sessionName);
-    if (sessionRecord?.taskId) {
-      try {
-        const taskService = await createConfiguredTaskService({
-          workspacePath: process.cwd(),
-        });
-        await taskService.setTaskStatus(sessionRecord.taskId, TASK_STATUS.IN_REVIEW);
-        log.cli(`Updated task #${sessionRecord.taskId} status to IN-REVIEW`);
-      } catch (error) {
-        log.warn(`Failed to update task status: ${getErrorMessage(error)}`);
-      }
-    }
-  }
-
-  return result;
 }
 
 /**
@@ -1426,10 +1232,9 @@ Task ${taskIdToUse} exists but has no associated session to approve.
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
-      new TaskService({
+      (await createConfiguredTaskService({
         workspacePath: originalRepoPath,
-        backend: "markdown",
-      }),
+      })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
@@ -2085,7 +1890,8 @@ export { deleteSessionFromParams as sessionDelete };
 export { getSessionDirFromParams as sessionDir };
 export { updateSessionFromParams as sessionUpdate };
 export { approveSessionFromParams as sessionApprove };
-export { sessionPrFromParams as sessionPr };
+// ❌ REMOVED: export alias for deprecated sessionPrFromParams
+// Use sessionPr() from './session/commands/pr-command.ts' instead
 export { inspectSessionFromParams as sessionInspect };
 
 // Export new session-scoped git commands

@@ -47,8 +47,8 @@ export class SessionMultiBackendIntegration {
       return taskIdToSessionName(qualifiedId);
     }
 
-    // If all else fails, use legacy format for backward compatibility
-    return `task${taskId}`;
+    // If all else fails, use consistent format with dash for backward compatibility
+    return `task-${taskId}`;
   }
 
   /**

@@ -1,13 +1,14 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { join } from "path";
-import { promises as fs } from "fs";
-// import { MultiBackendTaskServiceImpl } from "./multi-backend-service"; // File no longer exists
-import { MarkdownTaskBackend } from "./markdown-task-backend";
+// Use mock.module() to mock filesystem operations
+// import { promises as fs } from "fs";
+import { MultiBackendTaskServiceImpl } from "./multi-backend-service";
+import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { TASK_STATUS } from "./taskConstants";
 
-describe.skip("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
-  let service: any; // MultiBackendTaskServiceImpl no longer exists
-  let markdownBackend: MarkdownTaskBackend;
+describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
+  let service: MultiBackendTaskServiceImpl;
+  let markdownBackend: any;
   let tempDir: string;
 
   beforeEach(async () => {
@@ -17,11 +18,11 @@ describe.skip("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     await fs.mkdir(join(tempDir, "process"), { recursive: true });
 
     // Initialize backends
-    markdownBackend = new MarkdownTaskBackend(tempDir);
+    markdownBackend = createMarkdownTaskBackend({ name: "markdown", workspacePath: tempDir });
 
     // Initialize service with real backend
-    // service = new MultiBackendTaskServiceImpl(); // Class no longer exists
-    // service.registerBackend(markdownBackend); // Service no longer exists
+    service = new MultiBackendTaskServiceImpl();
+    service.registerBackend(markdownBackend);
   });
 
   afterEach(async () => {

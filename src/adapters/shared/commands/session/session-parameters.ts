@@ -199,6 +199,18 @@ export const sessionApproveCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  cleanup: {
+    schema: z.boolean(),
+    description: "Clean up session directories and database record after merge",
+    required: false,
+    defaultValue: false,
+  },
+  cleanupSession: {
+    schema: z.boolean(),
+    description: "Clean up session directories and database record after merge (alias)",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
@@ -230,12 +242,7 @@ export const sessionPrCommandParams = {
     defaultValue: false,
   },
   debug: commonSessionParams.debug,
-  skipUpdate: {
-    schema: z.boolean(),
-    description: "Skip session update before PR",
-    required: false,
-    defaultValue: false,
-  },
+
   autoResolveDeleteConflicts: {
     schema: z.boolean(),
     description: "Automatically resolve delete conflicts",
@@ -287,12 +294,7 @@ export const sessionPrCreateCommandParams = {
     defaultValue: false,
   },
   debug: commonSessionParams.debug,
-  skipUpdate: {
-    schema: z.boolean(),
-    description: "Skip session update before PR",
-    required: false,
-    defaultValue: false,
-  },
+
   autoResolveDeleteConflicts: {
     schema: z.boolean(),
     description: "Automatically resolve delete conflicts",

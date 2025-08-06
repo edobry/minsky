@@ -13,6 +13,7 @@ import type {
   TaskListOptions,
   CreateTaskOptions,
 } from "../../domain/tasks";
+import { normalizeTaskIdForStorage } from "../../domain/tasks/task-id-utils";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
 
@@ -451,7 +452,15 @@ export function createMockSessionProvider(
     getSessionByTaskId:
       options.getSessionByTaskId ||
       ((taskId: string) => {
-        const session = sessions.find((s) => s.taskId === taskId);
+        // Use same normalization logic as real SessionDbAdapter for consistency
+        const normalizedTaskId = normalizeTaskIdForStorage(taskId);
+        if (!normalizedTaskId) return Promise.resolve(null);
+
+        const session = sessions.find((s) => {
+          if (!s.taskId) return false;
+          const storedNormalized = normalizeTaskIdForStorage(s.taskId);
+          return storedNormalized === normalizedTaskId;
+        });
         return Promise.resolve(session || null);
       }),
 
@@ -477,6 +486,7 @@ export interface MockGitServiceOptions {
   getSessionWorkdir?: () => string;
   stashChanges?: () => Promise<{ workdir: string; stashed: boolean }>;
   pullLatest?: () => Promise<{ workdir: string; updated: boolean }>;
+  fetchLatest?: () => Promise<{ workdir: string; updated: boolean }>;
   mergeBranch?: () => Promise<{ workdir: string; merged: boolean; conflicts: boolean }>;
   push?: () => Promise<{ workdir: string; pushed: boolean }>;
   popStash?: () => Promise<{ workdir: string; stashed: boolean }>;
@@ -532,6 +542,9 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
 
     pullLatest:
       options.pullLatest || (() => Promise.resolve({ workdir: "/mock/workdir", updated: true })),
+
+    fetchLatest:
+      options.fetchLatest || (() => Promise.resolve({ workdir: "/mock/workdir", updated: true })),
 
     mergeBranch:
       options.mergeBranch ||

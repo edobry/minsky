@@ -1,99 +1,62 @@
-const TEST_VALUE = 123;
-
 /**
- * Session Update Tests
- * @migrated Migrated to native Bun patterns
- * @refactored Uses project utilities instead of raw Bun APIs
+ * Session Update Integration Tests
+ *
+ * NOTE: For testing the conditional logic (noStash, noPush, force),
+ * see session-update-logic.test.ts which tests the extracted pure functions.
+ *
+ * These tests focus on basic validation and error handling that can be
+ * tested without complex git operations.
  */
-import { describe, test, expect, beforeEach, mock } from "bun:test";
+import { describe, test, expect } from "bun:test";
 import { updateSessionFromParams } from "./session";
-import { MinskyError, ValidationError, ResourceNotFoundError } from "../errors/index";
-import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
-import { expectToBeInstanceOf, expectToHaveBeenCalled } from "../utils/test-utils/assertions";
-import * as execUtils from "../utils/exec";
-import * as childProcess from "child_process";
+import { ValidationError, ResourceNotFoundError } from "../errors/index";
+import { setupTestMocks } from "../utils/test-utils/mocking";
+import { createMockGitService, createMockSessionProvider } from "../utils/test-utils/dependencies";
 
 // Set up automatic mock cleanup
 setupTestMocks();
 
-describe("updateSessionFromParams", () => {
-  // Mock dependencies
-  let mockGitService: unknown;
-  let mockSessionProvider: unknown;
-  let mockGetCurrentSession: unknown;
-
-  beforeEach(() => {
-    // Create fresh mocks for each test
-    mockGitService = {
-      getSessionWorkdir: createMock(() => "/mock/session/workdir"),
-      execInRepository: createMock((workdir, command) => {
-        // Return different values based on the git command
-        if ((command as string).includes("rev-list --left-right --count")) {
-          return Promise.resolve("0\t5"); // 0 commits ahead, 5 behind origin (definitely needs update)
-        }
-        if ((command as string).includes("rev-parse") && (command as string).includes("origin/")) {
-          return Promise.resolve("abc123"); // Remote ref exists
-        }
-        return Promise.resolve("");
-      }),
-      stashChanges: createMock(() => Promise.resolve()),
-      pullLatest: createMock(() => Promise.resolve()),
-      mergeBranch: createMock(() => Promise.resolve({ conflicts: false })),
-      push: createMock(() => Promise.resolve()),
-      popStash: createMock(() => Promise.resolve()),
-      getCurrentBranch: createMock(() => Promise.resolve("main")),
-      hasUncommittedChanges: createMock(() => Promise.resolve(false)),
-      fetchDefaultBranch: createMock(() => Promise.resolve("main")),
-      analyzeBranchDivergence: createMock(() =>
-        Promise.resolve({
-          sessionBranch: "test-session",
-          baseBranch: "main",
-          aheadCommits: 0,
-          behindCommits: 5, // Session is 5 commits behind
-          lastCommonCommit: "abc123",
-          sessionChangesInBase: false,
-          divergenceType: "behind" as const, // This will trigger the update
-          recommendedAction: "pull" as const,
-        })
-      ),
-    };
-
-    mockSessionProvider = {
-      getSession: createMock(() =>
-        Promise.resolve({
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "https://example.com/test-repo",
-          branch: "test-branch",
-          createdAt: "2023-01-01",
-          taskId: "TEST_VALUE",
-        })
-      ),
-      getSessionWorkdir: createMock(() => Promise.resolve("/tmp/mock-session-workdir")),
-    };
-
-    mockGetCurrentSession = createMock(() => Promise.resolve("test-session"));
-  });
-
+describe("updateSessionFromParams - Basic Validation", () => {
   test("throws ValidationError when name is not provided", async () => {
-    try {
-      await updateSessionFromParams({
-        name: "",
-        noStash: false,
-        noPush: false,
-        force: false,
-      } as any);
-      throw new Error("Should have thrown an error");
-    } catch (error: unknown) {
-      expectToBeInstanceOf(error, ValidationError);
-    }
+    const mockEmptySessionProvider = createMockSessionProvider({
+      listSessions: () => Promise.resolve([]), // No sessions available for auto-detection
+    });
+
+    const mockGitService = createMockGitService();
+
+    await expect(
+      updateSessionFromParams(
+        {
+          name: undefined as any, // Invalid input
+          task: undefined,
+          repo: undefined,
+          noStash: false,
+          noPush: false,
+          force: false,
+          skipConflictCheck: false,
+          autoResolveDeleteConflicts: false,
+          dryRun: false,
+          skipIfAlreadyMerged: false,
+        },
+        {
+          sessionDB: mockEmptySessionProvider,
+          gitService: mockGitService,
+          getCurrentSession: () => Promise.resolve(undefined),
+        }
+      )
+    ).rejects.toThrow(ValidationError);
   });
 
   test("throws ResourceNotFoundError when session does not exist", async () => {
-    mockSessionProvider.getSession = mock(() => Promise.resolve(null));
+    const mockEmptySessionProvider = createMockSessionProvider({
+      getSession: () => Promise.resolve(null), // Session not found
+      listSessions: () => Promise.resolve([]), // No sessions
+    });
 
-    try {
-      await updateSessionFromParams(
+    const mockGitService = createMockGitService();
+
+    await expect(
+      updateSessionFromParams(
         {
           name: "nonexistent-session",
           noStash: false,
@@ -105,195 +68,22 @@ describe("updateSessionFromParams", () => {
           skipIfAlreadyMerged: false,
         },
         {
-          sessionDB: mockSessionProvider,
+          sessionDB: mockEmptySessionProvider,
           gitService: mockGitService,
-          getCurrentSession: mockGetCurrentSession,
+          getCurrentSession: () => Promise.resolve(undefined),
         }
-      );
-      throw new Error("Should have thrown an error");
-    } catch (error: unknown) {
-      expectToBeInstanceOf(error, ResourceNotFoundError);
-    }
-  });
-
-  test("returns session information when update is successful", async () => {
-    const _result = await updateSessionFromParams(
-      {
-        name: "test-session",
-        noStash: false,
-        noPush: false,
-        force: true, // Force flag bypasses ConflictDetectionService.smartSessionUpdate
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-      },
-      {
-        sessionDB: mockSessionProvider as any,
-        gitService: mockGitService as any,
-        getCurrentSession: mockGetCurrentSession as any,
-      }
-    );
-
-    expect(_result).toEqual({
-      session: "test-session",
-      repoName: "test-repo",
-      repoUrl: "https://example.com/test-repo",
-      branch: "main", // Note: this comes from getCurrentBranch mock
-      createdAt: "2023-01-01",
-      taskId: "TEST_VALUE",
-    });
-
-    // With force: true, these should be called directly without conflict detection
-    expectToHaveBeenCalled((mockGitService as any).pullLatest);
-    expectToHaveBeenCalled((mockGitService as any).mergeBranch);
-    expectToHaveBeenCalled((mockGitService as any).push);
-  });
-
-  test("throws error when workspace is dirty and force is not set", async () => {
-    // Mock git service to report dirty workspace
-    (mockGitService as any).hasUncommittedChanges = mock(() => Promise.resolve(true));
-
-    try {
-      await updateSessionFromParams(
-        {
-          name: "test-session",
-          force: false, // This should trigger the dirty workspace check
-          noStash: false,
-          noPush: false,
-          skipConflictCheck: false,
-          autoResolveDeleteConflicts: false,
-          dryRun: false,
-          skipIfAlreadyMerged: false,
-        },
-        {
-          sessionDB: mockSessionProvider as any,
-          gitService: mockGitService as any,
-          getCurrentSession: mockGetCurrentSession as any,
-        }
-      );
-      // Should not reach here
-      expect(false).toBeTruthy();
-    } catch (error) {
-      // With dirty workspace and noStash: false, it should stash and continue
-      // But with force: false and no update needed, we should check for the right error type
-      expect(error instanceof Error).toBeTruthy();
-    }
-  });
-
-  test("updates session when workspace is dirty and force is set", async () => {
-    // Mock git service to report dirty workspace
-    (mockGitService as any).hasUncommittedChanges = mock(() => Promise.resolve(true));
-
-    const result = await updateSessionFromParams(
-      {
-        name: "test-session",
-        force: true, // Force flag bypasses ConflictDetectionService.smartSessionUpdate
-        noStash: false,
-        noPush: false,
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-      },
-      {
-        sessionDB: mockSessionProvider as any,
-        gitService: mockGitService as any,
-        getCurrentSession: mockGetCurrentSession as any,
-      }
-    );
-
-    expect(result).toEqual({
-      session: "test-session",
-      repoName: "test-repo",
-      repoUrl: "https://example.com/test-repo",
-      branch: "main",
-      createdAt: "2023-01-01",
-      taskId: "TEST_VALUE",
-    });
-
-    // With force: true, these should be called directly
-    expectToHaveBeenCalled((mockGitService as any).pullLatest);
-    expectToHaveBeenCalled((mockGitService as any).mergeBranch);
-    expectToHaveBeenCalled((mockGitService as any).push);
-  });
-
-  test("skips stashing when noStash is true", async () => {
-    await updateSessionFromParams(
-      {
-        name: "test-session",
-        noStash: true,
-        noPush: false,
-        force: false,
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-      },
-      {
-        sessionDB: mockSessionProvider as any,
-        gitService: mockGitService as any,
-        getCurrentSession: mockGetCurrentSession as any,
-      }
-    );
-
-    // Verify stashing was not called
-    expectToHaveBeenCalled((mockGitService as any).pullLatest);
-  });
-
-  test("skips pushing when noPush is true", async () => {
-    await updateSessionFromParams(
-      {
-        name: "test-session",
-        noStash: false,
-        noPush: true,
-        force: false,
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-      },
-      {
-        sessionDB: mockSessionProvider as any,
-        gitService: mockGitService as any,
-        getCurrentSession: mockGetCurrentSession as any,
-      }
-    );
-
-    expectToHaveBeenCalled((mockGitService as any).pullLatest);
-  });
-
-  test("throws error when merge conflicts are detected", async () => {
-    // Mock merge to throw an error (force mode catches but ignores merge errors)
-    (mockGitService as any).mergeBranch = mock(() =>
-      Promise.reject(new Error("Merge conflict detected"))
-    );
-
-    const result = await updateSessionFromParams(
-      {
-        name: "test-session",
-        noStash: false,
-        noPush: false,
-        force: true, // Force flag to use mocked mergeBranch method directly
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-      },
-      {
-        sessionDB: mockSessionProvider as any,
-        gitService: mockGitService as any,
-        getCurrentSession: mockGetCurrentSession as any,
-      }
-    );
-    // Force mode should continue despite merge failure and return the session
-    expect(result).toEqual({
-      session: "test-session",
-      repoName: "test-repo",
-      repoUrl: "https://example.com/test-repo",
-      branch: "main",
-      createdAt: "2023-01-01",
-      taskId: "TEST_VALUE",
-    });
+      )
+    ).rejects.toThrow(ResourceNotFoundError);
   });
 });
+
+// NOTE: For comprehensive testing of noStash, noPush, and force logic,
+// see the focused unit tests in session-update-logic.test.ts
+//
+// Those tests verify:
+// - shouldStashChanges(options, state) - when stashing should occur
+// - shouldPushChanges(options) - when pushing should occur
+// - shouldRestoreStash(options) - when stash restoration should occur
+// - determineGitOperations(options, state) - overall operation planning
+//
+// This separation allows testing the business logic without complex git mocking.

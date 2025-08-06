@@ -119,7 +119,7 @@ export async function resolveSessionContext(
 
     return {
       sessionName: sessionRecord!.session,
-      taskId: normalizedTaskId,
+      taskId: task, // ✅ BACKWARD COMPATIBILITY: Return original task ID format
       resolvedBy: "explicit-task",
       workingDirectory,
     };

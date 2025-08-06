@@ -29,6 +29,11 @@ mock.module("../../utils/logger", () => ({
     info: mock(() => {}),
     warn: mock(() => {}),
     error: mock(() => {}),
+    cli: mock(() => {}), // Fix: Add missing cli function
+    cliWarn: mock(() => {}),
+    cliError: mock(() => {}),
+    cliDebug: mock(() => {}),
+    setLevel: mock(() => {}),
   },
 }));
 

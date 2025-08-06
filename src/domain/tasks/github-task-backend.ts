@@ -16,6 +16,7 @@ import type {
 
 export class GitHubTaskBackend implements TaskBackend {
   name = "github";
+  prefix = "gh"; // Backend prefix for qualified IDs
   private workspacePath: string;
 
   constructor(workspacePath: string) {

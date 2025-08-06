@@ -19,6 +19,11 @@ import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../
 // Import additional types needed for interface implementation
 import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
 import { getTaskSpecRelativePath } from "./taskIO";
+import {
+  normalizeTaskIdForStorage,
+  formatTaskIdForDisplay,
+  getTaskIdNumber,
+} from "./task-id-utils";
 
 /**
  * Configuration for GitHubIssuesTaskBackend
@@ -108,6 +113,7 @@ function extractGitHubRepoFromRemote(
  */
 export class GitHubIssuesTaskBackend implements TaskBackend {
   name = "github-issues";
+  prefix = "gh"; // Backend prefix for qualified IDs
   private readonly workspacePath: string;
   private readonly octokit: Octokit;
   private readonly owner: string;
@@ -440,20 +446,32 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   private extractTaskIdFromIssue(issue: any): string {
-    // Try to find task ID like #123 in title
+    // Try to find qualified task ID like gh#123 in title
+    const qualifiedMatch = issue.title.match(/gh#(\d+)/);
+    if (qualifiedMatch && qualifiedMatch[1]) {
+      return `gh#${qualifiedMatch[1]}`;
+    }
+
+    // Try to find legacy task ID like #123 in title and convert to qualified
     const titleMatch = issue.title.match(/#(\d+)/);
     if (titleMatch && titleMatch[1]) {
-      return `#${titleMatch[1]}`;
+      return `gh#${titleMatch[1]}`;
     }
 
-    // If not in title, look in body
+    // If not in title, look in body for qualified format
+    const bodyQualifiedMatch = issue.body.match(/Task ID: gh#(\d+)/);
+    if (bodyQualifiedMatch && bodyQualifiedMatch[1]) {
+      return `gh#${bodyQualifiedMatch[1]}`;
+    }
+
+    // If not in body, look for legacy format and convert
     const bodyMatch = issue.body.match(/Task ID: #(\d+)/);
     if (bodyMatch && bodyMatch[1]) {
-      return `#${bodyMatch[1]}`;
+      return `gh#${bodyMatch[1]}`;
     }
 
-    // Fallback to issue number
-    return `#${issue.number}`;
+    // Fallback to issue number with qualified format
+    return `gh#${issue.number}`;
   }
 
   private getTaskStatusFromIssue(issue: any): TaskStatus {
@@ -583,8 +601,8 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
         labels: this.getLabelsForTaskStatus("TODO"), // Default to TODO status
       });
 
-      // Extract task ID from the created issue
-      const taskId = `#${response.data.number}`;
+      // Generate qualified task ID using GitHub issue number
+      const taskId = `gh#${response.data.number}`;
 
       return {
         id: taskId,
@@ -614,40 +632,37 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     description: string,
     options: CreateTaskOptions = {}
   ): Promise<Task> {
-    // Generate a task specification file content
-    const taskSpecContent = this.generateTaskSpecification(title, description);
-
-    // Create a temporary file path for the spec
-    const fs = await import("fs/promises");
-    const path = await import("path");
-    const os = await import("os");
-
-    const tempDir = os.tmpdir();
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
-
     try {
-      // Write the spec content to the temporary file
-      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
+      // Create GitHub issue directly via API - no temp files needed!
+      const response = await this.octokit.rest.issues.create({
+        owner: this.owner,
+        repo: this.repo,
+        title,
+        body: description || "",
+        labels: this.getLabelsForTaskStatus("TODO"), // Default to TODO status
+      });
 
-      // Use the existing createTask method
-      const task = await this.createTask(tempSpecPath, options);
+      // Generate task ID using GitHub issue number
+      const taskId = `gh#${response.data.number}`;
 
-      // Clean up the temporary file
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (error) {
-        // Ignore cleanup errors
-      }
+      log.debug("Created GitHub issue successfully", {
+        taskId,
+        issueNumber: response.data.number,
+        title,
+      });
 
-      return task;
+      return {
+        id: taskId,
+        title,
+        status: "TODO",
+        description,
+        // Note: No specPath needed for direct API creation
+      };
     } catch (error) {
-      // Clean up the temporary file on error
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
+      log.error("Failed to create GitHub issue", {
+        title,
+        error: getErrorMessage(error),
+      });
       throw error;
     }
   }
@@ -707,9 +722,9 @@ ${description}
 
   // Helper method to extract issue number from task ID
   private extractIssueNumberFromTaskId(taskId: string): number | null {
-    const id = taskId.startsWith("#") ? taskId.slice(1) : taskId;
-    const issueNumber = parseInt(id, 10);
-    return isNaN(issueNumber) ? null : issueNumber;
+    // Use the unified task ID utility to extract the numeric part
+    const numericId = getTaskIdNumber(taskId);
+    return numericId;
   }
 }
 

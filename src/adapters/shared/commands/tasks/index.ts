@@ -33,5 +33,7 @@ export {
   createTasksDeleteCommand,
 } from "./crud-commands";
 
+export { MigrateTasksCommand, createMigrateTasksCommand } from "./migrate-command";
+
 // Export registry setup functions from separate module
 export { createAllTaskCommands, setupTaskCommandRegistry } from "./registry-setup";

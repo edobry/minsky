@@ -33,6 +33,7 @@ export function createAllTaskCommands() {
     createTasksCreateCommand,
     createTasksDeleteCommand,
   } = require("./crud-commands");
+  const { createMigrateTasksCommand } = require("./migrate-command");
 
   return [
     createTasksStatusGetCommand(),
@@ -42,5 +43,6 @@ export function createAllTaskCommands() {
     createTasksGetCommand(),
     createTasksCreateCommand(),
     createTasksDeleteCommand(),
+    createMigrateTasksCommand(),
   ];
 }

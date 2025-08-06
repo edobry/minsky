@@ -375,7 +375,7 @@ export async function createRepositoryBackend(
           }
 
           const workdir = gitService.getSessionWorkdir(repoSession.session);
-          await gitService.pullLatest(workdir);
+          await gitService.fetchLatest(workdir);
         },
 
         branch: async (session: string, name: string): Promise<BranchResult> => {

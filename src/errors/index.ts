@@ -96,6 +96,20 @@ export class GitOperationError extends MinskyError {
   }
 }
 
+/**
+ * Thrown when session branch has merge conflicts that prevent PR creation.
+ */
+export class SessionConflictError extends GitOperationError {
+  constructor(
+    message: string,
+    public readonly sessionBranch?: string,
+    public readonly baseBranch?: string,
+    cause?: any
+  ) {
+    super(message, undefined, cause);
+  }
+}
+
 // Import individual exports from network-errors
 import {
   NetworkError,

@@ -254,7 +254,7 @@ describe("Individual Service Mock Factories", () => {
           repoName: "integration-repo",
           repoUrl: "https://github.com/test/integration",
           createdAt: "2023-01-01T00:00:00Z",
-          taskId: "INT-001",
+          taskId: "md#001",
         },
       ];
 
@@ -263,22 +263,22 @@ describe("Individual Service Mock Factories", () => {
       const mockTaskService = createMockTaskService({
         getTask: () =>
           Promise.resolve({
-            id: "#INT-001",
+            id: "md#001",
             title: "Integration Task",
             status: "IN_PROGRESS",
           }),
       });
 
       // Test session provider
-      const session = await mockSessionProvider.getSessionByTaskId("INT-001");
+      const session = await mockSessionProvider.getSessionByTaskId("md#001");
       expect(session?.session).toBe("integration-session");
 
       // Test git service
-      const branchResult = await mockGitService.execInRepository("/test", "show-ref pr/INT-001");
+      const branchResult = await mockGitService.execInRepository("/test", "show-ref pr/md#001");
       expect(branchResult).toBe("ref-exists");
 
       // Test task service
-      const task = await mockTaskService.getTask("INT-001");
+      const task = await mockTaskService.getTask("md#001");
       expect(task?.title).toBe("Integration Task");
     });
 

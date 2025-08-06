@@ -28,7 +28,7 @@ describe("Session Auto-Task Creation", () => {
     // Create spy for tracking task creation
     createTaskSpy = createMock(() =>
       Promise.resolve({
-        id: "#001",
+        id: "md#001", // Use qualified format to match expectations
         title: "Test Task",
         description: "Test Description",
         status: "TODO",
@@ -71,7 +71,7 @@ describe("Session Auto-Task Creation", () => {
       getWorkspacePath: () => "/test/workspace",
       createTask: () =>
         Promise.resolve({
-          id: "#001",
+          id: "md#001", // Use qualified format to match expectations
           title: "Test Task",
           status: "TODO",
         }),
@@ -82,7 +82,7 @@ describe("Session Auto-Task Creation", () => {
     // Add the getTask method that's not in our centralized factory
     (mockTaskService as any).getTask = () =>
       Promise.resolve({
-        id: "#001",
+        id: "md#001", // Use qualified format to match expectations
         title: "Test Task",
         status: "TODO",
       });
@@ -157,6 +157,6 @@ describe("Session Auto-Task Creation", () => {
 
     // Verify session name is the provided name, not auto-generated
     expect(result.session).toBe("custom-session");
-    expect(result.taskId).toBe("#001"); // When custom session name provided, returns full task ID
+    expect(result.taskId).toBe("md#001"); // When custom session name provided, returns qualified task ID
   });
 });

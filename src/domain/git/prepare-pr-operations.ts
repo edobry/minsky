@@ -4,12 +4,18 @@ import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "../session";
+import { sessionNameToTaskId } from "../tasks/unified-task-id";
+import {
+  SessionMultiBackendIntegration,
+  type MultiBackendSessionRecord,
+} from "../session/multi-backend-integration";
 import {
   execGitWithTimeout,
   gitFetchWithTimeout,
   gitPushWithTimeout,
   type GitExecOptions,
 } from "../../utils/git-exec";
+import { createPreparedMergeCommitPR } from "./prepared-merge-commit-workflow";
 
 const execAsync = promisify(exec);
 
@@ -142,18 +148,37 @@ export async function preparePrImpl(
             const repoUrl = await deps.execInRepository(currentDir, "git remote get-url origin");
             const repoName = normalizeRepoName(repoUrl.trim());
 
-            // Extract task ID from session name if it follows the task#N pattern
-            const taskIdMatch = options.session.match(/^task#(\d+)$/);
-            const taskId = taskIdMatch ? `#${taskIdMatch[1]}` : undefined;
+            // Extract task ID from session name using proper utilities
+            let taskId = sessionNameToTaskId(options.session);
 
-            // Create session record
-            const newSessionRecord: SessionRecord = {
+            // Handle legacy patterns - extract plain numbers for enhancement to handle properly
+            const legacyPlainMatch = options.session.match(/^task(\d+)$/); // task123 → 123
+            const legacyHashMatch = options.session.match(/^task#(\d+)$/); // task#456 → 456
+
+            if (legacyPlainMatch) {
+              taskId = legacyPlainMatch[1]; // Keep as plain number for enhancement to handle
+            } else if (legacyHashMatch) {
+              taskId = legacyHashMatch[1]; // Keep as plain number for enhancement to handle
+            }
+
+            // Create basic session record
+            const basicSessionRecord: SessionRecord = {
               session: options.session,
               repoUrl: repoUrl.trim(),
               repoName,
               createdAt: new Date().toISOString(),
-              taskId,
+              taskId: taskId !== options.session ? taskId : undefined, // Only set if valid task ID
               branch: options.session,
+            };
+
+            // Enhance with multi-backend support
+            const enhancedRecord =
+              SessionMultiBackendIntegration.enhanceSessionRecord(basicSessionRecord);
+
+            // Ensure legacyTaskId is always explicitly set for test compatibility
+            const newSessionRecord = {
+              ...enhancedRecord,
+              legacyTaskId: enhancedRecord.legacyTaskId ?? undefined,
             };
 
             // Register the session
@@ -330,6 +355,15 @@ Session requested: "${(options as any).session}"
     sourceBranch = branchResult.stdout.trim();
   }
 
+  // CRITICAL: PR creation must only be from session branches, not PR branches
+  if (sourceBranch.startsWith("pr/")) {
+    throw new MinskyError(
+      `Cannot create PR from PR branch '${sourceBranch}'. ` +
+        `PRs must be created from session branches only. ` +
+        `Switch to your session branch first (e.g., '${sourceBranch.slice(3)}').`
+    );
+  }
+
   // Create PR branch name with pr/ prefix - always use the current git branch name
   // Fix for task #95: Don't use title for branch naming
   const prBranchName = options.branchName || sourceBranch;
@@ -421,53 +455,28 @@ Session requested: "${(options as any).session}"
       prBranch,
     });
 
-    // Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
-    // First checkout the PR branch temporarily to perform the merge
-    await execGitWithTimeout("switch", `switch ${prBranch}`, { workdir, timeout: 30000 });
-
-    // Check merge complexity and warn user if needed
+    // DELEGATE to conflict-checking workflow instead of duplicating logic
+    // This ensures both code paths use the same conflict validation
     try {
-      const diffStats = await execGitWithTimeout(
-        "diff --name-only",
-        `diff --name-only ${prBranch}..${sourceBranch}`,
-        { workdir, timeout: 10000 }
-      );
-      const changedFiles = diffStats.stdout
-        .trim()
-        .split("\n")
-        .filter((f) => f.trim());
+      await createPreparedMergeCommitPR({
+        title: options.title || `Merge ${sourceBranch} into ${prBranch}`,
+        body: options.body || "",
+        sourceBranch,
+        baseBranch,
+        workdir,
+        session: options.session,
+      });
 
-      if (changedFiles.length > 5) {
-        log.cli(
-          `📊 Preparing PR with ${changedFiles.length} changed files - this may take a moment...`
-        );
-      }
-    } catch (diffError) {
-      // Ignore diff check errors - merge will proceed anyway
-      log.debug("Could not check merge complexity", { error: getErrorMessage(diffError) });
+      log.debug("✅ Delegated to createPreparedMergeCommitPR successfully");
+    } catch (error) {
+      log.debug("❌ createPreparedMergeCommitPR failed", {
+        error: getErrorMessage(error),
+        sourceBranch,
+        prBranch,
+        workdir,
+      });
+      throw error; // Re-throw to maintain error handling behavior
     }
-
-    // CRITICAL BUG FIX: Use explicit commit message format and verify the merge
-    // Use -m instead of -F to avoid potential file reading issues
-    const escapedCommitMessage = commitMessage.replace(
-      /"/g,
-      String.fromCharCode(92) + String.fromCharCode(34)
-    );
-
-    // 🔥 DEBUG: Log before merge attempt
-    log.debug("🔥 DEBUG: About to attempt merge", {
-      sourceBranch,
-      prBranch,
-      baseBranch,
-      workdir,
-      command: `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
-    });
-
-    await execGitWithTimeout(
-      "merge",
-      `merge --no-ff ${sourceBranch} -m "${escapedCommitMessage}"`,
-      { workdir, timeout: 180000 } // Increased to 3 minutes for complex merges
-    );
 
     // 🔥 DEBUG: Log after successful merge
     log.debug("🔥 DEBUG: Merge completed successfully", {
@@ -533,16 +542,19 @@ To resolve conflicts and complete the PR:
 1. 🔍 Check current status:
    git status
 
-2. ✏️ Resolve conflicts manually:
+2. ✏️ Resolve conflicts manually (recommended):
    code <conflicted-file>
+   # Then stage and commit resolved files:
+   git add <resolved-files>
+   git commit --no-edit
 
-3. 🚀 Or accept all session changes (recommended):
+3. 🚀 Or accept all session changes (use with caution):
    git checkout --theirs . && git add . && git merge --continue
 
-4. 🔄 Or accept all main branch changes:
+4. 🔄 Or accept all main branch changes (use with caution):
    git checkout --ours . && git add . && git merge --continue
 
-After resolving conflicts, the PR will be pushed automatically.`,
+After resolving conflicts, re-run the PR creation command to complete the process.`,
         { exitCode: 4 }
       );
     }

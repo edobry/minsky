@@ -90,10 +90,11 @@ export abstract class BaseGitOperation<TParams, TResult> {
 
   /**
    * Log operation errors with consistent format
+   * Use debug logging to avoid exposing JSON blobs to users
    */
   protected logError(params: TParams, error: any): void {
     const baseParams = params as BaseGitOperationParams;
-    log.error(`Error in ${this.getOperationName()}`, {
+    log.debug(`Error in ${this.getOperationName()}`, {
       session: baseParams.session,
       repo: baseParams.repo,
       debug: baseParams.debug,

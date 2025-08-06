@@ -1,6 +1,6 @@
 /**
- * @fileoverview ESLint rule to prevent Jest patterns and enforce Bun test patterns
- * @author Task #300
+ * @fileoverview ESLint rule to prevent Jest patterns and encourage Bun test patterns
+ * @author Original Jest migration rule - refactored to focus only on Jest patterns
  */
 
 //------------------------------------------------------------------------------
@@ -11,7 +11,7 @@ export default {
   meta: {
     type: "problem",
     docs: {
-      description: "prevent Jest patterns and enforce Bun test patterns",
+      description: "prevent Jest patterns and encourage Bun test patterns",
       category: "Best Practices",
       recommended: true,
     },
@@ -34,8 +34,18 @@ export default {
   },
 
   create(context) {
+    // Check if current file is a test file
+    const filename = context.getFilename();
+    const isTestFile =
+      /\.(test|spec)\.(js|ts|jsx|tsx)$/.test(filename) ||
+      /\/(tests?|__tests__|spec)\//i.test(filename);
+
+    if (!isTestFile) {
+      return {}; // Only apply Jest pattern detection to test files
+    }
+
     return {
-      // Check import statements
+      // Check import statements for Jest imports
       ImportDeclaration(node) {
         if (
           node.source.value === "jest" ||
@@ -65,8 +75,9 @@ export default {
         }
       },
 
-      // Check for jest.fn() calls
+      // Check for Jest function calls
       CallExpression(node) {
+        // Check for jest.fn() calls
         if (
           node.callee.type === "MemberExpression" &&
           node.callee.object.name === "jest" &&

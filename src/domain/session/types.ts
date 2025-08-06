@@ -17,15 +17,6 @@ export interface SessionRecord {
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
-  github?: {
-    owner?: string;
-    repo?: string;
-    token?: string;
-  };
-  remote?: {
-    authMethod?: "ssh" | "https" | "token";
-    depth?: number;
-  };
   branch?: string; // Branch property is already part of the interface
   prState?: {
     branchName: string;
