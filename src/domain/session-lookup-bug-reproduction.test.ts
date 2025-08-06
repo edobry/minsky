@@ -42,7 +42,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
   let addSessionSpy: any;
 
   beforeEach(() => {
-    tempDir = join(process.cwd(), "test-tmp", "session-lookup-bug-test");
+    tempDir = "/mock/tmp/session-lookup-bug-test";
 
     // Create individual spies for methods that need call tracking
     addSessionSpy = mock() = mock(() => Promise.resolve(undefined));
