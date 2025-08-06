@@ -68,6 +68,7 @@ export class TasksListCommand extends BaseTaskCommand {
 
   async execute(params: TasksListParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.list execution");
+    this.debug(`Context format: ${ctx.format}, params.json: ${params.json}`);
 
     // List tasks with filters
     const tasks = await listTasksFromParams({
@@ -80,6 +81,9 @@ export class TasksListCommand extends BaseTaskCommand {
 
     this.debug(`Found ${tasks.length} tasks`);
 
+    const shouldFormatAsJson = params.json || ctx.format === "json";
+    this.debug(`Should format as JSON: ${shouldFormatAsJson}`);
+
     return this.formatResult(
       {
         success: true,
@@ -87,7 +91,7 @@ export class TasksListCommand extends BaseTaskCommand {
         tasks,
         message: `Found ${tasks.length} tasks`,
       },
-      params.json || ctx.format === "json"
+      shouldFormatAsJson
     );
   }
 }

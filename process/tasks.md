@@ -638,27 +638,7 @@
 
 - [+] Collapse Unnecessary Application Layer in Task Architecture [#375](process/tasks/375-collapse-unnecessary-application-layer-in-task-architecture.md)
 
-- [ ] Test session to reproduce the createTaskFromTitleAndDescription error [#001](process/tasks/001-test-session-to-reproduce-the-createtaskfromtitleanddescription-error.md)
-
-- [ ] Test session for MCP fix verification [#001](process/tasks/001-test-session-for-mcp-fix-verification.md)
-
-- [ ] Test session for MCP fix verification [#376](process/tasks/376-test-session-for-mcp-fix-verification.md)
-
-- [ ] Test session for MCP fix verification - round 2 [#001](process/tasks/001-test-session-for-mcp-fix-verification-round-2.md)
-
-- [ ] Test session to see the actual MCP error [#002](process/tasks/002-test-session-to-see-the-actual-mcp-error.md)
-
-- [ ] Test to see exact MCP error [#003](process/tasks/003-test-to-see-exact-mcp-error.md)
-
 - [+] Test MCP session start with description [#377](process/tasks/377-test-mcp-session-start-with-description.md)
-
-- [ ] Fix the authentication bug [#378](process/tasks/378-fix-the-authentication-bug.md)
-
-- [ ] Fix the authentication bug [#379](process/tasks/379-fix-the-authentication-bug.md)
-
-- [ ] Fix the authentication bug [#380](process/tasks/380-fix-the-authentication-bug.md)
-
-- [ ] Fix the authentication bug [#381](process/tasks/381-fix-the-authentication-bug.md)
 
 - [+] Fresh test of MCP session start functionality [#382](process/tasks/382-fresh-test-of-mcp-session-start-functionality.md)
 

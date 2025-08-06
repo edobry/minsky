@@ -70,8 +70,12 @@ export default {
       /\.(test|spec)\.(js|ts|jsx|tsx)$/.test(filename) ||
       /\/(tests?|__tests__|spec)\//i.test(filename);
 
-    if (!isTestFile) {
-      return {}; // Only apply to test files
+    // Exclude ESLint rule test files from this rule (they intentionally contain violations)
+    // Using a comprehensive approach to catch all eslint rule test files
+    const isEslintRuleTest = filename.includes("/eslint-rules/") && filename.includes(".test.js");
+
+    if (!isTestFile || isEslintRuleTest) {
+      return {}; // Only apply to test files, but exclude ESLint rule tests
     }
 
     // Track global variable declarations
