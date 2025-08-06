@@ -1604,11 +1604,8 @@ export function createSessionProvider(options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
-  // Delegate to the new auto-repair enabled factory function
-  const {
-    createSessionProvider: createSessionProviderWithAutoRepair,
-  } = require("./session/session-db-adapter");
-  return createSessionProviderWithAutoRepair(options);
+  // Always use the new configuration-based backend
+  return new SessionDbAdapter();
 }
 
 /**

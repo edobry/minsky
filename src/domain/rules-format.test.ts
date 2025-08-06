@@ -6,9 +6,7 @@ import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesy
 // Mock the fs modules to use our mock filesystem
 const mockFs = createMockFilesystem();
 
-// Import fs to be mocked
-// Use mock.module() to mock filesystem operations
-// import * as fs from "fs";
+// Use mock filesystem directly - no real fs imports needed
 
 mock.module("fs", () => ({
   mkdirSync: mockFs.mkdirSync,
@@ -47,7 +45,11 @@ tags: ["test", "cursor"]
 # Test Cursor Rule
 This is a test rule in cursor format.
 `;
-    fs.writeFileSync(path.join(cursorRulesDir, "cursor-only-rule.mdc"), cursorRuleContent);
+    mockFs.writeFileSync(
+      path.join(cursorRulesDir, "cursor-only-rule.mdc"),
+      cursorRuleContent,
+      "utf8"
+    );
 
     // Create a generic rule
     const genericRuleContent = `---
@@ -59,10 +61,14 @@ tags: ["test", "generic"]
 # Test Generic Rule
 This is a test rule in generic format.
 `;
-    fs.writeFileSync(path.join(genericRulesDir, "generic-only-rule.mdc"), genericRuleContent);
+    mockFs.writeFileSync(
+      path.join(genericRulesDir, "generic-only-rule.mdc"),
+      genericRuleContent,
+      "utf8"
+    );
 
     // Create a rule that exists in both formats
-    fs.writeFileSync(
+    mockFs.writeFileSync(
       path.join(cursorRulesDir, "both-formats-rule.mdc"),
       `---
 description: Cursor version of dual-format rule
@@ -71,10 +77,11 @@ tags: ["test", "cursor", "dual"]
 ---
 # Cursor Version
 This rule exists in both cursor and generic formats.
-`
+`,
+      "utf8"
     );
 
-    fs.writeFileSync(
+    mockFs.writeFileSync(
       path.join(genericRulesDir, "both-formats-rule.mdc"),
       `---
 description: Generic version of dual-format rule
@@ -83,7 +90,8 @@ tags: ["test", "generic", "dual"]
 ---
 # Generic Version
 This rule exists in both cursor and generic formats.
-`
+`,
+      "utf8"
     );
 
     // Initialize rule service
