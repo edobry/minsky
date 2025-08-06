@@ -71,8 +71,11 @@ export default {
       /\/(tests?|__tests__|spec)\//i.test(filename);
 
     // Exclude ESLint rule test files from this rule (they intentionally contain violations)
-    // Using a comprehensive approach to catch all eslint rule test files
-    const isEslintRuleTest = filename.includes("/eslint-rules/") && filename.includes(".test.js");
+    // Using multiple patterns to ensure all eslint rule test files are excluded
+    const isEslintRuleTest = 
+      filename.includes("eslint-rules") && filename.includes(".test.js") ||
+      filename.endsWith("no-real-fs-in-tests.test.js") ||
+      filename.endsWith("no-unsafe-git-network-operations.test.js");
 
     if (!isTestFile || isEslintRuleTest) {
       return {}; // Only apply to test files, but exclude ESLint rule tests

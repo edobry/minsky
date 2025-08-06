@@ -336,7 +336,7 @@
 
 - [x] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
-- [x] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
+- [x] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-for-context-construction.md)
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
@@ -634,6 +634,11 @@
 
 - [+] Explore Development Dependency Management System [#371](process/tasks/371-explore-development-dependency-management-system.md)
 
+<<<<<<< Updated upstream
+=======
+
+
+>>>>>>> Stashed changes
 - [+] Collapse Unnecessary Application Layer in Task Architecture [#375](process/tasks/375-collapse-unnecessary-application-layer-in-task-architecture.md)
 
 - [ ] Audit and fix task backend consistency across session operations [#384](process/tasks/384-audit-and-fix-task-backend-consistency-across-session-operations.md)
