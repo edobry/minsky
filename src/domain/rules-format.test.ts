@@ -33,9 +33,9 @@ describe("RuleService Format Compatibility", () => {
     cursorRulesDir = path.join(testDir, ".cursor", "rules");
     genericRulesDir = path.join(testDir, ".ai", "rules");
 
-    // Create directories
-    fs.mkdirSync(cursorRulesDir, { recursive: true });
-    fs.mkdirSync(genericRulesDir, { recursive: true });
+    // Create directories in mock filesystem
+    mockFs.ensureDirectorySync(cursorRulesDir);
+    mockFs.ensureDirectorySync(genericRulesDir);
 
     // Create a cursor rule
     const cursorRuleContent = `---

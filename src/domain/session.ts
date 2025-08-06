@@ -1604,7 +1604,6 @@ export function createSessionProvider(options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
-  console.log("[FACTORY-DEBUG] OLD createSessionProvider called");
   // Delegate to the new auto-repair enabled factory function
   const {
     createSessionProvider: createSessionProviderWithAutoRepair,
