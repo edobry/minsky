@@ -330,7 +330,9 @@ export class LocalGitBackend implements RepositoryBackend {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
       // FIXED: Use the main repository (repoUrl) instead of session workspace
-      // Merge operations must happen in the main repository where PR branches exist
+      // For local repositories, repoUrl is a local file path to the main repository
+      // where PR branches exist. Merge operations must happen there, not in the
+      // session workspace which is just a temporary development copy.
       workdir = record.repoUrl;
     } else {
       workdir = process.cwd();

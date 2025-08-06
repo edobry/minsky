@@ -11,7 +11,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- **Session PR Merge Working Directory**: Fixed `session pr merge` command to use the main repository instead of session workspace for git operations. This resolves the "Not possible to fast-forward" error and ensures merge operations happen in the correct repository context where PR branches exist.
+- **Session PR Merge Working Directory**: Fixed `session pr merge` command to use correct working directory for LocalGitBackend. Applied test-driven bug fix approach: wrote failing tests that reproduced the "Not possible to fast-forward" error, then implemented the fix. LocalGitBackend now uses the main repository path (record.repoUrl) instead of session workspace for merge operations, since PR branches exist in the main repository. RemoteGitBackend correctly continues using session workspace since repoUrl is a remote URL.
 - **Remote Branch Deletion Failures**: Enhanced error reporting and visibility for remote branch deletion operations during merge, providing better user feedback when cleanup fails
 - **Silent Cleanup Failures**: Session cleanup failures are now visible to users instead of failing silently
 
