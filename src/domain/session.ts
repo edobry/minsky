@@ -319,7 +319,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Extract the repository name
+    console.log(`[DEBUG] repoUrl: "${repoUrl}"`);
     const repoName = normalizeRepoName(repoUrl);
+    console.log(`[DEBUG] repoName from normalizeRepoName: "${repoName}"`);
 
     // Normalize the repo name for local repositories to ensure path consistency
     let normalizedRepoName = repoName;
@@ -334,6 +336,8 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       // For other repository types, normalize as usual
       normalizedRepoName = repoName.replace(/[^a-zA-Z0-9-_]/g, "-");
     }
+    console.log(`[DEBUG] normalizedRepoName: "${normalizedRepoName}"`);
+    console.log(`[DEBUG] final repoName for sessionRecord: "${repoName}"`);
 
     // Generate the expected repository path using simplified session-ID-based structure
     const sessionDir = getSessionDir(sessionName);
@@ -358,6 +362,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       taskId,
       branch: branch || sessionName,
     };
+    console.log(`[DEBUG] sessionRecord prepared:`, JSON.stringify(sessionRecord, null, 2));
 
     let sessionAdded = false;
     // Define branchName outside try block so it's available in return statement
@@ -380,6 +385,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       });
 
       // Only add session to DB after git operations succeed
+      console.log(`[DEBUG] About to call addSession with:`, JSON.stringify(sessionRecord, null, 2));
       await deps.sessionDB.addSession(sessionRecord);
       sessionAdded = true;
     } catch (gitError) {

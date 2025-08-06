@@ -157,7 +157,9 @@ export class SessionDirCommand extends BaseSessionCommand<any, any> {
   }
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
-    const { getSessionDirFromParams } = await import("../../../../domain/session/commands/dir-command");
+    const { getSessionDirFromParams } = await import(
+      "../../../../domain/session/commands/dir-command"
+    );
 
     const directory = await getSessionDirFromParams({
       name: params.name,

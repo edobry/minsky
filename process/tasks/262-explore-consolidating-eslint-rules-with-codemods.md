@@ -64,7 +64,9 @@ Currently we have two parallel approaches for automated code fixes:
 **Files to examine:**
 
 - `src/eslint-rules/no-underscore-prefix-mismatch.js`
+- `src/eslint-rules/no-real-fs-in-tests.js` (already ESLint rule)
 - `codemods/fix-variable-naming-ast.ts`
+- `codemods/fix-test-filesystem-imports-ast.ts` (detection-only, ESLint candidate)
 - `codemods/fix-*.ts` (all variable naming related codemods)
 - `eslint.config.js` (current ESLint configuration)
 
@@ -121,6 +123,19 @@ Currently we have two parallel approaches for automated code fixes:
 - Potential reduction with consolidation
 - Long-term scalability considerations
 
+## Core Principle: Detection vs Transformation
+
+**Key Insight**: The fundamental distinction is not complexity but **intent**:
+
+- **Detection + Guidance = ESLint Rule** (even if using complex AST analysis)
+- **Actual Code Transformation = Codemod** (even if simple find/replace)
+
+**Detection Masquerading as Transformation** is an anti-pattern that creates:
+- Redundant tooling
+- Manual execution overhead  
+- Worse developer experience
+- Maintenance burden
+
 ## Decision Framework
 
 ### When to Use ESLint Rules
@@ -129,6 +144,8 @@ Currently we have two parallel approaches for automated code fixes:
 - Real-time feedback required
 - Integration with editor tooling important
 - Pattern detection with simple AST manipulations
+- **Detection-only scenarios that create manual todo items**
+- **Guidance and education about architectural patterns**
 
 ### When to Use Codemods
 
@@ -136,13 +153,65 @@ Currently we have two parallel approaches for automated code fixes:
 - Bulk operations on entire codebase
 - One-time migration or refactoring tasks
 - Need full TypeScript compiler API access
+- **Actual code transformations, not just detection**
+- **When automated fixes are safe and well-defined**
 
 ### Consolidation Opportunities
 
 - Variable naming issues (current overlap)
+- **Filesystem imports in tests (NEW: detection-only "codemod" should be ESLint rule)**
 - Type annotation fixes
 - Import/export statement cleanup
 - Common pattern transformations
+
+### Critical Discovery: Detection-Only Codemods Are ESLint Rules
+
+**Recent Finding:** The `fix-test-filesystem-imports-ast.ts` codemod demonstrates a key anti-pattern:
+
+- **Purpose**: Detect commented filesystem imports that cause infinite loops
+- **Action**: Replace comments with dependency injection guidance
+- **Result**: Creates todo items for manual refactoring
+
+**Analysis**: This is **pure detection with guidance** - exactly what ESLint rules excel at! The existing `no-real-fs-in-tests.js` ESLint rule already catches 657+ instances of this pattern in real-time during development.
+
+**Consolidation Recommendation**: 
+- ❌ **Remove** the detection-only codemod
+- ✅ **Enhance** the existing ESLint rule with better messaging
+- ✅ **Keep** codemods for actual transformations only
+
+## Concrete Example Analysis: Filesystem Imports
+
+### Current State (Inefficient Duplication)
+
+**ESLint Rule (`no-real-fs-in-tests.js`):**
+- ✅ **Real-time detection** during development
+- ✅ **657+ violations caught** across codebase
+- ✅ **Integrated workflow** (runs on save/commit)
+- ✅ **Clear error messages** with guidance
+- ✅ **Editor integration** with squiggly underlines
+
+**Codemod (`fix-test-filesystem-imports-ast.ts`):**
+- ❌ **Detection-only** (doesn't actually transform code)
+- ❌ **Manual execution** required
+- ❌ **Creates todo items** that ESLint already identifies
+- ❌ **Duplicates existing ESLint functionality**
+- ❌ **Less discoverable** than real-time ESLint feedback
+
+### Optimal Approach: ESLint-First
+
+**Enhanced ESLint Rule:**
+```javascript
+// Better messaging in existing rule
+"Real filesystem operation 'writeFile' is forbidden in tests. 
+Use dependency injection with mock implementations instead.
+See: /docs/testing-patterns.md#dependency-injection"
+```
+
+**Result:**
+- 🎯 **Single source of truth** for detection
+- 🎯 **Real-time developer feedback** 
+- 🎯 **Integrated workflow** without manual steps
+- 🎯 **Better developer experience** with immediate guidance
 
 ## Implementation Plan
 
@@ -156,9 +225,10 @@ Currently we have two parallel approaches for automated code fixes:
 ### Phase 2: Proof of Concept
 
 1. Create shared utility functions for common patterns
-2. Implement one rule/codemod consolidation as test case
-3. Measure performance and workflow impact
-4. Gather feedback on developer experience
+2. **Implement filesystem imports consolidation as test case (remove detection-only codemod)**
+3. Implement one rule/codemod consolidation for variable naming
+4. Measure performance and workflow impact
+5. Gather feedback on developer experience
 
 ### Phase 3: Decision and Roadmap
 

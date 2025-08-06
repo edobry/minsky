@@ -166,52 +166,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         return s.taskId === taskId;
       });
 
-      // TASK 396: If no session found for this task, attempt auto-repair before creating new session
-      if (!taskSession) {
-        log.debug("No session found for task, attempting auto-repair before creating new session", { taskId });
-
-        try {
-          const { attemptSessionAutoRepair } = await import("./session-auto-repair");
-
-          // Set up dependencies for auto-repair
-          const autoRepairDeps = {
-            sessionDB: deps.sessionDB,
-            gitService: deps.gitService,
-            getSessionsBaseDir: () => {
-              // Get the base sessions directory - same logic as session provider
-              const os = require("os");
-              const path = require("path");
-              return path.join(os.homedir(), ".local", "state", "minsky", "sessions");
-            },
-          };
-
-          // Attempt auto-repair
-          const autoRepairedSession = await attemptSessionAutoRepair(taskId, autoRepairDeps);
-
-          if (autoRepairedSession) {
-            log.debug("Auto-repair successful for session start", {
-              taskId,
-              sessionName: autoRepairedSession.session
-            });
-
-            // Return the existing session instead of creating a new one
-            return {
-              session: autoRepairedSession.session,
-              repoUrl: autoRepairedSession.repoUrl,
-              repoName: autoRepairedSession.repoName,
-              branch: autoRepairedSession.branch || autoRepairedSession.session,
-              createdAt: autoRepairedSession.createdAt,
-              taskId: autoRepairedSession.taskId,
-            };
-          }
-        } catch (autoRepairError) {
-          log.debug("Auto-repair failed for session start", {
-            taskId,
-            error: autoRepairError instanceof Error ? autoRepairError.message : String(autoRepairError),
-          });
-          // Continue with normal session creation flow
-        }
-      } else {
+      if (taskSession) {
         throw new MinskyError(
           `A session for task ${formatTaskIdForDisplay(taskId)} already exists: '${taskSession.session}'`
         );

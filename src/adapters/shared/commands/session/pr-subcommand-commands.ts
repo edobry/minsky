@@ -77,12 +77,9 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
         }
 
         if (sessionName) {
-          const sessionRecord = await sessionProvider.getSession(sessionName);
-          if (sessionRecord) {
-            workingDirectory = await sessionProvider.getRepoPath(sessionRecord);
-          }
-          // If session doesn't exist, workingDirectory stays as process.cwd()
-          // The domain layer will handle session creation or provide appropriate errors
+          workingDirectory = await sessionProvider.getRepoPath(
+            await sessionProvider.getSession(sessionName)
+          );
         }
       }
 

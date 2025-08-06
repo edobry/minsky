@@ -81,7 +81,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       this.db.exec("PRAGMA cache_size = 1000;");
       this.db.exec("PRAGMA temp_store = memory;");
 
-            // Create tables using Drizzle
+      // Create tables using Drizzle
       this.db.exec(`
         CREATE TABLE IF NOT EXISTS sessions (
           session TEXT PRIMARY KEY,

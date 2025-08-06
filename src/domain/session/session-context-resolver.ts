@@ -75,6 +75,9 @@ export async function resolveSessionContext(
     getCurrentSessionContextFn = getCurrentSessionContext,
   } = options;
 
+  console.log(`[RESOLVER] resolveSessionContext called with task: "${task}"`);
+  console.log(`[RESOLVER] sessionProvider type:`, sessionProvider.constructor.name);
+
   const workingDirectory = repo || cwd;
 
   // Option 1: Explicit session name provided
@@ -100,41 +103,7 @@ export async function resolveSessionContext(
     log.debug("Resolving session from task ID", { task });
 
     const normalizedTaskId = taskIdSchema.parse(task);
-    let sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
-
-    if (!sessionRecord) {
-      // TASK 396: Auto-repair logic - attempt to reconstruct session from existing workspace directories
-      log.debug("Session not found in database, attempting auto-repair for task", { normalizedTaskId });
-
-      try {
-        const { attemptSessionAutoRepair } = await import("./session-auto-repair");
-        const { createGitService } = await import("../git");
-
-        // Set up dependencies for auto-repair
-        const autoRepairDeps = {
-          sessionDB: sessionProvider!,
-          gitService: createGitService(),
-          getSessionsBaseDir: () => {
-            // Get the base sessions directory - same logic as session provider
-            const os = require("os");
-            const path = require("path");
-            return path.join(os.homedir(), ".local", "state", "minsky", "sessions");
-          },
-        };
-
-        // Attempt auto-repair
-        sessionRecord = await attemptSessionAutoRepair(normalizedTaskId, autoRepairDeps);
-
-        if (sessionRecord) {
-          log.debug("Auto-repair successful", { sessionRecord });
-        }
-      } catch (autoRepairError) {
-        log.debug("Auto-repair failed", {
-          normalizedTaskId,
-          error: autoRepairError instanceof Error ? autoRepairError.message : String(autoRepairError),
-        });
-      }
-    }
+    const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
 
     if (!sessionRecord) {
       // Provide a more helpful error message with available sessions
