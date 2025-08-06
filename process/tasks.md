@@ -666,6 +666,8 @@
 
 - [ ] Audit and fix task backend consistency across session operations [#384](process/tasks/384-audit-and-fix-task-backend-consistency-across-session-operations.md)
 
+- [ ] Audit and fix task backend consistency across session operations [#388](process/tasks/md#388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+
 - [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/md#396-test-architecture-documentation-and-guidelines.md)
 
 - [ ] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
