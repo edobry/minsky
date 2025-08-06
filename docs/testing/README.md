@@ -44,8 +44,16 @@ Get productive in 5 minutes with copy-paste templates and essential patterns.
 - Validation and rollback procedures
 
 ### 📖 Existing Guides
-**[Test Architecture Guide](test-architecture-guide.md)** - File organization and test categories
+**[Test Architecture Guide](test-architecture-guide.md)** - File organization and test categories  
 **[Mock Compatibility Guide](mock-compatibility.md)** - Framework compatibility patterns
+
+### 🎯 Advanced Patterns
+**[Additional Patterns from Task 176](additional-patterns-from-task-176.md)**
+- Root cause investigation vs symptom masking
+- Backward compatibility strategies
+- Performance impact tracking
+- Cross-service integration testing
+- Phase-based implementation approaches
 
 ## 🎯 Success Metrics
 
