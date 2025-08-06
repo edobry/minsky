@@ -24,6 +24,7 @@ import { TASK_STATUS } from "../tasks/taskConstants";
 import { getErrorMessage } from "../../errors";
 import type { SessionRecord } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
+import { cleanupLocalBranches } from "./session-approve-operations";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -212,6 +213,35 @@ export async function mergeSessionPr(
   if (!params.json) {
     log.cli("✅ Session PR merged successfully!");
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
+  }
+
+  // Clean up local branches in main repository after successful merge
+  try {
+    if (!params.json) {
+      log.cli("🧹 Cleaning up local branches...");
+    }
+
+    // For branch cleanup, we need to work in the main repository, not session workspace
+    const mainRepoPath = originalRepoPath;
+
+    await cleanupLocalBranches(
+      gitService,
+      mainRepoPath,
+      sessionRecord.prBranch,
+      sessionNameToUse,
+      sessionRecord.taskId
+    );
+
+    if (!params.json) {
+      log.cli("✅ Local branches cleaned up");
+    }
+  } catch (branchCleanupError) {
+    // Log but don't fail the operation if branch cleanup fails
+    const errorMsg = `Branch cleanup failed: ${getErrorMessage(branchCleanupError)}`;
+    log.debug(errorMsg);
+    if (!params.json) {
+      log.cli(`⚠️  Warning: ${errorMsg}`);
+    }
   }
 
   // Update task status to DONE if we have a task ID and it's not already DONE

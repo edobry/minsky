@@ -631,7 +631,7 @@ The task exists but has no associated session to approve.
  * Clean up local branches after successful merge
  * Handles failures gracefully to not break the overall approval process
  */
-async function cleanupLocalBranches(
+export async function cleanupLocalBranches(
   gitService: GitServiceInterface,
   workingDirectory: string,
   prBranch: string,
