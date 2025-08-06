@@ -1,8 +1,11 @@
 {
   "extends": ["@typescript-eslint/recommended"],
   "parser": "@typescript-eslint/parser",
-  "plugins": ["@typescript-eslint"],
-  "rules": {
+  "plugins": ["@typescript-eslint", "./eslint-plugin-minsky.js"],
+    "rules": {
+    // Prevent real filesystem operations in tests  
+    "minsky/no-real-fs-in-tests": "error",
+    
     // Prevent underscore-prefixed variables that are actually used
     "@typescript-eslint/no-unused-vars": [
       "error",
