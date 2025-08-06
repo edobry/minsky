@@ -295,6 +295,19 @@ export function registerDebugCommandsWithMcp(
 }
 
 /**
+ * Register sessiondb commands with MCP
+ */
+export function registerSessiondbCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.SESSIONDB],
+    ...config,
+  });
+}
+
+/**
  * Register all main command categories with MCP
  */
 export function registerAllMainCommandsWithMcp(
@@ -310,6 +323,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.CONFIG,
       CommandCategory.INIT,
       CommandCategory.DEBUG,
+      CommandCategory.SESSIONDB,
     ],
     ...config,
   });

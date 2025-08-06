@@ -2,7 +2,8 @@
  * Shared SessionDB Commands
  *
  * This module contains shared sessiondb command implementations for
- * database migration and management operations.
+ * database migration and management operations, as well as low-level query operations
+ * for MCP agents to inspect raw session database records.
  */
 
 import { z } from "zod";
@@ -25,6 +26,83 @@ import {
   getDefaultSqliteDbPath,
   getDefaultJsonDbPath,
 } from "../../../utils/paths";
+import { createSessionProvider } from "../../../domain/session";
+
+/**
+ * Parameters for the sessiondb search command
+ */
+const sessiondbSearchCommandParams: CommandParameterMap = {
+  query: {
+    schema: z.string().min(1),
+    description: "Search query (searches in session name, repo name, branch, task ID)",
+    required: true,
+  },
+  limit: {
+    schema: z.number().int().positive(),
+    description: "Maximum number of results to return",
+    required: false,
+    defaultValue: 10,
+  },
+};
+
+// Register sessiondb search command
+sharedCommandRegistry.registerCommand({
+  id: "sessiondb.search",
+  category: CommandCategory.SESSIONDB,
+  name: "search",
+  description:
+    "Search sessions by query string across multiple fields (returns raw SessionRecord objects from database)",
+  parameters: sessiondbSearchCommandParams,
+  async execute(params: any, _context: CommandExecutionContext) {
+    const { query, limit } = params;
+
+    try {
+      const sessionProvider = createSessionProvider();
+      const sessions = await sessionProvider.listSessions();
+
+      const lowerQuery = query.toLowerCase();
+
+      // Search across multiple fields
+      const matchingSessions = sessions.filter((session) => {
+        return (
+          session.session?.toLowerCase().includes(lowerQuery) ||
+          session.repoName?.toLowerCase().includes(lowerQuery) ||
+          session.repoUrl?.toLowerCase().includes(lowerQuery) ||
+          session.taskId?.toLowerCase().includes(lowerQuery) ||
+          session.branch?.toLowerCase().includes(lowerQuery) ||
+          session.prState?.branchName?.toLowerCase().includes(lowerQuery)
+        );
+      });
+
+      // Apply limit
+      const limitedResults = matchingSessions.slice(0, limit);
+
+      log.debug(`SessionDB search found ${matchingSessions.length} matches for query: ${query}`, {
+        totalSessions: sessions.length,
+        matchCount: matchingSessions.length,
+        limitedCount: limitedResults.length,
+        limit,
+      });
+
+      return {
+        success: true,
+        sessions: limitedResults,
+        query,
+        totalMatches: matchingSessions.length,
+        limitedCount: limitedResults.length,
+        totalSessions: sessions.length,
+        limit,
+        note: "Returns raw SessionRecord objects from database. Use 'session list' or 'session get' commands for mapped Session objects.",
+      };
+    } catch (error) {
+      log.error("SessionDB search failed", {
+        query,
+        error: getErrorMessage(error),
+      });
+      throw error;
+    }
+  },
+});
 
 /**
  * Parameters for the sessiondb migrate command
