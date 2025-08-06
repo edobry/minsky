@@ -197,6 +197,21 @@ export function createMockFilesystem(
     // Access the internal state for validation in tests
     files: files,
     directories: directories,
+
+    // Convenience methods for test setup
+    ensureDirectoryExists: (path: string) => {
+      directories.add(path);
+      // Also ensure all parent directories exist
+      const parts = path.split("/");
+      for (let i = 1; i <= parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+    },
+
+    cleanup: () => {
+      files.clear();
+      directories.clear();
+    },
   };
 
   return mockFs;
