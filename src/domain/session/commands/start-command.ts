@@ -1,7 +1,8 @@
 import type { SessionStartParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { TaskService, createConfiguredTaskService } from "../../tasks";
+import { TaskService } from "../../tasks";
+import { createConfiguredTaskService } from "../../tasks/taskService";
 import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";
 import { createTaskFromDescription } from "../../templates/session-templates";
 import { detectPackageManager, installDependencies } from "../../../utils/package-manager";

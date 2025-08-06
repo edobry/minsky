@@ -8,7 +8,8 @@ import {
 import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
-import { TASK_STATUS, TaskService, createConfiguredTaskService } from "../tasks";
+import { TASK_STATUS, TaskService } from "../tasks";
+import { createConfiguredTaskService } from "../tasks/taskService";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
 import {
