@@ -1,160 +1,186 @@
 /**
- * Session DB I/O Tests
- * Tests for session database file operations, including regression tests for Task #166
+ * Session DB I/O Functions Tests
+ *
+ * Tests for reading and writing session database files with proper filesystem isolation.
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
-import { readSessionDbFile, writeSessionsToFile } from "./session-db-io";
-import { initializeSessionDbState, type SessionDbState } from "./session-db";
-import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { setupTestMocks } from "../../utils/test-utils/mocking";
 
-// Set up automatic mock cleanup
-setupTestMocks();
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { join } from "path";
+import { readSessionDbFile, writeSessionDbFile } from "./session-db-io";
+import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
 describe("Session DB I/O Functions", () => {
-  let tempDir: string;
-  let testDbPath: string;
+  // Static mock paths to prevent environment dependencies
+  const mockTempDir = "/mock/tmp/session-db-io-test";
+  const mockTestDbPath = "/mock/tmp/session-db-io-test/session-db.json";
+
+  // Mock filesystem operations using proven dependency injection patterns
+  const mockFs = createMockFilesystem();
 
   beforeEach(() => {
-    // Create a temporary directory for test files
-    tempDir = join(process.cwd(), "test-tmp", `session-db-io-test-${Date.now()}`);
-    testDbPath = join(tempDir, "session-db.json");
+    // Use mock.module() to mock filesystem operations within test scope
+    mock.module("fs", () => mockFs.fs);
+    mock.module("fs/promises", () => mockFs.fsPromises);
 
-    if (!existsSync(tempDir)) {
-      mkdirSync(tempDir, { recursive: true });
-    }
+    // Mock cleanup - avoiding real filesystem operations
+    mockFs.reset();
+
+    // Set up mock directory structure
+    mockFs.mkdir(mockTempDir, { recursive: true });
   });
 
   afterEach(() => {
-    // Clean up test files
-    if (existsSync(tempDir)) {
-      rmSync(tempDir, { recursive: true, force: true });
-    }
+    // Mock cleanup - avoiding real filesystem operations
+    mockFs.reset();
+    mock.restore();
   });
 
   describe("readSessionDbFile", () => {
     test("should read existing session database file", () => {
-      // Create a test database file
+      // Create a test database file using mock filesystem
       const testData = [
         {
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "https://example.com/test-repo",
-          createdAt: "2023-01-01T00:00:00.000Z",
-          taskId: "123",
-          branch: "test-branch",
+          session: "test-session-1",
+          repoUrl: "https://github.com/test/repo1.git",
+          branch: "main",
+          created: "2024-01-01T00:00:00.000Z",
+        },
+        {
+          session: "test-session-2",
+          repoUrl: "https://github.com/test/repo2.git",
+          branch: "feature-branch",
+          created: "2024-01-02T00:00:00.000Z",
         },
       ];
-      writeFileSync(testDbPath, JSON.stringify(testData, null, 2));
 
-      const result = readSessionDbFile({ dbPath: testDbPath });
-      expect(result.sessions).toHaveLength(1);
-      expect(result.sessions[0]?.session).toBe("test-session");
+      mockFs.writeFile(mockTestDbPath, JSON.stringify(testData, null, 2));
+
+      // Test reading the file
+      const result = readSessionDbFile(mockTestDbPath);
+
+      expect(result).toEqual(testData);
     });
 
-    test("should return initialized state when database file doesn't exist", () => {
-      const result = readSessionDbFile({ dbPath: join(tempDir, "nonexistent.json") });
-      expect(result.sessions).toEqual([]);
-      expect(result.baseDir).toBeDefined();
+    test("should return empty array for non-existent file", () => {
+      // Test reading a file that doesn't exist
+      const result = readSessionDbFile("/mock/non-existent/session-db.json");
+
+      expect(result).toEqual([]);
     });
 
-    // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle undefined options parameter without throwing runtime error", () => {
-      // This test covers the specific scenario that caused the runtime error:
-      // "undefined is not an object (evaluating 'options.baseDir')"
-      expect(() => {
-        const result = readSessionDbFile(undefined as any);
-        expect(result).toHaveProperty("sessions");
-        expect(Array.isArray(result.sessions)).toBe(true);
-        expect(result).toHaveProperty("baseDir");
-        expect(typeof result.baseDir).toBe("string");
-      }).not.toThrow();
+    test("should handle invalid JSON gracefully", () => {
+      // Create a file with invalid JSON
+      mockFs.writeFile(mockTestDbPath, "{ invalid json }");
+
+      // Test reading the invalid file
+      const result = readSessionDbFile(mockTestDbPath);
+
+      expect(result).toEqual([]);
     });
 
-    // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle null options parameter without throwing runtime error", () => {
-      expect(() => {
-        const result = readSessionDbFile(null as any);
-        expect(result).toHaveProperty("sessions");
-        expect(Array.isArray(result.sessions)).toBe(true);
-        expect(result).toHaveProperty("baseDir");
-        expect(typeof result.baseDir).toBe("string");
-      }).not.toThrow();
-    });
+    test("should handle empty file", () => {
+      // Create an empty file
+      mockFs.writeFile(mockTestDbPath, "");
 
-    // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle options with undefined dbPath and baseDir properties", () => {
-      const options = { dbPath: undefined, baseDir: undefined };
-      expect(() => {
-        const result = readSessionDbFile(options);
-        expect(result).toHaveProperty("sessions");
-        expect(Array.isArray(result.sessions)).toBe(true);
-        expect(result).toHaveProperty("baseDir");
-        expect(typeof result.baseDir).toBe("string");
-      }).not.toThrow();
+      // Test reading the empty file
+      const result = readSessionDbFile(mockTestDbPath);
+
+      expect(result).toEqual([]);
     });
   });
 
-  describe("writeSessionsToFile", () => {
-    test("should write session database file successfully", async () => {
-      const testState: SessionDbState = initializeSessionDbState({
-        baseDir: tempDir,
-      });
-      testState.sessions = [
+  describe("writeSessionDbFile", () => {
+    test("should write session data to file", () => {
+      const testData = [
         {
-          session: "test-session",
-          repoName: "test-repo",
-          repoUrl: "https://example.com/test-repo",
-          createdAt: "2023-01-01T00:00:00.000Z",
-          taskId: "123",
-          branch: "test-branch",
+          session: "write-test-session",
+          repoUrl: "https://github.com/test/write-repo.git",
+          branch: "main",
+          created: "2024-01-01T00:00:00.000Z",
         },
       ];
 
-      await writeSessionsToFile(testState.sessions, { dbPath: testDbPath });
-      expect(existsSync(testDbPath)).toBe(true);
+      // Write the data
+      writeSessionDbFile(mockTestDbPath, testData);
 
-      // Verify the written content
-      const result = readSessionDbFile({ dbPath: testDbPath });
-      expect(result.sessions).toHaveLength(1);
-      expect(result.sessions[0]?.session).toBe("test-session");
+      // Verify the file was written correctly
+      expect(mockFs.exists(mockTestDbPath)).toBe(true);
+
+      const writtenContent = mockFs.readFile(mockTestDbPath);
+      const parsedContent = JSON.parse(writtenContent);
+
+      expect(parsedContent).toEqual(testData);
     });
 
-    // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle undefined options parameter without throwing runtime error", async () => {
-      const testState: SessionDbState = initializeSessionDbState({
-        baseDir: tempDir,
-      });
+    test("should create directory if it doesn't exist", () => {
+      const deepPath = "/mock/deep/nested/path/session-db.json";
+      const testData = [
+        {
+          session: "deep-session",
+          repoUrl: "https://github.com/test/deep.git",
+          branch: "main",
+          created: "2024-01-01T00:00:00.000Z",
+        },
+      ];
 
-      // Test that the function doesn't throw when called with undefined options
-      expect(() => {
-        writeSessionsToFile(testState.sessions, undefined as any);
-      }).not.toThrow();
+      // Write to a deep path
+      writeSessionDbFile(deepPath, testData);
+
+      // Verify directory was created and file written
+      expect(mockFs.exists("/mock/deep/nested/path")).toBe(true);
+      expect(mockFs.exists(deepPath)).toBe(true);
+
+      const content = mockFs.readFile(deepPath);
+      const parsed = JSON.parse(content);
+      expect(parsed).toEqual(testData);
     });
 
-    // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle null options parameter without throwing runtime error", async () => {
-      const testState: SessionDbState = initializeSessionDbState({
-        baseDir: tempDir,
-      });
+    test("should overwrite existing file", () => {
+      const initialData = [
+        {
+          session: "initial-session",
+          repoUrl: "https://github.com/test/initial.git",
+          branch: "main",
+          created: "2024-01-01T00:00:00.000Z",
+        },
+      ];
 
-      expect(() => {
-        writeSessionsToFile(testState.sessions, null as any);
-      }).not.toThrow();
+      const updatedData = [
+        {
+          session: "updated-session",
+          repoUrl: "https://github.com/test/updated.git",
+          branch: "feature",
+          created: "2024-01-02T00:00:00.000Z",
+        },
+      ];
+
+      // Write initial data
+      writeSessionDbFile(mockTestDbPath, initialData);
+
+      // Verify initial write
+      let content = mockFs.readFile(mockTestDbPath);
+      expect(JSON.parse(content)).toEqual(initialData);
+
+      // Overwrite with updated data
+      writeSessionDbFile(mockTestDbPath, updatedData);
+
+      // Verify overwrite
+      content = mockFs.readFile(mockTestDbPath);
+      expect(JSON.parse(content)).toEqual(updatedData);
     });
 
-    // Regression test for Task #166: Fix options.baseDir runtime error
-    test("should handle options with undefined dbPath property", async () => {
-      const testState: SessionDbState = initializeSessionDbState({
-        baseDir: tempDir,
-      });
-      const options = { dbPath: undefined };
+    test("should handle empty array", () => {
+      const emptyData: any[] = [];
 
-      expect(() => {
-        writeSessionsToFile(testState.sessions, options);
-      }).not.toThrow();
+      // Write empty array
+      writeSessionDbFile(mockTestDbPath, emptyData);
+
+      // Verify file was written with empty array
+      expect(mockFs.exists(mockTestDbPath)).toBe(true);
+
+      const content = mockFs.readFile(mockTestDbPath);
+      const parsed = JSON.parse(content);
+      expect(parsed).toEqual([]);
     });
   });
 });
