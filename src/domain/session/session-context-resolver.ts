@@ -75,8 +75,12 @@ export async function resolveSessionContext(
     getCurrentSessionContextFn = getCurrentSessionContext,
   } = options;
 
-  console.log(`[RESOLVER] resolveSessionContext called with task: "${task}"`);
-  console.log(`[RESOLVER] sessionProvider type:`, sessionProvider.constructor.name);
+  log.debug("Resolving session context", { 
+    task, 
+    session, 
+    repo,
+    sessionProviderType: sessionProvider.constructor.name 
+  });
 
   const workingDirectory = repo || cwd;
 

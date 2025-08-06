@@ -132,7 +132,7 @@ Currently we have two parallel approaches for automated code fixes:
 
 **Detection Masquerading as Transformation** is an anti-pattern that creates:
 - Redundant tooling
-- Manual execution overhead  
+- Manual execution overhead
 - Worse developer experience
 - Maintenance burden
 
@@ -174,7 +174,7 @@ Currently we have two parallel approaches for automated code fixes:
 
 **Analysis**: This is **pure detection with guidance** - exactly what ESLint rules excel at! The existing `no-real-fs-in-tests.js` ESLint rule already catches 657+ instances of this pattern in real-time during development.
 
-**Consolidation Recommendation**: 
+**Consolidation Recommendation**:
 - ❌ **Remove** the detection-only codemod
 - ✅ **Enhance** the existing ESLint rule with better messaging
 - ✅ **Keep** codemods for actual transformations only
@@ -202,14 +202,14 @@ Currently we have two parallel approaches for automated code fixes:
 **Enhanced ESLint Rule:**
 ```javascript
 // Better messaging in existing rule
-"Real filesystem operation 'writeFile' is forbidden in tests. 
+"Real filesystem operation 'writeFile' is forbidden in tests.
 Use dependency injection with mock implementations instead.
 See: /docs/testing-patterns.md#dependency-injection"
 ```
 
 **Result:**
 - 🎯 **Single source of truth** for detection
-- 🎯 **Real-time developer feedback** 
+- 🎯 **Real-time developer feedback**
 - 🎯 **Integrated workflow** without manual steps
 - 🎯 **Better developer experience** with immediate guidance
 

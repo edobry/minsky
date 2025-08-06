@@ -19,7 +19,7 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
   private autoRepairAttempted = new Set<string>(); // Cache to prevent infinite loops
 
   constructor(baseProvider: SessionProviderInterface) {
-    console.log(`[AUTO-REPAIR] SessionAutoRepairProvider constructor called`);
+    log.debug("SessionAutoRepairProvider constructor called");
     this.baseProvider = baseProvider;
   }
 
@@ -83,17 +83,18 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
   }
 
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
-    console.log(`[AUTO-REPAIR] getSessionByTaskId called with taskId: "${taskId}"`);
+    log.debug("SessionAutoRepairProvider.getSessionByTaskId called", { taskId });
 
     // First try the base provider
     let sessionRecord = await this.baseProvider.getSessionByTaskId(taskId);
-    console.log(`[AUTO-REPAIR] Base provider result:`, sessionRecord ? "found" : "not found");
+    log.debug("Base provider lookup result", { 
+      taskId, 
+      found: sessionRecord !== null,
+      sessionName: sessionRecord?.session 
+    });
 
     if (!sessionRecord && !this.autoRepairAttempted.has(`task:${taskId}`)) {
-      console.log(
-        `[AUTO-REPAIR] Session not found by task ID, attempting auto-repair for "${taskId}"`
-      );
-      log.debug("Session not found by task ID, attempting auto-repair", { taskId });
+      log.info("Session not found in database, attempting auto-repair", { taskId });
 
       // Mark as attempted to prevent loops
       this.autoRepairAttempted.add(`task:${taskId}`);
@@ -108,25 +109,21 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
         sessionRecord = await attemptSessionAutoRepair(taskId, autoRepairDeps);
 
         if (sessionRecord) {
-          console.log(
-            `[AUTO-REPAIR] Auto-repair successful! Created session: "${sessionRecord.session}"`
-          );
-          log.debug("Auto-repair successful for task ID lookup", {
+          log.info("Auto-repair successful - session reconstructed from workspace", {
             taskId,
             repairedSession: sessionRecord.session,
           });
         } else {
-          console.log(`[AUTO-REPAIR] Auto-repair failed - no session could be reconstructed`);
+          log.debug("Auto-repair failed - no session could be reconstructed", { taskId });
         }
       } catch (error) {
-        console.log(`[AUTO-REPAIR] Auto-repair failed with error:`, error);
-        log.debug("Auto-repair failed for task ID lookup", {
+        log.warn("Auto-repair failed with error", {
           taskId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
     } else if (this.autoRepairAttempted.has(`task:${taskId}`)) {
-      console.log(`[AUTO-REPAIR] Auto-repair already attempted for taskId: "${taskId}"`);
+      log.debug("Auto-repair already attempted for this task", { taskId });
     }
 
     return sessionRecord;

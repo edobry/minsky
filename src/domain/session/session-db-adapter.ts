@@ -136,7 +136,6 @@ export class SessionDbAdapter implements SessionProviderInterface {
   }
 
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
-    console.log(`[BASE-ADAPTER] getSessionByTaskId called with taskId: "${taskId}"`);
     const storage = await this.getStorage();
     const sessions = await storage.getEntities();
 
@@ -254,23 +253,19 @@ export function createSessionProvider(_options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
-  console.log("[FACTORY] createSessionProvider called");
-
+  log.debug("Creating session provider with auto-repair support");
+  
   // Always use the new configuration-based backend
   const baseProvider = new SessionDbAdapter();
-  console.log("[FACTORY] Base provider created:", baseProvider.constructor.name);
-
+  
   // Wrap with auto-repair functionality for universal session auto-repair
   const wrappedProvider = wrapWithAutoRepair(baseProvider);
-  console.log("[FACTORY] Wrapped provider created:", wrappedProvider.constructor.name);
-
+  
   return wrappedProvider;
 }
 
-// Helper function to wrap base provider with auto-repair functionality
+// Helper function to wrap base provider with auto-repair functionality  
 function wrapWithAutoRepair(baseProvider: SessionProviderInterface): SessionProviderInterface {
-  console.log("[FACTORY] wrapWithAutoRepair called");
-  const wrapped = createSessionProviderWithAutoRepair(baseProvider);
-  console.log("[FACTORY] Auto-repair wrapper created:", wrapped.constructor.name);
-  return wrapped;
+  log.debug("Wrapping session provider with auto-repair functionality");
+  return createSessionProviderWithAutoRepair(baseProvider);
 }
