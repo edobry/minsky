@@ -38,7 +38,7 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
     const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
     if (!parsed) continue;
 
-    const { checkbox, title, id } = parsed;
+    const { checkbox, title, id, specPath } = parsed;
     // Accept both legacy (#123) and qualified (md#123) ID formats
     if (!title || !id || !/^(#\d+|[a-z-]+#\d+)$/.test(id)) continue; // skip malformed or empty
 
@@ -62,12 +62,19 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
     // Normalize ID to legacy format for backward compatibility
     const normalizedId = normalizeTaskId(id) || id;
 
-    tasks.push({
+    const taskData: TaskData = {
       id: normalizedId,
       title,
       status,
       description: description.trim(),
-    });
+    };
+
+    // Include specPath if it was parsed from the markdown
+    if (specPath) {
+      taskData.specPath = specPath;
+    }
+
+    tasks.push(taskData);
   }
 
   return tasks;

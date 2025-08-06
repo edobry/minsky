@@ -671,3 +671,5 @@
 - [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
 
 - [ ] Continue Systematic ESLint-Guided Filesystem Violation Fixes [#397](process/tasks/397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
+
+- [ ] Improve test mock filesystem approach with external libraries [md#398](process/tasks/md#398-improve-test-mock-filesystem-approach-with-external-libraries.md)

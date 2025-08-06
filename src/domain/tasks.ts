@@ -246,9 +246,9 @@ export class MarkdownTaskBackend implements TaskBackend {
 
         // Try multiple search patterns to handle both qualified and unqualified task IDs
         const searchPatterns = [
-          `${taskIdNum}-`,        // Legacy format: "398-"
-          `md#${taskIdNum}-`,     // Qualified format: "md#398-"
-          `#${taskIdNum}-`        // Hash format: "#398-" (just in case)
+          `${taskIdNum}-`, // Legacy format: "398-"
+          `md#${taskIdNum}-`, // Qualified format: "md#398-"
+          `#${taskIdNum}-`, // Hash format: "#398-" (just in case)
         ];
 
         let matchingFile: string | undefined;
@@ -270,11 +270,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           }
           titleFromFile = titleFromFile.replace(".md", "");
 
-          return getTaskSpecRelativePath(
-            taskId,
-            titleFromFile,
-            this.workspacePath
-          );
+          return getTaskSpecRelativePath(taskId, titleFromFile, this.workspacePath);
         }
       } catch (_err) {
         // Directory doesn't exist or can't be read

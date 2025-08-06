@@ -695,9 +695,15 @@ export function createMCPCommand(): Command {
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
+    .option(
+      "--json",
+      "Output full JSON response instead of just tool names"
+    )
     .action(async (options) => {
       try {
-        log.cli("Listing available MCP tools...");
+        if (!options.json) {
+          log.cli("Listing available MCP tools...");
+        }
 
         // Use direct JSON-RPC communication to avoid inspector CLI buffering issues
         const { spawn } = await import("child_process");
@@ -752,7 +758,17 @@ export function createMCPCommand(): Command {
 
               if (toolsResponse) {
                 const parsed = JSON.parse(toolsResponse);
-                console.log(JSON.stringify(parsed.result, null, 2));
+                
+                if (options.json) {
+                  // Output full JSON response
+                  console.log(JSON.stringify(parsed.result, null, 2));
+                } else {
+                  // Output just tool names
+                  const tools = parsed.result.tools || [];
+                  for (const tool of tools) {
+                    console.log(tool.name);
+                  }
+                }
                 resolve();
               } else {
                 reject(new Error("No tools response found in server output"));
