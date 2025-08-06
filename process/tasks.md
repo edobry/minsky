@@ -634,16 +634,29 @@
 
 - [+] Explore Development Dependency Management System [#371](process/tasks/371-explore-development-dependency-management-system.md)
 
-<<<<<<< Updated upstream
-=======
-
-
->>>>>>> Stashed changes
 - [+] Collapse Unnecessary Application Layer in Task Architecture [#375](process/tasks/375-collapse-unnecessary-application-layer-in-task-architecture.md)
 
-- [ ] Audit and fix task backend consistency across session operations [#384](process/tasks/384-audit-and-fix-task-backend-consistency-across-session-operations.md)
+- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [#384](process/tasks/384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
+
+- [ ] Fix git commands not being available over MCP by uncommenting the registerGitTools call in the MCP command registration [#386](process/tasks/386-fix-git-commands-not-being-available-over-mcp-by-uncommenting-the-registergittools-call-in-the-mcp-command-registration.md)
+
+- [x] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
 
 - [x] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+
+- [ ] Refactor session dependencies for unified dependency injection pattern [#389](process/tasks/389-refactor-session-dependencies-for-unified-dependency-injection-pattern.md)
+
+- [ ] Add AI telemetry and verbose output for debugging AI requests [#390](process/tasks/390-add-ai-telemetry-and-verbose-output-for-debugging-ai-requests.md)
+
+- [ ] Add config commands to MCP server [#391](process/tasks/391-add-config-commands-to-mcp-server.md)
+
+- [ ] Systematic Global Module Mock Cleanup [#392](process/tasks/392-systematic-global-module-mock-cleanup.md)
+
+- [+] Replace Unreliable Mock Factories with Explicit Mock Pattern [#393](process/tasks/393-replace-unreliable-mock-factories-with-explicit-mock-pattern.md)
+
+- [ ] Testable Design Pattern Expansion [#394](process/tasks/394-testable-design-pattern-expansion.md)
+
+- [ ] Dependency Injection Enhancement for Test Reliability [#395](process/tasks/395-dependency-injection-enhancement-for-test-reliability.md)
 
 - [x] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
 

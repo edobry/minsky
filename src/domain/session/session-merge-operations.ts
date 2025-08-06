@@ -46,9 +46,11 @@ export function validateSessionApprovedForMerge(
   // Check 2: PR must be explicitly approved
   if (!sessionRecord.prApproved) {
     throw new ValidationError(
-      `❌ MERGE REJECTED: Session "${sessionName}" PR must be approved before merging.\n` +
-        `   Use 'minsky session pr approve' first to approve the PR.\n` +
-        `   This validation prevents unauthorized merges and ensures proper code review.`
+      `❌ Session "${sessionName}" PR must be approved before merging.\n\n` +
+        `💡 Next steps:\n` +
+        `   1. Review your changes: minsky session pr get --task ${sessionName.replace('task-', '')}\n` +
+        `   2. Approve the PR: minsky session pr approve --task ${sessionName.replace('task-', '')}\n` +
+        `   3. Then try merge again: minsky session pr merge --task ${sessionName.replace('task-', '')}`
     );
   }
 

@@ -42,8 +42,17 @@ export function handleCliError(error: any): never {
 
   // Format error message based on type
   if (error instanceof ValidationError) {
-    // Use cliError for human-readable output (stderr)
-    log.cliError(`Validation error: ${normalizedError.message}`);
+    // Check if the error message already has good formatting (starts with emoji)
+    const message = normalizedError.message;
+    const hasGoodFormatting = /^[❌🚫⛔️💥]/.test(message);
+
+    if (hasGoodFormatting) {
+      // Already well-formatted, display as-is
+      log.cliError(message);
+    } else {
+      // Add validation error prefix for less formatted messages
+      log.cliError(`Validation error: ${message}`);
+    }
 
     // Show validation details in debug mode
     if (isDebugMode() && (error as any).errors) {
