@@ -475,7 +475,9 @@ Repository: ${this.repoUrl}
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
-      workdir = this.getSessionWorkdir(session);
+      // FIXED: Use the main repository (repoUrl) instead of session workspace
+      // Merge operations must happen in the main repository where PR branches exist
+      workdir = record.repoUrl;
     } else {
       workdir = process.cwd();
     }
