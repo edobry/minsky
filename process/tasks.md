@@ -666,4 +666,4 @@
 
 - [ ] Audit and fix task backend consistency across session operations [#384](process/tasks/384-audit-and-fix-task-backend-consistency-across-session-operations.md)
 
-- [+] Test Architecture Documentation and Guidelines [#385](process/tasks/385-test-architecture-documentation-and-guidelines.md)
+- [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/md#396-test-architecture-documentation-and-guidelines.md)
