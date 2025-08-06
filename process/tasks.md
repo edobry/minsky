@@ -336,7 +336,7 @@
 
 - [x] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
-- [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
+- [x] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
@@ -634,8 +634,6 @@
 
 - [+] Explore Development Dependency Management System [#371](process/tasks/371-explore-development-dependency-management-system.md)
 
-- [ ] Add AI-powered rule suggestion for context construction MVP - Task 182 [#004](process/tasks/004-add-ai-powered-rule-suggestion-for-context-construction-mvp-task-182.md)
-
 - [+] Collapse Unnecessary Application Layer in Task Architecture [#375](process/tasks/375-collapse-unnecessary-application-layer-in-task-architecture.md)
 
 - [ ] Audit and fix task backend consistency across session operations [#384](process/tasks/384-audit-and-fix-task-backend-consistency-across-session-operations.md)
@@ -646,4 +644,4 @@
 
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [#397](process/tasks/397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
-- [ ] Improve test mock filesystem approach with external libraries [#398](process/tasks/md#398-improve-test-mock-filesystem-approach-with-external-libraries.md)
+- [ ] Improve test mock filesystem approach with external libraries [#398](process/tasks/398-improve-test-mock-filesystem-approach-with-external-libraries.md)
