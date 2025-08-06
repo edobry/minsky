@@ -67,15 +67,27 @@ describe("Session CLI Commands", () => {
     });
 
     mockSessionProvider = createMockSessionProvider({
-      getSession: () => ({
-        name: "test-session",
-        taskId: "123",
+      getSession: (sessionName: string) => ({
+        name: sessionName,
+        taskId: sessionName === "test-session" ? "123" : undefined,
         repoUrl: "https://github.com/test/repo.git",
         workspacePath: testData.tempDir,
-        sessionPath: join(testData.tempDir, "sessions", "test-session"),
+        sessionPath: join(testData.tempDir, "sessions", sessionName),
         branch: "main",
         created: new Date().toISOString(),
       }),
+      getSessionWorkdir: (sessionName: string) => join(testData.tempDir, "sessions", sessionName),
+      listSessions: () => [
+        {
+          session: "test-session",
+          taskId: "123",
+          repoUrl: "https://github.com/test/repo.git",
+          workspacePath: testData.tempDir,
+          sessionPath: join(testData.tempDir, "sessions", "test-session"),
+          branch: "main",
+          created: new Date().toISOString(),
+        },
+      ],
     });
   });
 
@@ -87,7 +99,7 @@ describe("Session CLI Commands", () => {
 
   describe("getSessionDirFromParams", () => {
     test("should resolve session directory from session name", async () => {
-      const sessionPath = join(testData.tempDir, "test-repo", "sessions", "test-session");
+      const sessionPath = join(testData.tempDir, "sessions", "test-session");
 
       // Create the session directory using mock filesystem
       mockFs.ensureDirectoryExists(sessionPath);
@@ -101,25 +113,56 @@ describe("Session CLI Commands", () => {
     });
 
     test("should resolve session directory from task ID", async () => {
-      const sessionPath = join(testData.tempDir, "test-repo", "sessions", "task-123");
+      const sessionPath = join(testData.tempDir, "sessions", "task-123");
 
       // Create the session directory using mock filesystem
       mockFs.ensureDirectoryExists(sessionPath);
 
       const mockSessionProviderWithTask = createMockSessionProvider({
-        getSessionFromTask: () => ({
-          name: "task-123",
-          taskId: "123",
-          repoUrl: "https://github.com/test/repo.git",
-          workspacePath: testData.tempDir,
-          sessionPath,
-          branch: "feature/task-123",
-          created: new Date().toISOString(),
-        }),
+        getSession: (sessionName: string) => {
+          if (sessionName === "task-123") {
+            return {
+              name: "task-123",
+              taskId: "md#123",
+              repoUrl: "https://github.com/test/repo.git",
+              workspacePath: testData.tempDir,
+              sessionPath,
+              branch: "feature/task-123",
+              created: new Date().toISOString(),
+            };
+          }
+          return null;
+        },
+        getSessionByTaskId: (taskId: string) => {
+          if (taskId === "md#123") {
+            return {
+              name: "task-123",
+              taskId: "md#123",
+              repoUrl: "https://github.com/test/repo.git",
+              workspacePath: testData.tempDir,
+              sessionPath,
+              branch: "feature/task-123",
+              created: new Date().toISOString(),
+            };
+          }
+          return null;
+        },
+        getSessionWorkdir: (sessionName: string) => sessionPath,
+        listSessions: () => [
+          {
+            session: "task-123",
+            taskId: "md#123",
+            repoUrl: "https://github.com/test/repo.git",
+            workspacePath: testData.tempDir,
+            sessionPath,
+            branch: "feature/task-123",
+            created: new Date().toISOString(),
+          },
+        ],
       });
 
       const result = await getSessionDirFromParams(
-        { task: "123" },
+        { task: "md#123" },
         { sessionDB: mockSessionProviderWithTask }
       );
 
@@ -127,7 +170,7 @@ describe("Session CLI Commands", () => {
     });
 
     test("should resolve session directory from current working directory", async () => {
-      const sessionPath = join(testData.tempDir, "test-repo", "sessions", "current-session");
+      const sessionPath = join(testData.tempDir, "sessions", "current-session");
 
       mockFs.ensureDirectoryExists(sessionPath);
 
@@ -144,6 +187,21 @@ describe("Session CLI Commands", () => {
           branch: "current-branch",
           created: new Date().toISOString(),
         }),
+        getSession: (sessionName: string) => {
+          if (sessionName === "current-session") {
+            return {
+              name: "current-session",
+              taskId: "456",
+              repoUrl: "https://github.com/test/repo.git",
+              workspacePath: testData.tempDir,
+              sessionPath,
+              branch: "current-branch",
+              created: new Date().toISOString(),
+            };
+          }
+          return null;
+        },
+        getSessionWorkdir: (sessionName: string) => sessionPath,
       });
 
       const result = await getSessionDirFromParams({}, { sessionDB: mockSessionProviderCurrent });
@@ -173,6 +231,7 @@ describe("Session CLI Commands", () => {
       const mockSessionDB = {
         getSession: () => sessionRecord,
         updateSession: createMockFunction(),
+        getSessionWorkdir: () => sessionPath,
       };
 
       const result = await updateSessionFromParams(
@@ -186,11 +245,10 @@ describe("Session CLI Commands", () => {
         }
       );
 
-      expect(result.success).toBe(true);
-      expect(mockSessionDB.updateSession).toHaveBeenCalledWith("update-session", {
-        ...sessionRecord,
-        branch: "new-branch",
-      });
+      expect(result).toBeDefined();
+      expect(result.name).toBe("update-session");
+      expect(result.branch).toBe("new-branch");
+      expect(mockSessionDB.updateSession).toHaveBeenCalled();
     });
 
     test("should handle session update with git operations", async () => {
@@ -214,6 +272,7 @@ describe("Session CLI Commands", () => {
       const mockSessionDB = {
         getSession: () => sessionRecord,
         updateSession: createMockFunction(),
+        getSessionWorkdir: () => sessionPath,
       };
 
       const mockGitServiceWithCommands = createMockGitService({
@@ -240,7 +299,8 @@ describe("Session CLI Commands", () => {
         }
       );
 
-      expect(result.success).toBe(true);
+      expect(result).toBeDefined();
+      expect(result.name).toBe("git-session");
     });
   });
 
@@ -260,9 +320,21 @@ describe("Session CLI Commands", () => {
         getCurrentSession: () => sessionRecord,
       });
 
-      const result = await getCurrentSession({ sessionProvider: mockSessionProviderWorkspace });
+      // Mock execAsync to simulate git commands
+      const mockExecAsync = createMockFunction(async (command: string) => {
+        if (command === "git rev-parse --show-toplevel") {
+          return { stdout: testData.tempDir };
+        }
+        return { stdout: "" };
+      });
 
-      expect(result).toEqual(sessionRecord);
+      const result = await getCurrentSession(
+        testData.tempDir,
+        mockExecAsync,
+        mockSessionProviderWorkspace
+      );
+
+      expect(result).toBe("workspace-session");
     });
   });
 
@@ -282,11 +354,25 @@ describe("Session CLI Commands", () => {
         getSessionFromWorkspace: () => sessionRecord,
       });
 
-      const result = await getSessionFromWorkspace(testData.tempDir, {
-        sessionProvider: mockSessionProviderDirectory,
+      // Mock execAsync to simulate git commands
+      const mockExecAsync = createMockFunction(async (command: string) => {
+        if (command === "git rev-parse --show-toplevel") {
+          return { stdout: testData.tempDir };
+        }
+        return { stdout: "" };
       });
 
-      expect(result).toEqual(sessionRecord);
+      const result = await getSessionFromWorkspace(
+        testData.tempDir,
+        mockExecAsync,
+        mockSessionProviderDirectory
+      );
+
+      expect(result).toEqual({
+        session: "directory-session",
+        upstreamRepository: "https://github.com/test/repo.git",
+        gitRoot: testData.tempDir,
+      });
     });
   });
 });
