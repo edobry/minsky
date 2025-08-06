@@ -48,9 +48,9 @@ export function validateSessionApprovedForMerge(
     throw new ValidationError(
       `❌ Session "${sessionName}" PR must be approved before merging.\n\n` +
         `💡 Next steps:\n` +
-        `   1. Review your changes: minsky session pr get --task ${sessionName.replace('task-', '')}\n` +
-        `   2. Approve the PR: minsky session pr approve --task ${sessionName.replace('task-', '')}\n` +
-        `   3. Then try merge again: minsky session pr merge --task ${sessionName.replace('task-', '')}`
+        `   1. Review your changes: minsky session pr get --task ${sessionName.replace("task-", "")}\n` +
+        `   2. Approve the PR: minsky session pr approve --task ${sessionName.replace("task-", "")}\n` +
+        `   3. Then try merge again: minsky session pr merge --task ${sessionName.replace("task-", "")}`
     );
   }
 

@@ -44,7 +44,7 @@ export function handleCliError(error: any): never {
   if (error instanceof ValidationError) {
     // Check if the error message already has good formatting (starts with emoji)
     const message = normalizedError.message;
-    const hasGoodFormatting = /^[❌🚫⛔️💥]/.test(message);
+    const hasGoodFormatting = /^[❌🚫⛔💥]/u.test(message);
 
     if (hasGoodFormatting) {
       // Already well-formatted, display as-is

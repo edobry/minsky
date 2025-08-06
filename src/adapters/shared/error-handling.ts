@@ -195,7 +195,7 @@ export class CliErrorHandler implements ErrorHandler {
     // Handle well-formatted validation errors specially
     if (error instanceof ValidationError) {
       const message = normalizedError.message;
-      const hasGoodFormatting = /^[❌🚫⛔️💥]/.test(message);
+      const hasGoodFormatting = /^[❌🚫⛔💥]/u.test(message);
 
       if (hasGoodFormatting) {
         // Already well-formatted, display as-is
