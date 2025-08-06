@@ -44,7 +44,7 @@ Get productive in 5 minutes with copy-paste templates and essential patterns.
 - Validation and rollback procedures
 
 ### 📖 Existing Guides
-**[Test Architecture Guide](test-architecture-guide.md)** - File organization and test categories  
+**[Test Architecture Guide](test-architecture-guide.md)** - File organization and test categories
 **[Mock Compatibility Guide](mock-compatibility.md)** - Framework compatibility patterns
 
 ### 🎯 Advanced Patterns

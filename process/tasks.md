@@ -672,4 +672,6 @@
 
 - [ ] Continue Systematic ESLint-Guided Filesystem Violation Fixes [#397](process/tasks/397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
-- [ ] Improve test mock filesystem approach with external libraries [md#398](process/tasks/md#398-improve-test-mock-filesystem-approach-with-external-libraries.md)
+- [ ] Improve test mock filesystem approach with external libraries [#398](process/tasks/md#398-improve-test-mock-filesystem-approach-with-external-libraries.md)
+
+- [ ] Test task for delete bug investigation [#399](process/tasks/md#399-test-task-for-delete-bug-investigation.md)

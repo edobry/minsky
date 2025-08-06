@@ -7,6 +7,10 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Session Cleanup Functionality**: Comprehensive session cleanup implementation that automatically removes old sessions for completed and merged tasks, addressing the gap identified in Task #353. Includes complete filesystem directory removal, **cleanup enabled by default** for merge operations, enhanced session delete commands with comprehensive cleanup, and CLI parameter support with `--skip-cleanup` flag to override default behavior when needed.
+
+### Fixed
+
+- **Task Delete Functionality**: Fixed task deletion bug where qualified task IDs (e.g., `md#399`) were not properly handled during deletion operations. The MarkdownTaskBackend now uses the existing `getTaskById` utility function for consistent task ID comparison across all formats, ensuring reliable deletion of tasks regardless of ID format used.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 - **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.
 
