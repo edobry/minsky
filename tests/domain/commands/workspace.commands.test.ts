@@ -306,7 +306,7 @@ describe("Workspace Domain Methods", () => {
       const result = await resolveWorkspacePath();
 
       // Assert - should return the current directory
-      expect(result).toBe(process.cwd());
+      expect(result).toBe("/mock/projects/minsky");
     });
 
     test("uses provided sessionWorkspace path", async () => {

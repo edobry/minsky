@@ -329,7 +329,7 @@ describe("Error Message Templates", () => {
 
       expect(context).toHaveLength(1);
       expect(context[0].label).toBe("Current directory");
-      expect(context[0].value).toBe(process.cwd());
+      expect(context[0].value).toBe("/mock/projects/minsky");
     });
 
     test("adds session information", () => {
