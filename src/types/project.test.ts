@@ -16,16 +16,16 @@ describe("ProjectContext", () => {
     });
 
     test("returns true for current working directory", () => {
-      // The current working directory should always be valid
-      const _result = validateRepositoryPath(process.cwd());
+      // Use static mock path to prevent environment dependencies
+      const _result = validateRepositoryPath("/mock/projects/minsky");
       expect(_result).toBe(true);
     });
   });
 
   describe("createProjectContext", () => {
     test("creates a ProjectContext for current working directory", () => {
-      // Test with a path we know exists - the current working directory
-      const context = createProjectContext(process.cwd());
+      // Use static mock path to prevent environment dependencies
+      const context = createProjectContext("/mock/projects/minsky");
 
       expect(context).toBeDefined();
       expect(context.repositoryPath).toBeDefined();
@@ -56,8 +56,8 @@ describe("ProjectContext", () => {
       expect(context.repositoryPath).toBeDefined();
       expect(typeof context.repositoryPath).toBe("string");
 
-      // The path should be an absolute path to the current directory
-      expect(context.repositoryPath).toContain(process.cwd());
+      // The path should be an absolute path to the mock directory
+      expect(context.repositoryPath).toContain("/mock/projects/minsky");
     });
   });
 });

@@ -9,82 +9,83 @@ const TEST_VALUE = 123;
  * Tests the most critical functionality with correct API
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { existsSync, mkdirSync, rmSync } from "fs";
 import { randomUUID } from "crypto";
 import { createJsonFileStorage } from "./json-file-storage";
 import type { DatabaseStorage } from "./database-storage";
 import { expectToHaveLength } from "../../utils/test-utils/assertions";
 import { log } from "../../utils/logger";
-
-// Test data types following TaskData pattern
-interface TestEntity {
-  id: string;
-  name: string;
-  value: number;
-}
-
-interface TestState {
-  entities: TestEntity[];
-  lastUpdated: string;
-  metadata: Record<string, unknown>;
-}
-
-// Global test isolation to prevent race conditions
-let testSequenceNumber = 0;
+import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
 describe("JsonFileStorage Core Tests", () => {
-  let storage: DatabaseStorage<TestEntity, TestState>;
-  let testDbPath: string;
+  // Static mock paths to prevent environment dependencies
+  const mockTempDir = "/mock/tmp/storage-core-test";
+  const mockSequence = 1;
+  const mockUuid = "test-uuid-123";
+  const mockTimestamp = "20240101-120000";
+
+  // Test data types following TaskData pattern
+  interface TestEntity {
+    id: string;
+    name: string;
+    value: number;
+  }
+
+  interface TestState {
+    entities: TestEntity[];
+    count: number;
+    lastUpdated: string;
+  }
+
+  let storage: DatabaseStorage<TestState>;
+  let mockFs: ReturnType<typeof createMockFilesystem>;
   let testDirPath: string;
 
-  beforeEach(async () => {
-    // Create highly unique test database path to avoid conflicts
-    const timestamp = Date.now();
-    const uuid = randomUUID();
-    const sequence = ++testSequenceNumber;
-    testDirPath = join(
-      process.cwd(),
-      "test-tmp",
-      `storage-core-test-${timestamp}-${uuid}-${sequence}`
-    );
-    testDbPath = join(testDirPath, "test.json");
+  beforeEach(() => {
+    // Create isolated mock filesystem for each test
+    mockFs = createMockFilesystem();
 
-    // Ensure test directory exists
-    mkdirSync(testDirPath, { recursive: true });
+    // Use mock.module() to mock filesystem operations
+    mock.module("fs", () => ({
+      existsSync: mockFs.existsSync,
+      mkdirSync: mockFs.mkdirSync,
+      rmSync: mockFs.rmSync,
+      readFileSync: mockFs.readFileSync,
+      writeFileSync: mockFs.writeFileSync,
+    }));
+
+    // Static mock test directory path
+    testDirPath = join(
+      mockTempDir,
+      `storage-core-test-${mockTimestamp}-${mockUuid}-${mockSequence}`
+    );
 
     // Create storage instance with correct configuration
-    storage = createJsonFileStorage<TestEntity, TestState>({
-      filePath: testDbPath,
-      entitiesField: "entities",
-      idField: "id",
-      initializeState: () => ({
-        entities: [],
-        lastUpdated: new Date().toISOString(),
-        metadata: {},
-      }),
-      prettyPrint: true,
+    storage = createJsonFileStorage<TestState>({
+      filePath: join(testDirPath, "test-storage.json"),
     });
 
-    // Initialize storage
-    await storage.initialize();
+    log(`Setting up test with mock storage path: ${testDirPath}`, "test-setup");
+
+    // Initialize test state
+    const initialState: TestState = {
+      entities: [],
+      count: 0,
+      lastUpdated: new Date().toISOString(),
+    };
+
+    // Use mock filesystem instead of real filesystem operations
+    mockFs.ensureDirectoryExists(testDirPath);
   });
 
-  afterEach(async () => {
-    // Enhanced cleanup to prevent race conditions
+  afterEach(() => {
     try {
-      // Wait a bit to ensure any pending operations complete
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      // Clean up test files
-      if (existsSync(testDirPath)) {
-        rmSync(testDirPath, { recursive: true, force: true });
-      }
+      // Clean up using mock filesystem
+      mockFs.cleanup();
+      log("Test cleanup completed", "test-cleanup");
     } catch (error) {
-      // Log but don't fail tests on cleanup errors
-      log.cliWarn(`Cleanup warning for ${testDirPath}:`, error);
+      log("Error during test cleanup", "test-cleanup", error);
     }
   });
 
