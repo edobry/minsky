@@ -695,10 +695,7 @@ export function createMCPCommand(): Command {
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
-    .option(
-      "--json",
-      "Output full JSON response instead of just tool names"
-    )
+    .option("--json", "Output full JSON response instead of just tool names")
     .action(async (options) => {
       try {
         if (!options.json) {
@@ -758,7 +755,7 @@ export function createMCPCommand(): Command {
 
               if (toolsResponse) {
                 const parsed = JSON.parse(toolsResponse);
-                
+
                 if (options.json) {
                   // Output full JSON response
                   console.log(JSON.stringify(parsed.result, null, 2));
