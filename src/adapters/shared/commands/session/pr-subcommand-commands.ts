@@ -55,12 +55,12 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       // For MCP interface, resolve session workspace directory
       let workingDirectory = process.cwd();
       const interfaceType = context.interface as "cli" | "mcp";
-      
+
       if (interfaceType === "mcp") {
         // For MCP, resolve the session workspace path from session parameters
         const { createSessionProvider } = await import("../../../../domain/session");
         const sessionProvider = createSessionProvider();
-        
+
         // Try to get session name from params or resolve from task
         let sessionName = params.name;
         if (!sessionName && params.task) {
@@ -75,28 +75,36 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
           });
           sessionName = resolvedContext.sessionName;
         }
-        
+
         if (sessionName) {
-          workingDirectory = await sessionProvider.getRepoPath(await sessionProvider.getSession(sessionName));
+          const sessionRecord = await sessionProvider.getSession(sessionName);
+          if (sessionRecord) {
+            workingDirectory = await sessionProvider.getRepoPath(sessionRecord);
+          }
+          // If session doesn't exist, workingDirectory stays as process.cwd()
+          // The domain layer will handle session creation or provide appropriate errors
         }
       }
 
-      const result = await sessionPrCreate({
-        title: params.title,
-        body: params.body,
-        bodyPath: params.bodyPath,
-        name: params.name,
-        task: params.task,
-        repo: params.repo,
-        noStatusUpdate: params.noStatusUpdate,
-        debug: params.debug,
+      const result = await sessionPrCreate(
+        {
+          title: params.title,
+          body: params.body,
+          bodyPath: params.bodyPath,
+          name: params.name,
+          task: params.task,
+          repo: params.repo,
+          noStatusUpdate: params.noStatusUpdate,
+          debug: params.debug,
 
-        autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
-        skipConflictCheck: params.skipConflictCheck,
-      }, {
-        interface: interfaceType,
-        workingDirectory,
-      });
+          autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
+          skipConflictCheck: params.skipConflictCheck,
+        },
+        {
+          interface: interfaceType,
+          workingDirectory,
+        }
+      );
 
       return this.createSuccessResult(result);
     } catch (error) {

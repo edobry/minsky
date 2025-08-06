@@ -654,7 +654,7 @@
 
 - [ ] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
 
-- [x] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+- [+] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
 
 - [ ] Refactor session dependencies for unified dependency injection pattern [#389](process/tasks/389-refactor-session-dependencies-for-unified-dependency-injection-pattern.md)
 
@@ -674,6 +674,6 @@
 
 - [ ] Dependency Injection Enhancement for Test Reliability [#395](process/tasks/395-dependency-injection-enhancement-for-test-reliability.md)
 
-- [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
+- [+] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
 
 - [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
