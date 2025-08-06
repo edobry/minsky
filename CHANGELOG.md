@@ -15,6 +15,10 @@ All notable changes to this project will be documented in this file.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 - **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.
 
+### Cleanup
+
+- **Test Task Cleanup**: Successfully removed all generic test tasks with names like "Test session for MCP fix verification", "Fix the authentication bug", "Test to see exact MCP error", and other temporary testing tasks. Cleaned up task IDs: md#003, md#377, md#382, md#383, md#399, and their associated spec files. This cleanup improves task list clarity and removes outdated testing artifacts.
+
 ### Fixed
 
 - **Session PR Merge Working Directory**: Fixed `session pr merge` command to use correct working directory for LocalGitBackend. Applied test-driven bug fix approach: wrote failing tests that reproduced the "Not possible to fast-forward" error, then implemented the fix. LocalGitBackend now uses the main repository path (record.repoUrl) instead of session workspace for merge operations, since PR branches exist in the main repository. RemoteGitBackend correctly continues using session workspace since repoUrl is a remote URL.

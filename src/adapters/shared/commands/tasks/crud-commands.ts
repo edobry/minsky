@@ -81,9 +81,6 @@ export class TasksListCommand extends BaseTaskCommand {
 
     this.debug(`Found ${tasks.length} tasks`);
 
-    const shouldFormatAsJson = params.json || ctx.format === "json";
-    this.debug(`Should format as JSON: ${shouldFormatAsJson}`);
-
     return this.formatResult(
       {
         success: true,
@@ -91,7 +88,7 @@ export class TasksListCommand extends BaseTaskCommand {
         tasks,
         message: `Found ${tasks.length} tasks`,
       },
-      shouldFormatAsJson
+      params.json || ctx.format === "json"
     );
   }
 }
