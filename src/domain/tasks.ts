@@ -243,11 +243,36 @@ export class MarkdownTaskBackend implements TaskBackend {
       const taskDir = join(this.workspacePath, "process", "tasks");
       try {
         const files = await fs.readdir(taskDir);
-        const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
+
+        // Try multiple search patterns to handle both qualified and unqualified task IDs
+        const searchPatterns = [
+          `${taskIdNum}-`,        // Legacy format: "398-"
+          `md#${taskIdNum}-`,     // Qualified format: "md#398-"
+          `#${taskIdNum}-`        // Hash format: "#398-" (just in case)
+        ];
+
+        let matchingFile: string | undefined;
+        for (const pattern of searchPatterns) {
+          matchingFile = files.find((f) => f.startsWith(pattern));
+          if (matchingFile) {
+            break;
+          }
+        }
+
         if (matchingFile) {
+          // Extract the title from the filename by removing the prefix and .md extension
+          let titleFromFile = matchingFile;
+          for (const pattern of searchPatterns) {
+            if (titleFromFile.startsWith(pattern)) {
+              titleFromFile = titleFromFile.substring(pattern.length);
+              break;
+            }
+          }
+          titleFromFile = titleFromFile.replace(".md", "");
+
           return getTaskSpecRelativePath(
             taskId,
-            matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""),
+            titleFromFile,
             this.workspacePath
           );
         }
