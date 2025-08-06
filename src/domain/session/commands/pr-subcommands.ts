@@ -33,6 +33,9 @@ export async function sessionPrCreate(params: {
 
   autoResolveDeleteConflicts?: boolean;
   skipConflictCheck?: boolean;
+}, options?: {
+  interface?: "cli" | "mcp";
+  workingDirectory?: string;
 }): Promise<{
   prBranch: string;
   baseBranch: string;
@@ -53,7 +56,7 @@ export async function sessionPrCreate(params: {
     skipConflictCheck: params.skipConflictCheck || false,
 
     autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
-  });
+  }, options);
 
   // TODO: In future implementation, also update session record with pullRequest info
   // For now, return the basic result with placeholder for pullRequest

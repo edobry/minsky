@@ -52,6 +52,35 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     }
 
     try {
+      // For MCP interface, resolve session workspace directory
+      let workingDirectory = process.cwd();
+      const interfaceType = context.interface as "cli" | "mcp";
+      
+      if (interfaceType === "mcp") {
+        // For MCP, resolve the session workspace path from session parameters
+        const { createSessionProvider } = await import("../../../../domain/session");
+        const sessionProvider = createSessionProvider();
+        
+        // Try to get session name from params or resolve from task
+        let sessionName = params.name;
+        if (!sessionName && params.task) {
+          const { resolveSessionContextWithFeedback } = await import(
+            "../../../../domain/session/session-context-resolver"
+          );
+          const resolvedContext = await resolveSessionContextWithFeedback({
+            task: params.task,
+            repo: params.repo,
+            sessionProvider,
+            allowAutoDetection: false, // No auto-detection for MCP
+          });
+          sessionName = resolvedContext.sessionName;
+        }
+        
+        if (sessionName) {
+          workingDirectory = await sessionProvider.getRepoPath(await sessionProvider.getSession(sessionName));
+        }
+      }
+
       const result = await sessionPrCreate({
         title: params.title,
         body: params.body,
@@ -64,6 +93,9 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
 
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipConflictCheck: params.skipConflictCheck,
+      }, {
+        interface: interfaceType,
+        workingDirectory,
       });
 
       return this.createSuccessResult(result);
