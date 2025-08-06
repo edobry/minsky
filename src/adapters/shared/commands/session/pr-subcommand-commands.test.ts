@@ -25,7 +25,8 @@ import type { CommandExecutionContext } from "../../types";
 describe("Session PR Create Command - Task Parameter Bug Fix", () => {
   let command: SessionPrCreateCommand;
   let mockContext: CommandExecutionContext;
-  let originalCwd: string;
+  // Static mock path to prevent environment dependencies
+  const mockWorkingDirectory = "/mock/projects/minsky";
 
   beforeEach(() => {
     command = new SessionPrCreateCommand();
@@ -33,11 +34,11 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       interface: "cli",
       workingDirectory: "/Users/edobry/Projects/minsky", // Not in session workspace
     } as CommandExecutionContext;
-    originalCwd = process.cwd();
+    // Mock cleanup - avoiding real filesystem operations
   });
 
   afterEach(() => {
-    process.chdir(originalCwd);
+    // Mock cleanup - avoiding real filesystem operations
   });
 
   describe("🐛 Bug: PR Detection with Task Parameter", () => {
@@ -171,8 +172,8 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         // No name parameter, not in session workspace
       };
 
-      // Set working directory to main workspace (not session workspace)
-      process.chdir("/Users/edobry/Projects/minsky");
+      // Use static mock path to prevent environment dependencies
+      const mockCurrentDir = mockWorkingDirectory;
 
       // Call the private method to test its current behavior
       const canRefresh = await (command as any).checkIfPrCanBeRefreshed(params);

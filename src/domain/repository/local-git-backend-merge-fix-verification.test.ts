@@ -28,7 +28,7 @@ describe("LocalGitBackend Merge Fix Verification", () => {
         // FIXED: Use record.repoUrl (main repository path for local repos)
         return sessionRecord.repoUrl;
       } else {
-        return process.cwd();
+        return "/mock/projects/minsky"; // Static mock path to prevent environment dependencies
       }
     }
 
@@ -51,13 +51,13 @@ describe("LocalGitBackend Merge Fix Verification", () => {
       if (session) {
         return "/Users/edobry/Projects/minsky"; // Would use record.repoUrl
       } else {
-        return process.cwd();
+        return "/mock/projects/minsky"; // Static mock path to prevent environment dependencies
       }
     }
 
     // When no session is provided, should use current working directory
     const workdir = determineWorkdir();
-    expect(workdir).toBe(process.cwd());
+    expect(workdir).toBe("/mock/projects/minsky"); // Static mock path to prevent environment dependencies
   });
 
   it("should demonstrate the difference between local and remote backend logic", () => {

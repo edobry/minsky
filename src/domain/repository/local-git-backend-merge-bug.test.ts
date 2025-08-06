@@ -45,7 +45,7 @@ describe("LocalGitBackend Merge Working Directory Bug Fix", () => {
         // BUG: Returns session workspace instead of main repository
         return sessionWorkspace; // this.getSessionWorkdir(session)
       } else {
-        return process.cwd();
+        return "/mock/projects/minsky"; // Static mock path to prevent environment dependencies
       }
     }
 
@@ -55,7 +55,7 @@ describe("LocalGitBackend Merge Working Directory Bug Fix", () => {
         // FIX: Should use main repository path for local repos
         return sessionRecord.repoUrl; // record.repoUrl for local backends
       } else {
-        return process.cwd();
+        return "/mock/projects/minsky"; // Static mock path to prevent environment dependencies
       }
     }
 
