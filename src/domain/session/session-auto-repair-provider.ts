@@ -106,7 +106,13 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
           getSessionsBaseDir: () => join(getMinskyStateDir(), "sessions"),
         };
 
+        console.log(
+          `[AUTO-REPAIR-DEBUG] Calling attemptSessionAutoRepair with taskId: "${taskId}"`
+        );
         sessionRecord = await attemptSessionAutoRepair(taskId, autoRepairDeps);
+        console.log(
+          `[AUTO-REPAIR-DEBUG] attemptSessionAutoRepair result: ${sessionRecord ? `SUCCESS - ${sessionRecord.session}` : "FAILED"}`
+        );
 
         if (sessionRecord) {
           log.info("Auto-repair successful - session reconstructed from workspace", {

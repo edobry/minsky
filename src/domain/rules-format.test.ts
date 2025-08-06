@@ -1,9 +1,22 @@
-import { describe, expect, test, beforeEach, afterEach } from "bun:test";
+import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
 import { RuleService } from "./rules";
+import * as path from "path";
+import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
+
+// Mock the fs modules to use our mock filesystem
+const mockFs = createMockFilesystem();
+
+// Import fs to be mocked
 // Use mock.module() to mock filesystem operations
 // import * as fs from "fs";
-import * as path from "path";
-import { createCleanTempDir } from "../utils/test-utils/cleanup";
+
+mock.module("fs", () => ({
+  mkdirSync: mockFs.mkdirSync,
+  writeFileSync: mockFs.writeFileSync,
+  existsSync: mockFs.existsSync,
+  readFileSync: mockFs.readFileSync,
+  readdirSync: mockFs.readdirSync,
+}));
 
 describe("RuleService Format Compatibility", () => {
   let testDir: string;
@@ -14,7 +27,9 @@ describe("RuleService Format Compatibility", () => {
   // Setup before each test
   beforeEach(() => {
     // Create a unique temporary directory for each test run
-    testDir = createCleanTempDir("minsky-rules-format-test-");
+    // Reset mock filesystem and use mock paths
+    mockFs.reset();
+    testDir = "/mock/test/rules-format";
     cursorRulesDir = path.join(testDir, ".cursor", "rules");
     genericRulesDir = path.join(testDir, ".ai", "rules");
 
@@ -73,6 +88,10 @@ This rule exists in both cursor and generic formats.
 
     // Initialize rule service
     ruleService = new RuleService(testDir);
+  });
+
+  afterEach(() => {
+    mock.restore();
   });
 
   // Cleanup handled automatically by createCleanTempDir

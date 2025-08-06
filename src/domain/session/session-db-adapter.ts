@@ -253,6 +253,7 @@ export function createSessionProvider(_options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
+  console.log("[FACTORY-DEBUG] NEW createSessionProvider called");
   log.debug("Creating session provider with auto-repair support");
 
   // Always use the new configuration-based backend
