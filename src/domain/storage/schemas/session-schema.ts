@@ -9,19 +9,22 @@ import { sqliteTable, text } from "drizzle-orm/sqlite-core";
 import { pgTable, varchar, timestamp, text as pgText } from "drizzle-orm/pg-core";
 import type { SessionRecord } from "../../session/session-db";
 
-// SQLite Schema - CONSISTENT snake_case with Drizzle JSON support
+// SQLite Schema - Match existing database structure (camelCase column names)
 export const sqliteSessions = sqliteTable("sessions", {
   session: text("session")!.primaryKey(),
-  repoName: text("repo_name")!.notNull(),
-  repoUrl: text("repo_url")!.notNull(),
-  createdAt: text("created_at").notNull(),
-  taskId: text("task_id"),
+  repoName: text("repoName")!.notNull(),
+  repoUrl: text("repoUrl"),
+  createdAt: text("createdAt").notNull(),
+  taskId: text("taskId"),
   branch: text("branch"),
 
-  // PR-related fields with automatic JSON parsing
-  prBranch: text("pr_branch"),
-  prApproved: text("pr_approved", { mode: "json" }).$type<boolean>(),
-  prState: text("pr_state", { mode: "json" }).$type<{
+  // Legacy column (keeping for compatibility)
+  repoPath: text("repoPath"),
+
+  // PR-related fields with automatic JSON parsing (will be added via migration)
+  prBranch: text("prBranch"),
+  prApproved: text("prApproved", { mode: "json" }).$type<boolean>(),
+  prState: text("prState", { mode: "json" }).$type<{
     branchName: string;
     exists: boolean;
     lastChecked: string;
@@ -30,9 +33,9 @@ export const sqliteSessions = sqliteTable("sessions", {
     commitHash?: string;
   }>(),
 
-  // Backend configuration with automatic JSON parsing
-  backendType: text("backend_type"),
-  pullRequest: text("pull_request", { mode: "json" }).$type<any>(),
+  // Backend configuration with automatic JSON parsing (will be added via migration)
+  backendType: text("backendType"),
+  pullRequest: text("pullRequest", { mode: "json" }).$type<any>(),
 });
 
 // PostgreSQL Schema

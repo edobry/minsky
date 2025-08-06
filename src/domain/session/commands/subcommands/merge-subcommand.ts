@@ -16,7 +16,8 @@ export const mergeSessionSubcommand: CommandExecutionHandler = async (params) =>
 
   const json = options?.json === true;
   const taskId = options?.task as string | undefined;
-  const cleanup = options?.cleanup === true || options?.["cleanup-session"] === true;
+  // Cleanup is enabled by default, but can be disabled with --skip-cleanup
+  const cleanup = options?.["skip-cleanup"] !== true;
 
   try {
     const result = await mergeSessionPr({

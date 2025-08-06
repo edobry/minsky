@@ -199,15 +199,9 @@ export const sessionApproveCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
-  cleanup: {
+  skipCleanup: {
     schema: z.boolean(),
-    description: "Clean up session directories and database record after merge",
-    required: false,
-    defaultValue: false,
-  },
-  cleanupSession: {
-    schema: z.boolean(),
-    description: "Clean up session directories and database record after merge (alias)",
+    description: "Skip session cleanup after merge (preserves session files)",
     required: false,
     defaultValue: false,
   },

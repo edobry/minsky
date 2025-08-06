@@ -7,6 +7,7 @@
  */
 
 import type { SessionProviderInterface, SessionRecord } from "./types";
+import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provider";
 
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
@@ -252,6 +253,19 @@ export function createSessionProvider(_options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
+  log.debug("Creating session provider with auto-repair support");
+
   // Always use the new configuration-based backend
-  return new SessionDbAdapter();
+  const baseProvider = new SessionDbAdapter();
+
+  // Wrap with auto-repair functionality for universal session auto-repair
+  const wrappedProvider = wrapWithAutoRepair(baseProvider);
+
+  return wrappedProvider;
+}
+
+// Helper function to wrap base provider with auto-repair functionality
+function wrapWithAutoRepair(baseProvider: SessionProviderInterface): SessionProviderInterface {
+  log.debug("Wrapping session provider with auto-repair functionality");
+  return createSessionProviderWithAutoRepair(baseProvider);
 }

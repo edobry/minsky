@@ -161,7 +161,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Check if a session already exists for this task
     if (taskId) {
       const existingSessions = await deps.sessionDB.listSessions();
-      const taskSession = existingSessions.find((s: SessionRecord) => {
+      let taskSession = existingSessions.find((s: SessionRecord) => {
         // Both taskId (from schema normalization) and s.taskId should be in plain format
         return s.taskId === taskId;
       });

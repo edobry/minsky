@@ -6,13 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Session Cleanup Functionality**: Comprehensive session cleanup implementation that automatically removes old sessions for completed and merged tasks, addressing the gap identified in Task #353. Includes complete filesystem directory removal, optional cleanup after merge operations, enhanced session delete commands with comprehensive cleanup, and CLI parameter support for cleanup options (`--cleanup` and `--cleanup-session` flags).
+- **Session Cleanup Functionality**: Comprehensive session cleanup implementation that automatically removes old sessions for completed and merged tasks, addressing the gap identified in Task #353. Includes complete filesystem directory removal, **cleanup enabled by default** for merge operations, enhanced session delete commands with comprehensive cleanup, and CLI parameter support with `--skip-cleanup` flag to override default behavior when needed.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 
 ### Fixed
 
 - **Remote Branch Deletion Failures**: Enhanced error reporting and visibility for remote branch deletion operations during merge, providing better user feedback when cleanup fails
 - **Silent Cleanup Failures**: Session cleanup failures are now visible to users instead of failing silently
+
+### Changed
+
+- **Session Cleanup Default Behavior**: Session cleanup is now enabled by default for merge operations. Users can still disable cleanup with the `--skip-cleanup` flag to preserve session files when needed. This ensures sessions don't accumulate after successful merges while maintaining flexibility for edge cases.
 
 ### Enhanced
 

@@ -1,5 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
-import { tmpdir } from "os";
+// Removed tmpdir import - using mock paths instead
 // Use mock.module() to mock filesystem operations
 // import { promises as fs } from "fs";
 import path from "path";
@@ -51,8 +51,8 @@ describe("RuleTemplateService", () => {
   let service: RuleTemplateService;
 
   beforeEach(async () => {
-    // Create unique temporary directory for each test
-    testDir = await fs.mkdtemp(path.join(tmpdir(), "rule-template-test-"));
+    // Use mock temporary directory instead of real filesystem
+    testDir = "/mock/tmp/rule-template-test-12345";
 
     // Register commands once
     if (!commandsRegistered) {
@@ -74,7 +74,7 @@ describe("RuleTemplateService", () => {
 
   afterEach(async () => {
     // Clean up test directory
-    await fs.rm(testDir, { recursive: true, force: true });
+    // Mock cleanup - avoiding real filesystem operations
 
     // Clear the command registry to prevent interference with other tests
     (sharedCommandRegistry as any).clear();

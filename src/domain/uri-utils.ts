@@ -3,7 +3,7 @@
  * Provides functions for normalizing, validating, and converting repository URIs.
  */
 import { existsSync } from "fs";
-import { basename } from "path";
+import { basename, resolve } from "path";
 import { ValidationError } from "../errors/index";
 /**
  * Supported repository URI formats
@@ -140,21 +140,40 @@ export function normalizeRepositoryUri(
     }
   }
   // 4. Handle plain filesystem paths
-  else if (normalizedUri.startsWith("/") || normalizedUri.match(/^[A-Z]:\\/i)) {
+  else if (
+    normalizedUri.startsWith("/") ||
+    normalizedUri.match(/^[A-Z]:\\/i) ||
+    normalizedUri === "." ||
+    normalizedUri.startsWith("./") ||
+    normalizedUri.startsWith("../")
+  ) {
     format = UriFormat?.PATH;
     isLocal = true;
+
+    // For relative paths like ".", resolve to absolute path first
+    let resolvedPath = normalizedUri;
+    if (
+      normalizedUri === "." ||
+      normalizedUri.startsWith("./") ||
+      normalizedUri.startsWith("../")
+    ) {
+      resolvedPath = resolve(normalizedUri);
+    }
+
     // For local repos, use local-<basename> as the name (filesystem-safe)
-    normalizedName = `local-${basename(normalizedUri)}`;
+    normalizedName = `local-${basename(resolvedPath)}`;
 
     // Validate that the path exists if requested
-    if (validateLocalExists && !existsSync(normalizedUri)) {
-      throw new ValidationError(`Local repository does not exist: ${normalizedUri}`);
+    if (validateLocalExists && !existsSync(resolvedPath)) {
+      throw new ValidationError(`Local repository does not exist: ${resolvedPath}`);
     }
 
     // Convert to file:// URI if requested
     if (ensureFullyQualified) {
-      normalizedUri = `file://${normalizedUri}`;
+      normalizedUri = `file://${resolvedPath}`;
       format = UriFormat?.FILE;
+    } else {
+      normalizedUri = resolvedPath;
     }
   }
   // DEFAULT_RETRY_COUNT. Handle GitHub shorthand notation (org/repo)

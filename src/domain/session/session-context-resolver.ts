@@ -75,6 +75,13 @@ export async function resolveSessionContext(
     getCurrentSessionContextFn = getCurrentSessionContext,
   } = options;
 
+  log.debug("Resolving session context", {
+    task,
+    session,
+    repo,
+    sessionProviderType: sessionProvider.constructor.name,
+  });
+
   const workingDirectory = repo || cwd;
 
   // Option 1: Explicit session name provided

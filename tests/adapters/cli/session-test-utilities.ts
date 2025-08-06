@@ -25,7 +25,7 @@ export interface SessionTestData {
 }
 
 export function createSessionTestData(): SessionTestData {
-  const tempDir = join(process.cwd(), "test-tmp", "session-cli-test");
+  const tempDir = "/mock/test-tmp/session-cli-test";
 
   // Create test data for all session tests
   const mockSessions = [
@@ -158,9 +158,9 @@ export function createSessionTestData(): SessionTestData {
 }
 
 export async function cleanupSessionTestData(tempDir: string): Promise<void> {
-  if (existsSync(tempDir)) {
-    await rmdir(tempDir, { recursive: true });
-  }
+  // Mock cleanup - in real tests, use dependency injection to provide filesystem mock
+  // This avoids real filesystem operations that can cause race conditions
+  console.log(`Mock cleanup for directory: ${tempDir}`);
 }
 
 // GitService mock functionality moved to centralized utilities:

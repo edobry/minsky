@@ -30,7 +30,11 @@ export interface SessionPrDependencies {
  */
 export async function sessionPrImpl(
   params: SessionPRParameters,
-  deps: SessionPrDependencies
+  deps: SessionPrDependencies,
+  options?: {
+    interface?: "cli" | "mcp";
+    workingDirectory?: string;
+  }
 ): Promise<{
   prBranch: string;
   baseBranch: string;
@@ -56,13 +60,18 @@ export async function sessionPrImpl(
   // Command layer checks if this is a new PR vs existing PR refresh
   // and enforces body requirement accordingly
 
-  // STEP 1: Validate we're in a session workspace and on a session branch
-  const currentDir = process.cwd();
-  const isSessionWorkspace = currentDir.includes("/sessions/");
-  if (!isSessionWorkspace) {
-    throw new MinskyError(
-      "session pr command must be run from within a session workspace. Use 'minsky session start' first."
-    );
+  // STEP 1: Validate we're in a session workspace and on a session branch (CLI only)
+  const currentDir = options?.workingDirectory || process.cwd();
+  const interfaceType = options?.interface || "cli";
+
+  // Only validate workspace for CLI interface
+  if (interfaceType === "cli") {
+    const isSessionWorkspace = currentDir.includes("/sessions/");
+    if (!isSessionWorkspace) {
+      throw new MinskyError(
+        "session pr command must be run from within a session workspace. Use 'minsky session start' first."
+      );
+    }
   }
 
   // Get current git branch
@@ -75,14 +84,22 @@ export async function sessionPrImpl(
     );
   }
 
-  // STEP 3: Determine session name from directory or explicit parameter
-  const pathParts = currentDir.split("/");
-  const sessionsIndex = pathParts.indexOf("sessions");
-  const sessionName =
-    params.session || (sessionsIndex >= 0 ? pathParts[sessionsIndex + 1] : undefined);
+  // STEP 3: Determine session name from explicit parameter or directory (CLI only)
+  let sessionName = params.session;
+
+  // For CLI interface, try to extract session name from directory if not explicitly provided
+  if (!sessionName && interfaceType === "cli") {
+    const pathParts = currentDir.split("/");
+    const sessionsIndex = pathParts.indexOf("sessions");
+    sessionName = sessionsIndex >= 0 ? pathParts[sessionsIndex + 1] : undefined;
+  }
 
   if (!sessionName) {
-    throw new MinskyError("Could not determine session name from current directory or parameters");
+    const errorMessage =
+      interfaceType === "mcp"
+        ? "Session parameter is required for MCP interface. Please provide session name or task ID."
+        : "Could not determine session name from current directory or parameters";
+    throw new MinskyError(errorMessage);
   }
 
   // STEP 4: Check for uncommitted changes
@@ -156,7 +173,7 @@ Please provide a title for your pull request:
 
 📋 Examples:
    minsky session pr --title "feat: Add new feature"
-   minsky session pr --title "fix: Bug fix" 
+   minsky session pr --title "fix: Bug fix"
    minsky session pr --title "docs: Update documentation"
 
 💡 Or use conventional commit format with task ID:

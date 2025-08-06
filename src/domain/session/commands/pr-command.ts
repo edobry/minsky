@@ -17,7 +17,13 @@ import { readFile } from "fs/promises";
 /**
  * Prepares a PR for a session based on parameters
  */
-export async function sessionPr(params: SessionPRParameters): Promise<SessionPrResult> {
+export async function sessionPr(
+  params: SessionPRParameters,
+  options?: {
+    interface?: "cli" | "mcp";
+    workingDirectory?: string;
+  }
+): Promise<SessionPrResult> {
   const { session, task, repo, title, body, bodyPath, debug } = params;
 
   // Set default values for properties not in new schema
@@ -106,7 +112,8 @@ export async function sessionPr(params: SessionPRParameters): Promise<SessionPrR
       {
         sessionDB,
         gitService,
-      }
+      },
+      options
     );
 
     // Get the commit hash of the prepared merge commit

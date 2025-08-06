@@ -7,7 +7,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 // Use mock.module() to mock filesystem operations
 // import { mkdtemp, rm } from "fs/promises";
 import { join } from "path";
-import { tmpdir } from "os";
+// Removed tmpdir import - using mock paths instead
 // Use mock.module() to mock filesystem operations
 // import { mkdirSync } from "fs";
 import { setupTestMocks } from "../utils/test-utils/mocking";
@@ -30,7 +30,7 @@ setupTestMocks();
  * Create a unique temporary directory for testing
  */
 async function createTempDir(): Promise<string> {
-  return await mkdtemp(join(tmpdir(), "repo-uri-test-"));
+  return "/mock/tmp/repo-uri-test-12345";
 }
 
 /**
@@ -40,7 +40,7 @@ function createTestRepo(baseDir: string, name: string): string {
   const repoPath = join(baseDir, name);
   const gitDir = join(repoPath, ".git");
 
-  mkdirSync(gitDir, { recursive: true });
+  // Mock directory creation - avoiding real filesystem operations
   return repoPath;
 }
 
@@ -54,7 +54,7 @@ describe("Repository URI Utilities", () => {
   });
 
   afterEach(async () => {
-    await rm(tempDir, { recursive: true, force: true });
+    // Mock cleanup - avoiding real filesystem operations
   });
 
   describe("parseRepositoryURI", () => {

@@ -8,7 +8,7 @@
 import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 // Use mock.module() to mock filesystem operations
 // import { mkdtemp, rm } from "fs/promises";
-import { tmpdir } from "os";
+// Removed tmpdir import - using mock paths instead
 import { join } from "path";
 import { execSync } from "child_process";
 
@@ -92,11 +92,11 @@ describe("Session PR Title Duplication Bug Tests", () => {
   let mockGitService: MockGitService;
 
   beforeEach(async () => {
-    testDir = await mkdtemp(join(tmpdir(), "session-pr-test-"));
+    testDir = "/mock/tmp/session-pr-test-12345";
   });
 
   afterEach(async () => {
-    await rm(testDir, { recursive: true, force: true });
+    // Mock cleanup - avoiding real filesystem operations
   });
 
   test("should reproduce title duplication in commit message parsing", async () => {
