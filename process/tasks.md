@@ -1,3 +1,5 @@
+- [x] Add `--task` Option to `session get` Command [#004](process/tasks/004-add-task-option-to-session-get-command.md)
+
 - [x] Add `--quiet` Option to `session start` for Programmatic Output [#006](process/tasks/006-add-quiet-option-to-session-start-for-programmatic-output.md)
 
 - [x] Add `minsky tasks create` Command [#007](process/tasks/007-add-minsky-tasks-create-command.md)
@@ -174,7 +176,7 @@
 
 - [x] Improve CLI Adapter Structure for Shared Options [#096](process/tasks/096-improve-cli-adapter-structure-for-shared-options.md)
 
-- [+] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
+- [x] Standardize Option Descriptions Across CLI and MCP Adapters [#097](process/tasks/097-standardize-option-descriptions-across-cli-and-mcp-adapters.md)
 
 - [x] Create Shared Adapter Layer for CLI and MCP Interfaces [#098](process/tasks/098-create-shared-adapter-layer-for-cli-and-mcp-interfaces.md)
 
@@ -334,7 +336,7 @@
 
 - [x] Investigate and improve configuration system design [#181](process/tasks/181-investigate-and-improve-configuration-system-design.md)
 
-- [x] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
+- [ ] Add AI-Powered Rule Suggestion MVP [#182](process/tasks/182-add-ai-powered-rule-suggestion-mvp.md)
 
 - [x] Fix Task Operations to Use Main Workspace [#183](process/tasks/183-fix-task-operations-to-use-main-workspace.md)
 
@@ -578,8 +580,6 @@
 
 - [x] Extend Type Composition Refactoring to All MCP Command Domains [#331](process/tasks/331-extend-type-composition-refactoring-to-all-mcp-command-domains.md)
 
-- [x] Create ESLint rule to forbid real filesystem operations in tests [#332](process/tasks/332-create-eslint-rule-to-forbid-real-filesystem-operations-in-tests.md)
-
 - [x] Implement Pre-Commit Secret Scanning with Husky [#341](process/tasks/341-implement-pre-commit-secret-scanning-with-husky.md)
 
 - [x] Add Git Conflict Detection Command with Structured Output [#342](process/tasks/342-add-git-conflict-detection-command-with-structured-output.md)
@@ -604,13 +604,13 @@
 
 - [x] Implement Multi-Backend Task System Architecture [#356](process/tasks/356-implement-multi-backend-task-system-architecture.md)
 
-- [x] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
+- [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [#357](process/tasks/357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
-- [ ] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
+- [+] Explore PR Approval and Merge Decoupling [#358](process/tasks/358-explore-pr-approval-and-merge-decoupling.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [#359](process/tasks/359-restructure-session-pr-command-with-explicit-subcommands.md)
 
-- [+] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
+- [x] Implement Session Outdated Detection and Display [#360](process/tasks/360-implement-session-outdated-detection-and-display.md)
 
 - [ ] Explore Automated Session Sync Workflow on PR Merge [#361](process/tasks/361-explore-automated-session-sync-workflow-on-pr-merge.md)
 
@@ -626,54 +626,42 @@
 
 - [x] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/367-consolidate-multiple-task-id-parsing-implementations.md)
 
-- [x] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
+- [ ] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
 
-- [x] Multi-Backend System Polish & Optimization [#369](process/tasks/369-multi-backend-system-polish-optimization.md)
+- [ ] Multi-Backend System Polish & Optimization [#369](process/tasks/369-multi-backend-system-polish-optimization.md)
 
 - [+] Add minsky tasks similar command for finding related completed tasks [#370](process/tasks/370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
 
 - [+] Explore Development Dependency Management System [#371](process/tasks/371-explore-development-dependency-management-system.md)
 
+- [ ] Add AI-powered rule suggestion for context construction MVP - Task 182 [#004](process/tasks/004-add-ai-powered-rule-suggestion-for-context-construction-mvp-task-182.md)
+
 - [+] Collapse Unnecessary Application Layer in Task Architecture [#375](process/tasks/375-collapse-unnecessary-application-layer-in-task-architecture.md)
 
-- [+] Test MCP session start with restarted server [#376](process/tasks/376-test-mcp-session-start-with-restarted-server.md)
+- [ ] Test session to reproduce the createTaskFromTitleAndDescription error [#001](process/tasks/001-test-session-to-reproduce-the-createtaskfromtitleanddescription-error.md)
 
-- [ ] Test MCP session start with restarted server after cleanup [#378](process/tasks/378-test-mcp-session-start-with-restarted-server-after-cleanup.md)
+- [ ] Test session for MCP fix verification [#001](process/tasks/001-test-session-for-mcp-fix-verification.md)
 
-- [ ] Test MCP session start after fixing duplicate task ID bug [#379](process/tasks/379-test-mcp-session-start-after-fixing-duplicate-task-id-bug.md)
+- [ ] Test session for MCP fix verification [#376](process/tasks/376-test-session-for-mcp-fix-verification.md)
 
-- [ ] Design Release-Based Changelog Management System [#380](process/tasks/380-design-release-based-changelog-management-system.md)
+- [ ] Test session for MCP fix verification - round 2 [#001](process/tasks/001-test-session-for-mcp-fix-verification-round-2.md)
 
-- [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [#384](process/tasks/384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
+- [ ] Test session to see the actual MCP error [#002](process/tasks/002-test-session-to-see-the-actual-mcp-error.md)
 
-- [ ] Add support for knowledge bases and documentation systems [#385](process/tasks/385-add-support-for-knowledge-bases-and-documentation-systems.md)
+- [ ] Test to see exact MCP error [#003](process/tasks/003-test-to-see-exact-mcp-error.md)
 
-- [ ] Fix git commands not being available over MCP by uncommenting the registerGitTools call in the MCP command registration [#386](process/tasks/386-fix-git-commands-not-being-available-over-mcp-by-uncommenting-the-registergittools-call-in-the-mcp-command-registration.md)
+- [+] Test MCP session start with description [#377](process/tasks/377-test-mcp-session-start-with-description.md)
 
-- [x] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
+- [ ] Fix the authentication bug [#378](process/tasks/378-fix-the-authentication-bug.md)
 
-- [ ] Add MCP tool for sessiondb querying [#387](process/tasks/387-add-mcp-tool-for-sessiondb-querying.md)
+- [ ] Fix the authentication bug [#379](process/tasks/379-fix-the-authentication-bug.md)
 
-- [+] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
+- [ ] Fix the authentication bug [#380](process/tasks/380-fix-the-authentication-bug.md)
 
-- [ ] Refactor session dependencies for unified dependency injection pattern [#389](process/tasks/389-refactor-session-dependencies-for-unified-dependency-injection-pattern.md)
+- [ ] Fix the authentication bug [#381](process/tasks/381-fix-the-authentication-bug.md)
 
-- [ ] Add AI telemetry and verbose output for debugging AI requests [#390](process/tasks/390-add-ai-telemetry-and-verbose-output-for-debugging-ai-requests.md)
+- [+] Fresh test of MCP session start functionality [#382](process/tasks/382-fresh-test-of-mcp-session-start-functionality.md)
 
-- [ ] Add config commands to MCP server [#391](process/tasks/391-add-config-commands-to-mcp-server.md)
+- [+] Test without dependency install [#383](process/tasks/383-test-without-dependency-install.md)
 
-- [ ] Systematic Global Module Mock Cleanup [#392](process/tasks/392-systematic-global-module-mock-cleanup.md)
-
-- [ ] Audit and fix task backend consistency across session operations [#388](process/tasks/388-audit-and-fix-task-backend-consistency-across-session-operations.md)
-
-- [+] Replace Unreliable Mock Factories with Explicit Mock Pattern [#393](process/tasks/393-replace-unreliable-mock-factories-with-explicit-mock-pattern.md)
-
-- [ ] Replace Unreliable Mock Factories with Explicit Mock Pattern [#393](process/tasks/393-replace-unreliable-mock-factories-with-explicit-mock-pattern.md)
-
-- [ ] Testable Design Pattern Expansion [#394](process/tasks/394-testable-design-pattern-expansion.md)
-
-- [ ] Dependency Injection Enhancement for Test Reliability [#395](process/tasks/395-dependency-injection-enhancement-for-test-reliability.md)
-
-- [+] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
-
-- [ ] Test Architecture Documentation and Guidelines [#396](process/tasks/396-test-architecture-documentation-and-guidelines.md)
+- [ ] Audit and fix task backend consistency across session operations [md#384](process/tasks/md#384-audit-and-fix-task-backend-consistency-across-session-operations.md)

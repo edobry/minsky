@@ -1,7 +1,7 @@
 import type { SessionStartParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { TaskService } from "../../tasks";
+import { TaskService, createConfiguredTaskService } from "../../tasks";
 import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";
 import { createTaskFromDescription } from "../../templates/session-templates";
 import { detectPackageManager, installDependencies } from "../../../utils/package-manager";
@@ -36,7 +36,7 @@ export async function sessionStart(
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
-    taskService: depsInput?.taskService || new TaskService(),
+    taskService: depsInput?.taskService || (await createConfiguredTaskService()),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath,
   };

@@ -1,6 +1,6 @@
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { TaskService } from "../../tasks";
+import { TaskService, createConfiguredTaskService } from "../../tasks";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import {
@@ -41,7 +41,7 @@ export async function sessionReview(
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
-    taskService: depsInput?.taskService || new TaskService(),
+    taskService: depsInput?.taskService || (await createConfiguredTaskService()),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };

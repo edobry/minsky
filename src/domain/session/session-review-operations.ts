@@ -13,7 +13,7 @@ import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
-import { TaskService, TASK_STATUS, type TaskServiceInterface } from "../tasks";
+import { TaskService, TASK_STATUS, type TaskServiceInterface, createConfiguredTaskService } from "../tasks";
 import { execAsync } from "../../utils/exec";
 import {
   type WorkspaceUtilsInterface,
@@ -75,10 +75,9 @@ export async function sessionReviewImpl(
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
-      new TaskService({
+      (await createConfiguredTaskService({
         workspacePath: params.repo || process.cwd(),
-        backend: "markdown",
-      }),
+      })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
