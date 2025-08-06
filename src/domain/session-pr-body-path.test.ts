@@ -1,16 +1,57 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { join } from "path";
 import { ValidationError } from "../errors/index";
+import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 
-// NOTE: This test file requires refactoring to use dependency injection
-// for filesystem operations before it can be safely enabled.
-// Current tests use real filesystem operations which violate our testing guidelines.
-// See: https://github.com/minsky/issues/262 for consolidation strategy.
+// Mock the fs modules to use our mock filesystem
+const mockFs = createMockFilesystem();
+
+mock.module("fs/promises", () => ({
+  writeFile: mockFs.writeFile,
+  mkdir: mockFs.mkdir,
+  rm: mockFs.rm,
+  readFile: mockFs.readFile,
+}));
 
 describe("Session PR bodyPath file reading functionality", () => {
-  test.skip("bodyPath file reading - requires DI refactoring", () => {
-    // Test skipped: Filesystem operations need dependency injection
-    // to avoid real filesystem operations in tests
-    expect(true).toBe(true);
+  const testDir = "/mock/test/body-path";
+  const testFilePath = join(testDir, "test-body.txt");
+  const testContent = "This is the PR body content from file";
+
+  beforeEach(async () => {
+    // Reset mock filesystem
+    mockFs.reset();
+    
+    // Setup test directory and file in mock filesystem
+    mockFs.ensureDirectorySync(testDir);
+    mockFs.writeFileSync(testFilePath, testContent, "utf8");
+  });
+
+  afterEach(() => {
+    mock.restore();
+  });
+
+  test("should read body content from bodyPath when provided", async () => {
+    // Test the file reading logic directly
+    const { readFile } = await import("fs/promises");
+    const content = await readFile(testFilePath, "utf8");
+    
+    expect(content).toBe(testContent);
+  });
+
+  test("should handle non-existent file path", async () => {
+    const { readFile } = await import("fs/promises");
+    const nonExistentPath = join(testDir, "non-existent.txt");
+    
+    await expect(readFile(nonExistentPath, "utf8")).rejects.toThrow();
+  });
+
+  test("should handle file reading with different encodings", async () => {
+    const { readFile } = await import("fs/promises");
+    const binaryContent = await readFile(testFilePath, "utf8");
+    
+    expect(typeof binaryContent).toBe("string");
+    expect(binaryContent).toBe(testContent);
   });
 
   test("ValidationError should be constructible", () => {

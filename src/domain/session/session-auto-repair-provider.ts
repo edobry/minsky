@@ -87,10 +87,10 @@ export class SessionAutoRepairProvider implements SessionProviderInterface {
 
     // First try the base provider
     let sessionRecord = await this.baseProvider.getSessionByTaskId(taskId);
-    log.debug("Base provider lookup result", { 
-      taskId, 
+    log.debug("Base provider lookup result", {
+      taskId,
       found: sessionRecord !== null,
-      sessionName: sessionRecord?.session 
+      sessionName: sessionRecord?.session,
     });
 
     if (!sessionRecord && !this.autoRepairAttempted.has(`task:${taskId}`)) {

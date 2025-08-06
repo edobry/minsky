@@ -254,17 +254,17 @@ export function createSessionProvider(_options?: {
   useNewBackend?: boolean;
 }): SessionProviderInterface {
   log.debug("Creating session provider with auto-repair support");
-  
+
   // Always use the new configuration-based backend
   const baseProvider = new SessionDbAdapter();
-  
+
   // Wrap with auto-repair functionality for universal session auto-repair
   const wrappedProvider = wrapWithAutoRepair(baseProvider);
-  
+
   return wrappedProvider;
 }
 
-// Helper function to wrap base provider with auto-repair functionality  
+// Helper function to wrap base provider with auto-repair functionality
 function wrapWithAutoRepair(baseProvider: SessionProviderInterface): SessionProviderInterface {
   log.debug("Wrapping session provider with auto-repair functionality");
   return createSessionProviderWithAutoRepair(baseProvider);
