@@ -1,18 +1,18 @@
 /**
  * Test-Driven Bug Fix: LocalGitBackend Merge Working Directory Issue
- * 
+ *
  * Bug Description:
  * The LocalGitBackend.mergePullRequest() method was using the session workspace
- * instead of the main repository for merge operations, causing "Not possible to 
+ * instead of the main repository for merge operations, causing "Not possible to
  * fast-forward" errors.
- * 
+ *
  * Root Cause:
  * PR branches exist in the main repository, but merge operations were attempted
  * in the session workspace where the branches don't exist.
- * 
+ *
  * Steps to Reproduce:
  * 1. Create a LocalGitBackend with a local repository path
- * 2. Create a session with a PR branch in the main repository  
+ * 2. Create a session with a PR branch in the main repository
  * 3. Attempt to merge the PR using the session
  * 4. Error: "Not possible to fast-forward" because workdir is session workspace
  */
@@ -22,10 +22,9 @@ import type { SessionRecord } from "../session/types";
 
 // Simple focused test without complex dependencies
 describe("LocalGitBackend Merge Working Directory Bug Fix", () => {
-  
   it("should demonstrate the working directory bug pattern", () => {
     // Bug demonstration: Simulating the exact scenario from the user's error
-    
+
     // 1. Session record with main repository path (local path)
     const sessionRecord: SessionRecord = {
       session: "task-md#388",
@@ -78,14 +77,14 @@ describe("LocalGitBackend Merge Working Directory Bug Fix", () => {
 
   it("should show why session workspace causes fast-forward errors", () => {
     // Explanation of why the bug causes "Not possible to fast-forward" errors:
-    
+
     const mainRepoPath = "/Users/edobry/Projects/minsky";
     const sessionWorkspace = "/Users/edobry/.local/state/minsky/sessions/task-md#388";
-    
+
     // Mock: What branches exist where
     const branchesInMainRepo = ["main", "pr/task-md#388", "feature-branch"];
     const branchesInSessionWorkspace = ["task-md#388"]; // Only the session branch
-    
+
     function attemptMerge(workdir: string, prBranch: string): { success: boolean; error?: string } {
       if (workdir === mainRepoPath) {
         // Main repo has the PR branch - merge succeeds
@@ -93,9 +92,9 @@ describe("LocalGitBackend Merge Working Directory Bug Fix", () => {
       } else if (workdir === sessionWorkspace) {
         // Session workspace doesn't have PR branch - merge fails
         if (!branchesInSessionWorkspace.includes(prBranch)) {
-          return { 
-            success: false, 
-            error: "fatal: Not possible to fast-forward, aborting." 
+          return {
+            success: false,
+            error: "fatal: Not possible to fast-forward, aborting.",
           };
         }
         return { success: true };
@@ -105,12 +104,12 @@ describe("LocalGitBackend Merge Working Directory Bug Fix", () => {
 
     // Test the scenario
     const prBranch = "pr/task-md#388";
-    
+
     // BUG: Merge fails in session workspace because PR branch doesn't exist there
     const buggyResult = attemptMerge(sessionWorkspace, prBranch);
     expect(buggyResult.success).toBe(false);
     expect(buggyResult.error).toContain("Not possible to fast-forward");
-    
+
     // FIX: Merge succeeds in main repo because PR branch exists there
     const correctResult = attemptMerge(mainRepoPath, prBranch);
     expect(correctResult.success).toBe(true);

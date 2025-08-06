@@ -25,10 +25,12 @@ const TEST_TASK_STATUS = "TODO";
 // Derived constants to eliminate duplication
 const TEST_PR_BRANCH = `pr/${TEST_SESSION_NAME}`;
 const TEST_REVIEW_ID = `test-review-${TEST_TASK_ID}`;
-const TEST_PR_NUMBER = TEST_TASK_ID;
 
 describe("Session Approve Branch Cleanup", () => {
   test("should delete local PR branch and task branch after successful merge", async () => {
+    // Test-scoped variable instead of global counter
+    const TEST_PR_NUMBER = TEST_TASK_ID;
+
     // Clean DI approach for branch cleanup
     const mockSessionDB = createMockSessionProvider({
       sessions: [

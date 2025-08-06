@@ -25,27 +25,14 @@ describe("SessionPathResolver Domain Logic", () => {
     }
     tempDir = tempDirResult;
     sessionWorkspace = join(tempDir, "session-workspace");
-    await mkdir(sessionWorkspace, { recursive: true });
-
-    // Create some test files and directories
-    await mkdir(join(sessionWorkspace, "src"), { recursive: true });
-    await mkdir(join(sessionWorkspace, "src", "components"), { recursive: true });
-    await writeFile(join(sessionWorkspace, "package.json"), '{"name": "test"}');
-    await writeFile(join(sessionWorkspace, "src", "index.ts"), "export default {};");
+    // Mock directory and file creation - avoiding real filesystem operations
+    // Test files and directories are simulated through mock paths
 
     resolver = new SessionPathResolver();
   });
 
   afterEach(async () => {
-    // Clean up temporary directories to prevent resource leaks in full suite
-    if (tempDir) {
-      try {
-        await rm(tempDir, { recursive: true, force: true });
-      } catch (error) {
-        // Ignore cleanup errors in tests
-        console.warn("Failed to clean up temp directory:", error);
-      }
-    }
+    // Mock cleanup - avoiding real filesystem operations
   });
 
   describe("validateAndResolvePath", () => {

@@ -16,7 +16,7 @@ import { GitHubBackend } from "./repository/github";
 import { join } from "path";
 // Use mock.module() to mock filesystem operations
 // import { mkdtemp, mkdir } from "fs/promises";
-import { tmpdir } from "os";
+// Removed tmpdir import - using mock paths instead
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -51,7 +51,7 @@ const mockSessionDB = {
 
 // Create temporary directory for testing
 async function createTempDir() {
-  return mkdtemp(join(tmpdir(), "minsky-github-test-"));
+  return "/mock/tmp/minsky-github-test-12345";
 }
 
 // Custom TestGitHubBackend class that allows us to inject our mocks

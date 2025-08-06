@@ -1,6 +1,6 @@
 /**
  * Verification Test: LocalGitBackend Merge Fix
- * 
+ *
  * This test verifies that the fix for the merge working directory issue works correctly.
  * It tests the specific logic that was changed without complex dependencies.
  */
@@ -8,10 +8,9 @@
 import { describe, it, expect } from "bun:test";
 
 describe("LocalGitBackend Merge Fix Verification", () => {
-  
   it("should demonstrate the fix works correctly", () => {
     // Simulating the fixed logic from LocalGitBackend.mergePullRequest()
-    
+
     // Mock session record (what would be returned from sessionDB.getSession())
     const sessionRecord = {
       session: "task-md#388",
@@ -35,12 +34,12 @@ describe("LocalGitBackend Merge Fix Verification", () => {
 
     // Test the fix
     const workdir = determineWorkdir("task-md#388");
-    
+
     // Verify it uses the main repository path, not session workspace
     expect(workdir).toBe("/Users/edobry/Projects/minsky");
     expect(workdir).not.toContain("/sessions/");
     expect(workdir).not.toContain("/.local/state/");
-    
+
     // This should now work for git merge operations because:
     // 1. The PR branch "pr/task-md#388" exists in the main repository
     // 2. The merge operation happens in the correct directory
@@ -74,7 +73,9 @@ describe("LocalGitBackend Merge Fix Verification", () => {
       backendType: "remote" as const,
     };
 
-    function getWorkdirForBackendType(record: typeof localSessionRecord | typeof remoteSessionRecord): string {
+    function getWorkdirForBackendType(
+      record: typeof localSessionRecord | typeof remoteSessionRecord
+    ): string {
       if (record.backendType === "local") {
         // For local: repoUrl is a usable local path
         return record.repoUrl;
