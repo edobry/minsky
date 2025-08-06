@@ -7,9 +7,12 @@
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-import { getSessionDirFromParams, updateSessionFromParams } from "../../../src/domain/session";
+import { getSessionDirFromParams } from "../../../src/domain/session/commands/dir-command";
+import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import { createMock as createMockFunction } from "../../../src/utils/test-utils/core/mock-functions";
+import { initializeConfiguration } from "../../../src/domain/configuration";
 import {
   createMockGitService,
   createMockSessionProvider,
@@ -90,12 +93,11 @@ describe("Session CLI Commands", () => {
       mockFs.ensureDirectoryExists(sessionPath);
 
       const result = await getSessionDirFromParams(
-        { sessionName: "test-session" },
-        { sessionProvider: mockSessionProvider }
+        { name: "test-session" },
+        { sessionDB: mockSessionProvider }
       );
 
-      expect(result.sessionPath).toBe(sessionPath);
-      expect(result.sessionName).toBe("test-session");
+      expect(result).toBe(sessionPath);
     });
 
     test("should resolve session directory from task ID", async () => {
@@ -118,11 +120,10 @@ describe("Session CLI Commands", () => {
 
       const result = await getSessionDirFromParams(
         { task: "123" },
-        { sessionProvider: mockSessionProviderWithTask }
+        { sessionDB: mockSessionProviderWithTask }
       );
 
-      expect(result.sessionPath).toBe(sessionPath);
-      expect(result.sessionName).toBe("task-123");
+      expect(result).toBe(sessionPath);
     });
 
     test("should resolve session directory from current working directory", async () => {
@@ -145,15 +146,11 @@ describe("Session CLI Commands", () => {
         }),
       });
 
-      const result = await getSessionDirFromParams(
-        {},
-        { sessionProvider: mockSessionProviderCurrent }
-      );
+      const result = await getSessionDirFromParams({}, { sessionDB: mockSessionProviderCurrent });
 
-      expect(result.sessionPath).toBe(sessionPath);
-      expect(result.sessionName).toBe("current-session");
+      expect(result).toBe(sessionPath);
 
-      dirIsolation.cleanup();
+      // dirIsolation.cleanup(); // Not available in this test utility
     });
   });
 
@@ -175,7 +172,7 @@ describe("Session CLI Commands", () => {
 
       const mockSessionDB = {
         getSession: () => sessionRecord,
-        updateSession: mock.fn(),
+        updateSession: createMockFunction(),
       };
 
       const result = await updateSessionFromParams(
@@ -216,7 +213,7 @@ describe("Session CLI Commands", () => {
 
       const mockSessionDB = {
         getSession: () => sessionRecord,
-        updateSession: mock.fn(),
+        updateSession: createMockFunction(),
       };
 
       const mockGitServiceWithCommands = createMockGitService({
