@@ -17,7 +17,7 @@
  * 6. `minsky session pr` fails with "Session not found"
  */
 
-import { describe, it, expect, beforeEach, mock } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { startSessionFromParams, listSessionsFromParams } from "./session";
 import { createMock } from "../utils/test-utils/mocking";

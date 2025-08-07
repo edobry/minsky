@@ -212,6 +212,12 @@ export function createMockFilesystem(
       files.clear();
       directories.clear();
     },
+
+    // Alias for cleanup to match existing test patterns
+    reset: () => {
+      files.clear();
+      directories.clear();
+    },
   };
 
   return mockFs;

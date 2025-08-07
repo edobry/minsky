@@ -29,11 +29,11 @@ const TEST_TASK_STATUS = "TODO";
 // Derived constants to eliminate duplication
 const TEST_PR_BRANCH = `pr/${TEST_SESSION_NAME}`;
 const TEST_REVIEW_ID = `test-review-${TEST_TASK_ID}`;
+const TEST_PR_NUMBER = TEST_TASK_ID;
 
 describe("Session Approve", () => {
   test("simple approval test with working mock", async () => {
-    // Test-scoped variable instead of global counter
-    const TEST_PR_NUMBER = TEST_TASK_ID;
+    // Test-scoped constants removed - using module level TEST_PR_NUMBER
 
     const mockSessionDB = createMockSessionProvider({
       sessions: [
