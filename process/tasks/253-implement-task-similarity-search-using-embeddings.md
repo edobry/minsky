@@ -1,4 +1,4 @@
-# Implement Task Similarity Search Using Embeddings
+# Implement Task Similarity Search Using AI
 
 ## Status
 
@@ -10,7 +10,7 @@ MEDIUM
 
 ## Description
 
-# Implement Task Similarity Search Using Embeddings
+# Implement Task Similarity Search Using AI
 
 ## Context
 
@@ -22,18 +22,23 @@ As our task management system grows and becomes more complex, we need intelligen
 4. **Improve task discovery** - Help users find related tasks when working on similar problems
 5. **Enhance AI task management** - Support the AI-powered task decomposition and analysis from Task #248
 
-This task implements semantic similarity search for tasks using embeddings, leveraging the same embedding approach investigated in Task #179 for search-related MCP tools and mentioned in Task #182 for rule suggestions.
+This task implements semantic similarity search for tasks using AI completion, following the proven approach from Task #182 (rule suggestions). Embedding-based search will be added as a future enhancement when the infrastructure from Task #179/250 becomes available.
 
 ## Dependencies
 
-1. **Task #179**: Builds on the embeddings/RAG investigation to use the same embedding technology and architecture patterns
-2. **Task #160**: Requires AI completion backend for embedding generation (or leverages the embedding approach from #179)
+1. **Task #160**: ✅ **DONE** - AI completion backend provides the foundation for similarity analysis
+2. **Task #182**: ✅ **DONE** - Provides proven patterns for AI-powered semantic search and service architecture
 3. **Task Hierarchy System**: Should integrate with parent-child relationships from Task #246 or #247
 4. **Task #248**: Complements AI-powered task decomposition and analysis with similarity capabilities
 
+## Future Enhancements (Not Blocking)
+
+- **Task #179**: Embeddings/RAG investigation (when complete, will enhance performance)
+- **Task #250**: Session-aware code search (when complete, will provide embedding infrastructure)
+
 ## Objective
 
-Implement a comprehensive task similarity search system that uses embeddings to find semantically similar tasks, enabling intelligent task management, duplicate detection, and dependency discovery.
+Implement a comprehensive task similarity search system that uses AI completion to find semantically similar tasks, enabling intelligent task management, duplicate detection, and dependency discovery.
 
 ## Core Features
 
@@ -46,7 +51,7 @@ Implement a comprehensive task similarity search system that uses embeddings to 
 - Ranked results with similarity scores
 - Support for filtering by status, date, or other metadata
 
-**`minsky tasks find-similar <query>`**
+**`minsky tasks search <query>`**
 
 - Search for tasks similar to a natural language query
 - Useful for discovering existing tasks before creating new ones
@@ -100,45 +105,52 @@ Implement a comprehensive task similarity search system that uses embeddings to 
 
 ## Technical Implementation
 
-### Embedding Generation
+### AI-Powered Similarity Analysis
 
-Building on Task #179's embedding approach:
+Following the proven approach from Task #182:
 
-1. **Task Content Extraction:**
+1. **Task Content Analysis:**
 
-   - Extract embeddings from task titles, descriptions, and specifications
+   - Analyze task titles, descriptions, and specifications using AI
    - Handle structured content (markdown, code blocks, lists)
    - Support for multiple content types and formats
+   - Extract semantic meaning and key concepts
 
-2. **Embedding Models:**
+2. **AI Completion Service:**
 
-   - Use same embedding model architecture as Task #179
-   - Support for both cloud-based (OpenAI) and local models
+   - Leverage existing `DefaultAICompletionService` from Task #160
+   - Use structured output with Zod schemas for reliable results
+   - Support for multiple AI providers (OpenAI, Anthropic, etc.)
    - Configurable model selection based on use case
 
-3. **Incremental Updates:**
-   - Generate embeddings for new tasks automatically
-   - Update embeddings when task content changes
-   - Efficient batch processing for existing tasks
+3. **Similarity Scoring:**
+   - AI-powered relevance scoring with confidence levels
+   - Structured reasoning for each similarity match
+   - Configurable similarity thresholds
+   - Multi-criteria analysis (content, status, metadata)
 
-### Vector Storage and Search
+### Task Search Service Architecture
 
-1. **Vector Database Integration:**
+Based on Task #182's `DefaultRuleSuggestionService` patterns:
 
-   - Use same vector database approach as Task #179
-   - Support for multiple backends (in-memory, PostgreSQL, specialized vector DBs)
-   - Efficient similarity search with configurable algorithms
+1. **Service Design:**
 
-2. **Similarity Metrics:**
+   - `DefaultTaskSimilarityService` following established patterns
+   - Clean separation between AI analysis and task data
+   - Graceful fallback to keyword-based search when AI unavailable
+   - Comprehensive error handling and logging
 
-   - Cosine similarity for semantic similarity
-   - Configurable distance metrics and thresholds
-   - Support for weighted similarity based on content sections
+2. **Performance Optimization:**
 
-3. **Performance Optimization:**
-   - Indexing strategies for large task databases
-   - Caching of frequent similarity searches
-   - Batch processing for bulk operations
+   - Task metadata caching with file system watching
+   - AI response caching with query similarity detection
+   - Efficient batch processing for bulk operations
+   - Target <1 second response time for interactive use
+
+3. **Future Enhancement Architecture:**
+   - Extensible design for adding embedding-based search later
+   - Plugin architecture for different similarity algorithms
+   - Integration points for Task #179/250 embedding infrastructure
 
 ### Integration with Task Management
 
@@ -165,7 +177,7 @@ Building on Task #179's embedding approach:
 
 ```bash
 # Check for similar tasks before creating
-minsky tasks find-similar "implement user authentication"
+minsky tasks search "implement user authentication"
 
 # Create task with automatic duplicate check
 minsky tasks create "Add login functionality" --check-duplicates
@@ -204,7 +216,7 @@ minsky tasks analyze-relationships --find-orphans
 
 ```bash
 # Find tasks related to authentication
-minsky tasks find-similar "authentication security login"
+minsky tasks search "authentication security login"
 
 # Discover tasks similar to current work
 minsky tasks similar $(minsky session get --current-task)
@@ -237,15 +249,15 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 ### Phase 1: Core Similarity Search
 
-1. **Embedding Infrastructure:**
+1. **AI Similarity Infrastructure:**
 
-   - Set up embedding generation pipeline
-   - Implement vector storage and search
-   - Create basic similarity API
+   - Set up AI-powered similarity analysis service
+   - Implement task content extraction and analysis
+   - Create structured similarity API with Zod schemas
 
 2. **Basic Commands:**
    - `minsky tasks similar <task-id>`
-   - `minsky tasks find-similar <query>`
+   - `minsky tasks search <query>`
    - Basic CLI interface and output formatting
 
 ### Phase 2: Duplicate Detection
@@ -291,10 +303,10 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 ### Core Functionality
 
-- [ ] Generate embeddings for all task content (title, description, specification)
-- [ ] Implement cosine similarity search with configurable thresholds
+- [ ] Analyze all task content using AI (title, description, specification)
+- [ ] Implement AI-powered similarity scoring with configurable thresholds
 - [ ] `minsky tasks similar <task-id>` returns ranked similar tasks
-- [ ] `minsky tasks find-similar <query>` supports natural language queries
+- [ ] `minsky tasks search <query>` supports natural language queries
 - [ ] Similarity results include relevance scores and explanations
 
 ### Duplicate Detection
@@ -306,10 +318,10 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 ### Performance and Scalability
 
-- [ ] Efficient similarity search for databases with 1000+ tasks
-- [ ] Incremental embedding updates for modified tasks
-- [ ] Caching of frequent similarity searches
-- [ ] Background processing for bulk operations
+- [ ] Efficient AI-powered search for databases with 1000+ tasks
+- [ ] Caching of task analysis and AI responses
+- [ ] Optimized batch processing for bulk similarity operations
+- [ ] Background processing for large-scale analysis
 
 ### Integration
 
@@ -347,9 +359,17 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 ### 4. Visualization and Reporting
 
-- **Task Relationship Graphs:** Visual representation of task similarities and dependencies
+- **Task Relationship Graphs:** Visual representation of AI-analyzed task similarities and dependencies
 - **Similarity Dashboards:** Real-time insights into task relationships
 - **Trend Analysis:** Track similarity patterns over time
+
+### 5. Future Embedding Enhancement
+
+When Task #179/250 infrastructure becomes available:
+
+- **Hybrid Search:** Combine AI analysis with embedding-based similarity
+- **Performance Optimization:** Use embeddings for initial filtering, AI for detailed analysis
+- **Advanced Similarity Metrics:** Multi-modal embeddings for enhanced accuracy
 
 ## Success Metrics
 

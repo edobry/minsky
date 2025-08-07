@@ -53,7 +53,7 @@ describe("session.edit_file Cursor Parity Integration", () => {
     await initializeConfiguration(factory, {
       workingDirectory: process.cwd(),
     });
-    
+
     const config = getConfiguration();
     configService = new DefaultAIConfigurationService({
       loadConfiguration: () => Promise.resolve({ resolved: config }),
@@ -62,8 +62,8 @@ describe("session.edit_file Cursor Parity Integration", () => {
     // Check if Morph is properly configured
     const morphConfig = config.ai?.providers?.morph;
     hasValidMorphConfig = !!(
-      morphConfig?.enabled && 
-      morphConfig?.apiKey && 
+      morphConfig?.enabled &&
+      morphConfig?.apiKey &&
       morphConfig?.baseURL
     );
   });
@@ -99,9 +99,9 @@ const editPattern = `class Calculator {
   add(a: number, b: number): number {
     return a + b;
   }
-  
+
   // ... existing code ...
-  
+
   multiply(a: number, b: number): number {
     return a * b;
   }
@@ -115,7 +115,7 @@ const editPattern2 = `class Calculator {
     if (a === 0 || b === 0) return 0;
     return a + b;
   }
-  
+
   // ... existing code ...
 }`;
 
@@ -128,11 +128,11 @@ const editPattern3 = `class Calculator {
     if (a === 0 || b === 0) return 0;
     return a + b;
   }
-  
+
   subtract(a: number, b: number): number {
     return a - b;
   }
-  
+
   multiply(a: number, b: number): number {
     return a * b;
   }
@@ -168,7 +168,7 @@ import { UserService } from './user-service';
 
 export class UserController {
   constructor(private userService: UserService) {}
-  
+
   async getUser(req: Request, res: Response) {
     // ... existing code ...
   }
@@ -419,13 +419,13 @@ tests/integration/fixtures/session-edit-file/
 ```typescript
 async function createTestSession(): Promise<string> {
   const sessionName = `edit-test-${Date.now()}`;
-  
+
   // Create session with test repository
   await mcp.session.start({
     name: sessionName,
     // Set up test repo with sample files
   });
-  
+
   return sessionName;
 }
 
@@ -442,9 +442,9 @@ async function createConfiguredEditTool(): Promise<SessionEditTool> {
   const configService = new DefaultAIConfigurationService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);
-  
+
   const completionService = new DefaultAICompletionService(configService);
-  
+
   // Create session edit tool with real Morph integration
   return new SessionEditTool(completionService);
 }
