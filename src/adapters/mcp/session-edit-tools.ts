@@ -215,9 +215,15 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
  * Uses AI-powered editing to replace legacy string-based pattern matching
  */
 async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
-  // Import required dependencies
+  // Import required dependencies with enhanced error handling
   const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+  const { RateLimitError, AuthenticationError, ServerError } = await import(
+    "../../domain/ai/enhanced-error-types"
+  );
   const { getConfiguration } = await import("../../domain/configuration");
+  const { analyzeEditPattern, createMorphCompletionParams, MorphFastApplyRequest } = await import(
+    "../../domain/ai/edit-pattern-utils"
+  );
 
   // Get AI configuration
   const config = getConfiguration();
@@ -258,13 +264,60 @@ async function applyEditPattern(originalContent: string, editContent: string): P
     log.debug(`Fast-apply providers unavailable, using fallback provider: ${provider}`);
   }
 
+  // Analyze edit pattern for validation and logging
+  const patternAnalysis = analyzeEditPattern(editContent);
+
+  log.debug("Edit pattern analysis", {
+    hasMarkers: patternAnalysis.hasMarkers,
+    markerCount: patternAnalysis.markerCount,
+    characterCount: patternAnalysis.characterCount,
+    validation: patternAnalysis.validation,
+  });
+
+  // Log validation issues if any
+  if (!patternAnalysis.validation.isValid) {
+    log.warn("Edit pattern validation issues", {
+      issues: patternAnalysis.validation.issues,
+      suggestions: patternAnalysis.validation.suggestions,
+    });
+  }
+
   // Create AI completion service
   const completionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);
 
-  // Create edit prompt optimized for the provider type
-  const prompt = `Apply the following edit pattern to the original content:
+  // Generate the edited content using the selected provider with enhanced error handling
+  let response;
+  try {
+    // Create completion parameters using utility functions
+    let completionParams;
+
+    if (isFastApply && provider === "morph") {
+      // Use Morph Fast Apply API format
+      const morphRequest: MorphFastApplyRequest = {
+        instruction:
+          "Apply the edit pattern to add new functionality while preserving existing code",
+        originalCode: originalContent,
+        editPattern: editContent,
+      };
+
+      completionParams = createMorphCompletionParams(morphRequest, {
+        provider,
+        model,
+        temperature: 0.1,
+        maxTokens: Math.max(originalContent.length * 2, 4000),
+      });
+
+      log.debug("Using Morph Fast Apply format", {
+        instruction: morphRequest.instruction,
+        originalLength: originalContent.length,
+        editPatternLength: editContent.length,
+        promptLength: completionParams.prompt.length,
+      });
+    } else {
+      // Fallback to generic prompt format
+      const prompt = `Apply the following edit pattern to the original content:
 
 Original content:
 \`\`\`
@@ -283,16 +336,74 @@ Instructions:
 - Preserve all formatting, indentation, and structure
 - Do not include explanations or markdown formatting`;
 
-  // Generate the edited content using the selected provider
-  const response = await completionService.complete({
-    prompt,
-    provider,
-    model,
-    temperature: 0.1, // Low temperature for precise edits
-    maxTokens: Math.max(originalContent.length * 2, 4000),
-    systemPrompt:
-      "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
-  });
+      completionParams = {
+        prompt,
+        provider,
+        model,
+        temperature: 0.1,
+        maxTokens: Math.max(originalContent.length * 2, 4000),
+        systemPrompt:
+          "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
+      };
+
+      log.debug("Using fallback prompt format", {
+        provider,
+        promptLength: prompt.length,
+      });
+    }
+
+    log.debug(`Making AI completion request to ${provider}`, {
+      provider,
+      model,
+      promptLength: completionParams.prompt.length,
+      originalContentLength: originalContent.length,
+      editContentLength: editContent.length,
+    });
+
+    response = await completionService.complete(completionParams);
+
+    log.debug(`AI completion successful`, {
+      provider,
+      responseLength: response.content.length,
+      tokensUsed: response.usage.totalTokens,
+      finishReason: response.finishReason,
+    });
+  } catch (error) {
+    // Enhanced error handling and reporting
+    if (error instanceof RateLimitError) {
+      log.warn(`Rate limit encountered for ${provider}`, {
+        provider,
+        retryAfter: error.retryAfter,
+        remaining: error.remaining,
+        limit: error.limit,
+        resetTime: error.resetTime,
+      });
+      throw new Error(
+        `Rate limit exceeded for ${provider}. Retry after ${error.retryAfter}s. Remaining: ${error.remaining}/${error.limit}`
+      );
+    } else if (error instanceof AuthenticationError) {
+      log.error(`Authentication failed for ${provider}`, {
+        provider,
+        code: error.code,
+        type: error.type,
+      });
+      throw new Error(`Authentication failed for ${provider}: ${error.message}`);
+    } else if (error instanceof ServerError) {
+      log.error(`Server error from ${provider}`, {
+        provider,
+        statusCode: error.statusCode,
+        isTransient: error.isTransient,
+      });
+      throw new Error(`Server error from ${provider} (${error.statusCode}): ${error.message}`);
+    } else {
+      log.error(`Unexpected error during AI completion`, {
+        provider,
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+      });
+      throw error;
+    }
+  }
 
   const result = response.content.trim();
 
