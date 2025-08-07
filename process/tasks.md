@@ -624,7 +624,7 @@
 
 - [+] Fix SQLite schema to persist PR metadata for session auto-updates [#366](process/tasks/366-fix-sqlite-schema-to-persist-pr-metadata-for-session-auto-updates.md)
 
-- [x] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/367-consolidate-multiple-task-id-parsing-implementations.md)
+- [+] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/md#367-consolidate-multiple-task-id-parsing-implementations.md)
 
 - [ ] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
 
@@ -668,4 +668,6 @@
 
 - [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
-- [ ] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+- [+] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+
+- [ ] Final test of the complete fix [#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
