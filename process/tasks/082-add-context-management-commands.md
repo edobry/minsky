@@ -26,12 +26,12 @@ Understanding context utilization is crucial for:
      - [`gpt-tokenizer`](https://github.com/niieani/gpt-tokenizer): Fastest JavaScript BPE tokenizer for OpenAI models (GPT-4o, o1, o3, GPT-4, etc.)
      - [`tiktoken`](https://github.com/dqbd/tiktoken): JavaScript port of OpenAI's tiktoken library
      - Extensible architecture to add more tokenization libraries as needed
-   
+
    - **Model-Specific Tokenizer Detection**: Automatically determine appropriate tokenizer for each model
      - Query provider APIs for tokenizer information during model metadata fetching
      - Extend AI provider configuration to specify custom tokenizer mappings
      - Fallback logic when tokenizer information is unavailable
-   
+
    - **Tokenizer Selection Logic**: Intelligent tokenizer library selection per model
      - Priority-based selection (e.g., gpt-tokenizer for OpenAI models, tiktoken for fallback)
      - Configuration overrides for custom tokenizer preferences
@@ -254,11 +254,11 @@ ai:
       tokenization:
         defaultLibrary: "gpt-tokenizer"  # preferred library
         modelOverrides:
-          "gpt-4o": 
+          "gpt-4o":
             tokenizer: "o200k_base"
             library: "gpt-tokenizer"
           "gpt-3.5-turbo":
-            tokenizer: "cl100k_base" 
+            tokenizer: "cl100k_base"
             library: "tiktoken"
         fallbackTokenizer: "cl100k_base"
 ```

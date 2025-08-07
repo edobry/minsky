@@ -665,3 +665,7 @@
 - [ ] Improve test mock filesystem approach with external libraries [#398](process/tasks/398-improve-test-mock-filesystem-approach-with-external-libraries.md)
 
 - [+] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+
+- [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
+
+- [ ] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
