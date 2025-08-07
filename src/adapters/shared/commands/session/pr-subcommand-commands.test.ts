@@ -21,6 +21,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { SessionPrCreateCommand } from "./pr-subcommand-commands";
 import type { CommandExecutionContext } from "../../types";
+import { createMock as createMockFunction } from "../../../../utils/test-utils/core/mock-functions";
 
 describe("Session PR Create Command - Task Parameter Bug Fix", () => {
   let command: SessionPrCreateCommand;
@@ -93,13 +94,9 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         }),
       };
 
-      // Mock imports to inject mocks
-      const sessionImportSpy = mock(() => mockSessionProvider as any);
-
-      const resolverImportSpy = spyOn(
-        await import("../../../../domain/session/session-context-resolver"),
-        "resolveSessionContextWithFeedback"
-      ).mockImplementation(mockSessionResolver as any);
+      // Use established mocking pattern instead of spyOn
+      const mockSessionImport = createMockFunction(() => mockSessionProvider as any);
+      const mockResolverImport = createMockFunction(() => mockSessionResolver);
 
       try {
         // Test the specific method that was fixed
@@ -111,8 +108,8 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         // This should now return true thanks to our fix
         expect(canRefresh).toBe(true);
       } finally {
-        sessionImportSpy.mockRestore();
-        resolverImportSpy.mockRestore();
+        mockSessionImport.mockRestore();
+        mockResolverImport.mockRestore();
       }
     });
 
