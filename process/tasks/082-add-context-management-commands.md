@@ -61,6 +61,7 @@ Understanding context utilization is crucial for:
 
 - **Task 160**: AI completion backend (required - provides model metadata and enhanced tokenization capabilities)
 - **Task 182**: AI-Powered Rule Suggestion (complementary - provides rule selection while this task provides analysis)
+- **Task 390**: AI telemetry/verbose output (surface tokenization failures/discrepancies without blocking)
 - **New Dependencies**:
   - `gpt-tokenizer` package: Fast JavaScript BPE tokenizer for OpenAI models
   - `tiktoken` package: JavaScript port of OpenAI's tiktoken library
@@ -68,24 +69,32 @@ Understanding context utilization is crucial for:
 
 ## Implementation Steps
 
-1. [ ] **Tokenization Infrastructure Setup**
+1. [ ] **Provider API Research (Tokenizer Metadata)**
+
+   - [ ] Investigate OpenAI and Anthropic APIs for tokenizer metadata exposure
+   - [ ] If APIs do not expose tokenizer info, research authoritative alternatives (official docs/specs) to derive model→tokenizer mappings
+   - [ ] Define precedence order for sources (API > config > documented defaults)
+   - [ ] Document findings and gaps for future provider coverage (Google, Morph, etc.)
+
+2. [ ] **Tokenization Infrastructure Setup**
 
    - [ ] Install and integrate tokenization libraries (`gpt-tokenizer`, `tiktoken`)
    - [ ] Design tokenizer abstraction layer with unified interface
    - [ ] Create tokenizer registry and selection logic
-   - [ ] Implement tokenizer caching and performance optimization
+   - [ ] Implement tokenizer caching
 
-2. [ ] **Enhanced Model Metadata System**
+3. [ ] **Enhanced Model Metadata System**
 
    - [ ] Extend AI provider model fetchers to query tokenizer information from APIs
    - [ ] Add tokenizer fields to `AIModel` interface and `CachedProviderModel`
    - [ ] Update model fetchers (OpenAI, Anthropic, Google, Morph) with tokenizer detection
    - [ ] Implement fallback tokenizer mapping for models without API tokenizer data
+   - [ ] Validate tokenizer mappings during offline cache hydration (reuse model cache cadence)
 
-3. [ ] **AI Provider Configuration Extensions**
+4. [ ] **AI Provider Configuration Extensions**
 
    - [ ] Extend AI provider config schema to support custom tokenizer mappings
-   - [ ] Add configuration options for tokenizer library preferences
+   - [ ] Add configuration options for tokenizer library preferences (per-model overrides; global provider-agnostic settings not required)
    - [ ] Implement tokenizer override mechanisms in provider configs
    - [ ] Create validation for tokenizer configuration entries
 
@@ -110,10 +119,9 @@ Understanding context utilization is crucial for:
 6. [ ] **Testing and Validation**
 
    - [ ] Create unit tests for tokenization infrastructure
-   - [ ] Test tokenizer accuracy against reference implementations
+   - [ ] Test tokenizer behavior against reference implementations
    - [ ] Test with various context sizes and compositions across models
-   - [ ] Validate token counting accuracy across different tokenizers
-   - [ ] Performance testing for large context analysis with local tokenization
+   - [ ] Validate token counting behavior across different tokenizers (no requirement to match provider-reported tokens)
    - [ ] Integration tests with enhanced model metadata system
 
 7. [ ] **Documentation and Examples**
@@ -127,23 +135,20 @@ Understanding context utilization is crucial for:
 
 - [ ] **Tokenization Infrastructure**
   - [ ] Multiple tokenization libraries integrate successfully (`gpt-tokenizer`, `tiktoken`)
-  - [ ] Tokenizer selection logic works correctly for all supported models
-  - [ ] Local tokenization matches provider API token counts within acceptable tolerance
-  - [ ] Tokenizer caching provides performance improvements
-  - [ ] Configuration overrides work for custom tokenizer mappings
+  - [ ] Tokenizer selection logic works correctly for supported models (prefer `gpt-tokenizer` for OpenAI; fallback to `tiktoken`), with per-model overrides
+  - [ ] Telemetry reports tokenization failures or unavailability without blocking execution
+  - [ ] Configuration overrides work for custom per-model tokenizer mappings
 
 - [ ] **Enhanced Model Metadata**
-  - [ ] Model fetchers successfully detect and store tokenizer information from APIs
+  - [ ] Model fetchers detect and store tokenizer information from APIs (OpenAI/Anthropic first)
   - [ ] Fallback tokenizer mappings work when API data is unavailable
-  - [ ] Model metadata includes accurate tokenizer specifications
+  - [ ] Tokenizer mappings validated during offline cache hydration
 
 - [ ] **Context Analysis**
   - [ ] Context analysis accurately identifies and categorizes all context elements
-  - [ ] Local token counting is accurate across different model types and tokenizers
-  - [ ] Cross-model token comparison provides meaningful insights
+  - [ ] Local token counting functions across different model types and tokenizers
   - [ ] Context visualization provides clear, actionable insights
   - [ ] Commands work correctly in both main and session workspaces
-  - [ ] Analysis performance is acceptable for interactive use with local tokenization
   - [ ] Output formats (human-readable, JSON, CSV) work correctly
   - [ ] Context optimization suggestions are relevant and helpful
 
@@ -161,7 +166,7 @@ Understanding context utilization is crucial for:
   - Configuration override capabilities for custom use cases
   - Validation to ensure selected tokenizer matches model requirements
 
-- **Provider API Integration**: Extend model fetching to include tokenizer metadata
+- **Provider API Integration**: Extend model fetching to include tokenizer metadata (OpenAI, Anthropic first)
   - Query provider APIs for official tokenizer information when available
   - Store tokenizer specifications in cached model data
   - Handle API limitations or missing tokenizer data gracefully
@@ -173,17 +178,12 @@ Understanding context utilization is crucial for:
   - Environment variable support for tokenizer library selection
   - Backward compatibility with existing configurations
 
-- **Performance Optimization**: Ensure local tokenization doesn't impact user experience
-  - Lazy loading of tokenization libraries to reduce startup time
-  - Efficient caching strategies for tokenized content
-  - Streaming/chunked processing for large context analysis
-  - Background tokenization for non-blocking user interfaces
+- **Performance Optimization**: Deferred. Performance work is out of scope for now.
 
-- **Accuracy and Validation**: Maintain high fidelity token counting
-  - Cross-validation between local tokenizers and provider API counts
-  - Tolerance thresholds for acceptable token count variations
-  - Comprehensive testing against reference implementations
-  - Documentation of known limitations or edge cases
+- **Accuracy and Validation**: Practical correctness and observability
+  - No requirement to match provider API token counts
+  - Emit telemetry when tokenization fails; continue execution
+  - Document known limitations or edge cases and recommended overrides
 
 - **CLI Visualization**: Research effective CLI-based visualization techniques for context distribution and token usage
 - **Context Discovery**: Implement robust logic to identify all relevant context elements (rules, files, conversation, etc.)
@@ -195,14 +195,15 @@ Understanding context utilization is crucial for:
 This enhanced task enables scenarios like:
 
 - **Local Cost Prediction**: "How many tokens will this context consume before sending to the API?"
-- **Cross-Model Analysis**: "How do token counts differ between GPT-4o and Claude for my context?"
-- **Tokenizer Debugging**: "Is my local token count matching the API's token usage?"
+- **Tokenizer Debugging**: "Is my local token count consistent for my content?"
 - **Cost Analysis**: "Which elements are consuming the most tokens in my context?"
 - **Context Debugging**: "Why isn't my rule being applied? Is it even loaded?"
 - **Optimization**: "How can I reduce context size while maintaining effectiveness?"
 - **Understanding**: "What exactly is being sent to the AI assistant?"
-- **Model Selection**: "Which model gives me the best token efficiency for my use case?"
-- **Tokenization Comparison**: "How do different tokenizers handle my specific content?"
+
+Deferred to Task #162 (Eval Framework):
+- Cross-model analysis and tokenization comparison
+- Token mismatch evaluation strategies and scoring
 
 ## Architecture Design
 
