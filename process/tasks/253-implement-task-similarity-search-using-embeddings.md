@@ -1,4 +1,4 @@
-# Implement Task Similarity Search Using AI
+# Implement Task Similarity Search Using Embeddings
 
 ## Status
 
@@ -10,7 +10,7 @@ MEDIUM
 
 ## Description
 
-# Implement Task Similarity Search Using AI
+# Implement Task Similarity Search Using Embeddings
 
 ## Context
 
@@ -22,23 +22,22 @@ As our task management system grows and becomes more complex, we need intelligen
 4. **Improve task discovery** - Help users find related tasks when working on similar problems
 5. **Enhance AI task management** - Support the AI-powered task decomposition and analysis from Task #248
 
-This task implements semantic similarity search for tasks using AI completion, following the proven approach from Task #182 (rule suggestions). Embedding-based search will be added as a future enhancement when the infrastructure from Task #179/250 becomes available.
+This task implements semantic similarity search for tasks using embeddings, starting with OpenAI embeddings via our existing AI completion system and in-memory vector storage for easy development and testing.
 
 ## Dependencies
 
-1. **Task #160**: ✅ **DONE** - AI completion backend provides the foundation for similarity analysis
-2. **Task #182**: ✅ **DONE** - Provides proven patterns for AI-powered semantic search and service architecture
-3. **Task Hierarchy System**: Should integrate with parent-child relationships from Task #246 or #247
-4. **Task #248**: Complements AI-powered task decomposition and analysis with similarity capabilities
+1. **Task #160**: ✅ **DONE** - AI completion backend provides multi-provider foundation for embedding generation
+2. **Task #182**: ✅ **DONE** - Provides proven patterns for AI-powered services and structured output
 
 ## Future Enhancements (Not Blocking)
 
-- **Task #179**: Embeddings/RAG investigation (when complete, will enhance performance)
-- **Task #250**: Session-aware code search (when complete, will provide embedding infrastructure)
+- **Task #315**: ✅ **DONE** - External task database provides foundation for metadata storage (when needed)
+- Persistent vector storage (SQLite/PostgreSQL extensions)
+- Additional embedding providers beyond OpenAI
 
 ## Objective
 
-Implement a comprehensive task similarity search system that uses AI completion to find semantically similar tasks, enabling intelligent task management, duplicate detection, and dependency discovery.
+Implement a comprehensive task similarity search system using embeddings to find semantically similar tasks, enabling intelligent task management, duplicate detection, and dependency discovery.
 
 ## Core Features
 
@@ -105,52 +104,72 @@ Implement a comprehensive task similarity search system that uses AI completion 
 
 ## Technical Implementation
 
-### AI-Powered Similarity Analysis
+### Embedding-Based Similarity Analysis
 
-Following the proven approach from Task #182:
+Using OpenAI embeddings via existing AI completion infrastructure:
 
-1. **Task Content Analysis:**
+1. **Task Content Processing:**
 
-   - Analyze task titles, descriptions, and specifications using AI
+   - Extract meaningful content from task titles, descriptions, and specifications
    - Handle structured content (markdown, code blocks, lists)
-   - Support for multiple content types and formats
-   - Extract semantic meaning and key concepts
+   - Content chunking for large tasks
+   - Normalize text for consistent embedding generation
 
-2. **AI Completion Service:**
+2. **Embedding Generation:**
 
-   - Leverage existing `DefaultAICompletionService` from Task #160
-   - Use structured output with Zod schemas for reliable results
-   - Support for multiple AI providers (OpenAI, Anthropic, etc.)
-   - Configurable model selection based on use case
+   - Leverage existing `DefaultAICompletionService` for provider management
+   - Start with OpenAI text-embedding-3-small for cost efficiency
+   - Easily configurable for other providers (OpenAI large, future providers)
+   - Batch processing for efficient API usage
+   - Error handling and retry logic
 
-3. **Similarity Scoring:**
-   - AI-powered relevance scoring with confidence levels
-   - Structured reasoning for each similarity match
-   - Configurable similarity thresholds
-   - Multi-criteria analysis (content, status, metadata)
+3. **Vector Storage Architecture:**
+
+   - Start with in-memory vector storage (FAISS or similar lightweight solution)
+   - Easily swappable storage backend interface
+   - Designed for future migration to SQLite vector extension or PostgreSQL pgvector
+   - Efficient similarity search with configurable distance metrics
 
 ### Task Search Service Architecture
 
-Based on Task #182's `DefaultRuleSuggestionService` patterns:
+Building on proven patterns from Task #182:
 
 1. **Service Design:**
 
-   - `DefaultTaskSimilarityService` following established patterns
-   - Clean separation between AI analysis and task data
-   - Graceful fallback to keyword-based search when AI unavailable
-   - Comprehensive error handling and logging
+   ```typescript
+   interface EmbeddingService {
+     generateEmbedding(content: string): Promise<number[]>;
+     generateEmbeddings(contents: string[]): Promise<number[][]>;
+   }
 
-2. **Performance Optimization:**
+   interface VectorStorage {
+     store(id: string, vector: number[], metadata?: any): Promise<void>;
+     search(queryVector: number[], limit?: number, threshold?: number): Promise<SearchResult[]>;
+     delete(id: string): Promise<void>;
+   }
 
-   - Task metadata caching with file system watching
-   - AI response caching with query similarity detection
-   - Efficient batch processing for bulk operations
-   - Target <1 second response time for interactive use
+   class TaskSimilarityService {
+     constructor(
+       private embeddingService: EmbeddingService,
+       private vectorStorage: VectorStorage,
+       private taskService: TaskService
+     ) {}
+   }
+   ```
 
-3. **Future Enhancement Architecture:**
-   - Extensible design for adding embedding-based search later
-   - Plugin architecture for different similarity algorithms
-   - Integration points for Task #179/250 embedding infrastructure
+2. **Provider Abstraction:**
+
+   - OpenAI embedding service implementation using existing AI config
+   - Easy addition of other providers (Cohere, OpenSource models)
+   - Fallback to keyword search when embedding service unavailable
+   - Configuration-driven provider selection
+
+3. **Storage Abstraction:**
+
+   - In-memory storage for development and testing
+   - Interface designed for easy migration to persistent storage
+   - Support for incremental updates and bulk operations
+   - Metadata storage for task context and timestamps
 
 ### Integration with Task Management
 
@@ -247,81 +266,77 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 ## Implementation Phases
 
-### Phase 1: Core Similarity Search
+### Phase 1: Embedding Infrastructure & Core Search
 
-1. **AI Similarity Infrastructure:**
+1. **Embedding Service Implementation:**
 
-   - Set up AI-powered similarity analysis service
-   - Implement task content extraction and analysis
-   - Create structured similarity API with Zod schemas
+   - Extend existing AI completion system to support embeddings
+   - Implement OpenAI embedding provider using existing configuration
+   - Create provider abstraction for future embedding services
+   - Add batch processing and error handling
 
-2. **Basic Commands:**
+2. **In-Memory Vector Storage:**
+
+   - Implement lightweight vector storage (FAISS or similar)
+   - Design swappable storage interface for future persistence
+   - Add similarity search with configurable distance metrics
+   - Include basic metadata storage for task context
+
+3. **Basic Commands:**
    - `minsky tasks similar <task-id>`
    - `minsky tasks search <query>`
-   - Basic CLI interface and output formatting
+   - CLI interface with similarity scores and explanations
 
-### Phase 2: Duplicate Detection
+### Phase 2: Enhanced Search Features & Optimization
 
-1. **Duplicate Analysis:**
+1. **Advanced Search Capabilities:**
 
-   - Implement duplicate detection algorithms
-   - Create duplicate reporting and resolution tools
+   - Duplicate detection algorithms using similarity thresholds
    - Integration with task creation workflow
+   - Filtering and ranking options (by status, date, etc.)
 
-2. **Batch Operations:**
-   - `minsky tasks find-duplicates`
-   - `minsky tasks check-duplicate <task-id>`
-   - Automated duplicate prevention
+2. **Performance & Reliability:**
+   - Batch operations for large task corpora
+   - Incremental updates when tasks change
+   - Caching strategies for frequently searched content
+   - Background embedding generation for new tasks
 
-### Phase 3: Advanced Features
+### Phase 3: Persistent Storage & Scalability
 
-1. **Dependency Discovery:**
+1. **Storage Migration:**
 
-   - Implement dependency analysis algorithms
-   - Create dependency suggestion tools
-   - Integration with task hierarchy system
+   - Implement SQLite vector storage backend
+   - Design migration utilities from in-memory to persistent storage
+   - Add PostgreSQL pgvector support for team environments
 
-2. **Clustering and Analytics:**
-   - Task clustering capabilities
-   - Relationship analysis and visualization
-   - Advanced reporting and metrics
-
-### Phase 4: AI Integration
-
-1. **AI Task Management Integration:**
-
-   - Integration with Task #248 (AI decomposition)
-   - Enhanced analysis with similarity insights
-   - Predictive task management features
-
-2. **Performance Optimization:**
-   - Optimize embedding generation and search
-   - Implement caching and incremental updates
-   - Scale testing and performance tuning
+2. **Advanced Analytics:**
+   - Task clustering based on embedding similarity
+   - Relationship analysis and insights
+   - Integration with task hierarchy system (when available)
 
 ## Acceptance Criteria
 
 ### Core Functionality
 
-- [ ] Analyze all task content using AI (title, description, specification)
-- [ ] Implement AI-powered similarity scoring with configurable thresholds
-- [ ] `minsky tasks similar <task-id>` returns ranked similar tasks
+- [ ] Generate embeddings for all task content (title, description, specification)
+- [ ] Implement embedding-based similarity search with configurable thresholds
+- [ ] `minsky tasks similar <task-id>` returns ranked similar tasks with scores
 - [ ] `minsky tasks search <query>` supports natural language queries
 - [ ] Similarity results include relevance scores and explanations
 
-### Duplicate Detection
+### Embedding Infrastructure
 
-- [ ] `minsky tasks find-duplicates` identifies potential duplicates
-- [ ] Configurable similarity thresholds for duplicate detection
-- [ ] Integration with task creation workflow for duplicate prevention
-- [ ] Batch processing for large task databases
+- [ ] OpenAI embedding service integrated with existing AI completion system
+- [ ] In-memory vector storage with efficient similarity search
+- [ ] Easily swappable providers (OpenAI models, future providers)
+- [ ] Easily swappable storage backends (in-memory → SQLite → PostgreSQL)
 
 ### Performance and Scalability
 
-- [ ] Efficient AI-powered search for databases with 1000+ tasks
-- [ ] Caching of task analysis and AI responses
-- [ ] Optimized batch processing for bulk similarity operations
-- [ ] Background processing for large-scale analysis
+- [ ] Efficient embedding generation and storage for 525+ tasks
+- [ ] Batch processing for embedding generation and similarity search
+- [ ] Incremental updates when tasks are created or modified
+- [ ] Caching strategies for frequently accessed embeddings
 
 ### Integration
 
@@ -363,13 +378,13 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 - **Similarity Dashboards:** Real-time insights into task relationships
 - **Trend Analysis:** Track similarity patterns over time
 
-### 5. Future Embedding Enhancement
+### 5. Future Storage Enhancement
 
-When Task #179/250 infrastructure becomes available:
+When persistent storage is implemented:
 
-- **Hybrid Search:** Combine AI analysis with embedding-based similarity
-- **Performance Optimization:** Use embeddings for initial filtering, AI for detailed analysis
-- **Advanced Similarity Metrics:** Multi-modal embeddings for enhanced accuracy
+- **SQLite Vector Storage:** Local storage using SQLite vector extension
+- **PostgreSQL pgvector:** Team environments with concurrent access
+- **Hybrid Storage:** Combination of multiple vector storage backends for different use cases
 
 ## Success Metrics
 
