@@ -125,10 +125,10 @@ Using OpenAI embeddings via existing AI completion infrastructure:
 
 3. **Vector Storage Architecture:**
 
-   - Start with in-memory vector storage (FAISS or similar lightweight solution)
-   - Easily swappable storage backend interface
-   - Designed for future migration to SQLite vector extension or PostgreSQL pgvector
-   - Efficient similarity search with configurable distance metrics
+   - Start with simple in-memory implementation using cosine similarity
+   - Design swappable interface for easy migration to production libraries
+   - Future options: hnswlib-node (HNSW), faiss-node (Facebook FAISS), SQLite vector extension
+   - Configurable distance metrics (cosine, euclidean, dot product)
 
 ### Task Search Service Architecture
 
@@ -277,10 +277,13 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 2. **In-Memory Vector Storage:**
 
-   - Implement lightweight vector storage (FAISS or similar)
-   - Design swappable storage interface for future persistence
-   - Add similarity search with configurable distance metrics
-   - Include basic metadata storage for task context
+   Research and evaluate these mainstream options:
+   - **hnswlib-node** (via @langchain/community) - Most popular, LangChain integration, proven in production
+   - **faiss-node** (143k weekly downloads) - Facebook's library, battle-tested, high performance
+   - **vectordb.js** (35 stars) - Simple wrapper around hnswlib-node with auto-resizing features
+   - **Simple cosine similarity** - JavaScript implementation for development/prototyping
+
+   Selected approach: Start with simple cosine similarity, migrate to hnswlib-node for production performance
 
 3. **Basic Commands:**
    - `minsky tasks similar <task-id>`
