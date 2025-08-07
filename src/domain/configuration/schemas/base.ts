@@ -85,8 +85,8 @@ export const enumSchemas = {
   }),
 
   // SessionDB backends
-  sessionDbBackend: z.enum(["json", "sqlite", "postgres"], {
-    errorMap: () => ({ message: "SessionDB backend must be one of: json, sqlite, postgres" }),
+  sessionDbBackend: z.enum(["sqlite", "postgres"], {
+    errorMap: () => ({ message: "SessionDB backend must be one of: sqlite, postgres" }),
   }),
 
   // AI providers

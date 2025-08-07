@@ -22,8 +22,8 @@ const mockLoadConfiguration = mock(() =>
     config: {
       backend: "markdown",
       sessiondb: {
-        backend: "json",
-        path: ".minsky/sessions.json",
+        backend: "sqlite",
+        path: ".minsky/sessions.db",
       },
       workspace: ".",
       defaultBranch: "main",
