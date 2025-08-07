@@ -37,7 +37,8 @@ console.log("2. Use Cursor's built-in edit_file tool with this exact edit patter
 console.log("3. Copy the result here to compare with our Morph output");
 console.log("");
 console.log("📊 Our Morph Output (155 chars):");
-console.log(JSON.stringify(`export class Calculator {
+console.log(
+  JSON.stringify(`export class Calculator {
   add(a: number, b: number): number {
     return a + b;
   }
@@ -45,6 +46,7 @@ console.log(JSON.stringify(`export class Calculator {
   multiply(a: number, b: number): number {
     return a * b;
   }
-}`));
+}`)
+);
 console.log("");
 console.log("❓ Question: Does Cursor's output match our Morph output?");

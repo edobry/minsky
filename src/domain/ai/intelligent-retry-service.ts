@@ -1,6 +1,6 @@
 /**
  * Intelligent Retry Service for AI Operations
- * 
+ *
  * Provides sophisticated retry logic with:
  * - Exponential backoff with jitter
  * - Different strategies for different error types
@@ -9,7 +9,12 @@
  */
 
 import { log } from "../../utils/logger.js";
-import { RateLimitError, AuthenticationError, ServerError, NetworkError } from "./enhanced-error-types.js";
+import {
+  RateLimitError,
+  AuthenticationError,
+  ServerError,
+  NetworkError,
+} from "./enhanced-error-types";
 
 export interface RetryConfig {
   maxAttempts: number;
@@ -46,29 +51,29 @@ export const DEFAULT_RETRY_CONFIGS: Record<string, RetryConfig> = {
     baseDelayMs: 1000,
     maxDelayMs: 60000, // 1 minute max
     exponentialBase: 2,
-    jitterFactor: 0.3
+    jitterFactor: 0.3,
   },
   server_error: {
     maxAttempts: 3,
     baseDelayMs: 2000,
     maxDelayMs: 30000,
     exponentialBase: 2,
-    jitterFactor: 0.2
+    jitterFactor: 0.2,
   },
   network_error: {
     maxAttempts: 3,
     baseDelayMs: 1000,
     maxDelayMs: 15000,
     exponentialBase: 1.5,
-    jitterFactor: 0.4
+    jitterFactor: 0.4,
   },
   default: {
     maxAttempts: 2,
     baseDelayMs: 1000,
     maxDelayMs: 10000,
     exponentialBase: 2,
-    jitterFactor: 0.1
-  }
+    jitterFactor: 0.1,
+  },
 };
 
 export class IntelligentRetryService {
@@ -91,13 +96,15 @@ export class IntelligentRetryService {
 
     // Check circuit breaker
     if (this.isCircuitOpen(circuitKey)) {
-      const error = new Error(`Circuit breaker open for ${context.provider} ${context.operationType}`);
+      const error = new Error(
+        `Circuit breaker open for ${context.provider} ${context.operationType}`
+      );
       return {
         success: false,
         error,
         attemptCount: 0,
         totalDuration: Date.now() - startTime,
-        retryLog
+        retryLog,
       };
     }
 
@@ -112,7 +119,7 @@ export class IntelligentRetryService {
         log.debug(`AI retry attempt ${attempt}`, {
           provider: context.provider,
           operationType: context.operationType,
-          circuitKey
+          circuitKey,
         });
 
         const result = await operation();
@@ -122,7 +129,7 @@ export class IntelligentRetryService {
 
         retryLog.push({
           attempt,
-          timestamp: new Date(attemptStart)
+          timestamp: new Date(attemptStart),
         });
 
         return {
@@ -130,9 +137,8 @@ export class IntelligentRetryService {
           result,
           attemptCount: attempt,
           totalDuration: Date.now() - startTime,
-          retryLog
+          retryLog,
         };
-
       } catch (error) {
         lastError = error as Error;
         const errorType = this.classifyError(lastError);
@@ -142,14 +148,14 @@ export class IntelligentRetryService {
           attempt,
           timestamp: new Date(attemptStart),
           error: lastError.message,
-          errorType
+          errorType,
         });
 
         log.debug(`AI operation failed on attempt ${attempt}`, {
           provider: context.provider,
           errorType,
           errorMessage: lastError.message,
-          willRetry: attempt < config.maxAttempts
+          willRetry: attempt < config.maxAttempts,
         });
 
         // Check if we should stop retrying
@@ -160,13 +166,13 @@ export class IntelligentRetryService {
 
         // Calculate delay for next attempt
         const delay = this.calculateDelay(attempt, config, lastError);
-        
+
         retryLog[retryLog.length - 1].delayMs = delay;
 
         log.debug(`Retrying AI operation after ${delay}ms`, {
           provider: context.provider,
           attempt: attempt + 1,
-          maxAttempts: config.maxAttempts
+          maxAttempts: config.maxAttempts,
         });
 
         await this.delay(delay);
@@ -181,7 +187,7 @@ export class IntelligentRetryService {
       error: lastError || new Error("Unknown error"),
       attemptCount: attempt,
       totalDuration: Date.now() - startTime,
-      retryLog
+      retryLog,
     };
   }
 
@@ -193,7 +199,7 @@ export class IntelligentRetryService {
     if (error instanceof ServerError && error.isTransient) return "server_error";
     if (error instanceof NetworkError && error.isRetryable) return "network_error";
     if (error instanceof AuthenticationError) return "auth_error"; // Usually not retryable
-    
+
     // Check error message patterns for untyped errors
     const message = error.message.toLowerCase();
     if (message.includes("rate limit") || message.includes("too many requests")) {
@@ -294,7 +300,7 @@ export class IntelligentRetryService {
       state = {
         failureCount: 0,
         state: "closed",
-        nextAttemptTime: 0
+        nextAttemptTime: 0,
       };
       this.circuitBreaker.set(key, state);
     }
@@ -305,16 +311,16 @@ export class IntelligentRetryService {
     if (state.failureCount >= 5) {
       state.state = "open";
       state.nextAttemptTime = Date.now() + 300000; // 5 minutes
-      
+
       log.warn(`Circuit breaker opened for ${key}`, {
         failureCount: state.failureCount,
-        nextAttemptTime: new Date(state.nextAttemptTime)
+        nextAttemptTime: new Date(state.nextAttemptTime),
       });
     }
   }
 
   private async delay(ms: number): Promise<void> {
-    return new Promise(resolve => setTimeout(resolve, ms));
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -323,6 +329,68 @@ export class IntelligentRetryService {
   resetCircuitBreakers(): void {
     this.circuitBreaker.clear();
     log.debug("Circuit breakers reset");
+  }
+
+  /**
+   * Reset circuit breaker for a specific provider
+   */
+  resetCircuitBreaker(provider: string): void {
+    this.circuitBreaker.delete(provider);
+    log.debug(`Circuit breaker reset for provider: ${provider}`);
+  }
+
+  /**
+   * Get circuit breaker status for all providers
+   */
+  getCircuitBreakerStatus(): Record<string, CircuitBreakerState | null> {
+    const status: Record<string, CircuitBreakerState | null> = {};
+    for (const [key, state] of this.circuitBreaker.entries()) {
+      status[key] = { ...state }; // Return copy to prevent mutation
+    }
+    return status;
+  }
+
+  /**
+   * Force circuit breaker to closed state (recovery)
+   */
+  forceCircuitBreakerClosed(provider: string): void {
+    this.circuitBreaker.set(provider, {
+      failureCount: 0,
+      state: "closed",
+      nextAttemptTime: 0,
+    });
+    log.info(`Circuit breaker forced to closed state for provider: ${provider}`);
+  }
+
+  /**
+   * Check if circuit breaker is healthy for a provider
+   */
+  isProviderHealthy(provider: string): boolean {
+    const state = this.circuitBreaker.get(provider);
+    return !state || state.state === "closed";
+  }
+
+  /**
+   * Get health status for all providers
+   */
+  getProvidersHealth(): Record<string, {
+    isHealthy: boolean;
+    state: string;
+    failureCount: number;
+    nextAttemptTime?: Date;
+  }> {
+    const health: Record<string, any> = {};
+    
+    for (const [provider, state] of this.circuitBreaker.entries()) {
+      health[provider] = {
+        isHealthy: state.state === "closed",
+        state: state.state,
+        failureCount: state.failureCount,
+        nextAttemptTime: state.nextAttemptTime > 0 ? new Date(state.nextAttemptTime) : undefined,
+      };
+    }
+    
+    return health;
   }
 }
 

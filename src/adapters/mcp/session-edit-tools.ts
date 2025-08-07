@@ -216,7 +216,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
  */
 async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
   // Import required dependencies with enhanced error handling
-  const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+  const { EnhancedAICompletionService } = await import("../../domain/ai/enhanced-completion-service");
   const { RateLimitError, AuthenticationError, ServerError } = await import(
     "../../domain/ai/enhanced-error-types"
   );
@@ -283,7 +283,7 @@ async function applyEditPattern(originalContent: string, editContent: string): P
   }
 
   // Create AI completion service
-  const completionService = new DefaultAICompletionService({
+  const completionService = new EnhancedAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);
 
@@ -378,16 +378,15 @@ Instructions:
         limit: error.limit,
         resetTime: error.resetTime,
       });
-      throw new Error(
-        `Rate limit exceeded for ${provider}. Retry after ${error.retryAfter}s. Remaining: ${error.remaining}/${error.limit}`
-      );
+      // Use the enhanced user-friendly message
+      throw new Error(error.getUserFriendlyMessage());
     } else if (error instanceof AuthenticationError) {
       log.error(`Authentication failed for ${provider}`, {
         provider,
         code: error.code,
         type: error.type,
       });
-      throw new Error(`Authentication failed for ${provider}: ${error.message}`);
+      throw new Error(error.getUserFriendlyMessage());
     } else if (error instanceof ServerError) {
       log.error(`Server error from ${provider}`, {
         provider,

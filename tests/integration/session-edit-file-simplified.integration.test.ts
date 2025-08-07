@@ -15,6 +15,7 @@ import {
   commonTestCases,
   phase1TestCases,
   phase2TestCases,
+  phase3TestCases,
   type EditTestCase,
 } from "./helpers/edit-test-helpers.js";
 
@@ -140,6 +141,37 @@ describe("session.edit_file Simplified Integration", () => {
         validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
 
         console.log(`✅ Phase 2 ${testCase.name} completed successfully`);
+      });
+    });
+  });
+
+  describe("Phase 3: Advanced Patterns", () => {
+    // Run all Phase 3 test cases
+    phase3TestCases.forEach((testCase) => {
+      test(`should handle ${testCase.name}`, async () => {
+        if (!testConfig.hasValidMorphConfig) {
+          console.log("⏭️  Skipping - Morph not configured");
+          return;
+        }
+
+        console.log(`\n🧪 Phase 3 Testing: ${testCase.name}`);
+        
+        // Load fixture
+        const originalContent = await loadFixture(testCase.fixture);
+        console.log(`📄 Loaded fixture: ${testCase.fixture} (${originalContent.length} chars)`);
+        
+        // Apply edit pattern
+        const result = await applyEditPattern(
+          originalContent,
+          testCase.editPattern,
+          testCase.instruction,
+          true // verbose
+        );
+        
+        // Validate result
+        validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
+        
+        console.log(`✅ Phase 3 ${testCase.name} completed successfully`);
       });
     });
   });

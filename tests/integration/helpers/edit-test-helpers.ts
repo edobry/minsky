@@ -3,7 +3,7 @@
  */
 
 // Use mock.module() to mock filesystem operations
-// import { readFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import { join } from "path";
 
 // Import utilities
@@ -598,4 +598,145 @@ export type UserFilters = {
       noMarkers: true,
     },
   },
+];
+
+// Phase 3: Advanced Patterns
+export const phase3TestCases: EditTestCase[] = [
+  {
+    name: "multiple markers with complex insertions",
+    fixture: "typescript/class-multiple-methods.ts",
+    instruction: "Add error handling to existing methods and insert logging between operations",
+    editPattern: `export class MathUtils {
+  add(a: number, b: number): number {
+    try {
+      // ... existing code ...
+      
+      console.log(\`Adding \${a} + \${b}\`);
+      return a + b;
+    } catch (error) {
+      console.error('Addition failed:', error);
+      throw error;
+    }
+  }
+
+  subtract(a: number, b: number): number {
+    try {
+      // ... existing code ...
+      
+      console.log(\`Subtracting \${a} - \${b}\`);
+      return a - b;
+    } catch (error) {
+      console.error('Subtraction failed:', error);
+      throw error;
+    }
+  }
+
+  // ... existing code ...
+
+  private logOperation(operation: string, a: number, b: number, result: number): void {
+    console.log(\`\${operation}(\${a}, \${b}) = \${result}\`);
+  }
+}`,
+    expected: {
+      containsOriginal: true,
+      containsNew: ["try {", "catch (error)", "console.log", "logOperation", "console.error"],
+      shouldGrow: true,
+      noMarkers: false // Multiple markers may be preserved during complex insertions
+    }
+  },
+  {
+    name: "decorator addition to class",
+    fixture: "typescript/decorated-class.ts",
+    instruction: "Add validation decorators to properties and method decorators",
+    editPattern: `import { Entity, Column, PrimaryGeneratedColumn } from 'typeorm';
+import { IsEmail, IsNotEmpty, Length } from 'class-validator';
+
+@Entity('users')
+export class User {
+  @PrimaryGeneratedColumn()
+  id: number;
+
+  @Column({ unique: true })
+  @IsEmail()
+  @IsNotEmpty()
+  email: string;
+
+  @Column()
+  @IsNotEmpty()
+  @Length(2, 50)
+  name: string;
+
+  @Column({ default: true })
+  @IsNotEmpty()
+  isActive: boolean;
+
+  // ... existing code ...
+
+  @BeforeInsert()
+  @BeforeUpdate()
+  validateData(): void {
+    if (!this.email || !this.name) {
+      throw new Error('Email and name are required');
+    }
+  }
+}`,
+    expected: {
+      containsOriginal: true,
+      containsNew: ["@IsEmail()", "@IsNotEmpty()", "@Length(2, 50)", "@BeforeInsert()", "validateData()"],
+      shouldGrow: true,
+      noMarkers: true
+    }
+  },
+  {
+    name: "comment preservation during edits",
+    fixture: "typescript/commented-service.ts",
+    instruction: "Add new method while preserving all existing documentation and comments",
+    editPattern: `  // ... existing code ...
+
+  /**
+   * Updates an existing user
+   * 
+   * @param id - The user ID to update
+   * @param updateData - The data to update
+   * @returns Promise resolving to the updated user
+   * @throws {ValidationError} When update data is invalid
+   * @throws {NotFoundError} When user is not found
+   */
+  async updateUser(id: string, updateData: Partial<CreateUserData>): Promise<User> {
+    // Validate update data
+    this.validateUpdateData(updateData);
+    
+    // Find existing user
+    const existingUser = this.users.find(user => user.id === id);
+    if (!existingUser) {
+      throw new NotFoundError(\`User with ID \${id} not found\`);
+    }
+    
+    // Merge update data
+    Object.assign(existingUser, updateData);
+    
+    return existingUser;
+  }
+
+  /**
+   * Validates update data
+   * 
+   * @private
+   * @param updateData - The update data to validate
+   * @throws {ValidationError} When validation fails
+   */
+  private validateUpdateData(updateData: Partial<CreateUserData>): void {
+    if (updateData.email && !this.isValidEmail(updateData.email)) {
+      throw new ValidationError('Invalid email format');
+    }
+  }
+
+  // ... existing code ...`,
+    expected: {
+      containsOriginal: true,
+      containsNew: ["updateUser", "validateUpdateData", "@param id", "@throws {NotFoundError}", "Object.assign"],
+      shouldGrow: true,
+      noMarkers: true
+    }
+  }
 ];

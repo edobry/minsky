@@ -1,6 +1,6 @@
 /**
  * Enhanced AI Error Types with Better Metadata and Handling
- * 
+ *
  * This module provides improved error types that include:
  * - Detailed error metadata (retry information, rate limits, etc.)
  * - Better error classification
@@ -61,6 +61,38 @@ export class RateLimitError extends Error {
     }
     return Date.now() > this.resetTime.getTime();
   }
+
+  /**
+   * Get human-readable retry message with actionable information
+   */
+  getUserFriendlyMessage(): string {
+    if (this.resetTime) {
+      const timeUntilReset = Math.max(0, this.resetTime.getTime() - Date.now());
+      const minutesUntilReset = Math.ceil(timeUntilReset / 60000);
+      return `Rate limit exceeded for ${this.provider}. Retry in ${this.retryAfter}s (limit resets in ${minutesUntilReset}m). Usage: ${this.remaining}/${this.limit} requests remaining.`;
+    }
+    return `Rate limit exceeded for ${this.provider}. Retry in ${this.retryAfter}s. Usage: ${this.remaining}/${this.limit} requests remaining.`;
+  }
+
+  /**
+   * Get recovery suggestions
+   */
+  getRecoverySuggestions(): string[] {
+    const suggestions = [
+      `Wait ${this.retryAfter} seconds before retrying`,
+      "Consider using a different AI provider if available",
+    ];
+    
+    if (this.remaining === 0) {
+      suggestions.push("Your rate limit quota is exhausted");
+      if (this.resetTime) {
+        const minutesUntilReset = Math.ceil((this.resetTime.getTime() - Date.now()) / 60000);
+        suggestions.push(`Rate limit resets in ${minutesUntilReset} minutes`);
+      }
+    }
+    
+    return suggestions;
+  }
 }
 
 /**
@@ -93,23 +125,36 @@ export class AuthenticationError extends Error {
         return [
           `Check your ${this.provider} API key in .minskyrc`,
           `Verify the API key is correctly formatted`,
-          `Generate a new API key from ${this.provider} dashboard`
+          `Generate a new API key from ${this.provider} dashboard`,
         ];
       case "expired_key":
         return [
           `Your ${this.provider} API key has expired`,
           `Generate a new API key from ${this.provider} dashboard`,
-          `Update your .minskyrc with the new key`
+          `Update your .minskyrc with the new key`,
         ];
       case "unauthorized":
         return [
           `Your ${this.provider} API key doesn't have required permissions`,
           `Check your account status and billing`,
-          `Contact ${this.provider} support if the issue persists`
+          `Contact ${this.provider} support if the issue persists`,
         ];
       default:
         return [`Check your ${this.provider} configuration`];
     }
+  }
+
+  /**
+   * Get user-friendly error message with context
+   */
+  getUserFriendlyMessage(): string {
+    const typeMessages = {
+      invalid_key: `Invalid API key for ${this.provider}`,
+      expired_key: `Expired API key for ${this.provider}`,
+      unauthorized: `Unauthorized access to ${this.provider}`,
+      forbidden: `Access forbidden by ${this.provider}`,
+    };
+    return `${typeMessages[this.type] || `Authentication error with ${this.provider}`}. Check your API key configuration.`;
   }
 }
 
@@ -133,7 +178,7 @@ export class ServerError extends Error {
     this.provider = provider;
     this.statusCode = statusCode;
     this.code = code;
-    
+
     // Determine if error is likely transient
     this.isTransient = this.determineTransience(statusCode);
   }
@@ -155,7 +200,7 @@ export class ServerError extends Error {
     return {
       shouldRetry: true,
       delayMs: 1000, // Start with 1 second
-      maxAttempts: 3
+      maxAttempts: 3,
     };
   }
 }
@@ -217,24 +262,26 @@ export class AIErrorParser {
       const remaining = parseInt(headers.get("x-ratelimit-remaining") || "0");
       const limit = parseInt(headers.get("x-ratelimit-limit") || "100");
 
-      const message = responseBody?.detail || 
-                     responseBody?.error?.message || 
-                     `Rate limit exceeded for ${provider}`;
+      const message =
+        responseBody?.detail ||
+        responseBody?.error?.message ||
+        `Rate limit exceeded for ${provider}`;
 
       return new RateLimitError(message, provider, {
         retryAfter,
         resetTime,
         remaining,
-        limit
+        limit,
       });
     }
 
     // Authentication errors (401, 403)
     if (status === 401 || status === 403) {
       const errorCode = responseBody?.error?.code || "AUTHENTICATION_ERROR";
-      const message = responseBody?.error?.message || 
-                     responseBody?.detail ||
-                     `Authentication failed for ${provider}`;
+      const message =
+        responseBody?.error?.message ||
+        responseBody?.detail ||
+        `Authentication failed for ${provider}`;
 
       let type: "invalid_key" | "expired_key" | "unauthorized" | "forbidden";
       if (status === 403) {
@@ -253,18 +300,18 @@ export class AIErrorParser {
     // Server errors (5xx)
     if (status >= 500) {
       const errorCode = responseBody?.error?.code || "SERVER_ERROR";
-      const message = responseBody?.error?.message || 
-                     responseBody?.detail ||
-                     `Server error from ${provider}`;
+      const message =
+        responseBody?.error?.message || responseBody?.detail || `Server error from ${provider}`;
 
       return new ServerError(message, provider, status, errorCode);
     }
 
     // Client errors (4xx)
     if (status >= 400) {
-      const message = responseBody?.error?.message || 
-                     responseBody?.detail ||
-                     `Bad request to ${provider}: ${response.statusText}`;
+      const message =
+        responseBody?.error?.message ||
+        responseBody?.detail ||
+        `Bad request to ${provider}: ${response.statusText}`;
       return new Error(`${provider} API error (${status}): ${message}`);
     }
 
@@ -281,11 +328,11 @@ export class AIErrorParser {
     if (message.includes("timeout")) {
       return new NetworkError(`Request timeout for ${provider}`, provider, "timeout");
     }
-    
+
     if (message.includes("connection refused") || message.includes("econnrefused")) {
       return new NetworkError(`Connection refused by ${provider}`, provider, "connection_refused");
     }
-    
+
     if (message.includes("dns") || message.includes("enotfound")) {
       return new NetworkError(`DNS resolution failed for ${provider}`, provider, "dns_error");
     }
