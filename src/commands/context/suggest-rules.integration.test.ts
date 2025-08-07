@@ -269,7 +269,7 @@ describe("suggest-rules service integration", () => {
 
     // The service should gracefully fall back to keyword-based suggestions, not throw
     const response = await errorService.suggestRules(request);
-    
+
     // Should return a valid response with fallback suggestions
     expect(response.suggestions).toBeDefined();
     expect(Array.isArray(response.suggestions)).toBe(true);

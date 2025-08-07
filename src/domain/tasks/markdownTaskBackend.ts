@@ -26,7 +26,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData";
-import { TaskStatus } from "./taskConstants";
+import { TaskStatus, TASK_STATUS } from "./taskConstants";
 
 import {
   parseTasksFromMarkdown,
@@ -263,9 +263,122 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
   }
 
-  async createTask(specPath: string, _options?: CreateTaskOptions): Promise<Task> {
+  async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
+    log.debug("markdownTaskBackend updateTask called", { taskId, updates });
+
+    // Get current task data
+    const currentTask = await this.getTask(taskId);
+    if (!currentTask) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    // If updating status, use the existing setTaskStatus method
+    if (updates.status && updates.status !== currentTask.status) {
+      await this.setTaskStatus(taskId, updates.status);
+    }
+
+    // Get tasks data to update other fields
+    const result = await this.getTasksData();
+    if (!result.success || !result.content) {
+      throw new Error("Failed to read tasks data");
+    }
+
+    const tasks = this.parseTasks(result.content);
+    const localId = taskId.replace(/^md#/, "");
+
+    // Find the task to update
+    let taskIndex = tasks.findIndex((t) => t.id === taskId || t.id === `md#${localId}`);
+    if (taskIndex === -1) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    // Update the task with provided updates
+    const updatedTask = {
+      ...tasks[taskIndex],
+      ...updates,
+      id: tasks[taskIndex].id, // Preserve original ID
+    };
+
+    tasks[taskIndex] = updatedTask;
+
+    // Save updated tasks
+    const formattedContent = this.formatTasks(tasks);
+    const writeResult = await this.saveTasksData(formattedContent);
+
+    if (!writeResult.success) {
+      throw new Error(`Failed to save tasks: ${writeResult.error?.message}`);
+    }
+
+    // Return the updated task in the expected format
+    return {
+      id: updatedTask.id,
+      title: updatedTask.title,
+      description: updatedTask.description || "",
+      status: updatedTask.status,
+      specPath: updatedTask.specPath || "",
+    };
+  }
+
+  async createTask(specPath: string | any, _options?: CreateTaskOptions): Promise<Task> {
+    // Handle both string paths and object parameters for multi-backend compatibility
+    if (typeof specPath === "object" && specPath.title) {
+      // Called with TaskSpec object like createTask({ title: "...", description: "..." })
+      // Create task directly without temp files for multi-backend compatibility
+      const spec = {
+        title: specPath.title,
+        description: specPath.description || "",
+        id: specPath.id
+      };
+
+      // Get existing tasks from central file to determine new ID
+      const existingTasksResult = await this.getTasksData();
+
+      // Handle empty or missing central tasks file gracefully
+      let existingTasks: TaskData[] = [];
+      if (existingTasksResult.success && existingTasksResult.content) {
+        existingTasks = this.parseTasks(existingTasksResult.content);
+      }
+      const maxId = existingTasks.reduce((max, task) => {
+        // Use the new utility to extract numeric value from any format
+        const id = getTaskIdNumber(task.id);
+        return id !== null && id > max ? id : max;
+      }, 0);
+
+      // Generate qualified backend ID for multi-backend storage (e.g., "md#285")
+      const newId = spec.id || `md#${maxId + 1}`; // Use provided ID or generate qualified format
+
+      // Create the new task directly
+      const newTaskData: TaskData = {
+        id: newId,
+        title: spec.title,
+        description: spec.description,
+        status: TASK_STATUS.TODO,
+        specPath: "", // No spec file for object-created tasks
+      };
+
+      // Update tasks list
+      existingTasks.push(newTaskData);
+      const formattedContent = this.formatTasks(existingTasks);
+      const writeResult = await this.saveTasksData(formattedContent);
+
+      if (!writeResult.success) {
+        throw new Error(`Failed to save tasks: ${writeResult.error?.message}`);
+      }
+
+      const newTask: Task = {
+        id: newTaskData.id,
+        title: newTaskData.title,
+        description: newTaskData.description,
+        status: newTaskData.status,
+        specPath: newTaskData.specPath,
+      };
+
+      return newTask;
+    }
+
+    // Original string path behavior
     // Read and parse the spec file
-    const specResult = await this.getTaskSpecData(specPath);
+    const specResult = await this.getTaskSpecData(specPath as string);
     if (!specResult.success || !specResult.content) {
       throw new Error(`Failed to read spec file: ${specPath}`);
     }
@@ -368,11 +481,18 @@ export class MarkdownTaskBackend implements TaskBackend {
     // Create a temporary file path for the spec
     const fs = await import("fs/promises");
     const path = await import("path");
-    const os = await import("os");
 
-    const tempDir = os.tmpdir();
+    // Use workspace temp directory instead of OS temp for mock compatibility
+    const tempDir = path.join(this.workspacePath, ".tmp");
     const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
     const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
+
+    // Ensure temp directory exists
+    try {
+      await fs.mkdir(tempDir, { recursive: true });
+    } catch (error) {
+      // Directory already exists, continue
+    }
 
     try {
       // Write the spec content to the temporary file

@@ -37,6 +37,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     // Ensure mock directories exist
     mockFs.ensureDirectoryExists(mockTempDir);
     mockFs.ensureDirectoryExists(join(mockTempDir, "process"));
+    mockFs.ensureDirectoryExists(join(mockTempDir, ".tmp"));
 
     // Initialize backends with mock filesystem
     markdownBackend = createMarkdownTaskBackend({
@@ -75,7 +76,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
       };
 
       // Use createTask with TaskSpec format
-      await service.createTask(taskSpec, "markdown");
+      await service.createTask(taskSpec, "md");
       const retrievedTask = await service.getTask("md#123");
 
       expect(retrievedTask).toBeDefined();
@@ -99,10 +100,10 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
         id: "md#task2",
       };
 
-      await service.createTask(task1Spec, "markdown");
-      await service.createTask(task2Spec, "markdown");
+      await service.createTask(task1Spec, "md");
+      await service.createTask(task2Spec, "md");
 
-      const allTasks = await service.listTasks();
+      const allTasks = await service.listAllTasks();
       expect(allTasks).toHaveLength(2);
       expect(allTasks.map((t) => t.id)).toContain("md#task1");
       expect(allTasks.map((t) => t.id)).toContain("md#task2");
@@ -118,7 +119,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
         id: "md#update-test",
       };
 
-      await service.createTask(taskSpec, "markdown");
+      await service.createTask(taskSpec, "md");
 
       // Update the task
       const updatedTask = {
@@ -141,14 +142,14 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
         id: "md#status-test",
       };
 
-      await service.createTask(taskSpec, "markdown");
+      await service.createTask(taskSpec, "md");
 
       // Transition through different statuses
-      await service.updateTaskStatus("md#status-test", TASK_STATUS.IN_PROGRESS);
+      await service.updateTask("md#status-test", { status: TASK_STATUS.IN_PROGRESS });
       let retrievedTask = await service.getTask("md#status-test");
       expect(retrievedTask?.status).toBe(TASK_STATUS.IN_PROGRESS);
 
-      await service.updateTaskStatus("md#status-test", TASK_STATUS.DONE);
+      await service.updateTask("md#status-test", { status: TASK_STATUS.DONE });
       retrievedTask = await service.getTask("md#status-test");
       expect(retrievedTask?.status).toBe(TASK_STATUS.DONE);
     });
@@ -161,7 +162,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
         id: "md#delete-test",
       };
 
-      await service.createTask(taskSpec, "markdown");
+      await service.createTask(taskSpec, "md");
 
       // Verify task exists
       let retrievedTask = await service.getTask("md#delete-test");

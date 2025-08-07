@@ -160,6 +160,7 @@ The MCP tool implementations have significant duplication in argument types, res
 **🎯 Objective**: Extend the systematic pattern enforcement approach to include test architecture patterns, preventing regression of test anti-patterns that caused reliability issues.
 
 **📊 Background**: During test fixing, we identified critical anti-patterns:
+
 - Global module mocks causing cross-test interference
 - Unreliable factory-generated mocks
 - CLI execution in unit tests (architectural violation)
@@ -168,12 +169,14 @@ The MCP tool implementations have significant duplication in argument types, res
 **🛠️ Proposed Extensions**:
 
 1. **Pre-commit Hook Enhancement**
-   - Add checks for global `mock.module()` usage  
+
+   - Add checks for global `mock.module()` usage
    - Add warnings for `createMockTaskService(async ...)` patterns
    - Add verification that tests call domain functions (not CLI)
    - Extend existing secret scanning with test pattern validation
 
 2. **ESLint Rule Expansion**
+
    - Extend existing `no-jest-patterns` rule to catch test anti-patterns
    - Add warnings for global module mocking outside test-utils
    - Detect CLI execution patterns in test files (`execAsync.*cli.ts`)
@@ -188,11 +191,12 @@ The MCP tool implementations have significant duplication in argument types, res
 **📋 Implementation Plan**:
 
 1. **Phase 1**: Extend existing pre-commit hooks with test pattern checks
-2. **Phase 2**: Enhance `no-jest-patterns` ESLint rule with anti-pattern detection  
+2. **Phase 2**: Enhance `no-jest-patterns` ESLint rule with anti-pattern detection
 3. **Phase 3**: Integrate into CI/CD pipeline for continuous monitoring
 4. **Phase 4**: Create automated pattern improvement suggestions
 
 **✅ Success Criteria** (Added to Task #322):
+
 - [ ] Pre-commit hooks prevent global module mock usage
 - [ ] ESLint rules catch and suggest fixes for test anti-patterns
 - [ ] CI/CD pipeline validates test architecture patterns

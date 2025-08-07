@@ -276,22 +276,25 @@ Update session operations to work with repository backend detection:
 **Root Cause**: `src/domain/session/commands/pr-command.ts` incorrectly imports and calls `preparePrFromParams` from git layer instead of using session PR operations layer.
 
 **Impact**:
+
 - Session update (merge main → session branch) is skipped entirely
-- Merge conflicts are handled on PR branch instead of session branch  
+- Merge conflicts are handled on PR branch instead of session branch
 - Users are left stranded on PR branch (`pr/task-name`) after conflicts
 - Violates fundamental rule: users should never work directly on PR branches
 
 **Correct Workflow**:
+
 1. Start on session branch (`task-name`)
-2. Run session update (merge main → session branch) 
+2. Run session update (merge main → session branch)
 3. If conflicts → resolve on session branch, stay there
 4. Only after clean session branch → create PR branch
 5. User remains on session branch, never switches to PR branch
 
 **Current Broken Workflow**:
+
 1. Start on session branch ✅
 2. Skip session update entirely ❌
-3. Create PR branch immediately ❌  
+3. Create PR branch immediately ❌
 4. Switch to PR branch ❌
 5. Try to merge on PR branch ❌
 6. Leave user on PR branch with conflicts ❌
@@ -303,11 +306,11 @@ Update session operations to work with repository backend detection:
 **DEEPER ROOT CAUSE DISCOVERED**: Even after fixing session command layer, the git workflow itself has a fundamental flaw:
 
 - `createPreparedMergeCommitPR` in `src/domain/git/prepared-merge-commit-workflow.ts`
-- Line 95: Switches TO PR branch 
+- Line 95: Switches TO PR branch
 - Line 105: Attempts merge ON PR branch ← **If conflicts occur, user stranded on PR branch**
 - Line 117: Switches back to source branch ← **Never reached if merge fails**
 
-**Core Problem**: Git workflow tries to merge session branch INTO PR branch, putting conflicts on PR branch where users shouldn't work. 
+**Core Problem**: Git workflow tries to merge session branch INTO PR branch, putting conflicts on PR branch where users shouldn't work.
 
 **Required Fix**: Ensure session branch is clean via session update BEFORE creating PR branch. Never attempt merges on PR branch that could fail.
 
@@ -368,6 +371,7 @@ During implementation of this task, a significant architectural improvement was 
 ### Problem Identified
 
 Multiple redundant PR creation implementations existed:
+
 1. `sessionPrFromParams()` in `session.ts` - Legacy implementation with architectural violations
 2. `sessionPr()` in `session-commands.ts` - Redundant wrapper calling legacy implementation
 3. `sessionPrImpl()` in `session-pr-operations.ts` - Modern implementation with proper repository backend delegation
@@ -376,10 +380,12 @@ Multiple redundant PR creation implementations existed:
 ### Solution Implemented
 
 **Consolidated to single canonical implementation:**
+
 - **Core Logic**: `sessionPrImpl()` in `session-pr-operations.ts` - Repository-agnostic session workflow orchestration
 - **CLI Adapter**: `sessionPr()` in `pr-command.ts` - Parameter resolution, session database updates, delegates to core logic
 
 **Removed duplicate implementations:**
+
 - Deprecated `sessionPrFromParams()` (now throws error with migration guidance)
 - Deleted redundant `sessionPr()` wrapper in `session-commands.ts`
 - Deleted associated test files for deprecated functionality
@@ -401,6 +407,7 @@ A critical database schema mapping issue was identified and resolved during test
 ### Problem Identified
 
 **SQLite storage backend was not properly mapping database fields to TypeScript interface fields:**
+
 - Database column: `pr_branch` (snake_case)
 - TypeScript interface field: `prBranch` (camelCase)
 - Drizzle ORM queries were returning raw database records without proper field conversion
@@ -413,13 +420,14 @@ Methods like `getEntity()` and `getEntities()` in `SqliteStorage` were casting r
 // BROKEN - Direct casting without field mapping
 return (result[0] as TEntity) || null;
 
-// FIXED - Proper field mapping via conversion functions  
+// FIXED - Proper field mapping via conversion functions
 return result[0] ? (fromSqliteSelect(result[0]) as TEntity) : null;
 ```
 
 ### Solution Implemented
 
 **Complete Drizzle ORM Configuration:**
+
 1. **Import schema conversion functions** (`fromSqliteSelect`, `toSqliteInsert`) from `session-schema.ts`
 2. **Update `getEntity()`** to use `fromSqliteSelect()` for proper field mapping
 3. **Update `getEntities()`** to map all results through `fromSqliteSelect()`
@@ -430,6 +438,7 @@ return result[0] ? (fromSqliteSelect(result[0]) as TEntity) : null;
 ### Technical Impact
 
 This ensures all database operations correctly map between:
+
 - **Database**: snake_case columns (`pr_branch`, `backend_type`, etc.)
 - **TypeScript**: camelCase interface fields (`prBranch`, `backendType`, etc.)
 
@@ -440,17 +449,19 @@ The fix enables proper persistence and retrieval of all SessionRecord fields, in
 ### Core Requirements: COMPLETED ✅
 
 1. **✅ GitHub Issues Backend Integration** - Fully implemented and tested
+
    - Auto-detects GitHub repositories via `.git/config` remote URLs
    - Creates GitHub issues as tasks with proper metadata mapping
    - Integrates seamlessly with existing repository backend architecture
    - Validates task backend compatibility to prevent mismatched configurations
 
 2. **✅ Repository Override Feature** - Fully implemented and tested
+
    - CLI parameter `--github-repo owner/repo` for custom GitHub repositories
    - Auto-registration of CLI parameters via parameter discovery
    - Works with both auto-detected and manually specified repositories
 
-3. **✅ Backend-Qualified Task IDs** - Fully implemented and tested  
+3. **✅ Backend-Qualified Task IDs** - Fully implemented and tested
    - Support for `backend#id` format (e.g., `gh#123`, `md#456`)
    - Backward compatibility with existing unqualified task IDs
    - Proper task ID parsing and validation across all systems
@@ -458,11 +469,13 @@ The fix enables proper persistence and retrieval of all SessionRecord fields, in
 ### Architectural Improvements: COMPLETED ✅
 
 4. **✅ PR Implementation Consolidation** - Major architectural cleanup completed
+
    - Consolidated 4 duplicate PR implementations into 1 modern implementation
    - Eliminated all skipped tests and deprecated code paths
    - Clean separation of concerns between CLI → Session → Repository Backend layers
 
 5. **✅ Database Schema Mapping** - Critical infrastructure fix completed
+
    - Fixed Drizzle ORM field mapping between snake_case DB and camelCase TypeScript
    - All database operations now properly handle complete SessionRecord schema
    - Enables reliable persistence of session metadata including PR tracking fields
@@ -475,6 +488,7 @@ The fix enables proper persistence and retrieval of all SessionRecord fields, in
 ### Integration Validation: COMPLETED ✅
 
 7. **✅ End-to-End GitHub Workflow** - Fully tested and validated
+
    - Successfully created GitHub issues via `minsky tasks create --github-repo edobry/minsky`
    - Confirmed auto-detection works in GitHub repository contexts
    - Validated proper task metadata synchronization between systems
@@ -489,7 +503,7 @@ The fix enables proper persistence and retrieval of all SessionRecord fields, in
 **The GitHub Issues backend integration is complete and fully functional.** Users can now:
 
 - ✅ Create tasks as GitHub issues when working in GitHub repositories
-- ✅ Use repository auto-detection for seamless backend selection  
+- ✅ Use repository auto-detection for seamless backend selection
 - ✅ Override repository settings when needed with `--github-repo`
 - ✅ Benefit from consolidated PR workflow with modern, maintainable code
 - ✅ Experience improved error handling and user guidance

@@ -11,14 +11,14 @@
 Current codebase has inconsistent dependency injection patterns leading to:
 
 - **Global State Dependencies**: Some functions rely on global imports rather than injected dependencies
-- **Hard-to-Test Functions**: Functions that are difficult to test due to hidden dependencies  
+- **Hard-to-Test Functions**: Functions that are difficult to test due to hidden dependencies
 - **Inconsistent Patterns**: Mixed approaches to dependency management across the codebase
 - **Test Setup Complexity**: Complex test setup due to implicit dependencies
 
 ## Success Criteria
 
 - [ ] All core domain functions use dependency injection pattern
-- [ ] Zero functions with hidden global dependencies  
+- [ ] Zero functions with hidden global dependencies
 - [ ] Standard service interfaces defined for all major services
 - [ ] Mock factory functions available for all services
 - [ ] Test setup simplified due to explicit dependencies

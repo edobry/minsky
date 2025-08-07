@@ -10,7 +10,7 @@ The config commands (config list, config show) are implemented in the shared com
 
 2. **Register config tools**: Add the config tool registration to the MCP server in `src/commands/mcp/index.ts` alongside the other tool registrations
 
-3. **Follow existing patterns**: 
+3. **Follow existing patterns**:
    - Use the `registerConfigCommandsWithMcp` function that already exists in `shared-command-integration.ts`
    - Include proper command overrides with descriptions
    - Follow the same structure as `rules.ts` or `session.ts`
@@ -18,6 +18,7 @@ The config commands (config list, config show) are implemented in the shared com
 ## Implementation Details
 
 The config commands that should be exposed are:
+
 - `config.list` - List all configuration values and their sources
 - `config.show` - Show the final resolved configuration
 

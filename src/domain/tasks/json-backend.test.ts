@@ -77,10 +77,14 @@ describe("Enhanced JSON Backend", () => {
     };
 
     // Fix: Use createTaskFromTitleAndDescription instead of createTask with object
-    const createdTask = await backend.createTaskFromTitleAndDescription(testTask.title, testTask.description, {
-      id: testTask.id,
-    });
-    
+    const createdTask = await backend.createTaskFromTitleAndDescription(
+      testTask.title,
+      testTask.description,
+      {
+        id: testTask.id,
+      }
+    );
+
     // Use the actual ID that was created, not the one we passed
     const retrievedTask = await backend.getTask(createdTask.id);
 

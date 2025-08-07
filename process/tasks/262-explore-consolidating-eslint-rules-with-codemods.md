@@ -131,6 +131,7 @@ Currently we have two parallel approaches for automated code fixes:
 - **Actual Code Transformation = Codemod** (even if simple find/replace)
 
 **Detection Masquerading as Transformation** is an anti-pattern that creates:
+
 - Redundant tooling
 - Manual execution overhead
 - Worse developer experience
@@ -175,6 +176,7 @@ Currently we have two parallel approaches for automated code fixes:
 **Analysis**: This is **pure detection with guidance** - exactly what ESLint rules excel at! The existing `no-real-fs-in-tests.js` ESLint rule already catches 657+ instances of this pattern in real-time during development.
 
 **Consolidation Recommendation**:
+
 - ❌ **Remove** the detection-only codemod
 - ✅ **Enhance** the existing ESLint rule with better messaging
 - ✅ **Keep** codemods for actual transformations only
@@ -184,6 +186,7 @@ Currently we have two parallel approaches for automated code fixes:
 ### Current State (Inefficient Duplication)
 
 **ESLint Rule (`no-real-fs-in-tests.js`):**
+
 - ✅ **Real-time detection** during development
 - ✅ **657+ violations caught** across codebase
 - ✅ **Integrated workflow** (runs on save/commit)
@@ -191,6 +194,7 @@ Currently we have two parallel approaches for automated code fixes:
 - ✅ **Editor integration** with squiggly underlines
 
 **Codemod (`fix-test-filesystem-imports-ast.ts`):**
+
 - ❌ **Detection-only** (doesn't actually transform code)
 - ❌ **Manual execution** required
 - ❌ **Creates todo items** that ESLint already identifies
@@ -200,6 +204,7 @@ Currently we have two parallel approaches for automated code fixes:
 ### Optimal Approach: ESLint-First
 
 **Enhanced ESLint Rule:**
+
 ```javascript
 // Better messaging in existing rule
 "Real filesystem operation 'writeFile' is forbidden in tests.
@@ -208,6 +213,7 @@ See: /docs/testing-patterns.md#dependency-injection"
 ```
 
 **Result:**
+
 - 🎯 **Single source of truth** for detection
 - 🎯 **Real-time developer feedback**
 - 🎯 **Integrated workflow** without manual steps
