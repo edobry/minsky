@@ -109,7 +109,9 @@ export class TaskMigrationService {
     result.details = migrationDetails;
     result.totalTasks = migrationDetails.length;
     result.migratedTasks = migrationDetails.filter((d) => d.status === "migrated").length;
-    result.alreadyQualified = migrationDetails.filter((d) => d.status === "already-qualified").length;
+    result.alreadyQualified = migrationDetails.filter(
+      (d) => d.status === "already-qualified"
+    ).length;
     result.failedTasks = migrationDetails.filter((d) => d.status === "failed").length;
 
     if (!dryRun && result.migratedTasks > 0) {

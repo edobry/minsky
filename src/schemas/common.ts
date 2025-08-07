@@ -53,19 +53,24 @@ export const taskIdSchema = z
     }
     return normalizeTaskIdForStorage(val);
   })
-  .refine((val) => {
-    try {
-      const strict = has("tasks.strictIds") ? (get<boolean>("tasks.strictIds") as boolean) : false;
-      if (strict) {
-        return typeof val === "string" && /^[a-z-]+#\d+$/.test(val);
+  .refine(
+    (val) => {
+      try {
+        const strict = has("tasks.strictIds")
+          ? (get<boolean>("tasks.strictIds") as boolean)
+          : false;
+        if (strict) {
+          return typeof val === "string" && /^[a-z-]+#\d+$/.test(val);
+        }
+      } catch {
+        // If configuration access fails, fall back to permissive validation
       }
-    } catch {
-      // If configuration access fails, fall back to permissive validation
+      return val !== null;
+    },
+    {
+      message: "Task ID must be qualified (md#123, gh#456) or legacy format (123, #123)",
     }
-    return val !== null;
-  }, {
-    message: "Task ID must be qualified (md#123, gh#456) or legacy format (123, #123)",
-  })
+  )
   .transform((val) => val as string); // Type assertion since we know it's valid after refine
 
 /**
