@@ -10,7 +10,7 @@ MEDIUM
 
 ## Description
 
-# Implement Task Similarity Search Using Embeddings
+# Implement Task Similarity Search Using Embeddings (PostgreSQL Spike)
 
 ## Context
 
@@ -22,7 +22,9 @@ As our task management system grows and becomes more complex, we need intelligen
 4. **Improve task discovery** - Help users find related tasks when working on similar problems
 5. **Enhance AI task management** - Support the AI-powered task decomposition and analysis from Task #248
 
-This task implements semantic similarity search for tasks using embeddings, starting with OpenAI embeddings via our existing AI completion system and in-memory vector storage for easy development and testing.
+This task implements semantic similarity search for tasks using embeddings with **PostgreSQL + pgvector as an experimental spike**. This approach aligns with our cloud-native deployment future and leverages existing PostgreSQL infrastructure.
+
+**Note**: This is an experimental implementation focused on PostgreSQL. We may later backport SQLite support for local development scenarios.
 
 ## Dependencies
 
@@ -126,7 +128,7 @@ Using OpenAI embeddings via existing AI completion infrastructure:
 3. **SQLite Vector Architecture:**
 
    - **sqlite-vec virtual tables**: Store vectors as native SQLite columns with type safety
-   - **Multiple vector formats**: float32 (standard), int8 (quantized), bit (binary)  
+   - **Multiple vector formats**: float32 (standard), int8 (quantized), bit (binary)
    - **Distance metrics**: L2 (Euclidean), L1 (Manhattan), cosine, Hamming (for binary)
    - **SIMD acceleration**: AVX/NEON optimized distance calculations
    - **Native SQL KNN**: `WHERE vector MATCH ? ORDER BY distance LIMIT k`
@@ -315,7 +317,7 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 1. **System Integration:**
 
-   - Integrate with existing task creation/update workflows  
+   - Integrate with existing task creation/update workflows
    - Automatic embedding generation for new/modified tasks
    - Background processing for large-scale re-indexing
 
