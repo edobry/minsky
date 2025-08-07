@@ -14,6 +14,15 @@ mock.module("fs", () => ({
   readFileSync: mockFs.readFileSync,
   writeFileSync: mockFs.writeFileSync,
   readdirSync: mockFs.readdirSync,
+  promises: {
+    mkdir: mockFs.mkdir,
+    writeFile: mockFs.writeFile,
+    readFile: mockFs.readFile,
+    readdir: mockFs.readdir,
+    rm: mockFs.rm,
+    access: mockFs.access,
+    mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
+  },
 }));
 
 mock.module("fs/promises", () => ({

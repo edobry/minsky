@@ -88,6 +88,14 @@ export function createMockFilesystem(
         }
       }
     }),
+    ensureDirectorySync: createMock((path: unknown) => {
+      directories.add(path as string);
+      // Always add all parent directories (like mkdirp)
+      const parts = (path as string).split("/");
+      for (let i = 1; i <= parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+    }),
     statSync: createMock((path: unknown) => {
       if (files.has(path as string)) {
         return {
@@ -154,6 +162,29 @@ export function createMockFilesystem(
           directories.add(parts.slice(0, i).join("/"));
         }
       }
+    }),
+    readdir: createMock(async (path: unknown) => {
+      const dirPath = path as string;
+      const contents: string[] = [];
+
+      // Find files in this directory
+      for (const [filepath] of files) {
+        if (
+          filepath.startsWith(`${dirPath}/`) &&
+          !filepath.slice(dirPath.length + 1).includes("/")
+        ) {
+          contents.push(filepath.slice(dirPath.length + 1));
+        }
+      }
+
+      // Find subdirectories
+      for (const dirName of directories) {
+        if (dirName.startsWith(`${dirPath}/`) && !dirName.slice(dirPath.length + 1).includes("/")) {
+          contents.push(dirName.slice(dirPath.length + 1));
+        }
+      }
+
+      return contents;
     }),
     mkdtemp: createMock(async (prefix: unknown) => {
       // Generate a unique temporary directory name
