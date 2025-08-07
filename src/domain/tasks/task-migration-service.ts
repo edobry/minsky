@@ -6,9 +6,10 @@
  */
 
 import { promises as fs } from "fs";
-import { join } from "path";
+import { join, dirname } from "path";
 import { log } from "../../utils/logger";
 import { normalizeTaskIdForStorage, getTaskIdNumber } from "./task-id-utils";
+import { getTasksFilePath, getTaskSpecsDirectoryPath, listFiles } from "./taskIO";
 
 export interface MigrationOptions {
   /** Show what would be changed without making changes */
@@ -54,10 +55,12 @@ export interface MigrationDetail {
 export class TaskMigrationService {
   private workspacePath: string;
   private tasksFilePath: string;
+  private tasksDirPath: string;
 
   constructor(workspacePath: string) {
     this.workspacePath = workspacePath;
-    this.tasksFilePath = join(workspacePath, "process", "tasks.md");
+    this.tasksFilePath = getTasksFilePath(workspacePath);
+    this.tasksDirPath = getTaskSpecsDirectoryPath(workspacePath);
   }
 
   /**
@@ -88,46 +91,36 @@ export class TaskMigrationService {
       details: [],
     };
 
-    try {
-      // Read current tasks file
-      const content = await fs.readFile(this.tasksFilePath, "utf-8");
-
-      // Create backup if requested
-      if (createBackup && !dryRun) {
-        result.backupPath = await this.createBackup(content);
-        log.info("Created backup", { backupPath: result.backupPath });
-      }
-
-      // Parse and migrate tasks
-      const { migratedContent, migrationDetails } = await this.processTasksContent(
-        content,
-        toBackend,
-        statusFilter,
-        force
-      );
-
-      result.details = migrationDetails;
-      result.totalTasks = migrationDetails.length;
-      result.migratedTasks = migrationDetails.filter((d) => d.status === "migrated").length;
-      result.alreadyQualified = migrationDetails.filter(
-        (d) => d.status === "already-qualified"
-      ).length;
-      result.failedTasks = migrationDetails.filter((d) => d.status === "failed").length;
-
-      // Write migrated content if not dry-run
-      if (!dryRun && result.migratedTasks > 0) {
-        await fs.writeFile(this.tasksFilePath, migratedContent, "utf-8");
-        log.info("Migration completed successfully", {
-          migratedTasks: result.migratedTasks,
-          totalTasks: result.totalTasks,
-        });
-      }
-
-      return result;
-    } catch (error) {
-      log.error("Migration failed", { error });
-      throw error;
+    // 1) Read and backup central tasks file
+    const tasksContent = await fs.readFile(this.tasksFilePath, "utf-8");
+    if (createBackup && !dryRun) {
+      result.backupPath = await this.createBackup(tasksContent);
+      log.info("Created backup", { backupPath: result.backupPath });
     }
+
+    // 2) Migrate task IDs in central tasks file
+    const { migratedContent, migrationDetails } = await this.processTasksContent(
+      tasksContent,
+      toBackend,
+      statusFilter,
+      force
+    );
+
+    result.details = migrationDetails;
+    result.totalTasks = migrationDetails.length;
+    result.migratedTasks = migrationDetails.filter((d) => d.status === "migrated").length;
+    result.alreadyQualified = migrationDetails.filter((d) => d.status === "already-qualified").length;
+    result.failedTasks = migrationDetails.filter((d) => d.status === "failed").length;
+
+    if (!dryRun && result.migratedTasks > 0) {
+      await fs.writeFile(this.tasksFilePath, migratedContent, "utf-8");
+      log.info("Updated process/tasks.md with qualified IDs");
+    }
+
+    // 3) Rename spec files: numeric prefix → qualified prefix (md#<id>-...)
+    await this.renameSpecFiles(toBackend, { dryRun });
+
+    return result;
   }
 
   /**
@@ -208,6 +201,70 @@ export class TaskMigrationService {
       migratedContent: migratedLines.join("\n"),
       migrationDetails,
     };
+  }
+
+  /**
+   * Rename spec files from numeric to qualified prefix (md#<id>-...)
+   * Uses conservative operations with backups to avoid data loss.
+   */
+  private async renameSpecFiles(backendPrefix: string, opts: { dryRun: boolean }): Promise<void> {
+    const files = (await listFiles(this.tasksDirPath)) || [];
+    const candidates = files.filter((f) => /^\d+-.*\.md$/.test(f));
+
+    if (candidates.length === 0) return;
+
+    // Create a backup directory snapshot (copy) when not dry-run
+    const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
+    const backupDir = join(this.tasksDirPath, `backup-${timestamp}`);
+
+    if (!opts.dryRun) {
+      try {
+        await fs.mkdir(backupDir, { recursive: true });
+        // Copy candidate files into backup dir
+        for (const f of candidates) {
+          const src = join(this.tasksDirPath, f);
+          const dest = join(backupDir, f);
+          await fs.copyFile(src, dest);
+        }
+        log.info("Created spec files backup", { backupDir, count: candidates.length });
+      } catch (error) {
+        log.error("Failed to create spec files backup", { error });
+        throw error;
+      }
+    }
+
+    // Perform renames
+    for (const f of candidates) {
+      const match = f.match(/^(\d+)-(.*\.md)$/);
+      if (!match) continue;
+      const [, idNum, rest] = match;
+      const newName = `${backendPrefix}#${idNum}-${rest}`;
+
+      const oldPath = join(this.tasksDirPath, f);
+      const newPath = join(this.tasksDirPath, newName);
+
+      if (opts.dryRun) {
+        log.cli(`DRY RUN: would rename ${f} → ${newName}`);
+        continue;
+      }
+
+      try {
+        // Ensure destination does not exist to avoid overwriting
+        try {
+          await fs.access(newPath);
+          throw new Error(`Destination already exists: ${newName}`);
+        } catch {
+          // ok if not exists
+        }
+
+        await fs.rename(oldPath, newPath);
+        log.cli(`Renamed ${f} → ${newName}`);
+      } catch (error) {
+        log.error("Failed to rename spec file", { from: f, to: newName, error });
+        // On error, leave the original file in place (backup allows recovery)
+        continue;
+      }
+    }
   }
 
   /**

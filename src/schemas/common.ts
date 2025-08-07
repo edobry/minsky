@@ -5,6 +5,7 @@ const _TEST_VALUE = 123;
  */
 import { z } from "zod";
 import { normalizeTaskIdForStorage } from "../domain/tasks/task-id-utils";
+import { get, has } from "../domain/configuration";
 
 /**
  * Schema for file or directory paths
@@ -36,18 +37,36 @@ export const sessionNameSchema = z.string().min(1).max(100);
 
 /**
  * Task ID schema
- * Validates and normalizes task IDs to storage format (plain numbers)
+ * Validates and normalizes task IDs
  */
 export const taskIdSchema = z
   .string()
   .transform((val) => {
-    // Use the new task ID utilities for consistent normalization
+    // If strict mode is enabled, do not normalize legacy formats
+    try {
+      const strict = has("tasks.strictIds") ? (get<boolean>("tasks.strictIds") as boolean) : false;
+      if (strict) {
+        return val;
+      }
+    } catch {
+      // Fallback: treat as non-strict if configuration is not initialized yet
+    }
     return normalizeTaskIdForStorage(val);
   })
-  .refine((val) => val !== null, {
+  .refine((val) => {
+    try {
+      const strict = has("tasks.strictIds") ? (get<boolean>("tasks.strictIds") as boolean) : false;
+      if (strict) {
+        return typeof val === "string" && /^[a-z-]+#\d+$/.test(val);
+      }
+    } catch {
+      // If configuration access fails, fall back to permissive validation
+    }
+    return val !== null;
+  }, {
     message: "Task ID must be qualified (md#123, gh#456) or legacy format (123, #123)",
   })
-  .transform((val) => val as string); // Type assertion since we know it's not null after refine
+  .transform((val) => val as string); // Type assertion since we know it's valid after refine
 
 /**
  * Schema for boolean flags with optional description

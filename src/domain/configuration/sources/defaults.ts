@@ -127,6 +127,11 @@ export const defaultConfiguration: PartialConfiguration = {
     maxFileSize: 100,
     maxFiles: 5,
   },
+
+  // Tasks configuration
+  tasks: {
+    strictIds: false,
+  },
 };
 
 /**
