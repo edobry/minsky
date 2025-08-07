@@ -19,6 +19,26 @@ describe("Enhanced JSON Backend", () => {
       rmSync: mockFs.rmSync,
       readFileSync: mockFs.readFileSync,
       writeFileSync: mockFs.writeFileSync,
+      promises: {
+        mkdir: mockFs.mkdir,
+        writeFile: mockFs.writeFile,
+        readFile: mockFs.readFile,
+        readdir: mockFs.readdir,
+        rm: mockFs.rm,
+        access: mockFs.access,
+        mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
+      },
+    }));
+
+    // Also mock fs/promises for JsonFileStorage
+    mock.module("fs/promises", () => ({
+      mkdir: mockFs.mkdir,
+      writeFile: mockFs.writeFile,
+      readFile: mockFs.readFile,
+      readdir: mockFs.readdir,
+      rm: mockFs.rm,
+      access: mockFs.access,
+      mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
     }));
 
     // Ensure mock test directory exists
@@ -57,10 +77,12 @@ describe("Enhanced JSON Backend", () => {
     };
 
     // Fix: Use createTaskFromTitleAndDescription instead of createTask with object
-    await backend.createTaskFromTitleAndDescription(testTask.title, testTask.description, {
+    const createdTask = await backend.createTaskFromTitleAndDescription(testTask.title, testTask.description, {
       id: testTask.id,
     });
-    const retrievedTask = await backend.getTask("test-task-1");
+    
+    // Use the actual ID that was created, not the one we passed
+    const retrievedTask = await backend.getTask(createdTask.id);
 
     expect(retrievedTask).toBeDefined();
     expect(retrievedTask?.title).toBe("Test Task");

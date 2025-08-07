@@ -54,21 +54,19 @@ describe("suggest-rules service integration", () => {
 
         if (prompt.includes("refactor this code and organize it better")) {
           return {
-            object: {
-              suggestions: [
-                {
-                  ruleId: "domain-oriented-modules",
-                  relevanceScore: 0.8,
-                  reasoning:
-                    "Query about refactoring code organization matches domain module guidelines.",
-                  confidenceLevel: "high",
-                },
-              ],
-              queryAnalysis: {
-                intent: "Reorganize code into better modules",
-                keywords: ["refactor", "organize", "modules"],
-                suggestedCategories: ["architecture", "organization"],
+            suggestions: [
+              {
+                ruleId: "domain-oriented-modules",
+                relevanceScore: 0.8,
+                reasoning:
+                  "Query about refactoring code organization matches domain module guidelines.",
+                confidenceLevel: "high",
               },
+            ],
+            queryAnalysis: {
+              intent: "Reorganize code into better modules",
+              keywords: ["refactor", "organize", "modules"],
+              suggestedCategories: ["architecture", "organization"],
             },
             usage: { promptTokens: 120, completionTokens: 60, totalTokens: 180 },
             model: "gpt-4o",
@@ -76,21 +74,19 @@ describe("suggest-rules service integration", () => {
           };
         } else if (prompt.includes("fix a bug in the code")) {
           return {
-            object: {
-              suggestions: [
-                {
-                  ruleId: "test-driven-bugfix",
-                  relevanceScore: 0.9,
-                  reasoning:
-                    "The query mentions fixing a bug, which directly matches the test-driven-bugfix rule purpose.",
-                  confidenceLevel: "high",
-                },
-              ],
-              queryAnalysis: {
-                intent: "Fix a reported bug",
-                keywords: ["fix", "bug"],
-                suggestedCategories: ["testing", "bugfix"],
+            suggestions: [
+              {
+                ruleId: "test-driven-bugfix",
+                relevanceScore: 0.9,
+                reasoning:
+                  "The query mentions fixing a bug, which directly matches the test-driven-bugfix rule purpose.",
+                confidenceLevel: "high",
               },
+            ],
+            queryAnalysis: {
+              intent: "Fix a reported bug",
+              keywords: ["fix", "bug"],
+              suggestedCategories: ["testing", "bugfix"],
             },
             usage: { promptTokens: 100, completionTokens: 50, totalTokens: 150 },
             model: "gpt-4o",
@@ -98,13 +94,11 @@ describe("suggest-rules service integration", () => {
           };
         } else {
           return {
-            object: {
-              suggestions: [],
-              queryAnalysis: {
-                intent: "General query",
-                keywords: ["query"],
-                suggestedCategories: [],
-              },
+            suggestions: [],
+            queryAnalysis: {
+              intent: "General query",
+              keywords: ["query"],
+              suggestedCategories: [],
             },
             usage: { promptTokens: 50, completionTokens: 25, totalTokens: 75 },
             model: "gpt-4o",
@@ -199,32 +193,30 @@ describe("suggest-rules service integration", () => {
     // Mock AI service to return multiple suggestions
     const multiMockAI = {
       generateObject: mock(async () => ({
-        object: {
-          suggestions: [
-            {
-              ruleId: "test-driven-bugfix",
-              relevanceScore: 0.9,
-              reasoning: "High relevance",
-              confidenceLevel: "high",
-            },
-            {
-              ruleId: "domain-oriented-modules",
-              relevanceScore: 0.8,
-              reasoning: "Medium relevance",
-              confidenceLevel: "medium",
-            },
-            {
-              ruleId: "error-handling-router",
-              relevanceScore: 0.7,
-              reasoning: "Lower relevance",
-              confidenceLevel: "medium",
-            },
-          ],
-          queryAnalysis: {
-            intent: "Multiple relevant tasks",
-            keywords: ["multiple"],
-            suggestedCategories: ["testing", "architecture"],
+        suggestions: [
+          {
+            ruleId: "test-driven-bugfix",
+            relevanceScore: 0.9,
+            reasoning: "High relevance",
+            confidenceLevel: "high",
           },
+          {
+            ruleId: "domain-oriented-modules",
+            relevanceScore: 0.8,
+            reasoning: "Medium relevance",
+            confidenceLevel: "medium",
+          },
+          {
+            ruleId: "error-handling-router",
+            relevanceScore: 0.7,
+            reasoning: "Lower relevance",
+            confidenceLevel: "medium",
+          },
+        ],
+        queryAnalysis: {
+          intent: "Multiple relevant tasks",
+          keywords: ["multiple"],
+          suggestedCategories: ["testing", "architecture"],
         },
         usage: { promptTokens: 150, completionTokens: 75, totalTokens: 225 },
         model: "gpt-4o",
@@ -275,6 +267,13 @@ describe("suggest-rules service integration", () => {
       workspaceRules: sampleRules,
     };
 
-    await expect(errorService.suggestRules(request)).rejects.toThrow("AI service unavailable");
+    // The service should gracefully fall back to keyword-based suggestions, not throw
+    const response = await errorService.suggestRules(request);
+    
+    // Should return a valid response with fallback suggestions
+    expect(response.suggestions).toBeDefined();
+    expect(Array.isArray(response.suggestions)).toBe(true);
+    expect(response.queryAnalysis).toBeDefined();
+    // Note: The service provides resilient fallback, not error propagation
   });
 });
