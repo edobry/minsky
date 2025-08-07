@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Task #402**: Remove JSON sessiondb backend entirely from codebase
+  - **BREAKING CHANGE**: JSON sessiondb backend has been completely removed
+  - Updated default sessiondb backend from json to sqlite
+  - Removed JSON backend options from configuration schemas and validation
+  - Removed JSON backend support from storage factory functions
+  - Removed JSON backend test cases from sessiondb tests
+  - Updated CLI and configuration display logic to exclude JSON backend
+  - Generic JsonFileStorage used by task backends remains unchanged
+  - Users must migrate to SQLite or PostgreSQL backend for session storage
+
 - **Task #389**: Improve SessionDB migration and plan PostgreSQL cutover
   - Deprecate JSON SessionDB backend with warnings
   - Make dry-run default; backups mandatory (SQLite copy + JSON dump)
