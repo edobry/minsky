@@ -44,8 +44,27 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
 
   beforeEach(() => {
     // Use mock.module() to mock filesystem operations within test scope
-    mock.module("fs", () => mockFs.fs);
-    mock.module("fs/promises", () => mockFs.fsPromises);
+    mock.module("fs", () => ({
+      default: {
+        existsSync: mockFs.existsSync,
+        statSync: (path: string) => ({
+          isDirectory: () => mockFs.existsSync(path) && mockFs.directories.has(path),
+        }),
+      },
+      existsSync: mockFs.existsSync,
+      statSync: (path: string) => ({
+        isDirectory: () => mockFs.existsSync(path) && mockFs.directories.has(path),
+      }),
+    }));
+    mock.module("fs/promises", () => ({
+      mkdir: mockFs.mkdir,
+      rmdir: mockFs.rmdir,
+      rm: mockFs.rm,
+      readFile: mockFs.readFile,
+      writeFile: mockFs.writeFile,
+      readdir: mockFs.readdir,
+      stat: mockFs.stat,
+    }));
 
     // Mock cleanup - avoiding real filesystem operations
     mockFs.reset();
@@ -127,7 +146,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       expect(addSessionSpy.mock.calls.length).toBe(0);
 
       // Verify session directory would exist (simulating the bug)
-      expect(mockFs.exists("/mock/sessions/test-bug-session")).toBe(true);
+      expect(mockFs.existsSync("/mock/sessions/test-bug-session")).toBe(true);
 
       // Assert: listSessions should return empty array (session not registered)
       const sessions = await listSessionsFromParams({}, {
@@ -149,7 +168,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       );
 
       // Verify directory exists
-      expect(mockFs.exists("/mock/sessions/orphaned-session")).toBe(true);
+      expect(mockFs.existsSync("/mock/sessions/orphaned-session")).toBe(true);
 
       // But session lookup fails because it's not in the database
       const session = await mockSessionDB.getSession("orphaned-session");
@@ -217,7 +236,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       // Test each scenario
       for (const scenario of scenarios) {
         const sessionExists = await mockSessionDB.getSession(scenario.name);
-        const directoryExists = mockFs.exists(`/mock/sessions/${scenario.name}`);
+        const directoryExists = mockFs.existsSync(`/mock/sessions/${scenario.name}`);
 
         console.log(`Scenario: ${scenario.name}`);
         console.log(`  Database: ${sessionExists ? "✓" : "✗"}`);
@@ -244,7 +263,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       );
 
       // Verify directory exists
-      expect(mockFs.exists("/mock/sessions/orphaned-pr-session")).toBe(true);
+      expect(mockFs.existsSync("/mock/sessions/orphaned-pr-session")).toBe(true);
 
       // But session lookup fails
       const session = await mockSessionDB.getSession("orphaned-pr-session");

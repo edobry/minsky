@@ -1,7 +1,8 @@
 import { describe, expect, it, mock } from "bun:test";
 import { resolveWorkspacePath } from "./workspace";
 import type { WorkspaceResolutionOptions, TestDependencies } from "./workspace";
-import fs from "fs";
+// Use mock.module() to mock filesystem operations
+// import fs from "fs";
 import { join } from "path";
 describe("resolveWorkspacePath", () => {
   it("uses explicitly provided workspace path", async () => {

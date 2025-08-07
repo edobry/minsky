@@ -22,8 +22,27 @@ describe("Session Creation Bug Fix (TDD)", () => {
 
   // Use mock.module() to mock filesystem operations within test scope
   beforeEach(() => {
-    mock.module("fs", () => mockFs.fs);
-    mock.module("fs/promises", () => mockFs.fsPromises);
+    mock.module("fs", () => ({
+      default: {
+        existsSync: mockFs.existsSync,
+        statSync: (path: string) => ({
+          isDirectory: () => mockFs.existsSync(path) && mockFs.directories.has(path),
+        }),
+      },
+      existsSync: mockFs.existsSync,
+      statSync: (path: string) => ({
+        isDirectory: () => mockFs.existsSync(path) && mockFs.directories.has(path),
+      }),
+    }));
+    mock.module("fs/promises", () => ({
+      mkdir: mockFs.mkdir,
+      rmdir: mockFs.rmdir,
+      rm: mockFs.rm,
+      readFile: mockFs.readFile,
+      writeFile: mockFs.writeFile,
+      readdir: mockFs.readdir,
+      stat: mockFs.stat,
+    }));
 
     // Mock cleanup - avoiding real filesystem operations
     mockFs.reset();
@@ -82,7 +101,7 @@ describe("Session Creation Bug Fix (TDD)", () => {
 
     // Key assertion: NO session directory should exist after failed git operations
     const sessionDir = getSessionDir("test-session");
-    expect(mockFs.exists(sessionDir)).toBe(false);
+    expect(mockFs.existsSync(sessionDir)).toBe(false);
 
     // Verify session was not registered in database
     const registeredSession = await mockSessionDB.getSession("test-session");
@@ -131,6 +150,6 @@ describe("Session Creation Bug Fix (TDD)", () => {
 
     // Key assertion: Even if directory was initially created, it should be cleaned up
     const sessionDir = getSessionDir("test-partial-session");
-    expect(mockFs.exists(sessionDir)).toBe(false);
+    expect(mockFs.existsSync(sessionDir)).toBe(false);
   });
 });
