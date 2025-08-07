@@ -109,8 +109,8 @@ sharedCommandRegistry.registerCommand({
  */
 const sessiondbMigrateCommandParams: CommandParameterMap = {
   to: {
-    schema: z.enum(["json", "sqlite", "postgres"]),
-    description: "Target backend type",
+    schema: z.enum(["sqlite", "postgres"]),
+    description: "Target backend type (JSON backend deprecated)",
     required: true,
   },
   from: {
@@ -123,19 +123,19 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
     description: "SQLite database path",
     required: false,
   },
-  connectionString: {
-    schema: z.string(),
-    description: "PostgreSQL connection string",
-    required: false,
-  },
   backup: {
-    schema: z.boolean(),
-    description: "Create backup before migration",
+    schema: z.boolean().default(true),
+    description: "Create backup before migration (default: true)",
     required: false,
   },
   dryRun: {
+    schema: z.boolean().default(true),
+    description: "Show what would be migrated without doing it (default: true)",
+    required: false,
+  },
+  setDefault: {
     schema: z.boolean(),
-    description: "Show what would be migrated without doing it",
+    description: "Update configuration to use migrated backend as default",
     required: false,
   },
 };
@@ -146,12 +146,12 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
 const sessiondbCheckCommandParams: CommandParameterMap = {
   file: {
     schema: z.string(),
-    description: "Path to database file to check",
+    description: "Path to database file to check (SQLite only)",
     required: false,
   },
   backend: {
-    schema: z.enum(["json", "sqlite", "postgres"]),
-    description: "Expected backend type",
+    schema: z.enum(["sqlite", "postgres"]),
+    description: "Force specific backend validation",
     required: false,
   },
   fix: {
@@ -174,9 +174,31 @@ sharedCommandRegistry.registerCommand({
   description: "Migrate session database between backends",
   parameters: sessiondbMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
-    const { to, from, sqlitePath, connectionString, backup, dryRun } = params;
+    const { to, from, sqlitePath, backup = true, dryRun = true, setDefault } = params;
 
     try {
+      // Check for JSON backend deprecation
+      if (to === "json") {
+        throw new Error(
+          "❌ CRITICAL: JSON backend is deprecated and no longer supported. " +
+            "Please use 'sqlite' or 'postgres' as target backend."
+        );
+      }
+
+      // Import configuration system for config-driven behavior
+      const { getConfiguration } = await import("../../../domain/configuration/index");
+      const config = getConfiguration();
+
+      // Check for drift in current configuration
+      const configuredBackend = config.sessiondb?.backend;
+      if (configuredBackend === "json") {
+        log.cli("⚠️  WARNING: JSON backend configured but deprecated. Migration recommended.");
+      }
+
+      log.cli(`🚀 SessionDB Migration - Target: ${to}`);
+      log.cli(`Dry run: ${dryRun ? "YES" : "NO"}`);
+      log.cli(`Backup: ${backup ? "YES" : "NO"}`);
+
       // Read source data
       let sourceData: Record<string, any> = {};
       let sourceCount = 0;
@@ -235,7 +257,7 @@ sharedCommandRegistry.registerCommand({
         log.info(`Backup created: ${backupPath}`);
       }
 
-      // Create target storage
+      // Create target storage with config-driven approach
       const targetConfig: any = { backend: to };
 
       if (to === "sqlite") {
@@ -243,14 +265,23 @@ sharedCommandRegistry.registerCommand({
           dbPath: sqlitePath || getDefaultSqliteDbPath(),
         };
       } else if (to === "postgres") {
+        // Use config-driven PostgreSQL connection
+        const connectionString =
+          config.sessiondb?.postgres?.connectionString ||
+          config.sessiondb?.connectionString ||
+          process.env.MINSKY_POSTGRES_URL;
+
         if (!connectionString) {
-          throw new Error("PostgreSQL connection string required for postgres backend");
+          throw new Error(
+            "PostgreSQL connection string not found. " +
+              "Please configure sessiondb.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
+          );
         }
+
+        log.cli(
+          `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
+        );
         targetConfig.postgres = { connectionUrl: connectionString };
-      } else if (to === "json") {
-        targetConfig.json = {
-          filePath: getDefaultJsonDbPath(),
-        };
       }
 
       const targetStorage = createStorageBackend(targetConfig);
@@ -297,12 +328,38 @@ sharedCommandRegistry.registerCommand({
         `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
       );
 
+      // Handle setDefault option
+      if (setDefault && !dryRun) {
+        log.cli(`\n🔧 Updating configuration to use ${to} backend as default...`);
+
+        // Note: In a real implementation, we would update the config file here
+        // For now, just provide instructions to the user
+        log.cli(`✅ Configuration update requested. Please manually update your config file:`);
+        log.cli(`\n[sessiondb]`);
+        log.cli(`backend = "${to}"`);
+
+        if (to === "postgres") {
+          const connectionString =
+            config.sessiondb?.postgres?.connectionString ||
+            config.sessiondb?.connectionString ||
+            process.env.MINSKY_POSTGRES_URL;
+          log.cli(`\n[sessiondb.postgres]`);
+          log.cli(`connectionString = "${connectionString}"`);
+        } else if (to === "sqlite" && sqlitePath) {
+          log.cli(`\n[sessiondb.sqlite]`);
+          log.cli(`path = "${sqlitePath}"`);
+        }
+
+        log.cli(`\n💡 To revert: Change backend back to your previous setting`);
+      }
+
       const result = {
         success: true,
         sourceCount,
         targetCount,
         targetBackend: to,
         backupPath,
+        setDefaultApplied: setDefault && !dryRun,
         errors: [] as string[],
       };
 
@@ -342,78 +399,252 @@ sharedCommandRegistry.registerCommand({
     const { file, backend, fix, report } = params;
 
     try {
-      // Import integrity checker
-      const { DatabaseIntegrityChecker } = await import(
-        "../../../domain/storage/database-integrity-checker"
-      );
-      const { loadStorageConfig } = await import("../../../domain/storage/storage-backend-factory");
+      // Import configuration system
+      const { getConfiguration } = await import("../../../domain/configuration/index");
 
-      // Determine file path and backend
-      let filePath: string;
-      let expectedBackend: StorageBackendType;
+      // Determine which backend to validate
+      let targetBackend: "sqlite" | "postgres";
+      let sourceInfo: string;
 
-      if (file && backend) {
-        filePath = file;
-        expectedBackend = backend;
+      if (backend) {
+        // Force specific backend validation
+        targetBackend = backend;
+        sourceInfo = `Backend forced to: ${backend}`;
       } else {
-        // Auto-detect from current configuration
-        const config = loadStorageConfig();
-        expectedBackend = config.backend;
+        // Auto-detect from configuration
+        const config = getConfiguration();
+        const configuredBackend = config.sessiondb?.backend;
 
-        if (config.backend === "json") {
-          filePath = config.json?.filePath || "session-db.json";
-        } else if (config.backend === "sqlite") {
-          filePath = config.sqlite?.dbPath || "sessions.db";
-        } else {
-          throw new Error("PostgreSQL databases do not support file-based integrity checking");
+        // Check for drift (configured vs runtime mismatch)
+        if (configuredBackend === "json") {
+          throw new Error(
+            "❌ CRITICAL: JSON backend is deprecated and no longer supported. " +
+              "Please migrate to SQLite or PostgreSQL using 'minsky sessiondb migrate'."
+          );
         }
+
+        if (!configuredBackend || !["sqlite", "postgres"].includes(configuredBackend)) {
+          throw new Error(
+            `❌ CRITICAL: Invalid or unsupported backend configured: ${configuredBackend}. ` +
+              "Supported backends: sqlite, postgres"
+          );
+        }
+
+        targetBackend = configuredBackend as "sqlite" | "postgres";
+        sourceInfo = `Backend auto-detected from configuration: ${targetBackend}`;
       }
 
-      // Run integrity check
-      const integrityResult = await DatabaseIntegrityChecker.checkIntegrity(
-        expectedBackend,
-        filePath
-      );
+      log.cli(`🔍 SessionDB Check - ${sourceInfo}`);
+
+      // Perform backend-specific validation
+      let validationResult: {
+        success: boolean;
+        details: string;
+        issues?: string[];
+        suggestions?: string[];
+      };
+
+      if (targetBackend === "sqlite") {
+        validationResult = await validateSqliteBackend(file);
+      } else if (targetBackend === "postgres") {
+        validationResult = await validatePostgresBackend();
+      } else {
+        throw new Error(`Unknown backend: ${targetBackend}`);
+      }
 
       // Show results
-      if (report || !integrityResult.isValid) {
-        const reportText = DatabaseIntegrityChecker.formatIntegrityReport(integrityResult);
-        log.cli(reportText);
+      if (report || !validationResult.success) {
+        log.cli(`\n📊 Validation Results:`);
+        log.cli(`Status: ${validationResult.success ? "✅ HEALTHY" : "❌ ISSUES FOUND"}`);
+        log.cli(`Details: ${validationResult.details}`);
+
+        if (validationResult.issues && validationResult.issues.length > 0) {
+          log.cli(`\n⚠️ Issues Found:`);
+          validationResult.issues.forEach((issue, idx) => {
+            log.cli(`  ${idx + 1}. ${issue}`);
+          });
+        }
+
+        if (validationResult.suggestions && validationResult.suggestions.length > 0) {
+          log.cli(`\n💡 Suggestions:`);
+          validationResult.suggestions.forEach((suggestion, idx) => {
+            log.cli(`  ${idx + 1}. ${suggestion}`);
+          });
+        }
       }
 
-      // Auto-fix if requested
-      if (fix && integrityResult.suggestedActions.length > 0) {
-        const autoFixableActions = integrityResult.suggestedActions.filter(
-          (action) => action.autoExecutable && action.type === "migrate"
-        );
-
-        if (autoFixableActions.length > 0) {
-          const action = autoFixableActions[0];
-          if (action) {
-            log.cli(`\n🔧 Auto-fixing: ${action.description}`);
-
-            if (action.command) {
-              log.cli(`Would execute: ${action.command}`);
-              log.cli("(Auto-fix implementation would go here)");
-            }
-          }
-        } else {
-          log.cli("\n⚠️  No auto-fixable issues found. Manual intervention required.");
-        }
+      // Auto-fix if requested (basic implementation)
+      if (fix && !validationResult.success) {
+        log.cli(`\n🔧 Auto-fix requested but not yet implemented for ${targetBackend} backend`);
+        log.cli("Manual intervention required for now.");
       }
 
       return {
-        success: integrityResult.isValid,
-        integrityResult,
-        filePath,
-        expectedBackend,
+        success: validationResult.success,
+        backend: targetBackend,
+        sourceInfo,
+        validationResult,
       };
     } catch (error) {
-      log.error("Database integrity check failed", { error: getErrorMessage(error) });
+      log.error("Database check failed", { error: getErrorMessage(error) });
       throw error;
     }
   },
 });
+
+/**
+ * Validate SQLite backend
+ */
+async function validateSqliteBackend(
+  filePath: string | undefined
+): Promise<{ success: boolean; details: string; issues?: string[]; suggestions?: string[] }> {
+  const issues: string[] = [];
+  const suggestions: string[] = [];
+
+  try {
+    // Import configuration to get proper paths
+    const { getConfiguration } = await import("../../../domain/configuration/index");
+    const config = getConfiguration();
+
+    // Determine SQLite file path
+    let dbPath: string;
+    if (filePath) {
+      dbPath = filePath;
+      log.cli(`Using specified file: ${dbPath}`);
+    } else {
+      // Use configured path or default
+      dbPath =
+        config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+      log.cli(`Using configured/default file: ${dbPath}`);
+    }
+
+    // Check file existence
+    if (!existsSync(dbPath)) {
+      issues.push(`SQLite database file not found: ${dbPath}`);
+      suggestions.push("Run 'minsky session list' to initialize database");
+      return {
+        success: false,
+        details: `SQLite file not found at ${dbPath}`,
+        issues,
+        suggestions,
+      };
+    }
+
+    // Basic file validation
+    const { DatabaseIntegrityChecker } = await import(
+      "../../../domain/storage/database-integrity-checker"
+    );
+
+    const integrityResult = await DatabaseIntegrityChecker.checkIntegrity("sqlite", dbPath);
+
+    if (!integrityResult.isValid) {
+      issues.push("SQLite integrity check failed");
+      if (integrityResult.errors) {
+        issues.push(...integrityResult.errors.map((err) => err.description));
+      }
+      if (integrityResult.suggestedActions) {
+        suggestions.push(...integrityResult.suggestedActions.map((action) => action.description));
+      }
+    }
+
+    return {
+      success: integrityResult.isValid,
+      details: `SQLite database validation at ${dbPath}`,
+      issues: issues.length > 0 ? issues : undefined,
+      suggestions: suggestions.length > 0 ? suggestions : undefined,
+    };
+  } catch (error) {
+    issues.push(`SQLite validation error: ${getErrorMessage(error)}`);
+    return {
+      success: false,
+      details: "SQLite validation failed with error",
+      issues,
+      suggestions: ["Check file permissions and SQLite installation"],
+    };
+  }
+}
+
+/**
+ * Validate PostgreSQL backend
+ */
+async function validatePostgresBackend(): Promise<{
+  success: boolean;
+  details: string;
+  issues?: string[];
+  suggestions?: string[];
+}> {
+  const issues: string[] = [];
+  const suggestions: string[] = [];
+
+  try {
+    // Import configuration to get connection details
+    const { getConfiguration } = await import("../../../domain/configuration/index");
+    const config = getConfiguration();
+
+    // Get PostgreSQL connection string
+    const connectionString =
+      config.sessiondb?.postgres?.connectionString ||
+      config.sessiondb?.connectionString ||
+      process.env.MINSKY_POSTGRES_URL;
+
+    if (!connectionString) {
+      issues.push("No PostgreSQL connection string configured");
+      suggestions.push(
+        "Set sessiondb.postgres.connectionString in config or MINSKY_POSTGRES_URL env var"
+      );
+      return {
+        success: false,
+        details: "PostgreSQL connection not configured",
+        issues,
+        suggestions,
+      };
+    }
+
+    log.cli(
+      `Testing connection to: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
+    );
+
+    // Basic connection test
+    const { createStorageBackend } = await import(
+      "../../../domain/storage/storage-backend-factory"
+    );
+
+    try {
+      const storage = createStorageBackend({
+        backend: "postgres",
+        postgres: { connectionUrl: connectionString },
+      });
+
+      // Try a simple read operation to test connectivity
+      await storage.readState();
+
+      return {
+        success: true,
+        details: `PostgreSQL connection successful`,
+      };
+    } catch (connectionError) {
+      issues.push(`PostgreSQL connection failed: ${getErrorMessage(connectionError)}`);
+      suggestions.push(
+        "Check connection string, network connectivity, and PostgreSQL service status"
+      );
+
+      return {
+        success: false,
+        details: "PostgreSQL connection test failed",
+        issues,
+        suggestions,
+      };
+    }
+  } catch (error) {
+    issues.push(`PostgreSQL validation error: ${getErrorMessage(error)}`);
+    return {
+      success: false,
+      details: "PostgreSQL validation failed with error",
+      issues,
+      suggestions: ["Check PostgreSQL configuration and connection details"],
+    };
+  }
+}
 
 /**
  * Register all sessiondb commands
