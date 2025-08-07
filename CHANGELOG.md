@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Task #389**: Improve SessionDB migration and plan PostgreSQL cutover
+  - Deprecate JSON SessionDB backend with warnings
+  - Make dry-run default; backups mandatory (SQLite copy + JSON dump)
+  - Remove --connection-string; use config/env for Postgres
+  - Add strong preflight validations and --set-default toggle
+  - Add backend drift warnings in SessionDB provider
+
 - **Session Cleanup Functionality**: Comprehensive session cleanup implementation that automatically removes old sessions for completed and merged tasks, addressing the gap identified in Task #353. Includes complete filesystem directory removal, **cleanup enabled by default** for merge operations, enhanced session delete commands with comprehensive cleanup, and CLI parameter support with `--skip-cleanup` flag to override default behavior when needed.
 
 ### Fixed
