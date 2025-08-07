@@ -10,13 +10,13 @@ import { z } from "zod";
 /**
  * Session database backend types
  */
-export const sessionDbBackendSchema = z.enum(["json", "sqlite", "postgres"]);
+export const sessionDbBackendSchema = z.enum(["sqlite", "postgres"]);
 
 /**
  * Base session database configuration
  */
 export const sessionDbConfigSchema = z.object({
-  backend: sessionDbBackendSchema.default("json"),
+  backend: sessionDbBackendSchema.default("sqlite"),
   baseDir: z.string().optional(),
   dbPath: z.string().optional(),
   connectionString: z.string().optional(),
