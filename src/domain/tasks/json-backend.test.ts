@@ -56,7 +56,10 @@ describe("Enhanced JSON Backend", () => {
       },
     };
 
-    await backend.createTask(testTask);
+    // Fix: Use createTaskFromTitleAndDescription instead of createTask with object
+    await backend.createTaskFromTitleAndDescription(testTask.title, testTask.description, {
+      id: testTask.id,
+    });
     const retrievedTask = await backend.getTask("test-task-1");
 
     expect(retrievedTask).toBeDefined();

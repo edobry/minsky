@@ -67,18 +67,15 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
     it("should route qualified IDs to correct backend", async () => {
       // Test with qualified markdown ID
-      const task = {
-        id: "md#123",
+      const taskSpec = {
         title: "Test Task",
         description: "A test task",
-        status: TASK_STATUS.TODO,
-        metadata: {
-          created: new Date().toISOString(),
-          workspace: mockTempDir,
-        },
+        status: "TODO",
+        id: "md#123",
       };
 
-      await service.createTask(task);
+      // Use createTask with TaskSpec format
+      await service.createTask(taskSpec, "markdown");
       const retrievedTask = await service.getTask("md#123");
 
       expect(retrievedTask).toBeDefined();
@@ -88,30 +85,22 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
     it("should list tasks from all backends", async () => {
       // Create tasks through different backends
-      const task1 = {
-        id: "md#task1",
+      const task1Spec = {
         title: "Markdown Task 1",
         description: "First markdown task",
-        status: TASK_STATUS.TODO,
-        metadata: {
-          created: new Date().toISOString(),
-          workspace: mockTempDir,
-        },
+        status: "TODO",
+        id: "md#task1",
       };
 
-      const task2 = {
-        id: "md#task2",
+      const task2Spec = {
         title: "Markdown Task 2",
         description: "Second markdown task",
-        status: TASK_STATUS.IN_PROGRESS,
-        metadata: {
-          created: new Date().toISOString(),
-          workspace: mockTempDir,
-        },
+        status: "IN_PROGRESS",
+        id: "md#task2",
       };
 
-      await service.createTask(task1);
-      await service.createTask(task2);
+      await service.createTask(task1Spec, "markdown");
+      await service.createTask(task2Spec, "markdown");
 
       const allTasks = await service.listTasks();
       expect(allTasks).toHaveLength(2);
@@ -122,46 +111,37 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
   describe("Cross-Backend Operations", () => {
     it("should handle task updates across backends", async () => {
-      const task = {
-        id: "md#update-test",
+      const taskSpec = {
         title: "Update Test Task",
         description: "Task for testing updates",
-        status: TASK_STATUS.TODO,
-        metadata: {
-          created: new Date().toISOString(),
-          workspace: mockTempDir,
-        },
+        status: "TODO",
+        id: "md#update-test",
       };
 
-      await service.createTask(task);
+      await service.createTask(taskSpec, "markdown");
 
       // Update the task
       const updatedTask = {
-        ...task,
-        status: TASK_STATUS.IN_PROGRESS,
+        status: "IN_PROGRESS",
         title: "Updated Task Title",
       };
 
       await service.updateTask("md#update-test", updatedTask);
       const retrievedTask = await service.getTask("md#update-test");
 
-      expect(retrievedTask?.status).toBe(TASK_STATUS.IN_PROGRESS);
+      expect(retrievedTask?.status).toBe("IN_PROGRESS");
       expect(retrievedTask?.title).toBe("Updated Task Title");
     });
 
     it("should handle task status transitions correctly", async () => {
-      const task = {
-        id: "md#status-test",
+      const taskSpec = {
         title: "Status Test Task",
         description: "Task for testing status transitions",
-        status: TASK_STATUS.TODO,
-        metadata: {
-          created: new Date().toISOString(),
-          workspace: mockTempDir,
-        },
+        status: "TODO",
+        id: "md#status-test",
       };
 
-      await service.createTask(task);
+      await service.createTask(taskSpec, "markdown");
 
       // Transition through different statuses
       await service.updateTaskStatus("md#status-test", TASK_STATUS.IN_PROGRESS);
@@ -174,18 +154,14 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     });
 
     it("should handle task deletion across backends", async () => {
-      const task = {
-        id: "md#delete-test",
+      const taskSpec = {
         title: "Delete Test Task",
         description: "Task for testing deletion",
-        status: TASK_STATUS.TODO,
-        metadata: {
-          created: new Date().toISOString(),
-          workspace: mockTempDir,
-        },
+        status: "TODO",
+        id: "md#delete-test",
       };
 
-      await service.createTask(task);
+      await service.createTask(taskSpec, "markdown");
 
       // Verify task exists
       let retrievedTask = await service.getTask("md#delete-test");
