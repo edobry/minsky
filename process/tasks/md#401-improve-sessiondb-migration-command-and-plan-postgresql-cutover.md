@@ -12,6 +12,7 @@ Goals:
 - Add strong preflight validations (also in dry-run)
 - Add `--set-default` with clear reversal instructions
 - Warn when runtime backend differs from configured backend to reduce drift
+ - Fix `sessiondb check` to delegate to the appropriate backend automatically
 
 Requirements:
 1) Deprecate JSON SessionDB Backend
@@ -33,6 +34,13 @@ Requirements:
 - Validate constraints/uniqueness compatibility
 - Emit a clear summary of planned changes
 
+5) SessionDB Check Delegation (Backend-Aware)
+- Update `minsky sessiondb check` to auto-detect current backend and run the right checks:
+  - JSON/SQLite: file-based integrity checks (structure, readability, corruption hints)
+  - PostgreSQL: connectivity, permissions, schema/migration readiness, extension availability
+- Respect `--backend` to override auto-detection but do not require `--file` for Postgres
+- Report which backend and source were used (file path for JSON/SQLite; connection target for Postgres)
+
 4) Drift and Safety Controls
 - In SessionDB provider/adapter, warn if active storage backend differs from configured backend
 
@@ -44,6 +52,8 @@ CLI Examples:
 - `minsky sessiondb migrate to postgres` (dry run default)
 - `minsky sessiondb migrate to postgres --dry-run=false`
 - `minsky sessiondb migrate to postgres --dry-run=false --set-default`
+- `minsky sessiondb check --report`  # Auto-detects backend; file checks for JSON/SQLite, connectivity/schema checks for Postgres
+- `minsky sessiondb check --backend postgres --report`  # Forces Postgres checks even if files exist
 
 ## Requirements
 
