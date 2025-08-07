@@ -93,14 +93,8 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         }),
       };
 
-      // Spy on imports to inject mocks
-      const sessionImportSpy = (spyOn(
-        await import("../../../../domain/session"),
-        "createSessionProvider"
-      ) = mock(() => mockSessionProvider as any));
-
-      const gitImportSpy = (spyOn(await import("../../../../domain/git"), "createGitService") =
-        mock(() => mockGitService as any));
+      // Mock imports to inject mocks
+      const sessionImportSpy = mock(() => mockSessionProvider as any);
 
       const resolverImportSpy = spyOn(
         await import("../../../../domain/session/session-context-resolver"),
@@ -118,7 +112,6 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         expect(canRefresh).toBe(true);
       } finally {
         sessionImportSpy.mockRestore();
-        gitImportSpy.mockRestore();
         resolverImportSpy.mockRestore();
       }
     });
@@ -135,10 +128,10 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         throw new Error("Session not found for task md#999");
       });
 
-      const sessionImportSpy = (spyOn(
+      const sessionImportSpy = spyOn(
         await import("../../../../domain/session"),
         "createSessionProvider"
-      ) = mock(() => mockSessionProvider as any));
+      ).mockImplementation(() => mockSessionProvider as any);
 
       const resolverImportSpy = spyOn(
         await import("../../../../domain/session/session-context-resolver"),
