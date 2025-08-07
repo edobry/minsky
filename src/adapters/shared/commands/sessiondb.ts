@@ -138,6 +138,11 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
     description: "Update configuration to use migrated backend as default",
     required: false,
   },
+  execute: {
+    schema: z.boolean(),
+    description: "Actually perform the migration (overrides dry-run)",
+    required: false,
+  },
 };
 
 /**
@@ -174,7 +179,10 @@ sharedCommandRegistry.registerCommand({
   description: "Migrate session database between backends",
   parameters: sessiondbMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
-    const { to, from, sqlitePath, backup = true, dryRun = true, setDefault } = params;
+    const { to, from, sqlitePath, backup = true, dryRun = true, setDefault, execute } = params;
+
+    // If execute flag is set, override dry-run to false
+    const actualDryRun = execute ? false : dryRun;
 
     try {
       // Check for JSON backend deprecation
@@ -196,7 +204,7 @@ sharedCommandRegistry.registerCommand({
       }
 
       log.cli(`🚀 SessionDB Migration - Target: ${to}`);
-      log.cli(`Dry run: ${dryRun ? "YES" : "NO"}`);
+      log.cli(`Dry run: ${actualDryRun ? "YES" : "NO"}`);
       log.cli(`Backup: ${backup ? "YES" : "NO"}`);
 
       // Read source data
@@ -329,7 +337,7 @@ sharedCommandRegistry.registerCommand({
       );
 
       // Handle setDefault option
-      if (setDefault && !dryRun) {
+      if (setDefault && !actualDryRun) {
         log.cli(`\n🔧 Updating configuration to use ${to} backend as default...`);
 
         // Note: In a real implementation, we would update the config file here
@@ -359,7 +367,7 @@ sharedCommandRegistry.registerCommand({
         targetCount,
         targetBackend: to,
         backupPath,
-        setDefaultApplied: setDefault && !dryRun,
+        setDefaultApplied: setDefault && !actualDryRun,
         errors: [] as string[],
       };
 
