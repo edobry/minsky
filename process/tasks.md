@@ -668,6 +668,6 @@
 
 - [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
-- [+] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+- [ ] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [ ] Final test of the complete fix [#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
+- [+] Remove JSON sessiondb backend entirely from codebase [#402](process/tasks/md#402-remove-json-sessiondb-backend-entirely-from-codebase.md)
