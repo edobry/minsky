@@ -110,7 +110,7 @@ sharedCommandRegistry.registerCommand({
 const sessiondbMigrateCommandParams: CommandParameterMap = {
   to: {
     schema: z.enum(["sqlite", "postgres"]),
-    description: "Target backend type (JSON backend deprecated)",
+    description: "Target backend type",
     required: true,
   },
   from: {
@@ -610,30 +610,75 @@ async function validatePostgresBackend(): Promise<{
     );
 
     try {
-      const storage = createStorageBackend({
-        backend: "postgres",
-        postgres: { connectionUrl: connectionString },
-      });
+      // Use direct PostgreSQL connection to avoid Drizzle logging
+      const { Pool } = require("pg");
+      const pool = new Pool({ connectionString });
 
-      // Try a simple read operation to test connectivity
-      await storage.readState();
+      try {
+        const client = await pool.connect();
+
+        try {
+          // Test basic connectivity
+          await client.query("SELECT 1");
+
+          // Test if sessions table exists (schema validation)
+          const tableResult = await client.query(`
+            SELECT EXISTS (
+              SELECT FROM information_schema.tables 
+              WHERE table_schema = 'public' 
+              AND table_name = 'sessions'
+            );
+          `);
+
+          const tableExists = tableResult.rows[0].exists;
+          if (!tableExists) {
+            throw new Error("sessions table does not exist");
+          }
+        } finally {
+          client.release();
+        }
+      } finally {
+        await pool.end();
+      }
 
       return {
         success: true,
-        details: `PostgreSQL connection successful`,
+        details: `PostgreSQL connection and schema validated successfully`,
       };
-    } catch (connectionError) {
-      issues.push(`PostgreSQL connection failed: ${getErrorMessage(connectionError)}`);
-      suggestions.push(
-        "Check connection string, network connectivity, and PostgreSQL service status"
-      );
+    } catch (error) {
+      const errorMessage = getErrorMessage(error);
 
-      return {
-        success: false,
-        details: "PostgreSQL connection test failed",
-        issues,
-        suggestions,
-      };
+      // Check if this is a schema/table issue vs connection issue
+      if (
+        errorMessage.includes("sessions table does not exist") ||
+        errorMessage.includes('relation "sessions" does not exist') ||
+        errorMessage.includes('table "sessions"') ||
+        errorMessage.includes('select "session"')
+      ) {
+        issues.push("PostgreSQL connection successful, but schema is missing or incorrect");
+        suggestions.push("Run database migrations to create the required 'sessions' table");
+        suggestions.push("Verify the database has been properly initialized for Minsky");
+
+        return {
+          success: false,
+          details: "PostgreSQL connection successful but schema validation failed",
+          issues,
+          suggestions,
+        };
+      } else {
+        // This is likely a connection issue
+        issues.push(`PostgreSQL connection failed: ${errorMessage}`);
+        suggestions.push(
+          "Check connection string, network connectivity, and PostgreSQL service status"
+        );
+
+        return {
+          success: false,
+          details: "PostgreSQL connection test failed",
+          issues,
+          suggestions,
+        };
+      }
     }
   } catch (error) {
     issues.push(`PostgreSQL validation error: ${getErrorMessage(error)}`);
