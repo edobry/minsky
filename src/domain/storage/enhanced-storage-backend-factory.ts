@@ -8,9 +8,8 @@
 import { join } from "path";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { getMinskyStateDir, getDefaultJsonDbPath, getDefaultSqliteDbPath } from "../../utils/paths";
+import { getMinskyStateDir, getDefaultSqliteDbPath } from "../../utils/paths";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
-import { JsonFileStorage } from "./backends/json-file-storage";
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
 import { createSqliteStorage, type SqliteStorageConfig } from "./backends/sqlite-storage";
 import type { DatabaseStorage } from "./database-storage";
@@ -250,12 +249,6 @@ export class EnhancedStorageBackendFactory {
     log.debug(`Creating storage backend: ${config.backend}`);
 
     switch (config.backend) {
-      case "json": {
-        const dbPath = config.json?.filePath || getDefaultStorageConfig().json!.filePath;
-        const baseDir = getMinskyStateDir();
-        return new JsonFileStorage(dbPath, baseDir);
-      }
-
       case "sqlite": {
         const sqliteConfig: SqliteStorageConfig = {
           dbPath: config.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,

@@ -14,16 +14,6 @@ import { baseSchemas, enumSchemas } from "./base";
 export const sessionDbBackendSchema = enumSchemas.sessionDbBackend.default("sqlite");
 
 /**
- * JSON backend configuration (file-based session storage)
- */
-export const jsonSessionDbConfigSchema = z
-  .object({
-    // Base directory for session files (optional, uses XDG standard if not provided)
-    baseDir: baseSchemas.directoryPath.optional(),
-  })
-  .strict();
-
-/**
  * SQLite backend configuration
  */
 export const sqliteSessionDbConfigSchema = z
@@ -54,9 +44,6 @@ export const sessionDbConfigSchema = z
     // Backend selection
     backend: sessionDbBackendSchema,
 
-    // JSON backend configuration
-    json: jsonSessionDbConfigSchema.optional(),
-
     // SQLite backend configuration
     sqlite: sqliteSessionDbConfigSchema.optional(),
 
@@ -74,10 +61,8 @@ export const sessionDbConfigSchema = z
     const result = { ...config };
 
     // Migrate legacy baseDir to backend-specific config
-    if (config.baseDir && !config.json?.baseDir && !config.sqlite?.baseDir) {
-      if (config.backend === "json") {
-        result.json = { ...config.json, baseDir: config.baseDir };
-      } else if (config.backend === "sqlite") {
+    if (config.baseDir && !config.sqlite?.baseDir) {
+      if (config.backend === "sqlite") {
         result.sqlite = { ...config.sqlite, baseDir: config.baseDir };
       }
     }
@@ -101,7 +86,7 @@ export const sessionDbConfigSchema = z
 
 // Type exports
 export type SessionDbBackend = z.infer<typeof sessionDbBackendSchema>;
-export type JsonSessionDbConfig = z.infer<typeof jsonSessionDbConfigSchema>;
+
 export type SqliteSessionDbConfig = z.infer<typeof sqliteSessionDbConfigSchema>;
 export type PostgresSessionDbConfig = z.infer<typeof postgresSessionDbConfigSchema>;
 export type SessionDbConfig = z.infer<typeof sessionDbConfigSchema>;
@@ -114,7 +99,7 @@ export const sessionDbValidation = {
    * Validate that a SessionDB backend name is supported
    */
   isValidBackend: (backend: string): backend is SessionDbBackend => {
-    return ["json", "sqlite", "postgres"].includes(backend);
+    return ["sqlite", "postgres"].includes(backend);
   },
 
   /**
@@ -130,12 +115,6 @@ export const sessionDbValidation = {
    */
   getBackendConfig: (config: SessionDbConfig) => {
     switch (config.backend) {
-      case "json":
-        return {
-          type: "json" as const,
-          baseDir: config.json?.baseDir || config.baseDir,
-        };
-
       case "sqlite":
         return {
           type: "sqlite" as const,
@@ -161,9 +140,6 @@ export const sessionDbValidation = {
     const backendConfig = sessionDbValidation.getBackendConfig(config);
 
     switch (backendConfig.type) {
-      case "json":
-        return true; // JSON backend works with defaults
-
       case "sqlite":
         return true; // SQLite backend works with defaults
 

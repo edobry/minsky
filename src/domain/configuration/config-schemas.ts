@@ -9,7 +9,7 @@
 import { z } from "zod";
 
 // Base schemas for common types
-const SessionDbBackendSchema = z.enum(["json", "sqlite", "postgres"]);
+const SessionDbBackendSchema = z.enum(["sqlite", "postgres"]);
 const LoggerModeSchema = z.enum(["HUMAN", "STRUCTURED", "auto"]);
 const LoggerLevelSchema = z.enum(["debug", "info", "warn", "error"]);
 const BackendTypeSchema = z.enum(["markdown", "json-file", "github-issues"]);
