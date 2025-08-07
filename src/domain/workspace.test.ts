@@ -9,7 +9,7 @@ describe("resolveWorkspacePath", () => {
 
   beforeEach(() => {
     mockFs = createMockFilesystem();
-    
+
     // Mock the fs module to use our mock filesystem
     mock.module("fs", () => ({
       default: {
