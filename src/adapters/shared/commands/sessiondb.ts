@@ -128,19 +128,14 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
     description: "Create backup before migration (default: true)",
     required: false,
   },
-  dryRun: {
-    schema: z.boolean().default(true),
-    description: "Show what would be migrated without doing it (default: true)",
+  execute: {
+    schema: z.boolean(),
+    description: "Actually perform the migration (default is preview mode)",
     required: false,
   },
   setDefault: {
     schema: z.boolean(),
     description: "Update configuration to use migrated backend as default",
-    required: false,
-  },
-  execute: {
-    schema: z.boolean(),
-    description: "Actually perform the migration (overrides dry-run)",
     required: false,
   },
 };
@@ -179,10 +174,10 @@ sharedCommandRegistry.registerCommand({
   description: "Migrate session database between backends",
   parameters: sessiondbMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
-    const { to, from, sqlitePath, backup = true, dryRun = true, setDefault, execute } = params;
+    const { to, from, sqlitePath, backup = true, execute, setDefault } = params;
 
-    // If execute flag is set, override dry-run to false
-    const actualDryRun = execute ? false : dryRun;
+    // Default is preview mode unless --execute is specified
+    const isPreviewMode = !execute;
 
     try {
       // Check for JSON backend deprecation
@@ -204,7 +199,7 @@ sharedCommandRegistry.registerCommand({
       }
 
       log.cli(`🚀 SessionDB Migration - Target: ${to}`);
-      log.cli(`Dry run: ${actualDryRun ? "YES" : "NO"}`);
+      log.cli(`Mode: ${isPreviewMode ? "PREVIEW" : "EXECUTE"}`);
       log.cli(`Backup: ${backup ? "YES" : "NO"}`);
 
       // Read source data
@@ -242,12 +237,12 @@ sharedCommandRegistry.registerCommand({
         }
       }
 
-      if (dryRun) {
-        log.info("DRY RUN - No changes will be made");
+      if (isPreviewMode) {
+        log.info("PREVIEW MODE - No changes will be made");
         log.info(`Would migrate ${sourceCount} sessions from source to ${to} backend`);
         return {
           success: true,
-          dryRun: true,
+          preview: true,
           sourceCount,
           targetBackend: to,
         };
@@ -318,17 +313,24 @@ sharedCommandRegistry.registerCommand({
         }
       }
 
-      // Write to target backend
-      const targetState = {
-        sessions: sessionRecords,
-        baseDir: getMinskyStateDir(),
-      };
+      // Write to target backend (only if --execute is specified)
+      let writeResult;
+      if (execute) {
+        const targetState = {
+          sessions: sessionRecords,
+          baseDir: getMinskyStateDir(),
+        };
 
-      const writeResult = await targetStorage.writeState(targetState);
-      if (!writeResult.success) {
-        throw new Error(
-          `Failed to write to target backend: ${writeResult.error?.message || "Unknown error"}`
-        );
+        writeResult = await targetStorage.writeState(targetState);
+        if (!writeResult.success) {
+          throw new Error(
+            `Failed to write to target backend: ${writeResult.error?.message || "Unknown error"}`
+          );
+        }
+        log.cli(`✅ Data successfully migrated to target backend`);
+      } else {
+        log.cli(`🔍 PREVIEW: Would migrate ${sessionRecords.length} sessions to target backend`);
+        writeResult = { success: true }; // Mock success for preview
       }
 
       const targetCount = sessionRecords.length;
@@ -337,7 +339,7 @@ sharedCommandRegistry.registerCommand({
       );
 
       // Handle setDefault option
-      if (setDefault && !actualDryRun) {
+      if (setDefault && execute) {
         log.cli(`\n🔧 Updating configuration to use ${to} backend as default...`);
 
         // Note: In a real implementation, we would update the config file here
@@ -367,7 +369,7 @@ sharedCommandRegistry.registerCommand({
         targetCount,
         targetBackend: to,
         backupPath,
-        setDefaultApplied: setDefault && !actualDryRun,
+        setDefaultApplied: setDefault && execute,
         errors: [] as string[],
       };
 
