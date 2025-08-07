@@ -123,12 +123,13 @@ Using OpenAI embeddings via existing AI completion infrastructure:
    - Batch processing for efficient API usage
    - Error handling and retry logic
 
-3. **Vector Storage Architecture:**
+3. **SQLite Vector Architecture:**
 
-   - Start with simple in-memory implementation using cosine similarity
-   - Design swappable interface for easy migration to production libraries
-   - Future options: hnswlib-node (HNSW), faiss-node (Facebook FAISS), SQLite vector extension
-   - Configurable distance metrics (cosine, euclidean, dot product)
+   - **sqlite-vec virtual tables**: Store vectors as native SQLite columns with type safety
+   - **Multiple vector formats**: float32 (standard), int8 (quantized), bit (binary)  
+   - **Distance metrics**: L2 (Euclidean), L1 (Manhattan), cosine, Hamming (for binary)
+   - **SIMD acceleration**: AVX/NEON optimized distance calculations
+   - **Native SQL KNN**: `WHERE vector MATCH ? ORDER BY distance LIMIT k`
 
 ### Task Search Service Architecture
 
@@ -275,61 +276,63 @@ minsky tasks similar 250 --include-closed --threshold=0.5
    - Create provider abstraction for future embedding services
    - Add batch processing and error handling
 
-2. **Vector Storage Strategy:**
+2. **SQLite Vector Storage:**
 
-   **Phase 1: Simple JavaScript Implementation**
-   - Pure JavaScript cosine similarity for development/prototyping
-   - In-memory array storage with JSON serialization for persistence
-   - Fast to implement, easy to debug, no dependencies
+   **Direct SQLite + sqlite-vec Integration**
+   - **sqlite-vec extension** (6k+ stars) - Modern, no-dependency vector search for SQLite
+   - Written in pure C, runs everywhere SQLite runs (Node.js, WASM, mobile, etc.)
+   - Supports float32, int8, and binary vectors with multiple distance metrics
+   - Native SQL syntax for vector operations and KNN search
+   - Much better than JavaScript implementations or external dependencies
 
-   **Phase 2: Production Options**
-   - **PostgreSQL + pgvector**: Most pragmatic choice, leverages existing database
-   - **hnswlib-node**: If we need pure in-memory performance
-   - **Hosted Services**: Pinecone/Qdrant Cloud for maximum simplicity
-
-   **Selected approach**: Start with JavaScript implementation, design for easy migration to pgvector
+   **Implementation Strategy:**
+   - Use sqlite-vec directly with our existing SQLite database
+   - Leverage native vector columns and KNN search via virtual tables
+   - Seamless integration with existing Minsky task storage
 
 3. **Basic Commands:**
    - `minsky tasks similar <task-id>`
    - `minsky tasks search <query>`
    - CLI interface with similarity scores and explanations
 
-### Phase 2: Enhanced Search Features & Optimization
+### Phase 2: Advanced SQLite Vector Features
 
-1. **Advanced Search Capabilities:**
+1. **Vector Storage Optimization:**
 
-   - Duplicate detection algorithms using similarity thresholds
-   - Integration with task creation workflow
-   - Filtering and ranking options (by status, date, etc.)
+   - Implement vector quantization (float32 → int8, binary) for storage efficiency
+   - Add batch vector insert/update operations for large task corpora
+   - Optimize sqlite-vec chunk storage and indexing
 
-2. **Performance & Reliability:**
-   - Batch operations for large task corpora
-   - Incremental updates when tasks change
-   - Caching strategies for frequently searched content
+2. **Advanced Search Capabilities:**
+
+   - Metadata filtering using sqlite-vec auxiliary columns
+   - Hybrid search combining vector similarity with SQLite FTS5
+   - Duplicate detection using configurable similarity thresholds
+   - Distance metric selection (cosine, L2, L1) based on use case
    - Background embedding generation for new tasks
 
-### Phase 3: Persistent Storage & Scalability
+### Phase 3: Advanced Analytics & Integration
 
-1. **Storage Migration:**
+1. **System Integration:**
 
-   - Implement SQLite vector storage backend
-   - Design migration utilities from in-memory to persistent storage
-   - Add PostgreSQL pgvector support for team environments
+   - Integrate with existing task creation/update workflows  
+   - Automatic embedding generation for new/modified tasks
+   - Background processing for large-scale re-indexing
 
 2. **Advanced Analytics:**
-   - Task clustering based on embedding similarity
-   - Relationship analysis and insights
-   - Integration with task hierarchy system (when available)
+   - Task clustering using sqlite-vec similarity results
+   - Relationship analysis and insights reporting
+   - Integration with external embedding providers (Cohere, local models)
 
 ## Acceptance Criteria
 
 ### Core Functionality
 
-- [ ] Generate embeddings for all task content (title, description, specification)
-- [ ] Implement embedding-based similarity search with configurable thresholds
-- [ ] `minsky tasks similar <task-id>` returns ranked similar tasks with scores
+- [ ] Generate embeddings for all task content using OpenAI embedding service
+- [ ] Store vectors in SQLite using sqlite-vec extension with native vector columns
+- [ ] `minsky tasks similar <task-id>` returns ranked similar tasks with distances
 - [ ] `minsky tasks search <query>` supports natural language queries
-- [ ] Similarity results include relevance scores and explanations
+- [ ] Native SQL KNN search: `WHERE vector MATCH ? ORDER BY distance LIMIT k`
 
 ### Embedding Infrastructure
 
