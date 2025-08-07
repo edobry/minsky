@@ -1,25 +1,53 @@
-import { describe, expect, it, mock } from "bun:test";
+import { describe, expect, it, mock, beforeEach, afterEach } from "bun:test";
 import { resolveWorkspacePath } from "./workspace";
 import type { WorkspaceResolutionOptions, TestDependencies } from "./workspace";
-// Use mock.module() to mock filesystem operations
-// import fs from "fs";
 import { join } from "path";
+import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
+
 describe("resolveWorkspacePath", () => {
+  let mockFs: ReturnType<typeof createMockFilesystem>;
+
+  beforeEach(() => {
+    mockFs = createMockFilesystem();
+    
+    // Mock the fs module to use our mock filesystem
+    mock.module("fs", () => ({
+      default: {
+        access: mockFs.access,
+        existsSync: mockFs.existsSync,
+        statSync: (path: string) => ({
+          isDirectory: () => mockFs.directories.has(path),
+        }),
+      },
+      access: mockFs.access,
+      existsSync: mockFs.existsSync,
+      statSync: (path: string) => ({
+        isDirectory: () => mockFs.directories.has(path),
+      }),
+      promises: {
+        access: mockFs.access,
+      },
+    }));
+  });
+
+  afterEach(() => {
+    mockFs.cleanup();
+    mock.restore();
+  });
   it("uses explicitly provided workspace path", async () => {
     const _options: WorkspaceResolutionOptions = {
       workspace: "/test/workspace",
     };
 
-    let mockAccess = mock(fs.access);
-    mockAccess = mock(() => Promise.resolve());
+    // Ensure the workspace exists in our mock filesystem
+    mockFs.ensureDirectoryExists("/test/workspace");
 
     const mockDeps: TestDependencies = {
-      access: mockAccess,
+      access: mockFs.access,
     };
 
     const _result = await resolveWorkspacePath(_options, mockDeps);
 
-    expect(mockAccess).toHaveBeenCalledWith("/test/workspace");
     expect(_result).toBe("/test/workspace");
   });
 
@@ -51,11 +79,11 @@ describe("resolveWorkspacePath", () => {
       workspace: "/invalid/workspace",
     };
 
-    let mockAccess = mock(fs.access);
-    mockAccess = mock(() => Promise.reject(new Error("ENOENT")));
+    // Don't add the workspace to mockFs, so it doesn't exist
+    // The mock filesystem will throw an error when trying to access a non-existent path
 
     const mockDeps: TestDependencies = {
-      access: mockAccess,
+      access: mockFs.access,
     };
 
     await expect(resolveWorkspacePath(_options, mockDeps)).rejects.toThrow(

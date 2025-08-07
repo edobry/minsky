@@ -41,6 +41,7 @@ describe("JsonFileStorage Core Tests", () => {
   let storage: DatabaseStorage<TestState>;
   let mockFs: ReturnType<typeof createMockFilesystem>;
   let testDirPath: string;
+  let testDbPath: string;
 
   beforeEach(() => {
     // Create isolated mock filesystem for each test
@@ -60,10 +61,17 @@ describe("JsonFileStorage Core Tests", () => {
       mockTempDir,
       `storage-core-test-${mockTimestamp}-${mockUuid}-${mockSequence}`
     );
+    testDbPath = join(testDirPath, "test-storage.json");
 
     // Create storage instance with correct configuration
     storage = createJsonFileStorage<TestState>({
-      filePath: join(testDirPath, "test-storage.json"),
+      filePath: testDbPath,
+      initializeState: () => ({
+        entities: [],
+        count: 0,
+        lastUpdated: new Date().toISOString(),
+      }),
+      entitiesField: "entities",
     });
 
     console.log(`Setting up test with mock storage path: ${testDirPath}`);
@@ -235,13 +243,13 @@ describe("JsonFileStorage Core Tests", () => {
       await storage.createEntity(entity);
 
       // Create new storage instance with same file
-      const storage2 = createJsonFileStorage<TestEntity, TestState>({
+      const storage2 = createJsonFileStorage<TestState>({
         filePath: testDbPath,
         entitiesField: "entities",
         initializeState: () => ({
           entities: [],
+          count: 0,
           lastUpdated: new Date().toISOString(),
-          metadata: {},
         }),
       });
 
