@@ -138,11 +138,17 @@ export function createMockFilesystem(
     }),
 
     // Async methods (fs/promises)
-    readFile: createMock(async (path: unknown) => {
+    readFile: createMock(async (path: unknown, encoding?: unknown) => {
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
-      return files.get(String(path));
+      const content = files.get(String(path));
+      // If encoding is specified, return string; otherwise return Buffer
+      if (encoding) {
+        return content; // Already stored as string
+      } else {
+        return Buffer.from(content || "", 'utf-8'); // Return as Buffer
+      }
     }),
     writeFile: createMock(async (path: unknown, data: unknown) => {
       files.set(path as string, data as string);

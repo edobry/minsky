@@ -327,7 +327,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const spec = {
         title: specPath.title,
         description: specPath.description || "",
-        id: specPath.id
+        id: specPath.id,
       };
 
       // Get existing tasks from central file to determine new ID
