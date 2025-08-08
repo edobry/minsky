@@ -407,7 +407,7 @@ sharedCommandRegistry.registerCommand({
       );
 
       const targetCount = normalizedRecords.length;
-      log.info(
+      log.cli(
         `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
       );
 
