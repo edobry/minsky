@@ -27,7 +27,7 @@ describe("config set command", () => {
 
     // Mock console methods
     mockConsoleLog = spyOn(console, "log").mockImplementation(() => {});
-    
+
     // Mock process.exit
     mockProcessExit = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit() called");
@@ -35,7 +35,7 @@ describe("config set command", () => {
 
     // Mock the config writer factory
     spyOn(configWriter, "createConfigWriter").mockImplementation(mockCreateConfigWriter);
-    mockCreateConfigWriter.mockReturnValue(mockConfigWriter);
+    mockCreateConfigWriter = mock(() => mockConfigWriter);
   });
 
   afterEach(() => {
@@ -45,12 +45,14 @@ describe("config set command", () => {
   describe("executeConfigSet function", () => {
     test("should set a simple configuration value", async () => {
       // Test scenario: Setting a basic configuration value
-      mockSetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: undefined,
-        newValue: "markdown",
-      });
+      mockSetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: undefined,
+          newValue: "markdown",
+        })
+      );
 
       // Test the function directly
       await executeConfigSet("backend", "markdown", {});
@@ -66,30 +68,34 @@ describe("config set command", () => {
 
     test("should set a nested configuration value", async () => {
       // Test scenario: Setting nested configuration like ai.providers.openai.model
-      mockSetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: "gpt-3.5-turbo",
-        newValue: "gpt-4",
-        backupPath: "/home/user/.config/minsky/config.yaml.backup.2024-01-15T10-30-45-123Z",
-      });
+      mockSetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: "gpt-3.5-turbo",
+          newValue: "gpt-4",
+          backupPath: "/home/user/.config/minsky/config.yaml.backup.2024-01-15T10-30-45-123Z",
+        })
+      );
 
       await executeConfigSet("ai.providers.openai.model", "gpt-4", {});
 
       expect(mockSetConfigValue).toHaveBeenCalledWith("ai.providers.openai.model", "gpt-4");
       expect(mockConsoleLog).toHaveBeenCalledWith("✅ Configuration updated successfully");
-      expect(mockConsoleLog).toHaveBeenCalledWith("   Previous value: \"gpt-3.5-turbo\"");
-      expect(mockConsoleLog).toHaveBeenCalledWith("   New value: \"gpt-4\"");
+      expect(mockConsoleLog).toHaveBeenCalledWith('   Previous value: "gpt-3.5-turbo"');
+      expect(mockConsoleLog).toHaveBeenCalledWith('   New value: "gpt-4"');
     });
 
     test("should parse boolean values correctly", async () => {
       // Test scenario: Setting boolean configuration values
-      mockSetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: false,
-        newValue: true,
-      });
+      mockSetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: false,
+          newValue: true,
+        })
+      );
 
       await executeConfigSet("logger.enableAgentLogs", "true", {});
 
@@ -98,11 +104,13 @@ describe("config set command", () => {
 
     test("should handle config writer failures gracefully", async () => {
       // Bug scenario: Config writer fails to set value
-      mockSetConfigValue.mockResolvedValue({
-        success: false,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        error: "Permission denied",
-      });
+      mockSetConfigValue = mock(() =>
+        Promise.resolve({
+          success: false,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          error: "Permission denied",
+        })
+      );
 
       try {
         await executeConfigSet("key", "value", {});
@@ -116,13 +124,15 @@ describe("config set command", () => {
 
     test("should output JSON format when requested", async () => {
       // Test scenario: JSON output format
-      mockSetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: "old",
-        newValue: "new",
-        backupPath: "/backup/path",
-      });
+      mockSetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: "old",
+          newValue: "new",
+          backupPath: "/backup/path",
+        })
+      );
 
       await executeConfigSet("key", "new", { json: true });
 
@@ -140,12 +150,14 @@ describe("config set command", () => {
 
     test("should skip backup when noBackup option is set", async () => {
       // Test scenario: User explicitly disables backup
-      mockSetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: undefined,
-        newValue: "value",
-      });
+      mockSetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: undefined,
+          newValue: "value",
+        })
+      );
 
       await executeConfigSet("key", "value", { noBackup: true });
 
@@ -158,12 +170,14 @@ describe("config set command", () => {
 
     test("should use JSON format when specified", async () => {
       // Test scenario: User specifies JSON format preference
-      mockSetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.json",
-        previousValue: undefined,
-        newValue: "value",
-      });
+      mockSetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.json",
+          previousValue: undefined,
+          newValue: "value",
+        })
+      );
 
       await executeConfigSet("key", "value", { format: "json" });
 

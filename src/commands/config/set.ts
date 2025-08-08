@@ -17,7 +17,11 @@ interface SetOptions {
 /**
  * Execute the config set action - extracted for testability
  */
-export async function executeConfigSet(key: string, value: string, options: SetOptions): Promise<void> {
+export async function executeConfigSet(
+  key: string,
+  value: string,
+  options: SetOptions
+): Promise<void> {
   try {
     // Parse value - try to detect type
     const parsedValue = parseConfigValue(value);
@@ -35,10 +39,16 @@ export async function executeConfigSet(key: string, value: string, options: SetO
     if (!result.success) {
       const errorMessage = `Failed to set configuration: ${result.error}`;
       if (options.json) {
-        console.log(JSON.stringify({
-          success: false,
-          error: errorMessage,
-        }, null, 2));
+        console.log(
+          JSON.stringify(
+            {
+              success: false,
+              error: errorMessage,
+            },
+            null,
+            2
+          )
+        );
       } else {
         log.error(errorMessage);
       }
@@ -47,37 +57,49 @@ export async function executeConfigSet(key: string, value: string, options: SetO
 
     // Output results
     if (options.json) {
-      console.log(JSON.stringify({
-        success: true,
-        key,
-        previousValue: result.previousValue,
-        newValue: result.newValue,
-        filePath: result.filePath,
-        backupPath: result.backupPath,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            success: true,
+            key,
+            previousValue: result.previousValue,
+            newValue: result.newValue,
+            filePath: result.filePath,
+            backupPath: result.backupPath,
+          },
+          null,
+          2
+        )
+      );
     } else {
       console.log(`✅ Configuration updated successfully`);
       console.log(`   Key: ${key}`);
       console.log(`   Previous value: ${formatValue(result.previousValue)}`);
       console.log(`   New value: ${formatValue(result.newValue)}`);
       console.log(`   File: ${result.filePath}`);
-      
+
       if (result.backupPath) {
         console.log(`   Backup: ${result.backupPath}`);
       }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    
+
     if (options.json) {
-      console.log(JSON.stringify({
-        success: false,
-        error: message,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            success: false,
+            error: message,
+          },
+          null,
+          2
+        )
+      );
     } else {
       log.error(`Failed to set configuration: ${message}`);
     }
-    
+
     process.exit(1);
   }
 }
@@ -142,18 +164,18 @@ export function formatValue(value: any): string {
   if (value === undefined) {
     return "(not set)";
   }
-  
+
   if (value === null) {
     return "null";
   }
-  
+
   if (typeof value === "string") {
     return `"${value}"`;
   }
-  
+
   if (typeof value === "object") {
     return JSON.stringify(value);
   }
-  
+
   return String(value);
 }

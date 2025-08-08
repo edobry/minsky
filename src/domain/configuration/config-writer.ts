@@ -78,10 +78,10 @@ export class ConfigWriter {
 
       // Find or create config file
       const configFile = this.findOrCreateConfigFile();
-      
+
       // Load current configuration
       const currentConfig = this.loadConfigFile(configFile);
-      
+
       // Create backup if requested
       let backupPath: string | undefined;
       if (this.options.createBackup) {
@@ -231,9 +231,9 @@ export class ConfigWriter {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backupPath = `${configFile}.backup.${timestamp}`;
-      
+
       copyFileSync(configFile, backupPath);
-      
+
       return {
         success: true,
         originalPath: configFile,
@@ -372,7 +372,7 @@ ${stringify(config, { indent: 2 })}`;
   private setNestedValue(obj: any, path: string, value: any): void {
     const keys = path.split(".");
     const lastKey = keys.pop()!;
-    
+
     let current = obj;
     for (const key of keys) {
       if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
@@ -380,7 +380,7 @@ ${stringify(config, { indent: 2 })}`;
       }
       current = current[key];
     }
-    
+
     current[lastKey] = value;
   }
 
@@ -390,7 +390,7 @@ ${stringify(config, { indent: 2 })}`;
   private unsetNestedValue(obj: any, path: string): void {
     const keys = path.split(".");
     const lastKey = keys.pop()!;
-    
+
     let current = obj;
     for (const key of keys) {
       if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
@@ -398,9 +398,9 @@ ${stringify(config, { indent: 2 })}`;
       }
       current = current[key];
     }
-    
+
     delete current[lastKey];
-    
+
     // Clean up empty parent objects
     this.cleanupEmptyObjects(obj, keys);
   }
@@ -410,16 +410,20 @@ ${stringify(config, { indent: 2 })}`;
    */
   private cleanupEmptyObjects(obj: any, keys: string[]): void {
     if (keys.length === 0) return;
-    
+
     let current = obj;
     const pathToCheck = [...keys];
-    
+
     for (let i = 0; i < pathToCheck.length - 1; i++) {
       current = current[pathToCheck[i]];
     }
-    
+
     const lastKey = pathToCheck[pathToCheck.length - 1];
-    if (current[lastKey] && typeof current[lastKey] === "object" && Object.keys(current[lastKey]).length === 0) {
+    if (
+      current[lastKey] &&
+      typeof current[lastKey] === "object" &&
+      Object.keys(current[lastKey]).length === 0
+    ) {
       delete current[lastKey];
       // Recursively clean up parent
       this.cleanupEmptyObjects(obj, keys.slice(0, -1));

@@ -21,28 +21,40 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
     // Get current configuration
     const provider = getConfigurationProvider();
     const config = provider.getConfig();
-    
+
     // Validate configuration
     const validationResult = validateConfiguration();
-    
+
     // Check for issues
-    const hasErrors = validationResult.errors.some(error => error.severity === "error");
-    const hasWarnings = validationResult.errors.some(error => error.severity === "warning");
-    
+    const hasErrors = validationResult.errors.some((error) => error.severity === "error");
+    const hasWarnings = validationResult.errors.some((error) => error.severity === "warning");
+
     if (options.json) {
-      console.log(JSON.stringify({
-        valid: validationResult.valid,
-        hasErrors,
-        hasWarnings,
-        errors: validationResult.errors,
-        totalIssues: validationResult.errors.length,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            valid: validationResult.valid,
+            hasErrors,
+            hasWarnings,
+            errors: validationResult.errors,
+            totalIssues: validationResult.errors.length,
+          },
+          null,
+          2
+        )
+      );
     } else {
       if (validationResult.valid && validationResult.errors.length === 0) {
         console.log("✅ Configuration is valid");
         if (options.verbose) {
           console.log("   No issues found");
-          console.log(`   Configuration loaded from: ${provider.getMetadata().sources.map(s => s.path).filter(Boolean).join(", ")}`);
+          console.log(
+            `   Configuration loaded from: ${provider
+              .getMetadata()
+              .sources.map((s) => s.path)
+              .filter(Boolean)
+              .join(", ")}`
+          );
         }
       } else {
         if (hasErrors) {
@@ -50,13 +62,14 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
         } else if (hasWarnings) {
           console.log("⚠️  Configuration has warnings");
         }
-        
+
         console.log(`   Total issues: ${validationResult.errors.length}`);
-        
+
         if (options.verbose || validationResult.errors.length <= 10) {
           console.log("");
           for (const error of validationResult.errors) {
-            const icon = error.severity === "error" ? "❌" : error.severity === "warning" ? "⚠️" : "ℹ️";
+            const icon =
+              error.severity === "error" ? "❌" : error.severity === "warning" ? "⚠️" : "ℹ️";
             console.log(`${icon} ${error.path}: ${error.message}`);
           }
         } else {
@@ -64,23 +77,29 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
         }
       }
     }
-    
+
     // Exit with error code if there are validation errors
     if (hasErrors) {
       process.exit(1);
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    
+
     if (options.json) {
-      console.log(JSON.stringify({
-        valid: false,
-        error: message,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            valid: false,
+            error: message,
+          },
+          null,
+          2
+        )
+      );
     } else {
       log.error(`Failed to validate configuration: ${message}`);
     }
-    
+
     process.exit(1);
   }
 }

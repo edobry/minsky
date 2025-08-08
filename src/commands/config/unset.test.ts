@@ -27,7 +27,7 @@ describe("config unset command", () => {
 
     // Mock console methods
     mockConsoleLog = spyOn(console, "log").mockImplementation(() => {});
-    
+
     // Mock process.exit
     mockProcessExit = spyOn(process, "exit").mockImplementation(() => {
       throw new Error("process.exit() called");
@@ -35,7 +35,7 @@ describe("config unset command", () => {
 
     // Mock the config writer factory
     spyOn(configWriter, "createConfigWriter").mockImplementation(mockCreateConfigWriter);
-    mockCreateConfigWriter.mockReturnValue(mockConfigWriter);
+    mockCreateConfigWriter = mock(() => mockConfigWriter);
   });
 
   afterEach(() => {
@@ -45,13 +45,15 @@ describe("config unset command", () => {
   describe("executeConfigUnset function", () => {
     test("should remove an existing configuration value", async () => {
       // Test scenario: Removing an existing configuration value
-      mockUnsetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: "gpt-3.5-turbo",
-        newValue: undefined,
-        backupPath: "/home/user/.config/minsky/config.yaml.backup.2024-01-15T10-30-45-123Z",
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: "gpt-3.5-turbo",
+          newValue: undefined,
+          backupPath: "/home/user/.config/minsky/config.yaml.backup.2024-01-15T10-30-45-123Z",
+        })
+      );
 
       await executeConfigUnset("ai.providers.openai.model", {});
 
@@ -62,17 +64,19 @@ describe("config unset command", () => {
       });
       expect(mockUnsetConfigValue).toHaveBeenCalledWith("ai.providers.openai.model");
       expect(mockConsoleLog).toHaveBeenCalledWith("✅ Configuration removed successfully");
-      expect(mockConsoleLog).toHaveBeenCalledWith("   Previous value: \"gpt-3.5-turbo\"");
+      expect(mockConsoleLog).toHaveBeenCalledWith('   Previous value: "gpt-3.5-turbo"');
     });
 
     test("should handle unsetting non-existent values gracefully", async () => {
       // Test scenario: Trying to unset a value that doesn't exist
-      mockUnsetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: undefined,
-        newValue: undefined,
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: undefined,
+          newValue: undefined,
+        })
+      );
 
       await executeConfigUnset("nonExistent.key", {});
 
@@ -83,28 +87,32 @@ describe("config unset command", () => {
 
     test("should handle nested configuration values", async () => {
       // Test scenario: Removing deeply nested configuration values
-      mockUnsetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: { model: "gpt-4" },
-        newValue: undefined,
-        backupPath: "/backup/path",
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: { model: "gpt-4" },
+          newValue: undefined,
+          backupPath: "/backup/path",
+        })
+      );
 
       await executeConfigUnset("ai.providers.openai", {});
 
       expect(mockUnsetConfigValue).toHaveBeenCalledWith("ai.providers.openai");
       expect(mockConsoleLog).toHaveBeenCalledWith("✅ Configuration removed successfully");
-      expect(mockConsoleLog).toHaveBeenCalledWith("   Previous value: {\"model\":\"gpt-4\"}");
+      expect(mockConsoleLog).toHaveBeenCalledWith('   Previous value: {"model":"gpt-4"}');
     });
 
     test("should handle config writer failures gracefully", async () => {
       // Bug scenario: Config writer fails to unset value
-      mockUnsetConfigValue.mockResolvedValue({
-        success: false,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        error: "Permission denied",
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: false,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          error: "Permission denied",
+        })
+      );
 
       try {
         await executeConfigUnset("key", {});
@@ -118,13 +126,15 @@ describe("config unset command", () => {
 
     test("should output JSON format when requested", async () => {
       // Test scenario: JSON output format
-      mockUnsetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: "oldValue",
-        newValue: undefined,
-        backupPath: "/backup/path",
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: "oldValue",
+          newValue: undefined,
+          backupPath: "/backup/path",
+        })
+      );
 
       await executeConfigUnset("key", { json: true });
 
@@ -141,12 +151,14 @@ describe("config unset command", () => {
 
     test("should skip backup when noBackup option is set", async () => {
       // Test scenario: User explicitly disables backup
-      mockUnsetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: "value",
-        newValue: undefined,
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          previousValue: "value",
+          newValue: undefined,
+        })
+      );
 
       await executeConfigUnset("key", { noBackup: true });
 
@@ -159,12 +171,14 @@ describe("config unset command", () => {
 
     test("should use JSON format when specified", async () => {
       // Test scenario: User specifies JSON format preference
-      mockUnsetConfigValue.mockResolvedValue({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.json",
-        previousValue: "value",
-        newValue: undefined,
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: true,
+          filePath: "/home/user/.config/minsky/config.json",
+          previousValue: "value",
+          newValue: undefined,
+        })
+      );
 
       await executeConfigUnset("key", { format: "json" });
 
@@ -177,7 +191,7 @@ describe("config unset command", () => {
 
     test("should handle exceptions from config writer", async () => {
       // Bug scenario: Config writer throws an exception
-      mockUnsetConfigValue.mockRejectedValue(new Error("Unexpected error"));
+      mockUnsetConfigValue = mock(() => Promise.reject(new Error("Unexpected error")));
 
       try {
         await executeConfigUnset("key", {});
@@ -191,11 +205,13 @@ describe("config unset command", () => {
 
     test("should output error in JSON format when requested", async () => {
       // Bug scenario: Error occurs with JSON output requested
-      mockUnsetConfigValue.mockResolvedValue({
-        success: false,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        error: "File not found",
-      });
+      mockUnsetConfigValue = mock(() =>
+        Promise.resolve({
+          success: false,
+          filePath: "/home/user/.config/minsky/config.yaml",
+          error: "File not found",
+        })
+      );
 
       try {
         await executeConfigUnset("key", { json: true });

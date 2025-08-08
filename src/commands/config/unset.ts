@@ -32,10 +32,16 @@ export async function executeConfigUnset(key: string, options: UnsetOptions): Pr
     if (!result.success) {
       const errorMessage = `Failed to unset configuration: ${result.error}`;
       if (options.json) {
-        console.log(JSON.stringify({
-          success: false,
-          error: errorMessage,
-        }, null, 2));
+        console.log(
+          JSON.stringify(
+            {
+              success: false,
+              error: errorMessage,
+            },
+            null,
+            2
+          )
+        );
       } else {
         log.error(errorMessage);
       }
@@ -44,13 +50,19 @@ export async function executeConfigUnset(key: string, options: UnsetOptions): Pr
 
     // Output results
     if (options.json) {
-      console.log(JSON.stringify({
-        success: true,
-        key,
-        previousValue: result.previousValue,
-        filePath: result.filePath,
-        backupPath: result.backupPath,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            success: true,
+            key,
+            previousValue: result.previousValue,
+            filePath: result.filePath,
+            backupPath: result.backupPath,
+          },
+          null,
+          2
+        )
+      );
     } else {
       if (result.previousValue === undefined) {
         console.log(`ℹ️  Configuration key was already unset`);
@@ -67,16 +79,22 @@ export async function executeConfigUnset(key: string, options: UnsetOptions): Pr
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
-    
+
     if (options.json) {
-      console.log(JSON.stringify({
-        success: false,
-        error: message,
-      }, null, 2));
+      console.log(
+        JSON.stringify(
+          {
+            success: false,
+            error: message,
+          },
+          null,
+          2
+        )
+      );
     } else {
       log.error(`Failed to unset configuration: ${message}`);
     }
-    
+
     process.exit(1);
   }
 }
@@ -108,18 +126,18 @@ export function formatValue(value: any): string {
   if (value === undefined) {
     return "(not set)";
   }
-  
+
   if (value === null) {
     return "null";
   }
-  
+
   if (typeof value === "string") {
     return `"${value}"`;
   }
-  
+
   if (typeof value === "object") {
     return JSON.stringify(value);
   }
-  
+
   return String(value);
 }
