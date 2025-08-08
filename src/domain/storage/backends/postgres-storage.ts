@@ -178,11 +178,20 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       const typedError = error instanceof Error ? error : new Error(String(error as any));
       // Keep user output concise; summarize noisy Drizzle SQL messages
       const raw = typedError.message || String(typedError as any);
-      const concise = raw.includes("Failed query")
-        ? "database insert failed"
-        : (raw.split("\n")[0] || raw).slice(0, 180);
-      log.cliError(`Failed to write PostgreSQL state: ${concise}`);
-      return { success: false, error: typedError };
+      const lower = raw.toLowerCase();
+      let concise = (raw.split("\n")[0] || raw).slice(0, 180);
+      if (raw.includes("Failed query")) concise = "database insert failed";
+      else if (lower.includes("invalid date")) concise = "invalid date value";
+      else if (lower.includes("duplicate key") || lower.includes("unique constraint"))
+        concise = "duplicate session id";
+      else if (lower.includes("null value in column")) {
+        const m = raw.match(/null value in column\s+"?([^"]+)"?/i);
+        concise = m ? `missing required field: ${m[1]}` : "missing required field";
+      } else if (lower.includes("value too long")) concise = "value too long for a column";
+      else if (lower.includes("violates foreign key")) concise = "foreign key constraint violation";
+
+      // Do not print CLI error here to avoid duplicate lines; let caller handle messaging
+      return { success: false, error: new Error(concise) };
     }
   }
 

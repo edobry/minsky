@@ -213,7 +213,7 @@ sharedCommandRegistry.registerCommand({
         sourceData = JSON.parse(fileContent);
         sourceCount = Object.keys(sourceData).length;
         sourceDescription = `backup file: ${from}`;
-        log.info(`Reading from backup file: ${from} (${sourceCount} sessions)`);
+        log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
         // Read from CURRENT configured backend (no JSON fallback)
         const configuredBackend = config.sessiondb?.backend as "sqlite" | "postgres";
@@ -248,7 +248,7 @@ sharedCommandRegistry.registerCommand({
         if (readResult.success && readResult.data) {
           sourceData = readResult.data;
           sourceCount = readResult.data.sessions?.length || 0;
-          log.info(`Reading from ${sourceDescription} (${sourceCount} sessions)`);
+          log.cli(`Reading from ${sourceDescription} (${sourceCount} sessions)`);
         } else {
           log.warn("Failed to read from configured session backend; proceeding with 0 sessions");
           sourceData = { sessions: [], baseDir: getMinskyStateDir() };
@@ -315,7 +315,7 @@ sharedCommandRegistry.registerCommand({
           mkdirSync(backupDir, { recursive: true });
         }
         writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
-        log.info(`Backup created: ${backupPath}`);
+        log.cli(`Backup created: ${backupPath}`);
       }
 
       // Create target storage with config-driven approach
@@ -360,9 +360,8 @@ sharedCommandRegistry.registerCommand({
 
       const writeResult = await targetStorage.writeState(targetState);
       if (!writeResult.success) {
-        throw new Error(
-          `Failed to write to target backend: ${writeResult.error?.message || "Unknown error"}`
-        );
+        const msg = writeResult.error?.message || "database operation failed";
+        throw new Error(`Failed to write to target backend: ${msg}`);
       }
       log.cli(
         `✅ Data successfully migrated to target backend (${sessionRecords.length} sessions)`
@@ -425,8 +424,8 @@ sharedCommandRegistry.registerCommand({
 
       return result;
     } catch (error) {
-      log.error("Migration failed", { error: getErrorMessage(error) });
-      throw error;
+      const msg = getErrorMessage(error).split("\n")[0];
+      throw new Error(`Migration failed: ${msg}`);
     }
   },
 });
