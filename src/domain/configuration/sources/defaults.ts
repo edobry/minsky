@@ -19,9 +19,9 @@ export const defaultConfiguration: PartialConfiguration = {
   backend: "markdown",
 
   backendConfig: {
-    "github-issues": undefined,
     markdown: {},
     "json-file": {},
+    // Note: github-issues config omitted - will be undefined by default
   },
 
   detectionRules: [
@@ -34,80 +34,44 @@ export const defaultConfiguration: PartialConfiguration = {
   sessiondb: {
     backend: "sqlite",
     sqlite: {
-      path: undefined, // Will use default location
-      baseDir: undefined, // Will use XDG standard
+      // Note: path and baseDir omitted - will use XDG defaults at runtime
     },
-    postgres: undefined,
+    // Note: postgres config omitted - only set when actually configured
   },
 
-  // GitHub configuration (all optional)
-  github: {
-    token: undefined,
-    tokenFile: undefined,
-    organization: undefined,
-    repository: undefined,
-    baseUrl: undefined,
-  },
+  // GitHub configuration
+  // Note: All fields omitted - will be undefined by default
+  // Users must explicitly configure GitHub settings
 
   // AI providers configuration
   ai: {
-    defaultProvider: undefined, // Auto-detect from available providers
+    // Note: defaultProvider omitted - will auto-detect from available providers
     providers: {
       openai: {
-        apiKey: undefined,
-        apiKeyFile: undefined,
         enabled: true,
         model: "gpt-4",
         models: [],
-        baseUrl: undefined,
-        maxTokens: undefined,
-        temperature: undefined,
-        headers: undefined,
+        // Note: apiKey, baseUrl, etc. omitted - set via environment or user config
       },
       anthropic: {
-        apiKey: undefined,
-        apiKeyFile: undefined,
         enabled: true,
         model: "claude-3-sonnet-20240229",
         models: [],
-        baseUrl: undefined,
-        maxTokens: undefined,
-        temperature: undefined,
-        headers: undefined,
       },
       google: {
-        apiKey: undefined,
-        apiKeyFile: undefined,
         enabled: true,
         model: "gemini-pro",
         models: [],
-        baseUrl: undefined,
-        maxTokens: undefined,
-        temperature: undefined,
-        headers: undefined,
-        projectId: undefined,
       },
       cohere: {
-        apiKey: undefined,
-        apiKeyFile: undefined,
         enabled: true,
         model: "command",
         models: [],
-        baseUrl: undefined,
-        maxTokens: undefined,
-        temperature: undefined,
-        headers: undefined,
       },
       mistral: {
-        apiKey: undefined,
-        apiKeyFile: undefined,
         enabled: true,
         model: "mistral-medium",
         models: [],
-        baseUrl: undefined,
-        maxTokens: undefined,
-        temperature: undefined,
-        headers: undefined,
       },
     },
   },
@@ -120,9 +84,9 @@ export const defaultConfiguration: PartialConfiguration = {
     includeTimestamp: true,
     includeLevel: true,
     includeSource: false,
-    logFile: undefined,
     maxFileSize: 100,
     maxFiles: 5,
+    // Note: logFile omitted - will use default or user-specified location
   },
 };
 
