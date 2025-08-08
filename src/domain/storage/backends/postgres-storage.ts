@@ -176,21 +176,32 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return { success: true, bytesWritten: state.sessions.length };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
-      // Keep user output concise; summarize noisy Drizzle SQL messages
-      const raw = typedError.message || String(typedError as any);
-      const lower = raw.toLowerCase();
-      let concise = (raw.split("\n")[0] || raw).slice(0, 180);
-      if (raw.includes("Failed query")) concise = "database insert failed";
-      else if (lower.includes("invalid date")) concise = "invalid date value";
-      else if (lower.includes("duplicate key") || lower.includes("unique constraint"))
-        concise = "duplicate session id";
-      else if (lower.includes("null value in column")) {
-        const m = raw.match(/null value in column\s+"?([^"]+)"?/i);
-        concise = m ? `missing required field: ${m[1]}` : "missing required field";
-      } else if (lower.includes("value too long")) concise = "value too long for a column";
-      else if (lower.includes("violates foreign key")) concise = "foreign key constraint violation";
+      const anyErr: any = typedError as any;
 
-      // Do not print CLI error here to avoid duplicate lines; let caller handle messaging
+      // Prefer the underlying driver error message if available (no SQL query text)
+      const causeMessage =
+        anyErr?.cause?.message || anyErr?.originalError?.message || anyErr?.cause?.cause?.message;
+
+      let concise = (causeMessage || typedError.message || String(typedError as any)) as string;
+
+      // If the message is a Drizzle wrapper ("Failed query: ..."), strip query/params blocks
+      if (/^Failed query:/i.test(concise) || concise.includes("\nparams:")) {
+        // Remove everything between "Failed query:" and the next "Error:" or end
+        concise = concise.replace(/Failed query:[\s\S]*?(?=(\nError:)|$)/i, "");
+        // Remove params block if present
+        concise = concise.replace(/\nparams:[\s\S]*$/i, "");
+        // Fallback to top line of original drizzle message if we removed everything
+        if (!concise.trim()) {
+          const top = (typedError.message || "").split("\n").find((l) => l.trim().length > 0) || "";
+          // Keep only the leading part before any SQL or params label
+          concise = top.replace(/Failed query:.*/, "database operation failed");
+        }
+      }
+
+      // Reduce to first line and trim
+      concise = (concise.split("\n")[0] || concise).trim();
+
+      // Do not print here to avoid duplicates; caller will present this message
       return { success: false, error: new Error(concise) };
     }
   }
