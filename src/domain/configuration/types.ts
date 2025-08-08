@@ -63,7 +63,7 @@ export interface RepositoryConfig {
     detection_rules?: DetectionRule[];
   };
   sessiondb?: {
-    backend?: "json" | "sqlite" | "postgres";
+    backend?: "sqlite" | "postgres";
     sqlite?: {
       path?: string;
     };
@@ -119,7 +119,7 @@ export interface BackendConfig {
 }
 
 export interface SessionDbConfig {
-  backend: "json" | "sqlite" | "postgres";
+  backend: "sqlite" | "postgres";
   dbPath?: string;
   baseDir?: string;
   connectionString?: string;
@@ -197,7 +197,7 @@ export const _DEFAULT_CONFIG: Partial<ResolvedConfig> = {
     { condition: "always", backend: "json-file" },
   ],
   sessiondb: {
-    backend: "json",
+    backend: "sqlite",
     baseDir: undefined,
     dbPath: undefined,
     connectionString: undefined,

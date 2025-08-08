@@ -84,7 +84,7 @@ export function getDefaultStorageConfig(): StorageConfig {
       timeout: 5000,
     },
     postgres: {
-      connectionUrl:
+      connectionString:
         (process.env as any).MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
       maxConnections: 10,
       connectTimeout: 30,
@@ -110,7 +110,7 @@ export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageCo
 
   // Apply PostgreSQL-specific environment variables
   if ((process.env as any).MINSKY_POSTGRES_URL) {
-    (defaults.postgres! as any).connectionUrl = (process.env as any).MINSKY_POSTGRES_URL as any;
+    (defaults.postgres! as any).connectionString = (process.env as any).MINSKY_POSTGRES_URL as any;
   }
 
   // Apply any additional overrides and set integrity defaults
@@ -154,12 +154,12 @@ export function createStorageBackend(
     }
 
     case "postgres": {
-      if (!storageConfig.postgres?.connectionUrl) {
+      if (!storageConfig.postgres?.connectionString) {
         const errorMessage = createBackendDetectionErrorMessage(
           "postgres",
           ["sqlite", "postgres"],
           {
-            postgres: ["PostgreSQL connection URL"],
+            postgres: ["PostgreSQL connection string"],
           }
         );
         throw new Error(errorMessage);
@@ -378,7 +378,7 @@ export class StorageBackendFactory {
       case "sqlite":
         return `sqlite:${config.sqlite?.dbPath}`;
       case "postgres":
-        return `postgres:${config.postgres?.connectionUrl}`;
+        return `postgres:${config.postgres?.connectionString}`;
       default:
         return config.backend;
     }

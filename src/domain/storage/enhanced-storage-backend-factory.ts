@@ -259,12 +259,12 @@ export class EnhancedStorageBackendFactory {
       }
 
       case "postgres": {
-        if (!config.postgres?.connectionUrl) {
+        if (!config.postgres?.connectionString) {
           const errorMessage = createBackendDetectionErrorMessage(
             "postgres",
-            ["json", "sqlite", "postgres"],
+            ["sqlite", "postgres"],
             {
-              postgres: ["PostgreSQL connection URL"],
+              postgres: ["PostgreSQL connection string"],
             }
           );
           throw new Error(errorMessage);
@@ -274,7 +274,6 @@ export class EnhancedStorageBackendFactory {
 
       default: {
         const errorMessage = createBackendDetectionErrorMessage(config.backend, [
-          "json",
           "sqlite",
           "postgres",
         ]);
@@ -337,7 +336,7 @@ export class EnhancedStorageBackendFactory {
       case "sqlite":
         return `sqlite:${config.sqlite?.dbPath}`;
       case "postgres":
-        return `postgres:${config.postgres?.connectionUrl}`;
+        return `postgres:${config.postgres?.connectionString}`;
       default:
         return config.backend;
     }

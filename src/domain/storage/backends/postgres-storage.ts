@@ -24,9 +24,9 @@ import { postgresSessions, toPostgresInsert, fromPostgresSelect } from "../schem
  */
 export interface PostgresStorageConfig {
   /**
-   * PostgreSQL connection URL
+   * PostgreSQL connection string
    */
-  connectionUrl: string;
+  connectionString: string;
 
   /**
    * Maximum number of connections in pool (default: 10)
@@ -50,13 +50,13 @@ export interface PostgresStorageConfig {
 export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
   private sql: ReturnType<typeof postgres>;
   private drizzle: ReturnType<typeof drizzle>;
-  private readonly connectionUrl: string;
+  private readonly connectionString: string;
 
   constructor(config: PostgresStorageConfig) {
-    this.connectionUrl = config.connectionUrl;
+    this.connectionString = config.connectionString;
 
     // Initialize PostgreSQL connection
-    this.sql = postgres(this.connectionUrl, {
+    this.sql = postgres(this.connectionString, {
       max: config.maxConnections || 10,
       connect_timeout: config.connectTimeout || 30,
       idle_timeout: config.idleTimeout || 600,
@@ -144,7 +144,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
           const insertData = toPostgresInsert(session);
           await sql`
             INSERT INTO sessions (session, repo_name, repo_url, created_at, task_id, branch, repo_path)
-            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl}, 
+            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl},
                    ${insertData.createdAt}, ${insertData.taskId}, ${insertData.branch}, ${insertData.repoPath})
           `;
         }
@@ -270,7 +270,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   getStorageLocation(): string {
     // Return masked connection URL for security
-    const url = new URL(this.connectionUrl);
+    const url = new URL(this.connectionString);
     return `postgresql://${url.host}${url.pathname}`;
   }
 
