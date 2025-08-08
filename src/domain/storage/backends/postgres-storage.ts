@@ -176,8 +176,12 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return { success: true, bytesWritten: state.sessions.length };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
-      // Keep user output concise; details available in debug logs
-      log.warn(`Failed to write PostgreSQL state: ${typedError.message}`);
+      // Keep user output concise; summarize noisy Drizzle SQL messages
+      const raw = typedError.message || String(typedError as any);
+      const concise = raw.includes("Failed query")
+        ? "database insert failed"
+        : (raw.split("\n")[0] || raw).slice(0, 180);
+      log.cliError(`Failed to write PostgreSQL state: ${concise}`);
       return { success: false, error: typedError };
     }
   }
