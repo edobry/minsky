@@ -12,7 +12,7 @@ import {
   TaskService,
   TaskServiceOptions,
 } from "./taskService";
-import { normalizeTaskId } from "./taskFunctions";
+
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
 import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
@@ -115,18 +115,10 @@ export async function getTaskFromParams(
       throw new ValidationError("Task ID is required");
     }
 
-    // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId(taskIdInput);
-    log.debug("[getTaskFromParams] Normalized taskId", { normalizedTaskId });
+    // Use taskId directly since we now only accept qualified IDs
+    log.debug("[getTaskFromParams] Using taskId", { taskId: taskIdInput });
 
-    if (!normalizedTaskId) {
-      const errorMessage = createTaskIdParsingErrorMessage(taskIdInput, [
-        { label: "Operation", value: "get task" },
-        { label: "Input", value: taskIdInput },
-      ]);
-      throw new ValidationError(errorMessage);
-    }
-    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+    const paramsWithNormalizedId = { ...params, taskId: taskIdInput };
 
     // Validate params with Zod schema
     log.debug("[getTaskFromParams] About to validate params with Zod");
@@ -189,15 +181,8 @@ export async function getTaskStatusFromParams(
   }
 ): Promise<string> {
   try {
-    // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId(params.taskId);
-    if (!normalizedTaskId) {
-      const errorMessage = createTaskIdParsingErrorMessage(params.taskId, [
-        { label: "Operation", value: "get task status" },
-        { label: "Input", value: params.taskId },
-      ]);
-      throw new ValidationError(errorMessage);
-    }
+    // Use taskId directly since we now only accept qualified IDs
+    const normalizedTaskId = params.taskId;
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
@@ -261,15 +246,8 @@ export async function setTaskStatusFromParams(
   }
 ): Promise<void> {
   try {
-    // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId(params.taskId);
-    if (!normalizedTaskId) {
-      const errorMessage = createTaskIdParsingErrorMessage(params.taskId, [
-        { label: "Operation", value: "set task status" },
-        { label: "Input", value: params.taskId },
-      ]);
-      throw new ValidationError(errorMessage);
-    }
+    // Use taskId directly since we now only accept qualified IDs
+    const normalizedTaskId = params.taskId;
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
@@ -416,11 +394,7 @@ export async function getTaskSpecContentFromParams(
     const taskIdString = Array.isArray(validParams.taskId)
       ? validParams.taskId[0]
       : validParams.taskId;
-    const taskId = normalizeTaskId(taskIdString);
-
-    if (!taskId) {
-      throw new ValidationError(`Invalid task ID: ${taskIdString}`);
-    }
+    const taskId = taskIdString; // Use directly since we now only accept qualified IDs
 
     // First get the repo path (needed for workspace resolution)
     const repoPath = await deps.resolveRepoPath({
@@ -648,13 +622,8 @@ export async function deleteTaskFromParams(
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {
-    // Normalize the taskId before validation
-    const normalizedTaskId = normalizeTaskId(params.taskId);
-    if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: '${params.taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-      );
-    }
+    // Use taskId directly since we now only accept qualified IDs
+    const normalizedTaskId = params.taskId;
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema

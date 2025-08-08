@@ -5,7 +5,6 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
-import { normalizeTaskId } from "../../../../domain/tasks";
 import { ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
 import { isQualifiedTaskId } from "../../../../domain/tasks/unified-task-id";
