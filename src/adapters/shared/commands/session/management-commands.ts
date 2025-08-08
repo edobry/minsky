@@ -151,37 +151,57 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
       throw new Error(`Could not resolve session workspace for '${sessionName}'`);
     }
 
-    // Read origin URL from the session workspace
+    // Read origin URL from the session workspace (may be a local path)
     const originUrlOutput = await gitService.execInRepository(workdir, "git remote get-url origin");
-    const originUrl = (
+    const firstHop = (
       typeof originUrlOutput === "string" ? originUrlOutput : originUrlOutput?.stdout || ""
     )
       .toString()
       .trim();
 
-    if (!originUrl) {
+    if (!firstHop) {
       throw new Error("Failed to retrieve origin URL from git");
     }
 
-    if (!originUrl.includes("github.com")) {
+    // Follow one hop if the origin is a local path; resolve its own origin to get the GitHub URL
+    const isLocalPath = (p: string) => p.startsWith("/") || p.startsWith("file://");
+    let resolvedRemote = firstHop;
+
+    if (isLocalPath(firstHop)) {
+      const upstreamPath = firstHop.replace(/^file:\/\//, "");
+      const upstreamOriginOut = await gitService.execInRepository(
+        upstreamPath,
+        "git remote get-url origin"
+      );
+      const secondHop = (
+        typeof upstreamOriginOut === "string" ? upstreamOriginOut : upstreamOriginOut?.stdout || ""
+      )
+        .toString()
+        .trim();
+      if (secondHop) {
+        resolvedRemote = secondHop;
+      }
+    }
+
+    if (!resolvedRemote.includes("github.com")) {
       throw new Error(
-        `Origin URL is not a GitHub repository: ${originUrl}. Only local→GitHub migration is supported.`
+        `Resolved origin is not a GitHub URL: ${resolvedRemote}. Only local→GitHub migration is supported.`
       );
     }
 
     // Optionally extract owner/repo for future enhancements (not persisted in SessionRecord)
-    const gh = extractGitHubInfoFromUrl(originUrl);
+    const gh = extractGitHubInfoFromUrl(resolvedRemote);
 
     // Update session record to use GitHub backend and remote URL
     await sessionDB.updateSession(sessionName, {
-      repoUrl: originUrl,
+      repoUrl: resolvedRemote,
       backendType: "github",
     });
 
     return this.createSuccessResult({
       session: sessionName,
       backendType: "github",
-      repoUrl: originUrl,
+      repoUrl: resolvedRemote,
       ...(gh ? { github: gh } : {}),
     });
   }
