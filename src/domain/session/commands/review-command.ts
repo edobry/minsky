@@ -83,7 +83,9 @@ export async function sessionReview(
       try {
         effectivePrBranch = await deps.gitService.getCurrentBranch(workdir);
       } catch (error) {
-        effectivePrBranch = "main";
+        throw new ValidationError(
+          "Cannot determine PR branch. Provide --pr-branch explicitly or run from a git branch."
+        );
       }
     }
 
