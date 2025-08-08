@@ -4,8 +4,6 @@ const _TEST_VALUE = 123;
  * Common schema definitions that can be reused across multiple domain modules
  */
 import { z } from "zod";
-import { normalizeTaskIdForStorage } from "../domain/tasks/task-id-utils";
-import { get, has } from "../domain/configuration";
 
 /**
  * Schema for file or directory paths
@@ -37,65 +35,17 @@ export const sessionNameSchema = z.string().min(1).max(100);
 
 /**
  * Task ID schema
- * Validates and normalizes task IDs based on strict mode configuration
+ * Validates qualified task IDs only
  */
-export const taskIdSchema = z
-  .string()
-  .refine(
-    (val) => {
-      try {
-        const strict = has("tasks.strictIds")
-          ? (get<boolean>("tasks.strictIds") as boolean)
-          : false;
-        if (strict) {
-          // In strict mode: ONLY accept qualified IDs (md#123, gh#456)
-          return typeof val === "string" && /^[a-z-]+#\\d+$/.test(val);
-        } else {
-          // In permissive mode: accept any valid format
-          return typeof val === "string" && val.length > 0;
-        }
-      } catch {
-        // If configuration access fails, fall back to permissive validation
-        return typeof val === "string" && val.length > 0;
-      }
-    },
-    (val) => {
-      try {
-        const strict = has("tasks.strictIds")
-          ? (get<boolean>("tasks.strictIds") as boolean)
-          : false;
-        if (strict) {
-          return {
-            message: "Task ID must be qualified (md#123, gh#456)",
-          };
-        } else {
-          return {
-            message:
-              "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
-          };
-        }
-      } catch {
-        return {
-          message: "Task ID must be valid",
-        };
-      }
-    }
-  )
-  .transform((val) => {
-    try {
-      const strict = has("tasks.strictIds") ? (get<boolean>("tasks.strictIds") as boolean) : false;
-      if (strict) {
-        // In strict mode: return qualified ID as-is (no normalization)
-        return val;
-      } else {
-        // In permissive mode: normalize legacy formats to qualified
-        return normalizeTaskIdForStorage(val);
-      }
-    } catch {
-      // Fallback: treat as non-strict if configuration is not initialized yet
-      return normalizeTaskIdForStorage(val);
-    }
-  });
+export const taskIdSchema = z.string().refine(
+  (val) => {
+    // Only accept qualified task IDs (md#123, gh#456)
+    return /^[a-z-]+#\d+$/.test(val);
+  },
+  {
+    message: "Task ID must be qualified (md#123, gh#456)",
+  }
+);
 
 /**
  * Schema for boolean flags with optional description

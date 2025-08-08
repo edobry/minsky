@@ -8,9 +8,6 @@ import {
   extractLocalId,
   taskIdToSessionName,
   sessionNameToTaskId,
-  migrateUnqualifiedTaskId,
-  isLegacyTaskId,
-  normalizeLegacyTaskId,
 } from "./unified-task-id";
 
 describe("Unified Task ID System", () => {

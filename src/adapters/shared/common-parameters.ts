@@ -8,8 +8,7 @@
 
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
-import { isQualifiedTaskId, isLegacyTaskId } from "../../domain/tasks/unified-task-id";
-import { isStrictTaskIdsEnabled } from "../../domain/tasks/strict-mode-checker";
+import { isQualifiedTaskId } from "../../domain/tasks/unified-task-id";
 
 /**
  * Core common parameters used across multiple command categories
@@ -232,71 +231,37 @@ export const SessionParameters = {
  */
 export const TaskParameters = {
   /**
-   * Task ID parameter (required) - respects strict mode configuration
+   * Task ID parameter (required) - only accepts qualified IDs
    */
   taskId: {
     schema: z.string().refine(
       (value) => {
-        const strict = isStrictTaskIdsEnabled();
-        if (strict) {
-          // In strict mode: ONLY accept qualified IDs (md#123, gh#456)
-          return isQualifiedTaskId(value);
-        } else {
-          // In permissive mode: accept qualified or legacy formats
-          return isQualifiedTaskId(value) || isLegacyTaskId(value);
-        }
+        return isQualifiedTaskId(value);
       },
-      (value) => {
-        const strict = isStrictTaskIdsEnabled();
-        if (strict) {
-          return {
-            message: "Task ID must be qualified (md#123, gh#456)",
-          };
-        } else {
-          return {
-            message:
-              "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
-          };
-        }
+      {
+        message: "Task ID must be qualified (md#123, gh#456)",
       }
     ),
-    description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
+    description: "Task identifier (supports md#123, gh#456)",
     required: true,
   } as CommandParameterDefinition,
 
   /**
-   * Task ID parameter (optional) - respects strict mode configuration
+   * Task ID parameter (optional) - only accepts qualified IDs
    */
   taskIdOptional: {
     schema: z
       .string()
       .refine(
         (value) => {
-          const strict = isStrictTaskIdsEnabled();
-          if (strict) {
-            // In strict mode: ONLY accept qualified IDs (md#123, gh#456)
-            return isQualifiedTaskId(value);
-          } else {
-            // In permissive mode: accept qualified or legacy formats
-            return isQualifiedTaskId(value) || isLegacyTaskId(value);
-          }
+          return isQualifiedTaskId(value);
         },
-        (value) => {
-          const strict = isStrictTaskIdsEnabled();
-          if (strict) {
-            return {
-              message: "Task ID must be qualified (md#123, gh#456)",
-            };
-          } else {
-            return {
-              message:
-                "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
-            };
-          }
+        {
+          message: "Task ID must be qualified (md#123, gh#456)",
         }
       )
       .optional(),
-    description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
+    description: "Task identifier (supports md#123, gh#456)",
     required: false,
   } as CommandParameterDefinition,
 

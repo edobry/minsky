@@ -5,7 +5,6 @@ import {
   isQualifiedTaskId,
   extractBackend,
   extractLocalId,
-  migrateUnqualifiedTaskId,
 } from "../tasks/unified-task-id";
 import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 

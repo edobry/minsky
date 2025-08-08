@@ -1,50 +1,37 @@
 /**
- * Task ID utilities: PERMISSIVE IN, STRICT OUT approach
+ * Task ID utilities: STRICT QUALIFIED IDs ONLY
  *
  * This module implements unified task ID handling where:
- * - INPUT: Accepts any format (#283, 283, task#283, md#367, etc.) - PERMISSIVE IN
- * - STORAGE: Always stores qualified format (md#283, gh#367) - STRICT OUT
- * - DISPLAY: Always shows qualified format (md#283, gh#367) - STRICT OUT
- * - Ensures internal consistency by normalizing all IDs to qualified format
+ * - INPUT: Only accepts qualified format (md#367, gh#123)
+ * - STORAGE: Always qualified format (md#283, gh#367)
+ * - DISPLAY: Always qualified format (md#283, gh#367)
+ * - No normalization needed - input === storage === display
  */
 
 /**
- * Normalize task ID input for storage - PERMISSIVE IN, STRICT OUT
- * Accepts any format, always returns qualified format for internal consistency
+ * Validate task ID (qualified format only)
  *
- * @param userInput Task ID from user input (can be "283", "#283", "task#283", "md#367", etc.)
- * @returns Qualified task ID for storage (e.g., "md#283") or null if invalid
+ * @param taskId Task ID that must be qualified (md#367, gh#123, etc.)
+ * @returns Same qualified task ID if valid, null if invalid
  */
-export function normalizeTaskIdForStorage(userInput: string): string | null {
-  if (!userInput || typeof userInput !== "string") {
+export function validateQualifiedTaskId(taskId: string): string | null {
+  if (!taskId || typeof taskId !== "string") {
     return null;
   }
 
-  let normalized = userInput.trim();
+  const trimmed = taskId.trim();
 
-  // Handle formats like "task#283" or "task#64" first (before checking qualified format)
-  if (normalized.toLowerCase().startsWith("task#")) {
-    normalized = normalized.substring(5);
+  // Only accept qualified IDs (md#367, gh#123)
+  if (/^[a-z-]+#\d+$/.test(trimmed)) {
+    return trimmed;
   }
 
-  // If it's already a qualified ID (md#367, gh#123), return as-is
-  if (/^[a-z-]+#\d+$/.test(normalized)) {
-    return normalized;
-  }
-
-  // Remove all leading '#' characters to get plain number
-  while (normalized.startsWith("#")) {
-    normalized = normalized.substring(1);
-  }
-
-  // Check if the result is valid (numeric only)
-  if (!/^\d+$/.test(normalized) || normalized.length === 0) {
-    return null;
-  }
-
-  // STRICT OUT: Always return qualified format (default to markdown backend)
-  return `md#${normalized}`;
+  // Reject all other formats
+  return null;
 }
+
+// Backward compatibility alias
+export const normalizeTaskIdForStorage = validateQualifiedTaskId;
 
 /**
  * Format task ID for display - STRICT OUT
