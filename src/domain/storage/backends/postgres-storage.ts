@@ -62,15 +62,14 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       idle_timeout: config.idleTimeout || 600,
       // Enable connection pooling
       prepare: false,
+      // Suppress NOTICE-level messages (e.g., "already exists, skipping")
+      onnotice: () => {},
     });
 
     // Initialize Drizzle
     this.drizzle = drizzle(this.sql);
 
-    // Run migrations
-    this.runMigrations().catch((error) => {
-      log.warn("Migration error (may be expected for new database):", error);
-    });
+    // Do not auto-run migrations here; will be handled by dedicated task/setup
   }
 
   /**
