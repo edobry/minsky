@@ -24,11 +24,8 @@ export const defaultConfiguration: PartialConfiguration = {
     // Note: github-issues config omitted - will be undefined by default
   },
 
-  detectionRules: [
-    { condition: "tasks_md_exists", backend: "markdown" },
-    { condition: "json_file_exists", backend: "json-file" },
-    { condition: "always", backend: "markdown" },
-  ],
+  // Note: Backend detection rules are now hardcoded in BackendDetectionService
+  // This removes unnecessary configuration complexity for core application logic
 
   // Session database configuration
   sessiondb: {
