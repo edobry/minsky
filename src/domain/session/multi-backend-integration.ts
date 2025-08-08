@@ -109,25 +109,7 @@ export class SessionMultiBackendIntegration {
     return enhanced;
   }
 
-  /**
-   * Get display-friendly task ID from session record
-   *
-   * @param sessionRecord Session record (legacy or enhanced)
-   * @returns Task ID formatted for display
-   */
-  static getDisplayTaskId(sessionRecord: SessionRecord | MultiBackendSessionRecord): string {
-    if (!sessionRecord.taskId) {
-      return "";
-    }
-
-    // If it's already qualified, return as-is
-    if (isQualifiedTaskId(sessionRecord.taskId)) {
-      return sessionRecord.taskId;
-    }
-
-    // Legacy format - add display formatting
-    return formatTaskIdForDisplay(sessionRecord.taskId);
-  }
+  // getDisplayTaskId removed: strict qualified IDs are displayed as-is
 
   /**
    * Validate session-task compatibility

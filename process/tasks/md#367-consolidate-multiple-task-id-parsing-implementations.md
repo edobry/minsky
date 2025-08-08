@@ -57,7 +57,7 @@ Consolidate all parsing into single unified implementation that supports:
    - ~~When false: keep current normalization (legacy accepted → normalized to md#)~~ ✅
    - ~~We will remove this toggle after full migration~~ ✅
 
-3. **Parsing consolidation** 🔄 **IN PROGRESS**
+3. **Parsing consolidation** ✅ **COMPLETED**
    - Ensure `taskFunctions.ts` and `taskConstants.ts` keep IDs qualified
    - Remove/avoid any normalization that strips backend prefixes
    - **Identify and consolidate the 3+ parsing implementations into single authority**
@@ -77,19 +77,9 @@ Consolidate all parsing into single unified implementation that supports:
   - `tasks get md#367` works correctly
   - `tasks spec md#367` reads correct spec file
 
-🔄 **REMAINING:**
+✅ **CLEANUP:**
 - Consolidate parsing implementations to eliminate technical debt
-- Remove redundant parsing code paths
-- Ensure single source of truth for task ID parsing logic
-
-## Decisions
-
-- ~~Rename numeric spec files to `md#<id>-...` universally~~ ✅
-- ~~`md` is the universal default for legacy IDs~~ ✅
-
-## Deliverables
-
-- ~~Enhanced migration with spec rename and safe backups~~ ✅
-- ~~Config toggle `tasks.strictIds` and wiring in `taskIdSchema`~~ ✅
-- ~~Updated tests and docs~~ ✅
-- **Unified parsing implementation** 🔄
+- Removed legacy session helpers (migrateLegacySessionRecord, getDisplayTaskId)
+- Kept strict extractTaskIdFromSessionName for session PR self-repair
+- Updated tests to strict-only and mock FS usage
+- **Unified parsing implementation** ✅

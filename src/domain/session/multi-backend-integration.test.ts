@@ -17,24 +17,12 @@ describe("Session Multi-Backend Integration", () => {
         );
       });
 
-      it("should migrate legacy numeric IDs to markdown backend", () => {
-        expect(SessionMultiBackendIntegration.generateSessionName("123")).toBe("task-md#123");
-        expect(SessionMultiBackendIntegration.generateSessionName("456")).toBe("task-md#456");
-      });
-
-      it("should handle display format IDs", () => {
-        expect(SessionMultiBackendIntegration.generateSessionName("#123")).toBe("task-md#123");
-        expect(SessionMultiBackendIntegration.generateSessionName("#456")).toBe("task-md#456");
-      });
-
-      it("should handle task# format IDs", () => {
-        expect(SessionMultiBackendIntegration.generateSessionName("task#123")).toBe("task-md#123");
-        expect(SessionMultiBackendIntegration.generateSessionName("task#456")).toBe("task-md#456");
-      });
-
-      it("should fallback to legacy format for invalid IDs", () => {
-        expect(SessionMultiBackendIntegration.generateSessionName("invalid")).toBe("task-invalid");
-        expect(SessionMultiBackendIntegration.generateSessionName("abc123")).toBe("task-abc123");
+      it("should throw for invalid or legacy IDs", () => {
+        expect(() => SessionMultiBackendIntegration.generateSessionName("123")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionName("#123")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionName("task#123")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionName("invalid")).toThrow();
+        expect(() => SessionMultiBackendIntegration.generateSessionName("abc123")).toThrow();
       });
 
       it("should throw for empty task ID", () => {
@@ -57,22 +45,9 @@ describe("Session Multi-Backend Integration", () => {
         );
       });
 
-      it("should migrate legacy numeric session names", () => {
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task123")).toBe(
-          "md#123"
-        );
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task456")).toBe(
-          "md#456"
-        );
-      });
-
-      it("should handle legacy task# format session names", () => {
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task#123")).toBe(
-          "md#123"
-        );
-        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task#456")).toBe(
-          "md#456"
-        );
+      it("should return null for legacy session names", () => {
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task123")).toBeNull();
+        expect(SessionMultiBackendIntegration.extractTaskIdFromSessionName("task#123")).toBeNull();
       });
 
       it("should return null for invalid session names", () => {
@@ -107,7 +82,7 @@ describe("Session Multi-Backend Integration", () => {
         expect(enhanced.legacyTaskId).toBeUndefined();
       });
 
-      it("should enhance legacy records and migrate task IDs", () => {
+      it("should passthrough legacy records without enrichment", () => {
         const sessionRecord: SessionRecord = {
           session: "task123",
           repoName: "test-repo",
@@ -118,9 +93,9 @@ describe("Session Multi-Backend Integration", () => {
 
         const enhanced = SessionMultiBackendIntegration.enhanceSessionRecord(sessionRecord);
 
-        expect(enhanced.taskBackend).toBe("md");
-        expect(enhanced.taskId).toBe("md#123");
-        expect(enhanced.legacyTaskId).toBe("123");
+        expect(enhanced.taskBackend).toBeUndefined();
+        expect(enhanced.taskId).toBe("123");
+        expect(enhanced.legacyTaskId).toBeUndefined();
       });
 
       it("should handle records without task IDs", () => {
@@ -173,22 +148,7 @@ describe("Session Multi-Backend Integration", () => {
     });
 
     describe("migrateLegacySessionRecord", () => {
-      it("should migrate legacy session names to new format", () => {
-        const legacyRecord: SessionRecord = {
-          session: "task123",
-          repoName: "test-repo",
-          repoUrl: "https://github.com/test/repo",
-          createdAt: "2024-01-01T00:00:00Z",
-          taskId: "123",
-        };
-
-        const migrated = SessionMultiBackendIntegration.migrateLegacySessionRecord(legacyRecord);
-
-        expect(migrated.session).toBe("task-md#123");
-        expect(migrated.taskId).toBe("md#123");
-        expect(migrated.taskBackend).toBe("md");
-        expect(migrated.legacyTaskId).toBe("123");
-      });
+      // Legacy migration removed
 
       it("should not change already migrated records", () => {
         const modernRecord: SessionRecord = {
@@ -207,42 +167,7 @@ describe("Session Multi-Backend Integration", () => {
       });
     });
 
-    describe("getDisplayTaskId", () => {
-      it("should return qualified IDs as-is", () => {
-        const record: SessionRecord = {
-          session: "task-md#123",
-          repoName: "test-repo",
-          repoUrl: "https://github.com/test/repo",
-          createdAt: "2024-01-01T00:00:00Z",
-          taskId: "md#123",
-        };
-
-        expect(SessionMultiBackendIntegration.getDisplayTaskId(record)).toBe("md#123");
-      });
-
-      it("should format legacy IDs for display", () => {
-        const record: SessionRecord = {
-          session: "task123",
-          repoName: "test-repo",
-          repoUrl: "https://github.com/test/repo",
-          createdAt: "2024-01-01T00:00:00Z",
-          taskId: "123",
-        };
-
-        expect(SessionMultiBackendIntegration.getDisplayTaskId(record)).toBe("md#123");
-      });
-
-      it("should handle records without task IDs", () => {
-        const record: SessionRecord = {
-          session: "custom-session",
-          repoName: "test-repo",
-          repoUrl: "https://github.com/test/repo",
-          createdAt: "2024-01-01T00:00:00Z",
-        };
-
-        expect(SessionMultiBackendIntegration.getDisplayTaskId(record)).toBe("");
-      });
-    });
+    // getDisplayTaskId removed
 
     describe("validateSessionTaskCompatibility", () => {
       it("should validate compatible session names and task IDs", () => {
