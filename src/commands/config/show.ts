@@ -8,6 +8,7 @@ import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
 import { getConfiguration } from "../../domain/configuration";
 import { DefaultCredentialResolver } from "../../domain/configuration/credential-resolver";
+import { TaskBackend } from "../../domain/configuration/backend-detection";
 
 interface ShowOptions {
   json?: boolean;
@@ -272,11 +273,11 @@ async function displayBackendConfig(resolved: any) {
 
 function getBackendDisplayName(backend: string): string {
   switch (backend) {
-    case "markdown":
+    case TaskBackend.MARKDOWN:
       return "Markdown files (process/tasks.md)";
-    case "json-file":
+    case TaskBackend.JSON_FILE:
       return "JSON files";
-    case "github-issues":
+    case TaskBackend.GITHUB_ISSUES:
       return "GitHub Issues";
     default:
       return backend;
