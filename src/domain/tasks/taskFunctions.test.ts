@@ -11,7 +11,6 @@ import {
   parseTasksFromMarkdown,
   formatTasksToMarkdown,
   getTaskById,
-  normalizeTaskId,
   getNextTaskId,
   setTaskStatus,
   addTask,
@@ -20,7 +19,7 @@ import {
   formatTaskSpecToMarkdown,
   isValidTaskStatus,
 } from "./taskFunctions";
-import { normalizeTaskIdForStorage } from "./task-id-utils";
+import { ForStorage } from "./task-id-utils";
 
 // Test constants - extract repeated strings
 const TEST_TASK_ID_ALPHA = "TEST_VALUE";
@@ -29,48 +28,46 @@ const TEST_TASK_ID_002 = "002";
 const TEST_TASK_ID_003 = "003";
 const LEGACY_PREFIX = "#";
 
-// Helper to construct expected format - normalizeTaskId uses mixed logic
+// Helper to construct expected format - uses mixed logic
 const expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
-const expectQualifiedFormat = (id: string) => normalizeTaskIdForStorage(id);
+const expectQualifiedFormat = (id: string) => ForStorage(id);
 
 describe("Task Functions", () => {
-  describe("normalizeTaskId", () => {
+  describe("", () => {
     test("should return canonical form for valid IDs", () => {
-      // Since normalizeTaskId returns legacy format for backward compatibility,
+      // Since returns legacy format for backward compatibility,
       // test what it actually returns, not what we think it should return
-      // normalizeTaskId returns legacy format for backward compatibility
-      expect(normalizeTaskId(TEST_TASK_ID_ALPHA)).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
-      expect(normalizeTaskId(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`)).toBe(
-        `${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`
-      );
-      expect(normalizeTaskId(TEST_TASK_ID_NUMERIC)).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`);
-      expect(normalizeTaskId(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`)).toBe(
+      // returns legacy format for backward compatibility
+      expect(TEST_TASK_ID_ALPHA).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
+      expect(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
+      expect(TEST_TASK_ID_NUMERIC).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`);
+      expect(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`).toBe(
         `${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`
       );
     });
 
     test("should handle various prefix patterns", () => {
-      expect(normalizeTaskId("task-TEST_VALUE")).toBe("#task");
-      expect(normalizeTaskId("task#TEST_VALUE")).toBe("#task");
-      expect(normalizeTaskId("TASK_TEST_VALUE")).toBe("#TASK_TEST_VALUE");
+      expect("task-TEST_VALUE").toBe("#task");
+      expect("task#TEST_VALUE").toBe("#task");
+      expect("TASK_TEST_VALUE").toBe("#TASK_TEST_VALUE");
     });
 
     test("should return undefined for non-numeric input", () => {
-      expect(normalizeTaskId("")).toBeUndefined();
-      expect(normalizeTaskId(" ")).toBeUndefined();
-      expect(normalizeTaskId("@#$%")).toBeUndefined();
+      expect("").toBeUndefined();
+      expect(" ").toBeUndefined();
+      expect("@#$%").toBeUndefined();
     });
 
     test("should extract numeric portion from mixed formats", () => {
-      expect(normalizeTaskId("task-TEST_VALUE")).toBe("#task");
-      expect(normalizeTaskId("task #TEST_VALUE")).toBe("#task");
-      expect(normalizeTaskId("TEST_VALUE-something")).toBe("#TEST_VALUE");
+      expect("task-TEST_VALUE").toBe("#task");
+      expect("task #TEST_VALUE").toBe("#task");
+      expect("TEST_VALUE-something").toBe("#TEST_VALUE");
     });
 
     test("should handle alphanumeric task IDs", () => {
-      expect(normalizeTaskId("abc")).toBe("#abc");
-      expect(normalizeTaskId("TEST_VALUE")).toBe("#TEST_VALUE");
-      expect(normalizeTaskId("001")).toBe("#001");
+      expect("abc").toBe("#abc");
+      expect("TEST_VALUE").toBe("#TEST_VALUE");
+      expect("001").toBe("#001");
     });
   });
 

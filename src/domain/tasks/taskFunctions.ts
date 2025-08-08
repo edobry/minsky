@@ -59,8 +59,8 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       }
     }
 
-    // Normalize ID to legacy format for backward compatibility
-    const normalizedId = normalizeTaskId(id) || id;
+    // Use ID as-is; strict qualified IDs expected upstream
+    const normalizedId = id;
 
     const taskData: TaskData = {
       id: normalizedId,
@@ -129,8 +129,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
 
   // If no exact match, try numeric comparison
   // This handles case where ID is provided without leading zeros
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return null;
+  const normalizedId = id;
 
   const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
   if (isNaN(numericId)) return null;
@@ -149,47 +148,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @param id Task ID to normalize
  * @returns Normalized task ID in legacy format (#XXX) or undefined if invalid
  */
-export function normalizeTaskId(id: string): string | undefined {
-  if (!id) return undefined;
-
-  // Handle complex task formats FIRST (before general # logic)
-  if (id.toLowerCase().includes("task")) {
-    // For patterns like "task-TEST_VALUE", extract "task"
-    // For patterns like "task#TEST_VALUE", extract "task"
-    // For patterns like "task TEST_VALUE", extract "task"
-    const parts = id.split(/[-#\s]/); // Split by -, #, or space
-    const firstPart = parts[0];
-    if (firstPart && /^[a-zA-Z0-9_]+$/.test(firstPart)) {
-      return `#${firstPart}`;
-    }
-  }
-
-  // Handle qualified IDs by extracting the local part
-  if (id.includes("#")) {
-    const parts = id.split("#");
-    if (parts.length === 2) {
-      const localId = parts[1];
-      // Return in legacy format for backward compatibility
-      return /^[a-zA-Z0-9_]+$/.test(localId) ? `#${localId}` : undefined;
-    }
-  }
-
-  // Handle patterns with delimiters - extract first part
-  if (id.includes("-") || id.includes(" ")) {
-    const parts = id.split(/[-\s]/); // Split by - or space
-    const firstPart = parts[0];
-    if (firstPart && /^[a-zA-Z0-9_]+$/.test(firstPart)) {
-      return `#${firstPart}`;
-    }
-  }
-
-  // Handle purely alphanumeric IDs (legacy compatibility)
-  if (/^[a-zA-Z0-9_]+$/.test(id)) {
-    return `#${id}`;
-  }
-
-  return undefined;
-}
+// normalizeTaskId removed: strict qualified IDs only
 
 /**
  * Calculate the next available task ID (pure function)
@@ -219,8 +178,7 @@ export function getNextTaskId(tasks: TaskData[]): string {
 export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
 
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return tasks;
+  const normalizedId = id;
 
   // Validate status using centralized utility
   if (!isValidTaskStatusUtil(status)) {
@@ -293,8 +251,8 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
       }
 
       // Try normalized string comparison
-      const normalizedFilterId = normalizeTaskId(filter.id);
-      const normalizedTaskId = normalizeTaskId(task.id);
+      const normalizedFilterId = filter.id;
+      const normalizedTaskId = task.id;
 
       if (normalizedFilterId && normalizedTaskId) {
         // Strip the "#" prefix for more flexible comparison

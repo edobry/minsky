@@ -14,7 +14,7 @@ export {
 } from "./taskCommands";
 
 // Re-export from taskFunctions.js
-export { normalizeTaskId } from "./taskFunctions";
+// normalizeTaskId removed
 
 // Re-export from taskService.js
 export { TaskService, createTaskService } from "./taskService";

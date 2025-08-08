@@ -28,7 +28,7 @@ import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
 import { createConfiguredTaskService } from "./tasks/taskService";
-import { taskIdToSessionName } from "./tasks/unified-task-id";
+import { taskIdToSessionName } from "./tasks/task-id";
 
 import { execAsync } from "../utils/exec";
 import { extractPrDescription } from "./session/session-update-operations";

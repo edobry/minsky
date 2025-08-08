@@ -8,7 +8,7 @@ import {
   extractLocalId,
   taskIdToSessionName,
   sessionNameToTaskId,
-} from "./unified-task-id";
+} from "./task-id";
 
 describe("Unified Task ID System", () => {
   describe("parseTaskId", () => {

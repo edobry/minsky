@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
-import { isQualifiedTaskId } from "../../domain/tasks/unified-task-id";
+import { isQualifiedTaskId } from "../../domain/tasks/task-id";
 
 /**
  * Core common parameters used across multiple command categories

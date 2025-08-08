@@ -7,7 +7,7 @@
 import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
 import { ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import { isQualifiedTaskId } from "../../../../domain/tasks/unified-task-id";
+import { isQualifiedTaskId } from "../../../../domain/tasks/task-id";
 
 /**
  * Common interface for task command parameters
