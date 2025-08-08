@@ -335,17 +335,17 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 ### Core Functionality
 
 - [ ] Generate embeddings for all task content using OpenAI embedding service
-- [ ] Store vectors in SQLite using sqlite-vec extension with native vector columns
+- [ ] Store vectors in PostgreSQL using pgvector with native `vector(<dimension>)` columns
 - [ ] `minsky tasks similar <task-id>` returns ranked similar tasks with distances
 - [ ] `minsky tasks search <query>` supports natural language queries
-- [ ] Native SQL KNN search: `WHERE vector MATCH ? ORDER BY distance LIMIT k`
+- [ ] Native SQL KNN search: `ORDER BY embedding <-> $1 LIMIT k`
 
 ### Embedding Infrastructure
 
 - [ ] OpenAI embedding service integrated with existing AI completion system
-- [ ] In-memory vector storage with efficient similarity search
+- [ ] PostgreSQL pgvector storage with efficient similarity search
 - [ ] Easily swappable providers (OpenAI models, future providers)
-- [ ] Easily swappable storage backends (in-memory → SQLite → PostgreSQL)
+- [ ] Config-driven enablement with connection-time validation (extension, schema, index)
 
 ### Performance and Scalability
 
