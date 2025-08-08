@@ -109,10 +109,13 @@ export class ConfigurationLoader {
       // Merge configurations with proper precedence
       const mergedConfig = this.mergeConfigurations(sourceResults);
 
-      // Validate final configuration
+      // Build effective values for provenance tracking (needed for validation warnings)
+      const effectiveValues = this.buildEffectiveValues(sourceResults);
+
+      // Validate final configuration with provenance information
       const validationResult = this.options.skipValidation
         ? { success: true, data: mergedConfig as Configuration }
-        : this.validateConfiguration(mergedConfig);
+        : this.validateConfiguration(mergedConfig, effectiveValues);
 
       // Handle validation errors
       if (!validationResult.success && this.options.failOnValidationError) {
@@ -132,7 +135,7 @@ export class ConfigurationLoader {
           .filter((r) => r.success)
           .sort((a, b) => a.source.priority - b.source.priority)
           .map((r) => r.source.name),
-        effectiveValues: this.buildEffectiveValues(sourceResults),
+        effectiveValues,
       };
 
       // Cache result
@@ -314,9 +317,12 @@ export class ConfigurationLoader {
   }
 
   /**
-   * Validate merged configuration
+   * Validate merged configuration with provenance information
    */
-  private validateConfiguration(config: PartialConfiguration): ConfigurationValidationResult {
+  private validateConfiguration(
+    config: PartialConfiguration,
+    effectiveValues?: Record<string, { value: any; source: string; path: string }>
+  ): ConfigurationValidationResult {
     const result = configurationSchema.safeParse(config);
 
     if (result.success) {
@@ -371,6 +377,15 @@ export class ConfigurationLoader {
 
             if (validationConfig.includePathInWarnings && path !== "root") {
               warningMessage += ` in configuration section '${path}'`;
+            }
+
+            // Add provenance information if available
+            if (effectiveValues) {
+              const fieldPath = path !== "root" ? `${path}.${unknownKey}` : unknownKey;
+              const provenance = effectiveValues[fieldPath];
+              if (provenance) {
+                warningMessage += ` (from ${provenance.source})`;
+              }
             }
 
             warningMessage += " (will be ignored)";
