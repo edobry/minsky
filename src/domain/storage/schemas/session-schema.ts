@@ -16,7 +16,6 @@ export const sqliteSessions = sqliteTable("sessions", {
   repoUrl: text("repoUrl"),
   createdAt: text("createdAt").notNull(),
   taskId: text("taskId"),
-  branch: text("branch"),
 
   // Legacy column (keeping for compatibility)
   repoPath: text("repoPath"),
@@ -45,7 +44,6 @@ export const postgresSessions = pgTable("sessions", {
   repoUrl: varchar("repo_url", { length: 1000 })!.notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   taskId: varchar("task_id", { length: 100 }),
-  branch: varchar("branch", { length: 255 }),
 
   // PR-related fields (Task #332/#366)
   prBranch: varchar("pr_branch", { length: 255 }),
@@ -104,7 +102,6 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     repoUrl: record!.repoUrl,
     createdAt: record.createdAt,
     taskId: record.taskId || null,
-    branch: record.branch || null,
 
     // JSON fields - Drizzle handles serialization automatically
     prBranch: record.prBranch || null,
@@ -130,7 +127,6 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
     repoUrl: record!.repoUrl || "",
     createdAt: coerceToDate(record.createdAt),
     taskId: record.taskId || null,
-    branch: record.branch || null,
 
     // PR-related fields
     prBranch: record.prBranch || null,
@@ -153,7 +149,6 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     repoUrl: record!.repoUrl,
     createdAt: record.createdAt.toISOString(),
     taskId: record.taskId || undefined,
-    branch: record.branch || undefined,
 
     // PR-related fields
     prBranch: record.prBranch || undefined,

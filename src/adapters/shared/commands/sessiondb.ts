@@ -291,11 +291,8 @@ sharedCommandRegistry.registerCommand({
       );
       const skippedLegacy = sessionRecords.length - filteredRecords.length;
 
-      // Normalize missing/empty branch to session name (working branch usually equals session name)
-      const normalizedRecords = filteredRecords.map((s) => ({
-        ...s,
-        branch: s.branch && s.branch.trim().length > 0 ? s.branch : s.session,
-      }));
+      // No need to normalize branch now that column is dropped in Postgres schema
+      const normalizedRecords = filteredRecords;
 
       // Prepare operations plan
       const operations: string[] = [];

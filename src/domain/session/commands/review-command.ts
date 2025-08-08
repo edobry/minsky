@@ -83,7 +83,7 @@ export async function sessionReview(
       try {
         effectivePrBranch = await deps.gitService.getCurrentBranch(workdir);
       } catch (error) {
-        effectivePrBranch = sessionRecord.branch || "main";
+        effectivePrBranch = "main";
       }
     }
 

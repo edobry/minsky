@@ -17,7 +17,7 @@ export interface SessionRecord {
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
-  branch?: string; // Branch property is already part of the interface
+  // Removed: branch (no longer stored)
   prState?: {
     branchName: string;
     commitHash: string; // Hash of the prepared merge commit
@@ -42,7 +42,7 @@ export interface Session {
   session: string;
   repoUrl?: string;
   repoName?: string;
-  branch?: string;
+  // Removed: branch (no longer stored)
   createdAt?: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
@@ -207,7 +207,6 @@ export interface SessionPrResult {
     session: string;
     taskId?: string;
     repoName?: string;
-    branch?: string;
   };
   sessionName?: string; // Alternative property name for formatter compatibility
 }

@@ -89,7 +89,6 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
           repoUrl TEXT,
           createdAt TEXT NOT NULL,
           taskId TEXT,
-          branch TEXT,
           repoPath TEXT
         )
       `);
@@ -232,9 +231,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
           conditions.push(eq(sessionsTable.repoName, options.repoName));
         }
 
-        if (options.branch) {
-          conditions.push(eq(sessionsTable.branch, options.branch));
-        }
+        // branch filter removed (column dropped)
 
         // Apply WHERE conditions if any exist
         if (conditions.length > 0) {
