@@ -2,7 +2,7 @@
 // Task IDs: md#123, gh#456, json#789
 // Session/Branch names: task-md#123, task-gh#456, task-json#789
 
-import { get, has } from "../configuration";
+import { isStrictTaskIdsEnabled } from "./strict-mode-checker";
 
 export interface TaskId {
   backend: string;
@@ -144,14 +144,10 @@ export function migrateUnqualifiedTaskId(taskId: string, defaultBackend = "md"):
 
 // Backward compatibility with strict mode support
 export function isLegacyTaskId(taskId: string): boolean {
-  try {
-    // In strict mode, NO legacy IDs are considered valid
-    const strict = has("tasks.strictIds") ? (get<boolean>("tasks.strictIds") as boolean) : false;
-    if (strict) {
-      return false;
-    }
-  } catch {
-    // If configuration access fails, fall back to permissive mode
+  // In strict mode, NO legacy IDs are considered valid
+  const strict = isStrictTaskIdsEnabled();
+  if (strict) {
+    return false;
   }
 
   // In permissive mode, allow legacy formats

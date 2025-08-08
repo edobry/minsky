@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
 import { isQualifiedTaskId, isLegacyTaskId } from "../../domain/tasks/unified-task-id";
-import { get, has } from "../../domain/configuration";
+import { isStrictTaskIdsEnabled } from "../../domain/tasks/strict-mode-checker";
 
 /**
  * Core common parameters used across multiple command categories
@@ -237,38 +237,22 @@ export const TaskParameters = {
   taskId: {
     schema: z.string().refine(
       (value) => {
-        try {
-          const strict = has("tasks.strictIds")
-            ? (get<boolean>("tasks.strictIds") as boolean)
-            : false;
-          if (strict) {
-            // In strict mode: ONLY accept qualified IDs (md#123, gh#456)
-            return isQualifiedTaskId(value);
-          } else {
-            // In permissive mode: accept qualified or legacy formats
-            return isQualifiedTaskId(value) || isLegacyTaskId(value);
-          }
-        } catch {
-          // If configuration access fails, fall back to permissive validation
+        const strict = isStrictTaskIdsEnabled();
+        if (strict) {
+          // In strict mode: ONLY accept qualified IDs (md#123, gh#456)
+          return isQualifiedTaskId(value);
+        } else {
+          // In permissive mode: accept qualified or legacy formats
           return isQualifiedTaskId(value) || isLegacyTaskId(value);
         }
       },
       (value) => {
-        try {
-          const strict = has("tasks.strictIds")
-            ? (get<boolean>("tasks.strictIds") as boolean)
-            : false;
-          if (strict) {
-            return {
-              message: "Task ID must be qualified (md#123, gh#456)",
-            };
-          } else {
-            return {
-              message:
-                "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
-            };
-          }
-        } catch {
+        const strict = isStrictTaskIdsEnabled();
+        if (strict) {
+          return {
+            message: "Task ID must be qualified (md#123, gh#456)",
+          };
+        } else {
           return {
             message:
               "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
@@ -288,38 +272,22 @@ export const TaskParameters = {
       .string()
       .refine(
         (value) => {
-          try {
-            const strict = has("tasks.strictIds")
-              ? (get<boolean>("tasks.strictIds") as boolean)
-              : false;
-            if (strict) {
-              // In strict mode: ONLY accept qualified IDs (md#123, gh#456)
-              return isQualifiedTaskId(value);
-            } else {
-              // In permissive mode: accept qualified or legacy formats
-              return isQualifiedTaskId(value) || isLegacyTaskId(value);
-            }
-          } catch {
-            // If configuration access fails, fall back to permissive validation
+          const strict = isStrictTaskIdsEnabled();
+          if (strict) {
+            // In strict mode: ONLY accept qualified IDs (md#123, gh#456)
+            return isQualifiedTaskId(value);
+          } else {
+            // In permissive mode: accept qualified or legacy formats
             return isQualifiedTaskId(value) || isLegacyTaskId(value);
           }
         },
         (value) => {
-          try {
-            const strict = has("tasks.strictIds")
-              ? (get<boolean>("tasks.strictIds") as boolean)
-              : false;
-            if (strict) {
-              return {
-                message: "Task ID must be qualified (md#123, gh#456)",
-              };
-            } else {
-              return {
-                message:
-                  "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
-              };
-            }
-          } catch {
+          const strict = isStrictTaskIdsEnabled();
+          if (strict) {
+            return {
+              message: "Task ID must be qualified (md#123, gh#456)",
+            };
+          } else {
             return {
               message:
                 "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
