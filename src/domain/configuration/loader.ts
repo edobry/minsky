@@ -358,22 +358,26 @@ export class ConfigurationLoader {
             issues: result.error.issues,
           };
         } else if (validationConfig.warnOnUnknown) {
-          // Log warnings for unrecognized keys using structured logging
+          // Log warnings for unrecognized keys using clean user-friendly format
           unrecognizedKeyIssues.forEach((issue) => {
             const path = issue.path?.length > 0 ? issue.path.join(".") : "root";
-            const logData: Record<string, any> = {
-              message: issue.message,
-            };
 
-            if (validationConfig.includePathInWarnings) {
-              logData.path = path;
+            // Extract the unknown key from the message
+            const messageMatch = issue.message.match(/Unrecognized key\(s\) in object: '([^']+)'/);
+            const unknownKey = messageMatch ? messageMatch[1] : "unknown";
+
+            // Create a clean, user-friendly warning message
+            let warningMessage = `⚠️  Unknown configuration field '${unknownKey}'`;
+
+            if (validationConfig.includePathInWarnings && path !== "root") {
+              warningMessage += ` in ${path}`;
             }
 
-            if (validationConfig.includeCodeInWarnings) {
-              logData.code = issue.code;
-            }
+            warningMessage += " (will be ignored)";
 
-            log.warn("Unknown configuration field detected", logData);
+            // Log as a simple string message instead of structured data
+            // Use cli logging for clean user output instead of structured warning
+            log.cli(warningMessage);
           });
         }
       }

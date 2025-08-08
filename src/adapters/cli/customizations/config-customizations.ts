@@ -202,7 +202,7 @@ export function getSessiondbCustomizations(): {
           parameters: {
             to: {
               asArgument: true,
-              description: "Target backend (json, sqlite, postgres)",
+              description: "Target backend (sqlite, postgres)",
             },
             from: {
               description: "Source backend (auto-detect if not specified)",

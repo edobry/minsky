@@ -24,9 +24,9 @@ import { postgresSessions, toPostgresInsert, fromPostgresSelect } from "../schem
  */
 export interface PostgresStorageConfig {
   /**
-   * PostgreSQL connection URL
+   * PostgreSQL connection string
    */
-  connectionUrl: string;
+  connectionString: string;
 
   /**
    * Maximum number of connections in pool (default: 10)
@@ -50,27 +50,26 @@ export interface PostgresStorageConfig {
 export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDbState> {
   private sql: ReturnType<typeof postgres>;
   private drizzle: ReturnType<typeof drizzle>;
-  private readonly connectionUrl: string;
+  private readonly connectionString: string;
 
   constructor(config: PostgresStorageConfig) {
-    this.connectionUrl = config.connectionUrl;
+    this.connectionString = config.connectionString;
 
     // Initialize PostgreSQL connection
-    this.sql = postgres(this.connectionUrl, {
+    this.sql = postgres(this.connectionString, {
       max: config.maxConnections || 10,
       connect_timeout: config.connectTimeout || 30,
       idle_timeout: config.idleTimeout || 600,
       // Enable connection pooling
       prepare: false,
+      // Suppress NOTICE-level messages (e.g., "already exists, skipping")
+      onnotice: () => {},
     });
 
     // Initialize Drizzle
     this.drizzle = drizzle(this.sql);
 
-    // Run migrations
-    this.runMigrations().catch((error) => {
-      log.warn("Migration error (may be expected for new database):", error);
-    });
+    // Do not auto-run migrations here; will be handled by dedicated task/setup
   }
 
   /**
@@ -90,18 +89,40 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async initialize(): Promise<boolean> {
     try {
-      // Create table if it doesn't exist
+      // Create table if it doesn't exist with basic schema
       await this.sql`
         CREATE TABLE IF NOT EXISTS sessions (
           session VARCHAR(255) PRIMARY KEY,
           repo_name VARCHAR(255) NOT NULL,
           repo_url VARCHAR(1000) NOT NULL,
           created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-          task_id VARCHAR(100) NOT NULL,
-          branch VARCHAR(255) NOT NULL,
+          task_id VARCHAR(100),
+          branch VARCHAR(255),
           repo_path VARCHAR(1000)
         )
       `;
+
+      // Add missing columns if they don't exist (migration)
+      const columnsToAdd = [
+        { name: "pr_branch", type: "VARCHAR(255)" },
+        { name: "pr_approved", type: "VARCHAR(10)" },
+        { name: "pr_state", type: "TEXT" },
+        { name: "backend_type", type: "VARCHAR(50)" },
+        { name: "pull_request", type: "TEXT" },
+      ];
+
+      for (const column of columnsToAdd) {
+        try {
+          await this
+            .sql`ALTER TABLE sessions ADD COLUMN ${this.sql(column.name)} ${this.sql.unsafe(column.type)}`;
+          log.debug(`Added column ${column.name} to sessions table`);
+        } catch (error: any) {
+          // Column likely already exists - this is expected
+          if (!error.message.includes("already exists")) {
+            log.debug(`Failed to add column ${column.name}:`, error.message);
+          }
+        }
+      }
 
       return true;
     } catch (error) {
@@ -144,7 +165,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
           const insertData = toPostgresInsert(session);
           await sql`
             INSERT INTO sessions (session, repo_name, repo_url, created_at, task_id, branch, repo_path)
-            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl}, 
+            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl},
                    ${insertData.createdAt}, ${insertData.taskId}, ${insertData.branch}, ${insertData.repoPath})
           `;
         }
@@ -270,7 +291,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   getStorageLocation(): string {
     // Return masked connection URL for security
-    const url = new URL(this.connectionUrl);
+    const url = new URL(this.connectionString);
     return `postgresql://${url.host}${url.pathname}`;
   }
 

@@ -124,15 +124,13 @@ async function displayTaskStorageConfig(resolved: any) {
 async function displaySessionStorageConfig(resolved: any) {
   await Bun.write(Bun.stdout, "💾 SESSION STORAGE\n");
   if (resolved.sessiondb) {
-    const sessionBackend = resolved.sessiondb.backend || "json";
+    const sessionBackend = resolved.sessiondb.backend || "sqlite";
     await Bun.write(Bun.stdout, `   Backend: ${getSessionBackendDisplayName(sessionBackend)}\n`);
 
     if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
       await Bun.write(Bun.stdout, `   Database Path: ${resolved.sessiondb.dbPath}\n`);
     } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
       await Bun.write(Bun.stdout, `   Connection: ${"*".repeat(20)} (configured)\n`);
-    } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
-      await Bun.write(Bun.stdout, `   Directory: ${resolved.sessiondb.baseDir}\n`);
     }
   }
   await Bun.write(Bun.stdout, "\n");

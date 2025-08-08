@@ -60,7 +60,37 @@ Consolidate all parsing into single unified implementation that supports both:
 
 **This confirms multiple incompatible validation/parsing layers - classic technical debt.**
 
-## 🎯 IMPLEMENTATION APPROACH
+## 🎯 IMPLEMENTATION STATUS - PARTIALLY COMPLETED IN TASK #397
+
+**CRITICAL DISCOVERY (2025-01-07)**: This task was marked DONE but **never actually implemented**. The backwards compatibility issues remained and broke the multi-backend system implemented in Task #356.
+
+**WORK COMPLETED IN TASK #397**:
+
+✅ **Root Cause Identified**: `normalizeTaskId()` in `parseTasksFromMarkdown()` was converting qualified IDs (`md#123`) back to legacy format (`#123`), breaking multi-backend routing
+
+✅ **Core Fix Applied**: Removed backwards compatibility normalization in `taskFunctions.ts` lines 62-66:
+```typescript
+// OLD (BROKEN):
+const normalizedId = normalizeTaskId(id) || id;
+
+// NEW (FIXED):
+// Keep ID as-is for multi-backend compatibility
+// Note: normalizeTaskId was stripping qualified prefixes (md#123 -> #123)
+// which breaks multi-backend routing
+```
+
+✅ **Multi-Backend Fixes**:
+- Fixed `MarkdownTaskBackend.getTask()` to handle ID format mismatches
+- Fixed `MultiBackendTaskService.getTask()` to re-qualify task IDs
+- Fixed `MultiBackendTaskService.listAllTasks()` to re-qualify task IDs
+
+**REMAINING WORK**:
+- Complete testing of multi-backend integration
+- Verify all CLI commands work with qualified IDs
+- Remove remaining `normalizeTaskId` calls if any
+- Complete systematic replacement plan below
+
+**ORIGINAL IMPLEMENTATION APPROACH**:
 
 **NAMING DECISION: Use `TaskId` as the unified system name**
 

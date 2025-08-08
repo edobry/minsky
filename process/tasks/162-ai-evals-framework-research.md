@@ -95,7 +95,21 @@ Using fast-apply infrastructure for rapid, reliable evaluations:
    </evaluation>
    ```
 
-3. **Agent Task Performance** (`minsky eval agent`)
+3. **Cross-Model Tokenization Comparison** (`minsky eval tokenize`)
+
+   ```xml
+   <instruction>Compare tokenization across configured models for the given context</instruction>
+   <code>Context text or assembled prompt here</code>
+   <evaluation>
+   Metrics:
+   - Token counts per model/tokenizer
+   - Variance across tokenizers
+   - Notable discrepancies and likely causes
+   Output: Tabular comparison with summary insights
+   </evaluation>
+   ```
+
+4. **Agent Task Performance** (`minsky eval agent`)
 
    ```xml
    <instruction>Evaluate agent task completion quality</instruction>
@@ -109,7 +123,7 @@ Using fast-apply infrastructure for rapid, reliable evaluations:
    </evaluation>
    ```
 
-4. **Fast-Apply Edit Quality** (`minsky eval edit`)
+5. **Fast-Apply Edit Quality** (`minsky eval edit`)
 
    ```xml
    <instruction>Assess quality of this fast-apply edit result</instruction>

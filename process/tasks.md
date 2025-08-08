@@ -624,7 +624,7 @@
 
 - [+] Fix SQLite schema to persist PR metadata for session auto-updates [#366](process/tasks/366-fix-sqlite-schema-to-persist-pr-metadata-for-session-auto-updates.md)
 
-- [x] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/367-consolidate-multiple-task-id-parsing-implementations.md)
+- [+] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/md#367-consolidate-multiple-task-id-parsing-implementations.md)
 
 - [ ] Fix Session Start with Qualified Task IDs [#368](process/tasks/368-fix-session-start-with-qualified-task-ids.md)
 
@@ -663,3 +663,15 @@
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [#397](process/tasks/397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
 - [ ] Improve test mock filesystem approach with external libraries [#398](process/tasks/398-improve-test-mock-filesystem-approach-with-external-libraries.md)
+
+- [+] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+
+- [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
+
+- [x] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+
+- [x] Remove JSON sessiondb backend entirely from codebase [#402](process/tasks/md#402-remove-json-sessiondb-backend-entirely-from-codebase.md)
+
+- [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
+
+- [+] Add configuration management subcommands [#404](process/tasks/md#404-add-configuration-management-subcommands.md)
