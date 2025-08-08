@@ -33,9 +33,6 @@ export const defaultConfiguration: PartialConfiguration = {
   // Session database configuration
   sessiondb: {
     backend: "sqlite",
-    json: {
-      baseDir: undefined, // Will use XDG standard
-    },
     sqlite: {
       path: undefined, // Will use default location
       baseDir: undefined, // Will use XDG standard
