@@ -25,7 +25,7 @@ if (effectiveBackend === "github-issues") {
 **Improvement**: Replace string comparisons with enum values
 **Risk**: Medium - would require updating function signatures and callers
 
-### Init Command Backend Mapping (Medium Priority)  
+### Init Command Backend Mapping (Medium Priority)
 **File**: `src/adapters/shared/commands/init.ts` (lines 287-293, 307)
 **Current Code**:
 ```typescript
@@ -46,7 +46,7 @@ if (backend === "github-issues") {
 **Current Code**: Various switch statements with string literals for backend display
 
 **Already Completed ✅**
-- Backend Detection Service (enum return type)  
+- Backend Detection Service (enum return type)
 - Config validation arrays (`Object.values(TaskBackend)`)
 - Display function switch statements (enum values)
 - Backend validation functions (enum comparisons)
@@ -67,7 +67,7 @@ if (backend === "github-issues") {
 
 **Benefits**
 - Complete type safety for backend identifiers
-- Single source of truth for all backend references  
+- Single source of truth for all backend references
 - Easier refactoring when adding/removing backends
 - Consistent enum usage across entire codebase
 
