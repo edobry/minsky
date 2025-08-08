@@ -125,13 +125,23 @@ Using OpenAI embeddings via existing AI completion infrastructure:
    - Batch processing for efficient API usage
    - Error handling and retry logic
 
-3. **SQLite Vector Architecture:**
+3. **PostgreSQL pgvector Architecture**
 
-   - **sqlite-vec virtual tables**: Store vectors as native SQLite columns with type safety
-   - **Multiple vector formats**: float32 (standard), int8 (quantized), bit (binary)
-   - **Distance metrics**: L2 (Euclidean), L1 (Manhattan), cosine, Hamming (for binary)
-   - **SIMD acceleration**: AVX/NEON optimized distance calculations
-   - **Native SQL KNN**: `WHERE vector MATCH ? ORDER BY distance LIMIT k`
+   - **pgvector columns**: Store embeddings in PostgreSQL as `vector(1536)` (or configured dimension)
+   - **Distance operators**: `<->` (L2), `<#>` (inner product), `<=>` (cosine)
+   - **Indexes**: IVFFlat and HNSW for fast approximate nearest neighbor search
+   - **Native SQL KNN**: `ORDER BY embedding <-> $1 LIMIT k`
+   - **Extension**: Requires `pgvector` extension installed and enabled in the target database
+
+### Database Validation (on connect when embeddings are enabled)
+
+On startup/connection, when embedding infrastructure is enabled in configuration:
+- Verify PostgreSQL connectivity via configured `sessiondb.postgres.connectionString`
+- Validate `pgvector` extension availability/version
+- Ensure embeddings table exists with correct `vector(<dimension>)`
+- Validate existence and health of ANN index (IVFFlat/HNSW) when configured
+- Check permissions for INSERT/UPDATE/SELECT on embeddings table
+- Surface actionable errors with remediation guidance
 
 ### Task Search Service Architecture
 
@@ -278,40 +288,34 @@ minsky tasks similar 250 --include-closed --threshold=0.5
    - Create provider abstraction for future embedding services
    - Add batch processing and error handling
 
-2. **SQLite Vector Storage:**
+2. **PostgreSQL + pgvector Storage:**
 
-   **Direct SQLite + sqlite-vec Integration**
-   - **sqlite-vec extension** (6k+ stars) - Modern, no-dependency vector search for SQLite
-   - Written in pure C, runs everywhere SQLite runs (Node.js, WASM, mobile, etc.)
-   - Supports float32, int8, and binary vectors with multiple distance metrics
-   - Native SQL syntax for vector operations and KNN search
-   - Much better than JavaScript implementations or external dependencies
-
-   **Implementation Strategy:**
-   - Use sqlite-vec directly with our existing SQLite database
-   - Leverage native vector columns and KNN search via virtual tables
-   - Seamless integration with existing Minsky task storage
+   **Primary Vector Storage**
+   - Use PostgreSQL with `pgvector` for production-grade vector search
+   - Store embeddings in a dedicated table with `vector(<dimension>)` column and metadata
+   - Implement ANN index (IVFFlat or HNSW) and tune lists/ef parameters as needed
+   - Provide SQL helpers for KNN queries: `ORDER BY embedding <-> $1 LIMIT k`
+   - Add migration to create/alter table, index, and constraints
 
 3. **Basic Commands:**
    - `minsky tasks similar <task-id>`
    - `minsky tasks search <query>`
    - CLI interface with similarity scores and explanations
 
-### Phase 2: Advanced SQLite Vector Features
+### Phase 2: Enhanced Search & Optimization (PostgreSQL)
 
-1. **Vector Storage Optimization:**
+1. **Performance & Index Tuning:**
 
-   - Implement vector quantization (float32 → int8, binary) for storage efficiency
-   - Add batch vector insert/update operations for large task corpora
-   - Optimize sqlite-vec chunk storage and indexing
+   - Choose and tune index type (IVFFlat vs HNSW) based on dataset size
+   - Configure and document index parameters (lists, probes, ef_search)
+   - Batch insert/update strategies and periodic `ANALYZE`
 
 2. **Advanced Search Capabilities:**
 
-   - Metadata filtering using sqlite-vec auxiliary columns
-   - Hybrid search combining vector similarity with SQLite FTS5
-   - Duplicate detection using configurable similarity thresholds
-   - Distance metric selection (cosine, L2, L1) based on use case
-   - Background embedding generation for new tasks
+   - Metadata filtering via SQL joins on task tables
+   - Hybrid search: combine vector similarity with keyword/FTS filters
+   - Duplicate detection with configurable thresholds and reports
+   - Background embedding generation for new/updated tasks
 
 ### Phase 3: Advanced Analytics & Integration
 

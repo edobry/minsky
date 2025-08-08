@@ -259,6 +259,18 @@ export const sessionMigrateBackendCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview changes without updating the session DB",
+    required: false,
+    defaultValue: false,
+  },
+  to: {
+    schema: z.enum(["github", "local"]).default("github"),
+    description: "Target backend to migrate to (default: github)",
+    required: false,
+    defaultValue: "github",
+  },
 };
 
 /**

@@ -183,7 +183,9 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
       }
     }
 
-    if (!resolvedRemote.includes("github.com")) {
+    const targetBackend = (params.to as string) || "github";
+
+    if (targetBackend === "github" && !resolvedRemote.includes("github.com")) {
       throw new Error(
         `Resolved origin is not a GitHub URL: ${resolvedRemote}. Only local→GitHub migration is supported.`
       );
@@ -192,15 +194,29 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
     // Optionally extract owner/repo for future enhancements (not persisted in SessionRecord)
     const gh = extractGitHubInfoFromUrl(resolvedRemote);
 
-    // Update session record to use GitHub backend and remote URL
+    // If dry-run, return a preview without applying changes
+    if (params.dryRun) {
+      return this.createSuccessResult({
+        preview: true,
+        session: sessionName,
+        from: record.backendType || "local",
+        to: targetBackend,
+        proposed: {
+          repoUrl: resolvedRemote,
+          backendType: targetBackend,
+        },
+      });
+    }
+
+    // Update session record to use selected backend and remote URL
     await sessionDB.updateSession(sessionName, {
       repoUrl: resolvedRemote,
-      backendType: "github",
+      backendType: targetBackend,
     });
 
     return this.createSuccessResult({
       session: sessionName,
-      backendType: "github",
+      backendType: targetBackend,
       repoUrl: resolvedRemote,
       ...(gh ? { github: gh } : {}),
     });
