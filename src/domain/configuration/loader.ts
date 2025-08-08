@@ -370,7 +370,7 @@ export class ConfigurationLoader {
             let warningMessage = `⚠️  Unknown configuration field '${unknownKey}'`;
 
             if (validationConfig.includePathInWarnings && path !== "root") {
-              warningMessage += ` in ${path}`;
+              warningMessage += ` in configuration section '${path}'`;
             }
 
             warningMessage += " (will be ignored)";
