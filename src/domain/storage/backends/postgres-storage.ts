@@ -163,8 +163,12 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
         // Insert new sessions using Drizzle schema mapping
         if (sessions.length > 0) {
-          const values = sessions.map((s) => toPostgresInsert(s));
-          await tx.insert(postgresSessions).values(values);
+          const BATCH_SIZE = 250;
+          for (let i = 0; i < sessions.length; i += BATCH_SIZE) {
+            const slice = sessions.slice(i, i + BATCH_SIZE);
+            const values = slice.map((s) => toPostgresInsert(s));
+            await tx.insert(postgresSessions).values(values);
+          }
         }
       });
 
