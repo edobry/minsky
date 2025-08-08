@@ -641,8 +641,8 @@ export const phase3TestCases: EditTestCase[] = [
       containsOriginal: true,
       containsNew: ["try {", "catch (error)", "console.log", "logOperation", "console.error"],
       shouldGrow: true,
-      noMarkers: false // Multiple markers may be preserved during complex insertions
-    }
+      noMarkers: false, // Multiple markers may be preserved during complex insertions
+    },
   },
   {
     name: "decorator addition to class",
@@ -682,10 +682,16 @@ export class User {
 }`,
     expected: {
       containsOriginal: true,
-      containsNew: ["@IsEmail()", "@IsNotEmpty()", "@Length(2, 50)", "@BeforeInsert()", "validateData()"],
+      containsNew: [
+        "@IsEmail()",
+        "@IsNotEmpty()",
+        "@Length(2, 50)",
+        "@BeforeInsert()",
+        "validateData()",
+      ],
       shouldGrow: true,
-      noMarkers: true
-    }
+      noMarkers: true,
+    },
   },
   {
     name: "comment preservation during edits",
@@ -734,9 +740,15 @@ export class User {
   // ... existing code ...`,
     expected: {
       containsOriginal: true,
-      containsNew: ["updateUser", "validateUpdateData", "@param id", "@throws {NotFoundError}", "Object.assign"],
+      containsNew: [
+        "updateUser",
+        "validateUpdateData",
+        "@param id",
+        "@throws {NotFoundError}",
+        "Object.assign",
+      ],
       shouldGrow: true,
-      noMarkers: true
-    }
-  }
+      noMarkers: true,
+    },
+  },
 ];

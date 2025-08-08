@@ -155,11 +155,11 @@ describe("session.edit_file Simplified Integration", () => {
         }
 
         console.log(`\n🧪 Phase 3 Testing: ${testCase.name}`);
-        
+
         // Load fixture
         const originalContent = await loadFixture(testCase.fixture);
         console.log(`📄 Loaded fixture: ${testCase.fixture} (${originalContent.length} chars)`);
-        
+
         // Apply edit pattern
         const result = await applyEditPattern(
           originalContent,
@@ -167,10 +167,10 @@ describe("session.edit_file Simplified Integration", () => {
           testCase.instruction,
           true // verbose
         );
-        
+
         // Validate result
         validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
-        
+
         console.log(`✅ Phase 3 ${testCase.name} completed successfully`);
       });
     });

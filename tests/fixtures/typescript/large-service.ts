@@ -2,12 +2,12 @@
  * Large service file for testing edit operations on substantial codebases
  * This file is intentionally large to test performance and reliability
  */
-import { Logger } from './logger';
-import { Database } from './database';
-import { Validator } from './validator';
-import { EmailService } from './email-service';
-import { CacheService } from './cache-service';
-import { MetricsService } from './metrics-service';
+import { Logger } from "./logger";
+import { Database } from "./database";
+import { Validator } from "./validator";
+import { EmailService } from "./email-service";
+import { CacheService } from "./cache-service";
+import { MetricsService } from "./metrics-service";
 
 export interface User {
   id: string;
@@ -21,7 +21,7 @@ export interface User {
 }
 
 export interface UserPreferences {
-  theme: 'light' | 'dark';
+  theme: "light" | "dark";
   language: string;
   notifications: {
     email: boolean;
@@ -55,14 +55,14 @@ export interface UserFilters {
   createdBefore?: Date;
   lastLoginAfter?: Date;
   emailDomain?: string;
-  theme?: 'light' | 'dark';
+  theme?: "light" | "dark";
 }
 
 export interface PaginationOptions {
   page: number;
   limit: number;
   sortBy?: keyof User;
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
 }
 
 export interface UserListResult {
@@ -86,10 +86,10 @@ export class UserManagementService {
   private readonly emailService: EmailService;
   private readonly cacheService: CacheService;
   private readonly metricsService: MetricsService;
-  
+
   private readonly defaultUserPreferences: UserPreferences = {
-    theme: 'light',
-    language: 'en',
+    theme: "light",
+    language: "en",
     notifications: {
       email: true,
       push: true,
@@ -108,7 +108,7 @@ export class UserManagementService {
     validator: Validator,
     emailService: EmailService,
     cacheService: CacheService,
-    metricsService: MetricsService,
+    metricsService: MetricsService
   ) {
     this.logger = logger;
     this.database = database;
@@ -123,7 +123,7 @@ export class UserManagementService {
    */
   async createUser(userData: CreateUserData): Promise<User> {
     const startTime = Date.now();
-    this.logger.info('Creating new user', { email: userData.email });
+    this.logger.info("Creating new user", { email: userData.email });
 
     try {
       // Validate input data
@@ -159,18 +159,17 @@ export class UserManagementService {
       await this.emailService.sendWelcomeEmail(user);
 
       // Record metrics
-      this.metricsService.increment('user.created');
-      this.metricsService.timing('user.create.duration', Date.now() - startTime);
+      this.metricsService.increment("user.created");
+      this.metricsService.timing("user.create.duration", Date.now() - startTime);
 
-      this.logger.info('User created successfully', { userId: user.id, email: user.email });
+      this.logger.info("User created successfully", { userId: user.id, email: user.email });
       return user;
-
     } catch (error) {
-      this.logger.error('Failed to create user', { 
-        email: userData.email, 
-        error: error.message 
+      this.logger.error("Failed to create user", {
+        email: userData.email,
+        error: error.message,
       });
-      this.metricsService.increment('user.create.error');
+      this.metricsService.increment("user.create.error");
       throw error;
     }
   }
@@ -179,14 +178,14 @@ export class UserManagementService {
    * Retrieves a user by ID with caching
    */
   async getUserById(id: string): Promise<User | null> {
-    this.logger.debug('Retrieving user by ID', { userId: id });
+    this.logger.debug("Retrieving user by ID", { userId: id });
 
     try {
       // Check cache first
       const cacheKey = `user:${id}`;
       const cachedUser = await this.cacheService.get<User>(cacheKey);
       if (cachedUser) {
-        this.metricsService.increment('user.cache.hit');
+        this.metricsService.increment("user.cache.hit");
         return cachedUser;
       }
 
@@ -195,14 +194,13 @@ export class UserManagementService {
       if (user) {
         // Cache the result
         await this.cacheService.set(cacheKey, user, 300); // 5 minutes
-        this.metricsService.increment('user.cache.miss');
+        this.metricsService.increment("user.cache.miss");
       }
 
       return user;
-
     } catch (error) {
-      this.logger.error('Failed to retrieve user by ID', { userId: id, error: error.message });
-      this.metricsService.increment('user.get.error');
+      this.logger.error("Failed to retrieve user by ID", { userId: id, error: error.message });
+      this.metricsService.increment("user.get.error");
       throw error;
     }
   }
@@ -211,14 +209,13 @@ export class UserManagementService {
    * Retrieves a user by email
    */
   async findUserByEmail(email: string): Promise<User | null> {
-    this.logger.debug('Finding user by email', { email });
+    this.logger.debug("Finding user by email", { email });
 
     try {
       const user = await this.database.users.findByEmail(email);
       return user;
-
     } catch (error) {
-      this.logger.error('Failed to find user by email', { email, error: error.message });
+      this.logger.error("Failed to find user by email", { email, error: error.message });
       throw error;
     }
   }
@@ -228,7 +225,7 @@ export class UserManagementService {
    */
   async updateUser(id: string, updateData: UpdateUserData): Promise<User> {
     const startTime = Date.now();
-    this.logger.info('Updating user', { userId: id, updateData });
+    this.logger.info("Updating user", { userId: id, updateData });
 
     try {
       // Validate update data
@@ -253,7 +250,7 @@ export class UserManagementService {
         ...existingUser,
         ...updateData,
         updatedAt: new Date(),
-        preferences: updateData.preferences 
+        preferences: updateData.preferences
           ? { ...existingUser.preferences, ...updateData.preferences }
           : existingUser.preferences,
       };
@@ -268,15 +265,14 @@ export class UserManagementService {
       }
 
       // Record metrics
-      this.metricsService.increment('user.updated');
-      this.metricsService.timing('user.update.duration', Date.now() - startTime);
+      this.metricsService.increment("user.updated");
+      this.metricsService.timing("user.update.duration", Date.now() - startTime);
 
-      this.logger.info('User updated successfully', { userId: id });
+      this.logger.info("User updated successfully", { userId: id });
       return updatedUser;
-
     } catch (error) {
-      this.logger.error('Failed to update user', { userId: id, error: error.message });
-      this.metricsService.increment('user.update.error');
+      this.logger.error("Failed to update user", { userId: id, error: error.message });
+      this.metricsService.increment("user.update.error");
       throw error;
     }
   }
@@ -285,7 +281,7 @@ export class UserManagementService {
    * Deletes a user (soft delete)
    */
   async deleteUser(id: string): Promise<void> {
-    this.logger.info('Deleting user', { userId: id });
+    this.logger.info("Deleting user", { userId: id });
 
     try {
       const user = await this.getUserById(id);
@@ -300,13 +296,12 @@ export class UserManagementService {
       await this.invalidateUserCaches(user.email);
 
       // Record metrics
-      this.metricsService.increment('user.deleted');
+      this.metricsService.increment("user.deleted");
 
-      this.logger.info('User deleted successfully', { userId: id });
-
+      this.logger.info("User deleted successfully", { userId: id });
     } catch (error) {
-      this.logger.error('Failed to delete user', { userId: id, error: error.message });
-      this.metricsService.increment('user.delete.error');
+      this.logger.error("Failed to delete user", { userId: id, error: error.message });
+      this.metricsService.increment("user.delete.error");
       throw error;
     }
   }
@@ -318,17 +313,17 @@ export class UserManagementService {
     filters: UserFilters = {},
     pagination: PaginationOptions = { page: 1, limit: 20 }
   ): Promise<UserListResult> {
-    this.logger.debug('Listing users', { filters, pagination });
+    this.logger.debug("Listing users", { filters, pagination });
 
     try {
       const { users, total } = await this.database.users.findMany(filters, pagination);
-      
+
       const totalPages = Math.ceil(total / pagination.limit);
       const hasNext = pagination.page < totalPages;
       const hasPrevious = pagination.page > 1;
 
-      this.metricsService.increment('user.list');
-      
+      this.metricsService.increment("user.list");
+
       return {
         users,
         total,
@@ -337,10 +332,9 @@ export class UserManagementService {
         hasNext,
         hasPrevious,
       };
-
     } catch (error) {
-      this.logger.error('Failed to list users', { error: error.message });
-      this.metricsService.increment('user.list.error');
+      this.logger.error("Failed to list users", { error: error.message });
+      this.metricsService.increment("user.list.error");
       throw error;
     }
   }
@@ -349,14 +343,13 @@ export class UserManagementService {
    * Records user login
    */
   async recordLogin(userId: string): Promise<void> {
-    this.logger.debug('Recording user login', { userId });
+    this.logger.debug("Recording user login", { userId });
 
     try {
       await this.updateUser(userId, { lastLogin: new Date() });
-      this.metricsService.increment('user.login');
-
+      this.metricsService.increment("user.login");
     } catch (error) {
-      this.logger.error('Failed to record login', { userId, error: error.message });
+      this.logger.error("Failed to record login", { userId, error: error.message });
       throw error;
     }
   }
@@ -372,11 +365,10 @@ export class UserManagementService {
   }> {
     try {
       const stats = await this.database.users.getStatistics();
-      this.metricsService.increment('user.stats.requested');
+      this.metricsService.increment("user.stats.requested");
       return stats;
-
     } catch (error) {
-      this.logger.error('Failed to get user statistics', { error: error.message });
+      this.logger.error("Failed to get user statistics", { error: error.message });
       throw error;
     }
   }
@@ -386,19 +378,19 @@ export class UserManagementService {
    */
   private async validateCreateUserData(userData: CreateUserData): Promise<void> {
     if (!userData.email || !userData.name || !userData.password) {
-      throw new Error('Email, name, and password are required');
+      throw new Error("Email, name, and password are required");
     }
 
     if (!this.validator.isEmail(userData.email)) {
-      throw new Error('Invalid email format');
+      throw new Error("Invalid email format");
     }
 
     if (userData.name.length < 2) {
-      throw new Error('Name must be at least 2 characters long');
+      throw new Error("Name must be at least 2 characters long");
     }
 
     if (userData.password.length < 8) {
-      throw new Error('Password must be at least 8 characters long');
+      throw new Error("Password must be at least 8 characters long");
     }
   }
 
@@ -407,11 +399,11 @@ export class UserManagementService {
    */
   private async validateUpdateUserData(updateData: UpdateUserData): Promise<void> {
     if (updateData.email && !this.validator.isEmail(updateData.email)) {
-      throw new Error('Invalid email format');
+      throw new Error("Invalid email format");
     }
 
     if (updateData.name && updateData.name.length < 2) {
-      throw new Error('Name must be at least 2 characters long');
+      throw new Error("Name must be at least 2 characters long");
     }
   }
 
@@ -429,9 +421,8 @@ export class UserManagementService {
     try {
       await this.cacheService.delete(`user:email:${email}`);
       await this.cacheService.delete(`user:search:${email}`);
-      
     } catch (error) {
-      this.logger.warn('Failed to invalidate user caches', { email, error: error.message });
+      this.logger.warn("Failed to invalidate user caches", { email, error: error.message });
     }
   }
 }

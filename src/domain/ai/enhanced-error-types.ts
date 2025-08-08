@@ -82,7 +82,7 @@ export class RateLimitError extends Error {
       `Wait ${this.retryAfter} seconds before retrying`,
       "Consider using a different AI provider if available",
     ];
-    
+
     if (this.remaining === 0) {
       suggestions.push("Your rate limit quota is exhausted");
       if (this.resetTime) {
@@ -90,7 +90,7 @@ export class RateLimitError extends Error {
         suggestions.push(`Rate limit resets in ${minutesUntilReset} minutes`);
       }
     }
-    
+
     return suggestions;
   }
 }

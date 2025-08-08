@@ -373,14 +373,17 @@ export class IntelligentRetryService {
   /**
    * Get health status for all providers
    */
-  getProvidersHealth(): Record<string, {
-    isHealthy: boolean;
-    state: string;
-    failureCount: number;
-    nextAttemptTime?: Date;
-  }> {
+  getProvidersHealth(): Record<
+    string,
+    {
+      isHealthy: boolean;
+      state: string;
+      failureCount: number;
+      nextAttemptTime?: Date;
+    }
+  > {
     const health: Record<string, any> = {};
-    
+
     for (const [provider, state] of this.circuitBreaker.entries()) {
       health[provider] = {
         isHealthy: state.state === "closed",
@@ -389,7 +392,7 @@ export class IntelligentRetryService {
         nextAttemptTime: state.nextAttemptTime > 0 ? new Date(state.nextAttemptTime) : undefined,
       };
     }
-    
+
     return health;
   }
 }

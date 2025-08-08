@@ -216,7 +216,9 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
  */
 async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
   // Import required dependencies with enhanced error handling
-  const { EnhancedAICompletionService } = await import("../../domain/ai/enhanced-completion-service");
+  const { EnhancedAICompletionService } = await import(
+    "../../domain/ai/enhanced-completion-service"
+  );
   const { RateLimitError, AuthenticationError, ServerError } = await import(
     "../../domain/ai/enhanced-error-types"
   );
