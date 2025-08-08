@@ -191,10 +191,18 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
       );
     }
 
+    if (targetBackend === "local" && !isLocalPath(firstHop)) {
+      throw new Error(
+        `First-hop origin is not a local path: ${firstHop}. Cannot migrate to local backend from a non-local upstream.`
+      );
+    }
+
     // Optionally extract owner/repo for future enhancements (not persisted in SessionRecord)
     const gh = extractGitHubInfoFromUrl(resolvedRemote);
 
     // If dry-run, return a preview without applying changes
+    const finalTargetUrl = targetBackend === "github" ? resolvedRemote : firstHop;
+
     if (params.dryRun) {
       return this.createSuccessResult({
         preview: true,
@@ -202,7 +210,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
         from: record.backendType || "local",
         to: targetBackend,
         proposed: {
-          repoUrl: resolvedRemote,
+          repoUrl: finalTargetUrl,
           backendType: targetBackend,
         },
       });
@@ -210,14 +218,14 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
 
     // Update session record to use selected backend and remote URL
     await sessionDB.updateSession(sessionName, {
-      repoUrl: resolvedRemote,
+      repoUrl: finalTargetUrl,
       backendType: targetBackend,
     });
 
     return this.createSuccessResult({
       session: sessionName,
       backendType: targetBackend,
-      repoUrl: resolvedRemote,
+      repoUrl: finalTargetUrl,
       ...(gh ? { github: gh } : {}),
     });
   }
