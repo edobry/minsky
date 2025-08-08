@@ -199,6 +199,7 @@ sharedCommandRegistry.registerCommand({
       }
 
       log.cli(`🚀 SessionDB Migration - Target: ${to}`);
+      log.cli("");
       log.cli(`Mode: ${isPreviewMode ? "PREVIEW" : "EXECUTE"}`);
       log.cli(`Backup: ${backup ? "YES" : "NO"}`);
 
@@ -278,14 +279,23 @@ sharedCommandRegistry.registerCommand({
         }
       }
 
+      // Filter out legacy sessions without taskId
+      const filteredRecords = sessionRecords.filter(
+        (s) => typeof s.taskId === "string" && s.taskId.trim().length > 0
+      );
+      const skippedLegacy = sessionRecords.length - filteredRecords.length;
+
       // Prepare operations plan
       const operations: string[] = [];
       operations.push(`Read source sessions (${sourceCount}) from ${sourceDescription}`);
+      if (skippedLegacy > 0) {
+        operations.push(`Skip ${skippedLegacy} legacy session(s) without a taskId`);
+      }
       if (backup) {
         operations.push(`Create JSON backup of source before migration`);
       }
       operations.push(
-        `Write ${sessionRecords.length} session(s) to target '${to}' backend (full replacement)`
+        `Write ${filteredRecords.length} session(s) to target '${to}' backend (full replacement)`
       );
       if (setDefault) {
         operations.push(`Update configuration to set default backend to '${to}'`);
@@ -301,7 +311,7 @@ sharedCommandRegistry.registerCommand({
           preview: true,
           sourceCount,
           targetBackend: to,
-          plannedInsertCount: sessionRecords.length,
+          plannedInsertCount: filteredRecords.length,
           operations,
         };
       }
@@ -340,7 +350,7 @@ sharedCommandRegistry.registerCommand({
         }
 
         log.cli(
-          `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}\n`
+          `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
         );
         targetConfig.postgres = { connectionString: connectionString };
       }
@@ -356,7 +366,7 @@ sharedCommandRegistry.registerCommand({
 
       // Write to target backend
       const targetState = {
-        sessions: sessionRecords,
+        sessions: filteredRecords,
         baseDir: getMinskyStateDir(),
       };
 
@@ -366,10 +376,10 @@ sharedCommandRegistry.registerCommand({
         throw new Error(`Failed to write to target backend: ${msg}`);
       }
       log.cli(
-        `✅ Data successfully migrated to target backend (${sessionRecords.length} sessions)`
+        `✅ Data successfully migrated to target backend (${filteredRecords.length} sessions)`
       );
 
-      const targetCount = sessionRecords.length;
+      const targetCount = filteredRecords.length;
       log.info(
         `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
       );
