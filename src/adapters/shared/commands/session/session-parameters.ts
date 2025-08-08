@@ -252,6 +252,16 @@ export const sessionPrCommandParams = {
 };
 
 /**
+ * Session migrate-backend command parameters
+ */
+export const sessionMigrateBackendCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+};
+
+/**
  * Session inspect command parameters
  */
 export const sessionInspectCommandParams = {

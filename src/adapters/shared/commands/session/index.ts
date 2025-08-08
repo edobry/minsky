@@ -42,12 +42,18 @@ import {
 export {
   SessionDeleteCommand,
   SessionUpdateCommand,
+  SessionMigrateBackendCommand,
   createSessionDeleteCommand,
   createSessionUpdateCommand,
+  createSessionMigrateBackendCommand,
 } from "./management-commands";
 
 // Import management factory functions for internal use
-import { createSessionDeleteCommand, createSessionUpdateCommand } from "./management-commands";
+import {
+  createSessionDeleteCommand,
+  createSessionUpdateCommand,
+  createSessionMigrateBackendCommand,
+} from "./management-commands";
 
 // Workflow commands (re-export)
 export {
@@ -94,6 +100,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
   } = basicCommands;
 
   const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
+  const { createSessionMigrateBackendCommand } = managementCommands;
 
   // Updated to use PR subcommands instead of single pr command
   const {
@@ -115,6 +122,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     // Management commands
     delete: createSessionDeleteCommand(deps),
     update: createSessionUpdateCommand(deps),
+    migrateBackend: createSessionMigrateBackendCommand(deps),
 
     // Workflow commands
     commit: createSessionCommitCommand(deps),
@@ -147,6 +155,7 @@ export async function setupSessionCommandRegistry(
   registry.register("session.dir", commands.dir);
   registry.register("session.delete", commands.delete);
   registry.register("session.update", commands.update);
+  registry.register("session.migrate-backend", commands.migrateBackend);
   registry.register("session.commit", commands.commit);
   // NOTE: session.approve removed in favor of session.pr.approve (Task #358)
   registry.register("session.inspect", commands.inspect);
