@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
 import { dirname, join } from "path";
 import { getErrorMessage } from "../../../errors/index";
 import {
@@ -207,6 +207,8 @@ sharedCommandRegistry.registerCommand({
       let sourceData: Record<string, any> = {};
       let sourceCount = 0;
       let sourceDescription = "configured session backend";
+      let sourceBackendKind: "sqlite" | "postgres" | "file-json" | "unknown" = "unknown";
+      let sqliteSourcePath: string | undefined;
 
       if (from && existsSync(from)) {
         // Read from specific file
@@ -214,6 +216,7 @@ sharedCommandRegistry.registerCommand({
         sourceData = JSON.parse(fileContent);
         sourceCount = Object.keys(sourceData).length;
         sourceDescription = `backup file: ${from}`;
+        sourceBackendKind = "file-json";
         log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
         // Read from CURRENT configured backend (no JSON fallback)
@@ -229,6 +232,8 @@ sharedCommandRegistry.registerCommand({
             config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
           sourceConfig.sqlite = { dbPath };
           sourceDescription = `SQLite backend: ${dbPath}`;
+          sourceBackendKind = "sqlite";
+          sqliteSourcePath = dbPath;
         } else if (configuredBackend === "postgres") {
           const connectionString =
             config.sessiondb?.postgres?.connectionString ||
@@ -241,6 +246,7 @@ sharedCommandRegistry.registerCommand({
           }
           sourceConfig.postgres = { connectionString };
           sourceDescription = "PostgreSQL backend (configured)";
+          sourceBackendKind = "postgres";
         }
 
         const sourceStorage = createStorageBackend(sourceConfig);
@@ -292,7 +298,11 @@ sharedCommandRegistry.registerCommand({
         operations.push(`Skip ${skippedLegacy} legacy session(s) without a taskId`);
       }
       if (backup) {
-        operations.push(`Create JSON backup of source before migration`);
+        if (sourceBackendKind === "sqlite" && sqliteSourcePath) {
+          operations.push(`Create SQLite file backup of source before migration`);
+        } else {
+          operations.push(`Create JSON backup of source before migration`);
+        }
       }
       operations.push(
         `Write ${filteredRecords.length} session(s) to target '${to}' backend (full replacement)`
@@ -319,13 +329,26 @@ sharedCommandRegistry.registerCommand({
       // Create backup if requested
       let backupPath: string | undefined;
       if (backup) {
-        backupPath = join(getMinskyStateDir(), `session-backup-${Date.now()}.json`);
-        const backupDir = dirname(backupPath);
-        if (!existsSync(backupDir)) {
-          mkdirSync(backupDir, { recursive: true });
+        const stateDir = getMinskyStateDir();
+        if (sourceBackendKind === "sqlite" && sqliteSourcePath) {
+          // Create a real SQLite copy backup
+          backupPath = join(stateDir, `session-backup-${Date.now()}.db`);
+          const backupDir = dirname(backupPath);
+          if (!existsSync(backupDir)) {
+            mkdirSync(backupDir, { recursive: true });
+          }
+          copyFileSync(sqliteSourcePath, backupPath);
+          log.cli(`SQLite backup created: ${backupPath}`);
+        } else {
+          // JSON backup of the read state
+          backupPath = join(stateDir, `session-backup-${Date.now()}.json`);
+          const backupDir = dirname(backupPath);
+          if (!existsSync(backupDir)) {
+            mkdirSync(backupDir, { recursive: true });
+          }
+          writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
+          log.cli(`Backup created: ${backupPath}`);
         }
-        writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
-        log.cli(`Backup created: ${backupPath}`);
       }
 
       // Create target storage with config-driven approach

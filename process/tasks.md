@@ -675,3 +675,5 @@
 - [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
 
 - [+] Add configuration management subcommands [#404](process/tasks/md#404-add-configuration-management-subcommands.md)
+
+- [ ] Complete TaskBackend enum refactoring across codebase [md#1](process/tasks/md#1-complete-taskbackend-enum-refactoring-across-codebase.md)
