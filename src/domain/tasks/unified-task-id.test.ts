@@ -189,12 +189,8 @@ describe("Session/Branch Conversion", () => {
         expect(backToTaskId).toBe(taskId);
       }
     });
-
-
   });
 });
-
-
 
 describe("Edge Cases and Error Handling", () => {
   it("should handle empty strings gracefully", () => {
