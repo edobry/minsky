@@ -21,34 +21,21 @@ export const defaultConfiguration: PartialConfiguration = {
   backendConfig: {
     markdown: {},
     "json-file": {},
-    // Note: github-issues config omitted - will be undefined by default
   },
 
-  // Note: Backend detection rules are now hardcoded in BackendDetectionService
-  // This removes unnecessary configuration complexity for core application logic
+  // Backend detection rules are now hardcoded in BackendDetectionService
 
-  // Session database configuration
   sessiondb: {
     backend: "sqlite",
-    sqlite: {
-      // Note: path and baseDir omitted - will use XDG defaults at runtime
-    },
-    // Note: postgres config omitted - only set when actually configured
+    sqlite: {},
   },
 
-  // GitHub configuration
-  // Note: All fields omitted - will be undefined by default
-  // Users must explicitly configure GitHub settings
-
-  // AI providers configuration
   ai: {
-    // Note: defaultProvider omitted - will auto-detect from available providers
     providers: {
       openai: {
         enabled: true,
         model: "gpt-4",
         models: [],
-        // Note: apiKey, baseUrl, etc. omitted - set via environment or user config
       },
       anthropic: {
         enabled: true,
@@ -73,7 +60,6 @@ export const defaultConfiguration: PartialConfiguration = {
     },
   },
 
-  // Logger configuration
   logger: {
     mode: "auto",
     level: "info",
@@ -83,7 +69,6 @@ export const defaultConfiguration: PartialConfiguration = {
     includeSource: false,
     maxFileSize: 100,
     maxFiles: 5,
-    // Note: logFile omitted - will use default or user-specified location
   },
 };
 
