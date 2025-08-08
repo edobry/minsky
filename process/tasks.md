@@ -679,3 +679,5 @@
 - [ ] Complete TaskBackend enum refactoring across codebase [#1](process/tasks/md#1-complete-taskbackend-enum-refactoring-across-codebase.md)
 
 - [ ] Implement --set-default to write config and back it up; update/remove tests referencing session.branch [#405](process/tasks/md#405-implement-set-default-to-write-config-and-back-it-up-update-remove-tests-referencing-session-branch.md)
+
+- [ ] Complete TaskBackend enum refactoring across codebase [#1](process/tasks/md#1-complete-taskbackend-enum-refactoring-across-codebase.md)
