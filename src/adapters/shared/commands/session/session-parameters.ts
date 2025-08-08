@@ -271,6 +271,12 @@ export const sessionMigrateBackendCommandParams = {
     required: false,
     defaultValue: "github",
   },
+  updateRemote: {
+    schema: z.boolean(),
+    description: "Also update the session workspace git remotes (default: true)",
+    required: false,
+    defaultValue: true,
+  },
 };
 
 /**

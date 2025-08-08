@@ -204,16 +204,56 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
     const finalTargetUrl = targetBackend === "github" ? resolvedRemote : firstHop;
 
     if (params.dryRun) {
-      return this.createSuccessResult({
-        preview: true,
-        session: sessionName,
-        from: record.backendType || "local",
-        to: targetBackend,
-        proposed: {
-          repoUrl: finalTargetUrl,
-          backendType: targetBackend,
+      return this.createSuccessResult(
+        {
+          preview: true,
+          session: sessionName,
+          from: record.backendType || "local",
+          to: targetBackend,
+          detected: {
+            firstHopOrigin: firstHop,
+            secondHopOrigin: isLocalPath(firstHop) ? resolvedRemote : undefined,
+          },
+          proposed: {
+            repoUrl: finalTargetUrl,
+            backendType: targetBackend,
+          },
         },
-      });
+        `Will set backend to '${targetBackend}' and repoUrl to '${finalTargetUrl}'`
+      );
+    }
+
+    // Optionally update the workspace git remotes
+    const shouldUpdateRemote = params.updateRemote !== false; // default true
+    if (shouldUpdateRemote) {
+      // Ensure a 'prev-origin' backup when changing remotes
+      // Remove prev-origin if present; ignore failures
+      await gitService
+        .execInRepository(workdir, `git remote remove prev-origin || true`)
+        .catch(() => {});
+      await gitService.execInRepository(workdir, `git remote add prev-origin origin`);
+
+      // Set origin to target URL
+      await gitService.execInRepository(workdir, `git remote set-url origin ${finalTargetUrl}`);
+
+      // For convenience, set an explicit alias for the other URL
+      if (targetBackend === "github" && isLocalPath(firstHop)) {
+        // keep local as local-origin
+        await gitService
+          .execInRepository(workdir, `git remote remove local-origin || true`)
+          .catch(() => {});
+        await gitService.execInRepository(workdir, `git remote add local-origin ${firstHop}`);
+      }
+      if (targetBackend === "local" && resolvedRemote.includes("github.com")) {
+        // keep github as github-origin
+        await gitService
+          .execInRepository(workdir, `git remote remove github-origin || true`)
+          .catch(() => {});
+        await gitService.execInRepository(
+          workdir,
+          `git remote add github-origin ${resolvedRemote}`
+        );
+      }
     }
 
     // Update session record to use selected backend and remote URL
