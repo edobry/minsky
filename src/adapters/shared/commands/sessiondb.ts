@@ -284,7 +284,7 @@ sharedCommandRegistry.registerCommand({
         log.cli(
           `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
         );
-        targetConfig.postgres = { connectionUrl: connectionString };
+        targetConfig.postgres = { connectionString: connectionString };
       }
 
       const targetStorage = createStorageBackend(targetConfig);
