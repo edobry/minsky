@@ -11,13 +11,14 @@
 Current codebase has opportunities to extract pure business logic for more focused, reliable unit testing:
 
 - **Complex functions** mixing business logic with I/O operations
-- **Large test files** testing multiple concerns simultaneously  
+- **Large test files** testing multiple concerns simultaneously
 - **Opportunities** to create pure, testable business logic modules
 - **Pattern** proven successful in session update logic extraction
 
 ## Successful Reference Implementation
 
 The session update logic extraction that contributed to 100% test success:
+
 - **Extracted**: Pure conditional logic into focused functions
 - **Created**: 21 new focused unit tests
 - **Result**: Reliable, fast unit tests with no I/O dependencies
@@ -26,18 +27,21 @@ The session update logic extraction that contributed to 100% test success:
 ## Target Areas for Extraction
 
 ### Priority 1: Session Operations
+
 1. **Session Creation Logic**: Extract business rules from I/O operations
 2. **Session Update Logic**: Expand on existing successful pattern
 3. **Session Validation**: Pure validation functions
 4. **Session State Management**: Pure state transition logic
 
-### Priority 2: Task Management  
+### Priority 2: Task Management
+
 1. **Task Status Transitions**: Pure business logic for status changes
 2. **Task Validation**: Extract validation rules from persistence layer
 3. **Task ID Generation**: Pure ID generation and validation logic
 4. **Task Filtering**: Pure filtering and sorting logic
 
 ### Priority 3: Configuration Management
+
 1. **Configuration Validation**: Pure validation without file I/O
 2. **Configuration Merging**: Pure merge logic
 3. **Environment Detection**: Extract from system calls

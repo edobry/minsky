@@ -11,12 +11,14 @@ After analyzing task 182 in the context of recent architectural changes, I've id
 **Status**: Fully implemented and ready for integration
 **Location**: `src/domain/ai/`
 **Capabilities**:
+
 - Multi-provider support (OpenAI, Anthropic, Google, Morph)
 - Vercel AI SDK integration with streaming, tool calling, structured output
 - Configuration management and usage tracking
 - Comprehensive error handling and testing
 
 **Key Services**:
+
 - `DefaultAICompletionService` - Main completion service
 - `DefaultAIConfigurationService` - Provider configuration management
 - `DefaultModelCacheService` - Model caching and optimization
@@ -25,6 +27,7 @@ After analyzing task 182 in the context of recent architectural changes, I've id
 
 **Status**: Still in BACKLOG, but listed as "required" dependency for Task 182
 **Planned Scope**:
+
 - Embedding-based code search infrastructure
 - Morph API integration for embeddings/reranking
 - PostgreSQL/pgvector for vector storage
@@ -45,6 +48,7 @@ After analyzing task 182 in the context of recent architectural changes, I've id
 **Architecture**: Modular rules service with operations pattern
 **Location**: `src/domain/rules/`
 **Capabilities**:
+
 - List, get, create, update, search operations
 - Rule metadata (name, description, tags, globs)
 - Multi-format support (Cursor, generic)
@@ -78,12 +82,14 @@ After analyzing task 182 in the context of recent architectural changes, I've id
 **Approach**: Make AI completion the primary approach using Task 160's capabilities
 
 **Key Changes**:
+
 1. **Structured Output**: Use Vercel AI SDK's structured output for reliable JSON responses
 2. **Sophisticated Prompting**: Leverage rule metadata (descriptions, tags, globs) for better matching
 3. **Multi-Provider Optimization**: Use different models for different query types
 4. **Rule Context Enhancement**: Include rule relationships and workspace context
 
 **Implementation**:
+
 ```typescript
 // Enhanced AI-based rule suggestion
 interface RuleSuggestionRequest {
@@ -101,7 +107,7 @@ interface RuleSuggestionResponse {
     ruleId: string;
     relevanceScore: number;
     reasoning: string;
-    confidenceLevel: 'high' | 'medium' | 'low';
+    confidenceLevel: "high" | "medium" | "low";
   }>;
   queryAnalysis: {
     intent: string;
@@ -116,6 +122,7 @@ interface RuleSuggestionResponse {
 **Approach**: Coordinate with Task 082 to create unified context management
 
 **Command Structure**:
+
 ```bash
 minsky context suggest-rules <query>  # Task 182
 minsky context analyze              # Task 082
@@ -123,6 +130,7 @@ minsky context visualize           # Task 082
 ```
 
 **Shared Infrastructure**:
+
 - Rule loading and metadata extraction
 - Context discovery (open files, workspace type)
 - Output formatting and JSON support
@@ -132,6 +140,7 @@ minsky context visualize           # Task 082
 **Approach**: Add embedding-based search as enhancement layer
 
 **Integration Strategy**:
+
 1. Maintain AI completion as reliable fallback
 2. Add embedding-based pre-filtering for large rule sets
 3. Use reranking to improve AI suggestion quality
@@ -144,6 +153,7 @@ minsky context visualize           # Task 082
 **Location**: `src/domain/context/rule-suggestion.ts`
 
 **Architecture**:
+
 ```typescript
 export class RuleSuggestionService {
   constructor(
@@ -152,9 +162,9 @@ export class RuleSuggestionService {
     private configService: ConfigurationService
   ) {}
 
-  async suggestRules(request: RuleSuggestionRequest): Promise<RuleSuggestionResponse>
-  async analyzeQuery(query: string): Promise<QueryAnalysis>
-  async rankSuggestions(suggestions: RuleSuggestion[]): Promise<RuleSuggestion[]>
+  async suggestRules(request: RuleSuggestionRequest): Promise<RuleSuggestionResponse>;
+  async analyzeQuery(query: string): Promise<QueryAnalysis>;
+  async rankSuggestions(suggestions: RuleSuggestion[]): Promise<RuleSuggestion[]>;
 }
 ```
 
@@ -163,6 +173,7 @@ export class RuleSuggestionService {
 **Location**: `src/commands/context/`
 
 **Structure**:
+
 ```
 src/commands/context/
 ├── index.ts           # Main context command
@@ -174,11 +185,13 @@ src/commands/context/
 ### 3. Performance Optimization
 
 **Caching Strategy**:
+
 - Rule metadata caching with file system watching
 - AI response caching with query similarity detection
 - Rule content preprocessing for consistent prompting
 
 **Response Time Targets**:
+
 - Target: <500ms for AI-based suggestions
 - Maximum: <1 second (per original requirement)
 - Caching should achieve <200ms for repeated queries
@@ -198,6 +211,7 @@ src/commands/context/
 ### Enhanced Context Management
 
 **Vision**: Create comprehensive context management system that includes:
+
 - Rule suggestion (Task 182)
 - Context analysis (Task 082)
 - Context optimization (future)
@@ -206,16 +220,19 @@ src/commands/context/
 ## Risk Assessment
 
 ### Low Risk
+
 - ✅ AI backend integration (proven technology)
 - ✅ Rule system integration (well-defined APIs)
 - ✅ Command structure (established patterns)
 
 ### Medium Risk
+
 - ⚠️ Performance requirements (sub-second response)
 - ⚠️ AI prompt engineering for reliable suggestions
 - ⚠️ Integration with Task 082 (coordination required)
 
 ### High Risk
+
 - 🔴 Dependency on Task 250 (blocks future enhancement)
 - 🔴 Rule quality for AI analysis (requires good descriptions)
 

@@ -17,6 +17,7 @@ Implement a background code similarity detection system that continuously analyz
 **Problem Discovered**: During Task #357 implementation, we discovered **FOUR DIFFERENT PR CREATION IMPLEMENTATIONS** across the codebase, indicating a systemic issue with code duplication detection and prevention.
 
 **Root Cause**: No automated system exists to detect when similar functionality is being implemented multiple times, leading to:
+
 - Maintenance overhead (fixing bugs in multiple places)
 - Inconsistent behavior across similar functions
 - Increased codebase complexity
@@ -52,7 +53,7 @@ interface SimilarityAnalyzer {
 }
 
 interface CodeUnit {
-  type: 'function' | 'class' | 'module' | 'component';
+  type: "function" | "class" | "module" | "component";
   name: string;
   filePath: string;
   startLine: number;
@@ -63,11 +64,11 @@ interface CodeUnit {
 }
 
 interface SimilarityScore {
-  structural: number;    // AST structure similarity (0-1)
-  textual: number;      // Token-based similarity (0-1)
-  semantic: number;     // Semantic similarity (0-1)
-  overall: number;      // Weighted combined score (0-1)
-  confidence: number;   // Confidence in the similarity assessment
+  structural: number; // AST structure similarity (0-1)
+  textual: number; // Token-based similarity (0-1)
+  semantic: number; // Semantic similarity (0-1)
+  overall: number; // Weighted combined score (0-1)
+  confidence: number; // Confidence in the similarity assessment
 }
 ```
 
@@ -134,48 +135,50 @@ CREATE TABLE analysis_runs (
 // eslint-plugin-similarity/rules/detect-similar-code.js
 module.exports = {
   meta: {
-    type: 'suggestion',
+    type: "suggestion",
     docs: {
-      description: 'Detect similar code units that may be candidates for consolidation',
-      category: 'Best Practices',
+      description: "Detect similar code units that may be candidates for consolidation",
+      category: "Best Practices",
     },
     schema: [
       {
-        type: 'object',
+        type: "object",
         properties: {
-          threshold: { type: 'number', minimum: 0, maximum: 1 },
-          dbPath: { type: 'string' },
-          excludePatterns: { type: 'array', items: { type: 'string' } }
+          threshold: { type: "number", minimum: 0, maximum: 1 },
+          dbPath: { type: "string" },
+          excludePatterns: { type: "array", items: { type: "string" } },
         },
-        additionalProperties: false
-      }
-    ]
+        additionalProperties: false,
+      },
+    ],
   },
 
   create(context) {
     const options = context.options[0] || {};
     const threshold = options.threshold || 0.7;
-    const dbPath = options.dbPath || '.similarity/similarity.db';
+    const dbPath = options.dbPath || ".similarity/similarity.db";
 
     return {
       Program(node) {
         // Query similarity database for current file
         const findings = querySimilarityDB(context.getFilename(), dbPath);
 
-        findings.forEach(finding => {
+        findings.forEach((finding) => {
           if (finding.similarity_score >= threshold) {
             context.report({
               node,
               message: `Similar code detected (${Math.round(finding.similarity_score * 100)}% similarity): {{similar_units}}`,
               data: {
-                similar_units: finding.similar_units.map(u => `${u.file_path}:${u.unit_name}`).join(', ')
-              }
+                similar_units: finding.similar_units
+                  .map((u) => `${u.file_path}:${u.unit_name}`)
+                  .join(", "),
+              },
             });
           }
         });
-      }
+      },
     };
-  }
+  },
 };
 ```
 
@@ -184,6 +187,7 @@ module.exports = {
 **Process Options**:
 
 **Option A: File System Watcher**
+
 ```typescript
 class SimilarityWatcher {
   private watcher: chokidar.FSWatcher;
@@ -191,13 +195,13 @@ class SimilarityWatcher {
   private db: SimilarityDatabase;
 
   async start(rootPath: string) {
-    this.watcher = chokidar.watch('**/*.{ts,js,tsx,jsx}', {
+    this.watcher = chokidar.watch("**/*.{ts,js,tsx,jsx}", {
       cwd: rootPath,
-      ignored: ['node_modules/**', '.git/**']
+      ignored: ["node_modules/**", ".git/**"],
     });
 
-    this.watcher.on('change', this.onFileChange.bind(this));
-    this.watcher.on('add', this.onFileAdd.bind(this));
+    this.watcher.on("change", this.onFileChange.bind(this));
+    this.watcher.on("add", this.onFileAdd.bind(this));
   }
 
   private async onFileChange(filePath: string) {
@@ -208,6 +212,7 @@ class SimilarityWatcher {
 ```
 
 **Option B: Git Hook Integration**
+
 ```bash
 #!/bin/sh
 # .git/hooks/post-commit
@@ -215,11 +220,13 @@ npm run similarity:analyze-incremental
 ```
 
 **Option C: Background Daemon**
+
 ```typescript
 class SimilarityDaemon {
   private interval: NodeJS.Timeout;
 
-  start(intervalMs = 300000) { // 5 minutes
+  start(intervalMs = 300000) {
+    // 5 minutes
     this.interval = setInterval(async () => {
       await this.runIncrementalAnalysis();
     }, intervalMs);
@@ -238,35 +245,31 @@ module.exports = {
       structural: 0.8,
       textual: 0.7,
       semantic: 0.6,
-      overall: 0.7
+      overall: 0.7,
     },
-    minLines: 10,          // Minimum lines for analysis
-    maxLines: 1000,        // Maximum lines for analysis
-    excludePatterns: [
-      'test/**',
-      '**/*.test.ts',
-      'node_modules/**'
-    ]
+    minLines: 10, // Minimum lines for analysis
+    maxLines: 1000, // Maximum lines for analysis
+    excludePatterns: ["test/**", "**/*.test.ts", "node_modules/**"],
   },
 
   eslint: {
     enabled: true,
     warnThreshold: 0.7,
     errorThreshold: 0.9,
-    dbPath: '.similarity/similarity.db'
+    dbPath: ".similarity/similarity.db",
   },
 
   background: {
-    mode: 'watcher', // 'watcher' | 'daemon' | 'git-hooks'
+    mode: "watcher", // 'watcher' | 'daemon' | 'git-hooks'
     intervalMs: 300000,
-    incrementalOnly: true
+    incrementalOnly: true,
   },
 
   output: {
-    dbPath: '.similarity/similarity.db',
-    reportPath: '.similarity/reports',
-    logLevel: 'info'
-  }
+    dbPath: ".similarity/similarity.db",
+    reportPath: ".similarity/reports",
+    logLevel: "info",
+  },
 };
 ```
 
@@ -275,11 +278,13 @@ module.exports = {
 ### Phase 1: Core Similarity Analysis Engine (4-5 hours)
 
 1. **AST Analysis Implementation**
+
    - TypeScript/JavaScript AST parsing using `@babel/parser`
    - Structural similarity comparison algorithms
    - Token-based similarity using normalized sequences
 
 2. **Similarity Scoring System**
+
    - Weighted combination of structural, textual, and semantic scores
    - Confidence assessment based on code unit characteristics
    - Threshold calibration using known duplicate examples
@@ -292,6 +297,7 @@ module.exports = {
 ### Phase 2: Database and Storage (2-3 hours)
 
 1. **SQLite Database Setup**
+
    - Schema implementation with proper indexing
    - Migration system for schema updates
    - Performance optimization for query patterns
@@ -304,6 +310,7 @@ module.exports = {
 ### Phase 3: ESLint Integration (2-3 hours)
 
 1. **Custom ESLint Rule**
+
    - Rule implementation with configurable thresholds
    - Database querying within ESLint execution
    - Appropriate error/warning formatting
@@ -316,6 +323,7 @@ module.exports = {
 ### Phase 4: Background Process Implementation (2-3 hours)
 
 1. **File System Watcher**
+
    - Incremental analysis on file changes
    - Debouncing and batching for performance
    - Error handling and recovery

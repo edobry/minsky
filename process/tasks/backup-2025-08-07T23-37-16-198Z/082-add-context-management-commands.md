@@ -23,11 +23,13 @@ Understanding context utilization is crucial for:
 1. **Local Tokenization System**
 
    - **Multi-Library Support**: Integrate multiple tokenization libraries for comprehensive model coverage
+
      - [`gpt-tokenizer`](https://github.com/niieani/gpt-tokenizer): Fastest JavaScript BPE tokenizer for OpenAI models (GPT-4o, o1, o3, GPT-4, etc.)
      - [`tiktoken`](https://github.com/dqbd/tiktoken): JavaScript port of OpenAI's tiktoken library
      - Extensible architecture to add more tokenization libraries as needed
 
    - **Model-Specific Tokenizer Detection**: Automatically determine appropriate tokenizer for each model
+
      - Query provider APIs for tokenizer information during model metadata fetching
      - Extend AI provider configuration to specify custom tokenizer mappings
      - Fallback logic when tokenizer information is unavailable
@@ -98,7 +100,7 @@ Understanding context utilization is crucial for:
    - [ ] Implement tokenizer override mechanisms in provider configs
    - [ ] Create validation for tokenizer configuration entries
 
-4. [ ] **Core Context Analysis Engine**
+5. [ ] **Core Context Analysis Engine**
 
    - [ ] Implement context discovery logic (identify current rules, open files, etc.)
    - [ ] Create local tokenization service using integrated libraries
@@ -107,7 +109,7 @@ Understanding context utilization is crucial for:
    - [ ] Implement cross-model token comparison algorithms
    - [ ] Build analysis algorithms for context breakdown and optimization suggestions
 
-5. [ ] **Command Implementation**
+6. [ ] **Command Implementation**
 
    - [ ] Implement `context analyze` command with local tokenization
    - [ ] Add model selection and tokenizer specification options
@@ -116,7 +118,7 @@ Understanding context utilization is crucial for:
    - [ ] Implement interactive features for exploring context composition
    - [ ] Add tokenizer comparison and debugging features
 
-6. [ ] **Testing and Validation**
+7. [ ] **Testing and Validation**
 
    - [ ] Create unit tests for tokenization infrastructure
    - [ ] Test tokenizer behavior against reference implementations
@@ -124,7 +126,7 @@ Understanding context utilization is crucial for:
    - [ ] Validate token counting behavior across different tokenizers (no requirement to match provider-reported tokens)
    - [ ] Integration tests with enhanced model metadata system
 
-7. [ ] **Documentation and Examples**
+8. [ ] **Documentation and Examples**
    - [ ] Add command documentation with tokenization examples
    - [ ] Create guides for interpreting context analysis results
    - [ ] Document tokenizer configuration and customization
@@ -134,12 +136,14 @@ Understanding context utilization is crucial for:
 ## Verification
 
 - [ ] **Tokenization Infrastructure**
+
   - [ ] Multiple tokenization libraries integrate successfully (`gpt-tokenizer`, `tiktoken`)
   - [ ] Tokenizer selection logic works correctly for supported models (prefer `gpt-tokenizer` for OpenAI; fallback to `tiktoken`), with per-model overrides
   - [ ] Telemetry reports tokenization failures or unavailability without blocking execution
   - [ ] Configuration overrides work for custom per-model tokenizer mappings
 
 - [ ] **Enhanced Model Metadata**
+
   - [ ] Model fetchers detect and store tokenizer information from APIs (OpenAI/Anthropic first)
   - [ ] Fallback tokenizer mappings work when API data is unavailable
   - [ ] Tokenizer mappings validated during offline cache hydration
@@ -155,24 +159,28 @@ Understanding context utilization is crucial for:
 ## Technical Considerations
 
 - **Local Tokenization Architecture**: Design flexible tokenizer abstraction that supports multiple libraries
+
   - Unified interface for different tokenization implementations
   - Performance-optimized tokenizer instance caching
   - Memory-efficient handling of large text inputs
   - Error handling for unsupported models or tokenization failures
 
 - **Tokenizer Selection Strategy**: Implement intelligent tokenizer detection and selection
+
   - Priority-based selection (prefer `gpt-tokenizer` for OpenAI models due to performance)
   - Model-specific mappings with fallback logic
   - Configuration override capabilities for custom use cases
   - Validation to ensure selected tokenizer matches model requirements
 
 - **Provider API Integration**: Extend model fetching to include tokenizer metadata (OpenAI, Anthropic first)
+
   - Query provider APIs for official tokenizer information when available
   - Store tokenizer specifications in cached model data
   - Handle API limitations or missing tokenizer data gracefully
   - Update model cache when tokenizer information becomes available
 
 - **Configuration System Extensions**: Enhance AI provider configuration for tokenization
+
   - Schema extensions for tokenizer mappings and preferences
   - Validation of tokenizer configuration entries
   - Environment variable support for tokenizer library selection
@@ -181,6 +189,7 @@ Understanding context utilization is crucial for:
 - **Performance Optimization**: Deferred. Performance work is out of scope for now.
 
 - **Accuracy and Validation**: Practical correctness and observability
+
   - No requirement to match provider API token counts
   - Emit telemetry when tokenization fails; continue execution
   - Document known limitations or edge cases and recommended overrides
@@ -202,6 +211,7 @@ This enhanced task enables scenarios like:
 - **Understanding**: "What exactly is being sent to the AI assistant?"
 
 Deferred to Task #162 (Eval Framework):
+
 - Cross-model analysis and tokenization comparison
 - Token mismatch evaluation strategies and scoring
 
@@ -210,6 +220,7 @@ Deferred to Task #162 (Eval Framework):
 ### Tokenization Infrastructure
 
 **Tokenizer Abstraction Layer**:
+
 ```typescript
 interface LocalTokenizer {
   id: string;
@@ -222,6 +233,7 @@ interface LocalTokenizer {
 ```
 
 **Tokenizer Registry**:
+
 ```typescript
 interface TokenizerRegistry {
   register(tokenizer: LocalTokenizer): void;
@@ -234,26 +246,28 @@ interface TokenizerRegistry {
 ### Enhanced Model Metadata
 
 **Extended AIModel Interface**:
+
 ```typescript
 interface AIModel {
   // ... existing fields ...
   tokenizer?: {
-    id: string;           // e.g., "cl100k_base", "o200k_base"
-    type: string;         // e.g., "bpe", "sentencepiece"
+    id: string; // e.g., "cl100k_base", "o200k_base"
+    type: string; // e.g., "bpe", "sentencepiece"
     source: "api" | "config" | "fallback";
-    library?: string;     // preferred library: "gpt-tokenizer" | "tiktoken"
+    library?: string; // preferred library: "gpt-tokenizer" | "tiktoken"
   };
 }
 ```
 
 **Provider Configuration Extensions**:
+
 ```yaml
 ai:
   providers:
     openai:
       # ... existing config ...
       tokenization:
-        defaultLibrary: "gpt-tokenizer"  # preferred library
+        defaultLibrary: "gpt-tokenizer" # preferred library
         modelOverrides:
           "gpt-4o":
             tokenizer: "o200k_base"
@@ -267,6 +281,7 @@ ai:
 ### Command Interface Design
 
 **Enhanced Commands**:
+
 ```bash
 # Basic context analysis with local tokenization
 minsky context analyze --model gpt-4o

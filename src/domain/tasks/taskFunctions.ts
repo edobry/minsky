@@ -7,11 +7,7 @@ import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskD
 // Import constants and utilities from centralized location
 import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
-import {
-  normalizeTaskIdForStorage,
-  formatTaskIdForDisplay,
-  getTaskIdNumber,
-} from "./task-id-utils";
+import { getTaskIdNumber } from "./task-id-utils";
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -92,18 +88,8 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
-      // Unified ID Format: STRICT OUT - display qualified IDs as-is, add # prefix to legacy formats
-      let displayId: string;
-      if (/^[a-z-]+#\d+$/.test(task.id)) {
-        // Already qualified format (md#380, gh#456) - display as-is
-        displayId = task.id;
-      } else if (task.id.startsWith("#")) {
-        // Legacy #-prefixed format (#378) - keep as-is
-        displayId = task.id;
-      } else {
-        // Plain numeric (378) - add # prefix
-        displayId = `#${task.id}`;
-      }
+      // Unified ID Format: STRICT OUT - display qualified IDs as-is
+      const displayId = task.id;
       const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 
       // Always return only the task line - descriptions should remain in spec files
@@ -202,8 +188,8 @@ export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus)
 export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
   if (!tasks || !newTask) return tasks;
 
-  // Ensure the task has a valid ID
-  if (!newTask.id || !normalizeTaskId(newTask.id)) {
+  // Ensure the task has an ID; if missing, assign next numeric storage id
+  if (!newTask.id) {
     newTask = {
       ...newTask,
       id: getNextTaskId(tasks),

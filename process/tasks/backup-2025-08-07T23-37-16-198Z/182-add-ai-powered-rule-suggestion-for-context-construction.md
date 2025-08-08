@@ -201,12 +201,14 @@ See Task 202 for advanced features including:
 #### Phase 1: Enhanced AI-Based Implementation (IMMEDIATE)
 
 **Key Changes**:
+
 - **Structured Output**: Use Vercel AI SDK's structured output for reliable JSON responses
 - **Sophisticated Prompting**: Leverage rule metadata (descriptions, tags, globs) for better matching
 - **Multi-Provider Optimization**: Use different models for different query types
 - **Context Enhancement**: Include workspace context (files, commits, project type)
 
 **Enhanced Service Interface**:
+
 ```typescript
 interface RuleSuggestionRequest {
   query: string;
@@ -223,7 +225,7 @@ interface RuleSuggestionResponse {
     ruleId: string;
     relevanceScore: number;
     reasoning: string;
-    confidenceLevel: 'high' | 'medium' | 'low';
+    confidenceLevel: "high" | "medium" | "low";
   }>;
   queryAnalysis: {
     intent: string;
@@ -236,6 +238,7 @@ interface RuleSuggestionResponse {
 #### Phase 2: Context Command Coordination (PARALLEL)
 
 **Integration with Task 082**:
+
 ```bash
 minsky context suggest-rules <query>  # This task (182)
 minsky context analyze              # Task 082 (future)
@@ -247,6 +250,7 @@ minsky context visualize           # Task 082 (future)
 #### Phase 3: Future Enhancement (POST-TASK 250)
 
 **When Task 250 is available**:
+
 - Add embedding-based pre-filtering for large rule sets
 - Use reranking to improve AI suggestion quality
 - Implement hybrid scoring (embedding similarity + AI reasoning)
@@ -255,11 +259,13 @@ minsky context visualize           # Task 082 (future)
 ### Updated Implementation Steps
 
 1. **Enhanced Domain Service** (`src/domain/context/rule-suggestion.ts`)
+
    - Leverage `AICompletionService` with structured output
    - Advanced rule metadata analysis and context gathering
    - Multi-model optimization for different query patterns
 
 2. **Coordinated Command Structure** (`src/commands/context/`)
+
    - Create unified context command with suggest-rules subcommand
    - Design for future integration with Task 082 commands
    - Shared context utilities and formatting

@@ -60,7 +60,7 @@ describe("Session Approval Repository Backend Bug", () => {
       repoName: "local-minsky",
       repoUrl: "/Users/edobry/Projects/minsky", // LOCAL path, not GitHub URL
       createdAt: "2025-07-30T23:14:24.213Z",
-      taskId: "335",
+      taskId: "md#335",
       branch: "task335",
       // Note: no backendType set, which should default to LOCAL based on repoUrl
     };
@@ -88,7 +88,7 @@ describe("Session Approval Repository Backend Bug", () => {
 
     // Act: Approve session for task 335
     const result = await approveSessionImpl(
-      { task: "335" },
+      { task: "md#335" },
       {
         sessionDB: mockSessionDB,
         gitService: mockGitService,
@@ -122,7 +122,7 @@ describe("Session Approval Repository Backend Bug", () => {
       repoName: "github-minsky",
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2025-07-30T23:14:24.213Z",
-      taskId: "336",
+      taskId: "md#336",
       branch: "task336",
       backendType: "github", // Explicitly set to GitHub
       github: {
@@ -154,7 +154,7 @@ describe("Session Approval Repository Backend Bug", () => {
 
     // Act: Approve session for task 336
     const result = await approveSessionImpl(
-      { task: "336" },
+      { task: "md#336" },
       {
         sessionDB: mockSessionDB,
         gitService: mockGitService,

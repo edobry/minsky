@@ -6,7 +6,6 @@ import {
   extractBackend,
   extractLocalId,
 } from "../tasks/task-id";
-import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 
 /**
  * Enhanced SessionRecord with task backend information
@@ -91,23 +90,7 @@ export class SessionMultiBackendIntegration {
     return sessionName.startsWith("task-") && sessionName.includes("#");
   }
 
-  /**
-   * Migrate legacy session record to multi-backend format
-   *
-   * @param sessionRecord Legacy session record
-   * @returns Migrated session record with updated naming and backend info
-   */
-  static migrateLegacySessionRecord(sessionRecord: SessionRecord): MultiBackendSessionRecord {
-    const enhanced = this.enhanceSessionRecord(sessionRecord);
-
-    // Update session name if it's legacy format
-    if (sessionRecord.taskId && !this.isMultiBackendSessionName(sessionRecord.session)) {
-      const newSessionName = this.generateSessionName(sessionRecord.taskId);
-      enhanced.session = newSessionName;
-    }
-
-    return enhanced;
-  }
+  // migrateLegacySessionRecord removed: strict-only; callers should provide qualified IDs and session names
 
   // getDisplayTaskId removed: strict qualified IDs are displayed as-is
 
@@ -182,14 +165,20 @@ export class SessionBackwardCompatibility {
    * @returns True if migration is needed
    */
   static needsMigration(sessionRecord: SessionRecord): boolean {
+    // No task ID: treat as custom session; no migration needed
     if (!sessionRecord.taskId) {
       return false;
     }
 
-    // Check if session name format matches task ID format
-    const expectedSessionName = SessionMultiBackendIntegration.generateSessionName(
-      sessionRecord.taskId
-    );
-    return sessionRecord.session !== expectedSessionName;
+    // Qualified IDs should match the new session naming convention
+    if (isQualifiedTaskId(sessionRecord.taskId)) {
+      const expectedSessionName = SessionMultiBackendIntegration.generateSessionName(
+        sessionRecord.taskId
+      );
+      return sessionRecord.session !== expectedSessionName;
+    }
+
+    // Legacy/unqualified task IDs always need migration
+    return true;
   }
 }

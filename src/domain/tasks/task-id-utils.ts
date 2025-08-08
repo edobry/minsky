@@ -31,6 +31,7 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 }
 
 // Backward compatibility alias
+// Backward-compat export name used across code/tests; implements strict validation
 export const normalizeTaskIdForStorage = validateQualifiedTaskId;
 
 /**
@@ -44,24 +45,7 @@ export function formatTaskIdForDisplay(storageId: string): string {
   if (!storageId || typeof storageId !== "string") {
     return "";
   }
-
-  // STRICT OUT: Storage should already be qualified format, return as-is
-  if (/^[a-z-]+#\d+$/.test(storageId)) {
-    return storageId;
-  }
-
-  // Legacy fallback: If somehow we get plain numbers or #-prefixed, normalize to md#
-  if (storageId.startsWith("#")) {
-    const number = storageId.substring(1);
-    return `md#${number}`;
-  }
-
-  if (/^\d+$/.test(storageId)) {
-    return `md#${storageId}`;
-  }
-
-  // Return as-is if we can't parse it
-  return storageId;
+  return /^[a-z-]+#\d+$/.test(storageId) ? storageId : "";
 }
 
 /**
@@ -108,7 +92,7 @@ export function convertTaskIdFormat(
   }
 
   // Both storage and display formats are now qualified format
-  const qualifiedId = normalizeTaskIdForStorage(taskId);
+  const qualifiedId = validateQualifiedTaskId(taskId);
 
   if (targetFormat === "storage") {
     return qualifiedId;
@@ -125,7 +109,7 @@ export function convertTaskIdFormat(
  * @returns True if valid task ID in either format
  */
 export function isValidTaskIdInput(userInput: string): boolean {
-  return normalizeTaskIdForStorage(userInput) !== null;
+  return validateQualifiedTaskId(userInput) !== null;
 }
 
 /**
@@ -135,7 +119,7 @@ export function isValidTaskIdInput(userInput: string): boolean {
  * @returns Numeric value or null if invalid
  */
 export function getTaskIdNumber(taskId: string): number | null {
-  const qualifiedId = normalizeTaskIdForStorage(taskId);
+  const qualifiedId = validateQualifiedTaskId(taskId);
   if (!qualifiedId) {
     return null;
   }

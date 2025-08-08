@@ -12,6 +12,7 @@ Note: Prefer using absolute paths over relative paths as tool call args when pos
 ## Workspace Rules
 
 ### Agent Requestable Workspace Rules
+
 These are workspace-level rules that the agent should follow. They can request the full details of the rule with the fetch_rules tool.
 
 - ai-linter-autofix-guideline: Use this when dealing with code formatting issues and linter errors in general
@@ -60,6 +61,7 @@ For any code change, **record it in the `CHANGELOG.md` file in the nearest ances
 - Never update more than one changelog for a single change. Always use the most specific (deepest) changelog file in the directory tree.
 
 **Additional Guidance:**
+
 - Only update the `CHANGELOG.md` at the end of an editing session, after testing whether the change worked.
 - If a change affects multiple directories with their own changelogs, split the changelog entries accordingly, but never duplicate the same entry in multiple changelogs.
 - For documentation-only changes, use the root changelog unless the documentation is scoped to a subproject with its own changelog.
@@ -72,12 +74,15 @@ This ensures that changelog entries are always relevant to the part of the codeb
 **Core Principle:** Always commit and push all code changes without waiting for an explicit request from the user. This rule ensures that every change made is properly persisted to the repository.
 
 **Requirements:**
+
 1. After implementing any feature, fix, or update:
+
    - Stage all changed files
    - Commit with a descriptive message following conventional commits format
    - Push the changes to the remote repository
 
 2. Never consider a task complete until changes have been:
+
    - Committed to the local repository
    - Pushed to the remote repository
 
@@ -91,6 +96,7 @@ This ensures that changelog entries are always relevant to the part of the codeb
 
 **Verification Checklist:**
 Before considering any implementation complete, verify:
+
 - [ ] All changes are staged
 - [ ] Changes are committed with a descriptive message
 - [ ] Changes are pushed to the remote repository
@@ -106,23 +112,27 @@ This rule provides guidelines for preparing and submitting pull requests (PRs) i
 **PR Creation Process:**
 
 1. **Verify Implementation Completeness**
+
    - All requirements are implemented
    - All tests pass
    - Code quality is acceptable
    - Documentation is updated
 
 2. **Generate PR Description**
+
    ```bash
    minsky git pr --task <task-id>
    ```
 
 3. **Save PR Description**
+
    ```bash
    mkdir -p process/tasks/<task-id>
    minsky git pr > process/tasks/<task-id>/pr.md
    ```
 
 4. **Edit PR Description**
+
    - Follow conventional commits format: `<type>(#<task-id>): <description>`
    - Include a clear summary
    - List all changes
@@ -130,6 +140,7 @@ This rule provides guidelines for preparing and submitting pull requests (PRs) i
    - Include testing information
 
 5. **Commit PR Description**
+
    ```bash
    git add process/tasks/<task-id>/pr.md
    git commit -m "Add PR description for task #<task-id>"
@@ -151,6 +162,7 @@ This rule addresses a critical pattern error where underscores are inappropriate
 
 **MANDATORY PRE-CHANGE VERIFICATION:**
 Before changing ANY variable name, MUST complete this checklist:
+
 1. ✅ **Error Verification**: Is the variable actually causing a "not defined" error?
 2. ✅ **Definition Check**: Where is this variable supposed to be defined?
 3. ✅ **Usage Analysis**: Is this variable already in use and working correctly?
@@ -302,6 +314,7 @@ no changes added to commit (use "git add" and/or "git commit -a")
 The AI assistant has access to the following tools:
 
 ### File Operations
+
 - `read_file` - Read files from the filesystem with line range support
 - `write` - Write/create files
 - `search_replace` - Edit files with find/replace operations
@@ -311,21 +324,25 @@ The AI assistant has access to the following tools:
 - `delete_file` - Delete files
 
 ### Code Analysis & Search
+
 - `codebase_search` - Semantic search for understanding code by meaning
 - `grep` - Text pattern search with regex support and various output modes
 - `read_lints` - Read linter errors from the workspace
 
 ### Development Tools
+
 - `run_terminal_cmd` - Execute terminal commands
 - `todo_write` - Task management and planning tool
 - `create_diagram` - Create Mermaid diagrams
 - `web_search` - Search the web for real-time information
 
 ### Repository Tools
+
 - `fetch_pull_request` - Get pull request/commit information by number or hash
 - `fetch_rules` - Access workspace-specific rules
 
 ### Notebook Support
+
 - `edit_notebook` - Edit Jupyter notebook cells
 
 ### MCP (Minsky Control Protocol) Tools
@@ -333,6 +350,7 @@ The AI assistant has access to the following tools:
 Comprehensive set of tools for the Minsky task management system:
 
 #### Task Management
+
 - `mcp_minsky-server_tasks_list` - List all tasks with filtering options
 - `mcp_minsky-server_tasks_get` - Get specific task by ID
 - `mcp_minsky-server_tasks_create` - Create new tasks
@@ -343,6 +361,7 @@ Comprehensive set of tools for the Minsky task management system:
 - `mcp_minsky-server_tasks_migrate` - Migrate legacy task IDs
 
 #### Session Management
+
 - `mcp_minsky-server_session_list` - List all sessions
 - `mcp_minsky-server_session_get` - Get specific session
 - `mcp_minsky-server_session_start` - Start new sessions
@@ -352,6 +371,7 @@ Comprehensive set of tools for the Minsky task management system:
 - `mcp_minsky-server_session_conflicts` - Detect merge conflicts
 
 #### Session File Operations
+
 - `mcp_minsky-server_session_read_file` - Read files within session workspace
 - `mcp_minsky-server_session_write_file` - Write files within session workspace
 - `mcp_minsky-server_session_edit_file` - Edit files within session workspace
@@ -365,6 +385,7 @@ Comprehensive set of tools for the Minsky task management system:
 - `mcp_minsky-server_session_rename_file` - Rename files in session
 
 #### Pull Request Management
+
 - `mcp_minsky-server_session_pr_create` - Create pull requests for sessions
 - `mcp_minsky-server_session_pr_list` - List session pull requests
 - `mcp_minsky-server_session_pr_get` - Get specific session pull request
@@ -372,11 +393,13 @@ Comprehensive set of tools for the Minsky task management system:
 - `mcp_minsky-server_session_pr_merge` - Merge approved session pull requests
 
 #### Database Operations
+
 - `mcp_minsky-server_sessiondb_search` - Search sessions by query
 - `mcp_minsky-server_sessiondb_migrate` - Migrate session database
 - `mcp_minsky-server_sessiondb_check` - Check database integrity
 
 #### Rules Management
+
 - `mcp_minsky-server_rules_list` - List all rules
 - `mcp_minsky-server_rules_get` - Get specific rule by ID
 - `mcp_minsky-server_rules_create` - Create new rules
@@ -385,6 +408,7 @@ Comprehensive set of tools for the Minsky task management system:
 - `mcp_minsky-server_rules_generate` - Generate new rules from templates
 
 #### System Operations
+
 - `mcp_minsky-server_init` - Initialize project for Minsky
 - `mcp_minsky-server_debug_listMethods` - List all registered MCP methods
 - `mcp_minsky-server_debug_echo` - Echo parameters for testing
@@ -402,12 +426,14 @@ Comprehensive set of tools for the Minsky task management system:
 ## Tool Usage Guidelines
 
 ### Parallel Tool Execution
+
 - **CRITICAL**: Use parallel tool calls whenever possible for maximum efficiency
 - Execute multiple read-only operations simultaneously
 - Gather all needed information upfront rather than sequentially
 - Default to parallel unless operations must be sequential
 
 ### Context Understanding
+
 - Be thorough when gathering information
 - Use semantic search as the main exploration tool
 - Start with broad, high-level queries
@@ -415,6 +441,7 @@ Comprehensive set of tools for the Minsky task management system:
 - Keep searching until confident nothing important remains
 
 ### Code Changes
+
 - Never output code to the user unless requested
 - Use code edit tools to implement changes
 - Ensure generated code can run immediately
@@ -423,6 +450,7 @@ Comprehensive set of tools for the Minsky task management system:
 - Prefer editing existing files over creating new ones
 
 ### Task Management
+
 - Use todo_write tool frequently for planning and tracking
 - Mark todos as completed immediately after finishing tasks
 - Use for complex multi-step tasks requiring careful planning
@@ -430,10 +458,11 @@ Comprehensive set of tools for the Minsky task management system:
 ## Code Citation Format
 
 When citing code regions, MUST use this format:
-```
+
+````
 ```12:15:app/components/Todo.tsx
 // ... existing code ...
-```
+````
 
 This is the ONLY acceptable format. The format is ```startLine:endLine:filepath where startLine and endLine are line numbers.
 
@@ -449,12 +478,14 @@ This is the ONLY acceptable format. The format is ```startLine:endLine:filepath 
 This is a critical, recurring failure pattern that must be eliminated:
 
 **BEFORE changing ANY variable name:**
+
 1. Verify the variable is actually causing an error
 2. Check if the variable is already defined and working
 3. Follow the decision tree for "X is not defined" errors
 4. Never add underscores to variables that are being used correctly
 
 **Most common pattern to fix:**
+
 - Variable defined as `_X` but used as `X` → Remove underscore from definition
 - Parameter defined as `_X` but used as `X` → Remove underscore from parameter
 

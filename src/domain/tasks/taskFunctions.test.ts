@@ -19,7 +19,7 @@ import {
   formatTaskSpecToMarkdown,
   isValidTaskStatus,
 } from "./taskFunctions";
-import { ForStorage } from "./task-id-utils";
+// Strict-only: ForStorage removed; tests should not import it
 
 // Test constants - extract repeated strings
 const TEST_TASK_ID_ALPHA = "TEST_VALUE";
@@ -30,7 +30,7 @@ const LEGACY_PREFIX = "#";
 
 // Helper to construct expected format - uses mixed logic
 const expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
-const expectQualifiedFormat = (id: string) => ForStorage(id);
+const expectQualifiedFormat = (id: string) => id;
 
 describe("Task Functions", () => {
   describe("", () => {

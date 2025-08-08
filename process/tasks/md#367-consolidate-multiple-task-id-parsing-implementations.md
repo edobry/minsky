@@ -45,6 +45,7 @@ Consolidate all parsing into single unified implementation that supports:
 ## Implementation Plan
 
 1. ~~Migration command enhancements (default-on spec rename)~~ ✅
+
    - ~~Extend `tasks migrate` to:~~
      - ~~Rename numeric spec files `^\d+-.*\.md$` → `md#<id>-...` (backup and dry-run first)~~ ✅
      - ~~Update references in `process/tasks.md` accordingly~~ ✅
@@ -52,12 +53,14 @@ Consolidate all parsing into single unified implementation that supports:
      - ~~Log mapping file for rollback~~ ✅
 
 2. ~~Strict mode toggle (temporary)~~ ✅
+
    - ~~Add config flag `tasks.strictIds` (default false) using configuration system~~ ✅
    - ~~When true: `taskIdSchema` accepts ONLY `^[a-z-]+#\d+$`~~ ✅
    - ~~When false: keep current normalization (legacy accepted → normalized to md#)~~ ✅
    - ~~We will remove this toggle after full migration~~ ✅
 
 3. **Parsing consolidation** ✅ **COMPLETED**
+
    - Ensure `taskFunctions.ts` and `taskConstants.ts` keep IDs qualified
    - Remove/avoid any normalization that strips backend prefixes
    - **Identify and consolidate the 3+ parsing implementations into single authority**
@@ -68,18 +71,40 @@ Consolidate all parsing into single unified implementation that supports:
 
 ## Status Update
 
-✅ **COMPLETED:**
-- Migration applied with spec file renames and backup
-- Links in `process/tasks.md` updated to match renamed spec files
-- Strict IDs enabled via configuration (`tasks.strictIds: true`)
-- End-to-end verification passed:
-  - `tasks list` shows qualified IDs (`md#367`, `md#004`, etc.)
-  - `tasks get md#367` works correctly
-  - `tasks spec md#367` reads correct spec file
+✅ MIGRATION COMPLETED
 
-✅ **CLEANUP:**
-- Consolidate parsing implementations to eliminate technical debt
-- Removed legacy session helpers (migrateLegacySessionRecord, getDisplayTaskId)
-- Kept strict extractTaskIdFromSessionName for session PR self-repair
-- Updated tests to strict-only and mock FS usage
-- **Unified parsing implementation** ✅
+- Applied spec file renames with backup (numeric → `md#<id>-...`)
+- Updated all links in `process/tasks.md` to qualified paths and `[md#id]` texts
+- Verified end-to-end:
+  - `tasks list` shows qualified IDs (e.g., `md#367`, `md#004`)
+  - `tasks get md#367` returns the correct task
+  - `tasks spec md#367` reads the correct spec file
+
+✅ CLEANUP COMPLETED (STRICT-ONLY, NO TOGGLES)
+
+- Removed permissive mode and the `tasks.strictIds` toggle; deleted `strict-mode-checker`
+- Unified on `src/domain/tasks/task-id.ts`; removed legacy `unified-task-id.ts`
+- Zod schemas strict-only (`taskIdSchema`, CLI `TaskParameters.taskId*`)
+- Removed normalization utilities and legacy aliases:
+  - Deleted `normalizeTaskId` usages across domain and adapters
+  - Simplified `task-id-utils.ts` to `validateQualifiedTaskId` and helpers; removed `formatTaskIdForDisplay`
+- Session layer hardened for qualified IDs only:
+  - `SessionMultiBackendIntegration`: strict-only, removed `getDisplayTaskId` and legacy migration helpers
+  - Kept strict `extractTaskIdFromSessionName` for `task-<qualified>` parsing in PR workflows
+  - `session delete` resolves by `name` or qualified `task` via unified resolver
+- Task domain cleanup:
+  - `taskFunctions.ts` formats IDs strictly (no legacy decoration)
+  - `taskConstants.ts` regex fixed for `[md#004]` and qualified-only parse
+- Tests updated to strict-only and to use mock FS utilities (no real fs):
+  - Session CLI/domain tests use `md#...`, removed mkdir/file IO
+  - Removed legacy expectations and `ForStorage` alias; updated spies/mocks
+
+📌 Naming and module cleanup
+
+- Renamed module to `task-id` (no "unified"/"qualified" prefixes per boundary protocol)
+- Removed dead code and temporary compatibility layers
+
+📗 Documentation
+
+- Converted remaining `[#id]` link texts to `[md#id]` in `process/tasks.md`
+- This spec reflects strict-only policy: input == storage == display (qualified only)

@@ -281,6 +281,7 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 2. **SQLite Vector Storage:**
 
    **Direct SQLite + sqlite-vec Integration**
+
    - **sqlite-vec extension** (6k+ stars) - Modern, no-dependency vector search for SQLite
    - Written in pure C, runs everywhere SQLite runs (Node.js, WASM, mobile, etc.)
    - Supports float32, int8, and binary vectors with multiple distance metrics
@@ -288,6 +289,7 @@ minsky tasks similar 250 --include-closed --threshold=0.5
    - Much better than JavaScript implementations or external dependencies
 
    **Implementation Strategy:**
+
    - Use sqlite-vec directly with our existing SQLite database
    - Leverage native vector columns and KNN search via virtual tables
    - Seamless integration with existing Minsky task storage

@@ -171,26 +171,31 @@ This directly addresses the root cause of test failures in Task 176 and prevents
 The rule successfully detects and warns about all the pathological patterns identified in the task specification:
 
 #### **1. Filesystem Operations Detection**
+
 - ✅ Forbidden filesystem imports (`fs`, `fs/promises`, `node:fs`, `node:fs/promises`)
 - ✅ Forbidden filesystem functions (all sync and async variations)
 - ✅ `tmpdir()` usage detection
 - ✅ `process.cwd()` usage in path creation context
 
 #### **2. Global State Anti-Patterns**
+
 - ✅ Global counter variables (detected by regex pattern matching)
 - ✅ Increment operations on global counters
 - ✅ Top-level variable declarations with counter-like names
 
 #### **3. Non-Deterministic Uniqueness Patterns**
+
 - ✅ `Date.now()` usage in path creation (template literals, binary expressions, join calls)
 - ✅ `Math.random()` usage for "unique" identifiers
 - ✅ Timestamp-based directory/file naming detection
 
 #### **4. Problematic Import Patterns**
+
 - ✅ Dynamic `import()` statements in test files
 - ✅ Conditional imports detection
 
 #### **5. Dangerous Test Hook Patterns**
+
 - ✅ Real filesystem operations in test hooks (`beforeEach`, `afterEach`, etc.)
 - ✅ Context-aware error messages (different for hooks vs regular test code)
 
@@ -205,6 +210,7 @@ The rule successfully detects and warns about all the pathological patterns iden
 ### ✅ Comprehensive Testing and Validation
 
 **Testing Results**:
+
 - ✅ **171 warnings detected** across existing test files
 - ✅ Rule correctly identifies all pathological patterns:
   - Filesystem imports and operations
@@ -215,6 +221,7 @@ The rule successfully detects and warns about all the pathological patterns iden
   - Real filesystem operations in test hooks
 
 **Test Coverage Examples**:
+
 - `src/domain/tasks/json-backend.test.ts`: ✅ Detected tmpdir, Date.now(), mkdirSync
 - `src/domain/storage/json-file-storage.test.ts`: ✅ Detected global counters
 - `src/domain/session-pr-state-optimization.test.ts`: ✅ Detected gitCallCount global variable
@@ -223,6 +230,7 @@ The rule successfully detects and warns about all the pathological patterns iden
 ### ✅ Enhanced Error Messages
 
 Clear, actionable error messages implemented:
+
 - `"Real filesystem imports are forbidden in tests. Use mock.module() to mock filesystem operations instead."`
 - `"Global counter 'testSequenceNumber' detected in test file. Use test-scoped variables or mocks instead."`
 - `"Date.now() used for 'unique' path creation. This causes race conditions in parallel tests. Use mock paths like '/mock/test-123' instead."`
@@ -233,6 +241,7 @@ Clear, actionable error messages implemented:
 **File**: `src/eslint-rules/no-real-fs-in-tests.test.js`
 
 Created comprehensive test file demonstrating all problematic patterns. The rule successfully detected **15 warnings** in this single test file, covering:
+
 - Filesystem imports
 - Global counters
 - Timestamp uniqueness patterns
@@ -271,18 +280,21 @@ The rule is currently configured in **WARN mode** as requested to prevent breaki
 **📋 ARCHITECTURAL DECISION**: Implemented enhanced requirements as separate concerns rather than consolidating into a single rule, providing better modularity and maintainability.
 
 ### **✅ Separate Concern #1: Filesystem Operations (`no-real-fs-in-tests` rule)**
+
 - **Purpose**: Detect filesystem operations that cause race conditions
 - **Scope**: File I/O, tmpdir usage, global counters, timestamps
 - **Status**: ✅ COMPLETED in original Task #332 implementation
 - **Detection**: 171 warnings across codebase
 
 ### **✅ Separate Concern #2: Test Architecture Anti-Patterns (`no-jest-patterns` rule enhanced)**
+
 - **Purpose**: Detect test architecture violations and bad patterns
 - **Scope**: Global module mocks, factory mocks, CLI execution, magic strings
 - **Status**: ✅ COMPLETED in Task #332 extension
 - **Detection**: 1247 errors across codebase
 
 ### **✅ Separate Concern #3: Pre-commit Hook Validation**
+
 - **Purpose**: Real-time prevention during development workflow
 - **Scope**: Block commits with critical anti-patterns
 - **Status**: ✅ COMPLETED in Task #332 extension
@@ -299,6 +311,7 @@ The rule is currently configured in **WARN mode** as requested to prevent breaki
 ### **🔧 Implementation Summary**
 
 **Enhanced `no-jest-patterns` Rule** (`src/eslint-rules/no-jest-patterns.js`):
+
 - ✅ Global module mock detection (outside describe blocks)
 - ✅ Unreliable factory mock patterns (`createMockTaskService(async ...)`)
 - ✅ CLI execution pattern detection (`execAsync.*cli.ts`)
@@ -306,6 +319,7 @@ The rule is currently configured in **WARN mode** as requested to prevent breaki
 - ✅ Context-aware error messages with actionable guidance
 
 **Enhanced Pre-commit Hook** (`.husky/pre-commit`):
+
 - ✅ Global `mock.module()` usage blocking
 - ✅ Unreliable factory mock warnings
 - ✅ CLI execution in tests warnings
@@ -314,6 +328,7 @@ The rule is currently configured in **WARN mode** as requested to prevent breaki
 ### **📊 Validation Results**
 
 **Test Coverage Verification** (`src/eslint-rules/enhanced-no-jest-patterns.test.js`):
+
 - ✅ Global module mock detection: Working perfectly
 - ✅ Unreliable factory mock detection: Working perfectly
 - ✅ CLI execution detection: Working perfectly
@@ -321,6 +336,7 @@ The rule is currently configured in **WARN mode** as requested to prevent breaki
 - ✅ Context-aware scoping: Working (doesn't flag describe block mocks)
 
 **Real-world Impact**:
+
 - **1247 test anti-pattern violations** detected across codebase
 - **171 filesystem operation warnings** maintained from original rule
 - **Zero false positives** in separation logic
@@ -336,12 +352,14 @@ During Task #332 implementation, multiple critical bugs in the session PR system
 ### **🐛 Bug #1: `sessionDb` Variable Name Case Mismatch**
 
 **Files Fixed**:
+
 - `src/domain/session/commands/pr-command.ts`
 - `src/domain/session/commands/pr-subcommands.ts`
 
 **Issue**: Variable declared as `sessionDB` (uppercase 'B') but used as `sessionDb` (lowercase 'b'), causing `sessionDb is not defined` errors.
 
 **Root Cause**:
+
 ```typescript
 // Line 28: Variable declared as sessionDB
 const sessionDB = await createSessionProvider(/* ... */);
@@ -357,11 +375,13 @@ await sessionDb.updateSession(/* ... */); // ❌ ReferenceError
 ### **🐛 Bug #2: Missing `prBranch` Field in Session Records**
 
 **Files Fixed**:
+
 - `src/domain/session/commands/pr-command.ts` (PR creation logic)
 
 **Issue**: Session approval validation checks for `sessionRecord.prBranch` but PR creation wasn't setting this field.
 
 **Root Cause**:
+
 ```typescript
 // PR approval validation in session-approval-operations.ts:97
 if (!sessionRecord.prBranch) {
@@ -370,16 +390,21 @@ if (!sessionRecord.prBranch) {
 
 // But PR creation was only setting prState, not prBranch
 await sessionDB.updateSession(resolvedContext.sessionName, {
-  prState: { /* ... */ }  // ❌ Missing prBranch field!
+  prState: {
+    /* ... */
+  }, // ❌ Missing prBranch field!
 });
 ```
 
 **Fix**: ✅ **COMPLETED** - Added `prBranch` field to session record updates:
+
 ```typescript
 await sessionDB.updateSession(resolvedContext.sessionName, {
   ...sessionRecord,
-  prBranch: result.prBranch,  // ✅ Now sets prBranch field
-  prState: { /* ... */ }
+  prBranch: result.prBranch, // ✅ Now sets prBranch field
+  prState: {
+    /* ... */
+  },
 });
 ```
 
@@ -388,11 +413,13 @@ await sessionDB.updateSession(resolvedContext.sessionName, {
 ### **🐛 Bug #3: Database Schema Missing Columns**
 
 **Files Fixed**:
+
 - `src/domain/storage/schemas/session-schema.ts` (Schema definitions)
 
 **Issue**: SQLite database schema missing critical columns like `prBranch`, `prState`, and other `SessionRecord` interface fields.
 
 **Root Cause**:
+
 ```sql
 -- Existing schema (missing many fields)
 CREATE TABLE sessions (
@@ -405,6 +432,7 @@ CREATE TABLE sessions (
 ```
 
 **Fix**: ✅ **COMPLETED** - Updated Drizzle schema to include all `SessionRecord` fields:
+
 - Added `prBranch TEXT` column
 - Added `prState TEXT` column (JSON serialized)
 - Added `prApproved TEXT` column
@@ -418,6 +446,7 @@ CREATE TABLE sessions (
 ### **🔧 Import Path Corrections**
 
 **Files Fixed**:
+
 - `src/domain/session/commands/pr-subcommands.ts`
 
 **Issue**: Incorrect import path causing module resolution failures.
@@ -427,6 +456,7 @@ CREATE TABLE sessions (
 ### **📊 Bug Fix Validation**
 
 **Before Fixes**:
+
 ```bash
 ❌ minsky session pr create → "sessionDb is not defined"
 ❌ minsky session pr approve → "Session has no PR branch"
@@ -434,6 +464,7 @@ CREATE TABLE sessions (
 ```
 
 **After Fixes**:
+
 ```bash
 ✅ minsky session pr create → "Pull request ready for review!"
 ✅ minsky session pr approve → Successfully approves PR
