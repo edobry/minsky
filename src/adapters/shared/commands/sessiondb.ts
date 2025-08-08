@@ -291,6 +291,12 @@ sharedCommandRegistry.registerCommand({
       );
       const skippedLegacy = sessionRecords.length - filteredRecords.length;
 
+      // Normalize missing/empty branch to session name (working branch usually equals session name)
+      const normalizedRecords = filteredRecords.map((s) => ({
+        ...s,
+        branch: s.branch && s.branch.trim().length > 0 ? s.branch : s.session,
+      }));
+
       // Prepare operations plan
       const operations: string[] = [];
       operations.push(`Read source sessions (${sourceCount}) from ${sourceDescription}`);
@@ -305,7 +311,7 @@ sharedCommandRegistry.registerCommand({
         }
       }
       operations.push(
-        `Write ${filteredRecords.length} session(s) to target '${to}' backend (full replacement)`
+        `Write ${normalizedRecords.length} session(s) to target '${to}' backend (full replacement)`
       );
       if (setDefault) {
         operations.push(`Update configuration to set default backend to '${to}'`);
@@ -321,7 +327,7 @@ sharedCommandRegistry.registerCommand({
           preview: true,
           sourceCount,
           targetBackend: to,
-          plannedInsertCount: filteredRecords.length,
+          plannedInsertCount: normalizedRecords.length,
           operations,
         };
       }
@@ -390,7 +396,7 @@ sharedCommandRegistry.registerCommand({
 
       // Write to target backend
       const targetState = {
-        sessions: filteredRecords,
+        sessions: normalizedRecords,
         baseDir: getMinskyStateDir(),
       };
 
@@ -400,10 +406,10 @@ sharedCommandRegistry.registerCommand({
         throw new Error(`Failed to write to target backend: ${msg}`);
       }
       log.cli(
-        `✅ Data successfully migrated to target backend (${filteredRecords.length} sessions)`
+        `✅ Data successfully migrated to target backend (${normalizedRecords.length} sessions)`
       );
 
-      const targetCount = filteredRecords.length;
+      const targetCount = normalizedRecords.length;
       log.info(
         `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
       );
