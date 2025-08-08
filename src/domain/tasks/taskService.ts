@@ -145,11 +145,22 @@ export class TaskService {
    */
   async getTask(id: string): Promise<TaskData | null> {
     const tasks = await this.getAllTasks();
-    const normalizedId = id;
+    const searchId = id;
+    // If qualified (e.g., md#367), also try matching legacy '#367' entries from tasks.md
+    let localId: string | null = null;
+    const hashIndex = searchId.indexOf("#");
+    if (hashIndex > 0 && hashIndex < searchId.length - 1) {
+      localId = searchId.substring(hashIndex + 1);
+    }
+
     return (
       tasks.find((task) => {
-        const taskNormalizedId = task.id;
-        return taskNormalizedId === normalizedId || task.id === id;
+        if (task.id === searchId) return true;
+        if (localId) {
+          // Allow matching legacy '#<id>' entries in tasks.md for backwards content compatibility
+          if (task.id === `#${localId}`) return true;
+        }
+        return false;
       }) || null
     );
   }

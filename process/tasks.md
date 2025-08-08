@@ -68,7 +68,7 @@
 
 - [ ] Write Test Suite for Cursor Rules [md#041](process/tasks/md#041-write-test-suite-for-cursor-rules.md)
 
-- [-] Update Minsky Rule Descriptions for Improved AI Triggering [#042](process/tasks/md#042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
+- [-] Update Minsky Rule Descriptions for Improved AI Triggering [md#042](process/tasks/md#042-update-minsky-rule-descriptions-for-improved-ai-triggering.md)
 
 - [x] Add Session Information to Task Details [md#043](process/tasks/md#043-add-session-information-to-task-details.md)
 
@@ -80,7 +80,7 @@
 
 - [x] Configure MCP Server in Minsky Init Command [md#047](process/tasks/md#047-configure-mcp-server-in-minsky-init-command.md)
 
-- [-] Establish a Rule Library System [#048](process/tasks/md#048-establish-a-rule-library-system.md)
+- [-] Establish a Rule Library System [md#048](process/tasks/md#048-establish-a-rule-library-system.md)
 
 - [x] Implement Session-Scoped MCP Server for Workspace Isolation [md#049](process/tasks/md#049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 
@@ -286,7 +286,7 @@
 
 - [x] Fix Task Status Selector to Show Current Status as Default [md#153](process/tasks/md#153-fix-task-status-selector-default.md)
 
-- [+] Add Google Tasks Backend Support [#154](process/tasks/md#154-add-google-tasks-backend-support.md)
+- [+] Add Google Tasks Backend Support [md#154](process/tasks/md#154-add-google-tasks-backend-support.md)
 
 - [x] Add BLOCKED Status Support [md#155](process/tasks/md#155-add-blocked-status-support.md)
 
@@ -318,9 +318,9 @@
 
 - [x] Comprehensive Session Database Architecture Fix [md#176](process/tasks/md#176-comprehensive-session-database-architecture-fix.md)
 
-- [+] Analyze and Modularize Long Files [#171](process/tasks/md#171-analyze-and-modularize-long-files.md)
+- [+] Analyze and Modularize Long Files [md#171](process/tasks/md#171-analyze-and-modularize-long-files.md)
 
-- [!] Fix Boolean Flag Parsing Issue [#172](process/tasks/md#172-fix-boolean-flag-parsing-issue.md)
+- [!] Fix Boolean Flag Parsing Issue [md#172](process/tasks/md#172-fix-boolean-flag-parsing-issue.md)
 
 - [x] Implement Cross-Cutting Session Auto-Detection [md#173](process/tasks/md#173-implement-cross-cutting-session-auto-detection.md)
 
@@ -350,7 +350,7 @@
 
 - [ ] Design Containerized Session Workspace Architecture [md#190](process/tasks/md#190-design-containerized-session-workspace-architecture.md)
 
-- [!] Enhance Task Operations Synchronization Across Workspaces [#193](process/tasks/md#193-enhance-task-operations-synchronization-across-workspaces.md)
+- [!] Enhance Task Operations Synchronization Across Workspaces [md#193](process/tasks/md#193-enhance-task-operations-synchronization-across-workspaces.md)
 
 - [x] Replace Direct process.exit() Calls with Custom exit() Utility [md#194](process/tasks/md#194-replace-direct-process-exit-calls-with-custom-exit-utility.md)
 
@@ -368,7 +368,7 @@
 
 - [x] Fix CLI output suppression in session workspaces [md#210](process/tasks/md#210-fix-cli-output-suppression-in-session-workspaces.md)
 
-- [!] Fix session pr path resolution issues [#212](process/tasks/md#212-fix-session-pr-path-resolution-issues.md)
+- [!] Fix session pr path resolution issues [md#212](process/tasks/md#212-fix-session-pr-path-resolution-issues.md)
 
 - [x] Investigate normalizeRepoName function and repo name formatting inconsistencies [md#214](process/tasks/md#214-investigate-normalizereponame-function-and-repo-name-formatting-inconsistencies.md)
 
@@ -452,7 +452,7 @@
 
 - [ ] Implement prompt templates for AI interaction [md#260](process/tasks/md#260-implement-prompt-templates-for-ai-interaction.md)
 
-- [+] Add AI Agent Command Structure Export [#261](process/tasks/md#261-add-ai-agent-command-structure-export.md)
+- [+] Add AI Agent Command Structure Export [md#261](process/tasks/md#261-add-ai-agent-command-structure-export.md)
 
 - [ ] Explore consolidating ESLint rules with codemods [md#262](process/tasks/md#262-explore-consolidating-eslint-rules-with-codemods.md)
 
@@ -470,7 +470,7 @@
 
 - [x] Eliminate all testing-boundaries violations across the test suite [md#272](process/tasks/md#272-eliminate-all-testing-boundaries-violations-across-the-test-suite.md)
 
-- [!] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [#273](process/tasks/md#273-implement-ai-powered-pr-content-generation-for-session-and-git-commands.md)
+- [!] Resolve Workspace Architecture Inconsistencies and Utilize Special Workspace System [md#273](process/tasks/md#273-implement-ai-powered-pr-content-generation-for-session-and-git-commands.md)
 
 - [x] Fix test isolation issues causing global state interference [md#269](process/tasks/md#269-fix-test-isolation-issues-causing-global-state-interference.md)
 
@@ -504,13 +504,13 @@
 
 - [x] Complete Task #286 Follow-up: Inspector Upgrade and FastMCP Cleanup [md#287](process/tasks/md#287-complete-task-286-follow-up-inspector-upgrade-and-fastmcp-cleanup.md)
 
-- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [#288](process/tasks/md#288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
+- [+] Comprehensive MCP Improvements and CLI/MCP Consistency Audit [md#288](process/tasks/md#288-comprehensive-mcp-improvements-and-cli-mcp-consistency-audit.md)
 
 - [x] Implement Template-Based Rules Generation System [md#289](process/tasks/md#289-implement-template-based-rules-generation-system.md)
 
-- [!] Convert Cursor Rules to MCP-Only Tool References [#290](process/tasks/md#290-convert-cursor-rules-to-mcp-only-tool-references.md)
+- [!] Convert Cursor Rules to MCP-Only Tool References [md#290](process/tasks/md#290-convert-cursor-rules-to-mcp-only-tool-references.md)
 
-- [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [#291](process/tasks/md#291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
+- [+] Analyze theoretical overlap between rules systems and policy DSLs (OPA, ESLint, cybernetics) [md#291](process/tasks/md#291-analyze-theoretical-overlap-between-rules-systems-and-policy-dsls-opa-eslint-cybernetics-.md)
 
 - [x] Implement automatic git stash handling for merge conflicts in session approve [md#292](process/tasks/md#292-implement-automatic-git-stash-handling-for-merge-conflicts-in-session-approve.md)
 
@@ -540,7 +540,7 @@
 
 - [x] Improve file operation tools: auto-create directories and semantic error messages [md#309](process/tasks/md#309-improve-file-operation-tools-auto-create-directories-and-semantic-error-messages.md)
 
-- [!] Fix special workspace and main workspace synchronization for task operations [#310](process/tasks/md#310-research-codemod-based-approach-for-session-aware-edit-file-tool.md)
+- [!] Fix special workspace and main workspace synchronization for task operations [md#310](process/tasks/md#310-research-codemod-based-approach-for-session-aware-edit-file-tool.md)
 
 - [x] Enhance session_read_file tool with line range support to match Cursor's built-in read_file functionality [md#312](process/tasks/md#312-enhance-session-read-file-tool-with-line-range-support-to-match-cursor-s-built-in-read-file-functionality.md)
 
@@ -596,7 +596,7 @@
 
 - [x] Improve configuration validation system: integrate proper logging, add strictness controls, improve type safety, and document behavior for unknown config fields [md#351](process/tasks/md#351-improve-configuration-validation-system-integrate-proper-logging-add-strictness-controls-improve-type-safety-and-document-behavior-for-unknown-config-fields.md)
 
-- [+] Implement session cleanup with validation [#353](process/tasks/md#353-implement-session-cleanup-with-validation.md)
+- [+] Implement session cleanup with validation [md#353](process/tasks/md#353-implement-session-cleanup-with-validation.md)
 
 - [ ] Implement Session Reapply Tool with Fast-Apply Recovery [md#354](process/tasks/md#354-implement-session-reapply-tool-with-fast-apply-recovery.md)
 
@@ -606,7 +606,7 @@
 
 - [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [md#357](process/tasks/md#357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
-- [+] Explore PR Approval and Merge Decoupling [#358](process/tasks/md#358-explore-pr-approval-and-merge-decoupling.md)
+- [+] Explore PR Approval and Merge Decoupling [md#358](process/tasks/md#358-explore-pr-approval-and-merge-decoupling.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [md#359](process/tasks/md#359-restructure-session-pr-command-with-explicit-subcommands.md)
 
@@ -620,21 +620,21 @@
 
 - [x] Fix missing session.pr command in template system causing 5 template generation failures [md#364](process/tasks/md#364-fix-missing-session-pr-command-in-template-system-causing-5-template-generation-failures.md)
 
-- [+] Fix misleading template messages and missing CLI error details in rules generation [#365](process/tasks/md#365-fix-misleading-template-messages-and-missing-cli-error-details-in-rules-generation.md)
+- [+] Fix misleading template messages and missing CLI error details in rules generation [md#365](process/tasks/md#365-fix-misleading-template-messages-and-missing-cli-error-details-in-rules-generation.md)
 
-- [+] Fix SQLite schema to persist PR metadata for session auto-updates [#366](process/tasks/md#366-fix-sqlite-schema-to-persist-pr-metadata-for-session-auto-updates.md)
+- [+] Fix SQLite schema to persist PR metadata for session auto-updates [md#366](process/tasks/md#366-fix-sqlite-schema-to-persist-pr-metadata-for-session-auto-updates.md)
 
-- [+] Consolidate Multiple Task ID Parsing Implementations [#367](process/tasks/md#367-consolidate-multiple-task-id-parsing-implementations.md)
+- [+] Consolidate Multiple Task ID Parsing Implementations [md#367](process/tasks/md#367-consolidate-multiple-task-id-parsing-implementations.md)
 
 - [ ] Fix Session Start with Qualified Task IDs [md#368](process/tasks/md#368-fix-session-start-with-qualified-task-ids.md)
 
 - [ ] Multi-Backend System Polish & Optimization [md#369](process/tasks/md#369-multi-backend-system-polish-optimization.md)
 
-- [+] Add minsky tasks similar command for finding related completed tasks [#370](process/tasks/md#370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
+- [+] Add minsky tasks similar command for finding related completed tasks [md#370](process/tasks/md#370-add-minsky-tasks-similar-command-for-finding-related-completed-tasks.md)
 
-- [+] Explore Development Dependency Management System [#371](process/tasks/md#371-explore-development-dependency-management-system.md)
+- [+] Explore Development Dependency Management System [md#371](process/tasks/md#371-explore-development-dependency-management-system.md)
 
-- [+] Collapse Unnecessary Application Layer in Task Architecture [#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
+- [+] Collapse Unnecessary Application Layer in Task Architecture [md#375](process/tasks/md#375-collapse-unnecessary-application-layer-in-task-architecture.md)
 
 - [ ] Investigate Language Server Integration for Semantic Code Analysis MCP Tools [md#384](process/tasks/md#384-investigate-language-server-integration-for-semantic-code-analysis-mcp-tools.md)
 
@@ -652,7 +652,7 @@
 
 - [ ] Systematic Global Module Mock Cleanup [md#392](process/tasks/md#392-systematic-global-module-mock-cleanup.md)
 
-- [+] Replace Unreliable Mock Factories with Explicit Mock Pattern [#393](process/tasks/md#393-replace-unreliable-mock-factories-with-explicit-mock-pattern.md)
+- [+] Replace Unreliable Mock Factories with Explicit Mock Pattern [md#393](process/tasks/md#393-replace-unreliable-mock-factories-with-explicit-mock-pattern.md)
 
 - [ ] Testable Design Pattern Expansion [md#394](process/tasks/md#394-testable-design-pattern-expansion.md)
 
@@ -660,14 +660,14 @@
 
 - [x] Test Architecture Documentation and Guidelines [md#396](process/tasks/md#396-test-architecture-documentation-and-guidelines.md)
 
-- [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
+- [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
 - [ ] Improve test mock filesystem approach with external libraries [md#398](process/tasks/md#398-improve-test-mock-filesystem-approach-with-external-libraries.md)
 
-- [+] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+- [+] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
 - [ ] Explore alternative task entry methods and reference resolution [md#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
 - [ ] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [+] Remove JSON sessiondb backend entirely from codebase [#402](process/tasks/md#402-remove-json-sessiondb-backend-entirely-from-codebase.md)
+- [+] Remove JSON sessiondb backend entirely from codebase [md#402](process/tasks/md#402-remove-json-sessiondb-backend-entirely-from-codebase.md)
