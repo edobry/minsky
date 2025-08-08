@@ -2,6 +2,8 @@
 // Task IDs: md#123, gh#456, json#789
 // Session/Branch names: task-md#123, task-gh#456, task-json#789
 
+import { get, has } from "../configuration";
+
 export interface TaskId {
   backend: string;
   localId: string;
@@ -140,9 +142,20 @@ export function migrateUnqualifiedTaskId(taskId: string, defaultBackend = "md"):
   return taskId; // Can't migrate, return as-is
 }
 
-// Backward compatibility
+// Backward compatibility with strict mode support
 export function isLegacyTaskId(taskId: string): boolean {
-  return /^\d+$/.test(taskId) || /^task#\d+$/.test(taskId);
+  try {
+    // In strict mode, NO legacy IDs are considered valid
+    const strict = has("tasks.strictIds") ? (get<boolean>("tasks.strictIds") as boolean) : false;
+    if (strict) {
+      return false;
+    }
+  } catch {
+    // If configuration access fails, fall back to permissive mode
+  }
+
+  // In permissive mode, allow legacy formats
+  return /^\d+$/.test(taskId) || /^task#\d+$/.test(taskId) || /^#\d+$/.test(taskId);
 }
 
 export function normalizeLegacyTaskId(taskId: string, defaultBackend = "md"): string {
