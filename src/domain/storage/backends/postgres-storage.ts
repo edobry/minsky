@@ -155,19 +155,16 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
     try {
-      // Begin transaction
-      await this.sql.begin(async (sql) => {
-        // Clear existing sessions
-        await sql`DELETE FROM sessions`;
+      const sessions = state.sessions || [];
 
-        // Insert all sessions
-        for (const session of state.sessions) {
-          const insertData = toPostgresInsert(session);
-          await sql`
-            INSERT INTO sessions (session, repo_name, repo_url, created_at, task_id, branch, repo_path)
-            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl},
-                   ${insertData.createdAt}, ${insertData.taskId}, ${insertData.branch}, ${insertData.repoPath})
-          `;
+      await this.drizzle.transaction(async (tx) => {
+        // Clear existing sessions
+        await tx.delete(postgresSessions);
+
+        // Insert new sessions using Drizzle schema mapping
+        if (sessions.length > 0) {
+          const values = sessions.map((s) => toPostgresInsert(s));
+          await tx.insert(postgresSessions).values(values);
         }
       });
 
