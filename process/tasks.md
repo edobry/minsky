@@ -676,4 +676,6 @@
 
 - [+] Add configuration management subcommands [#404](process/tasks/md#404-add-configuration-management-subcommands.md)
 
-- [ ] Complete TaskBackend enum refactoring across codebase [md#1](process/tasks/md#1-complete-taskbackend-enum-refactoring-across-codebase.md)
+- [ ] Complete TaskBackend enum refactoring across codebase [#1](process/tasks/md#1-complete-taskbackend-enum-refactoring-across-codebase.md)
+
+- [ ] Implement --set-default to write config and back it up; update/remove tests referencing session.branch [md#1](process/tasks/md#1-implement-set-default-to-write-config-and-back-it-up-update-remove-tests-referencing-session-branch.md)
