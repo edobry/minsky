@@ -8,8 +8,17 @@
 import { existsSync } from "fs";
 import { join } from "path";
 
+/**
+ * Task backend types supported by Minsky
+ */
+export enum TaskBackend {
+  MARKDOWN = "markdown",
+  JSON_FILE = "json-file", 
+  GITHUB_ISSUES = "github-issues",
+}
+
 export interface BackendDetectionService {
-  detectBackend(workingDir: string): Promise<string>;
+  detectBackend(workingDir: string): Promise<TaskBackend>;
   tasksMdExists(workingDir: string): Promise<boolean>;
   jsonFileExists(workingDir: string): Promise<boolean>;
   githubRemoteExists(workingDir: string): Promise<boolean>;
@@ -20,19 +29,19 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
    * Detect the most appropriate backend based on project structure
    * Uses hardcoded detection logic - this is core application behavior, not user configuration
    */
-  async detectBackend(workingDir: string): Promise<string> {
+  async detectBackend(workingDir: string): Promise<TaskBackend> {
     // Check for markdown task backend (process/tasks.md exists)
     if (await this.tasksMdExists(workingDir)) {
-      return "markdown";
+      return TaskBackend.MARKDOWN;
     }
 
     // Check for JSON file task backend (.minsky/tasks.json exists)
     if (await this.jsonFileExists(workingDir)) {
-      return "json-file";
+      return TaskBackend.JSON_FILE;
     }
 
     // Default fallback - prefer markdown for new projects
-    return "markdown";
+    return TaskBackend.MARKDOWN;
   }
 
 
