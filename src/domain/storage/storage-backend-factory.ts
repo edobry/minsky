@@ -98,26 +98,28 @@ export function getDefaultStorageConfig(): StorageConfig {
 export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageConfig {
   const defaults = getDefaultStorageConfig();
 
-  // Apply environment variable overrides
-  if ((process.env as any).MINSKY_SESSIONDB_BACKEND) {
-    defaults.backend = (process.env as any).MINSKY_SESSIONDB_BACKEND as StorageBackendType;
-  }
-
-  // Apply SQLite-specific environment variables
-  if ((process.env as any).MINSKY_SQLITE_PATH) {
-    defaults.sqlite!.dbPath = (process.env as any).MINSKY_SQLITE_PATH;
-  }
-
-  // Apply PostgreSQL-specific environment variables
-  if ((process.env as any).MINSKY_POSTGRES_URL) {
-    (defaults.postgres! as any).connectionString = (process.env as any).MINSKY_POSTGRES_URL as any;
-  }
-
-  // Apply any additional overrides and set integrity defaults
-  const result = {
+  // Apply any additional overrides first
+  const result: StorageConfig = {
     ...defaults,
     ...overrides,
-  };
+  } as StorageConfig;
+
+  // Apply environment variable overrides LAST (highest precedence)
+  if ((process.env as any).MINSKY_SESSIONDB_BACKEND) {
+    result.backend = (process.env as any).MINSKY_SESSIONDB_BACKEND as StorageBackendType;
+  }
+
+  // SQLite-specific environment variables
+  if ((process.env as any).MINSKY_SQLITE_PATH) {
+    result.sqlite = result.sqlite || {};
+    result.sqlite.dbPath = (process.env as any).MINSKY_SQLITE_PATH;
+  }
+
+  // PostgreSQL-specific environment variables
+  if ((process.env as any).MINSKY_POSTGRES_URL) {
+    result.postgres = result.postgres || ({} as any);
+    (result.postgres as any).connectionString = (process.env as any).MINSKY_POSTGRES_URL as any;
+  }
 
   // Set integrity checking defaults if not specified
   if (result.enableIntegrityCheck === undefined) {

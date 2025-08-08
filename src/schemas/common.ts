@@ -4,7 +4,6 @@ const _TEST_VALUE = 123;
  * Common schema definitions that can be reused across multiple domain modules
  */
 import { z } from "zod";
-import { normalizeTaskIdForStorage } from "../domain/tasks/task-id-utils";
 
 /**
  * Schema for file or directory paths
@@ -36,18 +35,17 @@ export const sessionNameSchema = z.string().min(1).max(100);
 
 /**
  * Task ID schema
- * Validates and normalizes task IDs to storage format (plain numbers)
+ * Validates qualified task IDs only
  */
-export const taskIdSchema = z
-  .string()
-  .transform((val) => {
-    // Use the new task ID utilities for consistent normalization
-    return normalizeTaskIdForStorage(val);
-  })
-  .refine((val) => val !== null, {
-    message: "Task ID must be qualified (md#123, gh#456) or legacy format (123, #123)",
-  })
-  .transform((val) => val as string); // Type assertion since we know it's not null after refine
+export const taskIdSchema = z.string().refine(
+  (val) => {
+    // Only accept qualified task IDs (md#123, gh#456)
+    return /^[a-z-]+#\d+$/.test(val);
+  },
+  {
+    message: "Task ID must be qualified (md#123, gh#456)",
+  }
+);
 
 /**
  * Schema for boolean flags with optional description

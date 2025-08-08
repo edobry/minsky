@@ -25,14 +25,16 @@ Task md#367 exists in process/tasks.md but invisible in `minsky tasks list`
 
 ## Required Fix
 
-Consolidate all parsing into single unified implementation that supports both:
+Consolidate all parsing into single unified implementation that supports:
 
-- Legacy format: #123
-- Qualified format: md#123, gh#456
+- Qualified format: md#123, gh#456 (STRICT ONLY)
+- ~~Legacy format support removed after migration~~ ✅
 
 ## Success Criteria
 
-`minsky tasks list` shows qualified backend IDs correctly
+- `minsky tasks list` shows qualified backend IDs correctly ✅
+- `minsky tasks get md#367` works ✅
+- Only qualified IDs accepted (strict mode) ✅
 
 ## Requirements
 
@@ -84,7 +86,27 @@ const normalizedId = normalizeTaskId(id) || id;
 - Fixed `MultiBackendTaskService.getTask()` to re-qualify task IDs
 - Fixed `MultiBackendTaskService.listAllTasks()` to re-qualify task IDs
 
-**REMAINING WORK**:
+## ✅ MIGRATION COMPLETED - STATUS UPDATE
+
+**PHASE 1 - MIGRATION COMPLETED:**
+- ✅ Migration applied with spec file renames and backup
+- ✅ Links in `process/tasks.md` updated to match renamed spec files
+- ✅ Strict IDs enabled via configuration (`tasks.strictIds: true`)
+- ✅ End-to-end verification passed:
+  - `tasks list` shows qualified IDs (`md#367`, `md#004`, etc.)
+  - `tasks get md#367` works correctly
+  - `tasks spec md#367` reads correct spec file
+- ✅ All spec file path mismatches fixed
+
+**PHASE 2 - CLEANUP (IN PROGRESS):**
+- 🔄 Remove permissive mode and legacy ID support entirely
+- 🔄 Remove `tasks.strictIds` configuration toggle
+- 🔄 Remove `strict-mode-checker.ts` utility
+- 🔄 Simplify parsing logic to qualified-only
+- 🔄 Update all tests to expect only qualified IDs
+- 🔄 Clean up dead code paths and temporary compatibility layers
+
+**PREVIOUS WORK NOTES**:
 - Complete testing of multi-backend integration
 - Verify all CLI commands work with qualified IDs
 - Remove remaining `normalizeTaskId` calls if any

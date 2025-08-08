@@ -145,7 +145,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return { success: true, data: state };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
-      log.error("Failed to read PostgreSQL state:", typedError);
+      // Keep user output concise; details available in debug logs
+      log.warn(`Failed to read PostgreSQL state: ${typedError.message}`);
       return { success: false, error: typedError };
     }
   }
@@ -155,27 +156,53 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async writeState(state: SessionDbState): Promise<DatabaseWriteResult> {
     try {
-      // Begin transaction
-      await this.sql.begin(async (sql) => {
-        // Clear existing sessions
-        await sql`DELETE FROM sessions`;
+      const sessions = state.sessions || [];
 
-        // Insert all sessions
-        for (const session of state.sessions) {
-          const insertData = toPostgresInsert(session);
-          await sql`
-            INSERT INTO sessions (session, repo_name, repo_url, created_at, task_id, branch, repo_path)
-            VALUES (${insertData.session}, ${insertData.repoName}, ${insertData.repoUrl},
-                   ${insertData.createdAt}, ${insertData.taskId}, ${insertData.branch}, ${insertData.repoPath})
-          `;
+      await this.drizzle.transaction(async (tx) => {
+        // Clear existing sessions
+        await tx.delete(postgresSessions);
+
+        // Insert new sessions using Drizzle schema mapping
+        if (sessions.length > 0) {
+          const BATCH_SIZE = 250;
+          for (let i = 0; i < sessions.length; i += BATCH_SIZE) {
+            const slice = sessions.slice(i, i + BATCH_SIZE);
+            const values = slice.map((s) => toPostgresInsert(s));
+            await tx.insert(postgresSessions).values(values);
+          }
         }
       });
 
       return { success: true, bytesWritten: state.sessions.length };
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
-      log.error("Failed to write PostgreSQL state:", typedError);
-      return { success: false, error: typedError };
+      const anyErr: any = typedError as any;
+
+      // Prefer the underlying driver error message if available (no SQL query text)
+      const causeMessage =
+        anyErr?.cause?.message || anyErr?.originalError?.message || anyErr?.cause?.cause?.message;
+
+      let concise = (causeMessage || typedError.message || String(typedError as any)) as string;
+
+      // If the message is a Drizzle wrapper ("Failed query: ..."), strip query/params blocks
+      if (/^Failed query:/i.test(concise) || concise.includes("\nparams:")) {
+        // Remove everything between "Failed query:" and the next "Error:" or end
+        concise = concise.replace(/Failed query:[\s\S]*?(?=(\nError:)|$)/i, "");
+        // Remove params block if present
+        concise = concise.replace(/\nparams:[\s\S]*$/i, "");
+        // Fallback to top line of original drizzle message if we removed everything
+        if (!concise.trim()) {
+          const top = (typedError.message || "").split("\n").find((l) => l.trim().length > 0) || "";
+          // Keep only the leading part before any SQL or params label
+          concise = top.replace(/Failed query:.*/, "database operation failed");
+        }
+      }
+
+      // Reduce to first line and trim
+      concise = (concise.split("\n")[0] || concise).trim();
+
+      // Do not print here to avoid duplicates; caller will present this message
+      return { success: false, error: new Error(concise) };
     }
   }
 
@@ -192,7 +219,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return result.length > 0 ? fromPostgresSelect(result[0]) : null;
     } catch (error) {
-      log.error("Failed to get session from PostgreSQL:", error as Error);
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      log.warn(`Failed to get session from PostgreSQL: ${typedError.message}`);
       return null;
     }
   }
@@ -205,7 +233,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       const results = (await this.drizzle.select().from(postgresSessions)) as any;
       return results.map(fromPostgresSelect);
     } catch (error) {
-      log.error("Failed to get sessions from PostgreSQL:", error as Error);
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      log.warn(`Failed to get sessions from PostgreSQL: ${typedError.message}`);
       return [];
     }
   }
@@ -219,7 +248,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await this.drizzle.insert(postgresSessions).values(insertData);
       return entity;
     } catch (error) {
-      log.error("Failed to create session in PostgreSQL:", error as Error);
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      log.warn(`Failed to create session in PostgreSQL: ${typedError.message}`);
       throw error;
     }
   }
@@ -237,17 +267,15 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       // Merge updates
       const updated = { ...existing, ...updates };
-      const updateData = toPostgresInsert(updated);
-
-      // Update in database
-      (await this.drizzle
+      const insertData = toPostgresInsert(updated);
+      await this.drizzle
         .update(postgresSessions)
-        .set(updateData)
-        .where(eq(postgresSessions.session, id))) as any;
-
+        .set(insertData)
+        .where(eq(postgresSessions.session, id));
       return updated;
     } catch (error) {
-      log.error("Failed to update session in PostgreSQL:", error);
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      log.warn(`Failed to update session in PostgreSQL: ${typedError.message}`);
       throw error;
     }
   }
@@ -257,13 +285,11 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async deleteEntity(id: string): Promise<boolean> {
     try {
-      const result = (await this.drizzle
-        .delete(postgresSessions)
-        .where(eq(postgresSessions.session, id))) as any;
-
-      return result.rowCount !== null && result.rowCount > 0;
+      await this.drizzle.delete(postgresSessions).where(eq(postgresSessions.session, id));
+      return true;
     } catch (error) {
-      log.error("Failed to delete session from PostgreSQL:", error);
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      log.warn(`Failed to delete session in PostgreSQL: ${typedError.message}`);
       return false;
     }
   }

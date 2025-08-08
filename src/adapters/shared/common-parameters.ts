@@ -8,7 +8,7 @@
 
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
-import { isQualifiedTaskId, isLegacyTaskId } from "../../domain/tasks/unified-task-id";
+import { isQualifiedTaskId } from "../../domain/tasks/unified-task-id";
 
 /**
  * Core common parameters used across multiple command categories
@@ -231,39 +231,37 @@ export const SessionParameters = {
  */
 export const TaskParameters = {
   /**
-   * Task ID parameter (required) - supports qualified IDs and auto-migrates legacy formats
+   * Task ID parameter (required) - only accepts qualified IDs
    */
   taskId: {
     schema: z.string().refine(
       (value) => {
-        return isQualifiedTaskId(value) || isLegacyTaskId(value);
+        return isQualifiedTaskId(value);
       },
       {
-        message:
-          "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+        message: "Task ID must be qualified (md#123, gh#456)",
       }
     ),
-    description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
+    description: "Task identifier (supports md#123, gh#456)",
     required: true,
   } as CommandParameterDefinition,
 
   /**
-   * Task ID parameter (optional) - supports qualified IDs and auto-migrates legacy formats
+   * Task ID parameter (optional) - only accepts qualified IDs
    */
   taskIdOptional: {
     schema: z
       .string()
       .refine(
         (value) => {
-          return isQualifiedTaskId(value) || isLegacyTaskId(value);
+          return isQualifiedTaskId(value);
         },
         {
-          message:
-            "Task ID must be either qualified (md#123, gh#456) or legacy format (123, task#123, #123)",
+          message: "Task ID must be qualified (md#123, gh#456)",
         }
       )
       .optional(),
-    description: "Task identifier (supports md#123, gh#456, or legacy formats like 123, task#123)",
+    description: "Task identifier (supports md#123, gh#456)",
     required: false,
   } as CommandParameterDefinition,
 

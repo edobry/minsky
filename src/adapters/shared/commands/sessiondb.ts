@@ -7,7 +7,7 @@
  */
 
 import { z } from "zod";
-import { readFileSync, writeFileSync, existsSync, mkdirSync } from "fs";
+import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
 import { dirname, join } from "path";
 import { getErrorMessage } from "../../../errors/index";
 import {
@@ -199,65 +199,159 @@ sharedCommandRegistry.registerCommand({
       }
 
       log.cli(`🚀 SessionDB Migration - Target: ${to}`);
+      log.cli("");
       log.cli(`Mode: ${isPreviewMode ? "PREVIEW" : "EXECUTE"}`);
       log.cli(`Backup: ${backup ? "YES" : "NO"}`);
 
       // Read source data
       let sourceData: Record<string, any> = {};
       let sourceCount = 0;
+      let sourceDescription = "configured session backend";
+      let sourceBackendKind: "sqlite" | "postgres" | "file-json" | "unknown" = "unknown";
+      let sqliteSourcePath: string | undefined;
 
       if (from && existsSync(from)) {
         // Read from specific file
         const fileContent = readFileSync(from, "utf8").toString();
         sourceData = JSON.parse(fileContent);
         sourceCount = Object.keys(sourceData).length;
-        log.info(`Reading from backup file: ${from} (${sourceCount} sessions)`);
+        sourceDescription = `backup file: ${from}`;
+        sourceBackendKind = "file-json";
+        log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
-        // Auto-detect current backend
-        const jsonPath = getDefaultJsonDbPath();
-        const currentSqlitePath = getDefaultSqliteDbPath();
+        // Read from CURRENT configured backend (no JSON fallback)
+        const configuredBackend = config.sessiondb?.backend as "sqlite" | "postgres";
+        if (!configuredBackend) {
+          throw new Error("No sessiondb backend configured. Configure sqlite or postgres.");
+        }
 
-        if (existsSync(jsonPath)) {
-          const fileContent = readFileSync(jsonPath, "utf8").toString();
-          sourceData = JSON.parse(fileContent);
-          sourceCount = Object.keys(sourceData).length;
-          log.info(`Reading from JSON backend: ${jsonPath} (${sourceCount} sessions)`);
-        } else if (existsSync(currentSqlitePath)) {
-          // Read from SQLite
-          const sourceStorage = createStorageBackend({ backend: "sqlite" });
-          await sourceStorage.initialize();
-          const readResult = await sourceStorage.readState();
-          if (readResult.success && readResult.data) {
-            sourceData = readResult.data;
-            sourceCount = readResult.data.sessions?.length || 0;
-            log.info(`Reading from SQLite backend: ${currentSqlitePath} (${sourceCount} sessions)`);
+        const sourceConfig: any = { backend: configuredBackend };
+        if (configuredBackend === "sqlite") {
+          // Use configured path or default
+          const dbPath =
+            config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+          sourceConfig.sqlite = { dbPath };
+          sourceDescription = `SQLite backend: ${dbPath}`;
+          sourceBackendKind = "sqlite";
+          sqliteSourcePath = dbPath;
+        } else if (configuredBackend === "postgres") {
+          const connectionString =
+            config.sessiondb?.postgres?.connectionString ||
+            config.sessiondb?.connectionString ||
+            process.env.MINSKY_POSTGRES_URL;
+          if (!connectionString) {
+            throw new Error(
+              "PostgreSQL connection string not found in configuration or MINSKY_POSTGRES_URL."
+            );
           }
+          sourceConfig.postgres = { connectionString };
+          sourceDescription = "PostgreSQL backend (configured)";
+          sourceBackendKind = "postgres";
+        }
+
+        const sourceStorage = createStorageBackend(sourceConfig);
+        await sourceStorage.initialize();
+        const readResult = await sourceStorage.readState();
+        if (readResult.success && readResult.data) {
+          sourceData = readResult.data;
+          sourceCount = readResult.data.sessions?.length || 0;
+          log.cli(`Reading from ${sourceDescription} (${sourceCount} sessions)`);
         } else {
-          throw new Error("No source database found. Use --from to specify a backup file.");
+          log.warn("Failed to read from configured session backend; proceeding with 0 sessions");
+          sourceData = { sessions: [], baseDir: getMinskyStateDir() };
+          sourceCount = 0;
         }
       }
 
+      // Build normalized list of session records
+      const sessionRecords: SessionRecord[] = [];
+      if (Array.isArray(sourceData.sessions)) {
+        sessionRecords.push(...sourceData.sessions);
+      } else if (typeof sourceData === "object" && sourceData !== null) {
+        // Handle sessions stored as key-value pairs
+        for (const [sessionId, sessionData] of Object.entries(sourceData)) {
+          if (typeof sessionData === "object" && sessionData !== null) {
+            const typedSessionData = sessionData as Partial<SessionRecord>;
+            sessionRecords.push({
+              session: sessionId,
+              repoName: typedSessionData.repoName || sessionId,
+              repoUrl: typedSessionData.repoUrl || sessionId,
+              createdAt: typedSessionData.createdAt || new Date().toISOString(),
+              taskId: typedSessionData.taskId || "",
+              branch: typedSessionData.branch || "main",
+              ...typedSessionData,
+            });
+          }
+        }
+      }
+
+      // Filter out legacy sessions without taskId
+      const filteredRecords = sessionRecords.filter(
+        (s) => typeof s.taskId === "string" && s.taskId.trim().length > 0
+      );
+      const skippedLegacy = sessionRecords.length - filteredRecords.length;
+
+      // No need to normalize branch now that column is dropped in Postgres schema
+      const normalizedRecords = filteredRecords;
+
+      // Prepare operations plan
+      const operations: string[] = [];
+      operations.push(`Read source sessions (${sourceCount}) from ${sourceDescription}`);
+      if (skippedLegacy > 0) {
+        operations.push(`Skip ${skippedLegacy} legacy session(s) without a taskId`);
+      }
+      if (backup) {
+        if (sourceBackendKind === "sqlite" && sqliteSourcePath) {
+          operations.push(`Create SQLite file backup of source before migration`);
+        } else {
+          operations.push(`Create JSON backup of source before migration`);
+        }
+      }
+      operations.push(
+        `Write ${normalizedRecords.length} session(s) to target '${to}' backend (full replacement)`
+      );
+      if (setDefault) {
+        operations.push(`Update configuration to set default backend to '${to}'`);
+      }
+
+      // PREVIEW MODE: show plan and exit
       if (isPreviewMode) {
-        log.info("PREVIEW MODE - No changes will be made");
-        log.info(`Would migrate ${sourceCount} sessions from source to ${to} backend`);
+        log.cli("\n📝 Migration plan (preview):");
+        operations.forEach((op, idx) => log.cli(`  ${idx + 1}. ${op}`));
+        log.cli("\n(No changes will be made in preview mode)\n");
         return {
           success: true,
           preview: true,
           sourceCount,
           targetBackend: to,
+          plannedInsertCount: normalizedRecords.length,
+          operations,
         };
       }
 
       // Create backup if requested
       let backupPath: string | undefined;
       if (backup) {
-        backupPath = join(getMinskyStateDir(), `session-backup-${Date.now()}.json`);
-        const backupDir = dirname(backupPath);
-        if (!existsSync(backupDir)) {
-          mkdirSync(backupDir, { recursive: true });
+        const stateDir = getMinskyStateDir();
+        if (sourceBackendKind === "sqlite" && sqliteSourcePath) {
+          // Create a real SQLite copy backup
+          backupPath = join(stateDir, `session-backup-${Date.now()}.db`);
+          const backupDir = dirname(backupPath);
+          if (!existsSync(backupDir)) {
+            mkdirSync(backupDir, { recursive: true });
+          }
+          copyFileSync(sqliteSourcePath, backupPath);
+          log.cli(`SQLite backup created: ${backupPath}`);
+        } else {
+          // JSON backup of the read state
+          backupPath = join(stateDir, `session-backup-${Date.now()}.json`);
+          const backupDir = dirname(backupPath);
+          if (!existsSync(backupDir)) {
+            mkdirSync(backupDir, { recursive: true });
+          }
+          writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
+          log.cli(`Backup created: ${backupPath}`);
         }
-        writeFileSync(backupPath, JSON.stringify(sourceData, null, 2));
-        log.info(`Backup created: ${backupPath}`);
       }
 
       // Create target storage with config-driven approach
@@ -290,60 +384,36 @@ sharedCommandRegistry.registerCommand({
       const targetStorage = createStorageBackend(targetConfig);
       await targetStorage.initialize();
 
-      // Migrate sessions
-      const sessionRecords: SessionRecord[] = [];
-      if (Array.isArray(sourceData.sessions)) {
-        sessionRecords.push(...sourceData.sessions);
-      } else if (typeof sourceData === "object" && sourceData !== null) {
-        // Handle sessions stored as key-value pairs
-        for (const [sessionId, sessionData] of Object.entries(sourceData)) {
-          if (typeof sessionData === "object" && sessionData !== null) {
-            // Type sessionData as Partial<SessionRecord> for safe spreading
-            const typedSessionData = sessionData as Partial<SessionRecord>;
-            sessionRecords.push({
-              session: sessionId,
-              repoName: typedSessionData.repoName || sessionId,
-              repoUrl: typedSessionData.repoUrl || sessionId,
-              createdAt: typedSessionData.createdAt || new Date().toISOString(),
-              taskId: typedSessionData.taskId || "",
-              branch: typedSessionData.branch || "main",
-              ...typedSessionData,
-            });
-          }
-        }
+      // Show execute plan (same as preview) before applying
+      log.cli("");
+      log.cli("📝 Migration plan (execute):");
+      operations.forEach((op, idx) => log.cli(`  ${idx + 1}. ${op}`));
+      // Add a blank line after the plan for nicer spacing before any subsequent output
+      log.cli("");
+
+      // Write to target backend
+      const targetState = {
+        sessions: normalizedRecords,
+        baseDir: getMinskyStateDir(),
+      };
+
+      const writeResult = await targetStorage.writeState(targetState);
+      if (!writeResult.success) {
+        const msg = writeResult.error?.message || "database operation failed";
+        throw new Error(`Failed to write to target backend: ${msg}`);
       }
+      log.cli(
+        `✅ Data successfully migrated to target backend (${normalizedRecords.length} sessions)`
+      );
 
-      // Write to target backend (only if --execute is specified)
-      let writeResult;
-      if (execute) {
-        const targetState = {
-          sessions: sessionRecords,
-          baseDir: getMinskyStateDir(),
-        };
-
-        writeResult = await targetStorage.writeState(targetState);
-        if (!writeResult.success) {
-          throw new Error(
-            `Failed to write to target backend: ${writeResult.error?.message || "Unknown error"}`
-          );
-        }
-        log.cli(`✅ Data successfully migrated to target backend`);
-      } else {
-        log.cli(`🔍 PREVIEW: Would migrate ${sessionRecords.length} sessions to target backend`);
-        writeResult = { success: true }; // Mock success for preview
-      }
-
-      const targetCount = sessionRecords.length;
-      log.info(
+      const targetCount = normalizedRecords.length;
+      log.cli(
         `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
       );
 
       // Handle setDefault option
-      if (setDefault && execute) {
+      if (setDefault) {
         log.cli(`\n🔧 Updating configuration to use ${to} backend as default...`);
-
-        // Note: In a real implementation, we would update the config file here
-        // For now, just provide instructions to the user
         log.cli(`✅ Configuration update requested. Please manually update your config file:`);
         log.cli(`\n[sessiondb]`);
         log.cli(`backend = "${to}"`);
@@ -369,7 +439,8 @@ sharedCommandRegistry.registerCommand({
         targetCount,
         targetBackend: to,
         backupPath,
-        setDefaultApplied: setDefault && execute,
+        setDefaultApplied: setDefault,
+        operations,
         errors: [] as string[],
       };
 
@@ -392,8 +463,8 @@ sharedCommandRegistry.registerCommand({
 
       return result;
     } catch (error) {
-      log.error("Migration failed", { error: getErrorMessage(error) });
-      throw error;
+      const msg = getErrorMessage(error).split("\n")[0];
+      throw new Error(`Migration failed: ${msg}`);
     }
   },
 });
@@ -634,8 +705,8 @@ async function validatePostgresBackend(): Promise<{
           // Test if sessions table exists (schema validation)
           const tableResult = await client.query(`
             SELECT EXISTS (
-              SELECT FROM information_schema.tables 
-              WHERE table_schema = 'public' 
+              SELECT FROM information_schema.tables
+              WHERE table_schema = 'public'
               AND table_name = 'sessions'
             );
           `);

@@ -6,6 +6,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Task #404**: Add configuration management subcommands
+  - **`minsky config set <key> <value>`** - Set configuration values programmatically
+  - **`minsky config unset <key>`** - Remove configuration values
+  - **`minsky config validate`** - Validate configuration against schemas
+  - **`minsky config doctor`** - Diagnose common configuration problems
+  - Supports nested keys (e.g., `ai.providers.openai.model`)
+  - Automatic type detection (boolean, number, JSON objects/arrays)
+  - Creates timestamped backups before modifications with `--no-backup` option
+  - Validates configuration after changes with rollback on failure
+  - Targets user configuration at `~/.config/minsky/config.yaml`
+  - Supports both YAML and JSON formats via `--format` option
+  - JSON output option for scripting with `--json` flag
+  - 59 comprehensive tests with 100% mocked filesystem operations
+
 - **Task #402**: Remove JSON sessiondb backend entirely from codebase
   - **BREAKING CHANGE**: JSON sessiondb backend has been completely removed
   - Updated default sessiondb backend from json to sqlite
