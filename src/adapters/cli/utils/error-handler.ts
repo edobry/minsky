@@ -95,7 +95,7 @@ export function handleCliError(error: any): never {
   } else if (error instanceof MinskyError) {
     log.cliError(`Error: ${sanitizeMessage(normalizedError.message)}`);
   } else {
-    log.cliError(`Unexpected error: ${sanitizeMessage(normalizedError.message)}`);
+    log.cliError(`❌ ${sanitizeMessage(normalizedError.message)}`);
   }
 
   // Show detailed debug information only in debug mode

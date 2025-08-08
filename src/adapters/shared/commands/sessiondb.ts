@@ -351,6 +351,8 @@ sharedCommandRegistry.registerCommand({
       // Show execute plan (same as preview) before applying
       log.cli("\n📝 Migration plan (execute):");
       operations.forEach((op, idx) => log.cli(`  ${idx + 1}. ${op}`));
+      // Add a blank line after the plan for nicer spacing before any subsequent output
+      log.cli("");
 
       // Write to target backend
       const targetState = {
