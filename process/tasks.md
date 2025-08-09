@@ -671,3 +671,5 @@
 - [ ] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
 - [ ] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
+
+- [ ] Extract Shared Database Service for Sessions, Tasks, and Embeddings [md#407](process/tasks/md#407-extract-shared-db-service-for-sessions-and-tasks.md)
