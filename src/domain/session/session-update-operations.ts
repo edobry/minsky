@@ -256,6 +256,7 @@ export async function updateSessionImpl(
             }
           }
 
+          // Make output more human-friendly (avoid raw JSON)
           throw new MinskyError(updateResult.conflictDetails);
         }
 

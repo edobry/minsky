@@ -77,6 +77,23 @@ export class GitHubBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
+
+    // Derive owner/repo from repoUrl when not explicitly provided
+    if ((!this.owner || !this.repo) && this.repoUrl.includes("github.com")) {
+      try {
+        // SSH: git@github.com:owner/repo.git
+        // HTTPS: https://github.com/owner/repo.git
+        const sshMatch = this.repoUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+        const match = sshMatch || httpsMatch;
+        if (match && match[1] && match[2]) {
+          this.owner = this.owner || match[1];
+          this.repo = this.repo || match[2].replace(/\.git$/, "");
+        }
+      } catch (_err) {
+        // Ignore parsing errors; explicit config may still provide these later
+      }
+    }
     this.sessionDB = createSessionProvider();
     this.gitService = new GitService(this.baseDir);
   }

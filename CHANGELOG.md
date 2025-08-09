@@ -11,6 +11,11 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Task md#407**: Extract shared DB service for sessions, tasks metadata, and embeddings (pgvector)
+  - Introduces a new task to define a general-purpose `DbService` abstraction
+  - Reuses existing sessiondb infra and prepares for md#253 embeddings storage
+  - Plans migrations and pgvector extension validation for PostgreSQL
+
 - **Task #404**: Add configuration management subcommands
   - **`minsky config set <key> <value>`** - Set configuration values programmatically
   - **`minsky config unset <key>`** - Remove configuration values
