@@ -668,14 +668,6 @@
 
 - [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
-- [x] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+- [ ] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [x] Remove JSON sessiondb backend entirely from codebase [#402](process/tasks/md#402-remove-json-sessiondb-backend-entirely-from-codebase.md)
-
-- [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
-
-- [+] Add configuration management subcommands [#404](process/tasks/md#404-add-configuration-management-subcommands.md)
-
-- [ ] Implement --set-default to write config and back it up; update/remove tests referencing session.branch [#405](process/tasks/md#405-implement-set-default-to-write-config-and-back-it-up-update-remove-tests-referencing-session-branch.md)
-
-- [ ] Complete TaskBackend enum refactoring across codebase [#406](process/tasks/md#406-complete-taskbackend-enum-refactoring-across-codebase.md)
+- [ ] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
