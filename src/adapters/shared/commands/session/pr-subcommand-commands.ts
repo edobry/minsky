@@ -221,7 +221,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       );
     } else {
       return new MinskyError(
-        `❌ Failed to create session PR.\n\nThe operation failed with: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
+        `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
       );
     }
   }
