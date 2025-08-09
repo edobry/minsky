@@ -1,3 +1,8 @@
+- feat(session): add `session.migrate-backend` command to switch a session's repo backend to GitHub by reading origin URL and updating `backendType`
+  - Detects origin with `git remote get-url origin` from the session workspace
+  - Sets `repoUrl` to the detected remote URL and `backendType` to `github`
+  - Exposed via shared command registry; available alongside other session management commands
+
 # Changelog
 
 All notable changes to this project will be documented in this file.

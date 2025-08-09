@@ -252,6 +252,34 @@ export const sessionPrCommandParams = {
 };
 
 /**
+ * Session migrate-backend command parameters
+ */
+export const sessionMigrateBackendCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview changes without updating the session DB",
+    required: false,
+    defaultValue: false,
+  },
+  to: {
+    schema: z.enum(["github", "local"]).default("github"),
+    description: "Target backend to migrate to (default: github)",
+    required: false,
+    defaultValue: "github",
+  },
+  updateRemote: {
+    schema: z.boolean(),
+    description: "Also update the session workspace git remotes (default: true)",
+    required: false,
+    defaultValue: true,
+  },
+};
+
+/**
  * Session inspect command parameters
  */
 export const sessionInspectCommandParams = {
