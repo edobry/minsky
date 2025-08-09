@@ -48,6 +48,16 @@ export async function sessionStart(
   }
 
   if (!repo) {
+    // Try to use configured default repo backend (github) when repo not given
+    const { getConfiguration } = await import("../../configuration/index");
+    const cfg = getConfiguration();
+    const defaultRepoBackend = cfg.repository?.default_repo_backend;
+
+    if (defaultRepoBackend === "github") {
+      throw new ValidationError(
+        "Repository is required. To default to GitHub, pass --repo <github-url> or set repository.default_repo_backend and provide a remote."
+      );
+    }
     throw new ValidationError("Repository name is required");
   }
 

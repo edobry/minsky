@@ -61,6 +61,8 @@ export interface RepositoryConfig {
   repository?: {
     auto_detect_backend?: boolean;
     detection_rules?: DetectionRule[];
+    /** Default repository backend to use for sessions when ambiguous */
+    default_repo_backend?: "local" | "remote" | "github";
   };
   sessiondb?: {
     backend?: "sqlite" | "postgres";
