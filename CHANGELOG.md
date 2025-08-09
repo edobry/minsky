@@ -2,6 +2,9 @@
   - Detects origin with `git remote get-url origin` from the session workspace
   - Sets `repoUrl` to the detected remote URL and `backendType` to `github`
   - Exposed via shared command registry; available alongside other session management commands
+- fix(config): resolve configuration validation errors
+  - Removed invalid `json` sessiondb backend from default configuration
+  - Fixed undefined `github.token` in defaults that was interfering with user token validation
 
 # Changelog
 
