@@ -621,10 +621,6 @@ Repository: https://github.com/${this.owner}/${this.repo}
       };
     } catch (error) {
       // Enhanced error handling for different types of GitHub API errors
-      console.log(`DEBUG: Full error object:`, error);
-      console.log(`DEBUG: Error message:`, (error as Error).message);
-      console.log(`DEBUG: Error stack:`, (error as Error).stack);
-      
       if (error instanceof Error) {
         const errorMessage = error.message.toLowerCase();
 
