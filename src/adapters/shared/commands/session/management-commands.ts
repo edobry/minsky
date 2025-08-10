@@ -256,11 +256,30 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
       }
     }
 
-    // Update session record to use selected backend and remote URL
-    await sessionDB.updateSession(sessionName, {
+    // Prepare session record updates
+    const sessionUpdates: any = {
       repoUrl: finalTargetUrl,
       backendType: targetBackend,
-    });
+    };
+
+    // Clean up backend-specific artifacts when migrating
+    if (targetBackend === "github") {
+      // Clear local backend artifacts
+      sessionUpdates.prBranch = undefined; // Local backend concept, not used in GitHub
+      sessionUpdates.prState = undefined; // Local git state, GitHub uses pullRequest field
+      
+      // Update repoName to GitHub format (owner/repo)
+      if (gh?.owner && gh?.repo) {
+        sessionUpdates.repoName = `${gh.owner}/${gh.repo}`;
+      }
+    } else if (targetBackend === "local") {
+      // Clear GitHub backend artifacts  
+      sessionUpdates.pullRequest = undefined; // GitHub API data, not used in local
+      sessionUpdates.repoName = "local-minsky"; // Local format
+    }
+
+    // Update session record to use selected backend and remote URL
+    await sessionDB.updateSession(sessionName, sessionUpdates);
 
     return this.createSuccessResult({
       session: sessionName,
