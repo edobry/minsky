@@ -734,6 +734,169 @@ Repository: https://github.com/${this.owner}/${this.repo}
   }
 
   /**
+   * Update an existing GitHub pull request
+   * This method handles updating PR title and/or body without triggering git conflicts
+   */
+  async updatePullRequest(options: {
+    prIdentifier?: string | number;
+    title?: string;
+    body?: string;
+    session?: string;
+  }): Promise<PRInfo> {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to update pull requests");
+    }
+
+    // Get PR number - either from options or derive from session
+    let prNumber: number;
+    if (options.prIdentifier) {
+      prNumber =
+        typeof options.prIdentifier === "string"
+          ? parseInt(options.prIdentifier, 10)
+          : options.prIdentifier;
+      if (isNaN(prNumber)) {
+        throw new MinskyError(`Invalid PR number: ${options.prIdentifier}`);
+      }
+    } else if (options.session) {
+      // Find PR number from session record or GitHub API
+      const sessionRecord = await this.sessionDB.getSession(options.session);
+      if (!sessionRecord) {
+        throw new MinskyError(`Session '${options.session}' not found`);
+      }
+
+      // Try to get PR number from session record first
+      if (sessionRecord.pullRequest?.number) {
+        prNumber =
+          typeof sessionRecord.pullRequest.number === "string"
+            ? parseInt(sessionRecord.pullRequest.number, 10)
+            : sessionRecord.pullRequest.number;
+      } else {
+        // If no PR number in session, try to find it via GitHub API using current git branch
+        try {
+          const { getConfiguration } = require("../configuration/index");
+          const config = getConfiguration();
+          const githubToken = config.github.token;
+          if (!githubToken) {
+            throw new MinskyError("GitHub token required for PR operations");
+          }
+
+          // Get current git branch from the session workspace
+          const sessionWorkdir = await this.sessionDB.getSessionWorkdir(options.session);
+          const { GitService } = require("../git");
+          const gitService = new GitService(this.sessionDB);
+          const currentBranch = (
+            await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
+          ).trim();
+
+          const octokit = new Octokit({ auth: githubToken });
+          const { data: pulls } = await octokit.rest.pulls.list({
+            owner: this.owner,
+            repo: this.repo,
+            head: `${this.owner}:${currentBranch}`,
+            state: "open",
+          });
+
+          if (pulls.length === 0) {
+            throw new MinskyError(`No open PR found for branch '${currentBranch}'`);
+          }
+
+          prNumber = pulls[0].number;
+        } catch (error) {
+          throw new MinskyError(`No PR found for session '${options.session}': ${error.message}`);
+        }
+      }
+    } else {
+      throw new MinskyError("Either prIdentifier or session must be provided");
+    }
+
+    try {
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
+      if (!githubToken) {
+        throw new MinskyError("GitHub token required for PR operations");
+      }
+
+      // Initialize Octokit client
+      const octokit = new Octokit({ auth: githubToken });
+
+      // Prepare update payload - only include fields that are provided
+      const updateData: { title?: string; body?: string } = {};
+      if (options.title !== undefined) {
+        updateData.title = options.title;
+      }
+      if (options.body !== undefined) {
+        updateData.body = options.body;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        throw new MinskyError("At least one field (title or body) must be provided for update");
+      }
+
+      // Update the PR via GitHub API
+      const response = await octokit.rest.pulls.update({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: prNumber,
+        ...updateData,
+      });
+
+      log.debug(`Updated GitHub PR #${prNumber}`, {
+        title: updateData.title,
+        body: updateData.body?.substring(0, 100) + (updateData.body?.length > 100 ? "..." : ""),
+      });
+
+      return {
+        number: response.data.number,
+        url: response.data.html_url,
+        state: response.data.state as "open" | "closed" | "merged",
+        metadata: {
+          owner: this.owner,
+          repo: this.repo,
+          workdir: options.session
+            ? await this.sessionDB.getSessionWorkdir(options.session)
+            : undefined,
+        },
+      };
+    } catch (error) {
+      // Enhanced error handling for PR update operations
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+
+        // Authentication errors (401, 403)
+        if (errorMessage.includes("401") || errorMessage.includes("403")) {
+          throw new MinskyError(
+            `🔐 GitHub Authentication Error\n\n` +
+              `Unable to authenticate with GitHub API.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Verify your GitHub token is valid and not expired\n` +
+              `  • Ensure you have write access to the repository\n` +
+              `  • Check your token permissions include 'repo' scope`
+          );
+        }
+
+        // PR not found (404)
+        if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+          throw new MinskyError(
+            `🔍 Pull Request Not Found\n\n` +
+              `PR #${prNumber} was not found in ${this.owner}/${this.repo}.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Verify the PR number is correct\n` +
+              `  • Check if the PR has been closed or merged\n` +
+              `  • Visit: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}`
+          );
+        }
+      }
+
+      // Fallback for any other errors
+      throw new MinskyError(
+        `Failed to update GitHub pull request: ${getErrorMessage(error as any)}`
+      );
+    }
+  }
+
+  /**
    * Merge a GitHub pull request using the GitHub API
    * This merges the PR using GitHub's default merge strategy
    */

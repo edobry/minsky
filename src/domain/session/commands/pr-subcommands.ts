@@ -73,6 +73,102 @@ export async function sessionPrCreate(
 }
 
 /**
+ * Session PR Edit implementation
+ * Updates an existing PR for a session
+ */
+export async function sessionPrEdit(
+  params: {
+    title?: string;
+    body?: string;
+    bodyPath?: string;
+    name?: string;
+    task?: string;
+    repo?: string;
+    debug?: boolean;
+  },
+  options?: {
+    interface?: "cli" | "mcp";
+    workingDirectory?: string;
+  }
+): Promise<{
+  prBranch: string;
+  baseBranch: string;
+  title?: string;
+  body?: string;
+  pullRequest?: PullRequestInfo;
+  updated: boolean;
+}> {
+  const sessionProvider = createSessionProvider();
+
+  // Resolve session context
+  const resolvedContext = await resolveSessionContextWithFeedback({
+    session: params.name,
+    task: params.task,
+    repo: params.repo,
+    sessionProvider,
+    allowAutoDetection: true,
+  });
+
+  // Check if session has an existing PR
+  const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
+  if (!sessionRecord) {
+    throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+  }
+
+  if (!sessionRecord.prState || !sessionRecord.prBranch) {
+    throw new ValidationError(
+      `No pull request found for session '${resolvedContext.sessionName}'. Use 'session pr create' to create a new PR.`
+    );
+  }
+
+  // If no updates are provided, error
+  if (!params.title && !params.body && !params.bodyPath) {
+    throw new ValidationError(
+      "At least one field must be provided to update: --title, --body, or --body-path"
+    );
+  }
+
+  // For editing, delegate to the repository backend which knows whether conflicts are relevant
+  // GitHub backend: no conflicts needed (server handles it)
+  // Local/Remote backends: may need conflict checking depending on implementation
+
+  // Import the function from the correct location
+  const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
+  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+
+  // Read body from file if bodyPath is provided but body is not
+  let finalBody = params.body;
+  if (params.bodyPath && !params.body) {
+    const fs = await import("fs/promises");
+    try {
+      finalBody = await fs.readFile(params.bodyPath, "utf-8");
+    } catch (error) {
+      throw new ValidationError(`Failed to read PR body from file: ${params.bodyPath}`);
+    }
+  }
+
+  // Use the repository backend's updatePullRequest method
+  const prInfo = await repositoryBackend.updatePullRequest({
+    session: resolvedContext.sessionName,
+    title: params.title,
+    body: finalBody,
+  });
+
+  const result = {
+    prBranch: sessionRecord.prBranch,
+    baseBranch: sessionRecord.baseBranch || "main",
+    title: params.title || sessionRecord.prState?.title,
+    body: finalBody || sessionRecord.prState?.body,
+  };
+
+  return {
+    ...result,
+    pullRequest: undefined, // Will be populated when GitHub API integration is added
+    updated: true,
+  };
+}
+
+/**
  * Session PR List implementation
  * Lists all PRs associated with sessions
  */

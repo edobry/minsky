@@ -13,7 +13,7 @@ import { join } from "path";
  */
 export enum TaskBackend {
   MARKDOWN = "markdown",
-  JSON_FILE = "json-file", 
+  JSON_FILE = "json-file",
   GITHUB_ISSUES = "github-issues",
 }
 
@@ -43,8 +43,6 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
     // Default fallback - prefer markdown for new projects
     return TaskBackend.MARKDOWN;
   }
-
-
 
   /**
    * Check if process/tasks.md exists

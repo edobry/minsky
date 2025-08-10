@@ -576,14 +576,12 @@ export class GitService implements GitServiceInterface {
         command,
         workdir,
       });
-      
+
       // Extract clean error message - avoid verbose output from hooks/linting
       const fullError = getErrorMessage(error as any);
       const cleanError = this.extractCleanGitError(fullError, command);
-      
-      throw new MinskyError(
-        `Failed to execute command in repository: ${cleanError}`
-      );
+
+      throw new MinskyError(`Failed to execute command in repository: ${cleanError}`);
     }
   }
 
@@ -593,19 +591,15 @@ export class GitService implements GitServiceInterface {
    */
   private extractCleanGitError(fullError: string, command: string): string {
     // Look for common git error patterns first
-    const gitErrorPatterns = [
-      /fatal: (.+)/i,
-      /error: (.+)/i,
-      /Command failed: (.+?)(?:\n|$)/i,
-    ];
-    
+    const gitErrorPatterns = [/fatal: (.+)/i, /error: (.+)/i, /Command failed: (.+?)(?:\n|$)/i];
+
     for (const pattern of gitErrorPatterns) {
       const match = fullError.match(pattern);
       if (match && match[1]) {
         return match[1].trim();
       }
     }
-    
+
     // If no pattern matches, extract just the command that failed
     if (fullError.includes("Command failed:")) {
       const commandMatch = fullError.match(/Command failed: (.+?)(?:\s|$)/);
@@ -613,23 +607,25 @@ export class GitService implements GitServiceInterface {
         return commandMatch[1];
       }
     }
-    
+
     // Fallback: return first line that's not hook/linting output
-    const lines = fullError.split('\n');
+    const lines = fullError.split("\n");
     for (const line of lines) {
       const trimmed = line.trim();
-      if (trimmed && 
-          !trimmed.includes('husky') && 
-          !trimmed.includes('eslint') && 
-          !trimmed.includes('prettier') &&
-          !trimmed.includes('gitleaks') &&
-          !trimmed.includes('🔍') &&
-          !trimmed.includes('✅') &&
-          !trimmed.includes('❌')) {
+      if (
+        trimmed &&
+        !trimmed.includes("husky") &&
+        !trimmed.includes("eslint") &&
+        !trimmed.includes("prettier") &&
+        !trimmed.includes("gitleaks") &&
+        !trimmed.includes("🔍") &&
+        !trimmed.includes("✅") &&
+        !trimmed.includes("❌")
+      ) {
         return trimmed;
       }
     }
-    
+
     // Ultimate fallback
     return `Command "${command}" failed`;
   }
