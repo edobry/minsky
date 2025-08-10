@@ -73,6 +73,84 @@ export async function sessionPrCreate(
 }
 
 /**
+ * Session PR Edit implementation
+ * Updates an existing PR for a session
+ */
+export async function sessionPrEdit(
+  params: {
+    title?: string;
+    body?: string;
+    bodyPath?: string;
+    name?: string;
+    task?: string;
+    repo?: string;
+    debug?: boolean;
+  },
+  options?: {
+    interface?: "cli" | "mcp";
+    workingDirectory?: string;
+  }
+): Promise<{
+  prBranch: string;
+  baseBranch: string;
+  title?: string;
+  body?: string;
+  pullRequest?: PullRequestInfo;
+  updated: boolean;
+}> {
+  const sessionProvider = createSessionProvider();
+
+  // Resolve session context
+  const resolvedContext = await resolveSessionContextWithFeedback({
+    session: params.name,
+    task: params.task,
+    repo: params.repo,
+    sessionProvider,
+    allowAutoDetection: true,
+  });
+
+  // Check if session has an existing PR
+  const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
+  if (!sessionRecord) {
+    throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+  }
+
+  if (!sessionRecord.prState || !sessionRecord.prBranch) {
+    throw new ValidationError(
+      `No pull request found for session '${resolvedContext.sessionName}'. Use 'session pr create' to create a new PR.`
+    );
+  }
+
+  // If no updates are provided, error
+  if (!params.title && !params.body && !params.bodyPath) {
+    throw new ValidationError(
+      "At least one field must be provided to update: --title, --body, or --body-path"
+    );
+  }
+
+  // Use existing sessionPr logic but with update mode
+  const result = await sessionPr(
+    {
+      sessionName: resolvedContext.sessionName,
+      title: params.title,
+      body: params.body,
+      bodyPath: params.bodyPath,
+      debug: params.debug || false,
+      noStatusUpdate: true, // Don't update task status for edits
+      skipConflictCheck: false, // Still check for conflicts when editing
+      autoResolveDeleteConflicts: false,
+    },
+    options
+  );
+
+  return {
+    ...result,
+    pullRequest: undefined, // Will be populated when GitHub API integration is added
+    updated: true,
+  };
+}
+
+/**
  * Session PR List implementation
  * Lists all PRs associated with sessions
  */

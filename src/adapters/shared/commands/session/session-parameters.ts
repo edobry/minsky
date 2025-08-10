@@ -332,6 +332,32 @@ export const sessionPrCreateCommandParams = {
 };
 
 /**
+ * Session PR Edit Command Parameters
+ * For editing existing PRs - all fields are optional
+ */
+export const sessionPrEditCommandParams = {
+  title: {
+    schema: z.string(),
+    description: "PR title (to update)",
+    required: false,
+  },
+  body: {
+    schema: z.string(),
+    description: "PR body content (to update)",
+    required: false,
+  },
+  bodyPath: {
+    schema: z.string(),
+    description: "Path to file containing PR body (to update)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  debug: commonSessionParams.debug,
+};
+
+/**
  * Session PR List command parameters
  * Lists all PRs associated with sessions
  */
