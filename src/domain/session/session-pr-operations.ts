@@ -78,11 +78,13 @@ async function createRepositoryBackendFromSession(
   // Add GitHub-specific configuration by parsing from URL
   if (backendType === RepositoryBackendType.GITHUB) {
     const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+    console.log(`DEBUG: sessionRecord.repoUrl=${sessionRecord.repoUrl}, githubInfo=${JSON.stringify(githubInfo)}`);
     if (githubInfo) {
       config.github = {
         owner: githubInfo.owner,
         repo: githubInfo.repo,
       };
+      console.log(`DEBUG: config.github=${JSON.stringify(config.github)}`);
     }
   }
 
