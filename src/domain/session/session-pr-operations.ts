@@ -17,7 +17,10 @@ import {
   updatePrStateOnCreation,
   extractPrDescription,
 } from "./session-update-operations";
-import { createRepositoryBackendForSession } from "./repository-backend-detection";
+import {
+  createRepositoryBackendForSession,
+  extractGitHubInfoFromUrl,
+} from "./repository-backend-detection";
 import {
   createRepositoryBackend,
   RepositoryBackendType,
@@ -72,12 +75,15 @@ async function createRepositoryBackendFromSession(
     repoUrl: sessionRecord.repoUrl,
   };
 
-  // Add GitHub-specific configuration if available
-  if (backendType === RepositoryBackendType.GITHUB && sessionRecord.github) {
-    config.github = {
-      owner: sessionRecord.github.owner || "",
-      repo: sessionRecord.github.repo || "",
-    };
+  // Add GitHub-specific configuration by parsing from URL
+  if (backendType === RepositoryBackendType.GITHUB) {
+    const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+    if (githubInfo) {
+      config.github = {
+        owner: githubInfo.owner,
+        repo: githubInfo.repo,
+      };
+    }
   }
 
   return await createRepositoryBackend(config);

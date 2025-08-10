@@ -551,7 +551,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
-      workdir = this.getSessionWorkdir(session);
+      workdir = await this.sessionDB.getSessionWorkdir(session);
     } else {
       // Use current working directory
       workdir = process.cwd();
