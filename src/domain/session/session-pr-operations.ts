@@ -17,7 +17,10 @@ import {
   updatePrStateOnCreation,
   extractPrDescription,
 } from "./session-update-operations";
-import { createRepositoryBackendForSession, extractGitHubInfoFromUrl } from "./repository-backend-detection";
+import {
+  createRepositoryBackendForSession,
+  extractGitHubInfoFromUrl,
+} from "./repository-backend-detection";
 import {
   createRepositoryBackend,
   RepositoryBackendType,
