@@ -603,7 +603,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       log.cli(`🔗 GitHub PR: ${pr.html_url}`);
       log.cli(`📝 PR #${pr.number}: ${title}`);
 
-      return {
+      const prInfo = {
         number: pr.number,
         url: pr.html_url,
         state: pr.state as "open" | "closed" | "merged",
@@ -619,6 +619,34 @@ Repository: https://github.com/${this.owner}/${this.repo}
           workdir,
         },
       };
+
+      // Update session record with PR information if session is provided
+      if (session) {
+        try {
+          const sessionRecord = await this.sessionDB.getSession(session);
+          if (sessionRecord) {
+            // Update the session record with PR info (GitHub backend doesn't use prBranch)
+            const updatedSession = {
+              ...sessionRecord,
+              pullRequest: {
+                number: pr.number,
+                url: pr.html_url,
+                state: pr.state,
+                id: pr.id,
+                created_at: pr.created_at,
+                updated_at: pr.updated_at,
+              },
+            };
+            await this.sessionDB.updateSession(session, updatedSession);
+            log.debug(`Updated session record for ${session} with PR #${pr.number}`);
+          }
+        } catch (error) {
+          // Don't fail the PR creation if session update fails, just log it
+          log.debug(`Failed to update session record with PR info: ${error}`);
+        }
+      }
+
+      return prInfo;
     } catch (error) {
       // Enhanced error handling for different types of GitHub API errors
       if (error instanceof Error) {
