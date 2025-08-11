@@ -668,8 +668,12 @@
 
 - [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
-- [ ] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+- [ ] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [ ] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
+- [ ] Final test of the complete fix [#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
 
-- [ ] Extract Shared Database Service for Sessions, Tasks, and Embeddings [md#407](process/tasks/md#407-extract-shared-db-service-for-sessions-and-tasks.md)
+- [ ] Extract Shared Database Service for Sessions, Tasks, and Embeddings [#407](process/tasks/md#407-extract-shared-db-service-for-sessions-and-tasks.md)
+
+- [ ] Implement GitHub repository quality guardrails configuration [#408](process/tasks/md#408-implement-github-repository-quality-guardrails-configuration.md)
+
+- [ ] Implement session pr open command for GitHub backend [md#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
