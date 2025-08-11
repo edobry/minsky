@@ -205,6 +205,44 @@ export async function mergeSessionPr(
   const hasLocalPr = sessionRecord.prBranch;
   const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
 
+  // For GitHub backend, check approval status via API before proceeding
+  if (hasGitHubPr && sessionRecord.pullRequest) {
+    if (!params.json) {
+      log.cli(`🔍 Checking GitHub PR approval status...`);
+    }
+
+    try {
+      const approvalStatus = await repositoryBackend.getPullRequestApprovalStatus(
+        sessionRecord.pullRequest.number
+      );
+
+      if (!approvalStatus.isApproved) {
+        throw new ValidationError(
+          `❌ MERGE REJECTED: GitHub PR #${sessionRecord.pullRequest.number} is not approved.\n\n` +
+            `📊 Approval Status:\n` +
+            `   • Required approvals: ${approvalStatus.requiredApprovals}\n` +
+            `   • Current approvals: ${approvalStatus.approvals.length}\n` +
+            `   • Can merge: ${approvalStatus.canMerge}\n\n` +
+            `💡 Next steps:\n` +
+            `   1. View the PR: ${sessionRecord.pullRequest.url}\n` +
+            `   2. Request review from a maintainer\n` +
+            `   3. Address any review feedback\n` +
+            `   4. Try merge again once approved`
+        );
+      }
+
+      if (!params.json) {
+        log.cli(`✅ GitHub PR #${sessionRecord.pullRequest.number} is approved and ready to merge`);
+      }
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw error; // Re-throw our validation errors
+      }
+      // Log but don't fail on API errors - let GitHub's merge API handle the final validation
+      log.debug(`Failed to check GitHub approval status: ${error}. Proceeding with merge attempt.`);
+    }
+  }
+
   // Merge the approved PR using repository backend
   // Determine PR identifier based on backend
   let prIdentifier: string | number | undefined = sessionRecord.prBranch;

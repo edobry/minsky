@@ -156,15 +156,19 @@ export async function approveSessionPr(
     );
   }
 
-  // Validate session has a PR branch
-  if (!sessionRecord.prBranch) {
+  // Validate session has a PR (either local prBranch or GitHub pullRequest)
+  const hasLocalPr = sessionRecord.prBranch;
+  const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
+
+  if (!hasLocalPr && !hasGitHubPr) {
     throw new ValidationError(
       `Session "${sessionNameToUse}" has no PR branch. Create a PR first with 'minsky session pr'`
     );
   }
 
-  // Check if already approved
-  if (sessionRecord.prApproved) {
+  // Check if already approved (local backend only)
+  // For GitHub backend, we delegate approval checking to the repository backend
+  if (hasLocalPr && sessionRecord.prApproved) {
     if (!params.json) {
       log.cli("ℹ️  Session PR is already approved");
     }
