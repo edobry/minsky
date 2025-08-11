@@ -201,6 +201,10 @@ export async function mergeSessionPr(
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for merge`);
   }
 
+  // Re-check PR existence for merge operation
+  const hasLocalPr = sessionRecord.prBranch;
+  const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
+
   // Merge the approved PR using repository backend
   // Determine PR identifier based on backend
   let prIdentifier: string | number | undefined = sessionRecord.prBranch;
