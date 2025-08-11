@@ -39,7 +39,7 @@ export interface SessionPrDependencies {
  * Create repository backend from session record's stored configuration
  * instead of auto-detecting from git remote
  */
-async function createRepositoryBackendFromSession(
+export async function createRepositoryBackendFromSession(
   sessionRecord: SessionRecord
 ): Promise<RepositoryBackend> {
   // Determine backend type from session configuration

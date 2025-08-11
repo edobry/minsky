@@ -236,6 +236,19 @@ export interface RepositoryBackend {
   ): Promise<PRInfo>;
 
   /**
+   * Update an existing pull request
+   *
+   * @param options - Update options including prIdentifier, title, body, session
+   * @returns Promise<PRInfo> - Information about the updated PR
+   */
+  updatePullRequest(options: {
+    prIdentifier?: string | number;
+    title?: string;
+    body?: string;
+    session?: string;
+  }): Promise<PRInfo>;
+
+  /**
    * Merge a pull request into the base branch
    *
    * @param prIdentifier - PR number/ID or branch name depending on backend

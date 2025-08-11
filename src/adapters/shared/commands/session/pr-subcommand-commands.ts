@@ -6,7 +6,12 @@
 import { z } from "zod";
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
-import { MinskyError, SessionConflictError, ValidationError, getErrorMessage } from "../../../../errors/index";
+import {
+  MinskyError,
+  SessionConflictError,
+  ValidationError,
+  getErrorMessage,
+} from "../../../../errors/index";
 import {
   sessionPrCreateCommandParams,
   sessionPrEditCommandParams,
