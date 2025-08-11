@@ -29,7 +29,7 @@
     "@types/bun": "^1.2.11",
     "@types/jest": "^29.5.14",
     "@types/js-yaml": "^4.0.9",
-    "@types/node": "^22.15.17",
+    "@types/node": "^24.2.1",
     "@types/pg": "^8.15.4",
     "@typescript-eslint/eslint-plugin": "^8.34.1",
     "@typescript-eslint/parser": "^8.34.1",
