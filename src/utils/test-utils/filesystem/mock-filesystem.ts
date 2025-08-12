@@ -257,6 +257,38 @@ export function createMockFilesystem(
     },
   };
 
+  // Provide grouped fs and fs/promises objects for mock.module compatibility
+  (mockFs as any).fs = {
+    existsSync: mockFs.existsSync,
+    readFileSync: mockFs.readFileSync,
+    writeFileSync: mockFs.writeFileSync,
+    mkdirSync: mockFs.mkdirSync,
+    statSync: mockFs.statSync,
+    readdirSync: mockFs.readdirSync,
+  };
+  (mockFs as any).fsPromises = {
+    readFile: mockFs.readFile,
+    writeFile: mockFs.writeFile,
+    mkdir: mockFs.mkdir,
+    readdir: mockFs.readdir,
+    mkdtemp: mockFs.mkdtemp,
+    access: mockFs.access,
+    rm: mockFs.rm,
+  };
+
+  // Convenience synchronous helpers to align with legacy test usage
+  (mockFs as any).exists = (path: string) => mockFs.existsSync(path);
+  (mockFs as any).readFile = (path: string) => {
+    // Return string content synchronously
+    return (mockFs.readFileSync as any)(path, "utf8");
+  };
+  (mockFs as any).writeFile = (path: string, data: string) => {
+    (mockFs.writeFileSync as any)(path, data);
+  };
+  (mockFs as any).mkdir = (path: string, options?: { recursive?: boolean }) => {
+    (mockFs.mkdirSync as any)(path, options);
+  };
+
   return mockFs;
 }
 
