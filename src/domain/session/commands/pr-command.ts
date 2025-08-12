@@ -116,19 +116,33 @@ export async function sessionPr(
       options
     );
 
-    // Get the commit hash of the prepared merge commit
-    const commitHashResult = await gitService.execInRepository(
-      workdir,
-      `git rev-parse pr/${resolvedContext.sessionName}`
-    );
-    const commitHash = commitHashResult.trim();
+    // For GitHub backend, we don't use pr/ branches - work directly with session branch
+    let commitHash = "";
+    let prBranchName = result.prBranch;
+
+    // Only get commit hash from pr/ branch for local/remote backends
+    if (sessionRecord.backendType !== "github") {
+      const commitHashResult = await gitService.execInRepository(
+        workdir,
+        `git rev-parse pr/${resolvedContext.sessionName}`
+      );
+      commitHash = commitHashResult.trim();
+    } else {
+      // For GitHub backend, use the session branch commit hash
+      const commitHashResult = await gitService.execInRepository(
+        workdir,
+        `git rev-parse HEAD`
+      );
+      commitHash = commitHashResult.trim();
+      prBranchName = resolvedContext.sessionName; // GitHub PRs use session branch directly
+    }
 
     // Update session record with PR state
     await sessionDB.updateSession(resolvedContext.sessionName, {
       ...sessionRecord,
-      prBranch: result.prBranch, // Set prBranch field for approval validation
+      prBranch: prBranchName, // Set prBranch field for approval validation
       prState: {
-        branchName: result.prBranch,
+        branchName: prBranchName,
         commitHash: commitHash,
         lastChecked: new Date().toISOString(),
         createdAt: new Date().toISOString(),
