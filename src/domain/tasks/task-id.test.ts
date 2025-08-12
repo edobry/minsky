@@ -157,14 +157,9 @@ describe("Session/Branch Conversion", () => {
       expect(taskIdToSessionName("json#789")).toBe("task-json#789");
     });
 
-    it("should handle legacy unqualified IDs (assume markdown)", () => {
-      expect(taskIdToSessionName("123")).toBe("task-md#123");
-      expect(taskIdToSessionName("456")).toBe("task-md#456");
-    });
-
-    it("should handle legacy task#123 format", () => {
-      expect(taskIdToSessionName("task#123")).toBe("task-md#123");
-      expect(taskIdToSessionName("#456")).toBe("task-md#456");
+    it("should return unqualified IDs as-is", () => {
+      expect(taskIdToSessionName("123")).toBe("123");
+      expect(taskIdToSessionName("456")).toBe("456");
     });
 
     it("should handle complex local IDs", () => {
@@ -177,10 +172,6 @@ describe("Session/Branch Conversion", () => {
       expect(sessionNameToTaskId("task-md#123")).toBe("md#123");
       expect(sessionNameToTaskId("task-gh#456")).toBe("gh#456");
       expect(sessionNameToTaskId("task-json#789")).toBe("json#789");
-    });
-
-    it("should handle legacy task#123 format", () => {
-      expect(sessionNameToTaskId("task#123")).toBe("md#123");
     });
 
     it("should handle complex local IDs", () => {
@@ -197,81 +188,6 @@ describe("Session/Branch Conversion", () => {
         const backToTaskId = sessionNameToTaskId(sessionName);
         expect(backToTaskId).toBe(taskId);
       }
-    });
-
-    it("should handle legacy IDs through round-trip", () => {
-      // Legacy IDs get migrated to md backend
-      expect(sessionNameToTaskId(taskIdToSessionName("123"))).toBe("md#123");
-      expect(sessionNameToTaskId(taskIdToSessionName("task#456"))).toBe("md#456");
-    });
-  });
-});
-
-describe("Migration and Legacy Support", () => {
-  describe("migrateUnqualifiedTaskId", () => {
-    it("should migrate plain numeric IDs to markdown backend", () => {
-      expect(migrateUnqualifiedTaskId("123")).toBe("md#123");
-      expect(migrateUnqualifiedTaskId("456")).toBe("md#456");
-    });
-
-    it("should migrate task#123 format to markdown backend", () => {
-      expect(migrateUnqualifiedTaskId("task#123")).toBe("md#123");
-      expect(migrateUnqualifiedTaskId("#456")).toBe("md#456");
-    });
-
-    it("should use custom backend for migration", () => {
-      expect(migrateUnqualifiedTaskId("123", "gh")).toBe("gh#123");
-      expect(migrateUnqualifiedTaskId("456", "json")).toBe("json#456");
-    });
-
-    it("should leave qualified IDs unchanged", () => {
-      expect(migrateUnqualifiedTaskId("md#123")).toBe("md#123");
-      expect(migrateUnqualifiedTaskId("gh#456")).toBe("gh#456");
-    });
-
-    it("should return unparseable IDs as-is", () => {
-      expect(migrateUnqualifiedTaskId("invalid")).toBe("invalid");
-      expect(migrateUnqualifiedTaskId("")).toBe("");
-    });
-  });
-
-  describe("isLegacyTaskId", () => {
-    it("should detect legacy numeric IDs", () => {
-      expect(isLegacyTaskId("123")).toBe(true);
-      expect(isLegacyTaskId("456")).toBe(true);
-      expect(isLegacyTaskId("0")).toBe(true);
-    });
-
-    it("should detect legacy task#123 format", () => {
-      expect(isLegacyTaskId("task#123")).toBe(true);
-      expect(isLegacyTaskId("task#456")).toBe(true);
-    });
-
-    it("should not detect qualified IDs as legacy", () => {
-      expect(isLegacyTaskId("md#123")).toBe(false);
-      expect(isLegacyTaskId("gh#456")).toBe(false);
-    });
-
-    it("should not detect invalid formats as legacy", () => {
-      expect(isLegacyTaskId("invalid")).toBe(false);
-      expect(isLegacyTaskId("")).toBe(false);
-      expect(isLegacyTaskId("123abc")).toBe(false);
-    });
-  });
-
-  describe("normalizeLegacyTaskId", () => {
-    it("should normalize legacy IDs to qualified format", () => {
-      expect(normalizeLegacyTaskId("123")).toBe("md#123");
-      expect(normalizeLegacyTaskId("task#456")).toBe("md#456");
-    });
-
-    it("should leave qualified IDs unchanged", () => {
-      expect(normalizeLegacyTaskId("md#123")).toBe("md#123");
-      expect(normalizeLegacyTaskId("gh#456")).toBe("gh#456");
-    });
-
-    it("should use custom backend for normalization", () => {
-      expect(normalizeLegacyTaskId("123", "gh")).toBe("gh#123");
     });
   });
 });

@@ -60,14 +60,11 @@ export class SessionDbAdapter implements SessionProviderInterface {
           dbPath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined,
         };
       } else if (storageConfig.backend === "postgres") {
+        // Use the effective configuration (handles both new nested and legacy flat structure)
+        const connectionString =
+          sessionDbConfig.postgres?.connectionString || sessionDbConfig.connectionString;
         storageConfig.postgres = {
-          connectionUrl: sessionDbConfig.connectionString,
-        };
-      } else if (storageConfig.backend === "json") {
-        storageConfig.json = {
-          filePath: sessionDbConfig.filePath
-            ? this.expandPath(sessionDbConfig.filePath)
-            : undefined,
+          connectionString: connectionString,
         };
       }
 

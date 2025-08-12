@@ -35,97 +35,72 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 export const normalizeTaskIdForStorage = validateQualifiedTaskId;
 
 /**
- * Format task ID for display - STRICT OUT
- * Expects qualified format from storage, returns qualified format for display
+ * Format task ID for display (no-op since input === output)
  *
- * @param storageId Qualified task ID from storage (e.g., "md#356", "gh#123")
- * @returns Qualified task ID for display (same as storage - qualified format)
+ * @param taskId Qualified task ID (e.g., "md#356", "gh#123")
+ * @returns Same qualified task ID (no transformation needed)
  */
-export function formatTaskIdForDisplay(storageId: string): string {
-  if (!storageId || typeof storageId !== "string") {
+export function formatTaskIdForDisplay(taskId: string): string {
+  if (!taskId || typeof taskId !== "string") {
     return "";
   }
-  return /^[a-z-]+#\d+$/.test(storageId) ? storageId : "";
+  // No transformation needed - qualified format is the display format
+  return validateQualifiedTaskId(taskId) || "";
 }
 
 /**
- * Check if a task ID is in the correct internal format (qualified: md#123, gh#456)
+ * Check if a task ID is in qualified format (md#123, gh#456)
  *
  * @param taskId Task ID to check
  * @returns True if in qualified format, false otherwise
  */
-export function isStorageFormat(taskId: string): boolean {
-  if (!taskId || typeof taskId !== "string") {
-    return false;
-  }
-
-  // STRICT OUT: Storage format is qualified format (md#123, gh#456)
-  return /^[a-z-]+#\d+$/.test(taskId.trim());
+export function isQualifiedFormat(taskId: string): boolean {
+  return validateQualifiedTaskId(taskId) !== null;
 }
 
-/**
- * Check if a task ID is in the correct display format (qualified: md#123, gh#456)
- * Note: With "strict out", display format equals storage format
- *
- * @param taskId Task ID to check
- * @returns True if in qualified format, false otherwise
- */
-export function isDisplayFormat(taskId: string): boolean {
-  // With strict out approach, display format = storage format = qualified format
-  return isStorageFormat(taskId);
-}
+// Backward compatibility aliases
+export const isStorageFormat = isQualifiedFormat;
+export const isDisplayFormat = isQualifiedFormat;
 
 /**
- * Convert task ID to qualified format (PERMISSIVE IN, STRICT OUT)
- * Both "storage" and "display" now return the same qualified format
+ * Validate task ID (no conversion needed since input === output)
  *
- * @param taskId Task ID in any input format
- * @param targetFormat Target format ("storage" or "display") - both return qualified format
- * @returns Qualified task ID (md#123) or null if invalid
+ * @param taskId Task ID in qualified format only
+ * @param targetFormat Target format (ignored - both return same qualified format)
+ * @returns Same qualified task ID or null if invalid
  */
 export function convertTaskIdFormat(
   taskId: string,
   targetFormat: "storage" | "display"
 ): string | null {
-  if (!taskId || typeof taskId !== "string") {
-    return null;
-  }
-
-  // Both storage and display formats are now qualified format
-  const qualifiedId = validateQualifiedTaskId(taskId);
-
-  if (targetFormat === "storage") {
-    return qualifiedId;
-  } else {
-    // Display format is the same as storage format (qualified)
-    return qualifiedId ? formatTaskIdForDisplay(qualifiedId) : null;
-  }
+  // No conversion needed - just validate
+  return validateQualifiedTaskId(taskId);
 }
 
 /**
- * Validate task ID input (accepts both formats)
+ * Validate task ID input (accepts only qualified format)
  *
  * @param userInput Task ID from user input
- * @returns True if valid task ID in either format
+ * @returns True if valid qualified task ID
  */
 export function isValidTaskIdInput(userInput: string): boolean {
   return validateQualifiedTaskId(userInput) !== null;
 }
 
 /**
- * Extract numeric value from task ID (accepts any input format)
+ * Extract numeric value from qualified task ID
  *
- * @param taskId Task ID in any format (accepts legacy #123, md#123, etc.)
+ * @param taskId Task ID in qualified format (md#123, gh#456, etc.)
  * @returns Numeric value or null if invalid
  */
 export function getTaskIdNumber(taskId: string): number | null {
-  const qualifiedId = validateQualifiedTaskId(taskId);
-  if (!qualifiedId) {
+  const validated = validateQualifiedTaskId(taskId);
+  if (!validated) {
     return null;
   }
 
   // Extract number from qualified format (md#123 -> 123)
-  const match = qualifiedId.match(/^[a-z-]+#(\d+)$/);
+  const match = validated.match(/^[a-z-]+#(\d+)$/);
   if (!match) {
     return null;
   }

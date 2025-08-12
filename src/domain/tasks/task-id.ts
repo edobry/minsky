@@ -77,23 +77,6 @@ export function taskIdToSessionName(taskId: string): string {
     return `task-${taskId}`;
   }
 
-  // Handle legacy task#123 format first
-  const legacyTaskMatch = taskId.match(/^task#(\d+)$/);
-  if (legacyTaskMatch && legacyTaskMatch[1]) {
-    return `task-md#${legacyTaskMatch[1]}`;
-  }
-
-  // Handle legacy unqualified IDs - assume markdown backend
-  if (/^\d+$/.test(taskId)) {
-    return `task-md#${taskId}`;
-  }
-
-  // Handle legacy #123 format
-  const legacyHashMatch = taskId.match(/^#(\d+)$/);
-  if (legacyHashMatch && legacyHashMatch[1]) {
-    return `task-md#${legacyHashMatch[1]}`;
-  }
-
   return taskId; // Return as-is if unparseable
 }
 
@@ -102,12 +85,6 @@ export function sessionNameToTaskId(sessionName: string): string {
   const match = sessionName.match(/^task-(.+)$/);
   if (match && match[1]) {
     return match[1];
-  }
-
-  // Handle legacy task#123 format
-  const legacyMatch = sessionName.match(/^task#(\d+)$/);
-  if (legacyMatch && legacyMatch[1]) {
-    return `md#${legacyMatch[1]}`;
   }
 
   return sessionName; // Return as-is if unparseable

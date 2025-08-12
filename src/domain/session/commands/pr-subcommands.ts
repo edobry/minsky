@@ -73,6 +73,110 @@ export async function sessionPrCreate(
 }
 
 /**
+ * Session PR Edit implementation
+ * Updates an existing PR for a session
+ */
+export async function sessionPrEdit(
+  params: {
+    title?: string;
+    body?: string;
+    bodyPath?: string;
+    name?: string;
+    task?: string;
+    repo?: string;
+    debug?: boolean;
+  },
+  options?: {
+    interface?: "cli" | "mcp";
+    workingDirectory?: string;
+  }
+): Promise<{
+  prBranch: string;
+  baseBranch: string;
+  title?: string;
+  body?: string;
+  pullRequest?: PullRequestInfo;
+  updated: boolean;
+}> {
+  const sessionProvider = createSessionProvider();
+
+  // Resolve session context
+  const resolvedContext = await resolveSessionContextWithFeedback({
+    session: params.name,
+    task: params.task,
+    repo: params.repo,
+    sessionProvider,
+    allowAutoDetection: true,
+  });
+
+  // Check if session has an existing PR
+  const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
+  if (!sessionRecord) {
+    throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+  }
+
+  // Check for PR existence based on backend type
+  const hasLocalPr = sessionRecord.prState && sessionRecord.prBranch;
+  const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
+
+  console.log(
+    `Debug: hasLocalPr=${hasLocalPr}, hasGitHubPr=${hasGitHubPr}, backendType=${sessionRecord.backendType}`
+  );
+
+  if (!hasLocalPr && !hasGitHubPr) {
+    throw new ValidationError(
+      `No pull request found for session '${resolvedContext.sessionName}'. Use 'session pr create' to create a new PR.`
+    );
+  }
+
+  // If no updates are provided, error
+  if (!params.title && !params.body && !params.bodyPath) {
+    throw new ValidationError(
+      "At least one field must be provided to update: --title, --body, or --body-path"
+    );
+  }
+
+  // For editing, delegate to the repository backend which knows whether conflicts are relevant
+  // GitHub backend: no conflicts needed (server handles it)
+  // Local/Remote backends: may need conflict checking depending on implementation
+
+  // Import the function from the correct location
+  const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
+  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+
+  // Read body from file if bodyPath is provided but body is not
+  let finalBody = params.body;
+  if (params.bodyPath && !params.body) {
+    const fs = await import("fs/promises");
+    try {
+      finalBody = await fs.readFile(params.bodyPath, "utf-8");
+    } catch (error) {
+      throw new ValidationError(`Failed to read PR body from file: ${params.bodyPath}`);
+    }
+  }
+
+  // Use the repository backend's updatePullRequest method
+  const prInfo = await repositoryBackend.updatePullRequest({
+    session: resolvedContext.sessionName,
+    title: params.title,
+    body: finalBody,
+  });
+
+  const result = {
+    prBranch: sessionRecord.prBranch,
+    baseBranch: sessionRecord.baseBranch || "main",
+    title: params.title || sessionRecord.prState?.title,
+    body: finalBody || sessionRecord.prState?.body,
+  };
+
+  return {
+    ...result,
+    pullRequest: undefined, // Will be populated when GitHub API integration is added
+    updated: true,
+  };
+}
+
+/**
  * Session PR List implementation
  * Lists all PRs associated with sessions
  */
@@ -206,35 +310,127 @@ export async function sessionPrGet(params: {
     const pr = sessionRecord.pullRequest;
     const prState = sessionRecord.prState;
 
-    if (!pr && !prState?.commitHash) {
+    let finalPullRequest = pr;
+    let currentBranch = "";
+
+    // If no PR data in session record, try to discover and repair from GitHub API
+    if (!pr && sessionRecord.backendType === "github") {
+      log.info(
+        `No GitHub PR data in session record for ${resolvedContext.sessionName}, querying GitHub API for repair...`
+      );
+
+      try {
+        // Use the repository backend to query GitHub
+        const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
+        const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+
+        // Query GitHub API to find PR by current branch
+        const { GitService } = require("../../git");
+        const gitService = new GitService(sessionDB);
+        const sessionWorkdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+        currentBranch = (
+          await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
+        ).trim();
+
+        // Try to find PR using GitHub backend's API
+        const { getConfiguration } = require("../../configuration/index");
+        const { Octokit } = require("@octokit/rest");
+
+        const config = getConfiguration();
+        const githubToken = config.github.token;
+        if (!githubToken) {
+          throw new Error("GitHub token required");
+        }
+
+        const octokit = new Octokit({ auth: githubToken });
+
+        // Extract owner/repo from session record
+        const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
+        const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+        if (!githubInfo) {
+          throw new Error(`Could not extract GitHub info from URL: ${sessionRecord.repoUrl}`);
+        }
+        const { owner, repo } = githubInfo;
+
+        // Query GitHub for PRs from this branch
+        const { data: pulls } = await octokit.rest.pulls.list({
+          owner,
+          repo,
+          head: `${owner}:${currentBranch}`,
+          state: "all", // Include open, closed, merged
+        });
+
+        if (pulls.length > 0) {
+          // Found a PR! Repair the session record
+          const githubPr = pulls[0]; // Take the first (most recent)
+          const repairedPrData = {
+            number: githubPr.number,
+            url: githubPr.html_url,
+            state: githubPr.state,
+            id: githubPr.id,
+            created_at: githubPr.created_at,
+            updated_at: githubPr.updated_at,
+            title: githubPr.title,
+            body: githubPr.body || undefined,
+          };
+
+          // Update session record with discovered PR data
+          const updatedSession = {
+            ...sessionRecord,
+            pullRequest: repairedPrData,
+          };
+          await sessionDB.updateSession(resolvedContext.sessionName, updatedSession);
+
+          log.info(`✅ Repaired session record with PR #${githubPr.number} from GitHub API`);
+          finalPullRequest = repairedPrData;
+        }
+      } catch (repairError) {
+        log.debug(`GitHub API repair failed: ${getErrorMessage(repairError)}`);
+        // Continue with original no-PR-found logic below
+      }
+    }
+
+    // If still no PR data after repair attempt, throw error
+    if (!finalPullRequest && !prState?.commitHash) {
       throw new ResourceNotFoundError(
         `No pull request found for session '${resolvedContext.sessionName}'. ` +
           `Use 'minsky session pr create' to create a PR first.`
       );
     }
 
-    // Build PR information from available data
+    // For GitHub backend, get the actual git branch if we don't have it yet
+    if (!currentBranch && sessionRecord.backendType === "github") {
+      try {
+        const { GitService } = require("../../git");
+        const gitService = new GitService(sessionDB);
+        const sessionWorkdir = await sessionDB.getSessionWorkdir(resolvedContext.sessionName);
+        currentBranch = (
+          await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
+        ).trim();
+      } catch (error) {
+        log.debug(`Could not get current branch: ${getErrorMessage(error)}`);
+      }
+    }
+
+    // Build PR information from available data (either original or repaired)
     const pullRequest = {
-      number: pr?.number,
-      title: pr?.title || `PR for ${sessionRecord.session}`,
+      number: finalPullRequest?.number,
+      title: finalPullRequest?.title || `PR for ${sessionRecord.session}`,
       sessionName: sessionRecord.session,
       taskId: sessionRecord.taskId,
-      branch: prState?.branchName || pr?.headBranch || `pr/${sessionRecord.session}`,
-      status: pr?.state || (prState?.commitHash ? "created" : "not_found"),
-      url: pr?.url,
-      createdAt: pr?.createdAt || prState?.createdAt,
-      updatedAt: pr?.updatedAt || prState?.lastChecked,
-      description: pr?.body,
-      author: pr?.github?.author,
-      filesChanged: pr?.filesChanged,
-      commits: pr?.commits,
+      branch:
+        sessionRecord.backendType === "github"
+          ? currentBranch || finalPullRequest?.headBranch || sessionRecord.session
+          : prState?.branchName || `pr/${sessionRecord.session}`,
+      status: finalPullRequest?.state || (prState?.commitHash ? "created" : "not_found"),
+      url: finalPullRequest?.url,
+      createdAt: finalPullRequest?.created_at || prState?.createdAt,
+      updatedAt: finalPullRequest?.updated_at || prState?.lastChecked,
+      description: finalPullRequest?.body,
+      author: finalPullRequest?.github?.author,
+      filesChanged: finalPullRequest?.filesChanged,
+      commits: finalPullRequest?.commits,
     };
-
-    // TODO: If content is requested and we don't have cached data,
-    // we should fetch from GitHub API in future implementation
-    if (params.content && !pullRequest.description) {
-      log.info("Content requested but not available in cache. GitHub API integration needed.");
-    }
 
     return { pullRequest };
   } catch (error) {

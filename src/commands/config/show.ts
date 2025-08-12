@@ -8,6 +8,7 @@ import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
 import { getConfiguration } from "../../domain/configuration";
 import { DefaultCredentialResolver } from "../../domain/configuration/credential-resolver";
+import { TaskBackend } from "../../domain/configuration/backend-detection";
 
 interface ShowOptions {
   json?: boolean;
@@ -124,15 +125,13 @@ async function displayTaskStorageConfig(resolved: any) {
 async function displaySessionStorageConfig(resolved: any) {
   await Bun.write(Bun.stdout, "💾 SESSION STORAGE\n");
   if (resolved.sessiondb) {
-    const sessionBackend = resolved.sessiondb.backend || "json";
+    const sessionBackend = resolved.sessiondb.backend || "sqlite";
     await Bun.write(Bun.stdout, `   Backend: ${getSessionBackendDisplayName(sessionBackend)}\n`);
 
     if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
       await Bun.write(Bun.stdout, `   Database Path: ${resolved.sessiondb.dbPath}\n`);
     } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
       await Bun.write(Bun.stdout, `   Connection: ${"*".repeat(20)} (configured)\n`);
-    } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
-      await Bun.write(Bun.stdout, `   Directory: ${resolved.sessiondb.baseDir}\n`);
     }
   }
   await Bun.write(Bun.stdout, "\n");
@@ -274,11 +273,11 @@ async function displayBackendConfig(resolved: any) {
 
 function getBackendDisplayName(backend: string): string {
   switch (backend) {
-    case "markdown":
+    case TaskBackend.MARKDOWN:
       return "Markdown files (process/tasks.md)";
-    case "json-file":
+    case TaskBackend.JSON_FILE:
       return "JSON files";
-    case "github-issues":
+    case TaskBackend.GITHUB_ISSUES:
       return "GitHub Issues";
     default:
       return backend;

@@ -317,6 +317,57 @@ export class LocalGitBackend implements RepositoryBackend {
   }
 
   /**
+   * Update an existing pull request (local backend)
+   * For local repositories, we treat the PR as a branch update
+   */
+  async updatePullRequest(options: {
+    prIdentifier?: string | number;
+    title?: string;
+    body?: string;
+    session?: string;
+  }): Promise<PRInfo> {
+    // For local repositories, updating a PR means updating the prepared merge commit
+    // This might involve git operations, so we keep the existing sessionPr workflow
+    // but with update semantics
+
+    if (!options.session) {
+      throw new MinskyError("Session is required for local repository PR updates");
+    }
+
+    const sessionRecord = await this.sessionDB.getSession(options.session);
+    if (!sessionRecord?.prBranch) {
+      throw new MinskyError(`No PR found for session '${options.session}'`);
+    }
+
+    // For local repos, we might need to recreate the prepared merge commit with new metadata
+    // This is more complex and may involve conflicts, so we delegate to the existing workflow
+    const { sessionPr } = await import("../session/commands/pr-command");
+
+    const result = await sessionPr(
+      {
+        sessionName: options.session,
+        title: options.title,
+        body: options.body,
+        // For local backend updates, we still might need conflict checking
+        skipConflictCheck: false,
+        noStatusUpdate: true,
+        autoResolveDeleteConflicts: false,
+      },
+      { interface: "cli" }
+    );
+
+    return {
+      number: sessionRecord.prBranch || "unknown",
+      url: sessionRecord.prBranch || "local",
+      state: "open",
+      metadata: {
+        backend: "local",
+        workdir: this.getSessionWorkdir(options.session),
+      },
+    };
+  }
+
+  /**
    * Merge a pull request using the prepared merge commit workflow
    * This merges the PR branch into the base branch
    */

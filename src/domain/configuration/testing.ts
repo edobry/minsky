@@ -26,7 +26,7 @@ export class TestConfigurationBuilder {
   /**
    * Set session database configuration
    */
-  sessionDb(backend: "json" | "sqlite" | "postgres", options?: any): this {
+  sessionDb(backend: "sqlite" | "postgres", options?: any): this {
     this.config.sessiondb = {
       backend,
       ...options,
@@ -229,7 +229,7 @@ export const testConfigurations = {
   testing(): PartialConfiguration {
     return new TestConfigurationBuilder()
       .backend("json-file")
-      .sessionDb("json", { json: { baseDir: "/tmp/test" } })
+      .sessionDb("sqlite", { sqlite: { path: "/tmp/test.db" } })
       .logger({ level: "warn", mode: "auto" })
       .build();
   },
@@ -333,7 +333,7 @@ export const testEnvironmentVariables = {
       MINSKY_LOG_LEVEL: "silent",
       MINSKY_LOG_MODE: "test",
       MINSKY_BACKEND: "json-file",
-      MINSKY_SESSIONDB_BACKEND: "json",
+      MINSKY_SESSIONDB_BACKEND: "sqlite",
     });
   },
 };

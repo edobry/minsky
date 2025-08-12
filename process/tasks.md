@@ -670,4 +670,4 @@
 
 - [ ] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [+] Remove JSON sessiondb backend entirely from codebase [md#402](process/tasks/md#402-remove-json-sessiondb-backend-entirely-from-codebase.md)
+ - [+] Remove JSON sessiondb backend entirely from codebase [md#402](process/tasks/md#402-remove-json-sessiondb-backend-entirely-from-codebase.md)

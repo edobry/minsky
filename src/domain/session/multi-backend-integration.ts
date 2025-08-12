@@ -13,8 +13,6 @@ import {
 export interface MultiBackendSessionRecord extends SessionRecord {
   /** Task backend (md, gh, json, etc.) - derived from qualified task ID */
   taskBackend?: string;
-  /** Original task ID format for backward compatibility */
-  legacyTaskId?: string;
 }
 
 /**
@@ -22,10 +20,10 @@ export interface MultiBackendSessionRecord extends SessionRecord {
  */
 export class SessionMultiBackendIntegration {
   /**
-   * Generate session name from task ID using unified format
+   * Generate session name from qualified task ID
    *
-   * @param taskId Task ID in any format (123, #123, md#123, task#123)
-   * @returns Session name (task-md#123, task123 for legacy)
+   * @param taskId Task ID in qualified format (md#123, gh#456)
+   * @returns Session name (task-md#123)
    */
   static generateSessionName(taskId: string): string {
     if (!taskId) {
@@ -45,8 +43,8 @@ export class SessionMultiBackendIntegration {
   /**
    * Extract task ID from session name
    *
-   * @param sessionName Session name (task-md#123, task123, etc.)
-   * @returns Task ID in qualified format (md#123) or legacy format
+   * @param sessionName Session name (task-md#123)
+   * @returns Task ID in qualified format (md#123)
    */
   static extractTaskIdFromSessionName(sessionName: string): string | null {
     if (!sessionName) {

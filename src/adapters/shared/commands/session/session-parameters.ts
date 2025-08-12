@@ -252,6 +252,34 @@ export const sessionPrCommandParams = {
 };
 
 /**
+ * Session migrate-backend command parameters
+ */
+export const sessionMigrateBackendCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview changes without updating the session DB",
+    required: false,
+    defaultValue: false,
+  },
+  to: {
+    schema: z.enum(["github", "local"]).default("github"),
+    description: "Target backend to migrate to (default: github)",
+    required: false,
+    defaultValue: "github",
+  },
+  updateRemote: {
+    schema: z.boolean(),
+    description: "Also update the session workspace git remotes (default: true)",
+    required: false,
+    defaultValue: true,
+  },
+};
+
+/**
  * Session inspect command parameters
  */
 export const sessionInspectCommandParams = {
@@ -301,6 +329,32 @@ export const sessionPrCreateCommandParams = {
     required: false,
     defaultValue: false,
   },
+};
+
+/**
+ * Session PR Edit Command Parameters
+ * For editing existing PRs - all fields are optional
+ */
+export const sessionPrEditCommandParams = {
+  title: {
+    schema: z.string(),
+    description: "PR title (to update)",
+    required: false,
+  },
+  body: {
+    schema: z.string(),
+    description: "PR body content (to update)",
+    required: false,
+  },
+  bodyPath: {
+    schema: z.string(),
+    description: "Path to file containing PR body (to update)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  debug: commonSessionParams.debug,
 };
 
 /**

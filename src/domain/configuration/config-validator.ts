@@ -6,6 +6,7 @@
  */
 
 import { get } from "./index";
+import { TaskBackend } from "./backend-detection";
 
 export interface ValidationError {
   field: string;
@@ -64,9 +65,9 @@ export class DefaultConfigValidator implements ConfigValidator {
 
     try {
       const backend = get("backend") as string;
-      const validBackends = ["markdown", "json-file", "github-issues"];
+      const validBackends = Object.values(TaskBackend);
 
-      if (!validBackends.includes(backend)) {
+      if (!validBackends.includes(backend as TaskBackend)) {
         errors.push({
           field: "backend",
           message: `Invalid backend: ${backend}. Valid options: ${validBackends.join(", ")}`,
@@ -75,7 +76,7 @@ export class DefaultConfigValidator implements ConfigValidator {
       }
 
       // Validate backend-specific configuration
-      if (backend === "github-issues") {
+      if (backend === TaskBackend.GITHUB_ISSUES) {
         const backendConfig = get("backendConfig") as any;
         const githubConfig = backendConfig?.["github-issues"];
 
@@ -128,7 +129,7 @@ export class DefaultConfigValidator implements ConfigValidator {
           code: "MISSING_SESSIONDB_BACKEND",
         });
       } else {
-        const validBackends = ["json", "sqlite", "postgres"];
+        const validBackends = ["sqlite", "postgres"];
         if (!validBackends.includes(backend)) {
           errors.push({
             field: "sessiondb.backend",
@@ -147,9 +148,11 @@ export class DefaultConfigValidator implements ConfigValidator {
         }
 
         if (backend === "postgres") {
-          if (!sessiondb.connectionString && !sessiondb.host) {
+          const hasConnectionString =
+            sessiondb.postgres?.connectionString || sessiondb.connectionString;
+          if (!hasConnectionString && !sessiondb.host) {
             errors.push({
-              field: "sessiondb.connectionString",
+              field: "sessiondb.postgres.connectionString",
               message: "PostgreSQL connection string or host is required",
               code: "MISSING_POSTGRES_CONNECTION",
             });

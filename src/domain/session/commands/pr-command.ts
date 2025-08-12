@@ -142,7 +142,6 @@ export async function sessionPr(
         session: sessionRecord.session,
         taskId: sessionRecord.taskId,
         repoName: sessionRecord.repoName,
-        branch: sessionRecord.branch,
       },
       sessionName: sessionRecord.session, // Alternative property name for formatter compatibility
     };

@@ -463,6 +463,57 @@ Repository: ${this.repoUrl}
   }
 
   /**
+   * Update an existing pull request (remote backend)
+   * For remote repositories, we treat the PR as a branch update
+   */
+  async updatePullRequest(options: {
+    prIdentifier?: string | number;
+    title?: string;
+    body?: string;
+    session?: string;
+  }): Promise<PRInfo> {
+    // For remote repositories, updating a PR means updating the prepared merge commit
+    // This might involve git operations and network calls, so we keep the existing workflow
+
+    if (!options.session) {
+      throw new MinskyError("Session is required for remote repository PR updates");
+    }
+
+    const sessionRecord = await this.sessionDB.getSession(options.session);
+    if (!sessionRecord?.prBranch) {
+      throw new MinskyError(`No PR found for session '${options.session}'`);
+    }
+
+    // For remote repos, we might need to recreate the prepared merge commit with new metadata
+    // This involves network operations and may have conflicts, so we use the existing workflow
+    const { sessionPr } = await import("../session/commands/pr-command");
+
+    const result = await sessionPr(
+      {
+        sessionName: options.session,
+        title: options.title,
+        body: options.body,
+        // For remote backend updates, we still need conflict checking
+        skipConflictCheck: false,
+        noStatusUpdate: true,
+        autoResolveDeleteConflicts: false,
+      },
+      { interface: "cli" }
+    );
+
+    return {
+      number: sessionRecord.prBranch || "unknown",
+      url: sessionRecord.prBranch || this.repoUrl,
+      state: "open",
+      metadata: {
+        backend: "remote",
+        repoUrl: this.repoUrl,
+        workdir: this.getSessionWorkdir(options.session),
+      },
+    };
+  }
+
+  /**
    * Merge a pull request using the prepared merge commit workflow
    * This merges the PR branch into the base branch
    */

@@ -40,6 +40,14 @@ export function handleCliError(error: any): never {
   // In human mode, use programLogger for all user-facing errors
   // In structured mode, use both loggers as configured
 
+  // Sanitize noisy error messages (e.g., Drizzle "Failed query: ...")
+  const sanitizeMessage = (msg: string): string => {
+    if (!msg) return msg;
+    if (msg.includes("Failed query")) return "database operation failed";
+    // Use only first line to avoid long stacks in message
+    return (msg.split("\n")[0] || msg).slice(0, 200);
+  };
+
   // Format error message based on type
   if (error instanceof ValidationError) {
     // Check if the error message already has good formatting (starts with emoji)
@@ -51,7 +59,7 @@ export function handleCliError(error: any): never {
       log.cliError(message);
     } else {
       // Add validation error prefix for less formatted messages
-      log.cliError(`Validation error: ${message}`);
+      log.cliError(`Validation error: ${sanitizeMessage(message)}`);
     }
 
     // Show validation details in debug mode
@@ -60,34 +68,34 @@ export function handleCliError(error: any): never {
       log.cliError(JSON.stringify((error as any).errors, undefined, 2));
     }
   } else if (error instanceof ResourceNotFoundError) {
-    log.cliError(`Not found: ${(normalizedError as any).message}`);
+    log.cliError(`Not found: ${sanitizeMessage((normalizedError as any).message)}`);
     if ((error as any).resourceType && (error as any).resourceId) {
       log.cliError(`Resource: ${(error as any).resourceType}, ID: ${(error as any).resourceId}`);
     }
   } else if (error instanceof ServiceUnavailableError) {
-    log.cliError(`Service unavailable: ${(normalizedError as any).message}`);
+    log.cliError(`Service unavailable: ${sanitizeMessage((normalizedError as any).message)}`);
     if ((error as any).serviceName) {
       log.cliError(`Service: ${(error as any).serviceName}`);
     }
   } else if (error instanceof FileSystemError) {
-    log.cliError(`File system error: ${(normalizedError as any).message}`);
+    log.cliError(`File system error: ${sanitizeMessage((normalizedError as any).message)}`);
     if ((error as any).path) {
       log.cliError(`Path: ${(error as any).path}`);
     }
   } else if (error instanceof ConfigurationError) {
-    log.cliError(`Configuration error: ${(normalizedError as any).message}`);
+    log.cliError(`Configuration error: ${sanitizeMessage((normalizedError as any).message)}`);
     if ((error as any).configKey) {
       log.cliError(`Key: ${(error as any).configKey}`);
     }
   } else if (error instanceof GitOperationError) {
-    log.cliError(`Git operation failed: ${(normalizedError as any).message}`);
+    log.cliError(`Git operation failed: ${sanitizeMessage((normalizedError as any).message)}`);
     if ((error as any).command) {
       log.cliError(`Command: ${(error as any).command}`);
     }
   } else if (error instanceof MinskyError) {
-    log.cliError(`Error: ${normalizedError.message}`);
+    log.cliError(`Error: ${sanitizeMessage(normalizedError.message)}`);
   } else {
-    log.cliError(`Unexpected error: ${normalizedError.message}`);
+    log.cliError(`❌ ${sanitizeMessage(normalizedError.message)}`);
   }
 
   // Show detailed debug information only in debug mode
@@ -109,19 +117,10 @@ export function handleCliError(error: any): never {
     }
   }
 
-  // In structured mode, also log to agent logger for machine consumption
-  // Only do this if we're in structured mode to prevent double-logging
-  if (isStructuredMode()) {
-    if (error instanceof MinskyError) {
-      // For Minsky errors, we can log with additional context
-      log.error("CLI operation failed", error);
-    } else {
-      // For other errors, log with basic information
-      log.error("CLI operation failed", {
-        message: normalizedError.message,
-        stack: normalizedError.stack,
-      });
-    }
+  // Avoid JSON blob in CLI: emit structured logs only in debug mode
+  if (isStructuredMode() && isDebugMode()) {
+    const conciseMsg = sanitizeMessage(normalizedError.message);
+    log.error("CLI operation failed", { message: conciseMsg });
   }
 
   exit(1);

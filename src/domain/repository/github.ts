@@ -10,6 +10,8 @@ import { execGitWithTimeout } from "../../utils/git-exec";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { Octokit } from "@octokit/rest";
+import { environmentMappings } from "../configuration/sources/environment";
+import { getUserConfigDir } from "../configuration/sources/user";
 import type { RepositoryStatus, ValidationResult } from "../repository";
 import type {
   RepositoryBackend,
@@ -77,6 +79,23 @@ export class GitHubBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
+
+    // Derive owner/repo from repoUrl when not explicitly provided
+    if ((!this.owner || !this.repo) && this.repoUrl.includes("github.com")) {
+      try {
+        // SSH: git@github.com:owner/repo.git
+        // HTTPS: https://github.com/owner/repo.git
+        const sshMatch = this.repoUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
+        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+        const match = sshMatch || httpsMatch;
+        if (match && match[1] && match[2]) {
+          this.owner = this.owner || match[1];
+          this.repo = this.repo || match[2].replace(/\.git$/, "");
+        }
+      } catch (_err) {
+        // Ignore parsing errors; explicit config may still provide these later
+      }
+    }
     this.sessionDB = createSessionProvider();
     this.gitService = new GitService(this.baseDir);
   }
@@ -534,7 +553,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
-      workdir = this.getSessionWorkdir(session);
+      workdir = await this.sessionDB.getSessionWorkdir(session);
     } else {
       // Use current working directory
       workdir = process.cwd();
@@ -586,7 +605,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       log.cli(`🔗 GitHub PR: ${pr.html_url}`);
       log.cli(`📝 PR #${pr.number}: ${title}`);
 
-      return {
+      const prInfo = {
         number: pr.number,
         url: pr.html_url,
         state: pr.state as "open" | "closed" | "merged",
@@ -602,6 +621,45 @@ Repository: https://github.com/${this.owner}/${this.repo}
           workdir,
         },
       };
+
+      // Update session record with PR information if session is provided
+      if (session) {
+        try {
+          const sessionRecord = await this.sessionDB.getSession(session);
+          if (sessionRecord) {
+            // Update the session record with PR info (GitHub backend doesn't use prBranch)
+            const updatedSession = {
+              ...sessionRecord,
+              pullRequest: {
+                number: pr.number,
+                url: pr.html_url,
+                title: pr.title || `PR #${pr.number}`,
+                state: (pr.state as any) || "open",
+                createdAt: pr.created_at,
+                updatedAt: pr.updated_at,
+                mergedAt: pr.merged_at || undefined,
+                headBranch: pr.head.ref,
+                baseBranch: pr.base.ref,
+                body: pr.body || undefined,
+                github: {
+                  id: pr.id,
+                  nodeId: pr.node_id,
+                  htmlUrl: pr.html_url,
+                  author: pr.user?.login || "unknown",
+                },
+                lastSynced: new Date().toISOString(),
+              },
+            };
+            await this.sessionDB.updateSession(session, updatedSession);
+            log.debug(`Updated session record for ${session} with PR #${pr.number}`);
+          }
+        } catch (error) {
+          // Don't fail the PR creation if session update fails, just log it
+          log.debug(`Failed to update session record with PR info: ${error}`);
+        }
+      }
+
+      return prInfo;
     } catch (error) {
       // Enhanced error handling for different types of GitHub API errors
       if (error instanceof Error) {
@@ -712,6 +770,177 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // Fallback for any other errors
       throw new MinskyError(
         `Failed to create GitHub pull request: ${getErrorMessage(error as any)}`
+      );
+    }
+  }
+
+  /**
+   * Update an existing GitHub pull request
+   * This method handles updating PR title and/or body without triggering git conflicts
+   */
+  async updatePullRequest(options: {
+    prIdentifier?: string | number;
+    title?: string;
+    body?: string;
+    session?: string;
+  }): Promise<PRInfo> {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to update pull requests");
+    }
+
+    // Get PR number - either from options or derive from session
+    let prNumber: number;
+    if (options.prIdentifier) {
+      prNumber =
+        typeof options.prIdentifier === "string"
+          ? parseInt(options.prIdentifier, 10)
+          : options.prIdentifier;
+      if (isNaN(prNumber)) {
+        throw new MinskyError(`Invalid PR number: ${options.prIdentifier}`);
+      }
+    } else if (options.session) {
+      // Find PR number from session record or GitHub API
+      const sessionRecord = await this.sessionDB.getSession(options.session);
+      if (!sessionRecord) {
+        throw new MinskyError(`Session '${options.session}' not found`);
+      }
+
+      // Try to get PR number from session record first
+      if (sessionRecord.pullRequest?.number) {
+        prNumber =
+          typeof sessionRecord.pullRequest.number === "string"
+            ? parseInt(sessionRecord.pullRequest.number, 10)
+            : sessionRecord.pullRequest.number;
+      } else {
+        // If no PR number in session, try to find it via GitHub API using current git branch
+        try {
+          const { getConfiguration } = require("../configuration/index");
+          const config = getConfiguration();
+          const githubToken = config.github.token;
+          if (!githubToken) {
+            throw new MinskyError("GitHub token required for PR operations");
+          }
+
+          // Get current git branch from the session workspace
+          if (!options.session) {
+            throw new MinskyError(
+              "Session name is required to update PR without explicit PR number"
+            );
+          }
+          const sessionWorkdir = await this.sessionDB.getSessionWorkdir(options.session);
+          const { GitService } = require("../git");
+          const gitService = new GitService(this.sessionDB);
+          const currentBranch = (
+            await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
+          ).trim();
+
+          const octokit = new Octokit({ auth: githubToken });
+          const { data: pulls } = await octokit.rest.pulls.list({
+            owner: this.owner,
+            repo: this.repo,
+            head: `${this.owner}:${currentBranch}`,
+            state: "open",
+          });
+
+          const first = pulls[0];
+          if (!first) {
+            throw new MinskyError(`No open PR found for branch '${currentBranch}'`);
+          }
+
+          prNumber = first.number;
+        } catch (error) {
+          const msg = error instanceof Error ? error.message : String(error);
+          throw new MinskyError(`No PR found for session '${options.session}': ${msg}`);
+        }
+      }
+    } else {
+      throw new MinskyError("Either prIdentifier or session must be provided");
+    }
+
+    try {
+      // Get GitHub token from configuration system
+      const { getConfiguration } = require("../configuration/index");
+      const config = getConfiguration();
+      const githubToken = config.github.token;
+      if (!githubToken) {
+        throw new MinskyError("GitHub token required for PR operations");
+      }
+
+      // Initialize Octokit client
+      const octokit = new Octokit({ auth: githubToken });
+
+      // Prepare update payload - only include fields that are provided
+      const updateData: { title?: string; body?: string } = {};
+      if (options.title !== undefined) {
+        updateData.title = options.title;
+      }
+      if (options.body !== undefined) {
+        updateData.body = options.body;
+      }
+
+      if (Object.keys(updateData).length === 0) {
+        throw new MinskyError("At least one field (title or body) must be provided for update");
+      }
+
+      // Update the PR via GitHub API
+      const response = await octokit.rest.pulls.update({
+        owner: this.owner,
+        repo: this.repo,
+        pull_number: prNumber,
+        ...updateData,
+      });
+
+      log.debug(`Updated GitHub PR #${prNumber}`, {
+        title: updateData.title,
+        body: updateData.body
+          ? updateData.body.substring(0, 100) + (updateData.body.length > 100 ? "..." : "")
+          : undefined,
+      });
+
+      return {
+        number: response.data.number,
+        url: response.data.html_url,
+        state: response.data.state as "open" | "closed" | "merged",
+        metadata: {
+          owner: this.owner,
+          repo: this.repo,
+          // Only set workdir when session provided
+          workdir: options.session ? await this.sessionDB.getSessionWorkdir(options.session) : "",
+        },
+      };
+    } catch (error) {
+      // Enhanced error handling for PR update operations
+      if (error instanceof Error) {
+        const errorMessage = error.message.toLowerCase();
+
+        // Authentication errors (401, 403)
+        if (errorMessage.includes("401") || errorMessage.includes("403")) {
+          throw new MinskyError(
+            `🔐 GitHub Authentication Error\n\n` +
+              `Unable to authenticate with GitHub API.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Verify your GitHub token is valid and not expired\n` +
+              `  • Ensure you have write access to the repository\n` +
+              `  • Check your token permissions include 'repo' scope`
+          );
+        }
+
+        // PR not found (404)
+        if (errorMessage.includes("404") || errorMessage.includes("not found")) {
+          throw new MinskyError(
+            `🔍 Pull Request Not Found\n\n` +
+              `PR #${prNumber} was not found in ${this.owner}/${this.repo}.\n\n` +
+              `💡 To fix this:\n` +
+              `  • Verify the PR number is correct\n` +
+              `  • Check if the PR has been closed or merged\n` +
+              `  • Visit: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}`
+          );
+        }
+      }
+
+      // Fallback for any other errors
+      throw new MinskyError(
+        `Failed to update GitHub pull request: ${getErrorMessage(error as any)}`
       );
     }
   }
@@ -1053,13 +1282,14 @@ Repository: https://github.com/${this.owner}/${this.repo}
         approvedBy: approver,
         approvedAt: review.submitted_at || new Date().toISOString(),
         comment: reviewComment,
-        platformData: {
-          platform: "github",
-          prNumber,
-          reviewUrl: review.html_url,
-          owner: this.owner,
-          repo: this.repo,
-          reviewState: review.state,
+        prNumber,
+        metadata: {
+          github: {
+            reviewId: review.id,
+            reviewState: (review.state as any) || "APPROVED",
+            reviewerLogin: approver,
+            submittedAt: review.submitted_at || new Date().toISOString(),
+          },
         },
       };
     } catch (error) {
@@ -1129,6 +1359,21 @@ Repository: https://github.com/${this.owner}/${this.repo}
         );
       }
 
+      // Self-approval is not allowed
+      if (
+        errorMessage.includes("Can not approve your own pull request") ||
+        errorMessage.toLowerCase().includes("cannot approve your own pull request")
+      ) {
+        throw new MinskyError(
+          `🙅 Cannot Approve Your Own Pull Request\n\n` +
+            `GitHub prevents authors from approving their own PR.\n\n` +
+            `PR: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}\n\n` +
+            `Next steps:\n` +
+            `  • Request a review from a maintainer\n` +
+            `  • Alternatively, have another collaborator approve the PR`
+        );
+      }
+
       // Fallback for any other errors
       throw new MinskyError(
         `Failed to approve GitHub pull request: ${getErrorMessage(error as any)}`
@@ -1187,29 +1432,49 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Determine if approved (has at least one approval and no pending change requests)
       const isApproved = approvals.length > 0 && rejections.length === 0;
-      const canMerge = isApproved && pr.mergeable && pr.state === "open";
+      const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
+
+      // Best-effort fetch of required approvals from branch protection rules
+      // If not accessible, default to 1
+      let requiredApprovals = 1;
+      try {
+        const protection = await octokit.rest.repos.getBranchProtection({
+          owner: this.owner,
+          repo: this.repo,
+          branch: pr.base.ref,
+        });
+        const required =
+          protection.data.required_pull_request_reviews?.required_approving_review_count;
+        if (typeof required === "number" && required >= 0) {
+          requiredApprovals = required;
+        }
+      } catch (e) {
+        // Ignore permission errors; keep default of 1
+      }
 
       return {
         isApproved,
         canMerge,
-        approvalCount: approvals.length,
-        rejectionCount: rejections.length,
-        totalReviews: reviews.length,
         approvals: approvals.map((review) => ({
           reviewId: String(review.id),
           approvedBy: review.user?.login || "unknown",
           approvedAt: review.submitted_at || "",
           comment: review.body || undefined,
-        })),
-        platformData: {
-          platform: "github",
           prNumber,
-          prState: pr.state,
-          mergeable: pr.mergeable,
-          owner: this.owner,
-          repo: this.repo,
-          requiresReview: true, // GitHub typically requires reviews
-          minimumApprovals: 1, // Default, could be configured per repo
+        })),
+        requiredApprovals,
+        prState: (pr.state as any) || "open",
+        metadata: {
+          github: {
+            statusChecks: [],
+            branchProtection: {
+              requiredReviews: requiredApprovals,
+              dismissStaleReviews: false,
+              requireCodeOwnerReviews: false,
+              restrictPushes: false,
+            },
+            codeownersApproval: undefined,
+          },
         },
       };
     } catch (error) {
