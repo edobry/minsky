@@ -5,26 +5,26 @@ import { BaseSessionCommand } from "./base-session-command";
 import { sessionRepairCommandParams } from "./session-parameters";
 import { sessionRepair, SessionRepairParameters } from "../../../../domain/session/commands/repair-command";
 import { CommandExecutionContext } from "../../command-types";
-import { log } from "../../../../utils/log";
+import { log } from "../../../../utils/logger";
 
 export class SessionRepairCommand extends BaseSessionCommand<any, any> {
-  get id() {
+  getCommandId(): string {
     return "session.repair";
   }
 
-  get name() {
+  getCommandName(): string {
     return "repair";
   }
 
-  get description() {
+  getCommandDescription(): string {
     return "Repair session state issues (PR state, backend sync, etc.)";
   }
 
-  get parameters() {
+  getParameterSchema(): Record<string, any> {
     return sessionRepairCommandParams;
   }
 
-  async execute(params: any, context: CommandExecutionContext) {
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     try {
       const repairParams: SessionRepairParameters = {
         name: params.name,
@@ -75,16 +75,13 @@ export class SessionRepairCommand extends BaseSessionCommand<any, any> {
         log.cli(`❌ Session repair failed for '${result.sessionName}'`);
       }
 
-      return result;
+      return this.createSuccessResult(result);
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       log.error("Session repair failed", { error: errorMessage });
       
       if (params.json) {
-        return {
-          success: false,
-          error: errorMessage,
-        };
+        return this.createErrorResult(errorMessage);
       }
       
       throw error;

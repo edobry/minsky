@@ -7,13 +7,13 @@
  * - Branch format corrections
  * - Workspace validation
  */
-import { log } from "../../../utils/log";
+import { log } from "../../../utils/logger";
 import { SessionProviderInterface } from "../session-db";
 import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { createGitService } from "../../git/git-service";
-import { createRepositoryBackendFromSession } from "../repository-backend-detection";
-import { GitServiceInterface } from "../../git/git-service-interface";
+import { createGitService } from "../../git";
+import { createRepositoryBackendFromSession } from "../session-pr-operations";
+import { type GitServiceInterface } from "../../git";
 
 export interface SessionRepairParameters {
   name?: string;
