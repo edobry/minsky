@@ -325,15 +325,7 @@ Please provide a title for your pull request:
 
     log.cli(`✅ Pull request created successfully!`);
 
-    // Update PR state for local backend only; remote backends may not have local pr/<session>
-    try {
-      await updatePrStateOnCreation(sessionName, deps.sessionDB);
-    } catch (e) {
-      log.debug("Skipping local PR branch state update (not applicable to remote backends)", {
-        sessionName,
-        error: getErrorMessage(e as any),
-      });
-    }
+    // PR state persistence is handled by repository backends (local backend updates commit hash)
 
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {
