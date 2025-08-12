@@ -642,4 +642,4 @@
 
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
-- [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#1](process/tasks/md#1-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
+- [+] Implement session pr open command for GitHub backend [md#1](process/tasks/md#1-implement-session-pr-open-command-for-github-backend.md)
