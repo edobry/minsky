@@ -823,7 +823,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
           // Get current git branch from the session workspace
           if (!options.session) {
-            throw new MinskyError("Session name is required to update PR without explicit PR number");
+            throw new MinskyError(
+              "Session name is required to update PR without explicit PR number"
+            );
           }
           const sessionWorkdir = await this.sessionDB.getSessionWorkdir(options.session);
           const { GitService } = require("../git");
@@ -890,7 +892,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       log.debug(`Updated GitHub PR #${prNumber}`, {
         title: updateData.title,
-        body: updateData.body ? updateData.body.substring(0, 100) + (updateData.body.length > 100 ? "..." : "") : undefined,
+        body: updateData.body
+          ? updateData.body.substring(0, 100) + (updateData.body.length > 100 ? "..." : "")
+          : undefined,
       });
 
       return {

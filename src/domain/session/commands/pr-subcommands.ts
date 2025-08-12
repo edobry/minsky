@@ -129,7 +129,7 @@ async function sessionPrCreateDraft(
 
   // Validate that this is a GitHub repository backend
   const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
-  if (repositoryBackend.constructor.name !== 'GitHubBackend') {
+  if (repositoryBackend.constructor.name !== "GitHubBackend") {
     throw new ValidationError(
       "Draft mode is only supported for GitHub repositories. Current session uses a different repository backend."
     );
@@ -153,7 +153,10 @@ async function sessionPrCreateDraft(
       const { readFile } = await import("fs/promises");
       bodyContent = await readFile(params.bodyPath, "utf-8");
       if (params.debug) {
-        log.debug("Read body content from file", { bodyPath: params.bodyPath, contentLength: bodyContent.length });
+        log.debug("Read body content from file", {
+          bodyPath: params.bodyPath,
+          contentLength: bodyContent.length,
+        });
       }
     } catch (error) {
       throw new ValidationError(
@@ -204,14 +207,11 @@ async function sessionPrCreateDraft(
   try {
     await gitService.execInRepository(workdir, `git push origin ${prBranchName}`);
   } catch (error) {
-    throw new MinskyError(
-      `Failed to push PR branch ${prBranchName}: ${getErrorMessage(error)}`
-    );
+    throw new MinskyError(`Failed to push PR branch ${prBranchName}: ${getErrorMessage(error)}`);
   }
 
   // Create draft PR using GitHub backend
   const githubBackend = repositoryBackend as any; // We know it's GitHub from validation above
-  
   try {
     const pullRequest = await githubBackend.createPullRequest({
       title: params.title,
@@ -236,9 +236,7 @@ async function sessionPrCreateDraft(
       },
     };
   } catch (error) {
-    throw new MinskyError(
-      `Failed to create draft PR: ${getErrorMessage(error)}`
-    );
+    throw new MinskyError(`Failed to create draft PR: ${getErrorMessage(error)}`);
   }
 }
 

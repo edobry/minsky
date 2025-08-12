@@ -261,7 +261,6 @@ export async function mergeSessionPr(
 
   const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
 
-
   if (!params.json) {
     log.cli("✅ Session PR merged successfully!");
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
