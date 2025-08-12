@@ -10,6 +10,8 @@ import { execGitWithTimeout } from "../../utils/git-exec";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import { Octokit } from "@octokit/rest";
+import { environmentMappings } from "../configuration/sources/environment";
+import { getUserConfigDir } from "../configuration/sources/user";
 import type { RepositoryStatus, ValidationResult } from "../repository";
 import type {
   RepositoryBackend,
@@ -631,10 +633,21 @@ Repository: https://github.com/${this.owner}/${this.repo}
               pullRequest: {
                 number: pr.number,
                 url: pr.html_url,
-                state: pr.state,
-                id: pr.id,
-                created_at: pr.created_at,
-                updated_at: pr.updated_at,
+                title: pr.title || `PR #${pr.number}`,
+                state: (pr.state as any) || "open",
+                createdAt: pr.created_at,
+                updatedAt: pr.updated_at,
+                mergedAt: pr.merged_at || undefined,
+                headBranch: pr.head.ref,
+                baseBranch: pr.base.ref,
+                body: pr.body || undefined,
+                github: {
+                  id: pr.id,
+                  nodeId: pr.node_id,
+                  htmlUrl: pr.html_url,
+                  author: pr.user?.login || "unknown",
+                },
+                lastSynced: new Date().toISOString(),
               },
             };
             await this.sessionDB.updateSession(session, updatedSession);
@@ -809,6 +822,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
           }
 
           // Get current git branch from the session workspace
+          if (!options.session) {
+            throw new MinskyError("Session name is required to update PR without explicit PR number");
+          }
           const sessionWorkdir = await this.sessionDB.getSessionWorkdir(options.session);
           const { GitService } = require("../git");
           const gitService = new GitService(this.sessionDB);
@@ -824,13 +840,15 @@ Repository: https://github.com/${this.owner}/${this.repo}
             state: "open",
           });
 
-          if (pulls.length === 0) {
+          const first = pulls[0];
+          if (!first) {
             throw new MinskyError(`No open PR found for branch '${currentBranch}'`);
           }
 
-          prNumber = pulls[0].number;
+          prNumber = first.number;
         } catch (error) {
-          throw new MinskyError(`No PR found for session '${options.session}': ${error.message}`);
+          const msg = error instanceof Error ? error.message : String(error);
+          throw new MinskyError(`No PR found for session '${options.session}': ${msg}`);
         }
       }
     } else {
@@ -872,7 +890,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       log.debug(`Updated GitHub PR #${prNumber}`, {
         title: updateData.title,
-        body: updateData.body?.substring(0, 100) + (updateData.body?.length > 100 ? "..." : ""),
+        body: updateData.body ? updateData.body.substring(0, 100) + (updateData.body.length > 100 ? "..." : "") : undefined,
       });
 
       return {
@@ -882,9 +900,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
         metadata: {
           owner: this.owner,
           repo: this.repo,
-          workdir: options.session
-            ? await this.sessionDB.getSessionWorkdir(options.session)
-            : undefined,
+          // Only set workdir when session provided
+          workdir: options.session ? await this.sessionDB.getSessionWorkdir(options.session) : "",
         },
       };
     } catch (error) {
@@ -1261,13 +1278,14 @@ Repository: https://github.com/${this.owner}/${this.repo}
         approvedBy: approver,
         approvedAt: review.submitted_at || new Date().toISOString(),
         comment: reviewComment,
-        platformData: {
-          platform: "github",
-          prNumber,
-          reviewUrl: review.html_url,
-          owner: this.owner,
-          repo: this.repo,
-          reviewState: review.state,
+        prNumber,
+        metadata: {
+          github: {
+            reviewId: review.id,
+            reviewState: (review.state as any) || "APPROVED",
+            reviewerLogin: approver,
+            submittedAt: review.submitted_at || new Date().toISOString(),
+          },
         },
       };
     } catch (error) {
@@ -1337,6 +1355,21 @@ Repository: https://github.com/${this.owner}/${this.repo}
         );
       }
 
+      // Self-approval is not allowed
+      if (
+        errorMessage.includes("Can not approve your own pull request") ||
+        errorMessage.toLowerCase().includes("cannot approve your own pull request")
+      ) {
+        throw new MinskyError(
+          `🙅 Cannot Approve Your Own Pull Request\n\n` +
+            `GitHub prevents authors from approving their own PR.\n\n` +
+            `PR: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}\n\n` +
+            `Next steps:\n` +
+            `  • Request a review from a maintainer\n` +
+            `  • Alternatively, have another collaborator approve the PR`
+        );
+      }
+
       // Fallback for any other errors
       throw new MinskyError(
         `Failed to approve GitHub pull request: ${getErrorMessage(error as any)}`
@@ -1395,29 +1428,49 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Determine if approved (has at least one approval and no pending change requests)
       const isApproved = approvals.length > 0 && rejections.length === 0;
-      const canMerge = isApproved && pr.mergeable && pr.state === "open";
+      const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
+
+      // Best-effort fetch of required approvals from branch protection rules
+      // If not accessible, default to 1
+      let requiredApprovals = 1;
+      try {
+        const protection = await octokit.rest.repos.getBranchProtection({
+          owner: this.owner,
+          repo: this.repo,
+          branch: pr.base.ref,
+        });
+        const required =
+          protection.data.required_pull_request_reviews?.required_approving_review_count;
+        if (typeof required === "number" && required >= 0) {
+          requiredApprovals = required;
+        }
+      } catch (e) {
+        // Ignore permission errors; keep default of 1
+      }
 
       return {
         isApproved,
         canMerge,
-        approvalCount: approvals.length,
-        rejectionCount: rejections.length,
-        totalReviews: reviews.length,
         approvals: approvals.map((review) => ({
           reviewId: String(review.id),
           approvedBy: review.user?.login || "unknown",
           approvedAt: review.submitted_at || "",
           comment: review.body || undefined,
-        })),
-        platformData: {
-          platform: "github",
           prNumber,
-          prState: pr.state,
-          mergeable: pr.mergeable,
-          owner: this.owner,
-          repo: this.repo,
-          requiresReview: true, // GitHub typically requires reviews
-          minimumApprovals: 1, // Default, could be configured per repo
+        })),
+        requiredApprovals,
+        prState: (pr.state as any) || "open",
+        metadata: {
+          github: {
+            statusChecks: [],
+            branchProtection: {
+              requiredReviews: requiredApprovals,
+              dismissStaleReviews: false,
+              requireCodeOwnerReviews: false,
+              restrictPushes: false,
+            },
+            codeownersApproval: undefined,
+          },
         },
       };
     } catch (error) {
