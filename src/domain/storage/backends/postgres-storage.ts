@@ -77,7 +77,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   private async runMigrations(): Promise<void> {
     try {
-      await migrate(this.drizzle, { migrationsFolder: "./src/domain/storage/migrations" });
+      // Run SQL migrations generated for PostgreSQL dialect
+      // Keep this path aligned with drizzle.pg.config.ts `out` setting
+      await migrate(this.drizzle, { migrationsFolder: "./src/domain/storage/migrations/pg" });
     } catch (error) {
       // Log but don't throw - migrations may not exist yet
       log.debug("Migration attempt failed:", error);
@@ -88,53 +90,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    * Initialize the storage (create tables if needed)
    */
   async initialize(): Promise<boolean> {
-    try {
-      // Create table if it doesn't exist with basic schema
-      await this.sql`
-        CREATE TABLE IF NOT EXISTS sessions (
-          session VARCHAR(255) PRIMARY KEY,
-          repo_name VARCHAR(255) NOT NULL,
-          repo_url VARCHAR(1000) NOT NULL,
-          created_at TIMESTAMP WITH TIME ZONE NOT NULL,
-          task_id VARCHAR(100),
-          repo_path VARCHAR(1000)
-        )
-      `;
-
-      // Add missing columns if they don't exist (migration)
-      const columnsToAdd = [
-        { name: "pr_branch", type: "VARCHAR(255)" },
-        { name: "pr_approved", type: "VARCHAR(10)" },
-        { name: "pr_state", type: "TEXT" },
-        { name: "backend_type", type: "VARCHAR(50)" },
-        { name: "pull_request", type: "TEXT" },
-      ];
-      // Drop legacy column 'branch' if present (deprecated; branch == session name)
-      try {
-        await this.sql`ALTER TABLE sessions DROP COLUMN IF EXISTS branch`;
-      } catch (error: any) {
-        // Ignore if not supported or any issues; this is best-effort
-        log.debug("Legacy column drop attempt for 'branch'", { message: error?.message });
-      }
-
-      for (const column of columnsToAdd) {
-        try {
-          await this
-            .sql`ALTER TABLE sessions ADD COLUMN ${this.sql(column.name)} ${this.sql.unsafe(column.type)}`;
-          log.debug(`Added column ${column.name} to sessions table`);
-        } catch (error: any) {
-          // Column likely already exists - this is expected
-          if (!error.message.includes("already exists")) {
-            log.debug(`Failed to add column ${column.name}:`, error.message);
-          }
-        }
-      }
-
-      return true;
-    } catch (error) {
-      log.error("Failed to initialize PostgreSQL storage:", error);
-      return false;
-    }
+    // Use Drizzle migrations for all schema changes; do not execute manual DDL here
+    await this.runMigrations();
+    return true;
   }
 
   /**
