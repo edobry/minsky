@@ -121,7 +121,12 @@ export class TaskService {
   async getAllTasks(): Promise<TaskData[]> {
     const result = await this.currentBackend.getTasksData();
     if (!result.success) {
-      throw new Error(`Failed to get tasks: ${result.error?.message}`);
+      const message = result.error?.message || "unknown error";
+      const isPathErr = /ENOENT|not found|no such file or directory/i.test(message);
+      const hint = isPathErr
+        ? "Ensure tasks backend points to main workspace (process/tasks.md)."
+        : undefined;
+      throw new Error(`Failed to get tasks${hint ? `: ${hint}` : ""}`);
     }
 
     let tasks = this.currentBackend.parseTasks(result.content);
@@ -308,7 +313,12 @@ export class TaskService {
     // Get existing tasks
     const tasksResult = await this.currentBackend.getTasksData();
     if (!tasksResult.success) {
-      throw new Error(`Failed to get tasks: ${tasksResult.error?.message}`);
+      const message = tasksResult.error?.message || "unknown error";
+      const isPathErr = /ENOENT|not found|no such file or directory/i.test(message);
+      const hint = isPathErr
+        ? "Ensure tasks backend points to main workspace (process/tasks.md)."
+        : undefined;
+      throw new Error(`Failed to get tasks${hint ? `: ${hint}` : ""}`);
     }
 
     let tasks = this.currentBackend.parseTasks(tasksResult.content);

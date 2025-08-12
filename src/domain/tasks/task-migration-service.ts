@@ -338,7 +338,12 @@ export class TaskMigrationService {
         }
       }
     } catch (error) {
-      errors.push(`Failed to read tasks file: ${error}`);
+      const msg = error instanceof Error ? error.message : String(error);
+      const isPathErr = /ENOENT|not found|no such file or directory/i.test(msg);
+      const hint = isPathErr
+        ? "Ensure main workspace path is configured and process/tasks.md exists."
+        : undefined;
+      errors.push(`Failed to read tasks file${hint ? `: ${hint}` : ""}`);
     }
 
     return {
