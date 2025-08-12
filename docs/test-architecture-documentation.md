@@ -30,12 +30,13 @@ The Minsky project has developed a robust test architecture that achieved **100%
 ## Core Principles
 
 ### 1. **Domain-First Testing**
+
 Test business logic and domain methods directly, not interface layers.
 
 ```typescript
 // ❌ WRONG: Testing CLI interface
 const { stdout } = await execAsync('minsky task create "Test Task"');
-expect(stdout).toContain('Task created');
+expect(stdout).toContain("Task created");
 
 // ✅ CORRECT: Testing domain logic
 const task = await createTaskFromParams({ title: "Test Task" });
@@ -43,6 +44,7 @@ expect(task.title).toBe("Test Task");
 ```
 
 ### 2. **Centralized Test Utilities**
+
 Always use project-specific test utilities instead of direct framework APIs.
 
 ```typescript
@@ -57,6 +59,7 @@ const mockFn = createMock();
 ```
 
 ### 3. **Dependency Injection for Testability**
+
 Use dependency injection patterns to enable reliable testing.
 
 ```typescript
@@ -76,6 +79,7 @@ export async function createSessionWithDependencies(
 ```
 
 ### 4. **Test Isolation**
+
 Prevent cross-test interference through proper cleanup and isolation.
 
 ```typescript
@@ -121,6 +125,7 @@ const mockService = {
 ```
 
 **Key Benefits**:
+
 - ✅ Reliable mock construction
 - ✅ All required methods explicitly defined
 - ✅ Predictable behavior
@@ -156,18 +161,20 @@ expect(commands).toContain(COMMAND);
 ```typescript
 // ❌ MISALIGNED: Mock format doesn't match system format
 const mockDatabase = {
-  getRecord: (id: string) => Promise.resolve({
-    name: `item${id}`, // → "item123" (no separator) ❌
-    path: `data/item${id}`, // → "data/item123" (inconsistent) ❌
-  })
+  getRecord: (id: string) =>
+    Promise.resolve({
+      name: `item${id}`, // → "item123" (no separator) ❌
+      path: `data/item${id}`, // → "data/item123" (inconsistent) ❌
+    }),
 };
 
 // ✅ ALIGNED: Mock format matches system format
 const mockDatabase = {
-  getRecord: (id: string) => Promise.resolve({
-    name: `item-${id}`, // → "item-123" (with separator) ✅
-    path: `data/item-${id}`, // → "data/item-123" (consistent) ✅
-  })
+  getRecord: (id: string) =>
+    Promise.resolve({
+      name: `item-${id}`, // → "item-123" (with separator) ✅
+      path: `data/item-${id}`, // → "data/item-123" (consistent) ✅
+    }),
 };
 ```
 
@@ -224,6 +231,6 @@ export function shouldValidate(options: ProcessOptions, state: ProcessState): bo
 
 ---
 
-*This documentation represents the collective knowledge from achieving 100% test success rate (1458/1458 tests) in the Minsky project. Follow these patterns to ensure reliable, maintainable tests.*
+_This documentation represents the collective knowledge from achieving 100% test success rate (1458/1458 tests) in the Minsky project. Follow these patterns to ensure reliable, maintainable tests._
 
-*For detailed implementation guides, migration procedures, and daily development workflows, see the complete documentation suite in `docs/testing/`.*
+_For detailed implementation guides, migration procedures, and daily development workflows, see the complete documentation suite in `docs/testing/`._

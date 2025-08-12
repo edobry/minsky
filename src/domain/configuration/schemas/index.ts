@@ -26,6 +26,7 @@ import { aiConfigSchema, type AIConfig } from "./ai";
 import { loggerConfigSchema, type LoggerConfig } from "./logger";
 
 import { validationConfigSchema, type ValidationConfig } from "./validation";
+import { tasksConfigSchema, type TasksConfig } from "./tasks";
 
 /**
  * Complete application configuration schema
@@ -54,6 +55,9 @@ export const configurationSchema = z
 
     // Validation configuration
     validation: validationConfigSchema,
+
+    // Tasks configuration
+    tasks: tasksConfigSchema,
   })
   .passthrough(); // Use passthrough instead of strict to allow extra properties
 
@@ -239,6 +243,7 @@ export type {
   GitHubConfig,
   AIConfig,
   LoggerConfig,
+  TasksConfig,
 };
 
 // Re-export schemas for external use
@@ -250,6 +255,7 @@ export {
   githubConfigSchema,
   aiConfigSchema,
   loggerConfigSchema,
+  tasksConfigSchema,
 };
 
 // Export the main schema as default

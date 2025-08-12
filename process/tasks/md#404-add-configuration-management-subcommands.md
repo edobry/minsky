@@ -48,6 +48,7 @@ BENEFITS:
 ## Requirements
 
 ### Backup Requirements
+
 - All modifying operations (`set`, `unset`) MUST create a backup of the configuration file before making changes
 - Backup files should be timestamped (e.g., `.minsky.config.js.backup.2024-01-15T10-30-45Z`)
 - Backup location should be same directory as original config file
@@ -58,7 +59,6 @@ BENEFITS:
 ## Solution
 
 ## Notes
-
 
 ## Requirements
 

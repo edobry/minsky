@@ -1,6 +1,6 @@
 const TEST_VALUE = 123;
 
-import { isQualifiedTaskId } from "./unified-task-id";
+import { isQualifiedTaskId } from "./task-id";
 
 /**
  * Centralized task status constants

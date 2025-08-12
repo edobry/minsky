@@ -148,8 +148,10 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "backend: markdown\nlogger:\n  level: info\n");
-      mockYaml.parse = mock(() => { ...existingConfig });
-      mockYaml.stringify = mock(() => "backend: markdown\nlogger:\n  level: info\nsessiondb:\n  backend: sqlite\n");
+      mockYaml.parse = mock(() => ({ ...existingConfig }));
+      mockYaml.stringify = mock(
+        () => "backend: markdown\nlogger:\n  level: info\nsessiondb:\n  backend: sqlite\n"
+      );
 
       const result = await writer.setConfigValue("sessiondb.backend", "sqlite");
 
@@ -196,7 +198,7 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: oldValue\n");
-      mockYaml.parse = mock(() => { ...existingConfig });
+      mockYaml.parse = mock(() => ({ ...existingConfig }));
       mockYaml.stringify = mock(() => "key: newValue\n");
 
       const result = await writer.setConfigValue("key", "newValue");
@@ -217,7 +219,7 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: value\nother: remains\n");
-      mockYaml.parse = mock(() => { ...existingConfig });
+      mockYaml.parse = mock(() => ({ ...existingConfig }));
       mockYaml.stringify = mock(() => "other: remains\n");
 
       const result = await writer.unsetConfigValue("key");
@@ -234,7 +236,7 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "other: value\n");
-      mockYaml.parse = mock(() => { ...existingConfig });
+      mockYaml.parse = mock(() => ({ ...existingConfig }));
 
       const result = await writer.unsetConfigValue("nonExistent");
 
@@ -257,8 +259,11 @@ describe("ConfigWriter", () => {
       };
 
       mockFs.existsSync = mock(() => true);
-      mockFs.readFileSync = mock(() => "ai:\n  providers:\n    openai:\n      model: gpt-4\n    anthropic:\n      model: claude-3\n");
-      mockYaml.parse = mock(() => { ...existingConfig });
+      mockFs.readFileSync = mock(
+        () =>
+          "ai:\n  providers:\n    openai:\n      model: gpt-4\n    anthropic:\n      model: claude-3\n"
+      );
+      mockYaml.parse = mock(() => ({ ...existingConfig }));
       mockYaml.stringify = mock(() => "ai:\n  providers:\n    anthropic:\n      model: claude-3\n");
 
       const result = await writer.unsetConfigValue("ai.providers.openai.model");
@@ -279,8 +284,10 @@ describe("ConfigWriter", () => {
       };
 
       mockFs.existsSync = mock(() => true);
-      mockFs.readFileSync = mock(() => "ai:\n  providers:\n    openai:\n      model: gpt-4\nbackend: markdown\n");
-      mockYaml.parse = mock(() => { ...existingConfig });
+      mockFs.readFileSync = mock(
+        () => "ai:\n  providers:\n    openai:\n      model: gpt-4\nbackend: markdown\n"
+      );
+      mockYaml.parse = mock(() => ({ ...existingConfig }));
       mockYaml.stringify = mock(() => "backend: markdown\n");
 
       const result = await writer.unsetConfigValue("ai.providers.openai.model");
@@ -306,7 +313,7 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: value\n");
-      mockYaml.parse = mock(() => { ...existingConfig });
+      mockYaml.parse = mock(() => ({ ...existingConfig }));
       mockYaml.stringify = mock(() => "");
       mockFs.writeFileSync = mock(() => {
         throw new Error("Write failed");
@@ -356,7 +363,10 @@ describe("ConfigWriter", () => {
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
       mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(() => "level1:\n  level2:\n    level3:\n      level4:\n        level5:\n          key: value\n");
+      mockYaml.stringify = mock(
+        () =>
+          "level1:\n  level2:\n    level3:\n      level4:\n        level5:\n          key: value\n"
+      );
 
       const result = await writer.setConfigValue(deepPath, "value");
 
@@ -372,7 +382,9 @@ describe("ConfigWriter", () => {
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
       mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(() => `special:\n  "key-with_chars": "value with spaces & symbols!@#$%"\n`);
+      mockYaml.stringify = mock(
+        () => `special:\n  "key-with_chars": "value with spaces & symbols!@#$%"\n`
+      );
 
       const result = await writer.setConfigValue(specialKey, specialValue);
 

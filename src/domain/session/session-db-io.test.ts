@@ -8,7 +8,10 @@ import { initializeSessionDbState, type SessionDbState } from "./session-db";
 import { join } from "path";
 // Use mock.module() to mock filesystem operations
 // import { existsSync, mkdirSync, rmSync, writeFileSync } from "fs";
-import { setupTestMocks } from "../../utils/test-utils/mocking";
+import { setupTestMocks, createMockFilesystem } from "../../utils/test-utils/mocking";
+import { mock } from "bun:test";
+// Use mock.module() to mock filesystem operations
+// import { readFileSync, writeFileSync } from "fs";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -22,7 +25,11 @@ describe("Session DB I/O Functions", () => {
     tempDir = "/mock/tmp/session-db-io-test";
     testDbPath = join(tempDir, "session-db.json");
 
-    // Mock directory setup - avoiding real filesystem operations
+    // Mock filesystem for this test file
+    const mockFs = createMockFilesystem();
+    // Replace fs modules
+    mock.module("fs", () => mockFs);
+    mock.module("fs/promises", () => mockFs);
   });
 
   afterEach(() => {
@@ -42,15 +49,19 @@ describe("Session DB I/O Functions", () => {
           branch: "test-branch",
         },
       ];
-      // Mock file creation - using dependency injection instead of real filesystem
+      // Write the test database file into mocked fs
+      writeFileSync(testDbPath, JSON.stringify(testData));
 
-      const result = readSessionDbFile({ dbPath: testDbPath });
+      const result = readSessionDbFile({ dbPath: testDbPath, baseDir: tempDir });
       expect(result.sessions).toHaveLength(1);
       expect(result.sessions[0]?.session).toBe("test-session");
     });
 
     test("should return initialized state when database file doesn't exist", () => {
-      const result = readSessionDbFile({ dbPath: join(tempDir, "nonexistent.json") });
+      const result = readSessionDbFile({
+        dbPath: join(tempDir, "nonexistent.json"),
+        baseDir: tempDir,
+      });
       expect(result.sessions).toEqual([]);
       expect(result.baseDir).toBeDefined();
     });
@@ -113,7 +124,7 @@ describe("Session DB I/O Functions", () => {
       expect(true).toBe(true); // Placeholder assertion
 
       // Verify the written content
-      const result = readSessionDbFile({ dbPath: testDbPath });
+      const result = readSessionDbFile({ dbPath: testDbPath, baseDir: tempDir });
       expect(result.sessions).toHaveLength(1);
       expect(result.sessions[0]?.session).toBe("test-session");
     });

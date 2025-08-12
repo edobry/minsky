@@ -19,6 +19,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
+
   - Separate `session pr create` and `session pr edit` functionality - create fails if PR already exists
   - Added `updatePullRequest` method to `RepositoryBackend` interface for backend-specific PR updates
   - GitHub backend uses GitHub API directly (no local conflict checks, server handles conflicts)
@@ -28,11 +29,13 @@ All notable changes to this project will be documented in this file.
   - Backend delegation allows each repository type to handle PR updates appropriately
 
 - **Task md#407**: Extract shared DB service for sessions, tasks metadata, and embeddings (pgvector)
+
   - Introduces a new task to define a general-purpose `DbService` abstraction
   - Reuses existing sessiondb infra and prepares for md#253 embeddings storage
   - Plans migrations and pgvector extension validation for PostgreSQL
 
 - **Task #404**: Add configuration management subcommands
+
   - **`minsky config set <key> <value>`** - Set configuration values programmatically
   - **`minsky config unset <key>`** - Remove configuration values
   - **`minsky config validate`** - Validate configuration against schemas
@@ -47,6 +50,7 @@ All notable changes to this project will be documented in this file.
   - 59 comprehensive tests with 100% mocked filesystem operations
 
 - **Task #402**: Remove JSON sessiondb backend entirely from codebase
+
   - **BREAKING CHANGE**: JSON sessiondb backend has been completely removed
   - Updated default sessiondb backend from json to sqlite
   - Removed JSON backend options from configuration schemas and validation
@@ -57,6 +61,7 @@ All notable changes to this project will be documented in this file.
   - Users must migrate to SQLite or PostgreSQL backend for session storage
 
 - **Task #389**: Improve SessionDB migration and plan PostgreSQL cutover
+
   - Deprecate JSON SessionDB backend with warnings
   - Make dry-run default; backups mandatory (SQLite copy + JSON dump)
   - Remove --connection-string; use config/env for Postgres
@@ -117,7 +122,9 @@ All notable changes to this project will be documented in this file.
   - **PROPER ERROR TYPES**: Replaced hacky string matching (`errorMessage.includes("CONFLICT")`) with typed SessionConflictError handling
   - **BACKEND SEPARATION**: Fixed architectural violation where preparePrImpl incorrectly delegated to createPreparedMergeCommitPR (local/remote backend only)
   - **PRE-FLIGHT VALIDATION**: PR creation now validates merge compatibility before creating PR branches, preventing conflicts on PR branches
+
 - **Task Management**: Created Task md#380 "Design Release-Based Changelog Management System" to address the scalability issues with the current append-only changelog approach
+
   - **SCOPE**: Research backend capabilities for release management (database vs repo backend vs hybrid)
   - **ARCHITECTURE**: Design release-based changelog system with version organization
   - **MIGRATION**: Plan transition from current single-file append approach to release-organized format
@@ -143,29 +150,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-<<<<<<< HEAD
-- **PR Creation Error Messages**: Improved merge conflict guidance to prevent dangerous automatic conflict resolution
-
-  - **MANUAL RESOLUTION PRIORITY**: Changed recommendations to prioritize manual conflict resolution over automated approaches
-  - **DANGEROUS GUIDANCE REMOVAL**: Removed "(recommended)" label from "accept all session changes" option and added "use with caution" warnings
-  - **WORKFLOW CLARIFICATION**: Fixed misleading claim that PR would be pushed automatically after conflict resolution
-  - **USER INSTRUCTION ACCURACY**: Clarified that users must re-run PR creation command after resolving merge conflicts
-=======
-- **GitHub Status UX**: Fixed misleading configuration warnings in `minsky gh status` command
-  - Now shows positive "✅ Using auto-detection from git remote" when auto-detection works
-  - Only warns about missing configuration when both explicit config AND auto-detection fail
-  - Provides helpful verbose context about when explicit configuration is optional
-  - Resolves contradiction where system reported "ready to use" while showing configuration warnings
-- **GitHub Token Detection**: Fixed GitHub token detection to use configuration system instead of environment variables only
-  - Updated `showGitHubStatus` and `getGitHubBackendConfig` functions to use `getConfiguration()`
-  - Tokens in `~/.config/minsky/config.yaml` are now properly detected
-  - Improved error messages to mention both environment variables and config file options
-- **Dynamic Configuration Paths**: Replaced hardcoded environment variable names and config paths with dynamic values from configuration system
-  - Status command now shows actual detected token source instead of hardcoded env var names
-  - Error messages use dynamic environment variable names from `environmentMappings`
-  - Config file paths use `getUserConfigDir()` for accurate user-specific paths
-  - Eliminates maintenance burden of keeping hardcoded strings synchronized
->>>>>>> origin/main
+-
 
 - **Test Architecture & Reliability**: Achieved 100% test success rate (1458/1458 tests passing) with major architectural improvements
 

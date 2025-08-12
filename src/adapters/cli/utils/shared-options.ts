@@ -7,7 +7,7 @@
  */
 
 import { Command } from "commander";
-import { normalizeTaskId } from "../../../domain/tasks";
+// normalizeTaskId removed: strict qualified IDs expected upstream
 // Removed unused schema type imports
 import {
   SESSION_DESCRIPTION,
@@ -178,8 +178,8 @@ export function normalizeTaskOptions(options: TaskOptions): {
   task?: string;
 } {
   // If task ID is provided, normalize it
-  // normalizeTaskId can return null, so handle that case
-  const taskId = options.task ? normalizeTaskId(options.task) : undefined;
+  // normalizeTaskId removed; use provided taskId directly
+  const taskId = options.task ? options.task : undefined;
 
   return {
     task: taskId || undefined,

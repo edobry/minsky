@@ -43,7 +43,7 @@ describe("session dir command", () => {
     // Act
     const result = await getSessionDirFromParams(
       {
-        task: "160",
+        task: "md#160",
       },
       {
         sessionDB: testData.mockSessionDB,
@@ -70,7 +70,7 @@ describe("session dir command", () => {
     testData.mockSessionDB.getSession = mock(() => Promise.resolve(correctSession));
 
     // Act: Test with task ID without # prefix
-    await getSessionDirFromParams({ task: "160" }, { sessionDB: testData.mockSessionDB });
+    await getSessionDirFromParams({ task: "md#160" }, { sessionDB: testData.mockSessionDB });
 
     // Assert: Should call with normalized task ID (qualified format)
     expect(getSessionByTaskIdCalls.length).toBeGreaterThan(0);

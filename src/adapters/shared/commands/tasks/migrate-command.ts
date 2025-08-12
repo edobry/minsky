@@ -44,7 +44,7 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateTasksParams, any
   }
 
   getCommandDescription(): string {
-    return "Migrate legacy task IDs (#123) to qualified format (md#123)";
+    return "Migrate legacy task IDs (#123) to qualified format (md#123) and rename spec files";
   }
 
   getParameterSchema(): Record<string, any> {
@@ -94,9 +94,9 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateTasksParams, any
 
     if (!quiet) {
       if (dryRun) {
-        log.cli("🔍 DRY RUN: Previewing task ID migration...");
+        log.cli("🔍 DRY RUN: Previewing task ID and spec-file migration...");
       } else {
-        log.cli("🚀 Starting task ID migration...");
+        log.cli("🚀 Starting task ID and spec-file migration...");
       }
 
       if (statusFilter) {
@@ -110,7 +110,7 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateTasksParams, any
       // Initialize migration service
       const migrationService = new TaskMigrationService(context.workspacePath || process.cwd());
 
-      // Perform migration
+      // Perform migration (includes tasks.md updates and spec-file renames)
       const result = await migrationService.migrateTaskIds({
         dryRun,
         toBackend,
@@ -180,26 +180,8 @@ export class MigrateTasksCommand extends BaseTaskCommand<MigrateTasksParams, any
       log.cli(`💾 Backup created: ${result.backupPath}`);
     }
 
-    // Show detailed results if there are migrations or failures
-    if (migratedTasks > 0 || failedTasks > 0) {
-      log.cli("\n📋 DETAILED RESULTS:");
-
-      for (const detail of result.details) {
-        if (detail.status === "migrated") {
-          log.cli(`  ✅ ${detail.originalId} → ${detail.newId} (${detail.title})`);
-        } else if (detail.status === "failed") {
-          log.cli(`  ❌ ${detail.originalId} - ${detail.reason} (${detail.title})`);
-        }
-      }
-    }
-
     if (dryRun && migratedTasks > 0) {
       log.cli("\n💡 To perform the actual migration, run the same command without --dry-run");
-    }
-
-    if (!dryRun && migratedTasks > 0) {
-      log.cli("\n🎉 Migration completed successfully!");
-      log.cli("💡 You can now use qualified task IDs throughout the system");
     }
   }
 }

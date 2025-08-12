@@ -41,15 +41,14 @@ describe("session update command", () => {
 
   test("TASK #168 FIX: should auto-detect session name from current directory when not provided", async () => {
     // Arrange: Use a session that exists in our mock data
-    const taskId = "170";
-    const sessionName = `task#${taskId}`; // Use template literal to construct session name
+    const taskId = "md#170";
+    const sessionName = `task#${taskId.split("#")[1]}`; // Use numeric part for session name
     const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
 
     // Mock getCurrentSession to return the session name for auto-detection
     const mockGetCurrentSession = async () => sessionName;
 
-    // Create the session directory
-    await mkdir(sessionPath, { recursive: true });
+    // No real filesystem operations in tests
 
     // Act: Call updateSessionFromParams without name parameter (tests auto-detection)
     const result = await updateSessionFromParams(
@@ -64,7 +63,7 @@ describe("session update command", () => {
         skipIfAlreadyMerged: false,
         branch: undefined,
         repo: undefined,
-        task: taskId, // Use the task ID variable
+        task: taskId, // Qualified task ID
         workspace: undefined,
       },
       {
@@ -86,8 +85,7 @@ describe("session update command", () => {
     const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
     const repoUrl = "https://github.com/test/repo.git";
 
-    // Create the session directory
-    await mkdir(sessionPath, { recursive: true });
+    // No real filesystem operations in tests
 
     // Mock getCurrentSession to detect the session from path
     const mockGetCurrentSession = async () => sessionName;
@@ -142,7 +140,7 @@ describe("session update command", () => {
     const sessionName = "task#168";
     const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
 
-    await mkdir(sessionPath, { recursive: true });
+    // No real filesystem operations in tests
 
     const mockGetCurrentSession = async () => sessionName;
 
@@ -190,7 +188,7 @@ describe("session update command", () => {
     const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
     const repoUrl = "https://github.com/test/repo.git";
 
-    await mkdir(sessionPath, { recursive: true });
+    // No real filesystem operations in tests
 
     const mockGetCurrentSession = async () => sessionName;
 
@@ -286,7 +284,7 @@ describe("session update command", () => {
       createdAt: new Date().toISOString(),
     };
 
-    await mkdir(sessionPath, { recursive: true });
+    // No real filesystem operations in tests
 
     testData.mockSessionDB.getSession = async (name: string) =>
       name === sessionName ? sessionRecord : null;

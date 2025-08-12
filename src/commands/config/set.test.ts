@@ -9,8 +9,8 @@ import { executeConfigSet, parseConfigValue, formatValue } from "./set";
 import * as configWriter from "../../domain/configuration/config-writer";
 
 // Mock the config writer module
-const mockCreateConfigWriter = mock();
-const mockSetConfigValue = mock();
+let mockCreateConfigWriter = mock();
+let mockSetConfigValue = mock();
 
 const mockConfigWriter = {
   setConfigValue: mockSetConfigValue,

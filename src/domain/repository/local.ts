@@ -314,7 +314,38 @@ export class LocalGitBackend implements RepositoryBackend {
       session,
     };
 
-    return await createPreparedMergeCommitPR(options);
+    const prInfo = await createPreparedMergeCommitPR(options);
+
+    // After creating PR, update session record with local commit hash of PR branch
+    if (session) {
+      try {
+        const sessionRecord = await this.sessionDB.getSession(session);
+        if (sessionRecord) {
+          const prBranchName =
+            typeof prInfo.number === "string" ? String(prInfo.number) : `pr/${session}`;
+          const workdirPath = this.getSessionWorkdir(session);
+          const { stdout } = await execAsync(`git -C ${workdirPath} rev-parse ${prBranchName}`);
+          const commitHash = stdout.trim();
+          await this.sessionDB.updateSession(session, {
+            ...sessionRecord,
+            prBranch: prBranchName,
+            prState: {
+              branchName: prBranchName,
+              commitHash,
+              lastChecked: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+            },
+          });
+        }
+      } catch (err) {
+        log.debug("Local backend: unable to record PR commit hash", {
+          error: getErrorMessage(err as any),
+          session,
+        });
+      }
+    }
+
+    return prInfo;
   }
 
   /**

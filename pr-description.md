@@ -9,6 +9,7 @@ Implements MCP tools to allow agents to query the session database directly, pro
 ### Added
 
 - **sessiondb.search command** - Search sessions by query string across multiple fields
+
   - Searches session name, repo name, repo URL, task ID, branch, and PR branch
   - Returns raw SessionRecord objects from database
   - Configurable result limit (default: 10)

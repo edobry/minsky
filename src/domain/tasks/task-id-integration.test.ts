@@ -162,7 +162,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
   describe("Task ID Parsing Consistency", () => {
     test("should parse qualified IDs consistently across all parsers", async () => {
       // Test the unified task ID parsing system
-      const { parseTaskId: unifiedParser } = await import("./unified-task-id");
+      const { parseTaskId: unifiedParser } = await import("./task-id");
       const { TASK_PARSING_UTILS } = await import("./taskConstants");
 
       const qualifiedId = "md#999";

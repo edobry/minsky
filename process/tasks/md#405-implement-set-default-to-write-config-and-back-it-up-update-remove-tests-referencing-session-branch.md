@@ -12,7 +12,6 @@ Follow up to task md#404-add-configuration-management-subcommands.md. Implement 
 
 Additionally, update or remove tests that reference the removed `branch` field from sessions, aligning with the schema change (branch dropped). Ensure all tests pass.
 
-
 ## Requirements
 
 ## Solution

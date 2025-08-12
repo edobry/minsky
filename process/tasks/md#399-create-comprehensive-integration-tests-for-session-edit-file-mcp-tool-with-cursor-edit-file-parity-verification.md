@@ -19,9 +19,11 @@ Based on reverse engineering analysis from `docs/cursor-built-in-tools-analysis.
 ## Objectives
 
 ### Primary Goal
+
 Ensure `session.edit_file` provides **identical functionality** to Cursor's built-in `edit_file` with the **only difference** being session workspace enforcement.
 
 ### Success Criteria
+
 1. All integration tests pass with real Morph API calls
 2. `session.edit_file` handles all documented `edit_file` patterns correctly
 3. Error handling matches Cursor's behavior exactly
@@ -31,17 +33,20 @@ Ensure `session.edit_file` provides **identical functionality** to Cursor's buil
 ## Detailed Test Specification
 
 ### Test File Location
+
 Create: `tests/integration/session-edit-file-cursor-parity.integration.test.ts`
 
 ### Test Environment Requirements
 
 #### Prerequisites
+
 - Real Minsky configuration system with Morph provider configured
 - Test should skip/warn if Morph provider not configured or API key not available
 - Dedicated test session workspace (isolated from real sessions)
 - Sample code files in various languages/formats
 
 #### Test Structure
+
 ```typescript
 describe("session.edit_file Cursor Parity Integration", () => {
   let configService: AIConfigurationService;
@@ -61,15 +66,11 @@ describe("session.edit_file Cursor Parity Integration", () => {
 
     // Check if Morph is properly configured
     const morphConfig = config.ai?.providers?.morph;
-    hasValidMorphConfig = !!(
-      morphConfig?.enabled &&
-      morphConfig?.apiKey &&
-      morphConfig?.baseURL
-    );
+    hasValidMorphConfig = !!(morphConfig?.enabled && morphConfig?.apiKey && morphConfig?.baseURL);
   });
 
   // Skip tests if Morph not configured
-  beforeEach(function() {
+  beforeEach(function () {
     if (!hasValidMorphConfig) {
       this.skip();
     }
@@ -84,9 +85,11 @@ describe("session.edit_file Cursor Parity Integration", () => {
 ### Core Functionality Tests
 
 #### 1. Basic Edit Pattern Application
+
 **Requirement**: Must handle Cursor's `// ... existing code ...` pattern exactly
 
 **Test Cases**:
+
 ```typescript
 // Test 1A: Simple function addition
 const originalCode = `class Calculator {
@@ -143,9 +146,11 @@ const editPattern3 = `class Calculator {
 ```
 
 #### 2. File Creation Behavior
+
 **Requirement**: Must create new files when they don't exist (Cursor behavior)
 
 **Test Cases**:
+
 ```typescript
 // Test 2A: Create new TypeScript file
 await testSessionEditFile({
@@ -156,7 +161,7 @@ await testSessionEditFile({
     async getUser(id: string): Promise<User> {
       // Implementation here
     }
-  }`
+  }`,
 });
 
 // Verify: File created with exact content
@@ -178,9 +183,11 @@ export class UserController {
 ```
 
 #### 3. Context and Ambiguity Resolution
+
 **Requirement**: Must require sufficient context for ambiguity resolution (Cursor behavior)
 
 **Test Cases**:
+
 ```typescript
 // Test 3A: Ambiguous edit should fail appropriately
 const ambiguousCode = `function test() {
@@ -212,9 +219,11 @@ function test() {
 ```
 
 #### 4. Large File Handling
+
 **Requirement**: Must handle large files efficiently (cursor behavior for files >2500 lines)
 
 **Test Cases**:
+
 ```typescript
 // Test 4A: Large file edit (>2500 lines)
 // Generate large TypeScript file with many functions
@@ -228,9 +237,11 @@ function test() {
 ### Language-Specific Tests
 
 #### 5. Multi-Language Support
+
 **Requirement**: Must work with all programming languages Cursor supports
 
 **Test Cases**:
+
 ```typescript
 // Test 5A: TypeScript/JavaScript
 // Test 5B: Python
@@ -252,9 +263,11 @@ function test() {
 ### Error Handling Tests
 
 #### 6. Error Scenarios
+
 **Requirement**: Must handle errors identically to Cursor's edit_file
 
 **Test Cases**:
+
 ```typescript
 // Test 6A: Invalid edit pattern
 // - Malformed edit syntax
@@ -282,9 +295,11 @@ function test() {
 ### Performance Tests
 
 #### 7. Performance Benchmarks
+
 **Requirement**: Performance should be comparable to Cursor's edit_file
 
 **Test Cases**:
+
 ```typescript
 // Test 7A: Small file edit speed (<100 lines)
 // Test 7B: Medium file edit speed (100-1000 lines)
@@ -303,9 +318,11 @@ function test() {
 ### Edge Case Tests
 
 #### 8. Complex Editing Scenarios
+
 **Requirement**: Must handle edge cases that Cursor handles
 
 **Test Cases**:
+
 ```typescript
 // Test 8A: Binary files (should fail gracefully)
 // Test 8B: Very long lines (>1000 characters)
@@ -320,9 +337,11 @@ function test() {
 ### Integration with Session System
 
 #### 9. Session-Awareness Tests
+
 **Requirement**: Session workspace enforcement (the key difference from Cursor)
 
 **Test Cases**:
+
 ```typescript
 // Test 9A: Session workspace isolation
 // - Verify edits only work within session workspace
@@ -344,9 +363,11 @@ function test() {
 ### Comparison Tests
 
 #### 10. Direct Parity Verification
+
 **Requirement**: Side-by-side comparison with Cursor behavior
 
 **Test Strategy**:
+
 ```typescript
 // For each test case:
 // 1. Apply same edit with Cursor's edit_file (in documentation/expected results)
@@ -364,6 +385,7 @@ function test() {
 ## Test Execution Strategy
 
 ### Standalone Execution
+
 ```bash
 # Run only integration tests (uses real configuration system)
 bun test tests/integration/session-edit-file-cursor-parity.integration.test.ts
@@ -378,12 +400,14 @@ bun test --grep "Large file handling" tests/integration/session-edit-file-cursor
 ```
 
 ### Test Isolation
+
 - Tests must not run during regular `bun test` execution
 - Use `describe.skipIf()` or separate test command
 - Clean up test sessions after each test
 - Use dedicated test workspace directory
 
 ### Continuous Integration
+
 - Optional CI job that runs only when edit tools are modified
 - Requires proper Minsky configuration with Morph provider setup
 - Can use environment variables or secure configuration files
@@ -393,6 +417,7 @@ bun test --grep "Large file handling" tests/integration/session-edit-file-cursor
 ## Sample Test Files
 
 ### Test Asset Structure
+
 ```
 tests/integration/fixtures/session-edit-file/
 ├── typescript/
@@ -416,6 +441,7 @@ tests/integration/fixtures/session-edit-file/
 ```
 
 ### Test Session Setup
+
 ```typescript
 async function createTestSession(): Promise<string> {
   const sessionName = `edit-test-${Date.now()}`;
@@ -432,7 +458,7 @@ async function createTestSession(): Promise<string> {
 async function cleanupTestSession(sessionName: string): Promise<void> {
   await mcp.session.delete({
     name: sessionName,
-    force: true
+    force: true,
   });
 }
 
@@ -453,6 +479,7 @@ async function createConfiguredEditTool(): Promise<SessionEditTool> {
 ## Acceptance Criteria
 
 ### Functional Requirements
+
 - [ ] All 50+ test cases pass with real Morph API
 - [ ] Error handling matches documented Cursor behavior
 - [ ] Performance within 2x of Cursor benchmarks
@@ -460,6 +487,7 @@ async function createConfiguredEditTool(): Promise<SessionEditTool> {
 - [ ] Session isolation properly enforced
 
 ### Quality Requirements
+
 - [ ] Tests are deterministic and reliable
 - [ ] Comprehensive error scenarios covered
 - [ ] Test fixtures represent real-world usage
@@ -467,6 +495,7 @@ async function createConfiguredEditTool(): Promise<SessionEditTool> {
 - [ ] Documentation explains each test purpose
 
 ### Integration Requirements
+
 - [ ] Tests run independently from main suite
 - [ ] CI integration optional but available
 - [ ] Test results provide actionable feedback
@@ -476,12 +505,14 @@ async function createConfiguredEditTool(): Promise<SessionEditTool> {
 ## Dependencies
 
 ### Prerequisites
+
 - Working `session.edit_file` MCP tool implementation
 - Morph API integration functional
 - Session management system operational
 - Test fixtures and sample code files
 
 ### External Dependencies
+
 - Morph API access and API key
 - Session workspace creation capabilities
 - File system permissions for test directories
@@ -489,17 +520,20 @@ async function createConfiguredEditTool(): Promise<SessionEditTool> {
 ## Risk Mitigation
 
 ### API Quota Management
+
 - Use real configuration system to load API credentials
 - Implement test throttling to avoid rate limits
 - Cache successful API responses where possible
 - Respect rate limits configured in Minsky configuration
 
 ### Test Reliability
+
 - Retry flaky network-dependent tests
 - Use deterministic test data
 - Isolate tests from external dependencies where possible
 
 ### Performance Impact
+
 - Run only on-demand, not in regular CI
 - Use test session cleanup to prevent resource leaks
 - Monitor test execution time and optimize slow tests

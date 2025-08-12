@@ -1,9 +1,11 @@
 # Collapse Unnecessary Application Layer in Task Architecture
 
 ## Status
+
 TODO
 
 ## Priority
+
 HIGH
 
 ## Description
@@ -13,21 +15,26 @@ Refactor task-related code to eliminate the unnecessary application layer that's
 ## Architectural Motivation
 
 ### Current Problem
+
 The task system has an over-engineered architecture with an unnecessary "application layer" that:
+
 - **Duplicates business logic**: Filtering rules exist in multiple places with different implementations
 - **Causes inconsistencies**: CLI shows CLOSED tasks, MCP hides them (different application layer functions)
 - **Violates DRY principle**: Same parameter validation and orchestration logic repeated
 - **Adds complexity**: Extra abstraction layers without clear value
 
 ### Target Architecture: Domain-Driven Design
+
 Move from 3-layer to 2-layer architecture:
 
 **BEFORE (Over-engineered)**:
+
 ```
 Interface Layer (CLI/MCP) → Application Layer (taskCommands.ts, operations/) → Domain Layer (TaskService)
 ```
 
 **AFTER (Simplified)**:
+
 ```
 Interface Layer (CLI/MCP) → Domain Layer (TaskService with rich interface)
 ```
@@ -44,11 +51,13 @@ Interface Layer (CLI/MCP) → Domain Layer (TaskService with rich interface)
 ### Step 1: Identify Application Layer Anti-Patterns
 
 **Locations to examine**:
+
 - `src/domain/tasks/taskCommands.ts` - Functions that just orchestrate single domain calls
 - `src/domain/tasks/operations/` - Operation classes that wrap domain methods
 - `src/domain/tasks/taskCommands-modular.ts` - Modular wrappers around domain calls
 
 **Anti-pattern signatures**:
+
 ```typescript
 // ❌ Unnecessary application layer
 export async function someTaskOperation(params) {
@@ -70,14 +79,17 @@ class SomeTaskOperation {
 ### Step 2: Enrich Domain Layer Interface
 
 **Target pattern for TaskService**:
+
 ```typescript
 class TaskService {
-  async listTasks(options: {
-    all?: boolean;           // Include DONE/CLOSED tasks
-    status?: TaskStatus;     // Filter by specific status
-    filter?: string;         // Legacy filter parameter
-    limit?: number;          // Pagination
-  } = {}): Promise<Task[]> {
+  async listTasks(
+    options: {
+      all?: boolean; // Include DONE/CLOSED tasks
+      status?: TaskStatus; // Filter by specific status
+      filter?: string; // Legacy filter parameter
+      limit?: number; // Pagination
+    } = {}
+  ): Promise<Task[]> {
     // ALL business logic here:
     // - Parameter validation
     // - Default filtering rules
@@ -90,20 +102,21 @@ class TaskService {
 ### Step 3: Update Interface Layers
 
 **CLI adapters should become**:
+
 ```typescript
 // src/adapters/cli/tasks.ts
-program.command('tasks list')
-  .action(async (cliOptions) => {
-    const taskService = container.get(TaskService);
-    const tasks = await taskService.listTasks(cliOptions);
-    console.log(formatForCLI(tasks));
-  });
+program.command("tasks list").action(async (cliOptions) => {
+  const taskService = container.get(TaskService);
+  const tasks = await taskService.listTasks(cliOptions);
+  console.log(formatForCLI(tasks));
+});
 ```
 
 **MCP adapters should become**:
+
 ```typescript
 // src/adapters/mcp/tasks.ts
-commandMapper.addCommand('tasks.list', async (mcpArgs) => {
+commandMapper.addCommand("tasks.list", async (mcpArgs) => {
   const taskService = container.get(TaskService);
   const tasks = await taskService.listTasks(mcpArgs);
   return { tasks }; // MCP format
@@ -113,15 +126,18 @@ commandMapper.addCommand('tasks.list', async (mcpArgs) => {
 ### Step 4: Systematic Refactoring Approach
 
 1. **Audit current application layer functions**:
+
    - List all functions in `taskCommands.ts` and `operations/`
    - Identify which are just passthroughs vs. have real orchestration value
 
 2. **Move business logic to domain layer**:
+
    - Parameter validation → Domain method signatures
    - Default behaviors → Domain method implementations
    - Filtering rules → Domain business logic
 
 3. **Update interface layers**:
+
    - Remove calls to application layer functions
    - Inject and call domain services directly
    - Keep only protocol-specific logic (parsing, formatting)
@@ -134,16 +150,19 @@ commandMapper.addCommand('tasks.list', async (mcpArgs) => {
 ### Files to Examine
 
 **Application layer files (likely candidates for deletion)**:
+
 - `src/domain/tasks/taskCommands.ts`
 - `src/domain/tasks/taskCommands-modular.ts`
 - `src/domain/tasks/operations/query-operations.ts`
 - `src/domain/tasks/operations/crud-operations.ts`
 
 **Domain layer files (to be enriched)**:
+
 - `src/domain/tasks/taskService.ts` - Main business logic
 - `src/domain/tasks/taskConstants.ts` - Business rules and constants
 
 **Interface layer files (to be simplified)**:
+
 - `src/adapters/cli/` - CLI command handlers
 - `src/adapters/mcp/` - MCP tool registrations
 - `src/adapters/shared/commands/` - Shared command implementations
