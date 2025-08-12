@@ -626,7 +626,7 @@
 
 - [ ] Final test of the complete fix [#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
 
-- [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
+- [+] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
 
 - [ ] Implement --set-default to write config and back it up; update/remove tests referencing session.branch [#405](process/tasks/md#405-implement-set-default-to-write-config-and-back-it-up-update-remove-tests-referencing-session-branch.md)
 
@@ -642,12 +642,10 @@
 
 - [+] Fix task status update to use main workspace and configure main workspace path [#410](process/tasks/md#410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
 
-- [-] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
-
-- [ ] Fix session start to auto-detect GitHub remote when default repo backend is GitHub [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+- [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
 - [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
-- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+- [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
