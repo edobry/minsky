@@ -48,12 +48,32 @@ export async function sessionPrCreate(
   body?: string;
   pullRequest?: PullRequestInfo;
 }> {
-  // Handle draft mode - only works with GitHub backend and skips session update
+  // Validate draft mode requirements
   if (params.draft) {
-    return await sessionPrCreateDraft(params, options);
+    // Validate backend type for draft mode
+    const sessionProvider = createSessionProvider();
+    const resolvedContext = await resolveSessionContextWithFeedback({
+      session: params.name,
+      task: params.task,
+      repo: params.repo,
+      sessionProvider,
+      allowAutoDetection: true,
+    });
+
+    const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
+    if (!sessionRecord) {
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+    }
+
+    const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+    if (repositoryBackend.constructor.name !== "GitHubBackend") {
+      throw new ValidationError(
+        "Draft mode is only supported for GitHub repositories. Current session uses a different repository backend."
+      );
+    }
   }
 
-  // Delegate to existing session pr implementation for non-draft PRs
+  // Delegate to existing session pr implementation (handles both draft and regular PRs)
   const result = await sessionPr(
     {
       session: params.name,
@@ -65,6 +85,7 @@ export async function sessionPrCreate(
       debug: params.debug || false,
       noStatusUpdate: params.noStatusUpdate || false,
       skipConflictCheck: params.skipConflictCheck || false,
+      draft: params.draft || false,
 
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
     },

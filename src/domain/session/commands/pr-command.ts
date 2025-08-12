@@ -61,13 +61,13 @@ export async function sessionPr(
       );
       // Force recreation by clearing the prState and deleting git branch
       try {
-        await gitService.execInRepository(
-          workdir,
-          `git branch -D pr/${resolvedContext.sessionName}`
-        );
-        log.debug(
-          `Deleted existing PR branch pr/${resolvedContext.sessionName} to force recreation`
-        );
+        const branchToDelete =
+          sessionRecord.backendType === "github"
+            ? resolvedContext.sessionName
+            : `pr/${resolvedContext.sessionName}`;
+
+        await gitService.execInRepository(workdir, `git branch -D ${branchToDelete}`);
+        log.debug(`Deleted existing PR branch ${branchToDelete} to force recreation`);
       } catch (error) {
         log.debug(`Could not delete existing PR branch: ${error}`);
       }
@@ -107,6 +107,7 @@ export async function sessionPr(
         body: bodyContent,
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipConflictCheck: params.skipConflictCheck,
+        draft: params.draft,
         debug,
       },
       {
@@ -116,19 +117,30 @@ export async function sessionPr(
       options
     );
 
-    // Get the commit hash of the prepared merge commit
-    const commitHashResult = await gitService.execInRepository(
-      workdir,
-      `git rev-parse pr/${resolvedContext.sessionName}`
-    );
-    const commitHash = commitHashResult.trim();
+    // For GitHub backend, we don't use pr/ branches - work directly with session branch
+    let commitHash = "";
+    let prBranchName = result.prBranch;
+
+    // Only get commit hash from pr/ branch for local/remote backends
+    if (sessionRecord.backendType !== "github") {
+      const commitHashResult = await gitService.execInRepository(
+        workdir,
+        `git rev-parse pr/${resolvedContext.sessionName}`
+      );
+      commitHash = commitHashResult.trim();
+    } else {
+      // For GitHub backend, use the session branch commit hash
+      const commitHashResult = await gitService.execInRepository(workdir, `git rev-parse HEAD`);
+      commitHash = commitHashResult.trim();
+      prBranchName = resolvedContext.sessionName; // GitHub PRs use session branch directly
+    }
 
     // Update session record with PR state
     await sessionDB.updateSession(resolvedContext.sessionName, {
       ...sessionRecord,
-      prBranch: result.prBranch, // Set prBranch field for approval validation
+      prBranch: prBranchName, // Set prBranch field for approval validation
       prState: {
-        branchName: result.prBranch,
+        branchName: prBranchName,
         commitHash: commitHash,
         lastChecked: new Date().toISOString(),
         createdAt: new Date().toISOString(),

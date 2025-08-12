@@ -288,7 +288,8 @@ export class LocalGitBackend implements RepositoryBackend {
     body: string,
     sourceBranch: string,
     baseBranch: string = "main",
-    session?: string
+    session?: string,
+    draft?: boolean
   ): Promise<PRInfo> {
     let workdir: string;
 

@@ -539,7 +539,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
     body: string,
     sourceBranch: string,
     baseBranch: string = "main",
-    session?: string
+    session?: string,
+    draft?: boolean
   ): Promise<PRInfo> {
     if (!this.owner || !this.repo) {
       throw new MinskyError("GitHub owner and repo must be configured to create pull requests");
@@ -598,6 +599,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         body,
         head: sourceBranch,
         base: baseBranch,
+        draft: draft || false,
       });
 
       const pr = prResponse.data;
@@ -609,7 +611,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const prInfo = {
         number: pr.number,
         url: pr.html_url,
-        state: pr.state as "open" | "closed" | "merged",
+        state: pr.draft ? "draft" : (pr.state as "open" | "closed" | "merged"),
         metadata: {
           id: pr.id,
           node_id: pr.node_id,
@@ -620,6 +622,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
           owner: this.owner,
           repo: this.repo,
           workdir,
+          draft: pr.draft,
         },
       };
 
@@ -635,7 +638,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
                 number: pr.number,
                 url: pr.html_url,
                 title: pr.title || `PR #${pr.number}`,
-                state: (pr.state as any) || "open",
+                state: pr.draft ? "draft" : (pr.state as any) || "open",
                 createdAt: pr.created_at,
                 updatedAt: pr.updated_at,
                 mergedAt: pr.merged_at || undefined,
