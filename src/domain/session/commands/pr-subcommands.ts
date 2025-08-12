@@ -100,8 +100,6 @@ export async function sessionPrCreate(
   };
 }
 
-
-
 /**
  * Session PR Edit implementation
  * Updates an existing PR for a session

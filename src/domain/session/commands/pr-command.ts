@@ -61,17 +61,13 @@ export async function sessionPr(
       );
       // Force recreation by clearing the prState and deleting git branch
       try {
-        const branchToDelete = sessionRecord.backendType === "github" 
-          ? resolvedContext.sessionName 
-          : `pr/${resolvedContext.sessionName}`;
-        
-        await gitService.execInRepository(
-          workdir,
-          `git branch -D ${branchToDelete}`
-        );
-        log.debug(
-          `Deleted existing PR branch ${branchToDelete} to force recreation`
-        );
+        const branchToDelete =
+          sessionRecord.backendType === "github"
+            ? resolvedContext.sessionName
+            : `pr/${resolvedContext.sessionName}`;
+
+        await gitService.execInRepository(workdir, `git branch -D ${branchToDelete}`);
+        log.debug(`Deleted existing PR branch ${branchToDelete} to force recreation`);
       } catch (error) {
         log.debug(`Could not delete existing PR branch: ${error}`);
       }
@@ -134,10 +130,7 @@ export async function sessionPr(
       commitHash = commitHashResult.trim();
     } else {
       // For GitHub backend, use the session branch commit hash
-      const commitHashResult = await gitService.execInRepository(
-        workdir,
-        `git rev-parse HEAD`
-      );
+      const commitHashResult = await gitService.execInRepository(workdir, `git rev-parse HEAD`);
       commitHash = commitHashResult.trim();
       prBranchName = resolvedContext.sessionName; // GitHub PRs use session branch directly
     }

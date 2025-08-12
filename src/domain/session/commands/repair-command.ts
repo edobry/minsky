@@ -1,9 +1,9 @@
 /**
  * Session Repair Command
- * 
+ *
  * Provides repair functionality for various session state issues:
  * - PR state cleanup and correction
- * - Backend type synchronization  
+ * - Backend type synchronization
  * - Branch format corrections
  * - Workspace validation
  */
@@ -17,7 +17,7 @@ import { type GitServiceInterface } from "../../git";
 
 export interface SessionRepairParameters {
   name?: string;
-  task?: string; 
+  task?: string;
   repo?: string;
   dryRun?: boolean;
   auto?: boolean;
@@ -88,11 +88,11 @@ export async function sessionRepair(
 
   // Analyze session for issues
   const issuesFound = await analyzeSessionIssues(sessionRecord, sessionDB, gitService, params);
-  
+
   log.cli(`🔍 Found ${issuesFound.length} potential issues in session '${sessionName}'`);
-  
+
   if (params.debug) {
-    issuesFound.forEach(issue => {
+    issuesFound.forEach((issue) => {
       log.cli(`  ${issue.severity.toUpperCase()}: ${issue.description}`);
     });
   }
@@ -150,8 +150,10 @@ export async function sessionRepair(
   }
 
   const success = repairsApplied.length > 0 || issuesFound.length === 0;
-  
-  log.cli(`🔧 Repair complete: ${repairsApplied.length} repairs applied, ${repairsSkipped.length} skipped`);
+
+  log.cli(
+    `🔧 Repair complete: ${repairsApplied.length} repairs applied, ${repairsSkipped.length} skipped`
+  );
 
   return {
     sessionName,
@@ -204,9 +206,9 @@ async function analyzePRStateIssues(
       type: "branch-format",
       severity: "medium",
       description: "GitHub backend using incorrect 'pr/' branch format",
-      details: { 
+      details: {
         currentBranch: sessionRecord.prBranch,
-        expectedBranch: sessionRecord.session 
+        expectedBranch: sessionRecord.session,
       },
       autoFixable: true,
     });
@@ -216,15 +218,15 @@ async function analyzePRStateIssues(
   if (sessionRecord.prState?.branchName) {
     try {
       const workdir = await sessionDB.getSessionWorkdir(sessionRecord.session);
-      const branchExists = await gitService.execInRepository(
-        workdir,
-        `git rev-parse --verify ${sessionRecord.prState.branchName}`
-      ).then(() => true).catch(() => false);
+      const branchExists = await gitService
+        .execInRepository(workdir, `git rev-parse --verify ${sessionRecord.prState.branchName}`)
+        .then(() => true)
+        .catch(() => false);
 
       if (!branchExists) {
         issues.push({
           type: "pr-state",
-          severity: "medium", 
+          severity: "medium",
           description: "PR state references non-existent branch",
           details: { branchName: sessionRecord.prState.branchName },
           autoFixable: true,
@@ -251,8 +253,10 @@ async function analyzeBackendSyncIssues(
   // Check if backend type matches actual repository
   try {
     const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
-    const actualBackendType = repositoryBackend.constructor.name.toLowerCase().replace("backend", "");
-    
+    const actualBackendType = repositoryBackend.constructor.name
+      .toLowerCase()
+      .replace("backend", "");
+
     if (sessionRecord.backendType !== actualBackendType) {
       issues.push({
         type: "backend-sync",
@@ -290,13 +294,13 @@ async function applyRepair(
   switch (issue.type) {
     case "branch-format":
       return await repairBranchFormat(issue, sessionRecord, sessionDB);
-    
+
     case "pr-state":
       return await repairPRState(issue, sessionRecord, sessionDB);
-    
+
     case "backend-sync":
       return await repairBackendSync(issue, sessionRecord, sessionDB);
-    
+
     default:
       throw new Error(`Unknown repair type: ${issue.type}`);
   }
@@ -311,7 +315,7 @@ async function repairBranchFormat(
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
   const correctBranch = issue.details.expectedBranch;
-  
+
   await sessionDB.updateSession(sessionRecord.session, {
     ...sessionRecord,
     prBranch: correctBranch,
@@ -359,7 +363,7 @@ async function repairBackendSync(
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
   const correctBackendType = issue.details.actualType;
-  
+
   await sessionDB.updateSession(sessionRecord.session, {
     ...sessionRecord,
     backendType: correctBackendType,

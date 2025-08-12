@@ -638,7 +638,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
                 number: pr.number,
                 url: pr.html_url,
                 title: pr.title || `PR #${pr.number}`,
-                state: pr.draft ? "draft" : ((pr.state as any) || "open"),
+                state: pr.draft ? "draft" : (pr.state as any) || "open",
                 createdAt: pr.created_at,
                 updatedAt: pr.updated_at,
                 mergedAt: pr.merged_at || undefined,
