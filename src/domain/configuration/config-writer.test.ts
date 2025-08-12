@@ -7,7 +7,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { ConfigWriter, createConfigWriter } from "./config-writer";
 // Use mock.module() to mock filesystem operations
-// import * as fs from "fs";
+import * as fs from "fs";
 import * as path from "path";
 import * as os from "os";
 import * as yaml from "yaml";
