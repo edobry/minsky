@@ -86,180 +86,15 @@ export async function sessionPrCreate(
       noStatusUpdate: params.noStatusUpdate || false,
       skipConflictCheck: params.skipConflictCheck || false,
       draft: params.draft || false,
-
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
     },
     options
   );
 
-  // TODO: In future implementation, also update session record with pullRequest info
-  // For now, return the basic result with placeholder for pullRequest
   return {
     ...result,
-    pullRequest: undefined, // Will be populated when GitHub API integration is added
+    pullRequest: undefined, // Will be populated from session record if needed
   };
-}
-
-/**
- * Session PR Create Draft implementation
- * Creates a draft PR without session update - GitHub only
- */
-async function sessionPrCreateDraft(
-  params: {
-    title?: string;
-    body?: string;
-    bodyPath?: string;
-    name?: string;
-    task?: string;
-    repo?: string;
-    noStatusUpdate?: boolean;
-    debug?: boolean;
-
-    autoResolveDeleteConflicts?: boolean;
-    skipConflictCheck?: boolean;
-    draft?: boolean;
-  },
-  options?: {
-    interface?: "cli" | "mcp";
-    workingDirectory?: string;
-  }
-): Promise<{
-  prBranch: string;
-  baseBranch: string;
-  title?: string;
-  body?: string;
-  pullRequest?: PullRequestInfo;
-}> {
-  const sessionProvider = createSessionProvider();
-  const gitService = createGitService();
-
-  // Resolve session context
-  const resolvedContext = await resolveSessionContextWithFeedback({
-    session: params.name,
-    task: params.task,
-    repo: params.repo,
-    sessionProvider,
-    allowAutoDetection: true,
-  });
-
-  // Get the session record
-  const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
-  if (!sessionRecord) {
-    throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
-  }
-
-  // Validate that this is a GitHub repository backend
-  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
-  if (repositoryBackend.constructor.name !== "GitHubBackend") {
-    throw new ValidationError(
-      "Draft mode is only supported for GitHub repositories. Current session uses a different repository backend."
-    );
-  }
-
-  // Get session working directory
-  const workdir = await sessionProvider.getSessionWorkdir(resolvedContext.sessionName);
-
-  // Check for uncommitted changes
-  const hasUncommittedChanges = await gitService.hasUncommittedChanges(workdir);
-  if (hasUncommittedChanges) {
-    throw new MinskyError(
-      "Cannot create draft PR with uncommitted changes. Please commit your changes first."
-    );
-  }
-
-  // Read body content from file if provided
-  let bodyContent = params.body;
-  if (!bodyContent && params.bodyPath) {
-    try {
-      const { readFile } = await import("fs/promises");
-      bodyContent = await readFile(params.bodyPath, "utf-8");
-      if (params.debug) {
-        log.debug("Read body content from file", {
-          bodyPath: params.bodyPath,
-          contentLength: bodyContent.length,
-        });
-      }
-    } catch (error) {
-      throw new ValidationError(
-        `Failed to read body content from file: ${params.bodyPath}. ${getErrorMessage(error)}`,
-        "bodyPath",
-        params.bodyPath
-      );
-    }
-  }
-
-  // Validate required parameters
-  if (!params.title) {
-    throw new ValidationError("PR title is required for draft mode");
-  }
-  if (!bodyContent) {
-    throw new ValidationError("PR body is required for draft mode");
-  }
-
-  // Create PR branch (similar to regular PR but without session update)
-  const currentBranch = await gitService.getCurrentBranch(workdir);
-  const prBranchName = `pr/${resolvedContext.sessionName}`;
-  const baseBranch = "main";
-
-  // Create and switch to PR branch
-  try {
-    await gitService.execInRepository(workdir, `git checkout -b ${prBranchName}`);
-  } catch (error) {
-    // Branch might already exist, try to switch to it
-    try {
-      await gitService.execInRepository(workdir, `git checkout ${prBranchName}`);
-    } catch (switchError) {
-      throw new MinskyError(
-        `Failed to create or switch to PR branch ${prBranchName}: ${getErrorMessage(error)}`
-      );
-    }
-  }
-
-  // Merge changes from session branch
-  try {
-    await gitService.execInRepository(workdir, `git merge ${currentBranch}`);
-  } catch (error) {
-    throw new MinskyError(
-      `Failed to merge changes from ${currentBranch} to ${prBranchName}: ${getErrorMessage(error)}`
-    );
-  }
-
-  // Push the PR branch
-  try {
-    await gitService.execInRepository(workdir, `git push origin ${prBranchName}`);
-  } catch (error) {
-    throw new MinskyError(`Failed to push PR branch ${prBranchName}: ${getErrorMessage(error)}`);
-  }
-
-  // Create draft PR using GitHub backend
-  const githubBackend = repositoryBackend as any; // We know it's GitHub from validation above
-
-  try {
-    const pullRequest = await githubBackend.createPullRequest({
-      title: params.title,
-      body: bodyContent,
-      head: prBranchName,
-      base: baseBranch,
-      draft: true, // This is the key difference - create as draft
-    });
-
-    log.cli(`✅ Draft PR created successfully: ${pullRequest.html_url}`);
-
-    return {
-      prBranch: prBranchName,
-      baseBranch,
-      title: params.title,
-      body: bodyContent,
-      pullRequest: {
-        number: pullRequest.number,
-        url: pullRequest.html_url,
-        state: pullRequest.state,
-        draft: pullRequest.draft,
-      },
-    };
-  } catch (error) {
-    throw new MinskyError(`Failed to create draft PR: ${getErrorMessage(error)}`);
-  }
 }
 
 /**
@@ -556,15 +391,18 @@ export async function sessionPrGet(params: {
           const repairedPrData = {
             number: githubPr.number,
             url: githubPr.html_url,
-            state: githubPr.state,
-            id: githubPr.id,
-            created_at: githubPr.created_at,
-            updated_at: githubPr.updated_at,
             title: githubPr.title,
+            state: githubPr.state,
+            createdAt: githubPr.created_at,
+            updatedAt: githubPr.updated_at,
+            mergedAt: githubPr.merged_at || undefined,
+            headBranch: githubPr.head?.ref,
+            baseBranch: githubPr.base?.ref,
             body: githubPr.body || undefined,
+            lastSynced: new Date().toISOString(),
           };
 
-          // Update session record with discovered PR data
+          // Update session record with discovered PR data (normalized to PullRequestInfo shape)
           const updatedSession = {
             ...sessionRecord,
             pullRequest: repairedPrData,
@@ -572,11 +410,69 @@ export async function sessionPrGet(params: {
           await sessionDB.updateSession(resolvedContext.sessionName, updatedSession);
 
           log.info(`✅ Repaired session record with PR #${githubPr.number} from GitHub API`);
-          finalPullRequest = repairedPrData;
+          finalPullRequest = repairedPrData as any;
         }
       } catch (repairError) {
         log.debug(`GitHub API repair failed: ${getErrorMessage(repairError)}`);
         // Continue with original no-PR-found logic below
+      }
+    }
+
+    // If we have a PR but it's missing key metadata (timestamps/branch), try to enrich from GitHub
+    if (
+      sessionRecord.backendType === "github" &&
+      finalPullRequest &&
+      // Missing any of these warrants an enrichment attempt
+      (!("createdAt" in (finalPullRequest as any)) ||
+        !("updatedAt" in (finalPullRequest as any)) ||
+        !(finalPullRequest as any).headBranch)
+    ) {
+      try {
+        const { getConfiguration } = require("../../configuration/index");
+        const { Octokit } = require("@octokit/rest");
+
+        const config = getConfiguration();
+        const githubToken = config.github.token;
+        if (!githubToken) {
+          throw new Error("GitHub token required for PR enrichment");
+        }
+
+        const octokit = new Octokit({ auth: githubToken });
+
+        // Extract owner/repo from session record
+        const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
+        const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+        if (!githubInfo) {
+          throw new Error(`Could not extract GitHub info from URL: ${sessionRecord.repoUrl}`);
+        }
+        const { owner, repo } = githubInfo;
+
+        if ((finalPullRequest as any).number) {
+          const pull_number = (finalPullRequest as any).number as number;
+          const { data: prDetails } = await octokit.rest.pulls.get({ owner, repo, pull_number });
+
+          const enriched = {
+            ...(finalPullRequest as any),
+            title: prDetails.title || (finalPullRequest as any).title,
+            url: prDetails.html_url || (finalPullRequest as any).url,
+            state: (prDetails.state as any) || (finalPullRequest as any).state,
+            createdAt: prDetails.created_at,
+            updatedAt: prDetails.updated_at,
+            mergedAt: prDetails.merged_at || (finalPullRequest as any).mergedAt,
+            headBranch: prDetails.head?.ref || (finalPullRequest as any).headBranch,
+            baseBranch: prDetails.base?.ref || (finalPullRequest as any).baseBranch,
+            lastSynced: new Date().toISOString(),
+          };
+
+          await sessionDB.updateSession(resolvedContext.sessionName, {
+            ...sessionRecord,
+            pullRequest: enriched,
+          });
+
+          finalPullRequest = enriched as any;
+        }
+      } catch (enrichError) {
+        log.debug(`GitHub PR enrichment skipped: ${getErrorMessage(enrichError)}`);
       }
     }
 
@@ -610,12 +506,19 @@ export async function sessionPrGet(params: {
       taskId: sessionRecord.taskId,
       branch:
         sessionRecord.backendType === "github"
-          ? currentBranch || finalPullRequest?.headBranch || sessionRecord.session
+          ? finalPullRequest?.headBranch || currentBranch || sessionRecord.session
           : prState?.branchName || `pr/${sessionRecord.session}`,
       status: finalPullRequest?.state || (prState?.commitHash ? "created" : "not_found"),
       url: finalPullRequest?.url,
-      createdAt: finalPullRequest?.created_at || prState?.createdAt,
-      updatedAt: finalPullRequest?.updated_at || prState?.lastChecked,
+      // Support both camelCase and snake_case to handle legacy records
+      createdAt:
+        (finalPullRequest as any)?.createdAt ||
+        (finalPullRequest as any)?.created_at ||
+        prState?.createdAt,
+      updatedAt:
+        (finalPullRequest as any)?.updatedAt ||
+        (finalPullRequest as any)?.updated_at ||
+        prState?.lastChecked,
       description: finalPullRequest?.body,
       author: finalPullRequest?.github?.author,
       filesChanged: finalPullRequest?.filesChanged,

@@ -486,11 +486,15 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
         "",
         `Session:     ${pullRequest.sessionName}`,
         `Task:        ${pullRequest.taskId || "none"}`,
-        `Branch:      ${pullRequest.branch}`,
         `Status:      ${pullRequest.status}`,
         `Created:     ${pullRequest.createdAt || "unknown"}`,
         `Updated:     ${pullRequest.updatedAt || "unknown"}`,
       ];
+
+      // Show branch info only if it differs from the session name (avoid redundant noise)
+      if (pullRequest.branch && pullRequest.branch !== pullRequest.sessionName) {
+        output.splice(4, 0, `Branch:      ${pullRequest.branch}`);
+      }
 
       if (pullRequest.url) {
         output.push(`URL:         ${pullRequest.url}`);
