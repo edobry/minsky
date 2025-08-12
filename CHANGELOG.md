@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+- feat(sessiondb): add Drizzle Kit migrations for PostgreSQL and wire runtime migrator
+  - Added `drizzle.pg.config.ts` and generated PG migrations under `src/domain/storage/migrations/pg`
+  - Updated `PostgresStorage.initialize()` to run migrations via `drizzle-orm/postgres-js/migrator`
+  - Left existing SQLite config in `drizzle.config.ts` untouched for local dev
+  - Docs: `docs/testing/postgres-migrations.md`
+
 ### Fixed
 
 - CLI validation error formatting for Zod schema failures. Previously, invalid params could print a bare `❌ [` due to unhandled `ZodError`. Now errors are concise and human-readable (e.g., `Validation error: Task ID must be qualified (md#123, gh#456)`) with full details shown in debug mode. Affects `minsky session get`, `minsky session dir`, and other Zod-validated commands.
