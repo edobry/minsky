@@ -646,4 +646,8 @@
 
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
+<<<<<<< Updated upstream
 - [+] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+=======
+- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+>>>>>>> Stashed changes
