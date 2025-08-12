@@ -391,18 +391,15 @@ export async function sessionPrGet(params: {
           const repairedPrData = {
             number: githubPr.number,
             url: githubPr.html_url,
-            title: githubPr.title,
             state: githubPr.state,
-            createdAt: githubPr.created_at,
-            updatedAt: githubPr.updated_at,
-            mergedAt: githubPr.merged_at || undefined,
-            headBranch: githubPr.head?.ref,
-            baseBranch: githubPr.base?.ref,
+            id: githubPr.id,
+            created_at: githubPr.created_at,
+            updated_at: githubPr.updated_at,
+            title: githubPr.title,
             body: githubPr.body || undefined,
-            lastSynced: new Date().toISOString(),
           };
 
-          // Update session record with discovered PR data (normalized to PullRequestInfo shape)
+          // Update session record with discovered PR data
           const updatedSession = {
             ...sessionRecord,
             pullRequest: repairedPrData,
@@ -410,69 +407,11 @@ export async function sessionPrGet(params: {
           await sessionDB.updateSession(resolvedContext.sessionName, updatedSession);
 
           log.info(`✅ Repaired session record with PR #${githubPr.number} from GitHub API`);
-          finalPullRequest = repairedPrData as any;
+          finalPullRequest = repairedPrData;
         }
       } catch (repairError) {
         log.debug(`GitHub API repair failed: ${getErrorMessage(repairError)}`);
         // Continue with original no-PR-found logic below
-      }
-    }
-
-    // If we have a PR but it's missing key metadata (timestamps/branch), try to enrich from GitHub
-    if (
-      sessionRecord.backendType === "github" &&
-      finalPullRequest &&
-      // Missing any of these warrants an enrichment attempt
-      (!("createdAt" in (finalPullRequest as any)) ||
-        !("updatedAt" in (finalPullRequest as any)) ||
-        !(finalPullRequest as any).headBranch)
-    ) {
-      try {
-        const { getConfiguration } = require("../../configuration/index");
-        const { Octokit } = require("@octokit/rest");
-
-        const config = getConfiguration();
-        const githubToken = config.github.token;
-        if (!githubToken) {
-          throw new Error("GitHub token required for PR enrichment");
-        }
-
-        const octokit = new Octokit({ auth: githubToken });
-
-        // Extract owner/repo from session record
-        const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
-        const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
-        if (!githubInfo) {
-          throw new Error(`Could not extract GitHub info from URL: ${sessionRecord.repoUrl}`);
-        }
-        const { owner, repo } = githubInfo;
-
-        if ((finalPullRequest as any).number) {
-          const pull_number = (finalPullRequest as any).number as number;
-          const { data: prDetails } = await octokit.rest.pulls.get({ owner, repo, pull_number });
-
-          const enriched = {
-            ...(finalPullRequest as any),
-            title: prDetails.title || (finalPullRequest as any).title,
-            url: prDetails.html_url || (finalPullRequest as any).url,
-            state: (prDetails.state as any) || (finalPullRequest as any).state,
-            createdAt: prDetails.created_at,
-            updatedAt: prDetails.updated_at,
-            mergedAt: prDetails.merged_at || (finalPullRequest as any).mergedAt,
-            headBranch: prDetails.head?.ref || (finalPullRequest as any).headBranch,
-            baseBranch: prDetails.base?.ref || (finalPullRequest as any).baseBranch,
-            lastSynced: new Date().toISOString(),
-          };
-
-          await sessionDB.updateSession(resolvedContext.sessionName, {
-            ...sessionRecord,
-            pullRequest: enriched,
-          });
-
-          finalPullRequest = enriched as any;
-        }
-      } catch (enrichError) {
-        log.debug(`GitHub PR enrichment skipped: ${getErrorMessage(enrichError)}`);
       }
     }
 
@@ -506,19 +445,12 @@ export async function sessionPrGet(params: {
       taskId: sessionRecord.taskId,
       branch:
         sessionRecord.backendType === "github"
-          ? finalPullRequest?.headBranch || currentBranch || sessionRecord.session
+          ? currentBranch || finalPullRequest?.headBranch || sessionRecord.session
           : prState?.branchName || `pr/${sessionRecord.session}`,
       status: finalPullRequest?.state || (prState?.commitHash ? "created" : "not_found"),
       url: finalPullRequest?.url,
-      // Support both camelCase and snake_case to handle legacy records
-      createdAt:
-        (finalPullRequest as any)?.createdAt ||
-        (finalPullRequest as any)?.created_at ||
-        prState?.createdAt,
-      updatedAt:
-        (finalPullRequest as any)?.updatedAt ||
-        (finalPullRequest as any)?.updated_at ||
-        prState?.lastChecked,
+      createdAt: finalPullRequest?.created_at || prState?.createdAt,
+      updatedAt: finalPullRequest?.updated_at || prState?.lastChecked,
       description: finalPullRequest?.body,
       author: finalPullRequest?.github?.author,
       filesChanged: finalPullRequest?.filesChanged,
