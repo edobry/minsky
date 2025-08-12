@@ -107,6 +107,7 @@ export async function sessionPr(
         body: bodyContent,
         autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
         skipConflictCheck: params.skipConflictCheck,
+        draft: params.draft,
         debug,
       },
       {

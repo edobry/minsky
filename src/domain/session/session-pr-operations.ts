@@ -343,8 +343,18 @@ Please provide a title for your pull request:
       }
     }
 
+    // Determine correct branch format based on backend type
+    let prBranchName: string;
+    if (sessionRecord?.backendType === "github") {
+      // GitHub backend uses session branch directly
+      prBranchName = sessionName;
+    } else {
+      // Local/remote backends use pr/ prefix format
+      prBranchName = typeof prInfo.number === "string" ? prInfo.number : `pr/${prInfo.number}`;
+    }
+
     return {
-      prBranch: typeof prInfo.number === "string" ? prInfo.number : `pr/${prInfo.number}`,
+      prBranch: prBranchName,
       baseBranch,
       title: titleToUse,
       body: bodyToUse,
