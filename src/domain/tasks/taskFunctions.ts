@@ -59,11 +59,12 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       }
     }
 
-    // Normalize ID to legacy format for backward compatibility
-    const normalizedId = normalizeTaskId(id) || id;
+    // Keep ID as-is for multi-backend compatibility
+    // Note: normalizeTaskId was stripping qualified prefixes (md#123 -> #123)
+    // which breaks multi-backend routing
 
     tasks.push({
-      id: normalizedId,
+      id: id,
       title,
       status,
       description: description.trim(),

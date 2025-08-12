@@ -76,7 +76,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
       };
 
       // Use createTask with TaskSpec format
-      await service.createTask(taskSpec, "md");
+      const createdTask = await service.createTask(taskSpec, "md");
       const retrievedTask = await service.getTask("md#123");
 
       expect(retrievedTask).toBeDefined();

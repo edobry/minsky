@@ -147,7 +147,7 @@ export function createMockFilesystem(
       if (encoding) {
         return content; // Already stored as string
       } else {
-        return Buffer.from(content || "", 'utf-8'); // Return as Buffer
+        return Buffer.from(content || "", "utf-8"); // Return as Buffer
       }
     }),
     writeFile: createMock(async (path: unknown, data: unknown) => {

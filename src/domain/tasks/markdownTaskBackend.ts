@@ -121,7 +121,23 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   async getTask(id: string): Promise<Task | null> {
     const tasks = await this.listTasks();
-    return tasks.find((task) => task.id === id) || null;
+
+    // Handle ID format mismatches for multi-backend compatibility
+    // Backend stores local IDs (123) but formatting may add # prefix (#123)
+    const foundTask = tasks.find((task) => {
+      // Exact match first
+      if (task.id === id) return true;
+
+      // If searching for local ID (123), check against formatted version (#123)
+      if (!/^#/.test(id) && task.id === `#${id}`) return true;
+
+      // If searching for formatted ID (#123), check against local version (123)
+      if (id.startsWith("#") && task.id === id.substring(1)) return true;
+
+      return false;
+    });
+
+    return foundTask || null;
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
@@ -344,12 +360,26 @@ export class MarkdownTaskBackend implements TaskBackend {
         return id !== null && id > max ? id : max;
       }, 0);
 
-      // Generate qualified backend ID for multi-backend storage (e.g., "md#285")
-      const newId = spec.id || `md#${maxId + 1}`; // Use provided ID or generate qualified format
+      // Extract local ID from qualified ID for backend storage
+      let localId: string;
+      if (spec.id) {
+        // If spec.id is qualified (md#123), extract local part (123)
+        if (spec.id.includes("#")) {
+          localId = spec.id.split("#")[1];
+        } else {
+          // Plain ID, use as-is
+          localId = spec.id;
+        }
+      } else {
+        // Generate new local ID
+        localId = `${maxId + 1}`;
+      }
+
+      // Store local ID in backend (multi-backend system handles qualified routing)
 
       // Create the new task directly
       const newTaskData: TaskData = {
-        id: newId,
+        id: localId,
         title: spec.title,
         description: spec.description,
         status: TASK_STATUS.TODO,
