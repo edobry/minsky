@@ -61,7 +61,7 @@ describe("Session Approval Repository Backend Bug", () => {
       repoUrl: "/Users/edobry/Projects/minsky", // LOCAL path, not GitHub URL
       createdAt: "2025-07-30T23:14:24.213Z",
       taskId: "md#335",
-      branch: "task335",
+      // branch removed from persistent schema; tests should not rely on it
       // Note: no backendType set, which should default to LOCAL based on repoUrl
     };
 
@@ -123,7 +123,7 @@ describe("Session Approval Repository Backend Bug", () => {
       repoUrl: "https://github.com/edobry/minsky.git",
       createdAt: "2025-07-30T23:14:24.213Z",
       taskId: "md#336",
-      branch: "task336",
+      // branch removed from persistent schema; tests should not rely on it
       backendType: "github", // Explicitly set to GitHub
       github: {
         owner: "edobry",

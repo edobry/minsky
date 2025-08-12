@@ -353,14 +353,13 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    // Prepare session record but don't add to DB yet
+    // Prepare session record but don't add to DB yet (branch no longer persisted)
     const sessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
       taskId,
-      branch: branch || sessionName,
     };
     console.log(`[DEBUG] sessionRecord prepared:`, JSON.stringify(sessionRecord, null, 2));
 

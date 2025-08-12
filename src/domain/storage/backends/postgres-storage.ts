@@ -97,7 +97,6 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
           repo_url VARCHAR(1000) NOT NULL,
           created_at TIMESTAMP WITH TIME ZONE NOT NULL,
           task_id VARCHAR(100),
-          branch VARCHAR(255),
           repo_path VARCHAR(1000)
         )
       `;
@@ -110,6 +109,13 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         { name: "backend_type", type: "VARCHAR(50)" },
         { name: "pull_request", type: "TEXT" },
       ];
+      // Drop legacy column 'branch' if present (deprecated; branch == session name)
+      try {
+        await this.sql`ALTER TABLE sessions DROP COLUMN IF EXISTS branch`;
+      } catch (error: any) {
+        // Ignore if not supported or any issues; this is best-effort
+        log.debug("Legacy column drop attempt for 'branch'", { message: error?.message });
+      }
 
       for (const column of columnsToAdd) {
         try {

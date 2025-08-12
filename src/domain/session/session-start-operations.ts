@@ -204,14 +204,13 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    // Prepare session record but don't add to DB yet
+    // Prepare session record but don't add to DB yet (branch no longer persisted)
     const baseSessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
       taskId: taskId ? SessionBackwardCompatibility.toStorageFormat(taskId) : undefined,
-      branch: branch || sessionName,
     };
 
     // Enhance session record with multi-backend information
@@ -317,7 +316,6 @@ Error: ${getErrorMessage(installError)}`
       session: sessionName,
       repoUrl,
       repoName: normalizedRepoName,
-      branch: branchName,
       taskId,
     };
   } catch (error) {
