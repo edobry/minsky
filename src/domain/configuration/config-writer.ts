@@ -5,9 +5,9 @@
  * backup functionality and validation.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
-import { join, dirname } from "path";
-import { parse, stringify } from "yaml";
+import * as fs from "fs";
+import * as path from "path";
+import * as yaml from "yaml";
 import { getUserConfigDir, userConfigFiles } from "./sources/user";
 import { ConfigSchema } from "./config-schemas";
 import { log } from "../../utils/logger";
@@ -232,7 +232,7 @@ export class ConfigWriter {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backupPath = `${configFile}.backup.${timestamp}`;
 
-      copyFileSync(configFile, backupPath);
+      fs.copyFileSync(configFile, backupPath);
 
       return {
         success: true,
@@ -254,7 +254,7 @@ export class ConfigWriter {
    */
   private restoreFromBackup(configFile: string, backupPath: string): void {
     try {
-      copyFileSync(backupPath, configFile);
+      fs.copyFileSync(backupPath, configFile);
       log.debug(`Configuration restored from backup: ${backupPath}`);
     } catch (error) {
       log.error(`Failed to restore from backup: ${error}`);
@@ -265,8 +265,8 @@ export class ConfigWriter {
    * Ensure configuration directory exists
    */
   private ensureConfigDir(): void {
-    if (!existsSync(this.configDir)) {
-      mkdirSync(this.configDir, { recursive: true });
+    if (!fs.existsSync(this.configDir)) {
+      fs.mkdirSync(this.configDir, { recursive: true });
     }
   }
 
@@ -275,8 +275,8 @@ export class ConfigWriter {
    */
   private findConfigFile(): string | null {
     for (const configFile of userConfigFiles) {
-      const filePath = join(this.configDir, configFile);
-      if (existsSync(filePath)) {
+      const filePath = path.join(this.configDir, configFile);
+      if (fs.existsSync(filePath)) {
         return filePath;
       }
     }
@@ -294,7 +294,7 @@ export class ConfigWriter {
 
     // Create new config file with preferred format
     const fileName = this.options.format === "json" ? "config.json" : "config.yaml";
-    return join(this.configDir, fileName);
+    return path.join(this.configDir, fileName);
   }
 
   /**
@@ -302,19 +302,19 @@ export class ConfigWriter {
    */
   private getConfigFilePath(): string {
     const fileName = this.options.format === "json" ? "config.json" : "config.yaml";
-    return join(this.configDir, fileName);
+    return path.join(this.configDir, fileName);
   }
 
   /**
    * Load configuration from file
    */
   private loadConfigFile(filePath: string): any {
-    if (!existsSync(filePath)) {
+    if (!fs.existsSync(filePath)) {
       return {};
     }
 
     try {
-      const content = readFileSync(filePath, "utf8");
+      const content = fs.readFileSync(filePath, "utf8");
       const extension = filePath.split(".").pop()?.toLowerCase();
 
       switch (extension) {
@@ -322,7 +322,7 @@ export class ConfigWriter {
           return JSON.parse(content);
         case "yaml":
         case "yml":
-          return parse(content) || {};
+          return yaml.parse(content) || {};
         default:
           throw new Error(`Unsupported file format: ${extension}`);
       }
@@ -348,13 +348,13 @@ export class ConfigWriter {
 # This file contains your personal configuration settings
 # It is stored in your user profile and not shared with others
 
-${stringify(config, { indent: 2 })}`;
+${yaml.stringify(config, { indent: 2 })}`;
         break;
       default:
         throw new Error(`Unsupported file format: ${extension}`);
     }
 
-    writeFileSync(filePath, content, "utf8");
+    fs.writeFileSync(filePath, content, "utf8");
   }
 
   /**
