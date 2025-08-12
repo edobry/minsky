@@ -618,6 +618,8 @@
 
 - [ ] Improve test mock filesystem approach with external libraries [#398](process/tasks/md#-improve-test-mock-filesystem-approach-with-external-libraries.md)
 
+- [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+
 - [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
 - [ ] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
@@ -643,3 +645,5 @@
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+
+- [+] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
