@@ -636,7 +636,7 @@
 
 - [ ] Implement GitHub repository quality guardrails configuration [#408](process/tasks/md#408-implement-github-repository-quality-guardrails-configuration.md)
 
-- [+] Implement session pr open command for GitHub backend [#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
+- [-] Implement session pr open command for GitHub backend [#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
 
 - [ ] Implement session pr open command for GitHub backend [#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
 
