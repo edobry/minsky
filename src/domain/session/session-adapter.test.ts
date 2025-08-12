@@ -95,7 +95,7 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
       taskId: "#TEST_VALUE",
-      branch: "test-branch",
+      // branch removed from persistent schema
     };
 
     await deps.sessionDB.addSession(testSession);
@@ -112,7 +112,7 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
       taskId: "#TEST_VALUE",
-      branch: "test-branch",
+      // branch removed from persistent schema
     };
 
     await deps.sessionDB.addSession(testSession);

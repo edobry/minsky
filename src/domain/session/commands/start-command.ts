@@ -89,14 +89,13 @@ export async function sessionStart(
       }
     }
 
-    // Create session record
+    // Create session record (do not persist branch; it's equal to session name)
     const sessionRecord: SessionRecord = {
       session: name,
       repoName,
       repoUrl: repoPath,
       createdAt: new Date().toISOString(),
       taskId,
-      branch,
     };
 
     // Clone repository and create session workspace
@@ -132,7 +131,6 @@ export async function sessionStart(
       session: name,
       repoUrl: repoPath,
       repoName,
-      branch,
       createdAt: sessionRecord.createdAt,
       taskId,
     };

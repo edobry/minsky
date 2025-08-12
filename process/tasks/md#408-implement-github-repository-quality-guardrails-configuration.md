@@ -26,10 +26,14 @@ Extend the GitHub repository backend with configuration management capabilities 
 - Require signed commits
 - Automatically delete head branches after merge
 - Configure merge strategies (squash, rebase, merge commits)
+  - Set default merge commit message behavior: use PR title and description for merge commits (`merge_commit_title=PR_TITLE`, `merge_commit_message=PR_BODY`)
 
 ## Implementation Considerations
 
 - Leverage GitHub's Branch Protection API and Repository Settings API
+  - For repository defaults, update via `PATCH /repos/{owner}/{repo}` with:
+    - `merge_commit_title: PR_TITLE`
+    - `merge_commit_message: PR_BODY`
 - Integrate with Minsky's configuration system for declarative policy specification
 - Provide both CLI commands and programmatic interfaces
 - Support validation and dry-run modes

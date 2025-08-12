@@ -108,6 +108,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
 
           autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
           skipConflictCheck: params.skipConflictCheck,
+          draft: params.draft,
         },
         {
           interface: interfaceType,

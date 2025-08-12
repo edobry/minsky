@@ -205,14 +205,13 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
     }
 
-    // Prepare session record but don't add to DB yet
+    // Prepare session record but don't add to DB yet (branch no longer persisted)
     const sessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
       repoName,
       createdAt: new Date().toISOString(),
       taskId,
-      branch: branch || sessionName,
     };
 
     let sessionAdded = false;
@@ -315,7 +314,6 @@ Error: ${getErrorMessage(installError)}`
       session: sessionName,
       repoUrl,
       repoName: normalizedRepoName,
-      branch: branchName,
       taskId,
     };
   } catch (error) {

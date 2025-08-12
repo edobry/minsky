@@ -1010,12 +1010,15 @@ Repository: https://github.com/${this.owner}/${this.repo}
         );
       }
 
-      // Merge the pull request using GitHub's default merge strategy
+      // Merge the pull request using a merge commit that mirrors PR title/body
+      // This aligns GitHub backend behavior with the prepared merge commit workflow
       const mergeResponse = await octokit.rest.pulls.merge({
         owner: this.owner,
         repo: this.repo,
         pull_number: prNumber,
-        commit_title: `Merge pull request #${prNumber} from ${pr.head.ref}`,
+        merge_method: "merge",
+        commit_title: pr.title || `Merge pull request #${prNumber} from ${pr.head.ref}`,
+        commit_message: pr.body || "",
       });
 
       const merge = mergeResponse.data;
@@ -1158,8 +1161,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // First try open PRs, then closed ones
       for (const state of ["open", "closed"] as const) {
         const pullsResponse = await octokit.rest.pulls.list({
-          owner: this.owner,
-          repo: this.repo,
+          owner: this.owner || "",
+          repo: this.repo || "",
           state,
           head: `${this.owner}:${branchName}`, // Format: owner:branch
           per_page: 100,
@@ -1174,8 +1177,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // If not found with owner prefix, try without it (for forks)
       for (const state of ["open", "closed"] as const) {
         const pullsResponse = await octokit.rest.pulls.list({
-          owner: this.owner,
-          repo: this.repo,
+          owner: this.owner || "",
+          repo: this.repo || "",
           state,
           per_page: 100,
         });

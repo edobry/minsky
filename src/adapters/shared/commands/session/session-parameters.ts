@@ -329,6 +329,12 @@ export const sessionPrCreateCommandParams = {
     required: false,
     defaultValue: false,
   },
+  draft: {
+    schema: z.boolean(),
+    description: "Create draft PR (GitHub only, skips session update)",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**

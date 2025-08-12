@@ -117,14 +117,13 @@ export async function updateSessionImpl(
           // Extract task ID from session name - simpler and more reliable approach
           const taskId = sessionName.startsWith("task#") ? sessionName : undefined;
 
-          // Create session record
+          // Create session record (branch no longer persisted)
           const newSessionRecord: SessionRecord = {
             session: sessionName,
             repoName,
             repoUrl,
             createdAt: new Date().toISOString(),
             taskId,
-            branch: sessionName,
           };
 
           await deps.sessionDB.addSession(newSessionRecord);
@@ -199,7 +198,6 @@ export async function updateSessionImpl(
             session: sessionName,
             repoName: sessionRecord.repoName || "unknown",
             repoUrl: sessionRecord.repoUrl,
-            branch: currentBranch,
             createdAt: sessionRecord.createdAt,
             taskId: sessionRecord.taskId,
           };
@@ -233,7 +231,6 @@ export async function updateSessionImpl(
             session: sessionName,
             repoName: sessionRecord.repoName || "unknown",
             repoUrl: sessionRecord.repoUrl,
-            branch: currentBranch,
             createdAt: sessionRecord.createdAt,
             taskId: sessionRecord.taskId,
           };
@@ -305,7 +302,6 @@ export async function updateSessionImpl(
         session: sessionName,
         repoName: sessionRecord.repoName || "unknown",
         repoUrl: sessionRecord.repoUrl,
-        branch: currentBranch,
         createdAt: sessionRecord.createdAt,
         taskId: sessionRecord.taskId,
       };

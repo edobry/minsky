@@ -71,7 +71,6 @@ export interface SessionRecord {
   repoUrl: string;
   createdAt: string;
   taskId?: string;
-  branch?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
   prState?: {
     branchName: string;

@@ -247,6 +247,9 @@ export function getSessionCustomizations(): {
             skipConflictCheck: {
               description: "Skip proactive conflict detection (use with --advanced)",
             },
+            draft: {
+              description: "Create draft PR (GitHub only, skips session update)",
+            },
           },
         },
         // New PR subcommands

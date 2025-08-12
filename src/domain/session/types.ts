@@ -17,7 +17,7 @@ export interface SessionRecord {
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
-  // Removed: branch (no longer stored)
+  // Removed: branch (no longer stored persistently)
   prState?: {
     branchName: string;
     commitHash: string; // Hash of the prepared merge commit
@@ -42,7 +42,7 @@ export interface Session {
   session: string;
   repoUrl?: string;
   repoName?: string;
-  // Removed: branch (no longer stored)
+  // Removed: branch (no longer stored persistently)
   createdAt?: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;

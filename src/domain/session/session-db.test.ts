@@ -28,7 +28,7 @@ describe("SessionDB Functional Implementation", () => {
         repoUrl: "local/minsky",
         createdAt: "2023-01-01T00:00:00.000Z",
         taskId: "101",
-        branch: "test-branch-1",
+        // branch removed from persistent schema
       },
       {
         session: "test-session-2",
@@ -36,7 +36,7 @@ describe("SessionDB Functional Implementation", () => {
         repoUrl: "https://github.com/user/repo",
         createdAt: "2023-01-02T00:00:00.000Z",
         taskId: "102",
-        branch: "test-branch-2",
+        // branch removed from persistent schema
       },
     ];
     return {
@@ -155,7 +155,7 @@ describe("SessionDB Functional Implementation", () => {
         repoUrl: "local/new-repo",
         createdAt: "2023-01-03T00:00:00.000Z",
         taskId: "103",
-        branch: "test-branch-3",
+        // branch removed from persistent schema
       };
 
       const newState = addSessionFn(state, newSession);
