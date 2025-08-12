@@ -100,7 +100,7 @@ All notable changes to this project will be documented in this file.
 - **Clean Architectural Boundaries**: Clear separation maintained between different system components with well-defined responsibilities
 
 - **Session PR Detection with Task Parameter**: Fixed `minsky session pr create --task <id>` failing to detect existing PRs, preventing unnecessary "PR description is required" errors when updating existing PRs. The fix enhances the session resolution logic to properly map task IDs to session names using the same resolution mechanism as the main PR command
-- **Session PR Output Formatting**: Cleaned up `minsky session pr get` output by removing unnecessary "(no number)" placeholder for local repo backend PRs, improving readability
+- **Session PR Get Output**: Removed redundant `Branch` line when it equals the session name, and normalized PR timestamps to display from GitHub `createdAt`/`updatedAt` when available. Also prefer `headBranch` for branch display when using GitHub backend.
 - **Session Merge Task Backend Integration**: Session merge command now properly delegates to configured task backend instead of hardcoding default backend, ensuring GitHub Issues and other configured backends work correctly with merge operations [Task #357]
 
   - **AUTO-DETECTION**: Automatically detects GitHub repositories via `.git/config` remote URLs for seamless task creation
