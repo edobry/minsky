@@ -48,10 +48,9 @@ export async function sessionPrCreate(
   body?: string;
   pullRequest?: PullRequestInfo;
 }> {
-<<<<<<< HEAD
-  // Handle draft mode - validate GitHub backend but use normal session PR flow
+  // Validate draft mode requirements
   if (params.draft) {
-    // Validate GitHub backend requirement for draft mode
+    // Validate backend type for draft mode
     const sessionProvider = createSessionProvider();
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: params.name,
@@ -74,15 +73,7 @@ export async function sessionPrCreate(
     }
   }
 
-  // Delegate to existing session pr implementation (works for both draft and regular PRs)
-=======
-  // Handle draft mode - only works with GitHub backend and skips session update
-  if (params.draft) {
-    return await sessionPrCreateDraft(params, options);
-  }
-
-  // Delegate to existing session pr implementation for non-draft PRs
->>>>>>> origin/main
+  // Delegate to existing session pr implementation (handles both draft and regular PRs)
   const result = await sessionPr(
     {
       session: params.name,
