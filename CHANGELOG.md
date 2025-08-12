@@ -1,3 +1,4 @@
+- fix(github-merge): Use PR title/body for merge commit message in GitHub backend and remove legacy branch persistence from session creation paths. Updated repo guardrails spec to include default merge commit message settings (PR title/body).
 - feat(session): add `session.migrate-backend` command to switch a session's repo backend to GitHub by reading origin URL and updating `backendType`
   - Detects origin with `git remote get-url origin` from the session workspace
   - Sets `repoUrl` to the detected remote URL and `backendType` to `github`
