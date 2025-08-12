@@ -249,13 +249,45 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Determine repo URL or path first
     let repoUrl = repo;
     if (!repoUrl) {
-      try {
-        repoUrl = await deps.resolveRepoPath({});
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        throw new MinskyError(
-          `--repo is required (not in a git repo and no --repo provided): ${error.message}`
-        );
+      // Try to use configured default repo backend (github) when repo not given
+      const { getConfiguration } = await import("./configuration/index");
+      const cfg = getConfiguration();
+      const defaultRepoBackend = cfg.repository?.default_repo_backend;
+
+      if (defaultRepoBackend === "github") {
+        // Auto-detect GitHub remote URL when default backend is github
+        try {
+          const { execSync } = await import("child_process");
+          const remoteUrl = execSync("git remote get-url origin", {
+            cwd: process.cwd(),
+            encoding: "utf8",
+          })
+            .toString()
+            .trim();
+
+          if (remoteUrl.includes("github.com")) {
+            // Use the GitHub remote URL as the repository
+            repoUrl = remoteUrl;
+          } else {
+            throw new MinskyError(
+              "Default repository backend is GitHub, but current directory does not have a GitHub remote. Pass --repo <github-url> or change to a GitHub repository."
+            );
+          }
+        } catch (error) {
+          throw new MinskyError(
+            "Default repository backend is GitHub, but could not detect GitHub remote. Ensure you're in a git repository with GitHub remote or pass --repo <github-url>."
+          );
+        }
+      } else {
+        // Use the original logic for non-GitHub backends
+        try {
+          repoUrl = await deps.resolveRepoPath({});
+        } catch (err) {
+          const error = err instanceof Error ? err : new Error(String(err));
+          throw new MinskyError(
+            `--repo is required (not in a git repo and no --repo provided): ${error.message}`
+          );
+        }
       }
     }
 
