@@ -109,10 +109,13 @@ export class ConfigurationLoader {
       // Merge configurations with proper precedence
       const mergedConfig = this.mergeConfigurations(sourceResults);
 
-      // Validate final configuration
+      // Build effective values for provenance tracking (needed for validation warnings)
+      const effectiveValues = this.buildEffectiveValues(sourceResults);
+
+      // Validate final configuration with provenance information
       const validationResult = this.options.skipValidation
         ? { success: true, data: mergedConfig as Configuration }
-        : this.validateConfiguration(mergedConfig);
+        : this.validateConfiguration(mergedConfig, effectiveValues);
 
       // Handle validation errors
       if (!validationResult.success && this.options.failOnValidationError) {
@@ -132,7 +135,7 @@ export class ConfigurationLoader {
           .filter((r) => r.success)
           .sort((a, b) => a.source.priority - b.source.priority)
           .map((r) => r.source.name),
-        effectiveValues: this.buildEffectiveValues(sourceResults),
+        effectiveValues,
       };
 
       // Cache result
@@ -314,9 +317,12 @@ export class ConfigurationLoader {
   }
 
   /**
-   * Validate merged configuration
+   * Validate merged configuration with provenance information
    */
-  private validateConfiguration(config: PartialConfiguration): ConfigurationValidationResult {
+  private validateConfiguration(
+    config: PartialConfiguration,
+    effectiveValues?: Record<string, { value: any; source: string; path: string }>
+  ): ConfigurationValidationResult {
     const result = configurationSchema.safeParse(config);
 
     if (result.success) {
@@ -358,22 +364,35 @@ export class ConfigurationLoader {
             issues: result.error.issues,
           };
         } else if (validationConfig.warnOnUnknown) {
-          // Log warnings for unrecognized keys using structured logging
+          // Log warnings for unrecognized keys using clean user-friendly format
           unrecognizedKeyIssues.forEach((issue) => {
             const path = issue.path?.length > 0 ? issue.path.join(".") : "root";
-            const logData: Record<string, any> = {
-              message: issue.message,
-            };
 
-            if (validationConfig.includePathInWarnings) {
-              logData.path = path;
+            // Extract the unknown key from the message
+            const messageMatch = issue.message.match(/Unrecognized key\(s\) in object: '([^']+)'/);
+            const unknownKey = messageMatch ? messageMatch[1] : "unknown";
+
+            // Create a clean, user-friendly warning message
+            let warningMessage = `⚠️  Unknown configuration field '${unknownKey}'`;
+
+            if (validationConfig.includePathInWarnings && path !== "root") {
+              warningMessage += ` in configuration section '${path}'`;
             }
 
-            if (validationConfig.includeCodeInWarnings) {
-              logData.code = issue.code;
+            // Add provenance information if available
+            if (effectiveValues) {
+              const fieldPath = path !== "root" ? `${path}.${unknownKey}` : unknownKey;
+              const provenance = effectiveValues[fieldPath];
+              if (provenance) {
+                warningMessage += ` (from ${provenance.source})`;
+              }
             }
 
-            log.warn("Unknown configuration field detected", logData);
+            warningMessage += " (will be ignored)";
+
+            // Log as a simple string message instead of structured data
+            // Use cli logging for clean user output instead of structured warning
+            log.cli(warningMessage);
           });
         }
       }

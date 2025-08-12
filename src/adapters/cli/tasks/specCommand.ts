@@ -3,7 +3,7 @@
  */
 import { Command } from "commander";
 import { log } from "../../../utils/logger";
-import { getTaskSpecContentFromParams, normalizeTaskId } from "../../../domain/tasks";
+import { getTaskSpecContentFromParams } from "../../../domain/tasks";
 import type { TaskSpecParameters } from "../../../domain/schemas";
 import { ValidationError } from "../../../errors/index";
 import {
@@ -46,13 +46,7 @@ export function createSpecCommand(): Command {
 
   command.action(async (taskId: string, options: SpecCommandOptions) => {
     try {
-      // Normalize the task ID before passing to domain
-      const normalizedTaskId = normalizeTaskId(taskId);
-      if (!normalizedTaskId) {
-        throw new ValidationError(
-          `Invalid task ID: '${taskId}'. Please provide a valid numeric task ID (e.g., 077 or #077).`
-        );
-      }
+      // Strict mode: use taskId directly (must be qualified)
 
       // Convert CLI options to domain parameters using normalization helper
       const normalizedParams = normalizeTaskParams(options);
@@ -60,7 +54,7 @@ export function createSpecCommand(): Command {
       // Convert CLI options to domain parameters
       const params: TaskSpecParameters = {
         ...normalizedParams,
-        taskId: normalizedTaskId,
+        taskId,
         section: options.section,
         debug: false,
         format: options.json ? "json" : "text",

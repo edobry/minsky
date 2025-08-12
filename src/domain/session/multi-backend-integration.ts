@@ -5,9 +5,7 @@ import {
   isQualifiedTaskId,
   extractBackend,
   extractLocalId,
-  migrateUnqualifiedTaskId,
-} from "../tasks/unified-task-id";
-import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
+} from "../tasks/task-id";
 
 /**
  * Enhanced SessionRecord with task backend information
@@ -15,8 +13,6 @@ import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task
 export interface MultiBackendSessionRecord extends SessionRecord {
   /** Task backend (md, gh, json, etc.) - derived from qualified task ID */
   taskBackend?: string;
-  /** Original task ID format for backward compatibility */
-  legacyTaskId?: string;
 }
 
 /**
@@ -24,63 +20,40 @@ export interface MultiBackendSessionRecord extends SessionRecord {
  */
 export class SessionMultiBackendIntegration {
   /**
-   * Generate session name from task ID using unified format
+   * Generate session name from qualified task ID
    *
-   * @param taskId Task ID in any format (123, #123, md#123, task#123)
-   * @returns Session name (task-md#123, task123 for legacy)
+   * @param taskId Task ID in qualified format (md#123, gh#456)
+   * @returns Session name (task-md#123)
    */
   static generateSessionName(taskId: string): string {
     if (!taskId) {
       throw new Error("Task ID is required for session name generation");
     }
 
-    // Check if it's already a qualified ID
+    // Strict: qualified IDs only
     if (isQualifiedTaskId(taskId)) {
       return taskIdToSessionName(taskId);
     }
 
-    // Handle legacy task ID formats
-    const normalizedTaskId = normalizeTaskIdForStorage(taskId);
-    if (normalizedTaskId) {
-      // Legacy numeric ID - migrate to markdown backend
-      const qualifiedId = migrateUnqualifiedTaskId(normalizedTaskId, "md");
-      return taskIdToSessionName(qualifiedId);
-    }
-
-    // If all else fails, use consistent format with dash for backward compatibility
-    return `task-${taskId}`;
+    throw new Error(
+      `Invalid task ID: '${taskId}'. Only qualified task IDs (md#123, gh#456) are supported.`
+    );
   }
 
   /**
    * Extract task ID from session name
    *
-   * @param sessionName Session name (task-md#123, task123, etc.)
-   * @returns Task ID in qualified format (md#123) or legacy format
+   * @param sessionName Session name (task-md#123)
+   * @returns Task ID in qualified format (md#123)
    */
   static extractTaskIdFromSessionName(sessionName: string): string | null {
     if (!sessionName) {
       return null;
     }
 
-    // Try to extract using unified format first
+    // Strict: only task-<qualifiedId>
     if (sessionName.startsWith("task-")) {
       return sessionNameToTaskId(sessionName);
-    }
-
-    // Handle legacy format (task123, task#123)
-    if (sessionName.startsWith("task")) {
-      const legacyId = sessionName.substring(4); // Remove "task" prefix
-
-      // If it's just a number, it's legacy format
-      if (/^\d+$/.test(legacyId)) {
-        return migrateUnqualifiedTaskId(legacyId, "md");
-      }
-
-      // If it's task#123 format
-      if (legacyId.startsWith("#") && /^#\d+$/.test(legacyId)) {
-        const numericId = legacyId.substring(1);
-        return migrateUnqualifiedTaskId(numericId, "md");
-      }
     }
 
     return null;
@@ -99,16 +72,6 @@ export class SessionMultiBackendIntegration {
       // Extract backend information if it's a qualified ID
       if (isQualifiedTaskId(sessionRecord.taskId)) {
         enhanced.taskBackend = extractBackend(sessionRecord.taskId) || undefined;
-      } else {
-        // Legacy task ID - assume markdown backend
-        enhanced.taskBackend = "md";
-        enhanced.legacyTaskId = sessionRecord.taskId;
-
-        // Optionally migrate to qualified format
-        const qualifiedId = migrateUnqualifiedTaskId(sessionRecord.taskId, "md");
-        if (qualifiedId !== sessionRecord.taskId) {
-          enhanced.taskId = qualifiedId;
-        }
       }
     }
 
@@ -125,43 +88,9 @@ export class SessionMultiBackendIntegration {
     return sessionName.startsWith("task-") && sessionName.includes("#");
   }
 
-  /**
-   * Migrate legacy session record to multi-backend format
-   *
-   * @param sessionRecord Legacy session record
-   * @returns Migrated session record with updated naming and backend info
-   */
-  static migrateLegacySessionRecord(sessionRecord: SessionRecord): MultiBackendSessionRecord {
-    const enhanced = this.enhanceSessionRecord(sessionRecord);
+  // migrateLegacySessionRecord removed: strict-only; callers should provide qualified IDs and session names
 
-    // Update session name if it's legacy format
-    if (sessionRecord.taskId && !this.isMultiBackendSessionName(sessionRecord.session)) {
-      const newSessionName = this.generateSessionName(sessionRecord.taskId);
-      enhanced.session = newSessionName;
-    }
-
-    return enhanced;
-  }
-
-  /**
-   * Get display-friendly task ID from session record
-   *
-   * @param sessionRecord Session record (legacy or enhanced)
-   * @returns Task ID formatted for display
-   */
-  static getDisplayTaskId(sessionRecord: SessionRecord | MultiBackendSessionRecord): string {
-    if (!sessionRecord.taskId) {
-      return "";
-    }
-
-    // If it's already qualified, return as-is
-    if (isQualifiedTaskId(sessionRecord.taskId)) {
-      return sessionRecord.taskId;
-    }
-
-    // Legacy format - add display formatting
-    return formatTaskIdForDisplay(sessionRecord.taskId);
-  }
+  // getDisplayTaskId removed: strict qualified IDs are displayed as-is
 
   /**
    * Validate session-task compatibility
@@ -212,14 +141,8 @@ export class SessionBackwardCompatibility {
    * @returns Task ID in storage format or original if qualified
    */
   static toStorageFormat(taskId: string): string {
-    // If it's a qualified ID, store as-is (new format)
-    if (isQualifiedTaskId(taskId)) {
-      return taskId;
-    }
-
-    // Use legacy normalization for unqualified IDs
-    const normalized = normalizeTaskIdForStorage(taskId);
-    return normalized || taskId;
+    // Qualified only; return as-is
+    return taskId;
   }
 
   /**
@@ -229,13 +152,8 @@ export class SessionBackwardCompatibility {
    * @returns Task ID formatted for display
    */
   static toDisplayFormat(taskId: string): string {
-    // If it's qualified, return as-is
-    if (isQualifiedTaskId(taskId)) {
-      return taskId;
-    }
-
-    // Use legacy display formatting
-    return formatTaskIdForDisplay(taskId);
+    // Qualified only; return as-is
+    return taskId;
   }
 
   /**
@@ -245,14 +163,20 @@ export class SessionBackwardCompatibility {
    * @returns True if migration is needed
    */
   static needsMigration(sessionRecord: SessionRecord): boolean {
+    // No task ID: treat as custom session; no migration needed
     if (!sessionRecord.taskId) {
       return false;
     }
 
-    // Check if session name format matches task ID format
-    const expectedSessionName = SessionMultiBackendIntegration.generateSessionName(
-      sessionRecord.taskId
-    );
-    return sessionRecord.session !== expectedSessionName;
+    // Qualified IDs should match the new session naming convention
+    if (isQualifiedTaskId(sessionRecord.taskId)) {
+      const expectedSessionName = SessionMultiBackendIntegration.generateSessionName(
+        sessionRecord.taskId
+      );
+      return sessionRecord.session !== expectedSessionName;
+    }
+
+    // Legacy/unqualified task IDs always need migration
+    return true;
   }
 }

@@ -151,15 +151,13 @@ export function registerSharedCommandsWithMcp(
             const context: CommandExecutionContext = {
               interface: "mcp",
               debug: args?.debug || false,
-              format: "json", // MCP always returns JSON format
+              format: args?.json === "true" ? "json" : "text", // Use json format only when explicitly requested
             };
             log.debug(`[MCP] Created execution context: ${command.id}`, { context });
 
-            // Convert MCP args to expected parameter format, filtering out the json parameter
-            // since MCP always returns JSON regardless of this parameter
+            // Convert MCP args to expected parameter format
             const filteredArgs = { ...args };
-            delete filteredArgs.json; // Remove json parameter as it's not needed in MCP context
-            log.debug(`[MCP] Filtered args: ${command.id}`, { filteredArgs });
+            log.debug(`[MCP] Processing args: ${command.id}`, { filteredArgs });
 
             const parameters = convertMcpArgsToParameters(filteredArgs, command.parameters);
             log.debug(`[MCP] Converted parameters: ${command.id}`, { parameters });
@@ -297,6 +295,19 @@ export function registerDebugCommandsWithMcp(
 }
 
 /**
+ * Register sessiondb commands with MCP
+ */
+export function registerSessiondbCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.SESSIONDB],
+    ...config,
+  });
+}
+
+/**
  * Register all main command categories with MCP
  */
 export function registerAllMainCommandsWithMcp(
@@ -312,6 +323,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.CONFIG,
       CommandCategory.INIT,
       CommandCategory.DEBUG,
+      CommandCategory.SESSIONDB,
     ],
     ...config,
   });

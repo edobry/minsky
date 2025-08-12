@@ -711,7 +711,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
         parameters: {
           to: {
             asArgument: true,
-            description: "Target backend (json, sqlite, postgres)",
+            description: "Target backend (sqlite, postgres)",
           },
           from: {
             description: "Source backend (auto-detect if not specified)",
@@ -803,15 +803,13 @@ function formatResolvedConfiguration(resolved: any): string {
   // Session Storage
   if (resolved.sessiondb) {
     output += "💾 Session Storage:\n";
-    const sessionBackend = resolved.sessiondb.backend || "json";
+    const sessionBackend = resolved.sessiondb.backend || "sqlite";
     output += `   • Backend: ${getSessionBackendDisplayName(sessionBackend)}\n`;
 
     if (sessionBackend === "sqlite" && resolved.sessiondb.sqlite?.path) {
       output += `   • Database: ${resolved.sessiondb.sqlite.path}\n`;
     } else if (sessionBackend === "postgres" && resolved.sessiondb.postgres?.connectionString) {
       output += "   • Connection: configured\n";
-    } else if (sessionBackend === "json" && resolved.sessiondb.baseDir) {
-      output += `   • Directory: ${resolved.sessiondb.baseDir}\n`;
     }
   }
 

@@ -99,9 +99,9 @@ export function getLogMode(configOverride?: LoggerConfig): LogMode {
     return LogMode.HUMAN;
   }
 
-  // Auto-detect based on terminal environment
-  const isTTY = process.stdout.isTTY;
-  return isTTY ? LogMode.HUMAN : LogMode.STRUCTURED;
+  // Prefer HUMAN-friendly output by default for CLI usage
+  // Structured mode should be explicitly enabled via config or env
+  return LogMode.HUMAN;
 }
 
 /**
@@ -255,17 +255,23 @@ export function createLogger(configOverride?: LoggerConfig) {
           if (context.stack) {
             programLogger.error(context.stack);
           }
-        } else if (
-          typeof context === "object" &&
-          context !== null &&
-          (context.originalError || context.stack)
-        ) {
-          programLogger.error(`${message}: ${context.originalError || JSON.stringify(context)}`);
-          if (context.stack) {
-            programLogger.error(context.stack);
+        } else if (typeof context === "object" && context !== null) {
+          // Human-friendly context formatting (avoid raw JSON blobs)
+          const parts: string[] = [];
+          const anyCtx = context as Record<string, unknown>;
+          if (typeof anyCtx.error === "string" && anyCtx.error.trim().length > 0) {
+            parts.push(anyCtx.error.trim());
           }
+          if (typeof anyCtx.name === "string" && anyCtx.name.trim().length > 0) {
+            parts.push(`Session: ${anyCtx.name.trim()}`);
+          }
+          if (typeof (anyCtx as any).stack === "string") {
+            parts.push((anyCtx as any).stack as string);
+          }
+          const suffix = parts.length > 0 ? `\n${parts.join("\n")}` : "";
+          programLogger.error(`${message}${suffix}`);
         } else {
-          programLogger.error(message, context);
+          programLogger.error(message);
         }
         return;
       }

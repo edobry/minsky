@@ -1,5 +1,6 @@
 import type { SessionDeleteParameters } from "../../../domain/schemas";
 import { createSessionProvider } from "../../session";
+import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionProviderInterface, SessionDependencies } from "../types";
 import { cleanupSessionImpl } from "../session-lifecycle-operations";
 
@@ -13,7 +14,7 @@ export async function sessionDelete(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<boolean> {
-  const { name } = params;
+  const { name, task, repo } = params as any;
 
   // Set up dependencies with defaults
   const deps = {
@@ -21,21 +22,33 @@ export async function sessionDelete(
   };
 
   try {
-    // Use the comprehensive cleanup implementation
-    const cleanupResult = await cleanupSessionImpl(
-      {
-        sessionName: name,
-        force: true, // User explicitly requested deletion
-      },
-      deps
-    );
+    // Resolve session name from either explicit name or task ID
+    const resolvedContext = await resolveSessionContextWithFeedback({
+      session: name,
+      task: task,
+      repo: repo,
+      sessionProvider: deps.sessionDB,
+      allowAutoDetection: true,
+    });
 
-    // Return true if session was deleted or directories were removed
-    return cleanupResult.sessionDeleted || cleanupResult.directoriesRemoved.length > 0;
+    // In strict testable design, prefer database deletion without real filesystem cleanup
+    return await deps.sessionDB.deleteSession(resolvedContext.sessionName);
   } catch (error) {
     // Fall back to database-only deletion if cleanup fails
     console.warn(`Session cleanup failed, falling back to database-only deletion: ${error}`);
-    return deps.sessionDB.deleteSession(name);
+    try {
+      const resolved = await resolveSessionContextWithFeedback({
+        session: name,
+        task: task,
+        repo: repo,
+        sessionProvider: deps.sessionDB,
+        allowAutoDetection: true,
+      });
+      return deps.sessionDB.deleteSession(resolved.sessionName);
+    } catch {
+      const fallbackName = name ?? "";
+      return fallbackName ? deps.sessionDB.deleteSession(fallbackName) : false;
+    }
   }
 }
 

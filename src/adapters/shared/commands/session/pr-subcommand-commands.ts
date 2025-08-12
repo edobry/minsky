@@ -6,14 +6,21 @@
 import { z } from "zod";
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
-import { MinskyError, SessionConflictError, getErrorMessage } from "../../../../errors/index";
+import {
+  MinskyError,
+  SessionConflictError,
+  ValidationError,
+  getErrorMessage,
+} from "../../../../errors/index";
 import {
   sessionPrCreateCommandParams,
+  sessionPrEditCommandParams,
   sessionPrListCommandParams,
   sessionPrGetCommandParams,
 } from "./session-parameters";
 import {
   sessionPrCreate,
+  sessionPrEdit,
   sessionPrList,
   sessionPrGet,
 } from "../../../../domain/session/commands/pr-subcommands";
@@ -40,16 +47,21 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
   }
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
-    // Conditional validation: require body/bodyPath only for new PRs
-    if (!params.body && !params.bodyPath) {
-      const canRefresh = await this.checkIfPrCanBeRefreshed(params);
-
-      if (!canRefresh) {
-        throw new Error(
-          'PR description is required for new pull request creation.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr create --title "fix: Bug fix" --body-path process/tasks/189/pr.md\n\nNote: If updating an existing PR, the body requirement is optional.'
-        );
-      }
+    // Validation: require title and body/bodyPath for new PR creation
+    if (!params.title) {
+      throw new ValidationError(
+        'Title is required for pull request creation.\nPlease provide:\n  --title <text>       PR title\n\nExample:\n  minsky session pr create --title "feat: Add new feature"'
+      );
     }
+
+    if (!params.body && !params.bodyPath) {
+      throw new ValidationError(
+        'PR description is required for new pull request creation.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr create --title "fix: Bug fix" --body-path process/tasks/189/pr.md\n\nNote: To update an existing PR, use \'session pr edit\' instead.'
+      );
+    }
+
+    // Check if PR already exists and fail
+    await this.validateNoPrExists(params);
 
     try {
       // For MCP interface, resolve session workspace directory
@@ -96,6 +108,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
 
           autoResolveDeleteConflicts: params.autoResolveDeleteConflicts,
           skipConflictCheck: params.skipConflictCheck,
+          draft: params.draft,
         },
         {
           interface: interfaceType,
@@ -109,9 +122,8 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     }
   }
 
-  private async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
-    // Check if there's a valid existing PR registered in the session record
-    // This allows updates to existing PRs without requiring body again
+  private async validateNoPrExists(params: any): Promise<void> {
+    // Check if there's already an existing PR and fail if so
     const currentDir = process.cwd();
     const isSessionWorkspace = currentDir.includes("/sessions/");
 
@@ -125,8 +137,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       }
     }
 
-    // BUG FIX: If no session name resolved yet, try task-to-session resolution
-    // This uses the same logic as the main sessionPr command
+    // If no session name resolved yet, try task-to-session resolution
     if (!sessionName && params.task) {
       try {
         const { resolveSessionContextWithFeedback } = await import(
@@ -145,51 +156,34 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
 
         sessionName = resolvedContext.sessionName;
       } catch (error) {
-        // If session resolution fails, we can't determine if PR can be refreshed
-        return false;
+        // If session resolution fails, continue with PR creation
+        return;
       }
     }
 
     if (!sessionName) {
-      return false;
+      return;
     }
 
     try {
-      // Check if session has a valid PR record (not just stale branches)
+      // Check if session has an existing PR
       const { createSessionProvider } = await import("../../../../domain/session");
       const sessionDB = createSessionProvider();
       const sessionRecord = await sessionDB.getSession(sessionName);
 
-      // Session must exist and have PR state indicating a valid PR was created
-      if (!sessionRecord || !sessionRecord.prState || !sessionRecord.prBranch) {
-        return false;
+      // If session has PR state, a PR already exists
+      if (sessionRecord && sessionRecord.prState && sessionRecord.prBranch) {
+        throw new ValidationError(
+          `A pull request already exists for session '${sessionName}' (branch: ${sessionRecord.prBranch}).\nTo update the existing PR, use:\n  minsky session pr edit --title "new title" --body "new body"\n  minsky session pr edit --body-path path/to/description.md`
+        );
       }
-
-      // Verify the PR branch actually exists (not just stale)
-      const { createGitService } = await import("../../../../domain/git");
-      const gitService = createGitService();
-      const prBranch = sessionRecord.prBranch;
-
-      // Check if branch exists locally or remotely
-      const localBranchOutput = await gitService.execInRepository(
-        currentDir,
-        `git show-ref --verify --quiet refs/heads/${prBranch} || echo "not-exists"`
-      );
-      const localBranchExists = localBranchOutput.trim() !== "not-exists";
-
-      if (localBranchExists) {
-        return true;
-      }
-
-      // Check if branch exists remotely
-      const remoteBranchOutput = await gitService.execInRepository(
-        currentDir,
-        `git ls-remote --heads origin ${prBranch}`
-      );
-      return remoteBranchOutput.trim().length > 0;
     } catch (error) {
-      // If we can't verify session/PR state, require body for safety
-      return false;
+      // If it's our validation error, re-throw it
+      if (error instanceof ValidationError) {
+        throw error;
+      }
+      // If we can't verify session state, continue with PR creation
+      return;
     }
   }
 
@@ -221,7 +215,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       );
     } else {
       return new MinskyError(
-        `❌ Failed to create session PR.\n\nThe operation failed with: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
+        `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
       );
     }
   }
@@ -232,6 +226,130 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       hasBody: !!params.body,
       hasBodyPath: !!params.bodyPath,
     };
+  }
+}
+
+/**
+ * Session PR Edit Command
+ * Updates an existing PR for a session
+ */
+export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.pr.edit";
+  }
+
+  getCommandName(): string {
+    return "edit";
+  }
+
+  getCommandDescription(): string {
+    return "Update an existing pull request for a session";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionPrEditCommandParams;
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    // Validate that at least one field is provided for updating
+    if (!params.title && !params.body && !params.bodyPath) {
+      throw new ValidationError(
+        'At least one field must be provided to update the PR:\n  --title <text>       Update PR title\n  --body <text>        Update PR body text\n  --body-path <path>   Update PR body from file\n\nExample:\n  minsky session pr edit --title "feat: Updated feature"\n  minsky session pr edit --body-path process/tasks/189/pr.md'
+      );
+    }
+
+    try {
+      // For MCP interface, resolve session workspace directory
+      let workingDirectory = process.cwd();
+      const interfaceType = context.interface as "cli" | "mcp";
+
+      if (interfaceType === "mcp") {
+        // For MCP, resolve the session workspace path from session parameters
+        const { createSessionProvider } = await import("../../../../domain/session");
+        const sessionProvider = createSessionProvider();
+
+        // Try to get session name from params or resolve from task
+        let sessionName = params.name;
+        if (!sessionName && params.task) {
+          const { resolveSessionContextWithFeedback } = await import(
+            "../../../../domain/session/session-context-resolver"
+          );
+          const resolvedContext = await resolveSessionContextWithFeedback({
+            task: params.task,
+            repo: params.repo,
+            sessionProvider,
+            allowAutoDetection: false, // No auto-detection for MCP
+          });
+          sessionName = resolvedContext.sessionName;
+        }
+
+        if (sessionName) {
+          workingDirectory = await sessionProvider.getRepoPath(
+            await sessionProvider.getSession(sessionName)
+          );
+        }
+      }
+
+      const result = await sessionPrEdit(
+        {
+          title: params.title,
+          body: params.body,
+          bodyPath: params.bodyPath,
+          name: params.name,
+          task: params.task,
+          repo: params.repo,
+          debug: params.debug,
+        },
+        {
+          interface: interfaceType,
+          workingDirectory,
+        }
+      );
+
+      return {
+        success: true,
+        prBranch: result.prBranch,
+        baseBranch: result.baseBranch,
+        title: result.title,
+        body: result.body,
+        updated: result.updated,
+      };
+    } catch (error) {
+      throw this.handlePrError(error, params);
+    }
+  }
+
+  private handlePrError(error: any, params: any): Error {
+    const errorMessage = getErrorMessage(error);
+
+    // Handle specific error types with friendly messages
+    if (error instanceof SessionConflictError) {
+      // Pass through SessionConflictError as-is - it has proper messaging
+      return error;
+    } else if (errorMessage.includes("CONFLICT") || errorMessage.includes("conflict")) {
+      return new MinskyError(
+        `🔥 Git merge conflict detected while updating PR.\n\nThis usually happens when:\n• There are conflicting changes between your session and the base branch\n• The PR branch has diverged from your session\n\n💡 Quick fixes:\n• Resolve conflicts manually and retry\n• Check the current state of your PR branch\n\nTechnical details: ${errorMessage}`
+      );
+    } else if (errorMessage.includes("No pull request found")) {
+      return new MinskyError(
+        `🔍 No PR found for this session.\n\nThe session '${params.name || params.task}' doesn't have an existing pull request to edit.\n\n💡 Try:\n• Create a PR first: minsky session pr create --title "..." --body "..."\n• Check available PRs: minsky session pr list\n• Verify you're in the correct session\n\nTechnical details: ${errorMessage}`
+      );
+    } else if (
+      errorMessage.includes("Permission denied") ||
+      errorMessage.includes("authentication")
+    ) {
+      return new MinskyError(
+        `🔐 Git authentication error.\n\nPlease check:\n• Your SSH keys are properly configured\n• You have push access to the repository\n• Your git credentials are valid\n\nTechnical details: ${errorMessage}`
+      );
+    } else if (errorMessage.includes("Session") && errorMessage.includes("not found")) {
+      return new MinskyError(
+        `🔍 Session not found.\n\nThe session '${params.name || params.task}' could not be located.\n\n💡 Try:\n• Check available sessions: minsky session list\n• Verify you're in the correct directory\n• Use the correct session name or task ID\n\nTechnical details: ${errorMessage}`
+      );
+    } else {
+      return new MinskyError(
+        `❌ Failed to edit session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify the session has an existing PR\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available PRs\n\nNeed help? Run the command with --debug for detailed error information.`
+      );
+    }
   }
 }
 
@@ -368,11 +486,15 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
         "",
         `Session:     ${pullRequest.sessionName}`,
         `Task:        ${pullRequest.taskId || "none"}`,
-        `Branch:      ${pullRequest.branch}`,
         `Status:      ${pullRequest.status}`,
         `Created:     ${pullRequest.createdAt || "unknown"}`,
         `Updated:     ${pullRequest.updatedAt || "unknown"}`,
       ];
+
+      // Show branch info only if it differs from the session name (avoid redundant noise)
+      if (pullRequest.branch && pullRequest.branch !== pullRequest.sessionName) {
+        output.splice(4, 0, `Branch:      ${pullRequest.branch}`);
+      }
 
       if (pullRequest.url) {
         output.push(`URL:         ${pullRequest.url}`);

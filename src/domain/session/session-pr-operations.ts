@@ -8,7 +8,8 @@ import {
 import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
-import { TASK_STATUS, TaskService, createConfiguredTaskService } from "../tasks";
+import { TASK_STATUS, TaskService } from "../tasks";
+import { createConfiguredTaskService } from "../tasks/taskService";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
 import {
@@ -16,12 +17,76 @@ import {
   updatePrStateOnCreation,
   extractPrDescription,
 } from "./session-update-operations";
-import { createRepositoryBackendForSession } from "./repository-backend-detection";
+import {
+  createRepositoryBackendForSession,
+  extractGitHubInfoFromUrl,
+} from "./repository-backend-detection";
+import {
+  createRepositoryBackend,
+  RepositoryBackendType,
+  type RepositoryBackend,
+  type RepositoryBackendConfig,
+} from "../repository/index";
+import type { SessionRecord } from "./types";
 
 export interface SessionPrDependencies {
   sessionDB: SessionProviderInterface;
   gitService: GitServiceInterface;
   createRepositoryBackend?: (sessionRecord: any) => Promise<any>;
+}
+
+/**
+ * Create repository backend from session record's stored configuration
+ * instead of auto-detecting from git remote
+ */
+export async function createRepositoryBackendFromSession(
+  sessionRecord: SessionRecord
+): Promise<RepositoryBackend> {
+  // Determine backend type from session configuration
+  let backendType: RepositoryBackendType;
+
+  if (sessionRecord.backendType) {
+    // Use explicitly set backend type
+    switch (sessionRecord.backendType) {
+      case "github":
+        backendType = RepositoryBackendType.GITHUB;
+        break;
+      case "remote":
+        backendType = RepositoryBackendType.REMOTE;
+        break;
+      case "local":
+      default:
+        backendType = RepositoryBackendType.LOCAL;
+        break;
+    }
+  } else {
+    // Infer backend type from repoUrl format for backward compatibility
+    if (sessionRecord.repoUrl.startsWith("/") || sessionRecord.repoUrl.startsWith("file://")) {
+      backendType = RepositoryBackendType.LOCAL;
+    } else if (sessionRecord.repoUrl.includes("github.com")) {
+      backendType = RepositoryBackendType.GITHUB;
+    } else {
+      backendType = RepositoryBackendType.REMOTE;
+    }
+  }
+
+  const config: RepositoryBackendConfig = {
+    type: backendType,
+    repoUrl: sessionRecord.repoUrl,
+  };
+
+  // Add GitHub-specific configuration by parsing from URL
+  if (backendType === RepositoryBackendType.GITHUB) {
+    const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+    if (githubInfo) {
+      config.github = {
+        owner: githubInfo.owner,
+        repo: githubInfo.repo,
+      };
+    }
+  }
+
+  return await createRepositoryBackend(config);
 }
 
 /**
@@ -228,12 +293,25 @@ Please provide a title for your pull request:
 
   // STEP 7: Create repository backend and delegate PR creation
   try {
-    log.cli("🔍 Auto-detecting repository backend...");
+    log.cli("🔍 Creating repository backend...");
 
-    // Create repository backend based on current repository
-    const createBackendFn =
-      deps.createRepositoryBackend || (() => createRepositoryBackendForSession(currentDir));
-    const repositoryBackend = await createBackendFn(sessionName);
+    // Get session record to use stored repository configuration
+    const sessionRecord = await deps.sessionDB.getSession(sessionName);
+
+    let repositoryBackend: any;
+
+    if (deps.createRepositoryBackend) {
+      // Use provided backend factory
+      repositoryBackend = await deps.createRepositoryBackend(sessionName);
+    } else if (sessionRecord?.repoUrl) {
+      // Use session record's stored repository configuration (preferred)
+      log.cli("📋 Using session repository configuration...");
+      repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+    } else {
+      // Fall back to auto-detection from git remote
+      log.cli("🔍 Auto-detecting repository backend...");
+      repositoryBackend = await createRepositoryBackendForSession(currentDir);
+    }
 
     // Use repository backend to create pull request
     const baseBranch = params.baseBranch || "main";
@@ -242,17 +320,16 @@ Please provide a title for your pull request:
       bodyToUse || "",
       currentBranch,
       baseBranch,
-      sessionName
+      sessionName,
+      params.draft || false
     );
 
     log.cli(`✅ Pull request created successfully!`);
 
-    // Update PR state cache after successful creation
-    await updatePrStateOnCreation(sessionName, deps.sessionDB);
+    // PR state persistence is handled by repository backends (local backend updates commit hash)
 
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {
-      const sessionRecord = await deps.sessionDB.getSession(sessionName);
       if (sessionRecord?.taskId) {
         try {
           const taskService = await createConfiguredTaskService({
@@ -266,8 +343,18 @@ Please provide a title for your pull request:
       }
     }
 
+    // Determine correct branch format based on backend type
+    let prBranchName: string;
+    if (sessionRecord?.backendType === "github") {
+      // GitHub backend uses session branch directly
+      prBranchName = sessionName;
+    } else {
+      // Local/remote backends use pr/ prefix format
+      prBranchName = typeof prInfo.number === "string" ? prInfo.number : `pr/${prInfo.number}`;
+    }
+
     return {
-      prBranch: typeof prInfo.number === "string" ? prInfo.number : `pr/${prInfo.number}`,
+      prBranch: prBranchName,
       baseBranch,
       title: titleToUse,
       body: bodyToUse,

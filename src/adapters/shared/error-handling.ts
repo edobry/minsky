@@ -192,11 +192,24 @@ export class CliErrorHandler implements ErrorHandler {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
     const normalizedError = ensureError(error as any);
 
-    // Get type-specific error prefix
-    const prefix = (SharedErrorHandler as any).getErrorPrefix(error as any);
+    // Handle well-formatted validation errors specially
+    if (error instanceof ValidationError) {
+      const message = normalizedError.message;
+      const hasGoodFormatting = /^[❌🚫⛔💥]/u.test(message);
 
-    // Output human-readable error message
-    log.cliError(`${prefix}: ${normalizedError.message}`);
+      if (hasGoodFormatting) {
+        // Already well-formatted, display as-is
+        log.cliError(message);
+      } else {
+        // Add validation error prefix for less formatted messages
+        const prefix = (SharedErrorHandler as any).getErrorPrefix(error as any);
+        log.cliError(`${prefix}: ${message}`);
+      }
+    } else {
+      // Get type-specific error prefix for non-validation errors
+      const prefix = (SharedErrorHandler as any).getErrorPrefix(error as any);
+      log.cliError(`${prefix}: ${normalizedError.message}`);
+    }
 
     // Add type-specific details
     if (error instanceof ValidationError && (error as any).errors && debug) {

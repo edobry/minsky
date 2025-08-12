@@ -26,14 +26,14 @@ describe("Session Command Domain Logic", () => {
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
-          taskId: "123",
+          taskId: "md#123",
         },
         {
           session: "task#456",
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-02T00:00:00Z",
-          taskId: "456",
+          taskId: "md#456",
         },
       ],
     });
@@ -53,13 +53,13 @@ describe("Session Command Domain Logic", () => {
 
       expect(result).not.toBeNull();
       expect(result?.session).toBe("test-session");
-      expect(result?.taskId).toBe("123");
+      expect(result?.taskId).toBe("md#123");
     });
 
     test("resolves session by explicit task ID", async () => {
       const result = await sessionGet(
         {
-          task: "#456",
+          task: "md#456",
           json: false,
         },
         {
@@ -69,7 +69,7 @@ describe("Session Command Domain Logic", () => {
 
       expect(result).not.toBeNull();
       expect(result?.session).toBe("task#456");
-      expect(result?.taskId).toBe("456");
+      expect(result?.taskId).toBe("md#456");
     });
 
     test("throws ResourceNotFoundError for non-existent session", async () => {
@@ -90,7 +90,7 @@ describe("Session Command Domain Logic", () => {
       await expect(
         sessionGet(
           {
-            task: "#999",
+            task: "md#999",
             json: false,
           },
           {
@@ -120,7 +120,7 @@ describe("Session Command Domain Logic", () => {
     test("deletes session by explicit task ID", async () => {
       const result = await sessionDelete(
         {
-          task: "#456",
+          task: "md#456",
           force: true,
           json: false,
         },
@@ -168,7 +168,7 @@ describe("Session Command Domain Logic", () => {
 
   describe("domain logic consistency", () => {
     test("all commands resolve the same session by task ID", async () => {
-      const taskId = "#456";
+      const taskId = "md#456";
       const expectedSessionName = "task#456";
 
       // Test sessionGet
@@ -205,14 +205,14 @@ describe("Session Command Domain Logic", () => {
       // Test that the mock provider is being used by checking its exact behavior
       const session = await mockSessionProvider.getSession("test-session");
       expect(session).not.toBeNull();
-      expect(session?.taskId).toBe("123");
+      expect(session?.taskId).toBe("md#123");
 
       // Test the same behavior through the domain function
       const result = await sessionGet(
         { name: "test-session", json: false },
         { sessionDB: mockSessionProvider }
       );
-      expect(result?.taskId).toBe("123");
+      expect(result?.taskId).toBe("md#123");
     });
 
     test("session resolution is deterministic with same inputs", async () => {
@@ -227,9 +227,9 @@ describe("Session Command Domain Logic", () => {
       expect(results[0]?.session).toBe("test-session");
       expect(results[1]?.session).toBe("test-session");
       expect(results[2]?.session).toBe("test-session");
-      expect(results[0]?.taskId).toBe("123");
-      expect(results[1]?.taskId).toBe("123");
-      expect(results[2]?.taskId).toBe("123");
+      expect(results[0]?.taskId).toBe("md#123");
+      expect(results[1]?.taskId).toBe("md#123");
+      expect(results[2]?.taskId).toBe("md#123");
     });
   });
 });

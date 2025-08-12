@@ -1,13 +1,90 @@
+- fix(github-merge): Use PR title/body for merge commit message in GitHub backend and remove legacy branch persistence from session creation paths. Updated repo guardrails spec to include default merge commit message settings (PR title/body).
+- feat(session): add `session.migrate-backend` command to switch a session's repo backend to GitHub by reading origin URL and updating `backendType`
+  - Detects origin with `git remote get-url origin` from the session workspace
+  - Sets `repoUrl` to the detected remote URL and `backendType` to `github`
+  - Exposed via shared command registry; available alongside other session management commands
+- fix(config): resolve configuration validation errors
+  - Removed invalid `json` sessiondb backend from default configuration
+  - Fixed undefined `github.token` in defaults that was interfering with user token validation
+
 # Changelog
 
 All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- CLI validation error formatting for Zod schema failures. Previously, invalid params could print a bare `❌ [` due to unhandled `ZodError`. Now errors are concise and human-readable (e.g., `Validation error: Task ID must be qualified (md#123, gh#456)`) with full details shown in debug mode. Affects `minsky session get`, `minsky session dir`, and other Zod-validated commands.
+
+- **Session PR Merge (GitHub backend)**: Delegated approval validation to the repository backend and added explicit GitHub API approval checks before merge. Removed misleading "approved" wording from merge log. Clear, actionable error output now shows required vs current approvals and PR URL.
+
 ### Added
 
+- **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
+
+  - Separate `session pr create` and `session pr edit` functionality - create fails if PR already exists
+  - Added `updatePullRequest` method to `RepositoryBackend` interface for backend-specific PR updates
+  - GitHub backend uses GitHub API directly (no local conflict checks, server handles conflicts)
+  - Local/Remote backends delegate to existing `sessionPr` logic with conflict checks (appropriate for git workflows)
+  - Auto-detect PR number from current git branch for GitHub backend
+  - Improved error messages and validation for both create and edit operations
+  - Backend delegation allows each repository type to handle PR updates appropriately
+
+- **Task md#407**: Extract shared DB service for sessions, tasks metadata, and embeddings (pgvector)
+
+  - Introduces a new task to define a general-purpose `DbService` abstraction
+  - Reuses existing sessiondb infra and prepares for md#253 embeddings storage
+  - Plans migrations and pgvector extension validation for PostgreSQL
+
+- **Task #404**: Add configuration management subcommands
+
+  - **`minsky config set <key> <value>`** - Set configuration values programmatically
+  - **`minsky config unset <key>`** - Remove configuration values
+  - **`minsky config validate`** - Validate configuration against schemas
+  - **`minsky config doctor`** - Diagnose common configuration problems
+  - Supports nested keys (e.g., `ai.providers.openai.model`)
+  - Automatic type detection (boolean, number, JSON objects/arrays)
+  - Creates timestamped backups before modifications with `--no-backup` option
+  - Validates configuration after changes with rollback on failure
+  - Targets user configuration at `~/.config/minsky/config.yaml`
+  - Supports both YAML and JSON formats via `--format` option
+  - JSON output option for scripting with `--json` flag
+  - 59 comprehensive tests with 100% mocked filesystem operations
+
+- **Task #402**: Remove JSON sessiondb backend entirely from codebase
+
+  - **BREAKING CHANGE**: JSON sessiondb backend has been completely removed
+  - Updated default sessiondb backend from json to sqlite
+  - Removed JSON backend options from configuration schemas and validation
+  - Removed JSON backend support from storage factory functions
+  - Removed JSON backend test cases from sessiondb tests
+  - Updated CLI and configuration display logic to exclude JSON backend
+  - Generic JsonFileStorage used by task backends remains unchanged
+  - Users must migrate to SQLite or PostgreSQL backend for session storage
+
+- **Task #389**: Improve SessionDB migration and plan PostgreSQL cutover
+
+  - Deprecate JSON SessionDB backend with warnings
+  - Make dry-run default; backups mandatory (SQLite copy + JSON dump)
+  - Remove --connection-string; use config/env for Postgres
+  - Add strong preflight validations and --set-default toggle
+  - Add backend drift warnings in SessionDB provider
+
 - **Session Cleanup Functionality**: Comprehensive session cleanup implementation that automatically removes old sessions for completed and merged tasks, addressing the gap identified in Task #353. Includes complete filesystem directory removal, **cleanup enabled by default** for merge operations, enhanced session delete commands with comprehensive cleanup, and CLI parameter support with `--skip-cleanup` flag to override default behavior when needed.
+
+### Fixed
+
+- **Session PR Merge Error Message**: Improved error message formatting for unapproved PR merge attempts. Removed redundant "Validation error:" prefix for well-formatted validation errors and replaced generic "MERGE REJECTED" with clear, actionable step-by-step guidance. Error messages now detect emoji prefixes to avoid double formatting and provide specific commands users can copy-paste to resolve the issue.
+- **Session Branch Cleanup After Merge**: Fixed missing branch cleanup in main workspace after `minsky session pr merge` operations. Following Task #358's approval/merge decoupling, the merge operation now properly cleans up session branches (PR branch and task branch) from the main repository after successful merge, not just session directories. This ensures a clean workspace after completing session workflows.
+- **MCP tasks.list Output Format**: Fixed MCP `tasks.list` command returning newline-delimited string instead of structured JSON data. The issue was in the shared command integration where the `json` parameter was being deleted from MCP args, causing `formatResult()` to default to string formatting. Fixed by making shared commands respect the execution context's `format: "json"` setting for proper structured data output in MCP responses.
+- **Task Delete Functionality**: Fixed task deletion bug where qualified task IDs (e.g., `md#399`) were not properly handled during deletion operations. The MarkdownTaskBackend now uses the existing `getTaskById` utility function for consistent task ID comparison across all formats, ensuring reliable deletion of tasks regardless of ID format used.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
+- **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.
+
+### Cleanup
+
+- **Test Task Cleanup**: Successfully removed all generic test tasks with names like "Test session for MCP fix verification", "Fix the authentication bug", "Test to see exact MCP error", and other temporary testing tasks. Cleaned up task IDs: md#003, md#377, md#382, md#383, md#399, and their associated spec files. This cleanup improves task list clarity and removes outdated testing artifacts.
 
 ### Fixed
 
@@ -25,7 +102,7 @@ All notable changes to this project will be documented in this file.
 - **Clean Architectural Boundaries**: Clear separation maintained between different system components with well-defined responsibilities
 
 - **Session PR Detection with Task Parameter**: Fixed `minsky session pr create --task <id>` failing to detect existing PRs, preventing unnecessary "PR description is required" errors when updating existing PRs. The fix enhances the session resolution logic to properly map task IDs to session names using the same resolution mechanism as the main PR command
-- **Session PR Output Formatting**: Cleaned up `minsky session pr get` output by removing unnecessary "(no number)" placeholder for local repo backend PRs, improving readability
+- **Session PR Get Output**: Removed redundant `Branch` line when it equals the session name, and normalized PR timestamps to display from GitHub `createdAt`/`updatedAt` when available. Also prefer `headBranch` for branch display when using GitHub backend.
 - **Session Merge Task Backend Integration**: Session merge command now properly delegates to configured task backend instead of hardcoding default backend, ensuring GitHub Issues and other configured backends work correctly with merge operations [Task #357]
 
   - **AUTO-DETECTION**: Automatically detects GitHub repositories via `.git/config` remote URLs for seamless task creation
@@ -76,31 +153,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-<<<<<<< HEAD
-
-- **PR Creation Error Messages**: Improved merge conflict guidance to prevent dangerous automatic conflict resolution
-
-  - **MANUAL RESOLUTION PRIORITY**: Changed recommendations to prioritize manual conflict resolution over automated approaches
-  - **DANGEROUS GUIDANCE REMOVAL**: Removed "(recommended)" label from "accept all session changes" option and added "use with caution" warnings
-  - **WORKFLOW CLARIFICATION**: Fixed misleading claim that PR would be pushed automatically after conflict resolution
-  - # **USER INSTRUCTION ACCURACY**: Clarified that users must re-run PR creation command after resolving merge conflicts
-
-- **GitHub Status UX**: Fixed misleading configuration warnings in `minsky gh status` command
-  - Now shows positive "✅ Using auto-detection from git remote" when auto-detection works
-  - Only warns about missing configuration when both explicit config AND auto-detection fail
-  - Provides helpful verbose context about when explicit configuration is optional
-  - Resolves contradiction where system reported "ready to use" while showing configuration warnings
-- **GitHub Token Detection**: Fixed GitHub token detection to use configuration system instead of environment variables only
-  - Updated `showGitHubStatus` and `getGitHubBackendConfig` functions to use `getConfiguration()`
-  - Tokens in `~/.config/minsky/config.yaml` are now properly detected
-  - Improved error messages to mention both environment variables and config file options
-- **Dynamic Configuration Paths**: Replaced hardcoded environment variable names and config paths with dynamic values from configuration system
-
-  - Status command now shows actual detected token source instead of hardcoded env var names
-  - Error messages use dynamic environment variable names from `environmentMappings`
-  - Config file paths use `getUserConfigDir()` for accurate user-specific paths
-  - Eliminates maintenance burden of keeping hardcoded strings synchronized
-    > > > > > > > origin/main
+-
 
 - **Test Architecture & Reliability**: Achieved 100% test success rate (1458/1458 tests passing) with major architectural improvements
 

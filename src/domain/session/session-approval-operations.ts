@@ -156,21 +156,25 @@ export async function approveSessionPr(
     );
   }
 
-  // Validate session has a PR branch
-  if (!sessionRecord.prBranch) {
+  // Validate session has a PR (either local prBranch or GitHub pullRequest)
+  const hasLocalPr = sessionRecord.prBranch;
+  const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
+
+  if (!hasLocalPr && !hasGitHubPr) {
     throw new ValidationError(
       `Session "${sessionNameToUse}" has no PR branch. Create a PR first with 'minsky session pr'`
     );
   }
 
-  // Check if already approved
-  if (sessionRecord.prApproved) {
+  // Check if already approved (local backend only)
+  // For GitHub backend, we delegate approval checking to the repository backend
+  if (hasLocalPr && sessionRecord.prApproved) {
     if (!params.json) {
       log.cli("ℹ️  Session PR is already approved");
     }
 
     return {
-      sessionName: sessionNameToUse,
+      session: sessionNameToUse,
       taskId: sessionRecord.taskId,
       prBranch: sessionRecord.prBranch,
       approvalInfo: {
@@ -194,13 +198,26 @@ export async function approveSessionPr(
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for approval`);
   }
 
+  // Determine PR identifier for approval based on backend type
+  let prIdentifier: string | number;
+  let displayName: string;
+  if (hasGitHubPr && sessionRecord.pullRequest) {
+    prIdentifier = sessionRecord.pullRequest.number;
+    displayName = `PR #${prIdentifier}`;
+  } else if (hasLocalPr && sessionRecord.prBranch) {
+    prIdentifier = sessionRecord.prBranch;
+    displayName = `branch: ${prIdentifier}`;
+  } else {
+    throw new ValidationError("Invalid session state: no valid PR identifier found");
+  }
+
   // Approve the PR using repository backend
   if (!params.json) {
-    log.cli(`✅ Approving PR for branch: ${sessionRecord.prBranch}`);
+    log.cli(`✅ Approving ${displayName}`);
   }
 
   const approvalInfo = await repositoryBackend.approvePullRequest(
-    sessionRecord.prBranch,
+    prIdentifier,
     params.reviewComment
   );
 
@@ -214,9 +231,12 @@ export async function approveSessionPr(
   }
 
   return {
-    sessionName: sessionNameToUse,
+    session: sessionNameToUse,
     taskId: sessionRecord.taskId,
-    prBranch: sessionRecord.prBranch,
+    prBranch:
+      (hasLocalPr && sessionRecord.prBranch) ||
+      (hasGitHubPr && (sessionRecord as any).pullRequest?.headBranch) ||
+      (typeof prIdentifier === "string" ? prIdentifier : String(prIdentifier)),
     approvalInfo,
     wasAlreadyApproved: false,
   };

@@ -194,13 +194,40 @@ export class SessionMigrationService {
   private migrateSession(session: SessionRecord): SessionMigrationResult {
     try {
       const enhanced = SessionMultiBackendIntegration.enhanceSessionRecord(session);
-      const migrated = SessionMultiBackendIntegration.migrateLegacySessionRecord(session);
+      // Strict-only: perform a minimal migration that upgrades legacy task IDs and session names
+      let migrated: MultiBackendSessionRecord = { ...session } as MultiBackendSessionRecord;
+      let sessionNameChanged = false;
+      let taskIdChanged = false;
+      let backendAdded = false;
+      let legacyIdPreserved = false;
+
+      // If taskId is legacy (plain digits or #digits), convert to md#<num>
+      if (session.taskId && !/^[a-z-]+#\d+$/.test(session.taskId)) {
+        const num = String(session.taskId).replace(/^#/, "");
+        if (/^\d+$/.test(num)) {
+          migrated.legacyTaskId = session.taskId;
+          migrated.taskId = `md#${num}`;
+          migrated.taskBackend = "md";
+          taskIdChanged = true;
+          backendAdded = true;
+          legacyIdPreserved = true;
+        }
+      }
+
+      // If session name doesn't match expected for qualified taskId, rename
+      if (migrated.taskId && /^[a-z-]+#\d+$/.test(migrated.taskId)) {
+        const expected = SessionMultiBackendIntegration.generateSessionName(migrated.taskId);
+        if (session.session !== expected) {
+          migrated.session = expected;
+          sessionNameChanged = true;
+        }
+      }
 
       const changes = {
-        sessionNameChanged: session.session !== migrated.session,
-        taskIdChanged: session.taskId !== migrated.taskId,
-        backendAdded: !session.taskId || migrated.taskBackend !== undefined,
-        legacyIdPreserved: migrated.legacyTaskId !== undefined,
+        sessionNameChanged,
+        taskIdChanged,
+        backendAdded,
+        legacyIdPreserved,
       };
 
       return {

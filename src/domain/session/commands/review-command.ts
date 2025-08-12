@@ -1,6 +1,7 @@
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { TaskService, createConfiguredTaskService } from "../../tasks";
+import { TaskService } from "../../tasks";
+import { createConfiguredTaskService } from "../../tasks/taskService";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import {
@@ -82,7 +83,9 @@ export async function sessionReview(
       try {
         effectivePrBranch = await deps.gitService.getCurrentBranch(workdir);
       } catch (error) {
-        effectivePrBranch = sessionRecord.branch || "main";
+        throw new ValidationError(
+          "Cannot determine PR branch. Provide --pr-branch explicitly or run from a git branch."
+        );
       }
     }
 

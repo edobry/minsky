@@ -7,7 +7,7 @@ import type { TaskData } from "../../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
-import { normalizeTaskId } from "./taskFunctions";
+// normalizeTaskId removed: strict qualified IDs expected upstream
 import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
@@ -121,7 +121,12 @@ export class TaskService {
   async getAllTasks(): Promise<TaskData[]> {
     const result = await this.currentBackend.getTasksData();
     if (!result.success) {
-      throw new Error(`Failed to get tasks: ${result.error?.message}`);
+      const message = result.error?.message || "unknown error";
+      const isPathErr = /ENOENT|not found|no such file or directory/i.test(message);
+      const hint = isPathErr
+        ? "Ensure tasks backend points to main workspace (process/tasks.md)."
+        : undefined;
+      throw new Error(`Failed to get tasks${hint ? `: ${hint}` : ""}`);
     }
 
     let tasks = this.currentBackend.parseTasks(result.content);
@@ -145,13 +150,8 @@ export class TaskService {
    */
   async getTask(id: string): Promise<TaskData | null> {
     const tasks = await this.getAllTasks();
-    const normalizedId = normalizeTaskId(id) || id;
-    return (
-      tasks.find((task) => {
-        const taskNormalizedId = normalizeTaskId(task.id) || task.id;
-        return taskNormalizedId === normalizedId || task.id === id;
-      }) || null
-    );
+    const searchId = id;
+    return tasks.find((task) => task.id === searchId) || null;
   }
 
   /**
@@ -313,7 +313,12 @@ export class TaskService {
     // Get existing tasks
     const tasksResult = await this.currentBackend.getTasksData();
     if (!tasksResult.success) {
-      throw new Error(`Failed to get tasks: ${tasksResult.error?.message}`);
+      const message = tasksResult.error?.message || "unknown error";
+      const isPathErr = /ENOENT|not found|no such file or directory/i.test(message);
+      const hint = isPathErr
+        ? "Ensure tasks backend points to main workspace (process/tasks.md)."
+        : undefined;
+      throw new Error(`Failed to get tasks${hint ? `: ${hint}` : ""}`);
     }
 
     let tasks = this.currentBackend.parseTasks(tasksResult.content);
@@ -350,7 +355,7 @@ export class TaskService {
    */
   async getBackendForTask(id: string): Promise<TaskBackend | null> {
     // Normalize the task ID
-    const normalizedId = normalizeTaskId(id);
+    const normalizedId = id;
     if (!normalizedId) {
       return null;
     }

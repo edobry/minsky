@@ -37,11 +37,14 @@ Minsky provides convenient CLI commands for interacting with your MCP server:
 ### List Available Tools
 
 ```bash
-# List all available MCP tools
+# List all available MCP tools (shows just tool names)
 minsky mcp tools
 
 # List tools for a specific repository
 minsky mcp tools --repo /path/to/repository
+
+# Get full JSON response with tool descriptions and schemas
+minsky mcp tools --json
 ```
 
 ### Call MCP Tools

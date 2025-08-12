@@ -29,7 +29,14 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
     };
   } catch (error) {
     const err = error instanceof Error ? error : new Error(String(error as any));
-    log.error(`Failed to read tasks file: ${filePath}`, { error: err });
+    // Provide concise, user-friendly context without dumping raw error object
+    const code = (err as any)?.code || "";
+    const hint =
+      code === "ENOENT"
+        ? "Tasks file not found. Ensure you're pointing to the main workspace (process/tasks.md)."
+        : undefined;
+
+    log.error(`Failed to read tasks file: ${filePath}${hint ? `\n💡 ${hint}` : ""}`);
     return {
       success: false,
       filePath,

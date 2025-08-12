@@ -5,14 +5,9 @@
  * Extracted from tasks.ts as part of modularization effort.
  */
 import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
-import { normalizeTaskId } from "../../../../domain/tasks";
 import { ValidationError } from "../../../../errors/index";
 import { log } from "../../../../utils/logger";
-import {
-  isQualifiedTaskId,
-  isLegacyTaskId,
-  migrateUnqualifiedTaskId,
-} from "../../../../domain/tasks/unified-task-id";
+import { isQualifiedTaskId } from "../../../../domain/tasks/task-id";
 
 /**
  * Common interface for task command parameters
@@ -58,27 +53,17 @@ export abstract class BaseTaskCommand {
   abstract execute(params: any, context: CommandExecutionContext): Promise<any>;
 
   /**
-   * Validate and normalize task ID for multi-backend support
+   * Validate task ID for multi-backend support (qualified IDs only)
    */
   protected validateAndNormalizeTaskId(taskId: string): string {
-    // Import unified task ID utilities
-    // Use static imports for better performance
-
-    // First, check if it's already a qualified ID
+    // Check if it's a qualified ID
     if (isQualifiedTaskId(taskId)) {
       return taskId; // Already qualified, return as-is
     }
 
-    // Check if it's a legacy format that can be migrated
-    if (isLegacyTaskId(taskId)) {
-      const normalizedTaskId = migrateUnqualifiedTaskId(taskId, "md"); // Default to markdown backend
-      this.debug(`Migrated legacy task ID '${taskId}' to '${normalizedTaskId}'`);
-      return normalizedTaskId;
-    }
-
     // Invalid format
     throw new ValidationError(
-      `Invalid task ID: '${taskId}'. Please provide either a qualified task ID (md#123, gh#456) or legacy format (123, task#123, #123).`
+      `Invalid task ID: '${taskId}'. Please provide a qualified task ID (md#123, gh#456).`
     );
   }
 
@@ -136,7 +121,7 @@ export abstract class BaseTaskCommand {
           return "No tasks found.";
         }
 
-        // Format each task for display
+        // Format each task for display (strict: derive from id only)
         const taskList = result.tasks
           .map((task: any) => {
             const displayId = formatTaskIdForDisplay(task.id);

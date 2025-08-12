@@ -8,9 +8,9 @@
 import { join } from "path";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import { getMinskyStateDir, getDefaultJsonDbPath, getDefaultSqliteDbPath } from "../../utils/paths";
+import { getMinskyStateDir, getDefaultSqliteDbPath } from "../../utils/paths";
 import type { SessionRecord, SessionDbState } from "../session/session-db";
-import { JsonFileStorage } from "./backends/json-file-storage";
+
 import { createPostgresStorage, type PostgresStorageConfig } from "./backends/postgres-storage";
 import { createSqliteStorage, type SqliteStorageConfig } from "./backends/sqlite-storage";
 import type { DatabaseStorage } from "./database-storage";
@@ -23,7 +23,7 @@ import {
 /**
  * Available storage backend types
  */
-export type StorageBackendType = "json" | "sqlite" | "postgres";
+export type StorageBackendType = "sqlite" | "postgres";
 
 /**
  * Storage configuration options with integrity checking
@@ -33,13 +33,6 @@ export interface StorageConfig {
    * Backend type to use
    */
   backend: StorageBackendType;
-
-  /**
-   * Configuration for JSON file storage
-   */
-  json?: {
-    filePath?: string;
-  };
 
   /**
    * Configuration for SQLite storage
@@ -84,17 +77,14 @@ export interface StorageResult {
  */
 export function getDefaultStorageConfig(): StorageConfig {
   return {
-    backend: "json",
-    json: {
-      filePath: getDefaultJsonDbPath(),
-    },
+    backend: "sqlite",
     sqlite: {
       dbPath: getDefaultSqliteDbPath(),
       enableWAL: true,
       timeout: 5000,
     },
     postgres: {
-      connectionUrl:
+      connectionString:
         (process.env as any).MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
       maxConnections: 10,
       connectTimeout: 30,
@@ -108,26 +98,28 @@ export function getDefaultStorageConfig(): StorageConfig {
 export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageConfig {
   const defaults = getDefaultStorageConfig();
 
-  // Apply environment variable overrides
-  if ((process.env as any).MINSKY_SESSIONDB_BACKEND) {
-    defaults.backend = (process.env as any).MINSKY_SESSIONDB_BACKEND as StorageBackendType;
-  }
-
-  // Apply SQLite-specific environment variables
-  if ((process.env as any).MINSKY_SQLITE_PATH) {
-    defaults.sqlite!.dbPath = (process.env as any).MINSKY_SQLITE_PATH;
-  }
-
-  // Apply PostgreSQL-specific environment variables
-  if ((process.env as any).MINSKY_POSTGRES_URL) {
-    (defaults.postgres! as any).connectionUrl = (process.env as any).MINSKY_POSTGRES_URL as any;
-  }
-
-  // Apply any additional overrides and set integrity defaults
-  const result = {
+  // Apply any additional overrides first
+  const result: StorageConfig = {
     ...defaults,
     ...overrides,
-  };
+  } as StorageConfig;
+
+  // Apply environment variable overrides LAST (highest precedence)
+  if ((process.env as any).MINSKY_SESSIONDB_BACKEND) {
+    result.backend = (process.env as any).MINSKY_SESSIONDB_BACKEND as StorageBackendType;
+  }
+
+  // SQLite-specific environment variables
+  if ((process.env as any).MINSKY_SQLITE_PATH) {
+    result.sqlite = result.sqlite || {};
+    result.sqlite.dbPath = (process.env as any).MINSKY_SQLITE_PATH;
+  }
+
+  // PostgreSQL-specific environment variables
+  if ((process.env as any).MINSKY_POSTGRES_URL) {
+    result.postgres = result.postgres || ({} as any);
+    (result.postgres as any).connectionString = (process.env as any).MINSKY_POSTGRES_URL as any;
+  }
 
   // Set integrity checking defaults if not specified
   if (result.enableIntegrityCheck === undefined) {
@@ -154,12 +146,6 @@ export function createStorageBackend(
   log.debug(`Creating storage backend: ${storageConfig.backend}`);
 
   switch (storageConfig.backend) {
-    case "json": {
-      const dbPath = storageConfig.json?.filePath || getDefaultStorageConfig().json!.filePath;
-      const baseDir = getMinskyStateDir();
-      return new JsonFileStorage(dbPath, baseDir);
-    }
-
     case "sqlite": {
       const sqliteConfig: SqliteStorageConfig = {
         dbPath: storageConfig.sqlite?.dbPath || getDefaultStorageConfig().sqlite!.dbPath!,
@@ -170,12 +156,12 @@ export function createStorageBackend(
     }
 
     case "postgres": {
-      if (!storageConfig.postgres?.connectionUrl) {
+      if (!storageConfig.postgres?.connectionString) {
         const errorMessage = createBackendDetectionErrorMessage(
           "postgres",
-          ["json", "sqlite", "postgres"],
+          ["sqlite", "postgres"],
           {
-            postgres: ["PostgreSQL connection URL"],
+            postgres: ["PostgreSQL connection string"],
           }
         );
         throw new Error(errorMessage);
@@ -185,7 +171,6 @@ export function createStorageBackend(
 
     default: {
       const errorMessage = createBackendDetectionErrorMessage(storageConfig.backend, [
-        "json",
         "sqlite",
         "postgres",
       ]);
@@ -395,7 +380,7 @@ export class StorageBackendFactory {
       case "sqlite":
         return `sqlite:${config.sqlite?.dbPath}`;
       case "postgres":
-        return `postgres:${config.postgres?.connectionUrl}`;
+        return `postgres:${config.postgres?.connectionString}`;
       default:
         return config.backend;
     }

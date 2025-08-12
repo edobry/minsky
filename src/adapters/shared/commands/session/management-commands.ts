@@ -6,7 +6,11 @@
  */
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
-import { sessionDeleteCommandParams, sessionUpdateCommandParams } from "./session-parameters";
+import {
+  sessionDeleteCommandParams,
+  sessionUpdateCommandParams,
+  sessionMigrateBackendCommandParams,
+} from "./session-parameters";
 
 /**
  * Session Delete Command
@@ -91,6 +95,202 @@ export class SessionUpdateCommand extends BaseSessionCommand<any, any> {
 }
 
 /**
+ * Session Migrate Backend Command
+ *
+ * Migrates a session's repository backend from local to GitHub by discovering the
+ * upstream origin URL from the session workspace and updating the session DB record.
+ */
+export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.migrate-backend";
+  }
+
+  getCommandName(): string {
+    return "migrate-backend";
+  }
+
+  getCommandDescription(): string {
+    return "Migrate a session's repository backend to GitHub by following origin remote";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionMigrateBackendCommandParams;
+  }
+
+  async executeCommand(params: any, _context: CommandExecutionContext): Promise<any> {
+    const { resolveSessionContextWithFeedback } = await import(
+      "../../../../domain/session/session-context-resolver"
+    );
+    const { createSessionProvider } = await import("../../../../domain/session");
+    const { createGitService } = await import("../../../../domain/git");
+    const { extractGitHubInfoFromUrl } = await import(
+      "../../../../domain/session/repository-backend-detection"
+    );
+
+    const sessionDB = createSessionProvider();
+    const gitService = createGitService();
+
+    // Resolve session context (supports name, task, auto-detect)
+    const resolved = await resolveSessionContextWithFeedback({
+      session: params.name,
+      task: params.task,
+      repo: params.repo,
+      sessionProvider: sessionDB,
+      allowAutoDetection: true,
+    });
+
+    const sessionName = resolved.sessionName;
+    const record = await sessionDB.getSession(sessionName);
+    if (!record) {
+      throw new Error(`Session '${sessionName}' not found`);
+    }
+
+    // Get session workdir to run git command
+    const workdir = await sessionDB.getSessionWorkdir(sessionName);
+    if (!workdir) {
+      throw new Error(`Could not resolve session workspace for '${sessionName}'`);
+    }
+
+    // Read origin URL from the session workspace (may be a local path)
+    const originUrlOutput = await gitService.execInRepository(workdir, "git remote get-url origin");
+    const firstHop = (
+      typeof originUrlOutput === "string" ? originUrlOutput : originUrlOutput?.stdout || ""
+    )
+      .toString()
+      .trim();
+
+    if (!firstHop) {
+      throw new Error("Failed to retrieve origin URL from git");
+    }
+
+    // Follow one hop if the origin is a local path; resolve its own origin to get the GitHub URL
+    const isLocalPath = (p: string) => p.startsWith("/") || p.startsWith("file://");
+    let resolvedRemote = firstHop;
+
+    if (isLocalPath(firstHop)) {
+      const upstreamPath = firstHop.replace(/^file:\/\//, "");
+      const upstreamOriginOut = await gitService.execInRepository(
+        upstreamPath,
+        "git remote get-url origin"
+      );
+      const secondHop = (
+        typeof upstreamOriginOut === "string" ? upstreamOriginOut : upstreamOriginOut?.stdout || ""
+      )
+        .toString()
+        .trim();
+      if (secondHop) {
+        resolvedRemote = secondHop;
+      }
+    }
+
+    const targetBackend = (params.to as string) || "github";
+
+    if (targetBackend === "github" && !resolvedRemote.includes("github.com")) {
+      throw new Error(
+        `Resolved origin is not a GitHub URL: ${resolvedRemote}. Only local→GitHub migration is supported.`
+      );
+    }
+
+    if (targetBackend === "local" && !isLocalPath(firstHop)) {
+      throw new Error(
+        `First-hop origin is not a local path: ${firstHop}. Cannot migrate to local backend from a non-local upstream.`
+      );
+    }
+
+    // Optionally extract owner/repo for future enhancements (not persisted in SessionRecord)
+    const gh = extractGitHubInfoFromUrl(resolvedRemote);
+
+    // If dry-run, return a preview without applying changes
+    const finalTargetUrl = targetBackend === "github" ? resolvedRemote : firstHop;
+
+    if (params.dryRun) {
+      return this.createSuccessResult(
+        {
+          preview: true,
+          session: sessionName,
+          from: record.backendType || "local",
+          to: targetBackend,
+          detected: {
+            firstHopOrigin: firstHop,
+            secondHopOrigin: isLocalPath(firstHop) ? resolvedRemote : undefined,
+          },
+          proposed: {
+            repoUrl: finalTargetUrl,
+            backendType: targetBackend,
+          },
+        },
+        `Will set backend to '${targetBackend}' and repoUrl to '${finalTargetUrl}'`
+      );
+    }
+
+    // Optionally update the workspace git remotes
+    const shouldUpdateRemote = params.updateRemote !== false; // default true
+    if (shouldUpdateRemote) {
+      // Ensure a 'prev-origin' backup when changing remotes
+      // Remove prev-origin if present; ignore failures
+      await gitService
+        .execInRepository(workdir, `git remote remove prev-origin || true`)
+        .catch(() => {});
+      await gitService.execInRepository(workdir, `git remote add prev-origin origin`);
+
+      // Set origin to target URL
+      await gitService.execInRepository(workdir, `git remote set-url origin ${finalTargetUrl}`);
+
+      // For convenience, set an explicit alias for the other URL
+      if (targetBackend === "github" && isLocalPath(firstHop)) {
+        // keep local as local-origin
+        await gitService
+          .execInRepository(workdir, `git remote remove local-origin || true`)
+          .catch(() => {});
+        await gitService.execInRepository(workdir, `git remote add local-origin ${firstHop}`);
+      }
+      if (targetBackend === "local" && resolvedRemote.includes("github.com")) {
+        // keep github as github-origin
+        await gitService
+          .execInRepository(workdir, `git remote remove github-origin || true`)
+          .catch(() => {});
+        await gitService.execInRepository(
+          workdir,
+          `git remote add github-origin ${resolvedRemote}`
+        );
+      }
+    }
+
+    // Prepare session record updates
+    const sessionUpdates: any = {
+      repoUrl: finalTargetUrl,
+      backendType: targetBackend,
+    };
+
+    // Clean up backend-specific artifacts when migrating
+    if (targetBackend === "github") {
+      // Clear local backend artifacts
+      sessionUpdates.prBranch = undefined; // Local backend concept, not used in GitHub
+      sessionUpdates.prState = undefined; // Local git state, GitHub uses pullRequest field
+
+      // Update repoName to GitHub format (owner/repo)
+      if (gh?.owner && gh?.repo) {
+        sessionUpdates.repoName = `${gh.owner}/${gh.repo}`;
+      }
+    } else if (targetBackend === "local") {
+      // Clear GitHub backend artifacts
+      sessionUpdates.pullRequest = undefined; // GitHub API data, not used in local
+      sessionUpdates.repoName = "local-minsky"; // Local format
+    }
+
+    // Update session record to use selected backend and remote URL
+    await sessionDB.updateSession(sessionName, sessionUpdates);
+
+    return this.createSuccessResult({
+      session: sessionName,
+      backendType: targetBackend,
+      repoUrl: finalTargetUrl,
+      ...(gh ? { github: gh } : {}),
+    });
+  }
+}
+
+/**
  * Factory functions for creating management commands
  */
 export const createSessionDeleteCommand = (deps?: SessionCommandDependencies) =>
@@ -98,3 +298,6 @@ export const createSessionDeleteCommand = (deps?: SessionCommandDependencies) =>
 
 export const createSessionUpdateCommand = (deps?: SessionCommandDependencies) =>
   new SessionUpdateCommand(deps);
+
+export const createSessionMigrateBackendCommand = (deps?: SessionCommandDependencies) =>
+  new SessionMigrateBackendCommand(deps);

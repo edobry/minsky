@@ -18,6 +18,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
 } from "../tasks";
+import { getTaskById } from "./taskFunctions";
 import type { BackendCapabilities } from "./types";
 import type {
   TaskData,
@@ -579,11 +580,9 @@ ${description}
         return false;
       }
 
-      // Parse tasks and find the one to delete
+      // Parse tasks and find the one to delete using existing utility
       const tasks = this.parseTasks(tasksResult.content);
-      const taskToDelete = tasks.find(
-        (task) => task.id === id || task.id === `#${id}` || task.id.slice(1) === id
-      );
+      const taskToDelete = getTaskById(tasks, id);
 
       if (!taskToDelete) {
         log.debug(`Task ${id} not found for deletion`);

@@ -42,12 +42,18 @@ import {
 export {
   SessionDeleteCommand,
   SessionUpdateCommand,
+  SessionMigrateBackendCommand,
   createSessionDeleteCommand,
   createSessionUpdateCommand,
+  createSessionMigrateBackendCommand,
 } from "./management-commands";
 
 // Import management factory functions for internal use
-import { createSessionDeleteCommand, createSessionUpdateCommand } from "./management-commands";
+import {
+  createSessionDeleteCommand,
+  createSessionUpdateCommand,
+  createSessionMigrateBackendCommand,
+} from "./management-commands";
 
 // Workflow commands (re-export)
 export {
@@ -57,9 +63,11 @@ export {
   createSessionInspectCommand,
   // Export new PR subcommands instead of single SessionPrCommand
   SessionPrCreateCommand,
+  SessionPrEditCommand,
   SessionPrListCommand,
   SessionPrGetCommand,
   createSessionPrCreateCommand,
+  createSessionPrEditCommand,
   createSessionPrListCommand,
   createSessionPrGetCommand,
 } from "./workflow-commands";
@@ -67,12 +75,16 @@ export {
 // Import conflicts command
 import { createSessionConflictsCommand } from "./conflicts-command";
 
+// Import repair command
+export { SessionRepairCommand, createSessionRepairCommand } from "./repair-command";
+
 // Import workflow factory functions for internal use
 import {
   createSessionApproveCommand,
   createSessionInspectCommand,
   // Import new PR subcommand factories
   createSessionPrCreateCommand,
+  createSessionPrEditCommand,
   createSessionPrListCommand,
   createSessionPrGetCommand,
   createSessionPrApproveCommand,
@@ -85,6 +97,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
   const basicCommands = await import("./basic-commands");
   const managementCommands = await import("./management-commands");
   const workflowCommands = await import("./workflow-commands");
+  const repairCommand = await import("./repair-command");
 
   const {
     createSessionListCommand,
@@ -94,6 +107,10 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
   } = basicCommands;
 
   const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
+  const { createSessionMigrateBackendCommand } = managementCommands;
+
+  // Repair command
+  const { createSessionRepairCommand } = repairCommand;
 
   // Updated to use PR subcommands instead of single pr command
   const {
@@ -101,6 +118,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     createSessionApproveCommand,
     createSessionInspectCommand,
     createSessionPrCreateCommand,
+    createSessionPrEditCommand,
     createSessionPrListCommand,
     createSessionPrGetCommand,
   } = workflowCommands;
@@ -115,6 +133,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     // Management commands
     delete: createSessionDeleteCommand(deps),
     update: createSessionUpdateCommand(deps),
+    migrateBackend: createSessionMigrateBackendCommand(deps),
 
     // Workflow commands
     commit: createSessionCommitCommand(deps),
@@ -123,6 +142,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
     // PR subcommands replace single pr command
     prCreate: createSessionPrCreateCommand(deps),
+    prEdit: createSessionPrEditCommand(deps),
     prList: createSessionPrListCommand(deps),
     prGet: createSessionPrGetCommand(deps),
     prApprove: createSessionPrApproveCommand(deps),
@@ -130,6 +150,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
     // Utility commands
     conflicts: createSessionConflictsCommand(deps),
+    repair: createSessionRepairCommand(deps),
   };
 }
 
@@ -147,13 +168,16 @@ export async function setupSessionCommandRegistry(
   registry.register("session.dir", commands.dir);
   registry.register("session.delete", commands.delete);
   registry.register("session.update", commands.update);
+  registry.register("session.migrate-backend", commands.migrateBackend);
   registry.register("session.commit", commands.commit);
   // NOTE: session.approve removed in favor of session.pr.approve (Task #358)
   registry.register("session.inspect", commands.inspect);
   registry.register("session.conflicts", commands.conflicts);
+  registry.register("session.repair", commands.repair);
 
   // Register PR subcommands instead of single session.pr
   registry.register("session.pr.create", commands.prCreate);
+  registry.register("session.pr.edit", commands.prEdit);
   registry.register("session.pr.list", commands.prList);
   registry.register("session.pr.get", commands.prGet);
   registry.register("session.pr.approve", commands.prApprove);

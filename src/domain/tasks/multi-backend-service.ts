@@ -1,5 +1,5 @@
 import type { Task } from "./types";
-import { parseTaskId, isQualifiedTaskId, extractBackend, extractLocalId } from "./unified-task-id";
+import { parseTaskId, isQualifiedTaskId, extractBackend, extractLocalId } from "./task-id";
 
 // Enhanced TaskBackend interface with prefix property
 export interface TaskBackend {

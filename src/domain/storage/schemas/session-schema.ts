@@ -16,7 +16,6 @@ export const sqliteSessions = sqliteTable("sessions", {
   repoUrl: text("repoUrl"),
   createdAt: text("createdAt").notNull(),
   taskId: text("taskId"),
-  branch: text("branch"),
 
   // Legacy column (keeping for compatibility)
   repoPath: text("repoPath"),
@@ -45,7 +44,6 @@ export const postgresSessions = pgTable("sessions", {
   repoUrl: varchar("repo_url", { length: 1000 })!.notNull(),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull(),
   taskId: varchar("task_id", { length: 100 }),
-  branch: varchar("branch", { length: 255 }),
 
   // PR-related fields (Task #332/#366)
   prBranch: varchar("pr_branch", { length: 255 }),
@@ -64,6 +62,36 @@ export type PostgresSessionRecord = typeof postgresSessions.$inferSelect;
 export type PostgresSessionInsert = typeof postgresSessions.$inferInsert;
 
 /**
+ * Coerce various date representations into a valid Date.
+ * Falls back to current time if parsing fails.
+ */
+function coerceToDate(input: unknown): Date {
+  if (input instanceof Date && !isNaN(input.getTime())) return input;
+  if (typeof input === "number") {
+    const ms = input < 1e12 ? input * 1000 : input;
+    const d = new Date(ms);
+    return isNaN(d.getTime()) ? new Date() : d;
+  }
+  if (typeof input === "string") {
+    const trimmed = input.trim();
+    if (!trimmed) return new Date();
+    // Handle common "YYYY-MM-DD HH:MM:SS" format by converting to ISO
+    const sqlLike = /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}$/;
+    const candidate = sqlLike.test(trimmed) ? `${trimmed.replace(" ", "T")}Z` : trimmed;
+    const d = new Date(candidate);
+    if (!isNaN(d.getTime())) return d;
+    // Numeric string fallback
+    const asNum = Number(trimmed);
+    if (!Number.isNaN(asNum)) {
+      const ms = asNum < 1e12 ? asNum * 1000 : asNum;
+      const d2 = new Date(ms);
+      return isNaN(d2.getTime()) ? new Date() : d2;
+    }
+  }
+  return new Date();
+}
+
+/**
  * Convert SessionRecord to SQLite insert format
  * Drizzle handles JSON serialization automatically for json mode columns
  */
@@ -74,7 +102,6 @@ export function toSqliteInsert(record: SessionRecord): SqliteSessionInsert {
     repoUrl: record!.repoUrl,
     createdAt: record.createdAt,
     taskId: record.taskId || null,
-    branch: record.branch || null,
 
     // JSON fields - Drizzle handles serialization automatically
     prBranch: record.prBranch || null,
@@ -97,10 +124,9 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
   return {
     session: record!.session,
     repoName: record!.repoName,
-    repoUrl: record!.repoUrl,
-    createdAt: new Date(record.createdAt),
+    repoUrl: record!.repoUrl || "",
+    createdAt: coerceToDate(record.createdAt),
     taskId: record.taskId || null,
-    branch: record.branch || null,
 
     // PR-related fields
     prBranch: record.prBranch || null,
@@ -109,8 +135,6 @@ export function toPostgresInsert(record: SessionRecord): PostgresSessionInsert {
 
     // Backend configuration
     backendType: record.backendType || null,
-    github: record.github ? JSON.stringify(record.github) : null,
-    remote: record.remote ? JSON.stringify(record.remote) : null,
     pullRequest: record.pullRequest ? JSON.stringify(record.pullRequest) : null,
   };
 }
@@ -125,7 +149,6 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
     repoUrl: record!.repoUrl,
     createdAt: record.createdAt.toISOString(),
     taskId: record.taskId || undefined,
-    branch: record.branch || undefined,
 
     // PR-related fields
     prBranch: record.prBranch || undefined,
@@ -134,8 +157,6 @@ export function fromPostgresSelect(record: PostgresSessionRecord): SessionRecord
 
     // Backend configuration
     backendType: (record.backendType as any) || undefined,
-    github: record.github ? JSON.parse(record.github) : undefined,
-    remote: record.remote ? JSON.parse(record.remote) : undefined,
     pullRequest: record.pullRequest ? JSON.parse(record.pullRequest) : undefined,
   };
 }

@@ -10,6 +10,7 @@ import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerSessionTools } from "../../adapters/mcp/session";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
+import { registerSessiondbTools } from "../../adapters/mcp/sessiondb";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
@@ -535,6 +536,10 @@ export function createMCPCommand(): Command {
         registerSessionFileTools(commandMapper);
         registerSessionEditTools(commandMapper);
 
+        // Register sessiondb tools for agent querying
+        log.debug("[MCP] About to register sessiondb tools");
+        registerSessiondbTools(commandMapper);
+
         // TEMPORARILY DISABLE git tools during MCP startup to fix hanging issue
         // The git command registration causes circular dependency hangs during MCP startup
         // TODO: Fix the circular dependency in createGitService and re-enable
@@ -695,9 +700,12 @@ export function createMCPCommand(): Command {
       "--repo <path>",
       "Repository path for operations that require repository context (default: current directory)"
     )
+    .option("--json", "Output full JSON response instead of just tool names")
     .action(async (options) => {
       try {
-        log.cli("Listing available MCP tools...");
+        if (!options.json) {
+          log.cli("Listing available MCP tools...");
+        }
 
         // Use direct JSON-RPC communication to avoid inspector CLI buffering issues
         const { spawn } = await import("child_process");
@@ -752,7 +760,17 @@ export function createMCPCommand(): Command {
 
               if (toolsResponse) {
                 const parsed = JSON.parse(toolsResponse);
-                console.log(JSON.stringify(parsed.result, null, 2));
+
+                if (options.json) {
+                  // Output full JSON response
+                  console.log(JSON.stringify(parsed.result, null, 2));
+                } else {
+                  // Output just tool names
+                  const tools = parsed.result.tools || [];
+                  for (const tool of tools) {
+                    console.log(tool.name);
+                  }
+                }
                 resolve();
               } else {
                 reject(new Error("No tools response found in server output"));

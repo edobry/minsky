@@ -24,6 +24,7 @@ import { TASK_STATUS } from "../tasks/taskConstants";
 import { getErrorMessage } from "../../errors";
 import type { SessionRecord } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
+import { cleanupLocalBranches } from "./session-approve-operations";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -35,7 +36,19 @@ export function validateSessionApprovedForMerge(
   sessionRecord: SessionRecord,
   sessionName: string
 ): void {
-  // Check 1: PR branch must exist
+  // For GitHub backend, presence of a recorded PR is sufficient for further checks
+  if ((sessionRecord as any).backendType === "github") {
+    if (!(sessionRecord as any).pullRequest) {
+      throw new ValidationError(
+        `❌ MERGE REJECTED: Session "${sessionName}" has no GitHub pull request.\n` +
+          `   Create or repair the PR first with 'minsky session pr create' or 'minsky session pr get'`
+      );
+    }
+    // Approval and mergeability are delegated to the GitHub backend in mergeSessionPr()
+    return;
+  }
+
+  // Local/remote backends require a PR branch and explicit approval flag
   if (!sessionRecord.prBranch) {
     throw new ValidationError(
       `❌ MERGE REJECTED: Session "${sessionName}" has no PR branch.\n` +
@@ -43,22 +56,13 @@ export function validateSessionApprovedForMerge(
     );
   }
 
-  // Check 2: PR must be explicitly approved
-  if (!sessionRecord.prApproved) {
-    throw new ValidationError(
-      `❌ MERGE REJECTED: Session "${sessionName}" PR must be approved before merging.\n` +
-        `   Use 'minsky session pr approve' first to approve the PR.\n` +
-        `   This validation prevents unauthorized merges and ensures proper code review.`
-    );
-  }
-
-  // Check 3: Explicit boolean check (not just truthy)
   if (sessionRecord.prApproved !== true) {
     throw new ValidationError(
-      `❌ MERGE REJECTED: Invalid approval state for session "${sessionName}".\n` +
-        `   prApproved value: ${sessionRecord.prApproved} (type: ${typeof sessionRecord.prApproved})\n` +
-        `   Expected: true (boolean)\n` +
-        `   The approval state must be explicitly set to true.`
+      `❌ Session "${sessionName}" PR must be approved before merging.\n\n` +
+        `💡 Next steps:\n` +
+        `   1. Review your changes: minsky session pr get --task ${sessionName.replace("task-", "")}\n` +
+        `   2. Approve the PR: minsky session pr approve --task ${sessionName.replace("task-", "")}\n` +
+        `   3. Then try merge again: minsky session pr merge --task ${sessionName.replace("task-", "")}`
     );
   }
 
@@ -197,19 +201,98 @@ export async function mergeSessionPr(
     log.cli(`📦 Using ${repositoryBackend.getType()} backend for merge`);
   }
 
-  // Merge the approved PR using repository backend
-  if (!params.json) {
-    log.cli(`🔀 Merging approved PR for branch: ${sessionRecord.prBranch}`);
+  // Re-check PR existence for merge operation
+  const hasLocalPr = sessionRecord.prBranch;
+  const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
+
+  // For GitHub backend, check approval status via API before proceeding
+  if (hasGitHubPr && sessionRecord.pullRequest) {
+    if (!params.json) {
+      log.cli(`🔍 Checking GitHub PR approval status...`);
+    }
+
+    try {
+      const approvalStatus = await repositoryBackend.getPullRequestApprovalStatus(
+        sessionRecord.pullRequest.number
+      );
+
+      if (!approvalStatus.isApproved) {
+        // Be concise and user-friendly; don't assert a required approvals count
+        throw new ValidationError(
+          `❌ GitHub PR #${sessionRecord.pullRequest.number} is not approved.` +
+            `\n\n` +
+            `💡 Next steps:` +
+            `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+            `\n   2. Request a review if needed` +
+            `\n   3. Address any review feedback` +
+            `\n   4. Try merge again`
+        );
+      }
+
+      if (!params.json) {
+        log.cli(`✅ GitHub PR #${sessionRecord.pullRequest.number} is approved and ready to merge`);
+      }
+    } catch (error) {
+      if (error instanceof ValidationError) {
+        throw error; // Re-throw our validation errors
+      }
+      // Quietly continue on API errors; avoid noisy raw HTTP logs
+      log.debug(
+        `Skipping pre-merge approval check due to API error. Proceeding with merge attempt.`
+      );
+    }
   }
 
-  const mergeInfo = await repositoryBackend.mergePullRequest(
-    sessionRecord.prBranch,
-    sessionNameToUse
-  );
+  // Merge the approved PR using repository backend
+  // Determine PR identifier based on backend
+  let prIdentifier: string | number | undefined = sessionRecord.prBranch;
+  if ((sessionRecord as any).backendType === "github" && (sessionRecord as any).pullRequest) {
+    prIdentifier = (sessionRecord as any).pullRequest.number as number;
+  }
+
+  if (!params.json) {
+    const displayId = typeof prIdentifier === "number" ? `#${prIdentifier}` : String(prIdentifier);
+    log.cli(`🔀 Merging ${displayId}`);
+  }
+
+  if (prIdentifier === undefined) {
+    throw new ValidationError("No PR identifier available for merge");
+  }
+
+  const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
 
   if (!params.json) {
     log.cli("✅ Session PR merged successfully!");
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
+  }
+
+  // Clean up local branches in main repository after successful merge
+  try {
+    if (!params.json) {
+      log.cli("🧹 Cleaning up local branches...");
+    }
+
+    // For branch cleanup, we need to work in the main repository, not session workspace
+    const mainRepoPath = originalRepoPath;
+
+    await cleanupLocalBranches(
+      gitService,
+      mainRepoPath,
+      sessionRecord.prBranch,
+      sessionNameToUse,
+      sessionRecord.taskId
+    );
+
+    if (!params.json) {
+      log.cli("✅ Local branches cleaned up");
+    }
+  } catch (branchCleanupError) {
+    // Log but don't fail the operation if branch cleanup fails
+    const errorMsg = `Branch cleanup failed: ${getErrorMessage(branchCleanupError)}`;
+    log.debug(errorMsg);
+    if (!params.json) {
+      log.cli(`⚠️  Warning: ${errorMsg}`);
+    }
   }
 
   // Update task status to DONE if we have a task ID and it's not already DONE

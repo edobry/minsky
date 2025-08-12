@@ -225,6 +225,7 @@ export interface RepositoryBackend {
    * @param sourceBranch - Source branch name (session branch)
    * @param baseBranch - Target branch name (usually main/master)
    * @param session - Session identifier for workspace context
+   * @param draft - Whether to create as draft PR (GitHub only)
    * @returns Promise<PRInfo> - Information about the created PR
    */
   createPullRequest(
@@ -232,8 +233,22 @@ export interface RepositoryBackend {
     body: string,
     sourceBranch: string,
     baseBranch: string,
-    session?: string
+    session?: string,
+    draft?: boolean
   ): Promise<PRInfo>;
+
+  /**
+   * Update an existing pull request
+   *
+   * @param options - Update options including prIdentifier, title, body, session
+   * @returns Promise<PRInfo> - Information about the updated PR
+   */
+  updatePullRequest(options: {
+    prIdentifier?: string | number;
+    title?: string;
+    body?: string;
+    session?: string;
+  }): Promise<PRInfo>;
 
   /**
    * Merge a pull request into the base branch

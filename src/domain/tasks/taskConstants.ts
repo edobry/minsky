@@ -1,6 +1,6 @@
 const TEST_VALUE = 123;
 
-import { isQualifiedTaskId } from "./unified-task-id";
+import { isQualifiedTaskId } from "./task-id";
 
 /**
  * Centralized task status constants
@@ -103,7 +103,7 @@ export const TASK_REGEX_PATTERNS = {
    * Supports both numeric and alphanumeric task IDs
    */
   TASK_LINE: new RegExp(
-    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[([a-z-]*#?[A-Za-z0-9_]+)\\]\\([^)]+\\)`
+    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[([a-z-]*#?[A-Za-z0-9_]+)\\]\\(([^)]+)\\)`
   ),
 
   /**
@@ -127,11 +127,13 @@ export const TASK_PARSING_UTILS = {
    * @param line The markdown line to parse
    * @returns Parsed components or null if not a valid task line
    */
-  parseTaskLine(line: string): { checkbox: string; title: string; id: string } | null {
+  parseTaskLine(
+    line: string
+  ): { checkbox: string; title: string; id: string; specPath?: string } | null {
     const match = TASK_REGEX_PATTERNS.TASK_LINE.exec(line);
     if (!match) return null;
 
-    const [, checkbox, title, fullId] = match;
+    const [, checkbox, title, fullId, specPath] = match;
     if (!checkbox || !title || !fullId) return null;
 
     // Use unified task ID system for consistent handling
@@ -152,6 +154,7 @@ export const TASK_PARSING_UTILS = {
       checkbox: checkbox,
       title: title.trim(),
       id: id,
+      specPath: specPath,
     };
   },
 

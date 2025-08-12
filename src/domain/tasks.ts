@@ -8,9 +8,9 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
 import { promises as fs } from "fs";
 import { join } from "path";
 import { log } from "../utils/logger";
-import { normalizeTaskId } from "./tasks/utils";
+// normalizeTaskId removed
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
-export { normalizeTaskId } from "./tasks/utils"; // Re-export normalizeTaskId from new location
+// normalizeTaskId removed
 export { createConfiguredTaskService } from "./tasks/taskService"; // Re-export createConfiguredTaskService from new location
 import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
 const matter = require("gray-matter");
@@ -243,13 +243,34 @@ export class MarkdownTaskBackend implements TaskBackend {
       const taskDir = join(this.workspacePath, "process", "tasks");
       try {
         const files = await fs.readdir(taskDir);
-        const matchingFile = files.find((f) => f.startsWith(`${taskIdNum}-`));
+
+        // Try multiple search patterns to handle both qualified and unqualified task IDs
+        const searchPatterns = [
+          `${taskIdNum}-`, // Legacy format: "398-"
+          `md#${taskIdNum}-`, // Qualified format: "md#398-"
+          `#${taskIdNum}-`, // Hash format: "#398-" (just in case)
+        ];
+
+        let matchingFile: string | undefined;
+        for (const pattern of searchPatterns) {
+          matchingFile = files.find((f) => f.startsWith(pattern));
+          if (matchingFile) {
+            break;
+          }
+        }
+
         if (matchingFile) {
-          return getTaskSpecRelativePath(
-            taskId,
-            matchingFile.replace(`${taskIdNum}-`, "").replace(".md", ""),
-            this.workspacePath
-          );
+          // Extract the title from the filename by removing the prefix and .md extension
+          let titleFromFile = matchingFile;
+          for (const pattern of searchPatterns) {
+            if (titleFromFile.startsWith(pattern)) {
+              titleFromFile = titleFromFile.substring(pattern.length);
+              break;
+            }
+          }
+          titleFromFile = titleFromFile.replace(".md", "");
+
+          return getTaskSpecRelativePath(taskId, titleFromFile, this.workspacePath);
         }
       } catch (_err) {
         // Directory doesn't exist or can't be read
@@ -811,15 +832,10 @@ export class TaskService {
    * @returns The appropriate task backend for the task, or null if not found
    */
   async getBackendForTask(id: string): Promise<TaskBackend | null> {
-    // Normalize the task ID
-    const normalizedId = normalizeTaskId(id);
-    if (!normalizedId) {
-      return null;
-    }
-
+    // Strict: use ID as-is (qualified expected)
     // Try to find the task in each backend
     for (const backend of this.backends) {
-      const task = await backend.getTask(normalizedId);
+      const task = await backend.getTask(id);
       if (task) {
         return backend;
       }

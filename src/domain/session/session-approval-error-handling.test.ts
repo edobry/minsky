@@ -14,24 +14,24 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
     // Test Case 1: Task with no associated session (like task 3283)
     await expect(
       approveSessionPr({
-        task: "3283", // Task with no session
+        task: "md#3283", // Task with no session
         json: false,
       })
     ).rejects.toThrow(ResourceNotFoundError);
 
     try {
       await approveSessionPr({
-        task: "3283",
+        task: "md#3283",
         json: false,
       });
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
         // Verify error message is clear and indicates missing session
-        expect(error.message).toContain("No session found for task 3283");
+        expect(error.message).toContain("No session found for task md#3283");
 
         // Verify resource type is correct
         expect(error.resourceType).toBe("session");
-        expect(error.resourceId).toBe("3283");
+        expect(error.resourceId).toBe("md#3283");
       } else {
         throw new Error(`Expected ResourceNotFoundError, got ${error?.constructor?.name}`);
       }
@@ -49,7 +49,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
     try {
       await approveSessionPr(
         {
-          task: "100", // Task without session
+          task: "md#100", // Task without session
           json: false,
         },
         {
@@ -59,11 +59,11 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
     } catch (error) {
       if (error instanceof ResourceNotFoundError) {
         // Verify error message indicates missing session for task
-        expect(error.message).toContain("No session found for task 100");
+        expect(error.message).toContain("No session found for task md#100");
 
         // Verify resource type indicates session problem
         expect(error.resourceType).toBe("session");
-        expect(error.resourceId).toBe("100");
+        expect(error.resourceId).toBe("md#100");
       } else {
         throw new Error(`Expected ResourceNotFoundError, got ${error?.constructor?.name}`);
       }
@@ -84,7 +84,7 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
     // Test that error messages are clear and concise for the new approve function
     try {
       await approveSessionPr({
-        task: "9999",
+        task: "md#9999",
         json: false,
       });
     } catch (error) {
@@ -92,14 +92,14 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
         const message = error.message;
 
         // Should indicate no session found for task
-        expect(message).toContain("No session found for task 9999");
+        expect(message).toContain("No session found for task md#9999");
 
         // Should be concise (not overly verbose)
         expect(message.split("\n").length).toBeLessThan(5); // Keep it simple
 
         // Should have correct resource type
         expect((error as ResourceNotFoundError).resourceType).toBe("session");
-        expect((error as ResourceNotFoundError).resourceId).toBe("9999");
+        expect((error as ResourceNotFoundError).resourceId).toBe("md#9999");
       }
     }
   });

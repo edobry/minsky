@@ -288,7 +288,8 @@ export class LocalGitBackend implements RepositoryBackend {
     body: string,
     sourceBranch: string,
     baseBranch: string = "main",
-    session?: string
+    session?: string,
+    draft?: boolean
   ): Promise<PRInfo> {
     let workdir: string;
 
@@ -313,7 +314,89 @@ export class LocalGitBackend implements RepositoryBackend {
       session,
     };
 
-    return await createPreparedMergeCommitPR(options);
+    const prInfo = await createPreparedMergeCommitPR(options);
+
+    // After creating PR, update session record with local commit hash of PR branch
+    if (session) {
+      try {
+        const sessionRecord = await this.sessionDB.getSession(session);
+        if (sessionRecord) {
+          const prBranchName =
+            typeof prInfo.number === "string" ? String(prInfo.number) : `pr/${session}`;
+          const workdirPath = this.getSessionWorkdir(session);
+          const { stdout } = await execAsync(`git -C ${workdirPath} rev-parse ${prBranchName}`);
+          const commitHash = stdout.trim();
+          await this.sessionDB.updateSession(session, {
+            ...sessionRecord,
+            prBranch: prBranchName,
+            prState: {
+              branchName: prBranchName,
+              commitHash,
+              lastChecked: new Date().toISOString(),
+              createdAt: new Date().toISOString(),
+            },
+          });
+        }
+      } catch (err) {
+        log.debug("Local backend: unable to record PR commit hash", {
+          error: getErrorMessage(err as any),
+          session,
+        });
+      }
+    }
+
+    return prInfo;
+  }
+
+  /**
+   * Update an existing pull request (local backend)
+   * For local repositories, we treat the PR as a branch update
+   */
+  async updatePullRequest(options: {
+    prIdentifier?: string | number;
+    title?: string;
+    body?: string;
+    session?: string;
+  }): Promise<PRInfo> {
+    // For local repositories, updating a PR means updating the prepared merge commit
+    // This might involve git operations, so we keep the existing sessionPr workflow
+    // but with update semantics
+
+    if (!options.session) {
+      throw new MinskyError("Session is required for local repository PR updates");
+    }
+
+    const sessionRecord = await this.sessionDB.getSession(options.session);
+    if (!sessionRecord?.prBranch) {
+      throw new MinskyError(`No PR found for session '${options.session}'`);
+    }
+
+    // For local repos, we might need to recreate the prepared merge commit with new metadata
+    // This is more complex and may involve conflicts, so we delegate to the existing workflow
+    const { sessionPr } = await import("../session/commands/pr-command");
+
+    const result = await sessionPr(
+      {
+        sessionName: options.session,
+        title: options.title,
+        body: options.body,
+        // For local backend updates, we still might need conflict checking
+        skipConflictCheck: false,
+        noStatusUpdate: true,
+        autoResolveDeleteConflicts: false,
+      },
+      { interface: "cli" }
+    );
+
+    return {
+      number: sessionRecord.prBranch || "unknown",
+      url: sessionRecord.prBranch || "local",
+      state: "open",
+      metadata: {
+        backend: "local",
+        workdir: this.getSessionWorkdir(options.session),
+      },
+    };
   }
 
   /**

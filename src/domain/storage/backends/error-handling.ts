@@ -170,7 +170,7 @@ export class StorageErrorClassifier {
             type: "REPAIR" as const,
             description: "Initialize session database",
             autoExecutable: true,
-            command: "minsky sessiondb init --backend json",
+            command: "minsky sessiondb init --backend sqlite",
             estimatedTime: "< 1 minute",
           },
         ],

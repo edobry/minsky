@@ -252,6 +252,34 @@ export const sessionPrCommandParams = {
 };
 
 /**
+ * Session migrate-backend command parameters
+ */
+export const sessionMigrateBackendCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview changes without updating the session DB",
+    required: false,
+    defaultValue: false,
+  },
+  to: {
+    schema: z.enum(["github", "local"]).default("github"),
+    description: "Target backend to migrate to (default: github)",
+    required: false,
+    defaultValue: "github",
+  },
+  updateRemote: {
+    schema: z.boolean(),
+    description: "Also update the session workspace git remotes (default: true)",
+    required: false,
+    defaultValue: true,
+  },
+};
+
+/**
  * Session inspect command parameters
  */
 export const sessionInspectCommandParams = {
@@ -301,6 +329,38 @@ export const sessionPrCreateCommandParams = {
     required: false,
     defaultValue: false,
   },
+  draft: {
+    schema: z.boolean(),
+    description: "Create draft PR (GitHub only, skips session update)",
+    required: false,
+    defaultValue: false,
+  },
+};
+
+/**
+ * Session PR Edit Command Parameters
+ * For editing existing PRs - all fields are optional
+ */
+export const sessionPrEditCommandParams = {
+  title: {
+    schema: z.string(),
+    description: "PR title (to update)",
+    required: false,
+  },
+  body: {
+    schema: z.string(),
+    description: "PR body content (to update)",
+    required: false,
+  },
+  bodyPath: {
+    schema: z.string(),
+    description: "Path to file containing PR body (to update)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  debug: commonSessionParams.debug,
 };
 
 /**
@@ -349,4 +409,47 @@ export const sessionPrGetCommandParams = {
     required: false,
     defaultValue: false,
   },
+};
+
+/**
+ * Session repair command parameters
+ * Repairs various session state issues
+ */
+export const sessionRepairCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  debug: commonSessionParams.debug,
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview repairs without applying changes",
+    required: false,
+    defaultValue: false,
+  },
+  auto: {
+    schema: z.boolean(),
+    description: "Automatically apply safe repairs without confirmation",
+    required: false,
+    defaultValue: false,
+  },
+  interactive: {
+    schema: z.boolean(),
+    description: "Interactive repair mode with confirmations",
+    required: false,
+    defaultValue: false,
+  },
+  prState: {
+    schema: z.boolean(),
+    description: "Focus on PR state issues (branch format, stale state)",
+    required: false,
+    defaultValue: false,
+  },
+  backendSync: {
+    schema: z.boolean(),
+    description: "Sync session record with actual repository backend",
+    required: false,
+    defaultValue: false,
+  },
+  force: commonSessionParams.force,
 };

@@ -78,7 +78,6 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
       taskId: "#TEST_VALUE",
-      branch: "test-branch",
     };
 
     await deps.sessionDB.addSession(testSession);
@@ -96,7 +95,7 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
       taskId: "#TEST_VALUE",
-      branch: "test-branch",
+      // branch removed from persistent schema
     };
 
     await deps.sessionDB.addSession(testSession);
@@ -113,14 +112,14 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
       taskId: "#TEST_VALUE",
-      branch: "test-branch",
+      // branch removed from persistent schema
     };
 
     await deps.sessionDB.addSession(testSession);
-    await deps.sessionDB.updateSession("test-session", { branch: "updated-branch" });
+    await deps.sessionDB.updateSession("test-session", { repoName: "updated-repo" } as any);
 
     const retrievedSession = await deps.sessionDB.getSession("test-session");
-    expect(retrievedSession?.branch).toBe("updated-branch");
+    expect(retrievedSession?.repoName).toBe("updated-repo");
   });
 
   it("should delete a session", async () => {
@@ -130,7 +129,6 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "test-url",
       createdAt: new Date().toISOString(),
       taskId: "#TEST_VALUE",
-      branch: "test-branch",
     };
 
     await deps.sessionDB.addSession(testSession);
@@ -153,7 +151,6 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "url-1",
       createdAt: new Date().toISOString(),
       taskId: "#TASK1",
-      branch: "branch-1",
     };
 
     const session2 = {
@@ -162,7 +159,6 @@ describe("SessionAdapter with Dependency Injection", () => {
       repoUrl: "url-2",
       createdAt: new Date().toISOString(),
       taskId: "#TASK2",
-      branch: "branch-2",
     };
 
     await deps.sessionDB.addSession(session1);
@@ -201,7 +197,6 @@ describe("SessionAdapter with Dependency Injection", () => {
         repoUrl: "test-url",
         createdAt: new Date().toISOString(),
         taskId: "#FS_TEST",
-        branch: "test-branch",
       };
 
       // These operations are completely isolated from real filesystem

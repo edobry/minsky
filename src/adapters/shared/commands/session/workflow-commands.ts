@@ -16,6 +16,7 @@ import { sessionCommitCommandParams } from "../session-parameters";
 // Import the new PR subcommand classes
 import {
   SessionPrCreateCommand,
+  SessionPrEditCommand,
   SessionPrListCommand,
   SessionPrGetCommand,
 } from "./pr-subcommand-commands";
@@ -201,7 +202,7 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
 }
 
 // Export the imported PR subcommand classes
-export { SessionPrCreateCommand, SessionPrListCommand, SessionPrGetCommand };
+export { SessionPrCreateCommand, SessionPrEditCommand, SessionPrListCommand, SessionPrGetCommand };
 
 /**
  * Factory functions for creating workflow commands
@@ -224,6 +225,9 @@ export const createSessionPrMergeCommand = (deps?: SessionCommandDependencies) =
 // Factory functions for PR commands
 export const createSessionPrCreateCommand = (deps?: SessionCommandDependencies) =>
   new SessionPrCreateCommand(deps);
+
+export const createSessionPrEditCommand = (deps?: SessionCommandDependencies) =>
+  new SessionPrEditCommand(deps);
 
 export const createSessionPrListCommand = (deps?: SessionCommandDependencies) =>
   new SessionPrListCommand(deps);
