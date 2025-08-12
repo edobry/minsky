@@ -89,6 +89,7 @@ import {
   createSessionPrGetCommand,
   createSessionPrApproveCommand,
   createSessionPrMergeCommand,
+  createSessionPrOpenCommand,
 } from "./workflow-commands";
 
 // Factory for creating all session commands
@@ -121,6 +122,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     createSessionPrEditCommand,
     createSessionPrListCommand,
     createSessionPrGetCommand,
+    createSessionPrOpenCommand,
   } = workflowCommands;
 
   return {
@@ -145,6 +147,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     prEdit: createSessionPrEditCommand(deps),
     prList: createSessionPrListCommand(deps),
     prGet: createSessionPrGetCommand(deps),
+    prOpen: createSessionPrOpenCommand(deps),
     prApprove: createSessionPrApproveCommand(deps),
     prMerge: createSessionPrMergeCommand(deps),
 
@@ -180,6 +183,7 @@ export async function setupSessionCommandRegistry(
   registry.register("session.pr.edit", commands.prEdit);
   registry.register("session.pr.list", commands.prList);
   registry.register("session.pr.get", commands.prGet);
+  registry.register("session.pr.open", commands.prOpen);
   registry.register("session.pr.approve", commands.prApprove);
   registry.register("session.pr.merge", commands.prMerge);
 
