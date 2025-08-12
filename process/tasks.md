@@ -626,7 +626,7 @@
 
 - [ ] Final test of the complete fix [#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
 
-- [+] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
+- [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
 
 - [ ] Implement --set-default to write config and back it up; update/remove tests referencing session.branch [#405](process/tasks/md#405-implement-set-default-to-write-config-and-back-it-up-update-remove-tests-referencing-session-branch.md)
 
