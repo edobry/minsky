@@ -338,6 +338,8 @@ export async function updateSessionImpl(
 
 /**
  * Helper function to check if a PR branch exists for a session
+ * Note: This function assumes pr/ format for legacy compatibility
+ * For backend-aware checks, use checkPrBranchExistsOptimized
  */
 export async function checkPrBranchExists(
   sessionName: string,
@@ -397,7 +399,7 @@ export async function checkPrBranchExistsOptimized(
 ): Promise<boolean> {
   const sessionRecord = await sessionDB.getSession(sessionName);
 
-  // If no session record, fall back to git operations
+  // If no session record, fall back to git operations (legacy pr/ format)
   if (!sessionRecord) {
     log.debug("No session record found, falling back to git operations", { sessionName });
     return checkPrBranchExists(sessionName, gitService, currentDir);
@@ -426,20 +428,30 @@ export async function checkPrBranchExistsOptimized(
   let commitHash = sessionRecord.prState?.commitHash;
   if (exists) {
     try {
+      // Use backend-aware branch name for commit hash lookup
+      const branchName = sessionRecord.backendType === "github" 
+        ? sessionName 
+        : `pr/${sessionName}`;
+      
       const hashResult = await gitService.execInRepository(
         currentDir,
-        `git rev-parse pr/${sessionName}`
+        `git rev-parse ${branchName}`
       );
       commitHash = hashResult.trim();
     } catch (error) {
-      log.debug(`Could not get commit hash for pr/${sessionName}`, { error });
+      const branchName = sessionRecord.backendType === "github" 
+        ? sessionName 
+        : `pr/${sessionName}`;
+      log.debug(`Could not get commit hash for ${branchName}`, { error });
     }
   } else {
     commitHash = undefined;
   }
 
   // Update the session record with fresh PR state
-  const prBranch = `pr/${sessionName}`;
+  const prBranch = sessionRecord.backendType === "github" 
+    ? sessionName 
+    : `pr/${sessionName}`;
   const updatedPrState = {
     branchName: prBranch,
     commitHash,
@@ -466,7 +478,18 @@ export async function updatePrStateOnCreation(
   sessionName: string,
   sessionDB: SessionProviderInterface
 ): Promise<void> {
-  const prBranch = `pr/${sessionName}`;
+  // Get session record to determine backend type
+  const sessionRecord = await sessionDB.getSession(sessionName);
+  if (!sessionRecord) {
+    log.warn(`Cannot update PR state: session '${sessionName}' not found`);
+    return;
+  }
+
+  // Determine correct branch name based on backend type
+  const prBranch = sessionRecord.backendType === "github" 
+    ? sessionName 
+    : `pr/${sessionName}`;
+  
   const now = new Date().toISOString();
 
   const prState = {
@@ -485,6 +508,7 @@ export async function updatePrStateOnCreation(
   log.debug("Updated PR state on creation", {
     sessionName,
     prBranch,
+    backendType: sessionRecord.backendType,
     createdAt: now,
   });
 }
