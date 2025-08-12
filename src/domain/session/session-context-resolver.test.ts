@@ -51,7 +51,7 @@ describe("resolveSessionContext", () => {
         sessionName: "test-session",
         taskId: "123",
         resolvedBy: "explicit-session",
-        workingDirectory: process.cwd(),
+        workingDirectory: "/mock/projects/minsky",
       });
     });
 
@@ -78,7 +78,7 @@ describe("resolveSessionContext", () => {
         sessionName: "task#456",
         taskId: "456",
         resolvedBy: "explicit-task",
-        workingDirectory: process.cwd(),
+        workingDirectory: "/mock/projects/minsky",
       });
     });
 

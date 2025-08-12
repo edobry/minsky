@@ -32,23 +32,20 @@ describe("Session PR bodyPath file reading functionality", () => {
   });
 
   test("should read body content from bodyPath when provided", async () => {
-    // Test the file reading logic directly
-    const { readFile } = await import("fs/promises");
-    const content = await readFile(testFilePath, "utf8");
+    // Test the file reading logic directly using mock filesystem
+    const content = mockFs.readFileSync(testFilePath, "utf8");
 
     expect(content).toBe(testContent);
   });
 
   test("should handle non-existent file path", async () => {
-    const { readFile } = await import("fs/promises");
     const nonExistentPath = join(testDir, "non-existent.txt");
 
-    await expect(readFile(nonExistentPath, "utf8")).rejects.toThrow();
+    expect(() => mockFs.readFileSync(nonExistentPath, "utf8")).toThrow();
   });
 
   test("should handle file reading with different encodings", async () => {
-    const { readFile } = await import("fs/promises");
-    const binaryContent = await readFile(testFilePath, "utf8");
+    const binaryContent = mockFs.readFileSync(testFilePath, "utf8");
 
     expect(typeof binaryContent).toBe("string");
     expect(binaryContent).toBe(testContent);
