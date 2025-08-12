@@ -410,3 +410,46 @@ export const sessionPrGetCommandParams = {
     defaultValue: false,
   },
 };
+
+/**
+ * Session repair command parameters
+ * Repairs various session state issues
+ */
+export const sessionRepairCommandParams = {
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  debug: commonSessionParams.debug,
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview repairs without applying changes",
+    required: false,
+    defaultValue: false,
+  },
+  auto: {
+    schema: z.boolean(),
+    description: "Automatically apply safe repairs without confirmation",
+    required: false,
+    defaultValue: false,
+  },
+  interactive: {
+    schema: z.boolean(),
+    description: "Interactive repair mode with confirmations",
+    required: false,
+    defaultValue: false,
+  },
+  prState: {
+    schema: z.boolean(),
+    description: "Focus on PR state issues (branch format, stale state)",
+    required: false,
+    defaultValue: false,
+  },
+  backendSync: {
+    schema: z.boolean(),
+    description: "Sync session record with actual repository backend",
+    required: false,
+    defaultValue: false,
+  },
+  force: commonSessionParams.force,
+};
