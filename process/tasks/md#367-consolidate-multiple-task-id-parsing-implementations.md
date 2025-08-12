@@ -45,6 +45,7 @@ Consolidate all parsing into single unified implementation that supports:
 ## Implementation Plan
 
 1. ~~Migration command enhancements (default-on spec rename)~~ ✅
+
    - ~~Extend `tasks migrate` to:~~
      - ~~Rename numeric spec files `^\d+-.*\.md$` → `md#<id>-...` (backup and dry-run first)~~ ✅
      - ~~Update references in `process/tasks.md` accordingly~~ ✅
@@ -52,12 +53,14 @@ Consolidate all parsing into single unified implementation that supports:
      - ~~Log mapping file for rollback~~ ✅
 
 2. ~~Strict mode toggle (temporary)~~ ✅
+
    - ~~Add config flag `tasks.strictIds` (default false) using configuration system~~ ✅
    - ~~When true: `taskIdSchema` accepts ONLY `^[a-z-]+#\d+$`~~ ✅
    - ~~When false: keep current normalization (legacy accepted → normalized to md#)~~ ✅
    - ~~We will remove this toggle after full migration~~ ✅
 
 3. **Parsing consolidation** ✅ **COMPLETED**
+
    - Ensure `taskFunctions.ts` and `taskConstants.ts` keep IDs qualified
    - Remove/avoid any normalization that strips backend prefixes
    - **Identify and consolidate the 3+ parsing implementations into single authority**
@@ -69,6 +72,7 @@ Consolidate all parsing into single unified implementation that supports:
 ## Status Update
 
 ✅ MIGRATION COMPLETED
+
 - Applied spec file renames with backup (numeric → `md#<id>-...`)
 - Updated all links in `process/tasks.md` to qualified paths and `[md#id]` texts
 - Verified end-to-end:
@@ -77,6 +81,7 @@ Consolidate all parsing into single unified implementation that supports:
   - `tasks spec md#367` reads the correct spec file
 
 ✅ CLEANUP COMPLETED (STRICT-ONLY, NO TOGGLES)
+
 - Removed permissive mode and the `tasks.strictIds` toggle; deleted `strict-mode-checker`
 - Unified on `src/domain/tasks/task-id.ts`; removed legacy `unified-task-id.ts`
 - Zod schemas strict-only (`taskIdSchema`, CLI `TaskParameters.taskId*`)
@@ -95,9 +100,11 @@ Consolidate all parsing into single unified implementation that supports:
   - Removed legacy expectations and `ForStorage` alias; updated spies/mocks
 
 📌 Naming and module cleanup
+
 - Renamed module to `task-id` (no "unified"/"qualified" prefixes per boundary protocol)
 - Removed dead code and temporary compatibility layers
 
 📗 Documentation
+
 - Converted remaining `[#id]` link texts to `[md#id]` in `process/tasks.md`
 - This spec reflects strict-only policy: input == storage == display (qualified only)

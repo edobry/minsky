@@ -9,16 +9,19 @@ The TaskBackend enum was introduced and partially implemented to replace string 
 **Remaining High-Value Opportunities**
 
 ### TaskService Creation Logic (Medium Priority)
+
 **File**: `src/domain/tasks/taskService.ts` (lines 608-636)
 **Current Code**:
+
 ```typescript
 const effectiveBackend = backend || "markdown"; // Default to markdown
 if (effectiveBackend === "github-issues") {
   // ...
 } else {
-  taskBackend = effectiveBackend === "markdown"
-    ? createMarkdownTaskBackend({ name: "markdown", workspacePath })
-    : createJsonFileTaskBackend({ name: "json-file", workspacePath });
+  taskBackend =
+    effectiveBackend === "markdown"
+      ? createMarkdownTaskBackend({ name: "markdown", workspacePath })
+      : createJsonFileTaskBackend({ name: "json-file", workspacePath });
 }
 ```
 
@@ -26,13 +29,19 @@ if (effectiveBackend === "github-issues") {
 **Risk**: Medium - would require updating function signatures and callers
 
 ### Init Command Backend Mapping (Medium Priority)
+
 **File**: `src/adapters/shared/commands/init.ts` (lines 287-293, 307)
 **Current Code**:
+
 ```typescript
-const domainBackend = backend === "markdown" ? "tasks.md"
-  : backend === "json-file" ? "tasks.md"
-  : backend === "github-issues" ? "tasks.md"
-  : "tasks.md";
+const domainBackend =
+  backend === "markdown"
+    ? "tasks.md"
+    : backend === "json-file"
+      ? "tasks.md"
+      : backend === "github-issues"
+        ? "tasks.md"
+        : "tasks.md";
 
 if (backend === "github-issues") {
   log.debug("GitHub Issues backend selected", { githubOwner, githubRepo });
@@ -42,16 +51,19 @@ if (backend === "github-issues") {
 **Improvement**: Use enum values for consistency
 
 ### CLI Display Functions (Low Priority)
+
 **Files**: `src/adapters/cli/cli-command-factory.ts`, other CLI utilities
 **Current Code**: Various switch statements with string literals for backend display
 
 **Already Completed ✅**
+
 - Backend Detection Service (enum return type)
 - Config validation arrays (`Object.values(TaskBackend)`)
 - Display function switch statements (enum values)
 - Backend validation functions (enum comparisons)
 
 **Not Worth Effort ❌**
+
 - Configuration schema definitions (already using Zod enums)
 - TypeScript interface object keys (work fine with string literals)
 - External API boundaries (need string serialization)
@@ -66,6 +78,7 @@ if (backend === "github-issues") {
 6. No breaking changes to public APIs
 
 **Benefits**
+
 - Complete type safety for backend identifiers
 - Single source of truth for all backend references
 - Easier refactoring when adding/removing backends

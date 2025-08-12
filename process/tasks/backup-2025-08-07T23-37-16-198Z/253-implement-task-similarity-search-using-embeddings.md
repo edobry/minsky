@@ -136,6 +136,7 @@ Using OpenAI embeddings via existing AI completion infrastructure:
 ### Database Validation (on connect when embeddings are enabled)
 
 On startup/connection, when embedding infrastructure is enabled in configuration:
+
 - Verify PostgreSQL connectivity via configured `sessiondb.postgres.connectionString`
 - Validate `pgvector` extension availability/version
 - Ensure embeddings table exists with correct `vector(<dimension>)`
@@ -291,27 +292,26 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 2. **PostgreSQL + pgvector Storage:**
 
 <<<<<<< HEAD:process/tasks/backup-2025-08-07T23-37-16-198Z/253-implement-task-similarity-search-using-embeddings.md
-   **Direct SQLite + sqlite-vec Integration**
+**Direct SQLite + sqlite-vec Integration**
 
-   - **sqlite-vec extension** (6k+ stars) - Modern, no-dependency vector search for SQLite
-   - Written in pure C, runs everywhere SQLite runs (Node.js, WASM, mobile, etc.)
-   - Supports float32, int8, and binary vectors with multiple distance metrics
-   - Native SQL syntax for vector operations and KNN search
-   - Much better than JavaScript implementations or external dependencies
+- **sqlite-vec extension** (6k+ stars) - Modern, no-dependency vector search for SQLite
+- Written in pure C, runs everywhere SQLite runs (Node.js, WASM, mobile, etc.)
+- Supports float32, int8, and binary vectors with multiple distance metrics
+- Native SQL syntax for vector operations and KNN search
+- Much better than JavaScript implementations or external dependencies
 
-   **Implementation Strategy:**
+**Implementation Strategy:**
 
-   - Use sqlite-vec directly with our existing SQLite database
-   - Leverage native vector columns and KNN search via virtual tables
-   - Seamless integration with existing Minsky task storage
-=======
-   **Primary Vector Storage**
-   - Use PostgreSQL with `pgvector` for production-grade vector search
-   - Store embeddings in a dedicated table with `vector(<dimension>)` column and metadata
-   - Implement ANN index (IVFFlat or HNSW) and tune lists/ef parameters as needed
-   - Provide SQL helpers for KNN queries: `ORDER BY embedding <-> $1 LIMIT k`
-   - Add migration to create/alter table, index, and constraints
->>>>>>> origin/main:process/tasks/253-implement-task-similarity-search-using-embeddings.md
+- Use sqlite-vec directly with our existing SQLite database
+- Leverage native vector columns and KNN search via virtual tables
+- # Seamless integration with existing Minsky task storage
+  **Primary Vector Storage**
+- Use PostgreSQL with `pgvector` for production-grade vector search
+- Store embeddings in a dedicated table with `vector(<dimension>)` column and metadata
+- Implement ANN index (IVFFlat or HNSW) and tune lists/ef parameters as needed
+- Provide SQL helpers for KNN queries: `ORDER BY embedding <-> $1 LIMIT k`
+- Add migration to create/alter table, index, and constraints
+  > > > > > > > origin/main:process/tasks/253-implement-task-similarity-search-using-embeddings.md
 
 3. **Basic Commands:**
    - `minsky tasks similar <task-id>`
