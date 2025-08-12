@@ -5,17 +5,20 @@
  * while preserving existing detection logic and capabilities.
  */
 
-import { get } from "./index";
 import { existsSync } from "fs";
 import { join } from "path";
 
-export interface DetectionRule {
-  condition: "json_file_exists" | "tasks_md_exists" | "always";
-  backend: string;
+/**
+ * Task backend types supported by Minsky
+ */
+export enum TaskBackend {
+  MARKDOWN = "markdown",
+  JSON_FILE = "json-file",
+  GITHUB_ISSUES = "github-issues",
 }
 
 export interface BackendDetectionService {
-  detectBackend(workingDir: string): Promise<string>;
+  detectBackend(workingDir: string): Promise<TaskBackend>;
   tasksMdExists(workingDir: string): Promise<boolean>;
   jsonFileExists(workingDir: string): Promise<boolean>;
   githubRemoteExists(workingDir: string): Promise<boolean>;
@@ -23,37 +26,22 @@ export interface BackendDetectionService {
 
 export class DefaultBackendDetectionService implements BackendDetectionService {
   /**
-   * Detect the most appropriate backend based on detection rules from configuration
+   * Detect the most appropriate backend based on project structure
+   * Uses hardcoded detection logic - this is core application behavior, not user configuration
    */
-  async detectBackend(workingDir: string): Promise<string> {
-    // Get detection rules from configuration
-    const rules: DetectionRule[] = get("detectionRules");
-
-    for (const rule of rules) {
-      const matches = await this.checkCondition(workingDir, rule.condition);
-      if (matches) {
-        return rule.backend;
-      }
+  async detectBackend(workingDir: string): Promise<TaskBackend> {
+    // Check for markdown task backend (process/tasks.md exists)
+    if (await this.tasksMdExists(workingDir)) {
+      return TaskBackend.MARKDOWN;
     }
 
-    // Default fallback (should not reach here with proper rules)
-    return "json-file";
-  }
-
-  /**
-   * Check if a detection condition is met
-   */
-  private async checkCondition(workingDir: string, condition: string): Promise<boolean> {
-    switch (condition) {
-      case "tasks_md_exists":
-        return this.tasksMdExists(workingDir);
-      case "json_file_exists":
-        return this.jsonFileExists(workingDir);
-      case "always":
-        return true;
-      default:
-        return false;
+    // Check for JSON file task backend (.minsky/tasks.json exists)
+    if (await this.jsonFileExists(workingDir)) {
+      return TaskBackend.JSON_FILE;
     }
+
+    // Default fallback - prefer markdown for new projects
+    return TaskBackend.MARKDOWN;
   }
 
   /**

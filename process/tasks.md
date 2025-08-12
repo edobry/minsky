@@ -672,6 +672,14 @@
 
 - [ ] Final test of the complete fix [#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
 
+- [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
+
+- [-] Add configuration management subcommands [#404](process/tasks/md#404-add-configuration-management-subcommands.md)
+
+- [ ] Implement --set-default to write config and back it up; update/remove tests referencing session.branch [#405](process/tasks/md#405-implement-set-default-to-write-config-and-back-it-up-update-remove-tests-referencing-session-branch.md)
+
+- [ ] Complete TaskBackend enum refactoring across codebase [#406](process/tasks/md#406-complete-taskbackend-enum-refactoring-across-codebase.md)
+
 - [ ] Extract Shared Database Service for Sessions, Tasks, and Embeddings [#407](process/tasks/md#407-extract-shared-db-service-for-sessions-and-tasks.md)
 
 - [ ] Implement GitHub repository quality guardrails configuration [#408](process/tasks/md#408-implement-github-repository-quality-guardrails-configuration.md)

@@ -36,7 +36,19 @@ export function validateSessionApprovedForMerge(
   sessionRecord: SessionRecord,
   sessionName: string
 ): void {
-  // Check 1: PR branch must exist
+  // For GitHub backend, presence of a recorded PR is sufficient for further checks
+  if ((sessionRecord as any).backendType === "github") {
+    if (!(sessionRecord as any).pullRequest) {
+      throw new ValidationError(
+        `❌ MERGE REJECTED: Session "${sessionName}" has no GitHub pull request.\n` +
+          `   Create or repair the PR first with 'minsky session pr create' or 'minsky session pr get'`
+      );
+    }
+    // Approval and mergeability are delegated to the GitHub backend in mergeSessionPr()
+    return;
+  }
+
+  // Local/remote backends require a PR branch and explicit approval flag
   if (!sessionRecord.prBranch) {
     throw new ValidationError(
       `❌ MERGE REJECTED: Session "${sessionName}" has no PR branch.\n` +
@@ -44,24 +56,13 @@ export function validateSessionApprovedForMerge(
     );
   }
 
-  // Check 2: PR must be explicitly approved
-  if (!sessionRecord.prApproved) {
+  if (sessionRecord.prApproved !== true) {
     throw new ValidationError(
       `❌ Session "${sessionName}" PR must be approved before merging.\n\n` +
         `💡 Next steps:\n` +
         `   1. Review your changes: minsky session pr get --task ${sessionName.replace("task-", "")}\n` +
         `   2. Approve the PR: minsky session pr approve --task ${sessionName.replace("task-", "")}\n` +
         `   3. Then try merge again: minsky session pr merge --task ${sessionName.replace("task-", "")}`
-    );
-  }
-
-  // Check 3: Explicit boolean check (not just truthy)
-  if (sessionRecord.prApproved !== true) {
-    throw new ValidationError(
-      `❌ MERGE REJECTED: Invalid approval state for session "${sessionName}".\n` +
-        `   prApproved value: ${sessionRecord.prApproved} (type: ${typeof sessionRecord.prApproved})\n` +
-        `   Expected: true (boolean)\n` +
-        `   The approval state must be explicitly set to true.`
     );
   }
 
@@ -201,14 +202,23 @@ export async function mergeSessionPr(
   }
 
   // Merge the approved PR using repository backend
-  if (!params.json) {
-    log.cli(`🔀 Merging approved PR for branch: ${sessionRecord.prBranch}`);
+  // Determine PR identifier based on backend
+  let prIdentifier: string | number | undefined = sessionRecord.prBranch;
+  if ((sessionRecord as any).backendType === "github" && (sessionRecord as any).pullRequest) {
+    prIdentifier = (sessionRecord as any).pullRequest.number as number;
   }
 
-  const mergeInfo = await repositoryBackend.mergePullRequest(
-    sessionRecord.prBranch,
-    sessionNameToUse
-  );
+  if (!params.json) {
+    const displayId = typeof prIdentifier === "number" ? `#${prIdentifier}` : String(prIdentifier);
+    log.cli(`🔀 Merging ${displayId}`);
+  }
+
+  if (prIdentifier === undefined) {
+    throw new ValidationError("No PR identifier available for merge");
+  }
+
+  const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
+
 
   if (!params.json) {
     log.cli("✅ Session PR merged successfully!");

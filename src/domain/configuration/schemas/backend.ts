@@ -7,6 +7,7 @@
 
 import { z } from "zod";
 import { baseSchemas, enumSchemas } from "./base";
+import { TaskBackend } from "../backend-detection";
 
 /**
  * Main backend configuration - which backend to use for tasks
@@ -98,7 +99,7 @@ export const backendValidation = {
    * Validate that a backend name is supported
    */
   isValidBackend: (backend: string): backend is Backend => {
-    return ["markdown", "json-file", "github-issues"].includes(backend);
+    return Object.values(TaskBackend).includes(backend as TaskBackend);
   },
 
   /**
@@ -114,7 +115,7 @@ export const backendValidation = {
    * Validate that GitHub Issues backend has required configuration
    */
   hasGitHubIssuesConfig: (backendConfig: BackendConfig, backend: Backend): boolean => {
-    if (backend !== "github-issues") return true;
+    if (backend !== TaskBackend.GITHUB_ISSUES) return true;
     return !!(backendConfig["github-issues"]?.owner && backendConfig["github-issues"]?.repo);
   },
 } as const;
