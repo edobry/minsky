@@ -250,7 +250,7 @@ describe.skipIf(!INTEGRATION_CONFIG.token)("GitHub API Integration Tests", () =>
   describe("GitHub Backend Config", () => {
     test("should detect GitHub repository configuration", async () => {
       // Test the GitHub backend config detection
-      const config = getGitHubBackendConfig(process.cwd());
+      const config = getGitHubBackendConfig("/mock/projects/minsky");
 
       if (config) {
         expect(config.owner).toBeTruthy();

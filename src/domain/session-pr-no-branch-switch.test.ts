@@ -1,8 +1,15 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { preparePrFromParams } from "./git";
 import { createMock } from "../utils/test-utils/mocking";
+import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 
 describe("Session PR Command Branch Behavior", () => {
+  beforeEach(async () => {
+    // Initialize configuration to prevent "Configuration not initialized" errors
+    const factory = new CustomConfigFactory();
+    await initializeConfiguration(factory);
+  });
+
   test("should never switch user to PR branch during session pr creation", async () => {
     const gitCommands: string[] = [];
     const sessionBranch = "task#228";

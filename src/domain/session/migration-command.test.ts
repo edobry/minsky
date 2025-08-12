@@ -80,16 +80,16 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
     }),
     updateSession: mock(
       async (sessionName: string, updates: Partial<Omit<SessionRecord, "session">>) => {
-        const index = sessions.findIndex((s) => s.session === sessionName);
-        if (index !== -1) {
-          sessions[index] = { ...sessions[index], ...updates };
+        const sessionIndex = sessions.findIndex((s) => s.session === sessionName);
+        if (sessionIndex !== -1) {
+          sessions[sessionIndex] = { ...sessions[sessionIndex], ...updates };
         }
       }
     ),
     deleteSession: mock(async (sessionName: string) => {
-      const index = sessions.findIndex((s) => s.session === sessionName);
-      if (index !== -1) {
-        sessions.splice(index, 1);
+      const sessionIndex = sessions.findIndex((s) => s.session === sessionName);
+      if (sessionIndex !== -1) {
+        sessions.splice(sessionIndex, 1);
         return true;
       }
       return false;

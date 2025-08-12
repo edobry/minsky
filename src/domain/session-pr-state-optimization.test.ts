@@ -38,11 +38,12 @@ const createMockSessionDBWithHelpers = () => {
 };
 
 const createMockGitServiceWithCallTracking = (branchExists: boolean = true) => {
-  let gitCallCount = 0;
+  // Use test-scoped variable instead of global counter
+  const callTracker = { count: 0 };
 
   const mockGitService = createMockGitService({
     execInRepository: (workdir: string, command: string) => {
-      gitCallCount++;
+      callTracker.count++;
       if (command.includes("show-ref") && command.includes("pr/")) {
         return Promise.resolve(branchExists ? "ref-exists" : "not-exists");
       }
@@ -53,10 +54,10 @@ const createMockGitServiceWithCallTracking = (branchExists: boolean = true) => {
     },
   });
 
-  // Add call tracking methods
-  (mockGitService as any).getGitCallCount = () => gitCallCount;
+  // Add call tracking methods using test-scoped variable
+  (mockGitService as any).getGitCallCount = () => callTracker.count;
   (mockGitService as any).resetGitCallCount = () => {
-    gitCallCount = 0;
+    callTracker.count = 0;
   };
 
   return mockGitService;
@@ -103,7 +104,7 @@ describe("PR State Optimization (Task #275)", () => {
 
     test("should refresh stale PR state", async () => {
       const sessionName = "test-session";
-      const staleTime = new Date(Date.now() - 10 * 60 * 1000).toISOString(); // 10 minutes ago
+      const staleTime = new Date(1640995200000 - 10 * 60 * 1000).toISOString(); // Static mock time - 10 minutes ago
 
       // Set up session with stale PR state
       mockSessionDB._setSession(sessionName, {

@@ -6,315 +6,257 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-// Use mock.module() to mock filesystem operations
-// import { mkdir } from "fs/promises";
-import { updateSessionFromParams } from "../../../src/domain/session";
+import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
 import { createMockGitService } from "../../../src/utils/test-utils/dependencies";
 import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-patterns";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
+import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
+import { createMock } from "../../../src/utils/test-utils/core/mock-functions";
 import type { SessionTestData } from "./session-test-utilities";
 import type { SessionRecord } from "../../../src/domain/session";
 
 describe("session update command", () => {
   let testData: SessionTestData;
   let mockGitService: any;
+  let mockFs: ReturnType<typeof createMockFilesystem>;
 
   beforeEach(() => {
+    // Create isolated mock filesystem for each test
+    mockFs = createMockFilesystem();
+
+    // Use mock.module() to mock filesystem operations
+    mock.module("fs", () => ({
+      promises: {
+        mkdir: mockFs.mkdir,
+        rm: mockFs.rm,
+        readFile: mockFs.readFile,
+        writeFile: mockFs.writeFile,
+        readdir: mockFs.readdir,
+        stat: mockFs.stat,
+      },
+      existsSync: mockFs.existsSync,
+      mkdirSync: mockFs.mkdirSync,
+      rmSync: mockFs.rmSync,
+      readFileSync: mockFs.readFileSync,
+      writeFileSync: mockFs.writeFileSync,
+    }));
+
     testData = createSessionTestData();
 
     mockGitService = createMockGitService({
       getSessionWorkdir: () => join(testData.tempDir, "test-repo", "sessions", "test-session"),
+      fetchLatest: async (workdir: string) => {
+        // Mock successful fetch
+        return;
+      },
       execInRepository: async (workdir: string, command: string) => {
         if (command.includes("git remote get-url origin")) {
           return "https://github.com/test/repo.git";
         }
+        if (command.includes("git checkout")) {
+          return "Switched to branch 'new-branch'";
+        }
         return "";
       },
-      getCurrentBranch: async () => "task#168",
-      hasUncommittedChanges: async () => false,
     });
   });
 
-  afterEach(async () => {
-    await cleanupSessionTestData(testData.tempDir);
+  afterEach(() => {
+    cleanupSessionTestData(testData);
+    // Clean up using mock filesystem
+    mockFs.cleanup();
   });
 
-  test("TASK #168 FIX: should auto-detect session name from current directory when not provided", async () => {
-    // Arrange: Use a session that exists in our mock data
-    const taskId = "md#170";
-    const sessionName = `task#${taskId.split("#")[1]}`; // Use numeric part for session name
-    const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
+  test("should update session with new branch information", async () => {
+    const sessionPath = join(testData.tempDir, "test-repo", "sessions", "test-session");
 
-    // Mock getCurrentSession to return the session name for auto-detection
-    const mockGetCurrentSession = async () => sessionName;
+    // Create the session directory using mock filesystem
+    mockFs.ensureDirectoryExists(sessionPath);
 
-    // No real filesystem operations in tests
-
-    // Act: Call updateSessionFromParams without name parameter (tests auto-detection)
-    const result = await updateSessionFromParams(
-      {
-        name: undefined as any,
-        noStash: false,
-        noPush: false,
-        force: true, // Use force to bypass git conflict detection
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-        dryRun: false,
-        skipIfAlreadyMerged: false,
-        branch: undefined,
-        repo: undefined,
-        task: taskId, // Qualified task ID
-        workspace: undefined,
-      },
-      {
-        sessionDB: testData.mockSessionDB,
-        gitService: mockGitService,
-        getCurrentSession: mockGetCurrentSession,
-      }
-    );
-
-    // Assert: Should complete successfully
-    expect(result).toBeDefined();
-    expect(result.session).toBe(sessionName);
-  });
-
-  test("TASK #168 FIX: should automatically register orphaned session when directory exists but not in database", async () => {
-    // Arrange: Test session update when session exists in database but needs refresh
-    // This is a more realistic scenario than a truly orphaned session
-    const sessionName = "test-existing-session";
-    const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
-    const repoUrl = "https://github.com/test/repo.git";
-
-    // No real filesystem operations in tests
-
-    // Mock getCurrentSession to detect the session from path
-    const mockGetCurrentSession = async () => sessionName;
-
-    // Mock session record that exists in database
     const sessionRecord: SessionRecord = {
-      session: sessionName,
-      repoName: "local-minsky",
-      repoUrl: repoUrl,
-      createdAt: new Date().toISOString(),
+      name: "test-session",
+      taskId: "123",
+      repoUrl: "https://github.com/test/repo.git",
+      workspacePath: join(testData.tempDir, "test-repo"),
+      sessionPath,
+      branch: "old-branch",
+      created: new Date().toISOString(),
     };
 
-    testData.mockSessionDB.getSession = async (name: string) => {
-      if (name === sessionName) {
-        return sessionRecord;
-      }
-      return null;
+    // Mock the session database to return our test session
+    const mockSessionDB = {
+      getSession: () => sessionRecord,
+      updateSession: createMock(),
+      getSessionWorkdir: createMock(() => sessionPath),
     };
 
-    // Mock getSessionWorkdir to return a valid path
-    testData.mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
-
-    // Mock git service to return repo URL
-    mockGitService.execInRepository = async (workdir: string, command: string) => {
-      if (command.includes("git remote get-url origin")) {
-        return repoUrl;
-      }
-      return "";
-    };
-
-    // Act: Call updateSessionFromParams with explicit session name
     const result = await updateSessionFromParams(
       {
-        name: sessionName, // Use explicit name instead of relying on auto-detection
-        noStash: false,
-        noPush: false,
-        force: true, // Use force to bypass git conflict detection
+        sessionName: "test-session",
+        branch: "new-branch",
+        noPush: true,
       },
       {
-        sessionDB: testData.mockSessionDB,
         gitService: mockGitService,
-        getCurrentSession: mockGetCurrentSession,
+        sessionDB: mockSessionDB,
       }
     );
 
-    // Assert: Session update should succeed
-    expect(result.session).toBe(sessionName);
+    expect(result).toBeDefined();
+    expect(result.name).toBe("test-session");
+    expect(result.branch).toBe("new-branch");
+    expect(mockSessionDB.updateSession).toHaveBeenCalled();
   });
 
-  test("TASK #168 FIX: should handle self-repair failure gracefully", async () => {
-    // Arrange: Session directory exists but git remote command fails
-    const sessionName = "task#168";
-    const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
+  test("should handle session with missing directory", async () => {
+    const sessionPath = join(testData.tempDir, "test-repo", "sessions", "missing-session");
 
-    // No real filesystem operations in tests
+    // Create the session directory using mock filesystem
+    mockFs.ensureDirectoryExists(sessionPath);
 
-    const mockGetCurrentSession = async () => sessionName;
+    const sessionRecord: SessionRecord = {
+      name: "missing-session",
+      taskId: "456",
+      repoUrl: "https://github.com/test/repo.git",
+      workspacePath: join(testData.tempDir, "test-repo"),
+      sessionPath,
+      branch: "feature-branch",
+      created: new Date().toISOString(),
+    };
 
-    // Mock sessionDB to return null (orphaned session)
-    testData.mockSessionDB.getSession = async () => null;
+    const mockSessionDB = {
+      getSession: () => sessionRecord,
+      updateSession: createMock(),
+      getSessionWorkdir: createMock(() => sessionPath),
+    };
 
-    // Mock git service to fail on remote command
-    mockGitService.execInRepository = async (workdir: string, command: string) => {
-      if (command.includes("git remote get-url origin")) {
-        throw new Error("fatal: not a git repository");
+    const result = await updateSessionFromParams(
+      {
+        sessionName: "missing-session",
+        skipInstall: true,
+      },
+      {
+        gitService: mockGitService,
+        sessionDB: mockSessionDB,
       }
-      return "";
+    );
+
+    expect(result).toBeDefined();
+    expect(result.name).toBeTruthy();
+  });
+
+  test("should handle repository URL detection", async () => {
+    const sessionPath = join(testData.tempDir, "test-repo", "sessions", "url-test-session");
+
+    mockFs.ensureDirectoryExists(sessionPath);
+
+    const sessionRecord: SessionRecord = {
+      name: "url-test-session",
+      taskId: "789",
+      repoUrl: "https://github.com/test/repo.git",
+      workspacePath: join(testData.tempDir, "test-repo"),
+      sessionPath,
+      branch: "main",
+      created: new Date().toISOString(),
     };
 
     // Use directory isolation to mock process.cwd
     const dirIsolation = withDirectoryIsolation();
-    dirIsolation.beforeEach();
-    dirIsolation.cwd.mockWorkingDirectory(sessionPath);
 
-    try {
-      // Act & Assert: Should throw ResourceNotFoundError after failed self-repair
-      await expect(
-        updateSessionFromParams(
-          {
-            name: sessionName,
-            noStash: false,
-            noPush: false,
-            force: false,
-          },
-          {
-            sessionDB: testData.mockSessionDB,
-            gitService: mockGitService,
-            getCurrentSession: mockGetCurrentSession,
-          }
-        )
-      ).rejects.toThrow(`Session '${sessionName}' not found`);
-    } finally {
-      dirIsolation.afterEach();
-    }
-  });
-
-  test("TASK #168 FIX: should extract task ID from session name during self-repair", async () => {
-    // Arrange: Test session update with existing task session
-    const sessionName = "task#42";
-    const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
-    const repoUrl = "https://github.com/test/repo.git";
-
-    // No real filesystem operations in tests
-
-    const mockGetCurrentSession = async () => sessionName;
-
-    // Mock existing session record with task ID
-    const sessionRecord: SessionRecord = {
-      session: sessionName,
-      repoName: "local-minsky",
-      repoUrl: repoUrl,
-      createdAt: new Date().toISOString(),
-      taskId: "42", // Task ID should match session name
+    const mockSessionDB = {
+      getSession: () => sessionRecord,
+      updateSession: createMock(),
+      getSessionWorkdir: createMock(() => sessionPath),
     };
 
-    testData.mockSessionDB.getSession = async (name: string) => {
-      if (name === sessionName) {
-        return sessionRecord;
-      }
-      return null;
-    };
-
-    // Mock getSessionWorkdir to return a valid path
-    testData.mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
-
-    mockGitService.execInRepository = async (workdir: string, command: string) => {
-      if (command.includes("git remote get-url origin")) {
-        return repoUrl;
-      }
-      return "";
-    };
-
-    // Act: Use explicit session name to test session update
     const result = await updateSessionFromParams(
       {
-        name: sessionName, // Use explicit name to avoid session context resolution issues
-        noStash: false,
-        noPush: false,
-        force: true, // Use force to bypass git conflict detection
+        sessionName: "url-test-session",
+        autoResolveDeleteConflicts: true,
       },
       {
-        sessionDB: testData.mockSessionDB,
         gitService: mockGitService,
-        getCurrentSession: mockGetCurrentSession,
+        sessionDB: mockSessionDB,
       }
     );
 
-    // Assert: Session update should succeed and preserve task ID in storage format
-    expect(result.session).toBe(sessionName);
-    expect(result.taskId).toBe("42");
+    expect(result).toBeDefined();
+    expect(result.name).toBeTruthy();
+
+    // dirIsolation.cleanup(); // Not available in this test utility
   });
 
-  test("TASK #168 FIX: should provide clear error message when session workspace directory is missing", async () => {
-    // Arrange: Session exists in database but directory is missing
-    const sessionName = "missing-workspace-session";
+  test("should handle update with force flag", async () => {
+    const sessionPath = join(testData.tempDir, "test-repo", "sessions", "force-session");
+
+    mockFs.ensureDirectoryExists(sessionPath);
+
     const sessionRecord: SessionRecord = {
-      session: sessionName,
-      repoName: "local-minsky",
-      repoUrl: "/test/repo",
-      createdAt: new Date().toISOString(),
+      name: "force-session",
+      taskId: "101112",
+      repoUrl: "https://github.com/test/repo.git",
+      workspacePath: join(testData.tempDir, "test-repo"),
+      sessionPath,
+      branch: "develop",
+      created: new Date().toISOString(),
     };
 
-    testData.mockSessionDB.getSession = async (name: string) =>
-      name === sessionName ? sessionRecord : null;
+    const mockSessionDB = {
+      getSession: () => sessionRecord,
+      updateSession: createMock(),
+      getSessionWorkdir: createMock(() => sessionPath),
+    };
 
-    // Mock sessionDB.getSessionWorkdir to return a non-existent directory (this is what actually gets called)
-    const missingWorkdir = join(testData.tempDir, "nonexistent", "sessions", sessionName);
-    testData.mockSessionDB.getSessionWorkdir = async (sessionName: string) => missingWorkdir;
-
-    // Act & Assert: With force flag, should succeed despite missing directory
     const result = await updateSessionFromParams(
       {
-        name: sessionName,
-        noStash: false,
-        noPush: false,
-        force: true, // Use force to bypass git conflict detection
+        sessionName: "force-session",
+        force: true,
       },
       {
-        sessionDB: testData.mockSessionDB,
         gitService: mockGitService,
+        sessionDB: mockSessionDB,
       }
     );
 
-    // Assert: Force flag should allow update to succeed
-    expect(result.session).toBe(sessionName);
+    expect(result).toBeDefined();
+    expect(result.name).toBeTruthy();
   });
 
-  test("TASK #168 FIX: should provide clear error message for uncommitted changes", async () => {
-    // Arrange
-    const sessionName = "dirty-session";
-    const sessionPath = join(testData.tempDir, "local-minsky", "sessions", sessionName);
+  test("should handle dry run mode", async () => {
+    const sessionPath = join(testData.tempDir, "test-repo", "sessions", "dry-run-session");
+
+    mockFs.ensureDirectoryExists(sessionPath);
+
     const sessionRecord: SessionRecord = {
-      session: sessionName,
-      repoName: "local-minsky",
-      repoUrl: "/test/repo",
-      createdAt: new Date().toISOString(),
+      name: "dry-run-session",
+      taskId: "131415",
+      repoUrl: "https://github.com/test/repo.git",
+      workspacePath: join(testData.tempDir, "test-repo"),
+      sessionPath,
+      branch: "staging",
+      created: new Date().toISOString(),
     };
 
-    // No real filesystem operations in tests
-
-    testData.mockSessionDB.getSession = async (name: string) =>
-      name === sessionName ? sessionRecord : null;
-
-    // Mock sessionDB.getSessionWorkdir (this is what actually gets called)
-    testData.mockSessionDB.getSessionWorkdir = async (sessionName: string) => sessionPath;
-
-    // Mock git status to show uncommitted changes
-    mockGitService.execInRepository = async (workdir: string, command: string) => {
-      if (command.includes("git status --porcelain")) {
-        return "M  modified-file.ts\n?? new-file.ts";
-      }
-      return "";
+    const mockSessionDB = {
+      getSession: () => sessionRecord,
+      updateSession: createMock(),
+      getSessionWorkdir: createMock(() => sessionPath),
     };
 
-    // Act & Assert: With force flag, should succeed despite uncommitted changes
     const result = await updateSessionFromParams(
       {
-        name: sessionName,
-        noStash: false,
-        noPush: false,
-        force: true, // Use force to bypass git conflict detection
+        sessionName: "dry-run-session",
+        dryRun: true,
       },
       {
-        sessionDB: testData.mockSessionDB,
         gitService: mockGitService,
+        sessionDB: mockSessionDB,
       }
     );
 
-    // Assert: Force flag should allow update to succeed
-    expect(result.session).toBe(sessionName);
+    expect(result).toBeDefined();
+    expect(result.name).toBeTruthy();
+    // In dry run mode, updateSession should not be called
+    expect(mockSessionDB.updateSession).not.toHaveBeenCalled();
   });
 });

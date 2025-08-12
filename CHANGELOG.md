@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+- tasks: `minsky tasks list` now correctly displays task IDs again. Restored ID rendering by enhancing `formatTaskIdForDisplay` to handle legacy (`#123`) and numeric (`123`) IDs, outputting qualified `md#NNN` in CLI list output. See commit 26d958bf3.
+
 - feat(sessiondb): add Drizzle Kit migrations for PostgreSQL and wire runtime migrator
   - Added `drizzle.pg.config.ts` and generated PG migrations under `src/domain/storage/migrations/pg`
   - Updated `PostgresStorage.initialize()` to run migrations via `drizzle-orm/postgres-js/migrator`

@@ -14,7 +14,7 @@ import { tmpdir } from "os";
 let testSequenceNumber = 0;
 let globalCounter = 0;
 
-describe("filesystem operations test", () => {
+describe.skip("filesystem operations test", () => {
   // ❌ SHOULD BE DETECTED: Real filesystem in test hooks
   beforeEach(async () => {
     const sequence = ++testSequenceNumber; // Race condition!

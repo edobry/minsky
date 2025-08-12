@@ -1,4 +1,6 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
+import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
+import { mock } from "bun:test";
 import {
   isSessionWorkspace,
   isSessionRepository,
@@ -8,6 +10,9 @@ import {
   resolveWorkspacePath,
 } from "../../../src/domain/workspace.js";
 import { join } from "path";
+
+// Set up automatic mock cleanup
+setupTestMocks();
 
 const TEST_VALUE = 123;
 
@@ -22,6 +27,11 @@ const mockGitRootExecAsync = (stdout: string) => {
 };
 
 describe("Workspace Domain Methods", () => {
+  beforeEach(() => {
+    // Mock process.cwd() to return consistent mock directory
+    (process as any).cwd = mock(() => "/mock/projects/minsky");
+  });
+
   describe("isSessionRepository (async workspace checking)", () => {
     test("returns true for a path in a session repository", async () => {
       // Arrange
@@ -306,7 +316,7 @@ describe("Workspace Domain Methods", () => {
       const result = await resolveWorkspacePath();
 
       // Assert - should return the current directory
-      expect(result).toBe(process.cwd());
+      expect(result).toBe("/mock/projects/minsky");
     });
 
     test("uses provided sessionWorkspace path", async () => {

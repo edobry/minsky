@@ -87,10 +87,8 @@ describe("GitHub Repository Backend", () => {
     // Set HOME to our temp dir for testing
     process.env.HOME = tempDir;
 
-    // Create necessary directory structure
-    await mkdir(join(tempDir, ".local/state/minsky/git/github/test-repo/sessions/test-session"), {
-      recursive: true,
-    });
+    // Mock directory structure creation - no real filesystem operations needed
+    // Using static mock paths for test isolation
 
     // Create the backend instance
     githubBackend = new TestGitHubBackend({

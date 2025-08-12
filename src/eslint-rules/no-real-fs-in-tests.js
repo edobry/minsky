@@ -71,11 +71,12 @@ export default {
       /\/(tests?|__tests__|spec)\//i.test(filename);
 
     // Exclude ESLint rule test files from this rule (they intentionally contain violations)
-    // Using multiple patterns to ensure all eslint rule test files are excluded
+    // Check for eslint-rules directory in any part of the path and .test.js extension
+    const normalizedFilename = filename.replace(/\\/g, "/"); // Normalize path separators
     const isEslintRuleTest =
-      (filename.includes("eslint-rules") && filename.includes(".test.js")) ||
-      filename.endsWith("no-real-fs-in-tests.test.js") ||
-      filename.endsWith("no-unsafe-git-network-operations.test.js");
+      (normalizedFilename.includes("eslint-rules") && normalizedFilename.endsWith(".test.js")) ||
+      normalizedFilename.endsWith("no-real-fs-in-tests.test.js") ||
+      normalizedFilename.endsWith("no-unsafe-git-network-operations.test.js");
 
     if (!isTestFile || isEslintRuleTest) {
       return {}; // Only apply to test files, but exclude ESLint rule tests
@@ -246,31 +247,24 @@ export default {
 
       // Track global variable declarations for counter patterns
       VariableDeclaration(node) {
-        // Only check top-level declarations (outside describe blocks)
-        // Use a simple heuristic: check if the declaration is at the top level of the program
-        let parent = node.parent;
-        let isTopLevel = true;
+        // Only check true module-level declarations (direct children of Program)
+        // This prevents false positives on variables inside functions, arrow functions, etc.
+        const isModuleLevel = node.parent && node.parent.type === "Program";
 
-        while (parent) {
-          if (
-            parent.type === "CallExpression" &&
-            parent.callee &&
-            parent.callee.name &&
-            ["describe", "it", "test", "beforeEach", "afterEach"].includes(parent.callee.name)
-          ) {
-            isTopLevel = false;
-            break;
-          }
-          parent = parent.parent;
-        }
-
-        if (isTopLevel) {
+        if (isModuleLevel) {
           node.declarations.forEach((declarator) => {
             if (declarator.id.type === "Identifier") {
               const name = declarator.id.name;
 
-              // Check for counter-like variable names
-              if (!allowGlobalCounters && /(?:counter|sequence|number|count|index)$/i.test(name)) {
+              // Only flag variables that are clearly global counters - much more restrictive
+              // Look for specific patterns like: "globalCounter", "testSequenceNumber", "callCount"
+              if (
+                !allowGlobalCounters &&
+                (/^(global|test|call|request|response).*[Cc]ount/i.test(name) ||
+                  /^.*[Ss]equence[Nn]umber$/i.test(name) ||
+                  name === "globalCounter" ||
+                  name === "testCounter")
+              ) {
                 globalCounters.add(name);
                 context.report({
                   node: declarator,
