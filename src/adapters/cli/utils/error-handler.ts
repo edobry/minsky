@@ -15,6 +15,7 @@ import {
   GitOperationError,
   ensureError,
 } from "../../../errors/index";
+import { ZodError } from "zod";
 import { log, isStructuredMode } from "../../../utils/logger";
 import { exit } from "../../../utils/process";
 /**
@@ -66,6 +67,23 @@ export function handleCliError(error: any): never {
     if (isDebugMode() && (error as any).errors) {
       log.cliError("\nValidation details:");
       log.cliError(JSON.stringify((error as any).errors, undefined, 2));
+    }
+  } else if (error instanceof ZodError) {
+    // Zod validation errors (e.g., bad CLI parameter values)
+    // Show the most relevant issue message and hint about expected format
+    const firstIssue = (error as ZodError).issues?.[0];
+    const issueMessage = firstIssue?.message || normalizedError.message || "Invalid input";
+    const issuePath =
+      Array.isArray(firstIssue?.path) && firstIssue!.path.length > 0
+        ? ` (field: ${firstIssue!.path.join(".")})`
+        : "";
+
+    log.cliError(`Validation error: ${issueMessage}${issuePath}`);
+
+    // Show full issue details in debug mode
+    if (isDebugMode()) {
+      log.cliError("\nValidation details:");
+      log.cliError(JSON.stringify((error as ZodError).issues, undefined, 2));
     }
   } else if (error instanceof ResourceNotFoundError) {
     log.cliError(`Not found: ${sanitizeMessage((normalizedError as any).message)}`);
