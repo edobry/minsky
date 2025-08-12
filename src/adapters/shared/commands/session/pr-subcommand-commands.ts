@@ -222,6 +222,33 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     }
   }
 
+  // New helper used by tests to verify refresh behavior when using --task
+  public async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
+    try {
+      const { createSessionProvider } = await import("../../../../domain/session");
+      const { resolveSessionContextWithFeedback } = await import(
+        "../../../../domain/session/session-context-resolver"
+      );
+
+      const sessionProvider = createSessionProvider();
+      const resolved = await resolveSessionContextWithFeedback({
+        session: params.name,
+        task: params.task,
+        repo: params.repo,
+        sessionProvider,
+        allowAutoDetection: true,
+      });
+
+      const record = await sessionProvider.getSession(resolved.sessionName);
+      if (record && (record.prBranch || record.prState?.branchName)) {
+        return true;
+      }
+    } catch (_error) {
+      // Swallow and return false for robustness in tests
+    }
+    return false;
+  }
+
   protected getAdditionalLogContext(params: any): Record<string, any> {
     return {
       title: params.title,

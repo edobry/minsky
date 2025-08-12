@@ -95,6 +95,21 @@ export async function writeSessionsToFile(
 }
 
 /**
+ * Backward-compatibility: write session DB to explicit file path
+ */
+export function writeSessionDbFile(filePath: string, sessions: SessionRecord[]): void {
+  try {
+    const dbDir = dirname(filePath);
+    if (!existsSync(dbDir)) {
+      mkdirSync(dbDir, { recursive: true });
+    }
+    writeFileSync(filePath, JSON.stringify(sessions, undefined, 2), "utf8");
+  } catch (error) {
+    log.error(`Error writing session database to ${filePath}: ${getErrorMessage(error as any)}`);
+  }
+}
+
+/**
  * Ensure the database directory exists
  */
 export function ensureDbDir(dbPath: string): boolean {
