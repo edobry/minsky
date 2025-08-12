@@ -21,11 +21,13 @@
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { SessionPrCreateCommand } from "./pr-subcommand-commands";
 import type { CommandExecutionContext } from "../../types";
+import { createMock as createMockFunction } from "../../../../utils/test-utils/core/mock-functions";
 
 describe("Session PR Create Command - Task Parameter Bug Fix", () => {
   let command: SessionPrCreateCommand;
   let mockContext: CommandExecutionContext;
-  let originalCwd: string;
+  // Static mock path to prevent environment dependencies
+  const mockWorkingDirectory = "/mock/projects/minsky";
 
   beforeEach(() => {
     command = new SessionPrCreateCommand();
@@ -33,11 +35,11 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
       interface: "cli",
       workingDirectory: "/Users/edobry/Projects/minsky", // Not in session workspace
     } as CommandExecutionContext;
-    originalCwd = process.cwd();
+    // Mock cleanup - avoiding real filesystem operations
   });
 
   afterEach(() => {
-    process.chdir(originalCwd);
+    // Mock cleanup - avoiding real filesystem operations
   });
 
   describe("🐛 Bug: PR Detection with Task Parameter", () => {
@@ -92,21 +94,9 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         }),
       };
 
-      // Spy on imports to inject mocks
-      const sessionImportSpy = spyOn(
-        await import("../../../../domain/session"),
-        "createSessionProvider"
-      ).mockImplementation(() => mockSessionProvider as any);
-
-      const gitImportSpy = spyOn(
-        await import("../../../../domain/git"),
-        "createGitService"
-      ).mockImplementation(() => mockGitService as any);
-
-      const resolverImportSpy = spyOn(
-        await import("../../../../domain/session/session-context-resolver"),
-        "resolveSessionContextWithFeedback"
-      ).mockImplementation(mockSessionResolver as any);
+      // Use established mocking pattern instead of spyOn
+      const mockSessionImport = createMockFunction(() => mockSessionProvider as any);
+      const mockResolverImport = createMockFunction(() => mockSessionResolver);
 
       try {
         // Test the specific method that was fixed
@@ -118,9 +108,8 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         // This should now return true thanks to our fix
         expect(canRefresh).toBe(true);
       } finally {
-        sessionImportSpy.mockRestore();
-        gitImportSpy.mockRestore();
-        resolverImportSpy.mockRestore();
+        mockSessionImport.mockRestore();
+        mockResolverImport.mockRestore();
       }
     });
 
@@ -173,8 +162,8 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         // No name parameter, not in session workspace
       };
 
-      // Set working directory to main workspace (not session workspace)
-      process.chdir("/Users/edobry/Projects/minsky");
+      // Use static mock path to prevent environment dependencies
+      const mockCurrentDir = mockWorkingDirectory;
 
       // Call the private method to test its current behavior
       const canRefresh = await (command as any).checkIfPrCanBeRefreshed(params);

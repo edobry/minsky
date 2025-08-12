@@ -44,8 +44,22 @@ export function formatTaskIdForDisplay(taskId: string): string {
   if (!taskId || typeof taskId !== "string") {
     return "";
   }
-  // No transformation needed - qualified format is the display format
-  return validateQualifiedTaskId(taskId) || "";
+  // Prefer qualified format when valid
+  const qualified = validateQualifiedTaskId(taskId);
+  if (qualified) return qualified;
+
+  // Gracefully handle legacy formats by converting to qualified markdown IDs for display
+  if (/^#\d+$/.test(taskId)) {
+    const num = taskId.replace(/^#/, "");
+    return `md#${String(num).padStart(3, "0")}`;
+  }
+
+  if (/^\d+$/.test(taskId)) {
+    return `md#${String(taskId).padStart(3, "0")}`;
+  }
+
+  // Fallback: return the original string to avoid empty display output
+  return taskId;
 }
 
 /**

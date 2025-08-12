@@ -375,6 +375,21 @@ export class RuleService {
   }
 
   /**
+   * Find a rule by ID (alias for getRule with error handling)
+   */
+  async findRuleById(id: string, options: RuleOptions = {}): Promise<Rule | null> {
+    try {
+      return await this.getRule(id, options);
+    } catch (error) {
+      // Return null if rule is not found, instead of throwing
+      if (options.debug) {
+        log.debug("Rule not found", { id, error: getErrorMessage(error as any) });
+      }
+      return null;
+    }
+  }
+
+  /**
    * Create a new rule
    */
   async createRule(

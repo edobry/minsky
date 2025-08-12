@@ -163,7 +163,17 @@ export class MultiBackendTaskServiceImpl implements MultiBackendTaskService {
 
   async getTask(qualifiedTaskId: string): Promise<Task | null> {
     const { backend, localId } = this.routeToBackend(qualifiedTaskId);
-    return await backend.getTask(localId);
+    const task = await backend.getTask(localId);
+
+    // Re-qualify the task ID for multi-backend consistency
+    if (task) {
+      return {
+        ...task,
+        id: qualifiedTaskId, // Return with original qualified ID
+      };
+    }
+
+    return null;
   }
 
   async updateTask(qualifiedTaskId: string, updates: Partial<Task>): Promise<Task> {
@@ -194,7 +204,17 @@ export class MultiBackendTaskServiceImpl implements MultiBackendTaskService {
       backends.map(async (backend) => {
         try {
           const tasks = await backend.listTasks(filters);
-          allTasks.push(...tasks);
+
+          // Re-qualify task IDs for multi-backend consistency
+          const qualifiedTasks = tasks.map((task) => ({
+            ...task,
+            id:
+              task.id.includes("#") && task.id.startsWith(`${backend.prefix}#`)
+                ? task.id // Already qualified with this backend
+                : `${backend.prefix}#${task.id.replace(/^#/, "")}`, // Add backend prefix
+          }));
+
+          allTasks.push(...qualifiedTasks);
         } catch (error) {
           // Log error but continue with other backends
           console.warn(`Failed to list tasks from backend ${backend.name}:`, error);

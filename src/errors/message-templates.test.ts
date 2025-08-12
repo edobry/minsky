@@ -2,7 +2,9 @@
  * Tests for error message templates and utilities
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
+import { setupTestMocks } from "../utils/test-utils/mocking";
+import { mock } from "bun:test";
 import {
   ErrorEmojis,
   formatCommandSuggestions,
@@ -22,7 +24,15 @@ import {
   type ErrorTemplate,
 } from "./message-templates";
 
+// Set up automatic mock cleanup
+setupTestMocks();
+
 describe("Error Message Templates", () => {
+  beforeEach(() => {
+    // Mock process.cwd() to return consistent mock directory
+    (process as any).cwd = mock(() => "/mock/projects/minsky");
+  });
+
   describe("getErrorMessage", () => {
     test("extracts message from Error object", () => {
       const error = new Error("Test error message");

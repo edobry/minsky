@@ -88,6 +88,14 @@ export function createMockFilesystem(
         }
       }
     }),
+    ensureDirectorySync: createMock((path: unknown) => {
+      directories.add(path as string);
+      // Always add all parent directories (like mkdirp)
+      const parts = (path as string).split("/");
+      for (let i = 1; i <= parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+    }),
     statSync: createMock((path: unknown) => {
       if (files.has(path as string)) {
         return {
@@ -130,11 +138,17 @@ export function createMockFilesystem(
     }),
 
     // Async methods (fs/promises)
-    readFile: createMock(async (path: unknown) => {
+    readFile: createMock(async (path: unknown, encoding?: unknown) => {
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
-      return files.get(String(path));
+      const content = files.get(String(path));
+      // If encoding is specified, return string; otherwise return Buffer
+      if (encoding) {
+        return content; // Already stored as string
+      } else {
+        return Buffer.from(content || "", "utf-8"); // Return as Buffer
+      }
     }),
     writeFile: createMock(async (path: unknown, data: unknown) => {
       files.set(path as string, data as string);
@@ -154,6 +168,29 @@ export function createMockFilesystem(
           directories.add(parts.slice(0, i).join("/"));
         }
       }
+    }),
+    readdir: createMock(async (path: unknown) => {
+      const dirPath = path as string;
+      const contents: string[] = [];
+
+      // Find files in this directory
+      for (const [filepath] of files) {
+        if (
+          filepath.startsWith(`${dirPath}/`) &&
+          !filepath.slice(dirPath.length + 1).includes("/")
+        ) {
+          contents.push(filepath.slice(dirPath.length + 1));
+        }
+      }
+
+      // Find subdirectories
+      for (const dirName of directories) {
+        if (dirName.startsWith(`${dirPath}/`) && !dirName.slice(dirPath.length + 1).includes("/")) {
+          contents.push(dirName.slice(dirPath.length + 1));
+        }
+      }
+
+      return contents;
     }),
     mkdtemp: createMock(async (prefix: unknown) => {
       // Generate a unique temporary directory name
@@ -197,6 +234,27 @@ export function createMockFilesystem(
     // Access the internal state for validation in tests
     files: files,
     directories: directories,
+
+    // Convenience methods for test setup
+    ensureDirectoryExists: (path: string) => {
+      directories.add(path);
+      // Also ensure all parent directories exist
+      const parts = path.split("/");
+      for (let i = 1; i <= parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+    },
+
+    cleanup: () => {
+      files.clear();
+      directories.clear();
+    },
+
+    // Alias for cleanup to match existing test patterns
+    reset: () => {
+      files.clear();
+      directories.clear();
+    },
   };
 
   return mockFs;
