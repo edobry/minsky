@@ -210,10 +210,38 @@ async function sessionPrCreateDraft(
     throw new MinskyError(`Failed to push PR branch ${prBranchName}: ${getErrorMessage(error)}`);
   }
 
-  // Create draft PR using GitHub backend
+  // Create draft PR using GitHub API directly
   const githubBackend = repositoryBackend as any; // We know it's GitHub from validation above
+  
   try {
-    const pullRequest = await githubBackend.createPullRequest({
+    // Get GitHub token from configuration system
+    const { getConfiguration } = await import("../../configuration/index");
+    const config = getConfiguration();
+    const githubToken = config.github.token;
+    if (!githubToken) {
+      throw new MinskyError(
+        "GitHub token not found. Set GITHUB_TOKEN environment variable or configure in minsky config."
+      );
+    }
+
+    // Import Octokit
+    const { Octokit } = await import("@octokit/rest");
+    const octokit = new Octokit({
+      auth: githubToken,
+    });
+
+    // Get owner and repo from the GitHub backend
+    const owner = (githubBackend as any).owner;
+    const repo = (githubBackend as any).repo;
+
+    if (!owner || !repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to create pull requests");
+    }
+
+    // Create the draft pull request
+    const prResponse = await octokit.rest.pulls.create({
+      owner,
+      repo,
       title: params.title,
       body: bodyContent,
       head: prBranchName,
@@ -221,7 +249,10 @@ async function sessionPrCreateDraft(
       draft: true, // This is the key difference - create as draft
     });
 
-    log.cli(`✅ Draft PR created successfully: ${pullRequest.html_url}`);
+    const pr = prResponse.data;
+
+    log.cli(`✅ Draft PR created successfully: ${pr.html_url}`);
+    log.cli(`📝 Draft PR #${pr.number}: ${params.title}`);
 
     return {
       prBranch: prBranchName,
@@ -229,10 +260,10 @@ async function sessionPrCreateDraft(
       title: params.title,
       body: bodyContent,
       pullRequest: {
-        number: pullRequest.number,
-        url: pullRequest.html_url,
-        state: pullRequest.state,
-        draft: pullRequest.draft,
+        number: pr.number,
+        url: pr.html_url,
+        state: pr.state,
+        draft: pr.draft,
       },
     };
   } catch (error) {
