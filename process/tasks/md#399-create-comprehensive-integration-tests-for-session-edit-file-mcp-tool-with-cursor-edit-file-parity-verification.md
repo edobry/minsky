@@ -547,7 +547,7 @@ This comprehensive integration test suite will ensure that `session.edit_file` p
 ## Notes
 
 - All tests verified with real Morph API calls
-- Enhanced error handling fixes critical silent failures in AI completion service  
+- Enhanced error handling fixes critical silent failures in AI completion service
 - Circuit breaker management provides production-grade reliability
 - Comprehensive monitoring and health check capabilities added
 - User-friendly error messages with actionable recovery guidance implemented

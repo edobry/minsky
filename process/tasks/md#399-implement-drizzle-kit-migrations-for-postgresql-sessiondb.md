@@ -53,7 +53,6 @@ Notes:
 
 ## Notes
 
-
 ## Requirements
 
 ## Solution

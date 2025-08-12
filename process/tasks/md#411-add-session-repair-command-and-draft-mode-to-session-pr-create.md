@@ -5,7 +5,8 @@
 This task implements:
 
 1. Session repair command for fixing corrupted PR state
-   - Detects incorrect pr/ branch format for GitHub backend  
+
+   - Detects incorrect pr/ branch format for GitHub backend
    - Clears stale PR state with non-existent branches
    - Backend type synchronization validation
    - Multiple repair modes: --dry-run, --auto, --pr-state, --backend-sync
