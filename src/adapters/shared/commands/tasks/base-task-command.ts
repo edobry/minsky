@@ -121,15 +121,10 @@ export abstract class BaseTaskCommand {
           return "No tasks found.";
         }
 
-        // Format each task for display
+        // Format each task for display (strict: derive from id only)
         const taskList = result.tasks
           .map((task: any) => {
-            const displayFromId = formatTaskIdForDisplay(task.id);
-            const displayFromPath =
-              (typeof task.specPath === "string" &&
-                (task.specPath.match(/(md#\d+)-/)?.[1] || "")) ||
-              "";
-            const displayId = displayFromId || displayFromPath || task.id || "";
+            const displayId = formatTaskIdForDisplay(task.id);
             return `${displayId}: ${task.title} [${task.status}]`;
           })
           .join("\n");
@@ -141,11 +136,7 @@ export abstract class BaseTaskCommand {
       if (typeof result === "object" && result.task && !Array.isArray(result.task)) {
         const { formatTaskIdForDisplay } = require("../../../../domain/tasks/task-id-utils");
         const task = result.task;
-        const displayFromId = formatTaskIdForDisplay(task.id);
-        const displayFromPath =
-          (typeof task.specPath === "string" && (task.specPath.match(/(md#\d+)-/)?.[1] || "")) ||
-          "";
-        const displayId = displayFromId || displayFromPath || task.id || "";
+        const displayId = formatTaskIdForDisplay(task.id);
 
         let output = `${displayId}: ${task.title}\n`;
         output += `Status: ${task.status}\n`;
