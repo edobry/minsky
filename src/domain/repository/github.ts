@@ -742,9 +742,64 @@ Repository: https://github.com/${this.owner}/${this.repo}
         }
 
         // Validation errors (422)
-        // Prefer Octokit error details if available to distinguish common cases
+        // Prefer structured Octokit error details when available
+        {
+          const anyErr: any = error as any;
+          const status: number | undefined = (anyErr?.status ?? anyErr?.response?.status) as
+            | number
+            | undefined;
+          const ghData = anyErr?.response?.data;
+          const ghMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
+          const ghErrors: any[] = Array.isArray(ghData?.errors) ? ghData.errors : [];
+          const ghErrorsText: string = (
+            (ghMessage || "") +
+            " " +
+            ghErrors
+              .map((e: any) => [e?.message, e?.code, e?.field].filter(Boolean).join(" "))
+              .join(" ")
+          ).toLowerCase();
+
+          if (status === 422) {
+            // No commits between base and head
+            if (ghErrorsText.includes("no commits between") || ghErrorsText.includes("no changes")) {
+              throw new MinskyError(
+                `📝 No Changes to Create PR\n\n` +
+                  `No differences found between ${sourceBranch} and ${baseBranch}.\n\n` +
+                  `💡 To fix this:\n` +
+                  `  • Make sure your changes are committed to ${sourceBranch}\n` +
+                  `  • Push your branch: git push origin ${sourceBranch}\n` +
+                  `  • Verify you're on the correct branch: git branch`
+              );
+            }
+
+            // Pull request already exists
+            if (
+              ghErrorsText.includes("already exists") ||
+              ghErrors.some((e: any) =>
+                String(e?.message || e?.code || "").toLowerCase().includes("already exists")
+              )
+            ) {
+              throw new MinskyError(
+                `🔄 Pull Request Already Exists\n\n` +
+                  `A pull request from ${sourceBranch} to ${baseBranch} already exists.\n\n` +
+                  `💡 Options:\n` +
+                  `  • Update the existing PR instead of creating a new one\n` +
+                  `  • Use a different branch name\n` +
+                  `  • Close the existing PR if it's no longer needed\n\n` +
+                  `Check: https://github.com/${this.owner}/${this.repo}/pulls`
+              );
+            }
+
+            // Generic validation failure
+            throw new MinskyError(
+              `⚠️ GitHub Validation Failed\n\n` +
+                `${ghMessage || "Unprocessable Entity"}`
+            );
+          }
+        }
+
+        // Original fallback if structured details unavailable
         if (errorMessage.includes("422") || errorMessage.includes("validation failed") || errorMessage.includes("unprocessable entity")) {
-          // Check if it's a "No commits between" error
           if (errorMessage.includes("no commits between") || errorMessage.includes("no changes")) {
             throw new MinskyError(
               `📝 No Changes to Create PR\n\n` +
