@@ -19,6 +19,7 @@ import {
   SessionPrEditCommand,
   SessionPrListCommand,
   SessionPrGetCommand,
+  SessionPrOpenCommand,
 } from "./pr-subcommand-commands";
 
 /**
@@ -202,7 +203,13 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
 }
 
 // Export the imported PR subcommand classes
-export { SessionPrCreateCommand, SessionPrEditCommand, SessionPrListCommand, SessionPrGetCommand };
+export {
+  SessionPrCreateCommand,
+  SessionPrEditCommand,
+  SessionPrListCommand,
+  SessionPrGetCommand,
+  SessionPrOpenCommand,
+};
 
 /**
  * Factory functions for creating workflow commands
@@ -234,3 +241,6 @@ export const createSessionPrListCommand = (deps?: SessionCommandDependencies) =>
 
 export const createSessionPrGetCommand = (deps?: SessionCommandDependencies) =>
   new SessionPrGetCommand(deps);
+
+export const createSessionPrOpenCommand = (deps?: SessionCommandDependencies) =>
+  new SessionPrOpenCommand(deps);

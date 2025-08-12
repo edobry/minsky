@@ -636,7 +636,7 @@
 
 - [ ] Implement GitHub repository quality guardrails configuration [#408](process/tasks/md#408-implement-github-repository-quality-guardrails-configuration.md)
 
-- [+] Implement session pr open command for GitHub backend [#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
+- [-] Implement session pr open command for GitHub backend [#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
 
 - [ ] Implement session pr open command for GitHub backend [#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
 
@@ -648,6 +648,10 @@
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
+<<<<<<< HEAD
+- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+=======
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
 - [ ] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
+>>>>>>> origin/main
