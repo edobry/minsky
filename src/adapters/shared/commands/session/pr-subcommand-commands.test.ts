@@ -94,9 +94,16 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         }),
       };
 
-      // Use established mocking pattern instead of spyOn
-      const mockSessionImport = createMockFunction(() => mockSessionProvider as any);
-      const mockResolverImport = createMockFunction(() => mockSessionResolver);
+      // Use spyOn to mock dynamic imports consistently
+      const sessionImportSpy = spyOn(
+        await import("../../../../domain/session"),
+        "createSessionProvider"
+      ).mockImplementation(() => mockSessionProvider as any);
+
+      const resolverImportSpy = spyOn(
+        await import("../../../../domain/session/session-context-resolver"),
+        "resolveSessionContextWithFeedback"
+      ).mockImplementation(mockSessionResolver as any);
 
       try {
         // Test the specific method that was fixed
@@ -108,8 +115,8 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         // This should now return true thanks to our fix
         expect(canRefresh).toBe(true);
       } finally {
-        mockSessionImport.mockRestore();
-        mockResolverImport.mockRestore();
+        sessionImportSpy.mockRestore();
+        resolverImportSpy.mockRestore();
       }
     });
 
