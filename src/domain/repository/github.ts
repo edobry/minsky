@@ -687,7 +687,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
         }
 
         // Permission errors (403)
-        if (errorMessage.includes("403") || errorMessage.includes("forbidden")) {
+        // Only classify as permission denied when we see an explicit 403/forbidden and not a 422 validation case
+        if ((errorMessage.includes("403") || errorMessage.includes("forbidden")) && !errorMessage.includes("422")) {
           throw new MinskyError(
             `🚫 GitHub Permission Denied\n\n` +
               `You don't have permission to create pull requests in ${this.owner}/${this.repo}.\n\n` +
@@ -741,7 +742,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
         }
 
         // Validation errors (422)
-        if (errorMessage.includes("422")) {
+        // Prefer Octokit error details if available to distinguish common cases
+        if (errorMessage.includes("422") || errorMessage.includes("validation failed") || errorMessage.includes("unprocessable entity")) {
           // Check if it's a "No commits between" error
           if (errorMessage.includes("no commits between") || errorMessage.includes("no changes")) {
             throw new MinskyError(
