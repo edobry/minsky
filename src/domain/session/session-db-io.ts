@@ -21,7 +21,20 @@ export interface SessionDbFileOptions {
 /**
  * Read sessions from the database file
  */
+// Legacy-compatible reader: accepts a file path string and returns sessions array
 export function readSessionDbFile(
+  optionsOrPath: SessionDbFileOptions | string | undefined | null = {}
+): any {
+  const isStringPath = typeof optionsOrPath === "string";
+  const safeOptions: SessionDbFileOptions = isStringPath
+    ? { dbPath: optionsOrPath as string }
+    : optionsOrPath || {};
+  const state = readSessionDbState(safeOptions);
+  return isStringPath ? state.sessions : state;
+}
+
+// Structured state reader used internally and by newer code
+export function readSessionDbState(
   options: SessionDbFileOptions | undefined | null = {}
 ): SessionDbState {
   const safeOptions = options || {};

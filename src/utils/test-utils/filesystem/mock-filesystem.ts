@@ -274,6 +274,9 @@ export function createMockFilesystem(
     mkdtemp: mockFs.mkdtemp,
     access: mockFs.access,
     rm: mockFs.rm,
+    unlink: createMock(async (_path: unknown) => {
+      /* no-op for tests */
+    }),
   };
 
   // Convenience synchronous helpers to align with legacy test usage
