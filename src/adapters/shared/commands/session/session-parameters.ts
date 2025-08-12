@@ -412,6 +412,21 @@ export const sessionPrGetCommandParams = {
 };
 
 /**
+ * Session PR Open command parameters
+ * Opens the pull request in the default web browser
+ */
+export const sessionPrOpenCommandParams = {
+  sessionName: {
+    schema: z.string(),
+    description: "Session name to open PR for (positional)",
+    required: false,
+  },
+  name: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+};
+
+/**
  * Session repair command parameters
  * Repairs various session state issues
  */
