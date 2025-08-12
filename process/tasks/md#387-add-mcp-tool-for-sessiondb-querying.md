@@ -12,6 +12,7 @@ Create a new MCP tool that allows agents to query the session database directly.
 The tool should follow the existing MCP patterns in the codebase and provide a safe, read-only interface to session data. This would complement the existing session management tools by allowing agents to inspect and analyze session state without requiring file system access to the session workspace.
 
 Key requirements:
+
 - Read-only access to sessiondb
 - Consistent with existing MCP tool patterns
 - Proper error handling and validation

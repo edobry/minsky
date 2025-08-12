@@ -325,8 +325,7 @@ Please provide a title for your pull request:
 
     log.cli(`✅ Pull request created successfully!`);
 
-    // Update PR state cache after successful creation
-    await updatePrStateOnCreation(sessionName, deps.sessionDB);
+    // PR state persistence is handled by repository backends (local backend updates commit hash)
 
     // Update task status to IN-REVIEW if associated with a task
     if (!params.noStatusUpdate) {

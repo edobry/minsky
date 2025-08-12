@@ -8,9 +8,9 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
 import { promises as fs } from "fs";
 import { join } from "path";
 import { log } from "../utils/logger";
-import { normalizeTaskId } from "./tasks/utils";
+// normalizeTaskId removed
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
-export { normalizeTaskId } from "./tasks/utils"; // Re-export normalizeTaskId from new location
+// normalizeTaskId removed
 export { createConfiguredTaskService } from "./tasks/taskService"; // Re-export createConfiguredTaskService from new location
 import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
 const matter = require("gray-matter");
@@ -832,15 +832,10 @@ export class TaskService {
    * @returns The appropriate task backend for the task, or null if not found
    */
   async getBackendForTask(id: string): Promise<TaskBackend | null> {
-    // Normalize the task ID
-    const normalizedId = normalizeTaskId(id);
-    if (!normalizedId) {
-      return null;
-    }
-
+    // Strict: use ID as-is (qualified expected)
     // Try to find the task in each backend
     for (const backend of this.backends) {
-      const task = await backend.getTask(normalizedId);
+      const task = await backend.getTask(id);
       if (task) {
         return backend;
       }

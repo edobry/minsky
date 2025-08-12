@@ -30,6 +30,10 @@ export function validateQualifiedTaskId(taskId: string): string | null {
   return null;
 }
 
+// Backward compatibility alias
+// Backward-compat export name used across code/tests; implements strict validation
+export const normalizeTaskIdForStorage = validateQualifiedTaskId;
+
 /**
  * Format task ID for display (no-op since input === output)
  *
@@ -40,7 +44,6 @@ export function formatTaskIdForDisplay(taskId: string): string {
   if (!taskId || typeof taskId !== "string") {
     return "";
   }
-
   // No transformation needed - qualified format is the display format
   return validateQualifiedTaskId(taskId) || "";
 }
@@ -105,6 +108,3 @@ export function getTaskIdNumber(taskId: string): number | null {
   const num = parseInt(match[1], 10);
   return isNaN(num) ? null : num;
 }
-
-// Backward compatibility alias
-export const normalizeTaskIdForStorage = validateQualifiedTaskId;

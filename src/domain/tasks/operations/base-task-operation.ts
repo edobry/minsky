@@ -8,7 +8,7 @@ import { z } from "zod";
 import { resolveRepoPath } from "../../repo-utils";
 import { resolveMainWorkspacePath } from "../../workspace";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
-import { normalizeTaskId } from "../taskFunctions";
+// normalizeTaskId removed: strict qualified IDs expected upstream
 import { createTaskIdParsingErrorMessage } from "../../../errors/enhanced-error-templates";
 import { createConfiguredTaskService, TaskService, TaskServiceOptions } from "../taskService";
 
@@ -88,26 +88,7 @@ export abstract class BaseTaskOperation<TParams, TResult> {
    * Validate parameters and normalize task ID if present
    */
   protected async validateParams(params: TParams): Promise<TParams> {
-    // If params has taskId, normalize it first
-    if (params && typeof params === "object" && "taskId" in params) {
-      const baseParams = params as BaseTaskOperationParams;
-      if (baseParams.taskId) {
-        const normalizedTaskId = normalizeTaskId(baseParams.taskId);
-        if (!normalizedTaskId) {
-          const errorMessage = createTaskIdParsingErrorMessage(baseParams.taskId, [
-            { label: "Operation", value: this.getOperationName() },
-            { label: "Input", value: baseParams.taskId },
-          ]);
-          throw new ValidationError(errorMessage);
-        }
-
-        // Replace with normalized ID
-        const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
-        return this.getSchema().parse(paramsWithNormalizedId);
-      }
-    }
-
-    // Regular validation
+    // Validate directly (strict qualified IDs expected)
     return this.getSchema().parse(params);
   }
 

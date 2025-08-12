@@ -89,7 +89,7 @@ describe("Task ID Generation Bug Reproduction", () => {
     const mixedTasks: TaskData[] = [
       { id: "md#300", title: "Task 300", description: "", status: "TODO", specPath: "" },
       { id: "gh#45", title: "GitHub Task 45", description: "", status: "TODO", specPath: "" },
-      { id: "371", title: "Plain Task 371", description: "", status: "TODO", specPath: "" },
+      { id: "md#371", title: "Qualified Task 371", description: "", status: "TODO", specPath: "" },
     ];
 
     const nextId = getNextTaskId(mixedTasks);

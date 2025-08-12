@@ -17,7 +17,7 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
-import { taskIdToSessionName } from "../tasks/unified-task-id";
+import { taskIdToSessionName } from "../tasks/task-id";
 
 export interface StartSessionDependencies {
   sessionDB: SessionProviderInterface;

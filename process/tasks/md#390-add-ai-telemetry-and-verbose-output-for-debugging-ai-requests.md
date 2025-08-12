@@ -7,6 +7,7 @@ Add a `--verbose` or `--telemetry` flag to AI-powered commands that displays det
 ## Context
 
 Currently AI-powered commands like `minsky context suggest-rules` provide no visibility into:
+
 - Number of AI requests made
 - Token usage (input/output/total)
 - Inference timing from AI providers
@@ -19,12 +20,14 @@ This makes it difficult to debug AI behavior, optimize prompts, or understand co
 ## Requirements
 
 ### Core Functionality
+
 1. **Verbose Flag**: Add `--verbose` or `--telemetry` flag to AI commands
 2. **Metadata Collection**: Capture AI provider response metadata
 3. **Detailed Output**: Display telemetry at end of command output
 4. **Provider Agnostic**: Work across OpenAI, Anthropic, Google, etc.
 
 ### Telemetry Data to Capture
+
 - **Request Count**: Number of AI API calls made
 - **Token Usage**: Input tokens, output tokens, total tokens
 - **Timing**: Total inference time, API latency
@@ -34,7 +37,8 @@ This makes it difficult to debug AI behavior, optimize prompts, or understand co
 - **Error Info**: Failed requests, retry attempts
 
 ### Implementation Approach
-1. **AICompletionService Enhancement**: 
+
+1. **AICompletionService Enhancement**:
    - Return telemetry metadata alongside responses
    - Standardize metadata format across providers
 2. **Command Integration**:
@@ -46,6 +50,7 @@ This makes it difficult to debug AI behavior, optimize prompts, or understand co
    - Handle different metadata formats per provider
 
 ### Output Format Example
+
 ```
 🔍 Rule suggestions for: "how do i write tests"
 [... normal output ...]
@@ -60,12 +65,14 @@ This makes it difficult to debug AI behavior, optimize prompts, or understand co
 ```
 
 ### Benefits
+
 - **Debugging**: Understand why AI suggestions are poor/good
 - **Optimization**: Identify expensive prompts or slow providers
 - **Monitoring**: Track token usage and costs
 - **Transparency**: Show users what's happening under the hood
 
 ## Acceptance Criteria
+
 - [ ] Verbose flag added to AI commands
 - [ ] Telemetry collection from AI providers
 - [ ] Formatted telemetry output

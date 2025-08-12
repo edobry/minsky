@@ -587,6 +587,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // Create Octokit instance
       const octokit = new Octokit({
         auth: githubToken,
+        log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       });
 
       // Create the pull request
@@ -823,7 +824,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
           // Get current git branch from the session workspace
           if (!options.session) {
-            throw new MinskyError("Session name is required to update PR without explicit PR number");
+            throw new MinskyError(
+              "Session name is required to update PR without explicit PR number"
+            );
           }
           const sessionWorkdir = await this.sessionDB.getSessionWorkdir(options.session);
           const { GitService } = require("../git");
@@ -832,7 +835,10 @@ Repository: https://github.com/${this.owner}/${this.repo}
             await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
           ).trim();
 
-          const octokit = new Octokit({ auth: githubToken });
+          const octokit = new Octokit({
+            auth: githubToken,
+            log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+          });
           const { data: pulls } = await octokit.rest.pulls.list({
             owner: this.owner,
             repo: this.repo,
@@ -865,7 +871,10 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
 
       // Initialize Octokit client
-      const octokit = new Octokit({ auth: githubToken });
+      const octokit = new Octokit({
+        auth: githubToken,
+        log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      });
 
       // Prepare update payload - only include fields that are provided
       const updateData: { title?: string; body?: string } = {};
@@ -890,7 +899,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       log.debug(`Updated GitHub PR #${prNumber}`, {
         title: updateData.title,
-        body: updateData.body ? updateData.body.substring(0, 100) + (updateData.body.length > 100 ? "..." : "") : undefined,
+        body: updateData.body
+          ? updateData.body.substring(0, 100) + (updateData.body.length > 100 ? "..." : "")
+          : undefined,
       });
 
       return {
@@ -977,6 +988,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // Create Octokit instance
       const octokit = new Octokit({
         auth: githubToken,
+        log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       });
 
       // Get the PR details first
@@ -1139,6 +1151,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // Create Octokit instance
       const octokit = new Octokit({
         auth: githubToken,
+        log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       });
 
       // Search for pull requests with this head branch
@@ -1235,6 +1248,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // Create Octokit instance
       const octokit = new Octokit({
         auth: githubToken,
+        log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       });
 
       // Get the PR details first to validate it exists and is open
@@ -1426,13 +1440,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const approvals = reviews.filter((review) => review.state === "APPROVED");
       const rejections = reviews.filter((review) => review.state === "CHANGES_REQUESTED");
 
-      // Determine if approved (has at least one approval and no pending change requests)
-      const isApproved = approvals.length > 0 && rejections.length === 0;
-      const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
-
-      // Best-effort fetch of required approvals from branch protection rules
-      // If not accessible, default to 1
-      let requiredApprovals = 1;
+      // Determine required approvals from branch protection (default to 0 if unavailable)
+      let requiredApprovals = 0;
       try {
         const protection = await octokit.rest.repos.getBranchProtection({
           owner: this.owner,
@@ -1444,9 +1453,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
         if (typeof required === "number" && required >= 0) {
           requiredApprovals = required;
         }
-      } catch (e) {
-        // Ignore permission errors; keep default of 1
+      } catch (_e) {
+        // No protection or insufficient perms → treat as zero required approvals
+        requiredApprovals = 0;
       }
+
+      // Determine approval: if no required approvals, only block when changes requested
+      const isApproved =
+        (requiredApprovals === 0 && rejections.length === 0) ||
+        (requiredApprovals > 0 && approvals.length >= requiredApprovals && rejections.length === 0);
+      const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
 
       return {
         isApproved,

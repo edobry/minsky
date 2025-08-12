@@ -15,7 +15,7 @@ The .mdc file is now the **single source of truth** and contains:
 ✅ **Cross-test interference prevention**  
 ✅ **Root cause investigation methodology**  
 ✅ **Complete ESLint integration guide**  
-✅ **Debugging and troubleshooting sections**  
+✅ **Debugging and troubleshooting sections**
 
 ## Why This Change?
 

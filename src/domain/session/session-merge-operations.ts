@@ -217,17 +217,15 @@ export async function mergeSessionPr(
       );
 
       if (!approvalStatus.isApproved) {
+        // Be concise and user-friendly; don't assert a required approvals count
         throw new ValidationError(
-          `❌ MERGE REJECTED: GitHub PR #${sessionRecord.pullRequest.number} is not approved.\n\n` +
-            `📊 Approval Status:\n` +
-            `   • Required approvals: ${approvalStatus.requiredApprovals}\n` +
-            `   • Current approvals: ${approvalStatus.approvals.length}\n` +
-            `   • Can merge: ${approvalStatus.canMerge}\n\n` +
-            `💡 Next steps:\n` +
-            `   1. View the PR: ${sessionRecord.pullRequest.url}\n` +
-            `   2. Request review from a maintainer\n` +
-            `   3. Address any review feedback\n` +
-            `   4. Try merge again once approved`
+          `❌ GitHub PR #${sessionRecord.pullRequest.number} is not approved.` +
+            `\n\n` +
+            `💡 Next steps:` +
+            `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
+            `\n   2. Request a review if needed` +
+            `\n   3. Address any review feedback` +
+            `\n   4. Try merge again`
         );
       }
 
@@ -238,8 +236,10 @@ export async function mergeSessionPr(
       if (error instanceof ValidationError) {
         throw error; // Re-throw our validation errors
       }
-      // Log but don't fail on API errors - let GitHub's merge API handle the final validation
-      log.debug(`Failed to check GitHub approval status: ${error}. Proceeding with merge attempt.`);
+      // Quietly continue on API errors; avoid noisy raw HTTP logs
+      log.debug(
+        `Skipping pre-merge approval check due to API error. Proceeding with merge attempt.`
+      );
     }
   }
 
@@ -260,7 +260,6 @@ export async function mergeSessionPr(
   }
 
   const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
-
 
   if (!params.json) {
     log.cli("✅ Session PR merged successfully!");

@@ -216,7 +216,10 @@ export async function approveSessionPr(
     log.cli(`✅ Approving ${displayName}`);
   }
 
-  const approvalInfo = await repositoryBackend.approvePullRequest(prIdentifier, params.reviewComment);
+  const approvalInfo = await repositoryBackend.approvePullRequest(
+    prIdentifier,
+    params.reviewComment
+  );
 
   // Note: Repository backend handles approval storage:
   // - GitHub backend: stores approval in GitHub

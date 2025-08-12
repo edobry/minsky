@@ -18,6 +18,7 @@ Multiple test files use problematic global mocking patterns that create test iso
 ## Discovery Evidence
 
 From 100% test success analysis:
+
 - Global `mock.module()` calls persist across tests causing interference
 - Tests passing individually but failing in full suite indicates cross-test pollution
 - Functions importing mocked modules fail when other tests globally mock same modules
@@ -25,6 +26,7 @@ From 100% test success analysis:
 ## Solution Approach
 
 ### Priority 1: Session-Related Tests (Highest Risk)
+
 Target files with session operations first as they have highest interference potential:
 
 1. `src/domain/session-*.test.ts` files
@@ -32,12 +34,14 @@ Target files with session operations first as they have highest interference pot
 3. `src/domain/session/session-*.test.ts` files
 
 ### Priority 2: Repository Backend Tests
+
 4. Files with `repository` or `backend` in the name
 5. Task-related test files
 
 ### Pattern Transformation
 
 **FROM (Dangerous):**
+
 ```typescript
 mock.module("../utils/logger", () => ({
   log: mockLog,
@@ -45,6 +49,7 @@ mock.module("../utils/logger", () => ({
 ```
 
 **TO (Safe):**
+
 ```typescript
 const dependencies = {
   logger: mockLogger,
@@ -71,12 +76,14 @@ const dependencies = {
 ## Files to Target (Initial List)
 
 ### Critical (Session-related):
+
 - `src/domain/session-approve*.test.ts`
-- `src/domain/session-pr*.test.ts` 
+- `src/domain/session-pr*.test.ts`
 - `src/domain/session-lookup*.test.ts`
 - `tests/adapters/cli/session*.test.ts`
 
 ### High Priority:
+
 - `src/domain/rules/rule-template-service.test.ts`
 - `src/domain/rules/template-system.test.ts`
 - `src/domain/storage/database-integrity-checker.test.ts`

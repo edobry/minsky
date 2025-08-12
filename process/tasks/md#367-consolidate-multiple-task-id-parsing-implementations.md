@@ -27,133 +27,84 @@ Task md#367 exists in process/tasks.md but invisible in `minsky tasks list`
 
 Consolidate all parsing into single unified implementation that supports:
 
-- Qualified format: md#123, gh#456 (STRICT ONLY)
-- ~~Legacy format support removed after migration~~ ✅
+- Qualified format: md#123, gh#456 (STRICT)
+- ~~Temporary legacy acceptance (input-only) during migration; remove after cutover~~
 
 ## Success Criteria
 
 - `minsky tasks list` shows qualified backend IDs correctly ✅
 - `minsky tasks get md#367` works ✅
-- Only qualified IDs accepted (strict mode) ✅
+- ~~Post-migration: CLI accepts ONLY qualified IDs~~ ✅
 
-## Requirements
+## 🎯 Expanded Scope: Validation, Parsing, Retrieval
 
-## Solution
+- ~~CLI schema validation must accept qualified IDs now; later flip to strict-only~~ ✅
+- ~~Task list must preserve qualified IDs (no stripping)~~ ✅
+- ~~Retrieval must resolve qualified IDs reliably~~ ✅
 
-## Notes
+## Implementation Plan
 
-## 🎯 EXPANDED SCOPE: Multiple Validation Layers Broken
+1. ~~Migration command enhancements (default-on spec rename)~~ ✅
 
-**NEW DISCOVERY**: CLI schema validation rejects qualified IDs:
-`minsky tasks get md#367` → "Task ID must be a valid number"
+   - ~~Extend `tasks migrate` to:~~
+     - ~~Rename numeric spec files `^\d+-.*\.md$` → `md#<id>-...` (backup and dry-run first)~~ ✅
+     - ~~Update references in `process/tasks.md` accordingly~~ ✅
+     - ~~Use markdown task backend path rules to avoid data loss~~ ✅
+     - ~~Log mapping file for rollback~~ ✅
 
-**Complete Scope of Issues:**
+2. ~~Strict mode toggle (temporary)~~ ✅
 
-1. ✅ Creation/Storage: Works (md#367 created & saved)
-2. ❌ CLI Schema: Rejects qualified IDs ("283", "#283", "task#283" only)
-3. ❌ Task List: Ignores qualified IDs (parsing regex issue)
-4. ❌ Task Retrieval: Cannot access qualified IDs
+   - ~~Add config flag `tasks.strictIds` (default false) using configuration system~~ ✅
+   - ~~When true: `taskIdSchema` accepts ONLY `^[a-z-]+#\d+$`~~ ✅
+   - ~~When false: keep current normalization (legacy accepted → normalized to md#)~~ ✅
+   - ~~We will remove this toggle after full migration~~ ✅
 
-**Files to Fix:**
+3. **Parsing consolidation** ✅ **COMPLETED**
 
-- CLI validation schemas (reject qualified IDs)
-- Multiple parsing implementations (inconsistent)
-- Task list display logic (ignores qualified IDs)
+   - Ensure `taskFunctions.ts` and `taskConstants.ts` keep IDs qualified
+   - Remove/avoid any normalization that strips backend prefixes
+   - **Identify and consolidate the 3+ parsing implementations into single authority**
 
-**This confirms multiple incompatible validation/parsing layers - classic technical debt.**
+4. ~~Verification~~ ✅
+   - ~~Tests for migration rename, list display, and strict-only acceptance (behind flag)~~ ✅
+   - ~~Manual verification via `bun run ./src/cli.ts tasks migrate --dry-run` then apply~~ ✅
 
-## 🎯 IMPLEMENTATION STATUS - PARTIALLY COMPLETED IN TASK #397
+## Status Update
 
-**CRITICAL DISCOVERY (2025-01-07)**: This task was marked DONE but **never actually implemented**. The backwards compatibility issues remained and broke the multi-backend system implemented in Task #356.
+✅ MIGRATION COMPLETED
 
-**WORK COMPLETED IN TASK #397**:
+- Applied spec file renames with backup (numeric → `md#<id>-...`)
+- Updated all links in `process/tasks.md` to qualified paths and `[md#id]` texts
+- Verified end-to-end:
+  - `tasks list` shows qualified IDs (e.g., `md#367`, `md#004`)
+  - `tasks get md#367` returns the correct task
+  - `tasks spec md#367` reads the correct spec file
 
-✅ **Root Cause Identified**: `normalizeTaskId()` in `parseTasksFromMarkdown()` was converting qualified IDs (`md#123`) back to legacy format (`#123`), breaking multi-backend routing
+✅ CLEANUP COMPLETED (STRICT-ONLY, NO TOGGLES)
 
-✅ **Core Fix Applied**: Removed backwards compatibility normalization in `taskFunctions.ts` lines 62-66:
-```typescript
-// OLD (BROKEN):
-const normalizedId = normalizeTaskId(id) || id;
+- Removed permissive mode and the `tasks.strictIds` toggle; deleted `strict-mode-checker`
+- Unified on `src/domain/tasks/task-id.ts`; removed legacy `unified-task-id.ts`
+- Zod schemas strict-only (`taskIdSchema`, CLI `TaskParameters.taskId*`)
+- Removed normalization utilities and legacy aliases:
+  - Deleted `normalizeTaskId` usages across domain and adapters
+  - Simplified `task-id-utils.ts` to `validateQualifiedTaskId` and helpers; removed `formatTaskIdForDisplay`
+- Session layer hardened for qualified IDs only:
+  - `SessionMultiBackendIntegration`: strict-only, removed `getDisplayTaskId` and legacy migration helpers
+  - Kept strict `extractTaskIdFromSessionName` for `task-<qualified>` parsing in PR workflows
+  - `session delete` resolves by `name` or qualified `task` via unified resolver
+- Task domain cleanup:
+  - `taskFunctions.ts` formats IDs strictly (no legacy decoration)
+  - `taskConstants.ts` regex fixed for `[md#004]` and qualified-only parse
+- Tests updated to strict-only and to use mock FS utilities (no real fs):
+  - Session CLI/domain tests use `md#...`, removed mkdir/file IO
+  - Removed legacy expectations and `ForStorage` alias; updated spies/mocks
 
-// NEW (FIXED):
-// Keep ID as-is for multi-backend compatibility
-// Note: normalizeTaskId was stripping qualified prefixes (md#123 -> #123)
-// which breaks multi-backend routing
-```
+📌 Naming and module cleanup
 
-✅ **Multi-Backend Fixes**:
-- Fixed `MarkdownTaskBackend.getTask()` to handle ID format mismatches
-- Fixed `MultiBackendTaskService.getTask()` to re-qualify task IDs
-- Fixed `MultiBackendTaskService.listAllTasks()` to re-qualify task IDs
+- Renamed module to `task-id` (no "unified"/"qualified" prefixes per boundary protocol)
+- Removed dead code and temporary compatibility layers
 
-## ✅ MIGRATION COMPLETED - STATUS UPDATE
+📗 Documentation
 
-**PHASE 1 - MIGRATION COMPLETED:**
-- ✅ Migration applied with spec file renames and backup
-- ✅ Links in `process/tasks.md` updated to match renamed spec files
-- ✅ Strict IDs enabled via configuration (`tasks.strictIds: true`)
-- ✅ End-to-end verification passed:
-  - `tasks list` shows qualified IDs (`md#367`, `md#004`, etc.)
-  - `tasks get md#367` works correctly
-  - `tasks spec md#367` reads correct spec file
-- ✅ All spec file path mismatches fixed
-
-**PHASE 2 - CLEANUP (IN PROGRESS):**
-- 🔄 Remove permissive mode and legacy ID support entirely
-- 🔄 Remove `tasks.strictIds` configuration toggle
-- 🔄 Remove `strict-mode-checker.ts` utility
-- 🔄 Simplify parsing logic to qualified-only
-- 🔄 Update all tests to expect only qualified IDs
-- 🔄 Clean up dead code paths and temporary compatibility layers
-
-**PREVIOUS WORK NOTES**:
-- Complete testing of multi-backend integration
-- Verify all CLI commands work with qualified IDs
-- Remove remaining `normalizeTaskId` calls if any
-- Complete systematic replacement plan below
-
-**ORIGINAL IMPLEMENTATION APPROACH**:
-
-**NAMING DECISION: Use `TaskId` as the unified system name**
-
-- Clean, simple, obvious purpose
-- Single source of truth for all task ID operations
-
-**REQUIRED: Start with @test-driven-bugfix.mdc**
-
-1. **Write failing tests first** that demonstrate the current inconsistent behavior
-2. **Test each broken layer**: CLI validation, task list parsing, task retrieval
-3. **Document the exact failure modes** in test descriptions
-4. **Implement TaskId system** to make tests pass
-5. **Systematically replace** all scattered implementations
-
-## TARGET API DESIGN
-
-```typescript
-import { TaskId } from "./task-id";
-
-// Replace ALL scattered logic with:
-TaskId.parse("md#367"); // → {backend: "md", localId: "367"}
-TaskId.validate("gh#123"); // → true
-TaskId.format(parsedId); // → "md#367"
-TaskId.normalize("#367"); // → "md#367" (with default backend)
-TaskId.isLegacy("#367"); // → true
-```
-
-## SYSTEMATIC REPLACEMENT PLAN
-
-Replace these scattered implementations with TaskId calls:
-
-1. CLI schema validation (rejects qualified IDs)
-2. taskConstants.ts regex patterns
-3. taskFunctions.ts parsing
-4. markdownTaskBackend.ts parsing
-5. Task display formatting
-6. Task list parsing
-
-## SUCCESS TESTS
-
-- `minsky tasks get "md#367"` works ✅
-- `minsky tasks list` shows qualified IDs ✅
-- All legacy IDs still work ✅
-- Consistent behavior across all operations ✅
+- Converted remaining `[#id]` link texts to `[md#id]` in `process/tasks.md`
+- This spec reflects strict-only policy: input == storage == display (qualified only)

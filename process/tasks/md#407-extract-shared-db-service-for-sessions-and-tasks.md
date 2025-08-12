@@ -84,5 +84,3 @@ Short-term directive: reuse the session DB for task metadata and embeddings to d
 
 - Implementing full task metadata relational model (tracked separately)
 - SQLite vector support (optional follow-up)
-
-

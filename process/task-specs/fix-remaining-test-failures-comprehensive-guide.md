@@ -5,6 +5,7 @@
 **MAJOR PROGRESS ACHIEVED**: 98 → 21 failing tests (**77 tests fixed, 79% reduction!**)
 
 ### Completed Categories ✅
+
 - **Interface-Agnostic Task Command Functions**: ALL 18 tests passing
 - **Session Auto-Task Creation**: Fixed via DI pattern
 - **Session PR State Optimization**: Fixed via Mock Data Completeness
@@ -13,6 +14,7 @@
 - **Session Approve Task Status Commit**: ALL 4 tests passing via Template Literal + Session Format Fix
 
 ### Remaining Categories (21 tests):
+
 - **Individual Service Mock Factories**: Factory integration issues
 - **Task ID Integration Issues**: Explicitly marked as "CURRENTLY BROKEN"
 - **Real-World Workflow Testing**: TaskService integration with JSON backend
@@ -54,6 +56,7 @@ const mockTaskService = {
 ```
 
 **Key Benefits**:
+
 - ✅ Reliable mock construction
 - ✅ All required methods explicitly defined
 - ✅ Handles both input and qualified ID formats
@@ -67,7 +70,7 @@ const mockTaskService = {
 // ❌ PROBLEMATIC: Magic strings and repetition
 expect(result.taskId).toBe("md#125");
 expect(result.session).toBe("task-md#125");
-expect(gitCommands).toContain("git commit -m \"chore(md#125): update task status to DONE\"");
+expect(gitCommands).toContain('git commit -m "chore(md#125): update task status to DONE"');
 expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task-md#125");
 
 // ✅ PROVEN: Template Literal Pattern with extracted constants
@@ -84,6 +87,7 @@ expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRA
 ```
 
 **Key Benefits**:
+
 - ✅ Single source of truth for each identifier
 - ✅ Reduced surface area for errors
 - ✅ Easier maintenance and refactoring
@@ -99,20 +103,22 @@ expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRA
 ```typescript
 // ❌ BROKEN: Session DB mock returns wrong format
 const mockSessionDB = {
-  getSessionByTaskId: (taskId: string) => Promise.resolve({
-    session: `task${taskId}`, // → "taskmd#125" (no dash) ❌
-    taskId,
-    prBranch: `pr/task${taskId}`, // → "pr/taskmd#125" (no dash) ❌
-  })
+  getSessionByTaskId: (taskId: string) =>
+    Promise.resolve({
+      session: `task${taskId}`, // → "taskmd#125" (no dash) ❌
+      taskId,
+      prBranch: `pr/task${taskId}`, // → "pr/taskmd#125" (no dash) ❌
+    }),
 };
 
 // ✅ FIXED: Session DB mock returns correct format
 const mockSessionDB = {
-  getSessionByTaskId: (taskId: string) => Promise.resolve({
-    session: `task-${taskId}`, // → "task-md#125" (with dash) ✅
-    taskId,
-    prBranch: `pr/task-${taskId}`, // → "pr/task-md#125" (with dash) ✅
-  })
+  getSessionByTaskId: (taskId: string) =>
+    Promise.resolve({
+      session: `task-${taskId}`, // → "task-md#125" (with dash) ✅
+      taskId,
+      prBranch: `pr/task-${taskId}`, // → "pr/task-md#125" (with dash) ✅
+    }),
 };
 ```
 
@@ -129,20 +135,20 @@ const mockSessionDB = {
 const mockTaskService = {
   listTasks: async (options) => {
     if (options.status) {
-      return mockTasks.filter(task => task.status === options.status); // ❌ Domain logic!
+      return mockTasks.filter((task) => task.status === options.status); // ❌ Domain logic!
     }
     if (!options.all) {
-      return mockTasks.filter(task => task.status !== "DONE"); // ❌ Domain logic!
+      return mockTasks.filter((task) => task.status !== "DONE"); // ❌ Domain logic!
     }
     return mockTasks;
-  }
+  },
 };
 
 // ✅ CORRECT: Provide specific expected data for each test
 const mockTaskService = {
   listTasks: async () => [
-    { id: "#155", title: "Task 1", status: "BLOCKED" } // ✅ Expected result only
-  ]
+    { id: "#155", title: "Task 1", status: "BLOCKED" }, // ✅ Expected result only
+  ],
 };
 ```
 
@@ -172,24 +178,28 @@ export function normalizeTaskId(id: string): string | undefined {
 ## ⚠️ CRITICAL ANTI-PATTERNS TO AVOID
 
 ### 1. **Domain Logic in Tests**
+
 ```typescript
 // ❌ NEVER: Implement filtering, validation, or business rules in mocks
 listTasks: async (options) => mockTasks.filter(task => /* filtering logic */)
 ```
 
 ### 2. **Unreliable Mock Construction**
+
 ```typescript
 // ❌ AVOID: createMockTaskService with async functions - often fails
-createMockTaskService(async (taskId) => taskId === "155" ? mockTask : null)
+createMockTaskService(async (taskId) => (taskId === "155" ? mockTask : null));
 ```
 
 ### 3. **Incomplete Mock Objects**
+
 ```typescript
 // ❌ INCOMPLETE: Missing required methods causes "X is not a function" errors
 const mockTaskService = { getTask: async () => null }; // Missing listTasks, etc.
 ```
 
 ### 4. **Magic String Duplication**
+
 ```typescript
 // ❌ AVOID: Repeated hardcoded strings
 expect(result.taskId).toBe("md#001");
@@ -198,10 +208,11 @@ const sessionName = "task-md#001";
 ```
 
 ### 5. **Session Format Misalignment**
+
 ```typescript
 // ❌ AVOID: Mock format doesn't match system format
 const mockSessionDB = {
-  getSessionByTaskId: (taskId) => ({ session: `task${taskId}` }) // Missing dash!
+  getSessionByTaskId: (taskId) => ({ session: `task${taskId}` }), // Missing dash!
 };
 expect(result.session).toBe("task-md#125"); // Expects dash but mock doesn't provide it
 ```
@@ -209,11 +220,13 @@ expect(result.session).toBe("task-md#125"); // Expects dash but mock doesn't pro
 ## PROVEN SYSTEMATIC METHODOLOGY
 
 ### Step 1: Identify Error Pattern
+
 ```bash
 bun test ./path/to/failing-test.ts --timeout 5000
 ```
 
 **Common Error Patterns**:
+
 - `ResourceNotFoundError: Task md#155 not found` → Apply **Explicit Mock Pattern**
 - `expect(received).toBe(expected)` with format mismatch → Apply **Format Migration Pattern**
 - `X is not a function` → Apply **Explicit Mock Pattern** with complete interface
@@ -223,16 +236,17 @@ bun test ./path/to/failing-test.ts --timeout 5000
 
 ### Step 2: Apply Proven Pattern
 
-| Error Type | Pattern | Success Rate |
-|------------|---------|--------------|
-| ResourceNotFoundError | **Explicit Mock Pattern** | 100% |
-| Format mismatch | **Format Migration Pattern** | 95% |
-| Missing mock methods | **Explicit Mock Pattern** | 100% |
-| Domain logic needed | **Expected Data Provision** | 100% |
-| Session name format | **Session Format Alignment Pattern** | 100% |
-| Magic string duplication | **Template Literal Pattern** | 100% |
+| Error Type               | Pattern                              | Success Rate |
+| ------------------------ | ------------------------------------ | ------------ |
+| ResourceNotFoundError    | **Explicit Mock Pattern**            | 100%         |
+| Format mismatch          | **Format Migration Pattern**         | 95%          |
+| Missing mock methods     | **Explicit Mock Pattern**            | 100%         |
+| Domain logic needed      | **Expected Data Provision**          | 100%         |
+| Session name format      | **Session Format Alignment Pattern** | 100%         |
+| Magic string duplication | **Template Literal Pattern**         | 100%         |
 
 ### Step 3: Verify & Commit
+
 ```bash
 bun test ./path/to/test.ts --timeout 5000
 git add -A && git commit -m "fix: [pattern] - [description]"
@@ -275,7 +289,8 @@ sessionName = taskIdToSessionName(taskId); // → "task-md#265"
 ```typescript
 // ❌ Old: Hard dependency
 export async function startSessionFromParams(params) {
-  const createdTask = await createTaskFromTitleAndDescription({ // Global function!
+  const createdTask = await createTaskFromTitleAndDescription({
+    // Global function!
     title: taskSpec.title,
     description: taskSpec.description,
   });
@@ -345,7 +360,7 @@ expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("md#155", "DONE");
 // ❌ Old: Magic strings everywhere
 expect(result.taskId).toBe("md#125");
 expect(result.session).toBe("task-md#125");
-expect(gitCommands).toContain("git commit -m \"chore(md#125): update task status to DONE\"");
+expect(gitCommands).toContain('git commit -m "chore(md#125): update task status to DONE"');
 expect(gitCommands).toContain("git show-ref --verify --quiet refs/heads/pr/task-md#125");
 
 // ✅ New: Single source of truth with template literals
@@ -371,7 +386,7 @@ const mockSessionDB = {
   getSessionByTaskId: (taskId: string) => ({
     session: `task${taskId}`, // → "taskmd#125" (missing dash)
     prBranch: `pr/task${taskId}`,
-  })
+  }),
 };
 
 // ✅ New: Aligned session format
@@ -379,7 +394,7 @@ const mockSessionDB = {
   getSessionByTaskId: (taskId: string) => ({
     session: `task-${taskId}`, // → "task-md#125" (with dash)
     prBranch: `pr/task-${taskId}`,
-  })
+  }),
 };
 ```
 
@@ -407,12 +422,14 @@ const mockSessionDB = {
 ## Reference Files (Examples of Success)
 
 ### Perfect Examples ✅:
+
 - `src/domain/tasks/taskCommands.test.ts` - **ALL 18 tests passing** using **Explicit Mock Pattern**
 - `src/domain/session-auto-task-creation.test.ts` - Fixed via **DI Pattern**
 - `src/domain/session-pr-state-optimization.test.ts` - Fixed via **Mock Data Completeness**
 - `src/domain/session/session-approve-task-status-commit.test.ts` - **ALL 4 tests passing** using **Template Literal Pattern** + **Session Format Alignment Pattern**
 
 ### Anti-Examples ❌:
+
 - Any test still using `createMockTaskService(async (taskId) => ...)`
 - Any test implementing filtering/validation logic in mocks
 - Any test with incomplete mock interfaces

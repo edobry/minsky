@@ -11,6 +11,7 @@ Investigate integrating TypeScript/JavaScript language server capabilities into 
 ## Key Areas of Investigation
 
 ### 1. Language Server Protocol (LSP) Research
+
 - Research existing LSP implementations (TypeScript Language Server, etc.)
 - Understand LSP capabilities for semantic analysis:
   - Go to definition
@@ -22,6 +23,7 @@ Investigate integrating TypeScript/JavaScript language server capabilities into 
   - Inheritance hierarchy
 
 ### 2. State-of-the-Art Analysis
+
 - Research existing tools that provide semantic code analysis:
   - GitHub Copilot Workspace
   - Sourcegraph
@@ -32,6 +34,7 @@ Investigate integrating TypeScript/JavaScript language server capabilities into 
 - Identify best practices and proven patterns
 
 ### 3. MCP Integration Design
+
 - Design MCP tools that would provide:
   - `find_definition`: Find where symbols are defined
   - `find_references`: Find all usages of symbols
@@ -42,6 +45,7 @@ Investigate integrating TypeScript/JavaScript language server capabilities into 
   - `semantic_search`: Search by semantic meaning rather than text
 
 ### 4. Technical Architecture
+
 - Research integration approaches:
   - Direct LSP client integration
   - Language server as a service
@@ -50,12 +54,14 @@ Investigate integrating TypeScript/JavaScript language server capabilities into 
 - Design caching and optimization strategies
 
 ### 5. Implementation Scope
+
 - Determine which language servers to support initially (TypeScript/JavaScript priority)
 - Define MCP tool interfaces and schemas
 - Plan incremental implementation approach
 - Consider workspace initialization and configuration
 
 ### 6. Comparison with Current Approach
+
 - Analyze current similarity-search limitations
 - Quantify potential improvements in accuracy and usefulness
 - Define success metrics and evaluation criteria

@@ -9,8 +9,8 @@ import { executeConfigUnset, formatValue } from "./unset";
 import * as configWriter from "../../domain/configuration/config-writer";
 
 // Mock the config writer module
-const mockCreateConfigWriter = mock();
-const mockUnsetConfigValue = mock();
+let mockCreateConfigWriter = mock();
+let mockUnsetConfigValue = mock();
 
 const mockConfigWriter = {
   unsetConfigValue: mockUnsetConfigValue,

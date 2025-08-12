@@ -4,7 +4,7 @@ import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "../session";
-import { sessionNameToTaskId } from "../tasks/unified-task-id";
+import { sessionNameToTaskId } from "../tasks/task-id";
 import {
   SessionMultiBackendIntegration,
   type MultiBackendSessionRecord,

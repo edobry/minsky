@@ -7,11 +7,7 @@ import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskD
 // Import constants and utilities from centralized location
 import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
-import {
-  normalizeTaskIdForStorage,
-  formatTaskIdForDisplay,
-  getTaskIdNumber,
-} from "./task-id-utils";
+import { getTaskIdNumber } from "./task-id-utils";
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -59,8 +55,8 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       }
     }
 
-    // Normalize ID to legacy format for backward compatibility
-    const normalizedId = normalizeTaskId(id) || id;
+    // Use ID as-is; strict qualified IDs expected upstream
+    const normalizedId = id;
 
     const taskData: TaskData = {
       id: normalizedId,
@@ -92,18 +88,8 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
-      // Unified ID Format: STRICT OUT - display qualified IDs as-is, add # prefix to legacy formats
-      let displayId: string;
-      if (/^[a-z-]+#\d+$/.test(task.id)) {
-        // Already qualified format (md#380, gh#456) - display as-is
-        displayId = task.id;
-      } else if (task.id.startsWith("#")) {
-        // Legacy #-prefixed format (#378) - keep as-is
-        displayId = task.id;
-      } else {
-        // Plain numeric (378) - add # prefix
-        displayId = `#${task.id}`;
-      }
+      // Unified ID Format: STRICT OUT - display qualified IDs as-is
+      const displayId = task.id;
       const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 
       // Always return only the task line - descriptions should remain in spec files
@@ -129,8 +115,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
 
   // If no exact match, try numeric comparison
   // This handles case where ID is provided without leading zeros
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return null;
+  const normalizedId = id;
 
   const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
   if (isNaN(numericId)) return null;
@@ -149,47 +134,7 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
  * @param id Task ID to normalize
  * @returns Normalized task ID in legacy format (#XXX) or undefined if invalid
  */
-export function normalizeTaskId(id: string): string | undefined {
-  if (!id) return undefined;
-
-  // Handle complex task formats FIRST (before general # logic)
-  if (id.toLowerCase().includes("task")) {
-    // For patterns like "task-TEST_VALUE", extract "task"
-    // For patterns like "task#TEST_VALUE", extract "task"
-    // For patterns like "task TEST_VALUE", extract "task"
-    const parts = id.split(/[-#\s]/); // Split by -, #, or space
-    const firstPart = parts[0];
-    if (firstPart && /^[a-zA-Z0-9_]+$/.test(firstPart)) {
-      return `#${firstPart}`;
-    }
-  }
-
-  // Handle qualified IDs by extracting the local part
-  if (id.includes("#")) {
-    const parts = id.split("#");
-    if (parts.length === 2) {
-      const localId = parts[1];
-      // Return in legacy format for backward compatibility
-      return /^[a-zA-Z0-9_]+$/.test(localId) ? `#${localId}` : undefined;
-    }
-  }
-
-  // Handle patterns with delimiters - extract first part
-  if (id.includes("-") || id.includes(" ")) {
-    const parts = id.split(/[-\s]/); // Split by - or space
-    const firstPart = parts[0];
-    if (firstPart && /^[a-zA-Z0-9_]+$/.test(firstPart)) {
-      return `#${firstPart}`;
-    }
-  }
-
-  // Handle purely alphanumeric IDs (legacy compatibility)
-  if (/^[a-zA-Z0-9_]+$/.test(id)) {
-    return `#${id}`;
-  }
-
-  return undefined;
-}
+// normalizeTaskId removed: strict qualified IDs only
 
 /**
  * Calculate the next available task ID (pure function)
@@ -219,8 +164,7 @@ export function getNextTaskId(tasks: TaskData[]): string {
 export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
 
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return tasks;
+  const normalizedId = id;
 
   // Validate status using centralized utility
   if (!isValidTaskStatusUtil(status)) {
@@ -244,8 +188,8 @@ export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus)
 export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
   if (!tasks || !newTask) return tasks;
 
-  // Ensure the task has a valid ID
-  if (!newTask.id || !normalizeTaskId(newTask.id)) {
+  // Ensure the task has an ID; if missing, assign next numeric storage id
+  if (!newTask.id) {
     newTask = {
       ...newTask,
       id: getNextTaskId(tasks),
@@ -293,8 +237,8 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
       }
 
       // Try normalized string comparison
-      const normalizedFilterId = normalizeTaskId(filter.id);
-      const normalizedTaskId = normalizeTaskId(task.id);
+      const normalizedFilterId = filter.id;
+      const normalizedTaskId = task.id;
 
       if (normalizedFilterId && normalizedTaskId) {
         // Strip the "#" prefix for more flexible comparison

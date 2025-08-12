@@ -92,7 +92,7 @@ describe("Session Merge Security Validation", () => {
 
       expect(() => {
         validateSessionApprovedForMerge(sessionRecord, "test-session");
-      }).toThrow(/MERGE REJECTED.*must be approved before merging/);
+      }).toThrow(/PR must be approved/);
     });
 
     it("should REJECT merge when prApproved is undefined", () => {
@@ -111,7 +111,7 @@ describe("Session Merge Security Validation", () => {
 
       expect(() => {
         validateSessionApprovedForMerge(sessionRecord, "test-session");
-      }).toThrow(/MERGE REJECTED.*must be approved before merging/);
+      }).toThrow(/PR must be approved/);
     });
 
     it("should REJECT merge when prApproved is truthy but not boolean true", () => {
@@ -173,7 +173,7 @@ describe("Session Merge Security Validation", () => {
         ValidationError
       );
       await expect(mergeSessionPr(params, { sessionDB: mockSessionProvider })).rejects.toThrow(
-        /MERGE REJECTED.*must be approved/
+        /PR must be approved/
       );
 
       // Repository backend should NEVER be called for unapproved sessions
