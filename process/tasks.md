@@ -646,4 +646,8 @@
 
 - [ ] Fix session start to auto-detect GitHub remote when default repo backend is GitHub [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
+- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+
+- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
