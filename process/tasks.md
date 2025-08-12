@@ -681,3 +681,7 @@
 - [ ] Complete TaskBackend enum refactoring across codebase [#406](process/tasks/md#406-complete-taskbackend-enum-refactoring-across-codebase.md)
 
 - [ ] Extract Shared Database Service for Sessions, Tasks, and Embeddings [#407](process/tasks/md#407-extract-shared-db-service-for-sessions-and-tasks.md)
+
+- [ ] Implement GitHub repository quality guardrails configuration [#408](process/tasks/md#408-implement-github-repository-quality-guardrails-configuration.md)
+
+- [ ] Implement session pr open command for GitHub backend [md#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)

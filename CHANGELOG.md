@@ -14,6 +14,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
+  - Separate `session pr create` and `session pr edit` functionality - create fails if PR already exists
+  - Added `updatePullRequest` method to `RepositoryBackend` interface for backend-specific PR updates
+  - GitHub backend uses GitHub API directly (no local conflict checks, server handles conflicts)
+  - Local/Remote backends delegate to existing `sessionPr` logic with conflict checks (appropriate for git workflows)
+  - Auto-detect PR number from current git branch for GitHub backend
+  - Improved error messages and validation for both create and edit operations
+  - Backend delegation allows each repository type to handle PR updates appropriately
+
 - **Task md#407**: Extract shared DB service for sessions, tasks metadata, and embeddings (pgvector)
   - Introduces a new task to define a general-purpose `DbService` abstraction
   - Reuses existing sessiondb infra and prepares for md#253 embeddings storage
