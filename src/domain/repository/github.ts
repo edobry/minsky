@@ -539,7 +539,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
     body: string,
     sourceBranch: string,
     baseBranch: string = "main",
-    session?: string
+    session?: string,
+    draft?: boolean
   ): Promise<PRInfo> {
     if (!this.owner || !this.repo) {
       throw new MinskyError("GitHub owner and repo must be configured to create pull requests");
@@ -597,6 +598,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         body,
         head: sourceBranch,
         base: baseBranch,
+        draft: draft || false,
       });
 
       const pr = prResponse.data;

@@ -48,12 +48,32 @@ export async function sessionPrCreate(
   body?: string;
   pullRequest?: PullRequestInfo;
 }> {
-  // Handle draft mode - only works with GitHub backend and skips session update
+  // Handle draft mode - validate GitHub backend but use normal session PR flow
   if (params.draft) {
-    return await sessionPrCreateDraft(params, options);
+    // Validate GitHub backend requirement for draft mode
+    const sessionProvider = createSessionProvider();
+    const resolvedContext = await resolveSessionContextWithFeedback({
+      session: params.name,
+      task: params.task,
+      repo: params.repo,
+      sessionProvider,
+      allowAutoDetection: true,
+    });
+
+    const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
+    if (!sessionRecord) {
+      throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
+    }
+
+    const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
+    if (repositoryBackend.constructor.name !== "GitHubBackend") {
+      throw new ValidationError(
+        "Draft mode is only supported for GitHub repositories. Current session uses a different repository backend."
+      );
+    }
   }
 
-  // Delegate to existing session pr implementation for non-draft PRs
+  // Delegate to existing session pr implementation (works for both draft and regular PRs)
   const result = await sessionPr(
     {
       session: params.name,
@@ -65,6 +85,7 @@ export async function sessionPrCreate(
       debug: params.debug || false,
       noStatusUpdate: params.noStatusUpdate || false,
       skipConflictCheck: params.skipConflictCheck || false,
+      draft: params.draft || false,
 
       autoResolveDeleteConflicts: params.autoResolveDeleteConflicts || false,
     },
@@ -79,197 +100,7 @@ export async function sessionPrCreate(
   };
 }
 
-/**
- * Session PR Create Draft implementation
- * Creates a draft PR without session update - GitHub only
- */
-async function sessionPrCreateDraft(
-  params: {
-    title?: string;
-    body?: string;
-    bodyPath?: string;
-    name?: string;
-    task?: string;
-    repo?: string;
-    noStatusUpdate?: boolean;
-    debug?: boolean;
 
-    autoResolveDeleteConflicts?: boolean;
-    skipConflictCheck?: boolean;
-    draft?: boolean;
-  },
-  options?: {
-    interface?: "cli" | "mcp";
-    workingDirectory?: string;
-  }
-): Promise<{
-  prBranch: string;
-  baseBranch: string;
-  title?: string;
-  body?: string;
-  pullRequest?: PullRequestInfo;
-}> {
-  const sessionProvider = createSessionProvider();
-  const gitService = createGitService();
-
-  // Resolve session context
-  const resolvedContext = await resolveSessionContextWithFeedback({
-    session: params.name,
-    task: params.task,
-    repo: params.repo,
-    sessionProvider,
-    allowAutoDetection: true,
-  });
-
-  // Get the session record
-  const sessionRecord = await sessionProvider.getSession(resolvedContext.sessionName);
-  if (!sessionRecord) {
-    throw new ResourceNotFoundError(`Session '${resolvedContext.sessionName}' not found`);
-  }
-
-  // Validate that this is a GitHub repository backend
-  const repositoryBackend = await createRepositoryBackendFromSession(sessionRecord);
-  if (repositoryBackend.constructor.name !== "GitHubBackend") {
-    throw new ValidationError(
-      "Draft mode is only supported for GitHub repositories. Current session uses a different repository backend."
-    );
-  }
-
-  // Get session working directory
-  const workdir = await sessionProvider.getSessionWorkdir(resolvedContext.sessionName);
-
-  // Check for uncommitted changes
-  const hasUncommittedChanges = await gitService.hasUncommittedChanges(workdir);
-  if (hasUncommittedChanges) {
-    throw new MinskyError(
-      "Cannot create draft PR with uncommitted changes. Please commit your changes first."
-    );
-  }
-
-  // Read body content from file if provided
-  let bodyContent = params.body;
-  if (!bodyContent && params.bodyPath) {
-    try {
-      const { readFile } = await import("fs/promises");
-      bodyContent = await readFile(params.bodyPath, "utf-8");
-      if (params.debug) {
-        log.debug("Read body content from file", {
-          bodyPath: params.bodyPath,
-          contentLength: bodyContent.length,
-        });
-      }
-    } catch (error) {
-      throw new ValidationError(
-        `Failed to read body content from file: ${params.bodyPath}. ${getErrorMessage(error)}`,
-        "bodyPath",
-        params.bodyPath
-      );
-    }
-  }
-
-  // Validate required parameters
-  if (!params.title) {
-    throw new ValidationError("PR title is required for draft mode");
-  }
-  if (!bodyContent) {
-    throw new ValidationError("PR body is required for draft mode");
-  }
-
-  // Create PR branch (similar to regular PR but without session update)
-  const currentBranch = await gitService.getCurrentBranch(workdir);
-  const prBranchName = `pr/${resolvedContext.sessionName}`;
-  const baseBranch = "main";
-
-  // Create and switch to PR branch
-  try {
-    await gitService.execInRepository(workdir, `git checkout -b ${prBranchName}`);
-  } catch (error) {
-    // Branch might already exist, try to switch to it
-    try {
-      await gitService.execInRepository(workdir, `git checkout ${prBranchName}`);
-    } catch (switchError) {
-      throw new MinskyError(
-        `Failed to create or switch to PR branch ${prBranchName}: ${getErrorMessage(error)}`
-      );
-    }
-  }
-
-  // Merge changes from session branch
-  try {
-    await gitService.execInRepository(workdir, `git merge ${currentBranch}`);
-  } catch (error) {
-    throw new MinskyError(
-      `Failed to merge changes from ${currentBranch} to ${prBranchName}: ${getErrorMessage(error)}`
-    );
-  }
-
-  // Push the PR branch
-  try {
-    await gitService.execInRepository(workdir, `git push origin ${prBranchName}`);
-  } catch (error) {
-    throw new MinskyError(`Failed to push PR branch ${prBranchName}: ${getErrorMessage(error)}`);
-  }
-
-  // Create draft PR using GitHub API directly
-  const githubBackend = repositoryBackend as any; // We know it's GitHub from validation above
-  
-  try {
-    // Get GitHub token from configuration system
-    const { getConfiguration } = await import("../../configuration/index");
-    const config = getConfiguration();
-    const githubToken = config.github.token;
-    if (!githubToken) {
-      throw new MinskyError(
-        "GitHub token not found. Set GITHUB_TOKEN environment variable or configure in minsky config."
-      );
-    }
-
-    // Import Octokit
-    const { Octokit } = await import("@octokit/rest");
-    const octokit = new Octokit({
-      auth: githubToken,
-    });
-
-    // Get owner and repo from the GitHub backend
-    const owner = (githubBackend as any).owner;
-    const repo = (githubBackend as any).repo;
-
-    if (!owner || !repo) {
-      throw new MinskyError("GitHub owner and repo must be configured to create pull requests");
-    }
-
-    // Create the draft pull request
-    const prResponse = await octokit.rest.pulls.create({
-      owner,
-      repo,
-      title: params.title,
-      body: bodyContent,
-      head: prBranchName,
-      base: baseBranch,
-      draft: true, // This is the key difference - create as draft
-    });
-
-    const pr = prResponse.data;
-
-    log.cli(`✅ Draft PR created successfully: ${pr.html_url}`);
-    log.cli(`📝 Draft PR #${pr.number}: ${params.title}`);
-
-    return {
-      prBranch: prBranchName,
-      baseBranch,
-      title: params.title,
-      body: bodyContent,
-      pullRequest: {
-        number: pr.number,
-        url: pr.html_url,
-        state: pr.state,
-        draft: pr.draft,
-      },
-    };
-  } catch (error) {
-    throw new MinskyError(`Failed to create draft PR: ${getErrorMessage(error)}`);
-  }
-}
 
 /**
  * Session PR Edit implementation

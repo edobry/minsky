@@ -320,7 +320,8 @@ Please provide a title for your pull request:
       bodyToUse || "",
       currentBranch,
       baseBranch,
-      sessionName
+      sessionName,
+      params.draft || false
     );
 
     log.cli(`✅ Pull request created successfully!`);
