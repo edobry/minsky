@@ -39,8 +39,9 @@ export const sessionNameSchema = z.string().min(1).max(100);
  */
 export const taskIdSchema = z
   .string()
-  .min(1, "Task ID cannot be empty")
-  .describe("Task ID (accepts legacy and qualified formats)");
+  .refine((val) => /^[a-z-]+#\d+$/.test(val), {
+    message: "Task ID must be qualified (md#123, gh#456)",
+  });
 
 /**
  * Schema for boolean flags with optional description
