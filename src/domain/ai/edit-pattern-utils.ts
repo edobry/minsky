@@ -1,131 +1,110 @@
 /**
- * Utilities for handling edit patterns with "// ... existing code ..." markers
- * following MorphLLM Fast Apply API best practices
+ * Utility functions for handling edit patterns and Morph API integration.
+ * Ensures consistency between production code and tests.
  */
 
 export const EXISTING_CODE_MARKER = "// ... existing code ...";
 
-/**
- * Check if an edit pattern contains existing code markers
- */
-export function hasExistingCodeMarkers(editPattern: string): boolean {
-  return editPattern.includes(EXISTING_CODE_MARKER);
+export function hasExistingCodeMarkers(content: string): boolean {
+  return content.includes(EXISTING_CODE_MARKER);
 }
 
-/**
- * Split edit pattern on existing code markers for analysis
- */
-export function splitOnMarkers(editPattern: string): string[] {
-  return editPattern.split(EXISTING_CODE_MARKER);
+export function splitOnMarkers(content: string): string[] {
+  return content.split(EXISTING_CODE_MARKER);
 }
 
-/**
- * Validate that an edit pattern follows MorphLLM best practices
- */
-export function validateEditPattern(editPattern: string): {
+export interface EditPatternValidation {
   isValid: boolean;
   issues: string[];
   suggestions: string[];
-} {
+}
+
+export interface EditPatternAnalysis {
+  hasMarkers: boolean;
+  markerCount: number;
+  characterCount: number;
+  lineCount: number;
+  parts: string[];
+  validation: EditPatternValidation;
+}
+
+export function analyzeEditPattern(editPattern: string): EditPatternAnalysis {
+  const hasMarkers = hasExistingCodeMarkers(editPattern);
+  const parts = splitOnMarkers(editPattern);
+  const markerCount = hasMarkers ? parts.length - 1 : 0;
+  const characterCount = editPattern.length;
+  const lineCount = editPattern.split("\n").length;
+
   const issues: string[] = [];
   const suggestions: string[] = [];
 
-  if (!hasExistingCodeMarkers(editPattern)) {
-    issues.push("Edit pattern should use '// ... existing code ...' markers");
+  if (hasMarkers && markerCount === 0) {
+    issues.push("Edit pattern contains the marker but it's not used to split content.");
     suggestions.push(
-      "Add '// ... existing code ...' markers to indicate where existing code should be preserved"
+      "Ensure '// ... existing code ...' is used to separate unchanged code sections."
     );
   }
-
-  const parts = splitOnMarkers(editPattern);
-  if (parts.length > 3) {
-    issues.push("Too many existing code markers - should be minimal");
-    suggestions.push("Use fewer markers to minimize unchanged code repetition");
-  }
-
-  // Check for repeated code patterns that suggest the pattern is too verbose
-  const lines = editPattern.split("\n");
-  const codeLines = lines.filter(
-    (line) => line.trim() && !line.includes(EXISTING_CODE_MARKER) && !line.trim().startsWith("//")
-  );
-
-  if (codeLines.length > 10) {
-    issues.push("Edit pattern appears too verbose");
+  if (markerCount > 1) {
     suggestions.push(
-      "Consider showing only the new/changed code with markers for existing content"
+      "Consider using a single '// ... existing code ...' marker for simplicity, unless multiple distinct insertion points are truly needed."
     );
+  }
+  if (!hasMarkers && editPattern.trim().length > 0 && editPattern.split("\n").length > 5) {
+    // Heuristic for verbosity
+    suggestions.push(
+      "For modifications, consider using '// ... existing code ...' markers to minimize unchanged code in the edit pattern, as per MorphLLM best practices."
+    );
+  }
+  if (editPattern.trim().length === 0) {
+    issues.push("Edit pattern is empty.");
+    suggestions.push("Provide a valid edit pattern.");
   }
 
   return {
-    isValid: issues.length === 0,
-    issues,
-    suggestions,
+    hasMarkers,
+    markerCount,
+    characterCount,
+    lineCount,
+    parts,
+    validation: {
+      isValid: issues.length === 0,
+      issues,
+      suggestions,
+    },
   };
 }
 
-/**
- * Create a Morph Fast Apply API request structure
- */
 export interface MorphFastApplyRequest {
   instruction: string;
   originalCode: string;
   editPattern: string;
 }
 
-/**
- * Format a request for Morph Fast Apply API using the correct XML structure
- */
-export function createMorphFastApplyPrompt(request: MorphFastApplyRequest): string {
-  return `<instruction>${request.instruction}</instruction>
-<code>${request.originalCode}</code>
-<update>${request.editPattern}</update>`;
+export interface CompletionParams {
+  prompt: string;
+  provider: string;
+  model?: string;
+  temperature?: number;
+  maxTokens?: number;
+  systemPrompt?: string;
 }
 
-/**
- * Create completion service parameters for Morph Fast Apply
- */
+export function createMorphFastApplyPrompt(request: MorphFastApplyRequest): string {
+  return (
+    `<instruction>${request.instruction}</instruction>\n` +
+    `<code>${request.originalCode}</code>\n` +
+    `<update>${request.editPattern}</update>`
+  );
+}
+
 export function createMorphCompletionParams(
   request: MorphFastApplyRequest,
-  options: {
-    provider?: string;
-    model?: string;
-    temperature?: number;
-    maxTokens?: number;
-  } = {}
-) {
+  baseParams: Omit<CompletionParams, "prompt" | "systemPrompt">
+): CompletionParams {
   const prompt = createMorphFastApplyPrompt(request);
-
   return {
+    ...baseParams,
     prompt,
-    provider: options.provider || "morph",
-    model: options.model || "morph-v3-large",
-    temperature: options.temperature ?? 0.1, // Low temperature for precise edits
-    maxTokens: options.maxTokens ?? Math.max(request.originalCode.length * 2, 4000),
     systemPrompt: "You are a precise code editor using the Fast Apply format.",
-  };
-}
-
-/**
- * Analyze edit pattern and provide insights
- */
-export function analyzeEditPattern(editPattern: string): {
-  hasMarkers: boolean;
-  markerCount: number;
-  parts: string[];
-  characterCount: number;
-  lineCount: number;
-  validation: ReturnType<typeof validateEditPattern>;
-} {
-  const hasMarkers = hasExistingCodeMarkers(editPattern);
-  const parts = splitOnMarkers(editPattern);
-  const validation = validateEditPattern(editPattern);
-
-  return {
-    hasMarkers,
-    markerCount: parts.length - 1,
-    parts: parts.map((part) => part.trim()),
-    characterCount: editPattern.length,
-    lineCount: editPattern.split("\n").length,
-    validation,
   };
 }

@@ -42,7 +42,30 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
     name: "session.edit_file",
     description: `Use this tool to make an edit to an existing file. This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the unchanged code you write.
 
-When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.`,
+When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.
+
+For example:
+
+// ... existing code ...
+FIRST_EDIT
+// ... existing code ...
+SECOND_EDIT
+// ... existing code ...
+THIRD_EDIT
+// ... existing code ...
+
+You should still bias towards repeating as few lines of the original file as possible to convey the change. But, each edit should contain sufficient context of unchanged lines around the code you're editing to resolve ambiguity.
+DO NOT omit spans of pre-existing code (or comments) without using the // ... existing code ... comment to indicate its absence. If you omit the existing code comment, the model may inadvertently delete these lines.
+If you plan on deleting a section, you must provide context before and after to delete it. If the initial code is \`code
+Block 1
+Block 2
+Block 3
+code\`, and you want to remove Block 2, you would output \`// ... existing code ...
+Block 1
+Block 3
+// ... existing code ...\`.
+Make sure it is clear what the edit should be, and where it should be applied.
+Make edits to a file in a single edit_file call instead of multiple edit_file calls to the same file. The apply model can handle many distinct edits at once.`,
     parameters: SessionFileEditSchema,
     handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
@@ -191,18 +214,25 @@ When writing the edit, you should specify each edit in sequence, with the specia
  * Apply edit pattern using fast-apply providers with fallback support
  * Uses AI-powered editing to replace legacy string-based pattern matching
  */
-async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
+async function applyEditPattern(
+  originalContent: string,
+  editContent: string,
+  instruction?: string
+): Promise<string> {
   // Import required dependencies with enhanced error handling
   const { EnhancedAICompletionService } = await import(
     "../../domain/ai/enhanced-completion-service"
   );
+  const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+  const { IntelligentRetryService } = await import("../../domain/ai/intelligent-retry-service");
   const { RateLimitError, AuthenticationError, ServerError } = await import(
     "../../domain/ai/enhanced-error-types"
   );
-  const { getConfiguration } = await import("../../domain/configuration");
   const { analyzeEditPattern, createMorphCompletionParams, MorphFastApplyRequest } = await import(
     "../../domain/ai/edit-pattern-utils"
   );
+  const { getConfiguration } = await import("../../domain/configuration");
+  const { initializeConfiguration } = await import("../../domain/configuration");
 
   // Get AI configuration
   const config = getConfiguration();
@@ -210,6 +240,15 @@ async function applyEditPattern(originalContent: string, editContent: string): P
 
   if (!aiConfig?.providers) {
     throw new Error("No AI providers configured for edit operations");
+  }
+
+  // Analyze edit pattern for validation and optimization
+  const analysis = analyzeEditPattern(editContent);
+  if (!analysis.validation.isValid) {
+    log.warn("Edit pattern validation issues detected", {
+      issues: analysis.validation.issues,
+      suggestions: analysis.validation.suggestions,
+    });
   }
 
   // Find fast-apply capable provider (currently Morph, extendable to others)
@@ -243,40 +282,25 @@ async function applyEditPattern(originalContent: string, editContent: string): P
     log.debug(`Fast-apply providers unavailable, using fallback provider: ${provider}`);
   }
 
-  // Analyze edit pattern for validation and logging
-  const patternAnalysis = analyzeEditPattern(editContent);
-
-  log.debug("Edit pattern analysis", {
-    hasMarkers: patternAnalysis.hasMarkers,
-    markerCount: patternAnalysis.markerCount,
-    characterCount: patternAnalysis.characterCount,
-    validation: patternAnalysis.validation,
-  });
-
-  // Log validation issues if any
-  if (!patternAnalysis.validation.isValid) {
-    log.warn("Edit pattern validation issues", {
-      issues: patternAnalysis.validation.issues,
-      suggestions: patternAnalysis.validation.suggestions,
-    });
-  }
-
-  // Create AI completion service
-  const completionService = new EnhancedAICompletionService({
+  // Create enhanced AI completion service with retry logic and circuit breaker
+  const configService = await initializeConfiguration();
+  const defaultCompletionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);
+  const retryService = new IntelligentRetryService();
+  const completionService = new EnhancedAICompletionService(
+    defaultCompletionService,
+    retryService,
+    configService
+  );
 
-  // Generate the edited content using the selected provider with enhanced error handling
-  let response;
   try {
-    // Create completion parameters using utility functions
     let completionParams;
 
+    // Use Morph Fast Apply format for fast-apply providers
     if (isFastApply && provider === "morph") {
-      // Use Morph Fast Apply API format
       const morphRequest: MorphFastApplyRequest = {
-        instruction:
-          "Apply the edit pattern to add new functionality while preserving existing code",
+        instruction: instruction || "Apply the edit pattern to the original code",
         originalCode: originalContent,
         editPattern: editContent,
       };
@@ -289,13 +313,14 @@ async function applyEditPattern(originalContent: string, editContent: string): P
       });
 
       log.debug("Using Morph Fast Apply format", {
-        instruction: morphRequest.instruction,
-        originalLength: originalContent.length,
-        editPatternLength: editContent.length,
-        promptLength: completionParams.prompt.length,
+        provider,
+        model,
+        hasMarkers: analysis.hasMarkers,
+        markerCount: analysis.markerCount,
+        editLength: editContent.length,
       });
     } else {
-      // Fallback to generic prompt format
+      // Generic fallback prompt format
       const prompt = `Apply the following edit pattern to the original content:
 
 Original content:
@@ -319,34 +344,34 @@ Instructions:
         prompt,
         provider,
         model,
-        temperature: 0.1,
+        temperature: 0.1, // Low temperature for precise edits
         maxTokens: Math.max(originalContent.length * 2, 4000),
         systemPrompt:
           "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
       };
 
-      log.debug("Using fallback prompt format", {
-        provider,
-        promptLength: prompt.length,
-      });
+      log.debug("Using generic edit format", { provider, hasMarkers: analysis.hasMarkers });
     }
 
-    log.debug(`Making AI completion request to ${provider}`, {
-      provider,
-      model,
-      promptLength: completionParams.prompt.length,
-      originalContentLength: originalContent.length,
-      editContentLength: editContent.length,
-    });
+    // Generate the edited content using the enhanced completion service
+    const response = await completionService.complete(completionParams);
+    const result = response.content.trim();
 
-    response = await completionService.complete(completionParams);
+    // Log usage for monitoring
+    log.debug(
+      `Edit completed using ${isFastApply ? "fast-apply" : "fallback"} provider: ${provider}`,
+      {
+        provider,
+        model,
+        originalLength: originalContent.length,
+        editLength: editContent.length,
+        resultLength: result.length,
+        hasMarkers: analysis.hasMarkers,
+        markerCount: analysis.markerCount,
+      }
+    );
 
-    log.debug(`AI completion successful`, {
-      provider,
-      responseLength: response.content.length,
-      tokensUsed: response.usage.totalTokens,
-      finishReason: response.finishReason,
-    });
+    return result;
   } catch (error) {
     // Enhanced error handling and reporting
     if (error instanceof RateLimitError) {
@@ -382,21 +407,6 @@ Instructions:
       throw error;
     }
   }
-
-  const result = response.content.trim();
-
-  // Log usage for monitoring
-  log.debug(
-    `Edit completed using ${isFastApply ? "fast-apply" : "fallback"} provider: ${provider}`,
-    {
-      tokensUsed: response.usage.totalTokens,
-      originalLength: originalContent.length,
-      resultLength: result.length,
-      isFastApply,
-    }
-  );
-
-  return result;
 }
 
 /**

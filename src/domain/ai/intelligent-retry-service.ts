@@ -1,11 +1,6 @@
 /**
- * Intelligent Retry Service for AI Operations
- *
- * Provides sophisticated retry logic with:
- * - Exponential backoff with jitter
- * - Different strategies for different error types
- * - Circuit breaker pattern for persistent failures
- * - Comprehensive logging and metrics
+ * Intelligent retry service with exponential backoff and circuit breaker patterns.
+ * Provides enterprise-grade reliability for AI completion requests.
  */
 
 import { log } from "../../utils/logger.js";
@@ -16,268 +11,95 @@ import {
   NetworkError,
 } from "./enhanced-error-types";
 
-export interface RetryConfig {
-  maxAttempts: number;
-  baseDelayMs: number;
-  maxDelayMs: number;
-  exponentialBase: number;
-  jitterFactor: number;
-  timeoutMs?: number;
+interface CircuitBreakerState {
+  failureCount: number;
+  state: "open" | "closed" | "half-open";
+  nextAttemptTime: number;
 }
-
-export interface RetryResult<T> {
-  success: boolean;
-  result?: T;
-  error?: Error;
-  attemptCount: number;
-  totalDuration: number;
-  retryLog: RetryAttempt[];
-}
-
-export interface RetryAttempt {
-  attempt: number;
-  timestamp: Date;
-  delayMs?: number;
-  error?: string;
-  errorType?: string;
-}
-
-/**
- * Default retry configurations for different error types
- */
-export const DEFAULT_RETRY_CONFIGS: Record<string, RetryConfig> = {
-  rate_limit: {
-    maxAttempts: 5,
-    baseDelayMs: 1000,
-    maxDelayMs: 60000, // 1 minute max
-    exponentialBase: 2,
-    jitterFactor: 0.3,
-  },
-  server_error: {
-    maxAttempts: 3,
-    baseDelayMs: 2000,
-    maxDelayMs: 30000,
-    exponentialBase: 2,
-    jitterFactor: 0.2,
-  },
-  network_error: {
-    maxAttempts: 3,
-    baseDelayMs: 1000,
-    maxDelayMs: 15000,
-    exponentialBase: 1.5,
-    jitterFactor: 0.4,
-  },
-  default: {
-    maxAttempts: 2,
-    baseDelayMs: 1000,
-    maxDelayMs: 10000,
-    exponentialBase: 2,
-    jitterFactor: 0.1,
-  },
-};
 
 export class IntelligentRetryService {
+  private readonly maxRetries: number = 3;
+  private readonly baseDelay: number = 1000; // 1 second
+  private readonly maxDelay: number = 60000; // 60 seconds
+  private readonly circuitBreakerThreshold: number = 5;
+  private readonly circuitBreakerTimeout: number = 60000; // 1 minute
+
   private circuitBreaker = new Map<string, CircuitBreakerState>();
 
-  /**
-   * Execute operation with intelligent retry logic
-   */
-  async executeWithRetry<T>(
+  constructor(options?: {
+    maxRetries?: number;
+    baseDelay?: number;
+    maxDelay?: number;
+    circuitBreakerThreshold?: number;
+    circuitBreakerTimeout?: number;
+  }) {
+    this.maxRetries = options?.maxRetries ?? this.maxRetries;
+    this.baseDelay = options?.baseDelay ?? this.baseDelay;
+    this.maxDelay = options?.maxDelay ?? this.maxDelay;
+    this.circuitBreakerThreshold = options?.circuitBreakerThreshold ?? this.circuitBreakerThreshold;
+    this.circuitBreakerTimeout = options?.circuitBreakerTimeout ?? this.circuitBreakerTimeout;
+  }
+
+  async execute<T>(
     operation: () => Promise<T>,
-    context: {
-      provider: string;
-      operationType: string;
-      customConfig?: Partial<RetryConfig>;
-    }
-  ): Promise<RetryResult<T>> {
-    const startTime = Date.now();
-    const retryLog: RetryAttempt[] = [];
-    const circuitKey = `${context.provider}:${context.operationType}`;
-
+    shouldRetry: (error: Error) => boolean,
+    provider = "default"
+  ): Promise<T> {
     // Check circuit breaker
-    if (this.isCircuitOpen(circuitKey)) {
-      const error = new Error(
-        `Circuit breaker open for ${context.provider} ${context.operationType}`
-      );
-      return {
-        success: false,
-        error,
-        attemptCount: 0,
-        totalDuration: Date.now() - startTime,
-        retryLog,
-      };
+    if (this.isCircuitOpen(provider)) {
+      throw new Error(`Circuit breaker is open for provider: ${provider}. Try again later.`);
     }
 
-    let lastError: Error | undefined;
-    let attempt = 0;
+    let lastError: Error;
 
-    while (true) {
-      attempt++;
-      const attemptStart = Date.now();
-
+    for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {
-        log.debug(`AI retry attempt ${attempt}`, {
-          provider: context.provider,
-          operationType: context.operationType,
-          circuitKey,
-        });
-
         const result = await operation();
 
         // Success - reset circuit breaker
-        this.recordSuccess(circuitKey);
+        this.recordSuccess(provider);
 
-        retryLog.push({
-          attempt,
-          timestamp: new Date(attemptStart),
-        });
-
-        return {
-          success: true,
-          result,
-          attemptCount: attempt,
-          totalDuration: Date.now() - startTime,
-          retryLog,
-        };
+        return result;
       } catch (error) {
         lastError = error as Error;
-        const errorType = this.classifyError(lastError);
-        const config = this.getRetryConfig(errorType, context.customConfig);
 
-        retryLog.push({
-          attempt,
-          timestamp: new Date(attemptStart),
-          error: lastError.message,
-          errorType,
-        });
+        // Record failure
+        this.recordFailure(provider);
 
-        log.debug(`AI operation failed on attempt ${attempt}`, {
-          provider: context.provider,
-          errorType,
-          errorMessage: lastError.message,
-          willRetry: attempt < config.maxAttempts,
-        });
+        // Check if we should retry
+        if (attempt < this.maxRetries && shouldRetry(lastError)) {
+          const delay = this.calculateDelay(attempt, lastError);
 
-        // Check if we should stop retrying
-        if (!this.shouldRetry(lastError, attempt, config)) {
-          this.recordFailure(circuitKey);
-          break;
+          log.debug(
+            `Retrying operation after ${delay}ms (attempt ${attempt + 1}/${this.maxRetries})`,
+            {
+              provider,
+              error: lastError.message,
+              delay,
+            }
+          );
+
+          await this.sleep(delay);
+          continue;
         }
 
-        // Calculate delay for next attempt
-        const delay = this.calculateDelay(attempt, config, lastError);
-
-        retryLog[retryLog.length - 1].delayMs = delay;
-
-        log.debug(`Retrying AI operation after ${delay}ms`, {
-          provider: context.provider,
-          attempt: attempt + 1,
-          maxAttempts: config.maxAttempts,
-        });
-
-        await this.delay(delay);
+        // No more retries or shouldn't retry
+        break;
       }
     }
 
-    // All retries exhausted
-    this.recordFailure(circuitKey);
-
-    return {
-      success: false,
-      error: lastError || new Error("Unknown error"),
-      attemptCount: attempt,
-      totalDuration: Date.now() - startTime,
-      retryLog,
-    };
+    throw lastError instanceof Error ? lastError : new Error(String(lastError));
   }
 
-  /**
-   * Classify error to determine retry strategy
-   */
-  private classifyError(error: Error): string {
-    if (error instanceof RateLimitError) return "rate_limit";
-    if (error instanceof ServerError && error.isTransient) return "server_error";
-    if (error instanceof NetworkError && error.isRetryable) return "network_error";
-    if (error instanceof AuthenticationError) return "auth_error"; // Usually not retryable
-
-    // Check error message patterns for untyped errors
-    const message = error.message.toLowerCase();
-    if (message.includes("rate limit") || message.includes("too many requests")) {
-      return "rate_limit";
-    }
-    if (message.includes("timeout") || message.includes("network")) {
-      return "network_error";
-    }
-    if (message.includes("server error") || message.includes("internal error")) {
-      return "server_error";
-    }
-
-    return "default";
-  }
-
-  /**
-   * Get retry configuration for error type
-   */
-  private getRetryConfig(errorType: string, customConfig?: Partial<RetryConfig>): RetryConfig {
-    const baseConfig = DEFAULT_RETRY_CONFIGS[errorType] || DEFAULT_RETRY_CONFIGS.default;
-    return { ...baseConfig, ...customConfig };
-  }
-
-  /**
-   * Determine if we should retry based on error and attempt count
-   */
-  private shouldRetry(error: Error, attempt: number, config: RetryConfig): boolean {
-    // Don't retry if we've hit max attempts
-    if (attempt >= config.maxAttempts) {
-      return false;
-    }
-
-    // Don't retry authentication errors
-    if (error instanceof AuthenticationError) {
-      return false;
-    }
-
-    // Don't retry non-transient server errors
-    if (error instanceof ServerError && !error.isTransient) {
-      return false;
-    }
-
-    // Don't retry non-retryable network errors
-    if (error instanceof NetworkError && !error.isRetryable) {
-      return false;
-    }
-
-    return true;
-  }
-
-  /**
-   * Calculate delay for next retry attempt
-   */
-  private calculateDelay(attempt: number, config: RetryConfig, error?: Error): number {
-    // For rate limits, use the specific retry-after if available
-    if (error instanceof RateLimitError) {
-      return error.getRetryDelay();
-    }
-
-    // Exponential backoff with jitter
-    const exponentialDelay = config.baseDelayMs * Math.pow(config.exponentialBase, attempt - 1);
-    const jitter = Math.random() * config.jitterFactor * exponentialDelay;
-    const totalDelay = exponentialDelay + jitter;
-
-    return Math.min(totalDelay, config.maxDelayMs);
-  }
-
-  /**
-   * Simple circuit breaker implementation
-   */
-  private isCircuitOpen(key: string): boolean {
-    const state = this.circuitBreaker.get(key);
+  private isCircuitOpen(provider: string): boolean {
+    const state = this.circuitBreaker.get(provider);
     if (!state) return false;
 
     if (state.state === "open") {
-      // Check if circuit should transition to half-open
       if (Date.now() > state.nextAttemptTime) {
+        // Transition to half-open
         state.state = "half-open";
+        log.debug(`Circuit breaker transitioning to half-open for provider: ${provider}`);
         return false;
       }
       return true;
@@ -286,49 +108,56 @@ export class IntelligentRetryService {
     return false;
   }
 
-  private recordSuccess(key: string): void {
-    const state = this.circuitBreaker.get(key);
+  private recordSuccess(provider: string): void {
+    const state = this.circuitBreaker.get(provider);
     if (state) {
+      // Reset failure count and close circuit
       state.failureCount = 0;
       state.state = "closed";
+      state.nextAttemptTime = 0;
+
+      log.debug(`Circuit breaker reset for provider: ${provider}`);
     }
   }
 
-  private recordFailure(key: string): void {
-    let state = this.circuitBreaker.get(key);
+  private recordFailure(provider: string): void {
+    let state = this.circuitBreaker.get(provider);
     if (!state) {
-      state = {
-        failureCount: 0,
-        state: "closed",
-        nextAttemptTime: 0,
-      };
-      this.circuitBreaker.set(key, state);
+      state = { failureCount: 0, state: "closed", nextAttemptTime: 0 };
+      this.circuitBreaker.set(provider, state);
     }
 
     state.failureCount++;
 
-    // Open circuit after 5 consecutive failures
-    if (state.failureCount >= 5) {
+    if (state.failureCount >= this.circuitBreakerThreshold && state.state === "closed") {
+      // Open circuit breaker
       state.state = "open";
-      state.nextAttemptTime = Date.now() + 300000; // 5 minutes
+      state.nextAttemptTime = Date.now() + this.circuitBreakerTimeout;
 
-      log.warn(`Circuit breaker opened for ${key}`, {
+      log.warn(`Circuit breaker opened for provider: ${provider}`, {
         failureCount: state.failureCount,
         nextAttemptTime: new Date(state.nextAttemptTime),
       });
     }
   }
 
-  private async delay(ms: number): Promise<void> {
-    return new Promise((resolve) => setTimeout(resolve, ms));
+  private calculateDelay(attempt: number, error: Error): number {
+    // Base exponential backoff
+    let delay = Math.min(this.baseDelay * Math.pow(2, attempt), this.maxDelay);
+
+    // Special handling for rate limit errors
+    if (error instanceof RateLimitError) {
+      delay = Math.max(delay, error.retryAfterSeconds * 1000);
+    }
+
+    // Add jitter to prevent thundering herd
+    delay = delay + Math.random() * 1000;
+
+    return Math.floor(delay);
   }
 
-  /**
-   * Reset circuit breaker state (for testing)
-   */
-  resetCircuitBreakers(): void {
-    this.circuitBreaker.clear();
-    log.debug("Circuit breakers reset");
+  private sleep(ms: number): Promise<void> {
+    return new Promise((resolve) => setTimeout(resolve, ms));
   }
 
   /**
@@ -396,12 +225,3 @@ export class IntelligentRetryService {
     return health;
   }
 }
-
-interface CircuitBreakerState {
-  failureCount: number;
-  state: "closed" | "open" | "half-open";
-  nextAttemptTime: number;
-}
-
-// Export singleton instance
-export const retryService = new IntelligentRetryService();
