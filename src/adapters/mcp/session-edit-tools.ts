@@ -214,7 +214,7 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
  * Apply edit pattern using fast-apply providers with fallback support
  * Uses AI-powered editing to replace legacy string-based pattern matching
  */
-async function applyEditPattern(
+export async function applyEditPattern(
   originalContent: string,
   editContent: string,
   instruction?: string
