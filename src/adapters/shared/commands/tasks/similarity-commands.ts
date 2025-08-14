@@ -80,8 +80,11 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const tasksModule = await import("../../../../domain/tasks");
-  const findTaskById = async (id: string) => (tasksModule as any).getTask(id);
-  const searchTasks = async (_: { text?: string }) => (tasksModule as any).listTasks({});
+  const taskService = await (tasksModule as any).createConfiguredTaskService({
+    backend: "markdown",
+  });
+  const findTaskById = async (id: string) => taskService.getTask(id);
+  const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
 
   return new TaskSimilarityService(embedding, storage, findTaskById, searchTasks, {
     similarityThreshold: 0.0,
