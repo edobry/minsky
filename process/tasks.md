@@ -163,3 +163,5 @@
 - [+] Plan: Automated Embedding Sync/Update Process [md#417](process/tasks/md#417-plan-automated-embedding-sync-and-update-process.md)
 
 - [+] Plan: Support Postgres→Postgres SessionDB Migration [md#418](process/tasks/md#418-postgres-to-postgres-migration-support.md)
+
+- [+] Plan: Explore Migrating from SQLite to PGlite [md#419](process/tasks/md#419-explore-sqlite-to-pglite-migration.md)
