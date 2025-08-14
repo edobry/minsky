@@ -420,7 +420,7 @@
 
 - [ ] Design and implement task management UI system [md#252](process/tasks/252-design-and-implement-task-management-ui-system.md)
 
-- [+] Implement Task Similarity Search Using Embeddings [#253](process/tasks/253-implement-task-similarity-search-using-embeddings.md)
+- [+] Implement Task Similarity Search Using Embeddings [md#253](process/tasks/md#253-implement-task-similarity-search-using-embeddings.md)
 
 - [ ] Implement Commit History Similarity Search Using Embeddings [md#254](process/tasks/254-implement-commit-history-similarity-search-using-embeddings.md)
 
@@ -638,7 +638,7 @@
 
 - [ ] Implement session pr open command for GitHub backend [md#409](process/tasks/409-implement-session-pr-open-command-for-github-backend.md)
 
-- [+] Fix task status update to use main workspace and configure main workspace path [#410](process/tasks/410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
+- [+] Fix task status update to use main workspace and configure main workspace path [md#410](process/tasks/md#410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
 
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
