@@ -9,21 +9,6 @@ import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "
 import type { TaskStatus } from "./taskConstants";
 import { formatTaskIdForDisplay } from "./task-id-utils";
 
-// Local numeric ID extractor that tolerates legacy and qualified formats for pure functions
-function extractNumericId(id: string): number | null {
-  if (!id || typeof id !== "string") return null;
-  const trimmed = id.trim();
-  // qualified: md#123, gh#456
-  let match = trimmed.match(/^[a-z-]+#(\d+)$/i);
-  if (match) return Number(match[1]);
-  // legacy: #123
-  match = trimmed.match(/^#(\d+)$/);
-  if (match) return Number(match[1]);
-  // plain numeric: 123
-  if (/^\d+$/.test(trimmed)) return Number(trimmed);
-  return null;
-}
-
 /**
  * Parse tasks from markdown content (pure function)
  * @param content Markdown content with task entries
@@ -132,16 +117,8 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
     return exactMatch;
   }
 
-  // If no exact match, try numeric comparison
-  const numericId = extractNumericId(id);
-  if (numericId === null) return null;
-
-  const numericMatch = tasks.find((task) => {
-    const taskNumericId = extractNumericId(task.id);
-    return taskNumericId !== null && taskNumericId === numericId;
-  });
-
-  return numericMatch || null;
+  // Strict: no fallback matching. Only exact ID matches are allowed.
+  return null;
 }
 
 /**
@@ -201,8 +178,9 @@ export function getNextTaskId(tasks: TaskData[]): string {
   if (!tasks || tasks.length === 0) return "001";
 
   const maxId = tasks.reduce((max, task) => {
-    const num = extractNumericId(task.id);
-    return num !== null && num > max ? num : max;
+    const match = (task.id || "").match(/^[a-z-]+#(\d+)$/i);
+    const num = match ? Number(match[1]) : NaN;
+    return !Number.isNaN(num) && num > max ? num : max;
   }, 0);
 
   // TASK 283: Return plain format for storage (e.g., "002" instead of "#002")
@@ -218,18 +196,14 @@ export function getNextTaskId(tasks: TaskData[]): string {
  */
 export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
-  const numericTarget = extractNumericId(id);
-  if (numericTarget === null) return tasks;
+  // Strict: require exact ID match only
 
   // Validate status using centralized utility
   if (!isValidTaskStatusUtil(status)) {
     return tasks;
   }
 
-  return tasks.map((task) => {
-    const taskNum = extractNumericId(task.id);
-    return taskNum !== null && taskNum === numericTarget ? { ...task, status } : task;
-  });
+  return tasks.map((task) => (task.id === id ? { ...task, status } : task));
 }
 
 /**
@@ -278,11 +252,6 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
 
     // Filter by ID
     if (filter.id) {
-      const filterNum = extractNumericId(filter.id);
-      if (filterNum !== null) {
-        const taskNum = extractNumericId(task.id);
-        return taskNum !== null && taskNum === filterNum;
-      }
       return task.id === filter.id;
     }
 
