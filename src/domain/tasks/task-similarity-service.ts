@@ -43,7 +43,8 @@ export class TaskSimilarityService {
     const parts: string[] = [];
     if (task.title) parts.push(task.title);
     if ((task as any).description) parts.push((task as any).description);
-    if ((task as any).metadata?.originalRequirements) parts.push((task as any).metadata.originalRequirements);
+    if ((task as any).metadata?.originalRequirements)
+      parts.push((task as any).metadata.originalRequirements);
     return parts.join("\n\n");
   }
 }

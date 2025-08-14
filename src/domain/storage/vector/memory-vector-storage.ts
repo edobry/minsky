@@ -2,7 +2,10 @@ import type { VectorStorage, SearchResult } from "./types";
 
 export class MemoryVectorStorage implements VectorStorage {
   private readonly dimension: number;
-  private readonly storeMap = new Map<string, { vector: number[]; metadata?: Record<string, any> }>();
+  private readonly storeMap = new Map<
+    string,
+    { vector: number[]; metadata?: Record<string, any> }
+  >();
 
   constructor(dimension: number) {
     this.dimension = dimension;
@@ -10,12 +13,18 @@ export class MemoryVectorStorage implements VectorStorage {
 
   async store(id: string, vector: number[], metadata?: Record<string, any>): Promise<void> {
     if (vector.length !== this.dimension) {
-      throw new Error(`Vector dimension mismatch: expected ${this.dimension}, got ${vector.length}`);
+      throw new Error(
+        `Vector dimension mismatch: expected ${this.dimension}, got ${vector.length}`
+      );
     }
     this.storeMap.set(id, { vector, metadata });
   }
 
-  async search(queryVector: number[], limit = 10, threshold = Number.POSITIVE_INFINITY): Promise<SearchResult[]> {
+  async search(
+    queryVector: number[],
+    limit = 10,
+    threshold = Number.POSITIVE_INFINITY
+  ): Promise<SearchResult[]> {
     const results: SearchResult[] = [];
     for (const [id, { vector }] of this.storeMap.entries()) {
       const score = this.l2(queryVector, vector);

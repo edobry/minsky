@@ -5,7 +5,8 @@ import { LocalEmbeddingService } from "./embedding-service-local";
 
 export async function createEmbeddingServiceFromConfig(): Promise<EmbeddingService> {
   const config = await getConfiguration();
-  const provider = (config as any).embeddings?.provider || (config as any).ai?.defaultProvider || "openai";
+  const provider =
+    (config as any).embeddings?.provider || (config as any).ai?.defaultProvider || "openai";
 
   switch (provider) {
     case "openai":

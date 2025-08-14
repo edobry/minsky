@@ -14,7 +14,8 @@ export async function createVectorStorageFromConfig(dimension: number): Promise<
       if (useSessionDb) {
         return PostgresVectorStorage.fromSessionDbConfig(dimension);
       }
-      const conn = vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
+      const conn =
+        vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
       if (!conn) {
         throw new Error("PostgreSQL connection string not configured for vectorStorage.postgres");
       }

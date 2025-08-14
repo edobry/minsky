@@ -1,4 +1,3 @@
-import { DefaultAIConfigurationService } from "./config-service";
 import { getConfiguration } from "../configuration";
 import type { EmbeddingService } from "./embeddings/types";
 
@@ -19,15 +18,23 @@ export class OpenAIEmbeddingService implements EmbeddingService {
 
   static async fromConfig(): Promise<OpenAIEmbeddingService> {
     const config = await getConfiguration();
-    const aiConfig = new DefaultAIConfigurationService(config);
-    const provider = await aiConfig.getProviderConfig("openai");
-    if (!provider || !provider.apiKey) {
+    const providerCfg = (config as any).ai?.providers?.openai || {};
+
+    const apiKey = providerCfg.apiKey || providerCfg.api_key;
+    if (!apiKey) {
       throw new Error(
         "OpenAI provider not configured. Set ai.providers.openai.apiKey in configuration."
       );
     }
-    const model = (config as any).embeddings?.model || provider.defaultModel || "text-embedding-3-small";
-    return new OpenAIEmbeddingService(provider.apiKey, provider.baseURL, model);
+
+    const baseURL = providerCfg.baseUrl || providerCfg.base_url;
+    const model =
+      (config as any).embeddings?.model ||
+      providerCfg.model ||
+      providerCfg.default_model ||
+      "text-embedding-3-small";
+
+    return new OpenAIEmbeddingService(apiKey, baseURL, model);
   }
 
   async generateEmbedding(content: string): Promise<number[]> {

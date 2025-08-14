@@ -1,6 +1,7 @@
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import type { CommandExecutionContext } from "../../command-registry";
-import { TaskSimilarityService } from "../../../domain/tasks/task-similarity-service";
+import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
+import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 
 interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;
@@ -18,6 +19,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
   readonly id = "tasks.similar";
   readonly name = "similar";
   readonly description = "Find tasks similar to the given task using embeddings";
+  readonly parameters = tasksSimilarParams;
 
   async execute(params: TasksSimilarParams, ctx: CommandExecutionContext) {
     const taskId = this.validateRequired(params.taskId, "taskId");
@@ -42,6 +44,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
   readonly id = "tasks.search";
   readonly name = "search";
   readonly description = "Search for tasks similar to a natural language query";
+  readonly parameters = tasksSearchParams;
 
   async execute(params: TasksSearchParams, ctx: CommandExecutionContext) {
     const query = this.validateRequired(params.query, "query");
@@ -62,10 +65,10 @@ export class TasksSearchCommand extends BaseTaskCommand {
   }
 }
 
-import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
-import { createVectorStorageFromConfig } from "../../../domain/storage/vector/vector-storage-factory";
-import { getConfiguration } from "../../../domain/configuration";
-import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
+import { createEmbeddingServiceFromConfig } from "../../../../domain/ai/embedding-service-factory";
+import { createVectorStorageFromConfig } from "../../../../domain/storage/vector/vector-storage-factory";
+import { getConfiguration } from "../../../../domain/configuration";
+import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
 
 export async function createTaskSimilarityService(): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
@@ -76,9 +79,9 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   const storage = await createVectorStorageFromConfig(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
-  const tasksModule = await import("../../../domain/tasks");
-  const findTaskById = async (id: string) => tasksModule.getTask(id);
-  const searchTasks = async (_: { text?: string }) => tasksModule.listTasks({});
+  const tasksModule = await import("../../../../domain/tasks");
+  const findTaskById = async (id: string) => (tasksModule as any).getTask(id);
+  const searchTasks = async (_: { text?: string }) => (tasksModule as any).listTasks({});
 
   return new TaskSimilarityService(embedding, storage, findTaskById, searchTasks, {
     similarityThreshold: 0.0,
