@@ -391,7 +391,7 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
         return this.createSuccessResult(result);
       }
 
-      // Format tabular output
+      // Human-friendly list output
       const { pullRequests } = result;
 
       if (pullRequests.length === 0) {
@@ -400,20 +400,33 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
         });
       }
 
-      // Format table output
-      const headers = ["SESSION", "TASK", "PR#", "STATUS", "TITLE", "UPDATED"];
-      const rows = pullRequests.map((pr) => [
-        pr.sessionName,
-        pr.taskId ? `#${pr.taskId}` : "-",
-        pr.prNumber ? `#${pr.prNumber}` : "-",
-        pr.status,
-        pr.title.length > 40 ? `${pr.title.substring(0, 37)}...` : pr.title,
-        pr.updatedAt ? this.formatRelativeTime(pr.updatedAt) : "-",
-      ]);
+      const lines: string[] = [];
+      pullRequests.forEach((pr) => {
+        const title = pr.title.length > 80 ? `${pr.title.substring(0, 77)}...` : pr.title;
+        const headerParts: string[] = [];
+        headerParts.push(pr.prNumber ? `PR #${pr.prNumber}` : "PR");
+        if (pr.status) headerParts.push(pr.status);
+        lines.push(`${headerParts.join(" ")} - ${title}`);
+
+        const details: string[] = [];
+        details.push(`Session: ${pr.sessionName}`);
+        if (pr.taskId) details.push(`Task: ${pr.taskId}`);
+        if (pr.updatedAt) details.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
+        if (params.verbose && pr.branch) details.push(`Branch: ${pr.branch}`);
+        lines.push(details.join("  "));
+
+        if (params.verbose && pr.url) {
+          lines.push(`URL: ${pr.url}`);
+        }
+
+        lines.push("");
+      });
+
+      const count = pullRequests.length;
+      lines.push(`${count} pull request${count === 1 ? "" : "s"} found`);
 
       return this.createSuccessResult({
-        table: { headers, rows },
-        count: pullRequests.length,
+        message: lines.join("\n"),
       });
     } catch (error) {
       throw new MinskyError(`Failed to list session PRs: ${getErrorMessage(error)}`);

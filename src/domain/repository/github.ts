@@ -611,7 +611,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       const prInfo = {
         number: pr.number,
         url: pr.html_url,
-        state: pr.draft ? "draft" : (pr.state as "open" | "closed" | "merged"),
+        // Use GitHub state; draft status is exposed via metadata.draft
+        state: pr.state as "open" | "closed" | "merged",
         metadata: {
           id: pr.id,
           node_id: pr.node_id,
@@ -1062,7 +1063,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
     } catch (error) {
       // Enhanced error handling for GitHub PR merge operations
       if (error instanceof Error) {
+        const anyError: any = error as any;
         const errorMessage = error.message.toLowerCase();
+        const statusCode = anyError?.status ?? anyError?.response?.status;
 
         // Authentication errors
         if (
@@ -1109,18 +1112,40 @@ Repository: https://github.com/${this.owner}/${this.repo}
         if (
           errorMessage.includes("405") ||
           errorMessage.includes("422") ||
-          errorMessage.includes("merge conflicts")
+          errorMessage.includes("merge conflicts") ||
+          (typeof statusCode === "number" && (statusCode === 405 || statusCode === 422))
         ) {
-          throw new MinskyError(
-            `🔀 Pull Request Cannot Be Merged\n\n` +
-              `Pull request #${prNumber} cannot be merged automatically.\n\n` +
-              `💡 Common causes:\n` +
-              `  • Merge conflicts that need to be resolved\n` +
-              `  • Branch protection rules requiring reviews\n` +
-              `  • Required status checks not passing\n` +
-              `  • PR is not in an open state\n\n` +
-              `Visit the PR to resolve: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}`
-          );
+          try {
+            // Diagnose the specific blocker to provide actionable guidance
+            const { getConfiguration } = require("../configuration/index");
+            const config = getConfiguration();
+            const githubToken = config.github.token;
+            const octokit = new Octokit({
+              auth: githubToken,
+              log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+            });
+
+            const diagnosis = await this.diagnoseMergeBlocker(prNumber, octokit);
+
+            throw new MinskyError(
+              `🔀 Pull Request Cannot Be Merged\n\n` +
+                `Pull request #${prNumber} cannot be merged automatically.\n\n` +
+                `${diagnosis}\n\n` +
+                `Visit the PR to resolve: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}`
+            );
+          } catch (_diagnoseError) {
+            // Fall back to generic guidance if diagnosis fails
+            throw new MinskyError(
+              `🔀 Pull Request Cannot Be Merged\n\n` +
+                `Pull request #${prNumber} cannot be merged automatically.\n\n` +
+                `💡 Common causes:\n` +
+                `  • Merge conflicts that need to be resolved\n` +
+                `  • Branch protection rules requiring reviews\n` +
+                `  • Required status checks not passing\n` +
+                `  • PR is not in an open state\n\n` +
+                `Visit the PR to resolve: https://github.com/${this.owner}/${this.repo}/pull/${prNumber}`
+            );
+          }
         }
 
         // Rate limiting
@@ -1155,6 +1180,125 @@ Repository: https://github.com/${this.owner}/${this.repo}
       throw new MinskyError(
         `Failed to merge GitHub pull request: ${getErrorMessage(error as any)}`
       );
+    }
+  }
+
+  /**
+   * Diagnose why a PR cannot be merged and return a user-friendly description
+   */
+  private async diagnoseMergeBlocker(prNumber: number, octokit: Octokit): Promise<string> {
+    try {
+      // Get PR details to inspect mergeable state and draft status
+      const prResp = await octokit.rest.pulls.get({
+        owner: this.owner as string,
+        repo: this.repo as string,
+        pull_number: prNumber,
+      });
+      const pr = prResp.data as any;
+
+      const reasons: string[] = [];
+
+      // Map mergeable_state to actionable messages
+      const mergeableState: string = (pr.mergeable_state as string) || "unknown";
+      switch (mergeableState) {
+        case "dirty":
+          reasons.push("Merge conflicts detected. Resolve conflicts between head and base.");
+          break;
+        case "behind":
+          reasons.push(
+            `Head branch '${pr.head?.ref}' is behind '${pr.base?.ref}'. Update the branch (merge or rebase).`
+          );
+          break;
+        case "blocked":
+          reasons.push("Blocked by required reviews or status checks.");
+          break;
+        case "unstable":
+          reasons.push("Required status checks are failing or pending.");
+          break;
+        case "draft":
+          reasons.push("PR is in draft state. Mark it ready for review to allow merging.");
+          break;
+        case "unknown":
+          reasons.push("Mergeability is being calculated by GitHub. Retry in a few seconds.");
+          break;
+        case "clean":
+          // Should be mergeable; keep checking other blockers
+          break;
+      }
+
+      // Check repository merge method settings (merge commits may be disabled)
+      const repoInfo = await octokit.rest.repos.get({
+        owner: this.owner as string,
+        repo: this.repo as string,
+      });
+      if (repoInfo?.data?.allow_merge_commit === false) {
+        reasons.push("Merge commits are disabled in repository settings. Use squash or rebase.");
+      }
+
+      // Inspect checks and combined statuses for failing/pending
+      const headSha: string = pr.head?.sha as string;
+      if (headSha) {
+        try {
+          const checks = await octokit.rest.checks.listForRef({
+            owner: this.owner as string,
+            repo: this.repo as string,
+            ref: headSha,
+            per_page: 100,
+          });
+          const failingChecks = checks.data.check_runs.filter(
+            (r: any) => r.conclusion && r.conclusion !== "success"
+          );
+          const pendingChecks = checks.data.check_runs.filter((r: any) => r.status !== "completed");
+          if (failingChecks.length > 0) {
+            const list = failingChecks
+              .slice(0, 5)
+              .map((r: any) => r.name)
+              .join(", ");
+            reasons.push(
+              `Failing checks: ${list}${
+                failingChecks.length > 5 ? ` (+${failingChecks.length - 5} more)` : ""
+              }`
+            );
+          } else if (pendingChecks.length > 0) {
+            const list = pendingChecks
+              .slice(0, 5)
+              .map((r: any) => r.name)
+              .join(", ");
+            reasons.push(`Pending checks: ${list}`);
+          } else {
+            // Fall back to classic statuses
+            const statuses = await octokit.rest.repos.getCombinedStatusForRef({
+              owner: this.owner as string,
+              repo: this.repo as string,
+              ref: headSha,
+            });
+            const failingStatuses = statuses.data.statuses.filter(
+              (s: any) => s.state !== "success"
+            );
+            if (failingStatuses.length > 0) {
+              const list = failingStatuses
+                .slice(0, 5)
+                .map((s: any) => s.context || s.description || "status")
+                .join(", ");
+              reasons.push(
+                `Failing status checks: ${list}$${
+                  failingStatuses.length > 5 ? ` (+${failingStatuses.length - 5} more)` : ""
+                }`
+              );
+            }
+          }
+        } catch (_e) {
+          // Ignore check fetching errors; not critical for diagnosis
+        }
+      }
+
+      if (reasons.length === 0) {
+        reasons.push("GitHub did not provide a specific reason. Check the PR page for details.");
+      }
+
+      return reasons.map((r) => `  • ${r}`).join("\n");
+    } catch (_e) {
+      return "  • Unable to diagnose blocker via GitHub API. Check the PR page for details.";
     }
   }
 
