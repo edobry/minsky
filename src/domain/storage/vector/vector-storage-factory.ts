@@ -1,0 +1,28 @@
+import { getConfiguration } from "../../configuration";
+import type { VectorStorage } from "./types";
+import { PostgresVectorStorage } from "./postgres-vector-storage";
+
+export async function createVectorStorageFromConfig(dimension: number): Promise<VectorStorage> {
+  const config = await getConfiguration();
+  const backend = (config as any).vectorStorage?.backend || "postgres";
+
+  switch (backend) {
+    case "postgres": {
+      const vsConfig = (config as any).vectorStorage?.postgres || {};
+      const useSessionDb = vsConfig.useSessionDb !== false; // default true
+      if (useSessionDb) {
+        return PostgresVectorStorage.fromSessionDbConfig(dimension);
+      }
+      const conn = vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
+      if (!conn) {
+        throw new Error("PostgreSQL connection string not configured for vectorStorage.postgres");
+      }
+      const storage = new PostgresVectorStorage(conn, dimension);
+      await storage.initialize();
+      return storage;
+    }
+
+    default:
+      throw new Error(`Vector storage backend not supported: ${String(backend)}`);
+  }
+}
