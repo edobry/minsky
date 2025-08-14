@@ -402,32 +402,35 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
 
       const lines: string[] = [];
       pullRequests.forEach((pr) => {
-        const title = pr.title.length > 80 ? `${pr.title.substring(0, 77)}...` : pr.title;
-        const headerParts: string[] = [];
-        headerParts.push(pr.prNumber ? `PR #${pr.prNumber}` : "PR");
-        if (pr.status) headerParts.push(pr.status);
-        lines.push(`${headerParts.join(" ")} - ${title}`);
+        const maxTitleLen = 90;
+        const title =
+          pr.title.length > maxTitleLen ? `${pr.title.substring(0, maxTitleLen - 3)}...` : pr.title;
 
-        const details: string[] = [];
-        details.push(`Session: ${pr.sessionName}`);
-        if (pr.taskId) details.push(`Task: ${pr.taskId}`);
-        if (pr.updatedAt) details.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
-        if (params.verbose && pr.branch) details.push(`Branch: ${pr.branch}`);
-        lines.push(details.join("  "));
+        const numberPart = pr.prNumber ? `#${pr.prNumber}` : "#";
+        const statusPart = pr.status ? `[${pr.status}]` : "";
+        const header = [numberPart, statusPart, title].filter(Boolean).join(" ");
 
-        if (params.verbose && pr.url) {
-          lines.push(`URL: ${pr.url}`);
+        const metaParts: string[] = [];
+        // Use compact labels for clarity with high data-ink ratio
+        metaParts.push(`s:${pr.sessionName}`);
+        if (pr.taskId) metaParts.push(`t:${pr.taskId}`);
+        if (pr.updatedAt) metaParts.push(this.formatRelativeTime(pr.updatedAt));
+
+        // One-line summary
+        lines.push(`${header}  (${metaParts.join(", ")})`);
+
+        // Verbose details on subsequent indented lines
+        if (params.verbose) {
+          if (pr.branch) {
+            lines.push(`  branch ${pr.branch}`);
+          }
+          if (pr.url) {
+            lines.push(`  url    ${pr.url}`);
+          }
         }
-
-        lines.push("");
       });
 
-      const count = pullRequests.length;
-      lines.push(`${count} pull request${count === 1 ? "" : "s"} found`);
-
-      return this.createSuccessResult({
-        message: lines.join("\n"),
-      });
+      return this.createSuccessResult({ message: lines.join("\n") });
     } catch (error) {
       throw new MinskyError(`Failed to list session PRs: ${getErrorMessage(error)}`);
     }
