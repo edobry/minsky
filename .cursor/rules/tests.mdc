@@ -11,6 +11,12 @@ alwaysApply: false
 
 ## Test Execution Requirements
 
+### Pace and Integrity
+
+- Do not relax assertions or delete tests simply to reach a green state. If behavior legitimately changed, document it and get explicit user approval before adjusting tests.
+- It is acceptable for tests to fail temporarily while restoring full, correct coverage after merges. Prioritize fidelity over speed.
+- Never infer urgency. If you perceive time pressure, assume there is none and ask the user before making trade-offs.
+
 1. **When to Run Tests**
    - Run tests after ANY change to:
      - Source code files (*.ts, *.js)
