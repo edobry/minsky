@@ -52,7 +52,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
   describe("getTaskStatusFromParams", () => {
     test("should return BLOCKED status for task 155 with [~] checkbox", async () => {
       const params = {
-        taskId: "155",
+        taskId: "md#155",
         json: false,
       };
 
@@ -94,7 +94,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should return TODO status for task 156 with [ ] checkbox", async () => {
       const params = {
-        taskId: "156",
+        taskId: "md#156",
         json: false,
       };
 
@@ -136,7 +136,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should return IN_PROGRESS status for task 157 with [+] checkbox", async () => {
       const params = {
-        taskId: "157",
+        taskId: "md#157",
         json: false,
       };
 
@@ -173,7 +173,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should return DONE status for task 158 with [x] checkbox", async () => {
       const params = {
-        taskId: "158",
+        taskId: "md#158",
         json: false,
       };
 
@@ -210,7 +210,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should throw error when task not found", async () => {
       const params = {
-        taskId: "999",
+        taskId: "md#999",
         json: false,
       };
 
@@ -242,7 +242,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should handle task ID normalization", async () => {
       const params = {
-        taskId: "155", // Without #
+        taskId: "md#155",
         json: false,
       };
 
@@ -284,7 +284,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should handle custom repo path", async () => {
       const params = {
-        taskId: "155",
+        taskId: "md#155",
         repo: "/custom/repo/path",
         json: false,
       };
@@ -329,7 +329,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
   describe("getTaskFromParams", () => {
     test("should get task by ID", async () => {
       const params = {
-        taskId: "155",
+        taskId: "md#155",
         json: false,
       };
 
@@ -378,7 +378,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should throw error when task not found", async () => {
       const params = {
-        taskId: "999",
+        taskId: "md#999",
         json: false,
       };
 
@@ -413,7 +413,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should handle task ID normalization", async () => {
       const params = {
-        taskId: "155", // Without #
+        taskId: "md#155",
         json: false,
       };
 
@@ -640,7 +640,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
   describe("setTaskStatusFromParams", () => {
     test("should set task status", async () => {
       const params = {
-        taskId: "155",
+        taskId: "md#155",
         status: TASK_STATUS.DONE,
         json: false,
       };
@@ -693,7 +693,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should throw error when task not found", async () => {
       const params = {
-        taskId: "999",
+        taskId: "md#999",
         status: TASK_STATUS.DONE,
         json: false,
       };
@@ -731,7 +731,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
     test("should handle task ID normalization", async () => {
       const params = {
-        taskId: "155", // Without #
+        taskId: "md#155",
         status: TASK_STATUS.DONE,
         json: false,
       };

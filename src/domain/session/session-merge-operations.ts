@@ -57,6 +57,12 @@ export function validateSessionApprovedForMerge(
   }
 
   if (sessionRecord.prApproved !== true) {
+    // Provide strict error variant when approval state is truthy but not boolean
+    if (sessionRecord.prApproved) {
+      throw new ValidationError(
+        `MERGE REJECTED: Invalid approval state for session "${sessionName}". Approval must be a boolean 'true'.`
+      );
+    }
     throw new ValidationError(
       `❌ Session "${sessionName}" PR must be approved before merging.\n\n` +
         `💡 Next steps:\n` +

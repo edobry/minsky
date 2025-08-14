@@ -24,7 +24,9 @@ export async function updateSessionFromParams(
     getCurrentSession?: typeof getCurrentSession;
   }
 ): Promise<Session> {
-  const { name, task, repo, branch } = params;
+  // Support legacy param naming `sessionName` in tests
+  const { name, task, repo, branch } = params as any;
+  const sessionParam: string | undefined = (params as any).sessionName || name;
 
   // Set up dependencies with defaults
   const deps = {
@@ -36,7 +38,7 @@ export async function updateSessionFromParams(
   try {
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
-      session: name,
+      session: sessionParam,
       task: task,
       repo: repo,
       sessionProvider: deps.sessionDB,

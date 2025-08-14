@@ -99,9 +99,16 @@ export function getLogMode(configOverride?: LoggerConfig): LogMode {
     return LogMode.HUMAN;
   }
 
-  // Prefer HUMAN-friendly output by default for CLI usage
-  // Structured mode should be explicitly enabled via config or env
-  return LogMode.HUMAN;
+  // Auto mode: choose based on TTY availability
+  // - STRUCTURED when not attached to a TTY (CI/CD, pipes)
+  // - HUMAN when running in an interactive terminal
+  try {
+    const isTty = Boolean(process.stdout && (process.stdout as any).isTTY);
+    return isTty ? LogMode.HUMAN : LogMode.STRUCTURED;
+  } catch {
+    // Safe fallback if environment checks fail
+    return LogMode.STRUCTURED;
+  }
 }
 
 /**

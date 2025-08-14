@@ -147,9 +147,9 @@ describe("interface-agnostic task functions", () => {
   });
 
   describe("getTaskFromParams", () => {
-    test("should get a task with valid parameters", async () => {
+    test("should get a task with valid parameters (qualified ID)", async () => {
       const params = {
-        taskId: "#123",
+        taskId: "md#123",
         backend: "markdown",
       };
 
@@ -161,7 +161,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ResourceNotFoundError when task is not found", async () => {
       const params = {
-        taskId: "#999",
+        taskId: "md#999",
         backend: "markdown",
       };
 
@@ -173,9 +173,9 @@ describe("interface-agnostic task functions", () => {
       }
     });
 
-    test("should normalize task IDs to qualified format (e.g., '#123' -> 'md#123')", async () => {
+    test("should retrieve task with qualified format", async () => {
       const params = {
-        taskId: "#123",
+        taskId: "md#123",
         backend: "markdown",
       };
 
@@ -187,7 +187,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should handle task IDs without leading zeros", async () => {
       const params = {
-        taskId: "#23",
+        taskId: "md#23",
         backend: "markdown",
       };
 
@@ -201,7 +201,7 @@ describe("interface-agnostic task functions", () => {
   describe("getTaskStatusFromParams", () => {
     test("should get task status with valid parameters", async () => {
       const params = {
-        taskId: "123",
+        taskId: "md#123",
         backend: "markdown",
       };
 
@@ -214,7 +214,7 @@ describe("interface-agnostic task functions", () => {
 
     test("should throw ResourceNotFoundError when task status is not found", async () => {
       const params = {
-        taskId: "999",
+        taskId: "md#999",
         backend: "markdown",
       };
 

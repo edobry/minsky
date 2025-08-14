@@ -32,21 +32,33 @@ function createMockDependencies() {
   };
 
   const mockExecInRepository = mock(async (workdir: string, command: string) => {
-    if (command === "git remote get-url origin") {
-      return "https://github.com/test/repo.git";
-    }
-    if (command === "git rev-parse --show-toplevel") {
-      return "/mock/repo/path";
-    }
-    if (command === "git symbolic-ref --short HEAD") {
-      return "task-md#123";
-    }
-    if (command === "git rev-parse --abbrev-ref HEAD") {
-      return "task-md#123";
-    }
-    if (command.startsWith("git rev-parse")) {
-      return "abc123def456"; // Mock commit hash
-    }
+    // Basic repo info
+    if (command === "git remote get-url origin") return "https://github.com/test/repo.git";
+    if (command === "git rev-parse --show-toplevel") return "/mock/repo/path";
+    if (command === "git symbolic-ref --short HEAD") return "task-md#123";
+    if (command === "git rev-parse --abbrev-ref HEAD") return "task-md#123";
+
+    // Branch/verify/fetch operations
+    if (command.startsWith("git rev-parse --verify ")) return ""; // success no output
+    if (command.startsWith("git fetch ")) return "";
+    if (command.startsWith("git branch ")) return "";
+    if (command.startsWith("git push origin ")) return "";
+    if (command.startsWith("git switch ")) return "";
+
+    // Log last commit message formatting
+    if (command === "git log -1 --pretty=format:%B") return "Merge task-md#123 into pr/task-md#123";
+    if (command.startsWith("git log -1 --pretty=format:%B ")) return "Existing message";
+
+    // Cleanup operations (best-effort no-ops)
+    if (command.startsWith("git merge --abort")) return "";
+    if (command.startsWith("git rebase --abort")) return "";
+    if (command.startsWith("git reset --hard HEAD")) return "";
+    if (command.startsWith("git branch -D ")) return "";
+    if (command.startsWith("git push origin --delete ")) return "";
+
+    // Generic rev-parse fallbacks
+    if (command.startsWith("git rev-parse")) return "abc123def456";
+
     return "";
   });
 
