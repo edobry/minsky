@@ -29,7 +29,7 @@ export class PostgresVectorStorage implements VectorStorage {
     await this.sql.unsafe(
       `CREATE TABLE IF NOT EXISTS task_embeddings (
         id TEXT PRIMARY KEY,
-        qualified_task_id TEXT,
+        task_id TEXT,
         dimension INT NOT NULL,
         embedding vector(${this.dimension}),
         metadata JSONB,
