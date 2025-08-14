@@ -78,6 +78,18 @@ export function createMockFilesystem(
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
+    copyFileSync: createMock((src: unknown, dest: unknown) => {
+      const srcPath = src as string;
+      const destPath = dest as string;
+      /* permissive copy: allow tests to stub readFileSync instead of pre-seeding */
+      const content = files.get(srcPath) ?? "";
+      files.set(destPath, content);
+      // Ensure parent directories of dest exist
+      const parts = destPath.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+    }),
     mkdirSync: createMock((path: unknown, options?: unknown) => {
       directories.add(path as string);
       // If recursive option, add all parent directories

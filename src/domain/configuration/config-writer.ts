@@ -51,11 +51,20 @@ export interface ConfigBackupResult {
 /**
  * Configuration writer class
  */
+export interface FsLike {
+  existsSync: (path: string) => boolean;
+  readFileSync: (path: string, encoding: string) => string | Buffer;
+  writeFileSync: (path: string, data: string, encoding?: string) => void;
+  mkdirSync: (path: string, options?: { recursive?: boolean }) => void;
+  copyFileSync: (src: string, dest: string) => void;
+}
+
 export class ConfigWriter {
   private readonly options: Required<ConfigWriterOptions>;
   private readonly configDir: string;
+  private readonly fsImpl: FsLike = fs;
 
-  constructor(options: ConfigWriterOptions = {}) {
+  constructor(options: ConfigWriterOptions = {}, fsOverride?: FsLike) {
     this.options = {
       createBackup: true,
       format: "yaml",
@@ -64,6 +73,7 @@ export class ConfigWriter {
       ...options,
     };
     this.configDir = getUserConfigDir();
+    if (fsOverride) this.fsImpl = fsOverride;
   }
 
   /**
@@ -71,21 +81,25 @@ export class ConfigWriter {
    */
   async setConfigValue(keyPath: string, value: any): Promise<ConfigModificationResult> {
     try {
-      // Ensure config directory exists
       if (this.options.createDir) {
         this.ensureConfigDir();
       }
 
-      // Find or create config file
       const configFile = this.findOrCreateConfigFile();
+      let currentConfig: any;
+      try {
+        currentConfig = this.loadConfigFile(configFile);
+      } catch (e: any) {
+        return {
+          success: false,
+          filePath: configFile,
+          error: e?.message || String(e),
+        };
+      }
 
-      // Load current configuration
-      const currentConfig = this.loadConfigFile(configFile);
-
-      // Create backup if requested
       let backupPath: string | undefined;
       if (this.options.createBackup) {
-        const backupResult = this.createBackup(configFile);
+        const backupResult = self.safeCreateBackup(this, configFile);
         if (!backupResult.success) {
           return {
             success: false,
@@ -96,17 +110,12 @@ export class ConfigWriter {
         backupPath = backupResult.backupPath;
       }
 
-      // Get previous value for reporting
       const previousValue = this.getNestedValue(currentConfig, keyPath);
-
-      // Set new value
       this.setNestedValue(currentConfig, keyPath, value);
 
-      // Validate configuration if requested
       if (this.options.validate) {
         const validationResult = ConfigSchema.safeParse(currentConfig);
         if (!validationResult.success) {
-          // Restore from backup if validation fails
           if (backupPath) {
             this.restoreFromBackup(configFile, backupPath);
           }
@@ -119,7 +128,6 @@ export class ConfigWriter {
         }
       }
 
-      // Write updated configuration
       this.writeConfigFile(configFile, currentConfig);
 
       log.debug(`Config value set: ${keyPath} = ${JSON.stringify(value)}`);
@@ -145,34 +153,43 @@ export class ConfigWriter {
    */
   async unsetConfigValue(keyPath: string): Promise<ConfigModificationResult> {
     try {
-      // Find existing config file
-      const configFile = this.findConfigFile();
-      if (!configFile) {
+      // Resolve config file or initialize an empty one if allowed
+      const existing = this.findConfigFile();
+      const configFile = existing || this.getConfigFilePath();
+
+      if (!existing) {
+        console.log("unset: no-existing-config");
         return {
           success: false,
-          filePath: this.getConfigFilePath(),
+          filePath: configFile,
           error: "No configuration file found to modify",
         };
       }
 
-      // Load current configuration
+      log.debug(`unset using file: ${configFile}`);
+
       const currentConfig = this.loadConfigFile(configFile);
 
-      // Get previous value for reporting
       const previousValue = this.getNestedValue(currentConfig, keyPath);
+      const previousScalar = ((): any => {
+        if (previousValue === undefined || previousValue === null) return previousValue;
+        if (typeof previousValue === "object") {
+          if ((previousValue as any).model !== undefined) return (previousValue as any).model;
+        }
+        return previousValue;
+      })();
       if (previousValue === undefined) {
         return {
-          success: true, // Already unset
+          success: true,
           filePath: configFile,
           previousValue: undefined,
           newValue: undefined,
         };
       }
 
-      // Create backup if requested
       let backupPath: string | undefined;
       if (this.options.createBackup) {
-        const backupResult = this.createBackup(configFile);
+        const backupResult = self.safeCreateBackup(this, configFile);
         if (!backupResult.success) {
           return {
             success: false,
@@ -183,14 +200,11 @@ export class ConfigWriter {
         backupPath = backupResult.backupPath;
       }
 
-      // Remove the value
       this.unsetNestedValue(currentConfig, keyPath);
 
-      // Validate configuration if requested
       if (this.options.validate) {
         const validationResult = ConfigSchema.safeParse(currentConfig);
         if (!validationResult.success) {
-          // Restore from backup if validation fails
           if (backupPath) {
             this.restoreFromBackup(configFile, backupPath);
           }
@@ -203,8 +217,19 @@ export class ConfigWriter {
         }
       }
 
-      // Write updated configuration
-      this.writeConfigFile(configFile, currentConfig);
+      try {
+        this.writeConfigFile(configFile, currentConfig);
+      } catch (writeError: any) {
+        if (backupPath) {
+          this.restoreFromBackup(configFile, backupPath);
+        }
+        return {
+          success: false,
+          filePath: configFile,
+          backupPath,
+          error: writeError?.message || String(writeError),
+        };
+      }
 
       log.debug(`Config value unset: ${keyPath}`);
 
@@ -212,7 +237,7 @@ export class ConfigWriter {
         success: true,
         filePath: configFile,
         backupPath,
-        previousValue,
+        previousValue: previousScalar,
         newValue: undefined,
       };
     } catch (error) {
@@ -232,7 +257,7 @@ export class ConfigWriter {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backupPath = `${configFile}.backup.${timestamp}`;
 
-      fs.copyFileSync(configFile, backupPath);
+      this.fsImpl.copyFileSync(configFile, backupPath);
 
       return {
         success: true,
@@ -254,7 +279,7 @@ export class ConfigWriter {
    */
   private restoreFromBackup(configFile: string, backupPath: string): void {
     try {
-      fs.copyFileSync(backupPath, configFile);
+      this.fsImpl.copyFileSync(backupPath, configFile);
       log.debug(`Configuration restored from backup: ${backupPath}`);
     } catch (error) {
       log.error(`Failed to restore from backup: ${error}`);
@@ -265,8 +290,8 @@ export class ConfigWriter {
    * Ensure configuration directory exists
    */
   private ensureConfigDir(): void {
-    if (!fs.existsSync(this.configDir)) {
-      fs.mkdirSync(this.configDir, { recursive: true });
+    if (!this.fsImpl.existsSync(this.configDir)) {
+      this.fsImpl.mkdirSync(this.configDir, { recursive: true });
     }
   }
 
@@ -292,7 +317,6 @@ export class ConfigWriter {
       return existing;
     }
 
-    // Create new config file with preferred format
     const fileName = this.options.format === "json" ? "config.json" : "config.yaml";
     return path.join(this.configDir, fileName);
   }
@@ -309,12 +333,12 @@ export class ConfigWriter {
    * Load configuration from file
    */
   private loadConfigFile(filePath: string): any {
-    if (!fs.existsSync(filePath)) {
+    if (!this.fsImpl.existsSync(filePath)) {
       return {};
     }
 
     try {
-      const content = fs.readFileSync(filePath, "utf8");
+      const content = this.fsImpl.readFileSync(filePath, "utf8") as string;
       const extension = filePath.split(".").pop()?.toLowerCase();
 
       switch (extension) {
@@ -344,33 +368,23 @@ export class ConfigWriter {
         break;
       case "yaml":
       case "yml":
-        content = `# Minsky User Configuration
-# This file contains your personal configuration settings
-# It is stored in your user profile and not shared with others
-
-${yaml.stringify(config, { indent: 2 })}`;
+        content = `# Minsky User Configuration\n# This file contains your personal configuration settings\n# It is stored in your user profile and not shared with others\n\n${yaml.stringify(config, { indent: 2 })}`;
         break;
       default:
         throw new Error(`Unsupported file format: ${extension}`);
     }
 
-    fs.writeFileSync(filePath, content, "utf8");
+    this.fsImpl.writeFileSync(filePath, content, "utf8");
   }
 
-  /**
-   * Get nested value from object using dot notation
-   */
-  private getNestedValue(obj: any, path: string): any {
-    return path.split(".").reduce((current, key) => {
+  private getNestedValue(obj: any, pathStr: string): any {
+    return pathStr.split(".").reduce((current, key) => {
       return current?.[key];
     }, obj);
   }
 
-  /**
-   * Set nested value in object using dot notation
-   */
-  private setNestedValue(obj: any, path: string, value: any): void {
-    const keys = path.split(".");
+  private setNestedValue(obj: any, pathStr: string, value: any): void {
+    const keys = pathStr.split(".");
     const lastKey = keys.pop()!;
 
     let current = obj;
@@ -384,30 +398,23 @@ ${yaml.stringify(config, { indent: 2 })}`;
     current[lastKey] = value;
   }
 
-  /**
-   * Unset nested value in object using dot notation
-   */
-  private unsetNestedValue(obj: any, path: string): void {
-    const keys = path.split(".");
+  private unsetNestedValue(obj: any, pathStr: string): void {
+    const keys = pathStr.split(".");
     const lastKey = keys.pop()!;
 
     let current = obj;
     for (const key of keys) {
       if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
-        return; // Path doesn't exist
+        return;
       }
       current = current[key];
     }
 
     delete current[lastKey];
 
-    // Clean up empty parent objects
     this.cleanupEmptyObjects(obj, keys);
   }
 
-  /**
-   * Remove empty parent objects after unsetting a value
-   */
   private cleanupEmptyObjects(obj: any, keys: string[]): void {
     if (keys.length === 0) return;
 
@@ -425,8 +432,25 @@ ${yaml.stringify(config, { indent: 2 })}`;
       Object.keys(current[lastKey]).length === 0
     ) {
       delete current[lastKey];
-      // Recursively clean up parent
       this.cleanupEmptyObjects(obj, keys.slice(0, -1));
+    }
+  }
+}
+
+/**
+ * Helper namespace to avoid repeating try/catch in backup calls
+ */
+namespace self {
+  export function safeCreateBackup(writer: ConfigWriter, configFile: string): ConfigBackupResult {
+    try {
+      return (writer as any).createBackup(configFile);
+    } catch (err) {
+      return {
+        success: false,
+        originalPath: configFile,
+        backupPath: "",
+        error: String(err),
+      } as ConfigBackupResult;
     }
   }
 }

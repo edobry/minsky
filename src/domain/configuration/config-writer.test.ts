@@ -4,24 +4,17 @@
  * Test-driven development for configuration file writing with mocked filesystem operations
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
-import { ConfigWriter, createConfigWriter } from "./config-writer";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+
 // Use mock.module() to mock filesystem operations
-import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import * as yaml from "yaml";
+import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
 // Mock filesystem operations
-const mockFs = {
-  readFileSync: mock(),
-  writeFileSync: mock(),
-  existsSync: mock(),
-  mkdirSync: mock(),
-  copyFileSync: mock(),
-};
+
+let mockFs: any;
 
 const mockPath = {
+  // minimal stubs for join/dirname
   join: mock(),
   dirname: mock(),
 };
@@ -36,14 +29,44 @@ const mockYaml = {
   stringify: mock(),
 };
 
+mock.module("fs", () => ({
+  get readFileSync() {
+    return mockFs.readFileSync;
+  },
+  get writeFileSync() {
+    return mockFs.writeFileSync;
+  },
+  get existsSync() {
+    return mockFs.existsSync;
+  },
+  get mkdirSync() {
+    return mockFs.mkdirSync;
+  },
+  get copyFileSync() {
+    return mockFs.copyFileSync;
+  },
+}));
+mock.module("path", () => ({
+  join: mockPath.join,
+  dirname: mockPath.dirname,
+}));
+mock.module("os", () => ({
+  homedir: mockOs.homedir,
+}));
+mock.module("yaml", () => ({
+  parse: mockYaml.parse,
+  stringify: mockYaml.stringify,
+}));
+import { ConfigWriter } from "./config-writer";
+
 describe("ConfigWriter", () => {
   let writer: ConfigWriter;
   const mockConfigDir = "/home/user/.config/minsky";
   const mockConfigFile = "/home/user/.config/minsky/config.yaml";
 
-  beforeEach(() => {
-    // Reset all mocks
-    Object.values(mockFs).forEach((m) => m.mockReset());
+  beforeEach(async () => {
+    // Fresh mock filesystem per test
+    mockFs = createMockFilesystem();
     Object.values(mockPath).forEach((m) => m.mockReset());
     Object.values(mockOs).forEach((m) => m.mockReset());
     Object.values(mockYaml).forEach((m) => m.mockReset());
@@ -56,26 +79,40 @@ describe("ConfigWriter", () => {
     // Setup environment variable mock
     process.env.XDG_CONFIG_HOME = undefined;
 
-    // Mock the imports by spying on the modules
-    spyOn(fs, "readFileSync").mockImplementation(mockFs.readFileSync);
-    spyOn(fs, "writeFileSync").mockImplementation(mockFs.writeFileSync);
-    spyOn(fs, "existsSync").mockImplementation(mockFs.existsSync);
-    spyOn(fs, "mkdirSync").mockImplementation(mockFs.mkdirSync);
-    spyOn(fs, "copyFileSync").mockImplementation(mockFs.copyFileSync);
+    // Re-register module mocks per test for isolation
+    mock.module("fs", () => ({
+      readFileSync: mockFs.readFileSync,
+      writeFileSync: mockFs.writeFileSync,
+      existsSync: mockFs.existsSync,
+      mkdirSync: mockFs.mkdirSync,
+      copyFileSync: mockFs.copyFileSync,
+    }));
+    mock.module("path", () => ({ join: mockPath.join, dirname: mockPath.dirname }));
+    mock.module("os", () => ({ homedir: mockOs.homedir }));
+    mock.module("yaml", () => ({ parse: mockYaml.parse, stringify: mockYaml.stringify }));
 
-    spyOn(path, "join").mockImplementation(mockPath.join);
-    spyOn(path, "dirname").mockImplementation(mockPath.dirname);
+    // removed spy; handled by mock.module above
+    // removed spy; handled by mock.module above
+    // removed spy; handled by mock.module above
+    // removed spy; handled by mock.module above
+    // removed spy; handled by mock.module above
 
-    spyOn(os, "homedir").mockImplementation(mockOs.homedir);
+    // removed spy; handled by mock.module above
+    // removed spy; handled by mock.module above
 
-    spyOn(yaml, "parse").mockImplementation(mockYaml.parse);
-    spyOn(yaml, "stringify").mockImplementation(mockYaml.stringify);
+    // removed spy; handled by mock.module above
 
-    writer = createConfigWriter({
-      createBackup: true,
-      format: "yaml",
-      validate: false, // Disable validation for focused testing
-    });
+    // removed spy; handled by mock.module above
+    // removed spy; handled by mock.module above
+
+    writer = new ConfigWriter(
+      {
+        createBackup: true,
+        format: "yaml",
+        validate: false,
+      },
+      mockFs as any
+    );
   });
 
   afterEach(() => {
