@@ -63,10 +63,12 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Use dependency injection for workspace path resolution
-    const resolveMainWorkspacePath =
-      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
-    const workspacePath = await resolveMainWorkspacePath();
+    // Resolve repository root and use it as workspace path (single source of truth)
+    const repoPath = await resolveRepoPath({
+      session: validParams.session,
+      repo: validParams.repo,
+    });
+    const workspacePath = repoPath;
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -125,8 +127,10 @@ export async function getTaskFromParams(
     const validParams = taskGetParamsSchema.parse(paramsWithNormalizedId);
     log.debug("[getTaskFromParams] Params validated", { validParams });
 
-    // Use current directory as workspace path (simplified architecture)
-    const workspacePath = process.cwd();
+    // Resolve repository root and use it as workspace path
+    const workspacePath = await (deps?.resolveMainWorkspacePath
+      ? deps.resolveMainWorkspacePath()
+      : resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
     log.debug("[getTaskFromParams] Using workspace path", { workspacePath });
 
     // Create task service using dependency injection or default implementation
@@ -195,10 +199,8 @@ export async function getTaskStatusFromParams(
       repo: validParams.repo,
     });
 
-    // Use dependency injection for workspace path resolution
-    const resolveMainWorkspacePath =
-      deps?.resolveMainWorkspacePath || (() => Promise.resolve(process.cwd()));
-    const workspacePath = await resolveMainWorkspacePath();
+    // Use repository root as workspace path for markdown backend
+    const workspacePath = repoPath;
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -260,8 +262,8 @@ export async function setTaskStatusFromParams(
       repo: validParams.repo,
     });
 
-    // Use current directory as workspace path (simplified architecture)
-    const workspacePath = process.cwd();
+    // Use repository root as workspace path for markdown backend
+    const workspacePath = repoPath;
 
     // Create task service using dependency injection or default implementation
     const createTaskService =

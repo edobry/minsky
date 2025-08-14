@@ -655,3 +655,9 @@
 - [ ] Improve sessiondb migration command and plan PostgreSQL cutover [md#415](process/tasks/md#415-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
 - [+] CLI demo for session.edit_file tool [md#416](process/tasks/md#416-cli-demo-for-session-edit-file-tool.md)
+
+- [ ] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
+
+- [ ] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
+
+- [ ] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
