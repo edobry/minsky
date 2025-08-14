@@ -61,6 +61,31 @@ minsky mcp call session.start --arg name=my-session --arg task=#123
 
 # Call with repository context
 minsky mcp call tasks.list --repo /path/to/repository --arg filter=IN-PROGRESS
+
+# session.edit_file examples (Fast Apply)
+
+# 1) First write (no markers): create file
+minsky mcp call session.edit_file \
+  --arg sessionName=my-session \
+  --arg path=src/Calculator.ts \
+  --arg createDirs=true \
+  --arg content='export class Calculator {\n  add(a: number, b: number): number {\n    return a + b;\n  }\n}\n'
+
+# 2) Edit with markers (Morph fast-apply when configured)
+minsky mcp call session.edit_file \
+  --arg sessionName=my-session \
+  --arg path=src/Calculator.ts \
+  --arg content='export class Calculator {\n  add(a: number, b: number): number {\n    return a + b;\n  }\n\n  // ... existing code ...\n\n  multiply(a: number, b: number): number {\n    return a * b;\n  }\n}\n'
+
+# 3) Verify content
+minsky mcp call session.read_file --arg sessionName=my-session --arg path=src/Calculator.ts
+
+# 4) Single-occurrence search/replace
+minsky mcp call session.search_replace \
+  --arg sessionName=my-session \
+  --arg path=src/Calculator.ts \
+  --arg search='return a * b;' \
+  --arg replace='return a * b * 1;'
 ```
 
 ### Advanced MCP Inspection
