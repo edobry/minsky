@@ -400,35 +400,94 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
         });
       }
 
-      const lines: string[] = [];
+      // Group by status for high-signal sections
+      const groups = {
+        open: [] as typeof pullRequests,
+        draft: [] as typeof pullRequests,
+        created: [] as typeof pullRequests,
+        merged: [] as typeof pullRequests,
+        closed: [] as typeof pullRequests,
+        other: [] as typeof pullRequests,
+      };
+
       pullRequests.forEach((pr) => {
-        const maxTitleLen = 90;
-        const title =
-          pr.title.length > maxTitleLen ? `${pr.title.substring(0, maxTitleLen - 3)}...` : pr.title;
-
-        const numberPart = pr.prNumber ? `#${pr.prNumber}` : "#";
-        const statusPart = pr.status ? `[${pr.status}]` : "";
-        const header = [numberPart, statusPart, title].filter(Boolean).join(" ");
-
-        const metaParts: string[] = [];
-        // Use compact labels for clarity with high data-ink ratio
-        metaParts.push(`s:${pr.sessionName}`);
-        if (pr.taskId) metaParts.push(`t:${pr.taskId}`);
-        if (pr.updatedAt) metaParts.push(this.formatRelativeTime(pr.updatedAt));
-
-        // One-line summary
-        lines.push(`${header}  (${metaParts.join(", ")})`);
-
-        // Verbose details on subsequent indented lines
-        if (params.verbose) {
-          if (pr.branch) {
-            lines.push(`  branch ${pr.branch}`);
-          }
-          if (pr.url) {
-            lines.push(`  url    ${pr.url}`);
-          }
-        }
+        const status = (pr.status || "").toLowerCase();
+        if (status === "open") groups.open.push(pr);
+        else if (status === "draft") groups.draft.push(pr);
+        else if (status === "created") groups.created.push(pr);
+        else if (status === "merged") groups.merged.push(pr);
+        else if (status === "closed") groups.closed.push(pr);
+        else groups.other.push(pr);
       });
+
+      const byUpdatedDesc = (a: any, b: any) => {
+        const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return bt - at;
+      };
+
+      Object.values(groups).forEach((arr) => arr.sort(byUpdatedDesc));
+
+      const sectionOrder: Array<{ key: keyof typeof groups; title: string; icon: string }> = [
+        { key: "open", title: "Open", icon: "🟢" },
+        { key: "draft", title: "Draft", icon: "📝" },
+        { key: "created", title: "Created", icon: "🆕" },
+        { key: "merged", title: "Merged", icon: "🟣" },
+        { key: "closed", title: "Closed", icon: "🔴" },
+        { key: "other", title: "Other", icon: "•" },
+      ];
+
+      const lines: string[] = [];
+      for (const section of sectionOrder) {
+        const items = groups[section.key];
+        if (!items || items.length === 0) continue;
+
+        // Section header with count
+        lines.push(`${section.title} (${items.length})`);
+
+        items.forEach((pr) => {
+          const numberPart = pr.prNumber ? `#${pr.prNumber}` : "PR";
+          const statusPart = pr.status ? `[${pr.status}]` : "";
+
+          const maxTitleLen = 100;
+          const safeTitle = pr.title || "";
+          const title =
+            safeTitle.length > maxTitleLen
+              ? `${safeTitle.substring(0, maxTitleLen - 3)}...`
+              : safeTitle;
+
+          // Line 1: number, status, title
+          lines.push([numberPart, statusPart, title].filter(Boolean).join(" "));
+
+          // Line 2: key metadata with de-duplication of task vs session
+          const metaParts: string[] = [];
+          const sessionName = pr.sessionName || "";
+          const taskId = pr.taskId || "";
+          const isTaskRedundant =
+            taskId && sessionName && (sessionName.includes(taskId) || sessionName.endsWith(taskId));
+          metaParts.push(`Session: ${sessionName}`);
+          if (taskId && !isTaskRedundant) metaParts.push(`Task: ${taskId}`);
+          if (pr.updatedAt) metaParts.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
+          lines.push(`  ${metaParts.join("  •  ")}`);
+
+          // Line 3: branch and URL when available
+          const extras: string[] = [];
+          if (pr.branch) extras.push(`Branch: ${pr.branch}`);
+          if (pr.url) extras.push(`URL: ${pr.url}`);
+          if (extras.length > 0) {
+            lines.push(`  ${extras.join("  •  ")}`);
+          }
+
+          lines.push("");
+        });
+
+        lines.push("");
+      }
+
+      // Remove the trailing blank line if present
+      if (lines.length > 0 && lines[lines.length - 1] === "") {
+        lines.pop();
+      }
 
       return this.createSuccessResult({ message: lines.join("\n") });
     } catch (error) {
