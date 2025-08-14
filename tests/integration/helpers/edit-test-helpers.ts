@@ -3,7 +3,8 @@
  */
 
 // Use mock.module() to mock filesystem operations
-import { readFile } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { readFile } from "fs/promises";
 import { join } from "path";
 
 // Import utilities
