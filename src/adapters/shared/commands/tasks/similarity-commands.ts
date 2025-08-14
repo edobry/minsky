@@ -64,13 +64,16 @@ export class TasksSearchCommand extends BaseTaskCommand {
 
 import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
 import { createVectorStorageFromConfig } from "../../../domain/storage/vector/vector-storage-factory";
+import { getConfiguration } from "../../../domain/configuration";
+import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
 
 export async function createTaskSimilarityService(): Promise<TaskSimilarityService> {
-  // OpenAI small embeddings default dimension
-  const DIMENSION = 1536;
+  const cfg = await getConfiguration();
+  const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+  const dimension = getEmbeddingDimension(model, 1536);
 
   const embedding = await createEmbeddingServiceFromConfig();
-  const storage = await createVectorStorageFromConfig(DIMENSION);
+  const storage = await createVectorStorageFromConfig(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const tasksModule = await import("../../../domain/tasks");
