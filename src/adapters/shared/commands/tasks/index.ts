@@ -40,3 +40,6 @@ export { createAllTaskCommands, setupTaskCommandRegistry } from "./registry-setu
 
 // Similarity commands
 export { TasksSimilarCommand, TasksSearchCommand } from "./similarity-commands";
+
+// Index embeddings command
+export { TasksIndexEmbeddingsCommand } from "./index-embeddings-command";
