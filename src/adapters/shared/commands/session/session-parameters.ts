@@ -292,9 +292,17 @@ export const sessionInspectCommandParams = {
  */
 export const sessionPrCreateCommandParams = {
   title: {
-    schema: z.string(),
-    description: "PR title",
-    required: false,
+    schema: z.string().refine((t) => !/^(?:[a-z]+)(?:\([^)]*\))?:\s*/i.test(t), {
+      message:
+        "Title should be description only. Do not include conventional prefix like 'feat:' or 'feat(scope):'",
+    }),
+    description: "PR title (description only when --type is provided)",
+    required: true,
+  },
+  type: {
+    schema: z.enum(["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore"]),
+    description: "Conventional commit type to generate title prefix",
+    required: true,
   },
   body: {
     schema: z.string(),
