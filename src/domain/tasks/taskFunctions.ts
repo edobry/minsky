@@ -7,11 +7,22 @@ import type { TaskData, TaskFilter, TaskSpecData } from "../../types/tasks/taskD
 // Import constants and utilities from centralized location
 import { TASK_PARSING_UTILS, isValidTaskStatus as isValidTaskStatusUtil } from "./taskConstants";
 import type { TaskStatus } from "./taskConstants";
-import {
-  normalizeTaskIdForStorage,
-  formatTaskIdForDisplay,
-  getTaskIdNumber,
-} from "./task-id-utils";
+import { formatTaskIdForDisplay } from "./task-id-utils";
+
+// Local numeric ID extractor that tolerates legacy and qualified formats for pure functions
+function extractNumericId(id: string): number | null {
+  if (!id || typeof id !== "string") return null;
+  const trimmed = id.trim();
+  // qualified: md#123, gh#456
+  let match = trimmed.match(/^[a-z-]+#(\d+)$/i);
+  if (match) return Number(match[1]);
+  // legacy: #123
+  match = trimmed.match(/^#(\d+)$/);
+  if (match) return Number(match[1]);
+  // plain numeric: 123
+  if (/^\d+$/.test(trimmed)) return Number(trimmed);
+  return null;
+}
 
 /**
  * Parse tasks from markdown content (pure function)
@@ -122,16 +133,12 @@ export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
   }
 
   // If no exact match, try numeric comparison
-  // This handles case where ID is provided without leading zeros
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return null;
-
-  const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
-  if (isNaN(numericId)) return null;
+  const numericId = extractNumericId(id);
+  if (numericId === null) return null;
 
   const numericMatch = tasks.find((task) => {
-    const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
-    return !isNaN(taskNumericId) && taskNumericId === numericId;
+    const taskNumericId = extractNumericId(task.id);
+    return taskNumericId !== null && taskNumericId === numericId;
   });
 
   return numericMatch || null;
@@ -194,9 +201,8 @@ export function getNextTaskId(tasks: TaskData[]): string {
   if (!tasks || tasks.length === 0) return "001";
 
   const maxId = tasks.reduce((max, task) => {
-    // Use the new utility to extract numeric value from any format
-    const id = getTaskIdNumber(task.id);
-    return id !== null && id > max ? id : max;
+    const num = extractNumericId(task.id);
+    return num !== null && num > max ? num : max;
   }, 0);
 
   // TASK 283: Return plain format for storage (e.g., "002" instead of "#002")
@@ -212,21 +218,18 @@ export function getNextTaskId(tasks: TaskData[]): string {
  */
 export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
-
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return tasks;
+  const numericTarget = extractNumericId(id);
+  if (numericTarget === null) return tasks;
 
   // Validate status using centralized utility
   if (!isValidTaskStatusUtil(status)) {
     return tasks;
   }
 
-  return tasks.map((task) =>
-    task.id === normalizedId ||
-    parseInt(task.id.replace(/^#/, ""), 10) === parseInt(normalizedId.replace(/^#/, ""), 10)
-      ? { ...task, status }
-      : task
-  );
+  return tasks.map((task) => {
+    const taskNum = extractNumericId(task.id);
+    return taskNum !== null && taskNum === numericTarget ? { ...task, status } : task;
+  });
 }
 
 /**
@@ -239,7 +242,7 @@ export function addTask(tasks: TaskData[], newTask: TaskData): TaskData[] {
   if (!tasks || !newTask) return tasks;
 
   // Ensure the task has a valid ID
-  if (!newTask.id || !normalizeTaskId(newTask.id)) {
+  if (!newTask.id || extractNumericId(newTask.id) === null) {
     newTask = {
       ...newTask,
       id: getNextTaskId(tasks),
@@ -275,35 +278,12 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
 
     // Filter by ID
     if (filter.id) {
-      // Handle special case: if filter.id is a simple number (like "2") and task.id is "#002"
-      if (/^\d+$/.test(filter.id)) {
-        // If filter is just digits, compare numeric values directly
-        const filterNum = parseInt(filter.id, 10);
-        const taskNum = parseInt(task.id.replace(/\D/g, ""), 10);
-
-        if (!isNaN(filterNum) && !isNaN(taskNum) && filterNum === taskNum) {
-          return true;
-        }
+      const filterNum = extractNumericId(filter.id);
+      if (filterNum !== null) {
+        const taskNum = extractNumericId(task.id);
+        return taskNum !== null && taskNum === filterNum;
       }
-
-      // Try normalized string comparison
-      const normalizedFilterId = normalizeTaskId(filter.id);
-      const normalizedTaskId = normalizeTaskId(task.id);
-
-      if (normalizedFilterId && normalizedTaskId) {
-        // Strip the "#" prefix for more flexible comparison
-        const filterIdNum = parseInt(normalizedFilterId.replace(/^#/, ""), 10);
-        const taskIdNum = parseInt(normalizedTaskId.replace(/^#/, ""), 10);
-
-        if (!isNaN(filterIdNum) && !isNaN(taskIdNum) && filterIdNum === taskIdNum) {
-          return true;
-        }
-
-        // Fallback to exact string comparison
-        return normalizedFilterId === normalizedTaskId;
-      }
-
-      return false;
+      return task.id === filter.id;
     }
 
     // Filter by title (string match)

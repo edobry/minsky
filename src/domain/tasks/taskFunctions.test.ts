@@ -33,41 +33,24 @@ const expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
 const expectQualifiedFormat = (id: string) => id;
 
 describe("Task Functions", () => {
-  describe("", () => {
-    test("should return canonical form for valid IDs", () => {
-      // Since returns legacy format for backward compatibility,
-      // test what it actually returns, not what we think it should return
-      // returns legacy format for backward compatibility
-      expect(TEST_TASK_ID_ALPHA).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
-      expect(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
-      expect(TEST_TASK_ID_NUMERIC).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`);
-      expect(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`).toBe(
-        `${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`
-      );
+  describe("canonical ID behavior (strict display)", () => {
+    test("formatTasksToMarkdown preserves qualified and legacy IDs", () => {
+      const tasks: TaskData[] = [
+        { id: "md#001", title: "Qualified", status: "TODO" },
+        { id: "#002", title: "Legacy", status: "DONE" },
+      ];
+      const md = formatTasksToMarkdown(tasks);
+      expect(md).toContain("[md#001](#)");
+      expect(md).toContain("[#002](#)");
     });
 
-    test("should handle various prefix patterns", () => {
-      expect("task-TEST_VALUE").toBe("#task");
-      expect("task#TEST_VALUE").toBe("#task");
-      expect("TASK_TEST_VALUE").toBe("#TASK_TEST_VALUE");
-    });
-
-    test("should return undefined for non-numeric input", () => {
-      expect("").toBeUndefined();
-      expect(" ").toBeUndefined();
-      expect("@#$%").toBeUndefined();
-    });
-
-    test("should extract numeric portion from mixed formats", () => {
-      expect("task-TEST_VALUE").toBe("#task");
-      expect("task #TEST_VALUE").toBe("#task");
-      expect("TEST_VALUE-something").toBe("#TEST_VALUE");
-    });
-
-    test("should handle alphanumeric task IDs", () => {
-      expect("abc").toBe("#abc");
-      expect("TEST_VALUE").toBe("#TEST_VALUE");
-      expect("001").toBe("#001");
+    test("getTaskById finds by plain numeric against legacy ids", () => {
+      const tasks: TaskData[] = [
+        { id: "#001", title: "One", status: "TODO" },
+        { id: "#003", title: "Three", status: "TODO" },
+      ];
+      expect(getTaskById(tasks, "3")?.id).toBe("#003");
+      expect(getTaskById(tasks, "#3")?.id).toBe("#003");
     });
   });
 

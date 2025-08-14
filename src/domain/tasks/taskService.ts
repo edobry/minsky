@@ -151,7 +151,21 @@ export class TaskService {
   async getTask(id: string): Promise<TaskData | null> {
     const tasks = await this.getAllTasks();
     const searchId = id;
-    return tasks.find((task) => task.id === searchId) || null;
+    const exact = tasks.find((task) => task.id === searchId);
+    if (exact) return exact;
+    // Fallback: numeric equivalence for legacy inputs ("002" vs "md#002" or "#002")
+    const toNum = (v: string): number | null => {
+      const trimmed = (v || "").trim();
+      const m =
+        trimmed.match(/^(?:[a-z-]+#)?(\d+)$/i) ||
+        (trimmed.startsWith("#") && trimmed.match(/^#(\d+)$/));
+      if (!m) return null;
+      const n = Number(m[1]);
+      return Number.isNaN(n) ? null : n;
+    };
+    const targetNum = toNum(id);
+    if (targetNum === null) return null;
+    return tasks.find((t) => toNum(t.id) === targetNum) || null;
   }
 
   /**

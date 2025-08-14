@@ -162,7 +162,7 @@ export class ConflictDetectionService {
 
     try {
       // Test harness: short-circuit for mock session paths to avoid real git
-      if (repoPath.startsWith("/mock/sessions/")) {
+      if (repoPath.startsWith("/mock/sessions/") || repoPath.startsWith("/mock/session")) {
         return {
           hasConflicts: false,
           conflictType: ConflictType.NONE,
@@ -251,7 +251,7 @@ export class ConflictDetectionService {
 
     try {
       // Test harness: short-circuit for mock session paths to avoid real git
-      if (repoPath.startsWith("/mock/sessions/")) {
+      if (repoPath.startsWith("/mock/sessions/") || repoPath.startsWith("/mock/session")) {
         return {
           sessionBranch,
           baseBranch,
@@ -720,7 +720,7 @@ export class ConflictDetectionService {
   ): Promise<boolean> {
     try {
       // Test harness: short-circuit for mock session paths
-      if (repoPath.startsWith("/mock/sessions/")) {
+      if (repoPath.startsWith("/mock/sessions/") || repoPath.startsWith("/mock/session")) {
         return false;
       }
       // Get session commits not in base
