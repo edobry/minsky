@@ -1,3 +1,7 @@
+export class Repo {
+  find(): any[] { return []; }
+}
+
 import { Entity, Column, PrimaryGeneratedColumn } from "typeorm";
 
 @Entity("users")

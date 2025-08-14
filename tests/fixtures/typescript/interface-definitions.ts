@@ -4,6 +4,12 @@ export interface User {
   email: string;
 }
 
+export interface User {
+  id: string;
+  name: string;
+  email: string;
+}
+
 export interface UserService {
   findUser(id: string): Promise<User | null>;
   createUser(userData: Partial<User>): Promise<User>;

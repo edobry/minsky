@@ -261,7 +261,10 @@ export async function sessionPrList(params: {
         title: pr?.title || `PR for ${session.session}`,
         url: pr?.url,
         updatedAt: pr?.updatedAt || prState?.lastChecked,
-        branch: session.backendType === "github" ? (pr?.headBranch || session.session) : (prState?.branchName || pr?.headBranch || `pr/${session.session}`),
+        branch:
+          session.backendType === "github"
+            ? pr?.headBranch || session.session
+            : prState?.branchName || pr?.headBranch || `pr/${session.session}`,
       };
     });
 

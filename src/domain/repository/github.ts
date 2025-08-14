@@ -689,7 +689,10 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
         // Permission errors (403)
         // Only classify as permission denied when we see an explicit 403/forbidden and not a 422 validation case
-        if ((errorMessage.includes("403") || errorMessage.includes("forbidden")) && !errorMessage.includes("422")) {
+        if (
+          (errorMessage.includes("403") || errorMessage.includes("forbidden")) &&
+          !errorMessage.includes("422")
+        ) {
           throw new MinskyError(
             `🚫 GitHub Permission Denied\n\n` +
               `You don't have permission to create pull requests in ${this.owner}/${this.repo}.\n\n` +
@@ -752,17 +755,16 @@ Repository: https://github.com/${this.owner}/${this.repo}
           const ghData = anyErr?.response?.data;
           const ghMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
           const ghErrors: any[] = Array.isArray(ghData?.errors) ? ghData.errors : [];
-          const ghErrorsText: string = (
-            (ghMessage || "") +
-            " " +
-            ghErrors
-              .map((e: any) => [e?.message, e?.code, e?.field].filter(Boolean).join(" "))
-              .join(" ")
-          ).toLowerCase();
+          const ghErrorsText: string = `${ghMessage || ""} ${ghErrors
+            .map((e: any) => [e?.message, e?.code, e?.field].filter(Boolean).join(" "))
+            .join(" ")}`.toLowerCase();
 
           if (status === 422) {
             // No commits between base and head
-            if (ghErrorsText.includes("no commits between") || ghErrorsText.includes("no changes")) {
+            if (
+              ghErrorsText.includes("no commits between") ||
+              ghErrorsText.includes("no changes")
+            ) {
               throw new MinskyError(
                 `📝 No Changes to Create PR\n\n` +
                   `No differences found between ${sourceBranch} and ${baseBranch}.\n\n` +
@@ -777,7 +779,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
             if (
               ghErrorsText.includes("already exists") ||
               ghErrors.some((e: any) =>
-                String(e?.message || e?.code || "").toLowerCase().includes("already exists")
+                String(e?.message || e?.code || "")
+                  .toLowerCase()
+                  .includes("already exists")
               )
             ) {
               throw new MinskyError(
@@ -793,14 +797,17 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
             // Generic validation failure
             throw new MinskyError(
-              `⚠️ GitHub Validation Failed\n\n` +
-                `${ghMessage || "Unprocessable Entity"}`
+              `⚠️ GitHub Validation Failed\n\n` + `${ghMessage || "Unprocessable Entity"}`
             );
           }
         }
 
         // Original fallback if structured details unavailable
-        if (errorMessage.includes("422") || errorMessage.includes("validation failed") || errorMessage.includes("unprocessable entity")) {
+        if (
+          errorMessage.includes("422") ||
+          errorMessage.includes("validation failed") ||
+          errorMessage.includes("unprocessable entity")
+        ) {
           if (errorMessage.includes("no commits between") || errorMessage.includes("no changes")) {
             throw new MinskyError(
               `📝 No Changes to Create PR\n\n` +

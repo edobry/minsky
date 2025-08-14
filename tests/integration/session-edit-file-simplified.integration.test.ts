@@ -10,9 +10,6 @@
  */
 
 import { describe, test, expect, beforeAll } from "bun:test";
-// Use mock.module() to mock filesystem operations
-// import { readFile } from "fs/promises";
-import { join } from "path";
 import { applyEditPattern } from "../../src/adapters/mcp/session-edit-tools";
 import {
   initializeConfiguration,
@@ -26,18 +23,15 @@ interface TestConfig {
   morphApiKey?: string;
 }
 
-interface EditTestCase {
-  name: string;
-  fixture: string;
-  instruction: string;
-  editPattern: string;
-  expected: {
-    containsOriginal: boolean;
-    containsNew: string[];
-    shouldGrow: boolean;
-    noMarkers: boolean;
-  };
-}
+import {
+  loadFixture,
+  validateEditResult,
+  coreTestCases,
+  phase1TestCases,
+  phase2TestCases,
+  phase3TestCases,
+  type EditTestCase,
+} from "./helpers/edit-test-helpers";
 
 // Test configuration
 let testConfig: TestConfig;
@@ -70,87 +64,7 @@ beforeAll(async () => {
   }
 });
 
-async function loadFixture(fixturePath: string): Promise<string> {
-  const fullPath = join(process.cwd(), "tests/fixtures", fixturePath);
-  return await readFile(fullPath, "utf-8");
-}
-
-function validateEditResult(
-  result: string,
-  originalContent: string,
-  editPattern: string,
-  expected: EditTestCase["expected"]
-): void {
-  // Validate result structure
-  expect(result).toBeString();
-  expect(result.length).toBeGreaterThan(0);
-
-  // Check if original content should be preserved
-  if (expected.containsOriginal) {
-    expect(result).toContain(originalContent.split("\n")[0]); // At least first line should be preserved
-  }
-
-  // Check for new content
-  for (const newContent of expected.containsNew) {
-    expect(result).toContain(newContent);
-  }
-
-  // Check growth expectation
-  if (expected.shouldGrow) {
-    expect(result.length).toBeGreaterThanOrEqual(editPattern.length);
-  }
-
-  // Check marker removal
-  if (expected.noMarkers) {
-    expect(result).not.toContain("// ... existing code ...");
-  }
-}
-
-// Core test cases
-const coreTestCases: EditTestCase[] = [
-  {
-    name: "method addition to simple class",
-    fixture: "typescript/simple-class.ts",
-    instruction: "Add a multiply method to the Calculator class",
-    editPattern: `export class Calculator {
-  add(a: number, b: number): number {
-    return a + b;
-  }
-
-  multiply(a: number, b: number): number {
-    return a * b;
-  }
-}`,
-    expected: {
-      containsOriginal: true,
-      containsNew: ["multiply", "a * b"],
-      shouldGrow: true,
-      noMarkers: true,
-    },
-  },
-];
-
-// Phase 1: Core TypeScript Patterns
-const phase1TestCases: EditTestCase[] = [
-  {
-    name: "property/field addition to class",
-    fixture: "typescript/class-with-properties.ts",
-    instruction: "Add a cache property and maxRetries field to the UserService class",
-    editPattern: `export class UserService {
-  private users: User[] = [];
-  private cache: Map<string, User> = new Map();
-  private readonly maxRetries: number = 3;
-
-  // ... existing code ...
-}`,
-    expected: {
-      containsOriginal: true,
-      containsNew: ["private cache: Map<string, User>", "maxRetries: number = 3"],
-      shouldGrow: true,
-      noMarkers: true,
-    },
-  },
-];
+// cases imported from helpers
 
 describe("Session Edit File Integration Tests", () => {
   describe("Core Edit Patterns", () => {
