@@ -106,7 +106,14 @@ export async function resolveSessionContext(
   if (task) {
     log.debug("Resolving session from task ID", { task });
 
-    const normalizedTaskId = taskIdSchema.parse(task);
+    // Accept permissive input and normalize using task-id-utils
+    const { normalizeTaskIdForStorage } = await import("../tasks/task-id-utils");
+    const normalizedTaskId = normalizeTaskIdForStorage(task);
+    if (!normalizedTaskId) {
+      throw new ValidationError(
+        `Invalid task ID: "${task}". Please provide a valid task identifier (e.g., md#283, #283, 283, task#283).`
+      );
+    }
     const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
 
     if (!sessionRecord) {
@@ -126,7 +133,7 @@ export async function resolveSessionContext(
 
     return {
       sessionName: sessionRecord!.session,
-      taskId: task, // ✅ BACKWARD COMPATIBILITY: Return original task ID format
+      taskId: normalizedTaskId,
       resolvedBy: "explicit-task",
       workingDirectory,
     };

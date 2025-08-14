@@ -121,9 +121,17 @@ export async function sessionPrImpl(
     throw error;
   }
 
-  // STEP 0.5: Body validation is handled at the command layer
-  // Command layer checks if this is a new PR vs existing PR refresh
-  // and enforces body requirement accordingly
+  // STEP 0.5: Body validation for NEW PRs (no existing PR state)
+  if (!params.body && !params.bodyPath) {
+    // If attempting to create a brand new PR (no existing PR to refresh), require description
+    // We can conservatively enforce this here since edit flow is separate
+    throw new MinskyError(
+      "PR description is required for new pull request creation.\n" +
+        "Please provide one of:\n" +
+        "  --body <text>       Direct PR body text\n" +
+        "  --body-path <path>  Path to file containing PR body"
+    );
+  }
 
   // STEP 1: Validate we're in a session workspace and on a session branch (CLI only)
   const currentDir = options?.workingDirectory || process.cwd();

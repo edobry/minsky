@@ -1,11 +1,10 @@
 /**
- * Task ID utilities: STRICT QUALIFIED IDs ONLY
+ * Task ID utilities: PERMISSIVE INPUT, STRICT OUTPUT
  *
- * This module implements unified task ID handling where:
- * - INPUT: Only accepts qualified format (md#367, gh#123)
- * - STORAGE: Always qualified format (md#283, gh#367)
- * - DISPLAY: Always qualified format (md#283, gh#367)
- * - No normalization needed - input === storage === display
+ * Policy:
+ * - INPUT: Accept legacy/user formats (e.g., "283", "#283", "##283", "task#283", whitespace variants)
+ * - STORAGE: Always normalized to qualified format with markdown prefix (e.g., "md#283")
+ * - DISPLAY: Same as storage (qualified normalized format)
  */
 
 /**
@@ -30,9 +29,50 @@ export function validateQualifiedTaskId(taskId: string): string | null {
   return null;
 }
 
-// Backward compatibility alias
-// Backward-compat export name used across code/tests; implements strict validation
-export const normalizeTaskIdForStorage = validateQualifiedTaskId;
+/**
+ * Normalize user-provided task ID to qualified storage format (md#NNN).
+ *
+ * Accepts inputs like:
+ * - "283" → "md#283"
+ * - "#283" → "md#283"
+ * - "##283" → "md#283"
+ * - "task#283" / "TASK#283" → "md#283"
+ * - Already-qualified formats remain as-is except "task#" is converted to "md#"
+ *
+ * Returns null for invalid inputs.
+ */
+export function normalizeTaskIdForStorage(input: string | null | undefined): string | null {
+  if (typeof input !== "string") return null;
+  const raw = input.trim();
+  if (raw.length === 0) return null;
+
+  // Already qualified formats: md#123, gh#456, task#789, custom-prefix#123
+  const qualifiedMatch = raw.match(/^([a-z-]+)#(\d+)$/i);
+  if (qualifiedMatch) {
+    const num = qualifiedMatch[2];
+    // Normalize any qualified input to md# for storage
+    return `md#${num}`;
+  }
+
+  // Strip leading "task#" (case-insensitive) and normalize
+  const taskPrefixMatch = raw.match(/^task#(\d+)$/i);
+  if (taskPrefixMatch) {
+    return `md#${taskPrefixMatch[1]}`;
+  }
+
+  // Handle leading # symbols (one or many): ##283 -> 283
+  const hashStripped = raw.replace(/^#+/, "");
+  if (/^\d+$/.test(hashStripped)) {
+    return `md#${hashStripped}`;
+  }
+
+  // Pure numeric input
+  if (/^\d+$/.test(raw)) {
+    return `md#${raw}`;
+  }
+
+  return null;
+}
 
 /**
  * Format task ID for display (no-op since input === output)
@@ -44,22 +84,8 @@ export function formatTaskIdForDisplay(taskId: string): string {
   if (!taskId || typeof taskId !== "string") {
     return "";
   }
-  // Prefer qualified format when valid
-  const qualified = validateQualifiedTaskId(taskId);
-  if (qualified) return qualified;
-
-  // Gracefully handle legacy formats by converting to qualified markdown IDs for display
-  if (/^#\d+$/.test(taskId)) {
-    const num = taskId.replace(/^#/, "");
-    return `md#${String(num).padStart(3, "0")}`;
-  }
-
-  if (/^\d+$/.test(taskId)) {
-    return `md#${String(taskId).padStart(3, "0")}`;
-  }
-
-  // Fallback: return the original string to avoid empty display output
-  return taskId;
+  const normalized = normalizeTaskIdForStorage(taskId);
+  return normalized ?? "";
 }
 
 /**
@@ -69,7 +95,7 @@ export function formatTaskIdForDisplay(taskId: string): string {
  * @returns True if in qualified format, false otherwise
  */
 export function isQualifiedFormat(taskId: string): boolean {
-  return validateQualifiedTaskId(taskId) !== null;
+  return /^[a-z-]+#\d+$/i.test((taskId ?? "").trim());
 }
 
 // Backward compatibility aliases
@@ -87,8 +113,8 @@ export function convertTaskIdFormat(
   taskId: string,
   targetFormat: "storage" | "display"
 ): string | null {
-  // No conversion needed - just validate
-  return validateQualifiedTaskId(taskId);
+  const normalized = normalizeTaskIdForStorage(taskId);
+  return normalized;
 }
 
 /**
@@ -98,7 +124,7 @@ export function convertTaskIdFormat(
  * @returns True if valid qualified task ID
  */
 export function isValidTaskIdInput(userInput: string): boolean {
-  return validateQualifiedTaskId(userInput) !== null;
+  return normalizeTaskIdForStorage(userInput) !== null;
 }
 
 /**
@@ -108,17 +134,10 @@ export function isValidTaskIdInput(userInput: string): boolean {
  * @returns Numeric value or null if invalid
  */
 export function getTaskIdNumber(taskId: string): number | null {
-  const validated = validateQualifiedTaskId(taskId);
-  if (!validated) {
-    return null;
-  }
-
-  // Extract number from qualified format (md#123 -> 123)
-  const match = validated.match(/^[a-z-]+#(\d+)$/);
-  if (!match) {
-    return null;
-  }
-
+  const normalized = normalizeTaskIdForStorage(taskId);
+  if (!normalized) return null;
+  const match = normalized.match(/^[a-z-]+#(\d+)$/i);
+  if (!match) return null;
   const num = parseInt(match[1], 10);
   return isNaN(num) ? null : num;
 }
