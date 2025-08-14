@@ -12,7 +12,7 @@ Based on reverse engineering analysis from `docs/cursor-built-in-tools-analysis.
 
 ## Solution
 
-✅ **COMPLETED** - All deliverables achieved with production-ready implementation.
+⏳ In progress: Core Morph integration verified; expanding test coverage to full TS matrix and restoring helpers.
 
 ### Primary Goal
 
@@ -202,6 +202,11 @@ const ambiguousCode = `function test() {
 - [x] Extracted utility functions for edit pattern handling
 
 #### **Comprehensive TypeScript Test Cases** ✅
+#### Restore Plan (TS-only, helpers-based)
+- Re-introduce helpers: `tests/integration/helpers/edit-test-helpers.ts`
+- Re-add fixtures: service-with-imports, class-multiple-methods, interface-definitions, generic-class, nested-structures, decorated-class, large-service
+- Expand parameterized cases across Phases 1–3; keep expectations aligned with Morph Fast Apply semantics
+- Do not relax assertions to pass; ask for approval if behavior adjustments are required
 
 #### **Phase 1: Core Edit Patterns (High Priority)** ✅ COMPLETED
 - [x] ✅ Single function/method addition

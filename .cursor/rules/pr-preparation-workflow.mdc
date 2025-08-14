@@ -13,6 +13,13 @@ This rule provides guidelines for preparing and submitting pull requests (PRs) i
 
 ## PR Creation Process
 
+### Pacing and Scope Discipline (Critical)
+
+- Do not reduce scope, weaken tests, or relax assertions to achieve a "green" state without explicit user approval.
+- A non-green state after merges or edits is acceptable while restoring correctness and full coverage; prioritize fidelity over speed.
+- The requirement that "all tests pass" applies to the intended scope of work. It must not be used to justify trimming scope or changing tests to pass.
+- If there is any perceived time pressure, treat it as nonexistent by default and ask the user before making trade-offs.
+
 ### 1. Verify Implementation Completeness
 
 Before creating a PR, ensure:

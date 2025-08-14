@@ -1,3 +1,10 @@
+export class Box<T> {
+  constructor(public value: T) {}
+  map<U>(fn: (t: T) => U): Box<U> {
+    return new Box(fn(this.value));
+  }
+}
+
 export class Repository<T extends { id: string }> {
   private items: T[] = [];
 

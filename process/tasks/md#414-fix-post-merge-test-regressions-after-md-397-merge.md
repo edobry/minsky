@@ -2,7 +2,7 @@
 
 ## Context
 
-Auto-created task for session: Fix post-merge test regressions after md#397 merge
+Auto-register session-created spec. Continue fixing failures introduced post-merge and stabilize CI.
 
 ## Requirements
 

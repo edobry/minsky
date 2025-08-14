@@ -29,11 +29,13 @@ alwaysApply: false
    - Apply: task-implementation-workflow and session-first-workflow
 
 4. **Testing and Verification**
+   - Pacing Note: Do not trade correctness or coverage for speed. A temporarily non-green state is acceptable while restoring the full intended scope after merges. Ask the user before any scope reduction.
    - First: Write and run tests for the implementation
    - Then: Verify that all requirements are met
    - Apply: task-implementation-workflow and tests
 
 5. **PR Preparation and Submission**
+   - Pacing Note: If tests are failing due to in-progress restoration of coverage, continue restoration work before modifying test assertions. Do not weaken tests to pass without explicit user approval.
    - First: Generate PR description
    - Then: Finalize changes and update task status
    - Apply: pr-preparation-workflow

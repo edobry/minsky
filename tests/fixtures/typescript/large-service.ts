@@ -1,3 +1,7 @@
+export class LargeService {
+  init(): void {}
+}
+
 /**
  * Large service file for testing edit operations on substantial codebases
  * This file is intentionally large to test performance and reliability

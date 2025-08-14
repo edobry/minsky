@@ -1,3 +1,9 @@
+export class Outer {
+  innerMethod() {
+    return 1;
+  }
+}
+
 export class DatabaseManager {
   private connections: Map<string, Connection> = new Map();
 

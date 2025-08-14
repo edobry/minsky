@@ -400,35 +400,45 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
         });
       }
 
+      // Sort by most recently updated first
+      const sorted = [...pullRequests].sort((a, b) => {
+        const at = a.updatedAt ? new Date(a.updatedAt).getTime() : 0;
+        const bt = b.updatedAt ? new Date(b.updatedAt).getTime() : 0;
+        return bt - at;
+      });
+
       const lines: string[] = [];
-      pullRequests.forEach((pr) => {
-        const maxTitleLen = 90;
-        const title =
-          pr.title.length > maxTitleLen ? `${pr.title.substring(0, maxTitleLen - 3)}...` : pr.title;
+      sorted.forEach((pr) => {
+        const displayId = pr.taskId || pr.sessionName || "";
+        const status = pr.status ? `[${pr.status}]` : "";
+        const title = this.stripConventionalPrefix(pr.title || "");
 
-        const numberPart = pr.prNumber ? `#${pr.prNumber}` : "#";
-        const statusPart = pr.status ? `[${pr.status}]` : "";
-        const header = [numberPart, statusPart, title].filter(Boolean).join(" ");
+        // First line: primary identifier, status, title
+        lines.push([displayId, status, title].filter(Boolean).join(" "));
 
-        const metaParts: string[] = [];
-        // Use compact labels for clarity with high data-ink ratio
-        metaParts.push(`s:${pr.sessionName}`);
-        if (pr.taskId) metaParts.push(`t:${pr.taskId}`);
-        if (pr.updatedAt) metaParts.push(this.formatRelativeTime(pr.updatedAt));
-
-        // One-line summary
-        lines.push(`${header}  (${metaParts.join(", ")})`);
-
-        // Verbose details on subsequent indented lines
-        if (params.verbose) {
-          if (pr.branch) {
-            lines.push(`  branch ${pr.branch}`);
-          }
-          if (pr.url) {
-            lines.push(`  url    ${pr.url}`);
+        // Second line: Session, Branch (if different from session), PR number, Updated
+        const details: string[] = [];
+        if (pr.sessionName) {
+          const shouldShowSession =
+            pr.sessionName !== displayId && !(pr.taskId && pr.sessionName.includes(pr.taskId));
+          if (shouldShowSession) {
+            details.push(`Session: ${pr.sessionName}`);
           }
         }
+        if (pr.branch && pr.branch !== pr.sessionName) details.push(`Branch: ${pr.branch}`);
+        if (pr.prNumber) details.push(`PR #${pr.prNumber}`);
+        if (pr.updatedAt) details.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
+        if (details.length > 0) lines.push(details.join("  "));
+
+        // Third line: URL on its own line (no label)
+        if (pr.url) lines.push(pr.url);
+
+        // Spacer between entries
+        lines.push("");
       });
+
+      // Trim trailing spacer
+      if (lines.length > 0 && lines[lines.length - 1] === "") lines.pop();
 
       return this.createSuccessResult({ message: lines.join("\n") });
     } catch (error) {
@@ -457,6 +467,17 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
       const diffWeeks = Math.floor(diffDays / 7);
       return `${diffWeeks} week${diffWeeks > 1 ? "s" : ""} ago`;
     }
+  }
+
+  private stripConventionalPrefix(title: string): string {
+    if (!title) return "";
+    const patterns = [/^[a-z]+\([^)]*\):\s*/i, /^[a-z]+!?:\s*/i];
+    let result = title;
+    for (const re of patterns) {
+      result = result.replace(re, "");
+    }
+    const max = 100;
+    return result.length > max ? `${result.substring(0, max - 3)}...` : result;
   }
 }
 
