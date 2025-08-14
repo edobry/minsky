@@ -622,7 +622,7 @@
 
 - [ ] Explore alternative task entry methods and reference resolution [#400](process/tasks/400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
-- [ ] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+- [x] Improve SessionDB migration command and plan PostgreSQL cutover [#401](process/tasks/401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
 - [ ] Final test of the complete fix [#402](process/tasks/402-final-test-of-the-complete-fix.md)
 
