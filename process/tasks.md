@@ -664,4 +664,8 @@
 
 - [ ] AI Resilience module for error/backoff/circuit breaker (optional adoption) [md#420](process/tasks/md#420-ai-resilience-module-for-error-backoff-circuit-breaker-optional-adoption-.md)
 
+<<<<<<< Updated upstream
 - [+] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
+=======
+- [ ] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
+>>>>>>> Stashed changes

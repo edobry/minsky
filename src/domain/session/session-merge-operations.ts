@@ -208,7 +208,7 @@ export async function mergeSessionPr(
   // For GitHub backend, check approval status via API before proceeding
   if (hasGitHubPr && sessionRecord.pullRequest) {
     if (!params.json) {
-      log.cli(`🔍 Checking GitHub PR approval status...`);
+      log.cli(`🔍 Checking GitHub PR approval & branch protection...`);
     }
 
     try {
@@ -216,21 +216,35 @@ export async function mergeSessionPr(
         sessionRecord.pullRequest.number
       );
 
+      if (!params.json) {
+        const approvals = approvalStatus.approvals?.length || 0;
+        const required = approvalStatus.requiredApprovals ?? 0;
+        const branchProtection = required > 0 ? `enabled (requires ${required})` : `not configured`;
+        const approvalLine =
+          required > 0
+            ? `${approvals}/${required} approvals`
+            : approvals > 0
+              ? `${approvals} approvals`
+              : `no approvals required`;
+        log.cli(`• Approval status: ${approvalLine}`);
+        log.cli(`• Branch protection: ${branchProtection}`);
+      }
+
       if (!approvalStatus.isApproved) {
-        // Be concise and user-friendly; don't assert a required approvals count
+        // Concise, actionable guidance without noisy transport logs
         throw new ValidationError(
-          `❌ GitHub PR #${sessionRecord.pullRequest.number} is not approved.` +
+          `❌ GitHub PR #${sessionRecord.pullRequest.number} does not meet approval requirements.` +
             `\n\n` +
             `💡 Next steps:` +
             `\n   1. View the PR: ${sessionRecord.pullRequest.url}` +
-            `\n   2. Request a review if needed` +
-            `\n   3. Address any review feedback` +
-            `\n   4. Try merge again`
+            `\n   2. Request required reviews` +
+            `\n   3. Address any changes requested` +
+            `\n   4. Re-run merge when approvals are sufficient`
         );
       }
 
       if (!params.json) {
-        log.cli(`✅ GitHub PR #${sessionRecord.pullRequest.number} is approved and ready to merge`);
+        log.cli(`✅ PR is approved and mergeable`);
       }
     } catch (error) {
       if (error instanceof ValidationError) {

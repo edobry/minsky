@@ -1629,8 +1629,30 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
 
       // Create Octokit instance
+      const debugEnabled = (() => {
+        try {
+          // Prefer logger config level if available
+          const level = (log as any)?.config?.level;
+          return (
+            String(level).toLowerCase() === "debug" ||
+            String(process.env.LOGLEVEL).toLowerCase() === "debug"
+          );
+        } catch {
+          return false;
+        }
+      })();
+
       const octokit = new Octokit({
         auth: githubToken,
+        // Suppress low-value transport logs unless debug is enabled
+        log: debugEnabled
+          ? {
+              debug: (msg: any) => log.systemDebug(String(msg)),
+              info: (msg: any) => log.systemDebug(String(msg)),
+              warn: (msg: any) => log.systemDebug(String(msg)),
+              error: (msg: any) => log.systemDebug(String(msg)),
+            }
+          : { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
       });
 
       // Get PR details and reviews

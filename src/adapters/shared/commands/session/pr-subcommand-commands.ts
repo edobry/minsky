@@ -475,11 +475,16 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
       const lines: string[] = [];
       sorted.forEach((pr) => {
         const displayId = pr.taskId || pr.sessionName || "";
-        const status = pr.status ? `[${pr.status}]` : "";
-        const title = this.stripConventionalPrefix(pr.title || "");
+        const { type, scope, title: cleanedTitle } = this.parseConventionalTitle(pr.title || "");
+        const statusIcon = this.getStatusIcon(pr.status);
 
-        // First line: primary identifier, status, title
-        lines.push([displayId, status, title].filter(Boolean).join(" "));
+        const idBadge = displayId ? `[${displayId}]` : "";
+        const typeBadge = type ? `[${type}]` : "";
+        const prSuffix = pr.prNumber ? `[#${pr.prNumber}]` : "";
+        const firstLineParts = [statusIcon, typeBadge, idBadge, cleanedTitle, prSuffix].filter(
+          (p) => p && p.trim().length > 0
+        );
+        lines.push(firstLineParts.join(" "));
 
         // Second line: Session, Branch (if different from session), PR number, Updated
         const details: string[] = [];
@@ -545,6 +550,45 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
     const max = 100;
     return result.length > max ? `${result.substring(0, max - 3)}...` : result;
   }
+
+  private parseConventionalTitle(title: string): {
+    type?: string;
+    scope?: string;
+    title: string;
+  } {
+    if (!title) return { title: "" };
+    const match =
+      title.match(/^([a-z]+)!?\(([^)]*)\):\s*(.*)$/i) || title.match(/^([a-z]+)!?:\s*(.*)$/i);
+    if (match) {
+      if (match.length === 4) {
+        const [, type, scope, rest] = match;
+        return { type: type.toLowerCase(), scope, title: rest };
+      }
+      if (match.length === 3) {
+        const [, type, rest] = match;
+        return { type: type.toLowerCase(), title: rest };
+      }
+    }
+    return { title };
+  }
+
+  private getStatusIcon(status?: string): string {
+    const normalized = (status || "").toLowerCase();
+    switch (normalized) {
+      case "open":
+        return "🟢";
+      case "draft":
+        return "📝";
+      case "merged":
+        return "🟣";
+      case "closed":
+        return "🔴";
+      case "created":
+        return "🆕";
+      default:
+        return "•";
+    }
+  }
 }
 
 /**
@@ -586,8 +630,12 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
       // Format detailed output
       const { pullRequest } = result;
 
+      const titleLine = pullRequest.number
+        ? `${pullRequest.title} [#${pullRequest.number}]`
+        : pullRequest.title;
+
       const output = [
-        `${pullRequest.number ? `PR #${pullRequest.number}: ` : ""}${pullRequest.title}`,
+        titleLine,
         "",
         `Session:     ${pullRequest.sessionName}`,
         `Task:        ${pullRequest.taskId || "none"}`,
