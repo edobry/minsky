@@ -151,6 +151,58 @@ describe("Session Edit File Integration Tests", () => {
       expect(result).toContain("Fixed");
     });
   });
+
+  describe("Phase 2: Structural Complexity", () => {
+    phase2TestCases.forEach((testCase) => {
+      test(`should handle ${testCase.name}`, async () => {
+        if (!testConfig.hasValidMorphConfig) {
+          console.log("⏭️  Skipping - Morph not configured");
+          return;
+        }
+
+        console.log(`\n🧪 Phase 2 Testing: ${testCase.name}`);
+
+        const originalContent = await loadFixture(testCase.fixture);
+        console.log(`📄 Loaded fixture: ${testCase.fixture} (${originalContent.length} chars)`);
+
+        const result = await applyEditPattern(
+          originalContent,
+          testCase.editPattern,
+          testCase.instruction
+        );
+
+        validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
+
+        console.log(`✅ Phase 2 ${testCase.name} completed successfully`);
+      });
+    });
+  });
+
+  describe("Phase 3: Advanced Patterns", () => {
+    phase3TestCases.forEach((testCase) => {
+      test(`should handle ${testCase.name}`, async () => {
+        if (!testConfig.hasValidMorphConfig) {
+          console.log("⏭️  Skipping - Morph not configured");
+          return;
+        }
+
+        console.log(`\n🧪 Phase 3 Testing: ${testCase.name}`);
+
+        const originalContent = await loadFixture(testCase.fixture);
+        console.log(`📄 Loaded fixture: ${testCase.fixture} (${originalContent.length} chars)`);
+
+        const result = await applyEditPattern(
+          originalContent,
+          testCase.editPattern,
+          testCase.instruction
+        );
+
+        validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
+
+        console.log(`✅ Phase 3 ${testCase.name} completed successfully`);
+      });
+    });
+  });
 });
 
 // Summary test for reporting

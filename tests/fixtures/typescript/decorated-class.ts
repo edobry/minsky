@@ -1,5 +1,7 @@
 export class Repo {
-  find(): any[] { return []; }
+  find(): any[] {
+    return [];
+  }
 }
 
 import { Entity, Column, PrimaryGeneratedColumn } from "typeorm";

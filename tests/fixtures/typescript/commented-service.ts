@@ -1,4 +1,24 @@
 /**
+ * A service with rich comments and documentation to test comment preservation.
+ */
+export class CommentedService {
+  /**
+   * Creates the service
+   */
+  constructor() {}
+
+  /**
+   * Validates email format
+   *
+   * @param email - The email to validate
+   * @returns true if valid
+   */
+  isValidEmail(email: string): boolean {
+    return /.+@.+\..+/.test(email);
+  }
+}
+
+/**
  * UserService handles all user-related operations
  *
  * @class UserService

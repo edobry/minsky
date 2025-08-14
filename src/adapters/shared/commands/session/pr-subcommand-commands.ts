@@ -418,7 +418,13 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
 
         // Second line: Session, Branch (if different from session), PR number, Updated
         const details: string[] = [];
-        if (pr.sessionName) details.push(`Session: ${pr.sessionName}`);
+        if (pr.sessionName) {
+          const shouldShowSession =
+            pr.sessionName !== displayId && !(pr.taskId && pr.sessionName.includes(pr.taskId));
+          if (shouldShowSession) {
+            details.push(`Session: ${pr.sessionName}`);
+          }
+        }
         if (pr.branch && pr.branch !== pr.sessionName) details.push(`Branch: ${pr.branch}`);
         if (pr.prNumber) details.push(`PR #${pr.prNumber}`);
         if (pr.updatedAt) details.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
