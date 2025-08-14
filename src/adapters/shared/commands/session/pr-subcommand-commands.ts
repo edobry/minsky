@@ -28,6 +28,35 @@ import {
 } from "../../../../domain/session/commands/pr-subcommands";
 
 /**
+ * Helper to compose and validate conventional commit title
+ */
+export function composeConventionalTitle(input: {
+  type: string | undefined;
+  title: string;
+  taskId?: string;
+}): string {
+  const { type, title, taskId } = input;
+
+  // Require type
+  if (!type) {
+    throw new ValidationError(
+      "--type is required. Provide one of: feat, fix, docs, style, refactor, perf, test, chore"
+    );
+  }
+
+  // Reject titles that already have conventional prefix
+  const hasPrefix = /^(?:[a-z]+)(?:\([^)]*\))?:\s*/i.test(title);
+  if (hasPrefix) {
+    throw new ValidationError(
+      "Title should be description only. Do not include conventional prefix like 'feat:' or 'feat(scope):'"
+    );
+  }
+
+  const scope = taskId ? `(${taskId})` : "";
+  return `${type}${scope}: ${title}`.trim();
+}
+
+/**
  * Session PR Create Command
  * Replaces the current 'session pr' command
  */
@@ -52,13 +81,13 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     // Validation: require title and body/bodyPath for new PR creation
     if (!params.title) {
       throw new ValidationError(
-        'Title is required for pull request creation.\nPlease provide:\n  --title <text>       PR title\n\nExample:\n  minsky session pr create --title "feat: Add new feature"'
+        'Title is required for pull request creation.\nPlease provide:\n  --title <text>       PR title (description only; do not include "feat:")\n\nExample:\n  minsky session pr create --type feat --title "Add new feature"'
       );
     }
 
     if (!params.body && !params.bodyPath) {
       throw new ValidationError(
-        'PR description is required for new pull request creation.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --title "feat: Add new feature" --body "This PR adds..."\n  minsky session pr create --title "fix: Bug fix" --body-path process/tasks/189/pr.md\n\nNote: To update an existing PR, use \'session pr edit\' instead.'
+        'PR description is required for new pull request creation.\nPlease provide one of:\n  --body <text>       Direct PR body text\n  --body-path <path>  Path to file containing PR body\n\nExample:\n  minsky session pr create --type feat --title "Add new feature" --body "This PR adds..."\n  minsky session pr create --type fix --title "Bug fix" --body-path process/tasks/189/pr.md\n\nNote: To update an existing PR, use \'session pr edit\' instead.'
       );
     }
 
@@ -97,9 +126,45 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
         }
       }
 
+      // Conventional commit title generation requires --type and forbids prefixed titles
+      let finalTitle: string = params.title;
+      if (params.type) {
+        try {
+          const { resolveSessionContextWithFeedback } = await import(
+            "../../../../domain/session/session-context-resolver"
+          );
+          const { createSessionProvider } = await import("../../../../domain/session");
+          const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
+
+          const sessionProvider = createSessionProvider();
+          const resolved = await resolveSessionContextWithFeedback({
+            session: params.name,
+            task: params.task,
+            repo: params.repo,
+            sessionProvider,
+            allowAutoDetection: true,
+          });
+
+          const taskId: string | undefined = resolved.taskId || params.task;
+          finalTitle = composeConventionalTitle({
+            type: params.type,
+            title: params.title,
+            taskId: taskId ? formatTaskIdForDisplay(taskId) : undefined,
+          });
+        } catch (error) {
+          // Use helper to validate and compose without task when resolution fails
+          finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
+        }
+      } else {
+        // If no --type provided, enforce requirement per new behavior
+        throw new ValidationError(
+          "--type is required for session pr create. Provide one of: feat, fix, docs, style, refactor, perf, test, chore"
+        );
+      }
+
       const result = await sessionPrCreate(
         {
-          title: params.title,
+          title: finalTitle,
           body: params.body,
           bodyPath: params.bodyPath,
           name: params.name,
@@ -349,7 +414,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
       );
     } else {
       return new MinskyError(
-        `❌ Failed to edit session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify the session has an existing PR\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available PRs\n\nNeed help? Run the command with --debug for detailed error information.`
+        `❌ Failed to edit session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify the session has an existing PR\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
       );
     }
   }
