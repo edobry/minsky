@@ -89,6 +89,8 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   return new TaskSimilarityService(embedding, storage, findTaskById, searchTasks, {
     similarityThreshold: 0.0,
     vectorLimit: 10,
+    model,
+    dimension,
   });
 }
 

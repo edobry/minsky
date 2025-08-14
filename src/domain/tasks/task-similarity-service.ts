@@ -1,10 +1,13 @@
 import type { Task } from "../tasks";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../storage/vector/types";
+import { createHash } from "crypto";
 
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;
   vectorLimit?: number;
+  model?: string;
+  dimension?: number;
 }
 
 export class TaskSimilarityService {
@@ -36,7 +39,17 @@ export class TaskSimilarityService {
     if (!task) return;
     const content = this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
-    await this.vectorStorage.store(taskId, vector, { qualifiedTaskId: taskId });
+
+    const contentHash = createHash("sha256").update(content).digest("hex");
+    const metadata: Record<string, any> = {
+      taskId,
+      model: this.config.model,
+      dimension: this.config.dimension,
+      contentHash,
+      updatedAt: new Date().toISOString(),
+    };
+
+    await this.vectorStorage.store(taskId, vector, metadata);
   }
 
   private extractTaskContent(task: Task): string {
