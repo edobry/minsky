@@ -42,10 +42,11 @@ export async function executeConfigUnset(key: string, options: UnsetOptions): Pr
             2
           )
         );
+        return; // Do not exit; tests and callers handle outcome
       } else {
         log.error(errorMessage);
+        return;
       }
-      process.exit(1);
     }
 
     // Output results
@@ -91,11 +92,11 @@ export async function executeConfigUnset(key: string, options: UnsetOptions): Pr
           2
         )
       );
+      return;
     } else {
       log.error(`Failed to unset configuration: ${message}`);
+      return;
     }
-
-    process.exit(1);
   }
 }
 

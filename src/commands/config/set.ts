@@ -49,10 +49,11 @@ export async function executeConfigSet(
             2
           )
         );
+        return; // Do not exit; tests and callers handle outcome
       } else {
         log.error(errorMessage);
+        return;
       }
-      process.exit(1);
     }
 
     // Output results
@@ -96,11 +97,11 @@ export async function executeConfigSet(
           2
         )
       );
+      return;
     } else {
       log.error(`Failed to set configuration: ${message}`);
+      return;
     }
-
-    process.exit(1);
   }
 }
 

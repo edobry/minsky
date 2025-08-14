@@ -97,6 +97,7 @@ export class ConfigWriter {
         };
       }
 
+      // STEP 1: Create backup if configured
       let backupPath: string | undefined;
       if (this.options.createBackup) {
         const backupResult = self.safeCreateBackup(this, configFile);
@@ -128,7 +129,20 @@ export class ConfigWriter {
         }
       }
 
-      this.writeConfigFile(configFile, currentConfig);
+      // STEP 2: Persist to disk, with restore on failure (symmetric with unset)
+      try {
+        this.writeConfigFile(configFile, currentConfig);
+      } catch (writeError: any) {
+        if (backupPath) {
+          this.restoreFromBackup(configFile, backupPath);
+        }
+        return {
+          success: false,
+          filePath: configFile,
+          backupPath,
+          error: writeError?.message || String(writeError),
+        };
+      }
 
       log.debug(`Config value set: ${keyPath} = ${JSON.stringify(value)}`);
 
@@ -171,13 +185,6 @@ export class ConfigWriter {
       const currentConfig = this.loadConfigFile(configFile);
 
       const previousValue = this.getNestedValue(currentConfig, keyPath);
-      const previousScalar = ((): any => {
-        if (previousValue === undefined || previousValue === null) return previousValue;
-        if (typeof previousValue === "object") {
-          if ((previousValue as any).model !== undefined) return (previousValue as any).model;
-        }
-        return previousValue;
-      })();
       if (previousValue === undefined) {
         return {
           success: true,
@@ -200,6 +207,7 @@ export class ConfigWriter {
         backupPath = backupResult.backupPath;
       }
 
+      // STEP 2: Remove value from config object
       this.unsetNestedValue(currentConfig, keyPath);
 
       if (this.options.validate) {
@@ -217,6 +225,7 @@ export class ConfigWriter {
         }
       }
 
+      // STEP 3: Persist to disk, with restore on failure
       try {
         this.writeConfigFile(configFile, currentConfig);
       } catch (writeError: any) {
@@ -237,7 +246,7 @@ export class ConfigWriter {
         success: true,
         filePath: configFile,
         backupPath,
-        previousValue: previousScalar,
+        previousValue,
         newValue: undefined,
       };
     } catch (error) {

@@ -54,8 +54,12 @@ mock.module("os", () => ({
   homedir: mockOs.homedir,
 }));
 mock.module("yaml", () => ({
-  parse: mockYaml.parse,
-  stringify: mockYaml.stringify,
+  get parse() {
+    return mockYaml.parse;
+  },
+  get stringify() {
+    return mockYaml.stringify;
+  },
 }));
 import { ConfigWriter, createConfigWriter } from "./config-writer";
 
@@ -89,7 +93,14 @@ describe("ConfigWriter", () => {
     }));
     mock.module("path", () => ({ join: mockPath.join, dirname: mockPath.dirname }));
     mock.module("os", () => ({ homedir: mockOs.homedir }));
-    mock.module("yaml", () => ({ parse: mockYaml.parse, stringify: mockYaml.stringify }));
+    mock.module("yaml", () => ({
+      get parse() {
+        return mockYaml.parse;
+      },
+      get stringify() {
+        return mockYaml.stringify;
+      },
+    }));
 
     // removed spy; handled by mock.module above
     // removed spy; handled by mock.module above
