@@ -313,7 +313,12 @@ sharedCommandRegistry.registerCommand({
     if (!to) {
       try {
         log.cli("🚀 SessionDB Schema Migration (configured backend)");
-        const result = await runSchemaMigrationsForConfiguredBackend({ dryRun, verbose });
+        // DEFAULT: dry-run; require --execute to apply
+        const shouldApply = Boolean(execute);
+        const result = await runSchemaMigrationsForConfiguredBackend({
+          dryRun: !shouldApply,
+          verbose,
+        });
 
         if (context.format === "human") {
           if (result.dryRun) {
@@ -329,7 +334,7 @@ sharedCommandRegistry.registerCommand({
       }
     }
 
-    // Default is preview mode unless --execute is specified
+    // DEFAULT: preview unless user passes --execute
     const isPreviewMode = !execute;
 
     try {

@@ -20,8 +20,8 @@
     "secrets:gitleaks": "gitleaks detect --source . --verbose",
     "secrets:scan": "gitleaks detect --source . --verbose",
     "db:generate:pg": "bunx --yes drizzle-kit generate:pg --config ./drizzle.pg.config.ts",
-    "db:migrate": "bun src/cli.ts sessiondb migrate",
-    "db:migrate:dry": "bun src/cli.ts sessiondb migrate --dry-run"
+    "db:migrate": "bun src/cli.ts sessiondb migrate --dry-run",
+    "db:migrate:apply": "bun src/cli.ts sessiondb migrate --execute"
   },
   "bin": {
     "minsky": "./src/cli.ts"

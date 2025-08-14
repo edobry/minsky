@@ -1,0 +1,35 @@
+---
+name: operational-safety-dry-run-first
+description: REQUIRED principle for destructive operations; default to dry-run and require explicit --execute to apply
+globs: ["src/**/*.ts", "src/**/*.md", "**/package.json"]
+alwaysApply: true
+---
+# Operational Safety: Dry-Run First
+
+Keep potentially destructive operations safe by default.
+
+## Requirements
+- Default to preview/dry-run; perform changes only when user passes an explicit `--execute` flag.
+- Reflect this behavior in CLI help, docs, and package scripts.
+- Show a clear preview plan for what would happen before applying.
+- Provide a follow-up example with `--execute`.
+
+## Examples
+
+// AVOID: applying by default
+```
+minsky sessiondb migrate
+# applies immediately
+```
+
+// PREFER: safe default with explicit execution
+```
+# preview
+minsky sessiondb migrate --dry-run
+
+# apply (must be explicit)
+minsky sessiondb migrate --execute
+```
+
+## Cross-References
+- See `sessiondb.migrate` behavior and other commands using `--execute` semantics.
