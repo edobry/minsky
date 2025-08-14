@@ -298,7 +298,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (!parsed) continue;
 
         const { checkbox, title, id } = parsed;
-        if (!title || !id || !/^#\d+$/.test(id)) continue; // skip malformed or empty
+        if (!title || !id || !/^(#\d+|[a-z-]+#\d+)$/.test(id)) continue; // skip malformed or empty
 
         const status = Object.keys(TASK_STATUS_CHECKBOX).find(
           (key) => TASK_STATUS_CHECKBOX[key] === checkbox
