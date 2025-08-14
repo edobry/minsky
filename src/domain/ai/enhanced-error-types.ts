@@ -4,11 +4,11 @@
  */
 
 export class RateLimitError extends Error {
-  public readonly retryAfter: number;
+  public readonly provider: string;
+  public readonly retryAfter: number; // seconds
   public readonly remaining: number;
   public readonly limit: number;
   public readonly resetTime?: Date;
-  public readonly provider: string;
 
   constructor(
     message: string,
@@ -31,45 +31,24 @@ export class RateLimitError extends Error {
     return this.retryAfter;
   }
 
-  /**
-   * Get human-readable retry message with actionable information
-   */
   getUserFriendlyMessage(): string {
     if (this.resetTime) {
-      const timeUntilReset = Math.max(0, this.resetTime.getTime() - Date.now());
-      const minutesUntilReset = Math.ceil(timeUntilReset / 60000);
-      return `Rate limit exceeded for ${this.provider}. Retry in ${this.retryAfter}s (limit resets in ${minutesUntilReset}m). Usage: ${this.remaining}/${this.limit} requests remaining.`;
+      const ms = Math.max(0, this.resetTime.getTime() - Date.now());
+      const minutes = Math.ceil(ms / 60000);
+      return `Rate limit exceeded for ${this.provider}. Retry in ${this.retryAfter}s (resets in ${minutes}m). Remaining ${this.remaining}/${this.limit}.`;
     }
-    return `Rate limit exceeded for ${this.provider}. Retry in ${this.retryAfter}s. Usage: ${this.remaining}/${this.limit} requests remaining.`;
-  }
-
-  /**
-   * Get recovery suggestions
-   */
-  getRecoverySuggestions(): string[] {
-    const suggestions = [
-      `Wait ${this.retryAfter} seconds before retrying`,
-      "Consider using a different AI provider if available",
-    ];
-
-    if (this.remaining === 0) {
-      suggestions.push("Your rate limit quota is exhausted");
-      if (this.resetTime) {
-        const minutesUntilReset = Math.ceil((this.resetTime.getTime() - Date.now()) / 60000);
-        suggestions.push(`Rate limit resets in ${minutesUntilReset} minutes`);
-      }
-    }
-
-    return suggestions;
+    return `Rate limit exceeded for ${this.provider}. Retry in ${this.retryAfter}s. Remaining ${this.remaining}/${this.limit}.`;
   }
 }
+
+export type AuthenticationErrorType = "invalid_key" | "expired_key" | "unauthorized" | "forbidden";
 
 export class AuthenticationError extends Error {
   public readonly provider: string;
   public readonly code: string;
-  public readonly type: "invalid_key" | "expired_key" | "unauthorized" | "forbidden";
+  public readonly type: AuthenticationErrorType;
 
-  constructor(message: string, provider: string, code: string, type: AuthenticationError["type"]) {
+  constructor(message: string, provider: string, code: string, type: AuthenticationErrorType) {
     super(message);
     this.name = "AuthenticationError";
     this.provider = provider;
@@ -77,17 +56,14 @@ export class AuthenticationError extends Error {
     this.type = type;
   }
 
-  /**
-   * Get user-friendly error message with context
-   */
   getUserFriendlyMessage(): string {
-    const typeMessages = {
+    const typeMessages: Record<AuthenticationErrorType, string> = {
       invalid_key: `Invalid API key for ${this.provider}`,
       expired_key: `Expired API key for ${this.provider}`,
       unauthorized: `Unauthorized access to ${this.provider}`,
       forbidden: `Access forbidden by ${this.provider}`,
     };
-    return `${typeMessages[this.type] || `Authentication error with ${this.provider}`}. Check your API key configuration.`;
+    return `${typeMessages[this.type]} – check your configuration and credentials.`;
   }
 }
 

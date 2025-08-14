@@ -98,24 +98,6 @@ export interface AICompletionService {
   validateConfiguration(): Promise<ValidationResult>;
 }
 
-// Embeddings
-export interface EmbeddingService {
-  generateEmbedding(content: string): Promise<number[]>;
-  generateEmbeddings(contents: string[]): Promise<number[][]>;
-}
-
-export interface SearchResult {
-  id: string;
-  score: number;
-  metadata?: Record<string, any>;
-}
-
-export interface VectorStorage {
-  store(id: string, vector: number[], metadata?: Record<string, any>): Promise<void>;
-  search(queryVector: number[], limit?: number, threshold?: number): Promise<SearchResult[]>;
-  delete(id: string): Promise<void>;
-}
-
 export interface AIObjectGenerationRequest {
   messages: Array<{ role: string; content: string }>;
   schema: any;

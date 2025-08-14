@@ -1,3 +1,773 @@
+---
+description: Use this when doing stuff
+alwaysApply: false
+---
+# Bun Test Patterns
+
+## ALWAYS USE CENTRALIZED MOCKING UTILITIES
+
+**CRITICAL REQUIREMENT: Always use the project's centralized mocking utilities in `src/utils/test-utils/mocking.ts` instead of directly using bun:test APIs.**
+
+```typescript
+// ❌ NEVER USE DIRECT BUN:TEST APIs
+import { jest, mock } from "bun:test";
+const mockFn = jest.fn();
+mock.module("../path/to/module", () => ({ ... }));
+
+// ✅ ALWAYS USE CENTRALIZED UTILITIES
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
+import { createMockLogger, clearLoggerMocks } from "../utils/test-utils/logger-mock";
+setupTestMocks();
+const mockFn = createMock();
+const mockLog = createMockLogger();
+mockModule("../../../src/path/to/module", () => ({ ... }));
+```
+
+The centralized utilities provide:
+1. Consistent mocking patterns across the codebase
+2. Automatic mock cleanup in afterEach hooks
+3. Better type safety and error handling
+4. Additional helper methods for common testing scenarios
+5. **Centralized logger mocking** - Prevents "log.cli is not a function" errors
+
+## Core Mocking Utilities
+
+### Required Setup (Updated for Task #270 Architecture)
+
+Always begin your test file with proper import paths based on test location:
+
+```typescript
+import { describe, test, expect } from "bun:test";
+import {
+  createMock,
+  mockModule,
+  setupTestMocks,
+  createMockFileSystem
+} from "../utils/test-utils/mocking";
+import { createMockLogger } from "../utils/test-utils/logger-mock";
+
+// Set up automatic mock cleanup
+setupTestMocks();
+```
+
+### Function Mocking
+
+**REQUIRED: Use createMock() instead of jest.fn()**
+
+```typescript
+// ❌ INCORRECT - Direct jest API usage
+const mockFunction = jest.fn().mockReturnValue("result");
+
+// ✅ CORRECT - Using centralized utility
+const mockFunction = createMock(() => "default value");
+mockFunction.mockReturnValue("result");
+
+// Assertion examples
+expect(mockFunction).toHaveBeenCalled();
+expect(mockFunction).toHaveBeenCalledWith("arg");
+expect(mockFunction.mock.calls.length).toBe(1);
+```
+
+### Module Mocking (Updated Paths for New Architecture)
+
+**REQUIRED: Use mockModule() with proper src/ prefix**
+
+```typescript
+// ❌ INCORRECT - Direct mock API usage or wrong paths
+mock.module("../path/to/module", () => ({
+  exportedFunction: jest.fn()
+}));
+
+// ✅ CORRECT - Using centralized utility with src/ prefix
+mockModule("../../../src/domain/tasks", () => ({
+  getTaskFromParams: createMock(),
+  setTaskStatusFromParams: createMock()
+}));
+
+// ✅ CORRECT - From adapter tests
+mockModule("../../../../src/adapters/shared/commands/tasks", () => ({
+  registerTasksCommands: createMock()
+}));
+```
+
+### Logger Mocking
+
+**REQUIRED: Use createMockLogger() to prevent "log.cli is not a function" errors**
+
+```typescript
+// ❌ INCORRECT - Incomplete logger mock
+const mockLog = {
+  debug: jest.fn(),
+  info: jest.fn()
+  // Missing cli, agent, and other methods
+};
+
+// ✅ CORRECT - Using centralized logger mock
+import { createMockLogger } from "../utils/test-utils/logger-mock";
+
+const mockLog = createMockLogger();
+
+// Mock the logger module
+mockModule("../../../src/utils/logger", () => ({
+  log: mockLog
+}));
+
+// Now all logger methods are available
+expect(mockLog.cli).toHaveBeenCalledWith("CLI message");
+expect(mockLog.debug).toHaveBeenCalledWith("Debug message");
+expect(mockLog.agent).toHaveBeenCalledWith("Agent message");
+```
+
+### Filesystem Mocking
+
+**REQUIRED: Use createMockFileSystem() for all filesystem operations**
+
+```typescript
+// ❌ INCORRECT - Testing actual filesystem
+test("saves config to file", () => {
+  saveConfig({ setting: true });
+  expect(fs.existsSync(CONFIG_PATH)).toBe(true);
+});
+
+// ✅ CORRECT - Using mock filesystem
+test("saves config to file", () => {
+  const mockFS = createMockFileSystem();
+  mockModule("fs", () => mockFS);
+
+  saveConfig({ setting: true });
+
+  expect(mockFS.written[CONFIG_PATH]).toBeDefined();
+});
+```
+
+## Test Organization Patterns (Updated for Task #270)
+
+### Domain Command Test Structure
+
+```typescript
+// src/domain/tasks.commands.test.ts
+import { describe, test, expect, beforeEach } from "bun:test";
+import { createMock, mockModule, setupTestMocks } from "../utils/test-utils/mocking";
+
+// Set up automatic mock cleanup
+setupTestMocks();
+
+// Mock domain services that the commands use
+const mockTaskService = createMock();
+mockModule("../../../src/domain/tasks/taskService", () => ({
+  getTask: mockTaskService
+}));
+
+describe("Task Domain Commands", () => {
+  beforeEach(() => {
+    mockTaskService.mockReset();
+  });
+
+  describe("getTaskFromParams", () => {
+    test("should validate and retrieve task", async () => {
+      // Arrange
+      const params = { id: "123" };
+      const expectedTask = { id: "123", title: "Test Task" };
+      mockTaskService.mockResolvedValue(expectedTask);
+
+      // Act
+      const result = await getTaskFromParams(params);
+
+      // Assert
+      expect(result).toEqual(expectedTask);
+      expect(mockTaskService).toHaveBeenCalledWith("123");
+    });
+  });
+});
+```
+
+### Adapter Test Structure
+
+```typescript
+// src/adapters/shared/tasks.adapter.test.ts
+import { describe, test, expect, beforeEach } from "bun:test";
+import { createMock, setupTestMocks } from "../../utils/test-utils/mocking";
+import { registerTasksCommands } from "../../../../src/adapters/shared/commands/tasks";
+
+// Set up automatic mock cleanup
+setupTestMocks();
+
+describe("Shared Tasks Adapter", () => {
+  test("registers correct number of commands", () => {
+    // Arrange
+    const mockRegistry = {
+      commands: new Map(),
+      register: createMock()
+    };
+
+    // Act
+    registerTasksCommands(mockRegistry);
+
+    // Assert
+    expect(mockRegistry.register).toHaveBeenCalledTimes(7);
+  });
+});
+```
+
+### Test Suite Structure
+
+Organize tests with appropriate nesting and descriptive names:
+
+```typescript
+describe("Module name", () => {
+  describe("functionName", () => {
+    test("should handle specific input correctly", () => {
+      // Test content
+    });
+
+    test("should throw error for invalid input", () => {
+      // Test content
+    });
+  });
+});
+```
+
+### Test Isolation
+
+Ensure tests don't share mutable state:
+
+```typescript
+describe("Module with state", () => {
+  let instance;
+
+  beforeEach(() => {
+    // Create a fresh instance for each test
+    instance = createTestInstance();
+  });
+
+  afterEach(() => {
+    // Clean up after each test
+    instance.cleanup();
+  });
+
+  test("should modify state correctly", () => {
+    instance.performAction();
+    expect(instance.state).toBe("expected");
+  });
+});
+```
+
+## Common Test Patterns
+
+### Arrange-Act-Assert Pattern
+
+Structure tests using the AAA pattern:
+
+```typescript
+test("function should transform input correctly", () => {
+  // Arrange
+  const input = { data: "input" };
+  const expectedOutput = { data: "transformed" };
+
+  // Act
+  const result = transformFunction(input);
+
+  // Assert
+  expect(result).toEqual(expectedOutput);
+});
+```
+
+### Testing Asynchronous Code
+
+```typescript
+test("async function returns expected result", async () => {
+  // Arrange
+  const mockData = { id: 123 };
+  const mockApi = createMock();
+  mockApi.mockResolvedValue(mockData);
+  mockModule("../../../src/api", () => ({ fetchData: mockApi }));
+
+  // Act
+  const result = await fetchAndProcess(123);
+
+  // Assert
+  expect(mockApi).toHaveBeenCalledWith(123);
+  expect(result).toEqual(expect.objectContaining({ id: 123, processed: true }));
+});
+```
+
+### Testing Error Cases
+
+```typescript
+test("function throws for invalid input", () => {
+  // Arrange
+  const invalidInput = null;
+
+  // Act & Assert
+  expect(() => validateInput(invalidInput)).toThrowError(/invalid input/i);
+});
+```
+
+## Path Examples for New Architecture
+
+### Import Paths by Test Location
+
+```typescript
+// From src/domain/*.commands.test.ts (co-located)
+import { createMock } from "../utils/test-utils/mocking";
+mockModule("./tasks", () => ({ ... }));
+
+// From src/adapters/cli/*.adapter.test.ts (co-located)
+import { createMock } from "../../utils/test-utils/mocking";
+mockModule("./commands", () => ({ ... }));
+
+// From src/adapters/shared/*.adapter.test.ts (co-located)
+import { createMock } from "../../utils/test-utils/mocking";
+mockModule("./commands", () => ({ ... }));
+
+// From src/domain/*.test.ts (co-located domain service tests)
+import { createMock } from "../utils/test-utils/mocking";
+mockModule("./taskService", () => ({ ... }));
+```
+
+## Common Troubleshooting
+
+### Jest vs Bun:Test Compatibility
+
+If encountering issues with Jest compatibility:
+
+```typescript
+// Issue with bun:test not fully supporting all Jest features
+// For complex mocking scenarios, use our utility wrappers:
+
+import { createSpy } from "../utils/test-utils/mocking";
+
+// Instead of direct spyOn
+// const spy = jest.spyOn(object, 'method');
+
+// Use our utility
+const spy = createSpy(object, 'method');
+```
+
+### Fixing Mock Not Found Issues
+
+If seeing "Mock not found" errors:
+
+```typescript
+// Issue:
+// Error: Mock for "../some-module" not found
+
+// Solution:
+// 1. Make sure you're calling mockModule BEFORE importing the module under test
+// 2. Use proper relative paths with src/ prefix from the test file location
+
+// CORRECT from src/domain/ (co-located):
+mockModule("./tasks", () => ({
+  // mocked exports
+}));
+
+// CORRECT from src/adapters/cli/ (co-located):
+mockModule("../../domain/tasks", () => ({
+  // mocked exports
+}));
+```
+
+## 🎯 CRITICAL SUCCESS PATTERNS (100% Success Rate)
+
+**Discovered through systematic test fixing achieving complete test success**
+
+### 1. **Explicit Mock Pattern** (CRITICAL SUCCESS FACTOR)
+
+**Problem**: Factory-generated mocks with async functions are unreliable
+**Success Rate**: 100% when applied correctly
+
+```typescript
+// ❌ UNRELIABLE: Factory-generated mock
+const mockService = createMockService(async (id) => {
+  if (id === "test") return mockData;
+  return null;
+});
+
+// ✅ RELIABLE: Explicit Mock Pattern
+const mockService = {
+  getData: async (id: string) => {
+    if (id === "test") {
+      return { id: "test", name: "Test Item" };
+    }
+    return null;
+  },
+  listItems: async () => [],
+  updateItem: async () => {},
+  deleteItem: async () => false,
+  // All methods explicitly defined
+};
+```
+
+**Key Benefits**:
+- ✅ Reliable mock construction
+- ✅ All required methods explicitly defined
+- ✅ Handles both input and qualified ID formats
+- ✅ Predictable behavior
+
+### 2. **Template Literal Pattern** (CRITICAL SUCCESS FACTOR)
+
+**Problem**: Repeated string construction leads to format mismatches and maintenance burden
+**Success Rate**: 100% for eliminating magic string errors
+
+```typescript
+// ❌ PROBLEMATIC: Magic strings and repetition
+expect(result.id).toBe("user-123");
+expect(result.name).toBe("user-123-session");
+expect(commands).toContain("process user-123 for session user-123-session");
+
+// ✅ RELIABLE: Template Literal Pattern with extracted constants
+const USER_ID = "123";
+const QUALIFIED_ID = `user-${USER_ID}`;
+const SESSION_NAME = `${QUALIFIED_ID}-session`;
+const COMMAND = `process ${QUALIFIED_ID} for session ${SESSION_NAME}`;
+
+expect(result.id).toBe(QUALIFIED_ID);
+expect(result.name).toBe(SESSION_NAME);
+expect(commands).toContain(COMMAND);
+```
+
+**Key Benefits**:
+- ✅ Single source of truth for each identifier
+- ✅ Reduced surface area for errors
+- ✅ Easier maintenance and refactoring
+- ✅ Consistent format across all usages
+
+### 3. **Format Alignment Pattern** (BREAKTHROUGH DISCOVERY)
+
+**Problem**: Mock data format doesn't match system-generated formats
+**Success Rate**: 100% for format-related test failures
+
+```typescript
+// ❌ MISALIGNED: Mock format doesn't match system format
+const mockDatabase = {
+  getRecord: (id: string) => Promise.resolve({
+    name: `item${id}`, // → "item123" (no separator) ❌
+    path: `data/item${id}`, // → "data/item123" (inconsistent) ❌
+  })
+};
+
+// ✅ ALIGNED: Mock format matches system format
+const mockDatabase = {
+  getRecord: (id: string) => Promise.resolve({
+    name: `item-${id}`, // → "item-123" (with separator) ✅
+    path: `data/item-${id}`, // → "data/item-123" (consistent) ✅
+  })
+};
+```
+
+**Critical Discovery**: Mock data must exactly match real system output formats
+**Fix Approach**: Ensure both system code AND test mocks use identical formatting
+
+### 4. **Cross-Test Interference Prevention** (CRITICAL DISCOVERY)
+
+**Problem**: Global `mock.module()` calls persist across tests causing interference
+**Root Cause**: Tests passing in isolation but failing in full suite
+
+```typescript
+// ❌ DANGEROUS: Global module mocks that persist
+mock.module("../utils/logger", () => ({
+  log: mockLog,
+}));
+mock.module("../utils/database", () => ({
+  query: mock(() => Promise.resolve({})),
+}));
+
+// ✅ SAFE: Use dependency injection instead
+const dependencies = {
+  logger: mockLogger,
+  database: mockDatabase,
+  service: mockService,
+  utils: mockUtils,
+};
+```
+
+**Key Discovery**: Functions that import mocked modules fail when other tests globally mock those same modules.
+
+**Solution**: Remove global module mocks, use dependency injection pattern.
+
+### 5. **Domain Functions vs CLI Execution** (ARCHITECTURAL PRINCIPLE)
+
+**Problem**: Tests executing CLI processes instead of testing domain logic
+**Anti-Pattern**: Process spawning in unit tests
+
+```typescript
+// ❌ WRONG: Testing CLI interface
+const { stdout, stderr } = await execAsync('bun run ./src/cli.ts command --id=123');
+expect(stdout).toContain("123");
+
+// ✅ CORRECT: Testing domain logic
+const result = await processCommand("123", { service: mockService });
+expect(result.id).toBe("123");
+```
+
+**Key Benefits**:
+- ✅ Fast execution (no process spawning)
+- ✅ Reliable isolation (proper dependency injection)
+- ✅ Focused testing (business logic vs CLI interface)
+- ✅ Better error messages and debugging
+
+### 6. **Testable Design Pattern** (ARCHITECTURAL IMPROVEMENT)
+
+**Problem**: Complex functions with I/O operations are hard to unit test
+**Solution**: Extract pure business logic for focused unit testing
+
+```typescript
+// ❌ COMPLEX: Function with mixed concerns
+async function processData(params, deps) {
+  // Complex I/O operations, business logic, notifications, etc.
+  if (!params.skipValidation && hasErrors) {
+    await validationService.validate();
+  }
+  if (!params.skipNotification) {
+    await notificationService.send();
+  }
+}
+
+// ✅ EXTRACTED: Pure business logic functions
+export function shouldValidate(options, state) {
+  if (options.force) return false;
+  if (options.skipValidation) return false;
+  return state.hasErrors;
+}
+
+export function shouldNotify(options) {
+  return !options.skipNotification;
+}
+```
+
+**Benefits**:
+- ✅ Focused unit tests covering all conditional logic
+- ✅ No I/O dependencies in pure function tests
+- ✅ Fast execution and reliable testing
+- ✅ Clear separation of concerns
+
+## ⚠️ CRITICAL ANTI-PATTERNS TO AVOID
+
+### 1. **Global Module Mocks** (CAUSES CROSS-TEST INTERFERENCE)
+```typescript
+// ❌ NEVER: Global mocks persist across tests
+mock.module("../utils/logger", () => ({ ... }));
+```
+
+### 2. **CLI Execution in Tests** (ARCHITECTURAL ANTI-PATTERN)
+```typescript
+// ❌ NEVER: Spawn CLI processes in tests
+const { stdout } = await execAsync('bun run ./src/cli.ts ...');
+```
+
+### 3. **Unreliable Mock Construction**
+```typescript
+// ❌ AVOID: Factory-generated mocks with complex logic - often fails
+createMockService(async (id) => id === "test" ? mockData : null)
+```
+
+### 4. **Magic String Duplication**
+```typescript
+// ❌ AVOID: Repeated hardcoded strings
+expect(result.id).toBe("item-001");
+expect(errorMessage).toContain("item-001");
+const name = "item-001";
+```
+
+### 5. **Format Misalignment**
+```typescript
+// ❌ AVOID: Mock format doesn't match system format
+const mockService = {
+  getItem: (id) => ({ name: `item${id}` }) // Missing separator!
+};
+```
+
+### 6. **Symptom Masking vs Root Cause Investigation**
+```typescript
+// ❌ WRONG: Paper over with setupTestMocks()
+setupTestMocks(); // Masks cross-test interference
+
+// ✅ CORRECT: Hunt down and fix global module mocks
+// Remove: mock.module("../utils/logger", ...)
+```
+
+## ⚠️ Critical Test Architecture Protocol
+
+**Addresses systematic test fixing approach and architectural anti-patterns**
+
+### Test Architecture Error Patterns
+
+**Pattern 1: Papering Over vs Root Cause Investigation**
+- **Error**: Using workarounds to mask problems instead of fixing root cause
+- **User Signal**: "we dont want to do automatic mock cleanup bc that just papers over cross-test interference. instead hunt down what's causing this"
+- **Root Cause**: Process Error - wrong methodology for debugging test issues
+- **Correct Approach**: Hunt down actual causes instead of masking symptoms
+
+**Pattern 2: CLI Execution in Tests (Architectural Anti-Pattern)**
+- **Error**: Testing CLI interface instead of domain logic
+- **User Signal**: "tests should not execute the CLI ever, they should call domain/util functions only"
+- **Root Cause**: Architectural Error - testing wrong layer, violating separation of concerns
+- **Correct Approach**: Test domain functions directly with dependency injection, not CLI processes
+
+**Pattern 3: Global Module Mocks Causing Cross-Test Interference**
+- **Error**: Using persistent global mocks that interfere across tests
+- **Discovery**: Tests pass in isolation but fail in full suite due to global state pollution
+- **Root Cause**: Test Isolation Error - global mocks persist and affect unrelated tests
+- **Correct Approach**: Remove global module mocks, use dependency injection pattern
+
+**Pattern 4: Avoiding Logic Testing with Bypass Flags**
+- **Error**: Using bypass flags to avoid testing the actual logic under test
+- **User Signal**: "why are you setting force, doesnt that avoid the logic we're trying to test?"
+- **Root Cause**: Testing Error - avoiding the actual logic under test with workarounds
+- **Correct Approach**: Test the actual conditional logic with proper mocking, not bypass it
+
+### Mandatory Test Architecture Verification
+
+**Before any test fixing, verify:**
+- [ ] Am I testing domain functions directly (not CLI execution)?
+- [ ] Am I using explicit mocks (not unreliable factory functions)?
+- [ ] Am I investigating root causes (not papering over with workarounds)?
+- [ ] Am I avoiding global module mocks that cause cross-test interference?
+- [ ] Am I testing the actual logic (not bypassing with force flags)?
+
+### Enhanced Error Detection for Test Architecture
+
+When user signals test architecture error with phrases like:
+- "hunt down what's causing this"
+- "tests should not execute the CLI ever"
+- "doesn't that avoid the logic we're trying to test?"
+- "we dont want to do automatic mock cleanup"
+
+**Immediate Response Protocol:**
+1. **STOP ALL WORKAROUND APPROACHES** immediately (global mocks, bypass flags, etc.)
+2. **INVESTIGATE ROOT CAUSE** using proper debugging methodology
+3. **APPLY ARCHITECTURAL PRINCIPLES** (domain testing, dependency injection, explicit mocks)
+4. **DOCUMENT THE PATTERN** in test architecture rules
+
+### Test Architecture Success Patterns (100% Success Rate)
+
+**Proven Patterns from systematic test fixing achievement:**
+
+1. **Explicit Mock Pattern**: Define complete mock objects, don't use unreliable factories
+2. **Template Literal Pattern**: Use constants and template literals, avoid magic strings
+3. **Format Alignment Pattern**: Ensure mock formats match system formats exactly
+4. **Domain Function Testing**: Call domain functions directly with dependency injection
+5. **Testable Design Pattern**: Extract pure business logic from I/O operations
+6. **Root Cause Investigation**: Hunt down actual problems, don't mask symptoms
+
+**CRITICAL**: Any test architecture violation requires immediate rule updates and systematic application of proven patterns.
+
+## ESLint Integration
+
+### Automated Pattern Enforcement (⚠️ TEMPORARILY DISABLED)
+
+The Minsky project includes a custom ESLint rule `no-jest-patterns` that detects Jest patterns and provides Bun alternatives. **Currently disabled** pending systematic migration.
+
+**Rule Configuration:**
+
+```javascript
+// eslint.config.js - TEMPORARILY DISABLED
+export default [
+  {
+    plugins: {
+      custom: {
+        rules: {
+          "no-jest-patterns": noJestPatterns,
+        },
+      },
+    },
+    rules: {
+      "custom/no-jest-patterns": "off", // TODO: Re-enable after migration
+    },
+  },
+];
+```
+
+**Detected Patterns & Auto-fixes:**
+
+- `jest.fn()` → `mock()` (with appropriate import)
+- `.mockReturnValue()` → `mock(() => returnValue)`
+- `.mockResolvedValue()` → `mock(() => Promise.resolve(value))`
+- `.mockRejectedValue()` → `mock(() => Promise.reject(error))`
+- `jest.mock()` → Suggests using `mockModule()` from test-utils
+- Jest imports → Suggests Bun test imports
+
+**Usage:**
+
+```bash
+# Check for Jest patterns
+bun lint
+
+# Auto-fix simple patterns
+bun lint --fix
+```
+
+**Current Status**: Rule temporarily disabled due to existing Jest patterns. Will be re-enabled after systematic migration.
+
+## Performance Considerations
+
+### Mock Reuse
+
+- Use centralized factories to reduce mock creation overhead
+- Clear mocks in `beforeEach` rather than recreating them
+- Avoid unnecessary deep object mocking
+
+### Test Isolation
+
+```typescript
+describe("Tests", () => {
+  beforeEach(() => {
+    // Clear state, don't recreate mocks
+    mockService.method.mockClear();
+
+    // Reset to known state
+    mockService.method.mockImplementation(() => "default");
+  });
+});
+```
+
+## Migration Checklist
+
+When migrating a test file:
+
+- [ ] Replace Jest imports with Bun imports
+- [ ] Convert manual mocks to centralized factories
+- [ ] Replace `.mockReturnValue()` with `.mockImplementation()`
+- [ ] Replace `.mockResolvedValue()` with `.mockImplementation(() => Promise.resolve())`
+- [ ] Update mock clearing to use `mockClear()` not `mockReset()`
+- [ ] Ensure all service dependencies use centralized factories
+- [ ] **Apply proven success patterns from this rule**
+- [ ] **Avoid global module mocks that cause cross-test interference**
+- [ ] **Use explicit mocks instead of unreliable factory functions**
+- [ ] **Test domain functions directly, not CLI execution**
+- [ ] Test that all tests pass with new patterns
+- [ ] Verify no Jest patterns remain in the file
+
+## Debugging Test Issues
+
+### Common Problems and Solutions
+
+1. **"mockMethod is not a function"**
+   - Ensure you're using centralized factories
+   - Check that all required methods are included in factory
+
+2. **Mock not being called**
+   - Verify mock is properly injected into service under test
+   - Check that dependency injection is working correctly
+
+3. **Tests affecting each other**
+   - Ensure proper mock clearing in `beforeEach`
+   - Use test isolation patterns
+   - **CRITICAL**: Check for global module mocks causing cross-test interference
+
+4. **Tests pass in isolation but fail in full suite**
+   - **ROOT CAUSE**: Global module mocks persisting across tests
+   - **SOLUTION**: Remove global `mock.module()` calls, use dependency injection
+
+## Benefits of Following These Patterns
+
+1. **Proven Success**: 100% test success rate achieved through systematic approach
+2. **Architectural Clarity**: Clear separation between business logic and I/O operations
+3. **Test Reliability**: No cross-test interference or isolation issues
+4. **Performance**: Fast test execution with proper dependency injection
+5. **Maintainability**: Template literals and explicit mocks reduce maintenance burden
+6. **Debugging**: Root cause investigation over symptom masking
+7. **Consistency**: All tests use the same proven patterns across the codebase
 # Bun Test Patterns
 
 ## ALWAYS USE CENTRALIZED MOCKING UTILITIES

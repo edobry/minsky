@@ -644,24 +644,11 @@
 
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
-<<<<<<< HEAD
 - [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
-<<<<<<< HEAD
-- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
-=======
+- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
 - [ ] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
->>>>>>> origin/main
-=======
-- [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
-
-- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
-
-- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
->>>>>>> task-md#399-comprehensive-integration-tests
-
-- [+] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)

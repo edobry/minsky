@@ -10,10 +10,14 @@
  */
 
 import { describe, test, expect, beforeAll } from "bun:test";
-// Use mock.module() to mock filesystem operations
-// import { readFile } from "fs/promises";
+import { readFile } from "fs/promises";
 import { join } from "path";
 import { applyEditPattern } from "../../src/adapters/mcp/session-edit-tools";
+import {
+  initializeConfiguration,
+  CustomConfigFactory,
+  getConfiguration,
+} from "../../src/domain/configuration/index.js";
 
 interface TestConfig {
   hasValidMorphConfig: boolean;
@@ -38,27 +42,29 @@ interface EditTestCase {
 let testConfig: TestConfig;
 
 beforeAll(async () => {
-  // Load test configuration
   try {
-    const config = process.env.MORPH_API_KEY
-      ? {
-          baseUrl: process.env.MORPH_BASE_URL || "https://api.morphllm.com/v1",
-          apiKey: process.env.MORPH_API_KEY,
-        }
-      : null;
+    const factory = new CustomConfigFactory();
+    await initializeConfiguration(factory, { workingDirectory: process.cwd() });
+
+    const config = getConfiguration();
+    const morph = config.ai?.providers?.morph as any;
+
+    const baseUrl = morph?.baseURL || morph?.baseUrl;
+    const apiKey = morph?.apiKey;
 
     testConfig = {
-      hasValidMorphConfig: Boolean(config?.baseUrl && config?.apiKey),
-      morphBaseUrl: config?.baseUrl,
-      morphApiKey: config?.apiKey,
+      hasValidMorphConfig: Boolean(morph?.enabled && baseUrl && apiKey),
+      morphBaseUrl: baseUrl,
+      morphApiKey: apiKey,
     };
 
     if (!testConfig.hasValidMorphConfig) {
-      console.log("⚠️  Morph configuration incomplete - integration tests will be skipped");
-      console.log("   Set MORPH_API_KEY environment variable to run integration tests");
+      console.log("⚠️  Morph not configured - integration tests will be skipped");
+    } else {
+      console.log(`✅ Morph configured via config system: ${baseUrl}`);
     }
   } catch (error) {
-    console.error("Failed to load test configuration:", error);
+    console.error("Failed to initialize configuration:", error);
     testConfig = { hasValidMorphConfig: false };
   }
 });
