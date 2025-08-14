@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- tasks: Corrected import paths in `src/adapters/shared/commands/tasks/similarity-commands.ts` to reference domain modules properly, fixing "Cannot find module '../../../domain/tasks/task-similarity-service'" when running `minsky tasks` commands. Unblocks `minsky tasks get md#414` and related commands.
 - tasks: `minsky tasks list` now correctly displays task IDs again. Restored ID rendering by enhancing `formatTaskIdForDisplay` to handle legacy (`#123`) and numeric (`123`) IDs, outputting qualified `md#NNN` in CLI list output. See commit 26d958bf3.
 
 - feat(sessiondb): add Drizzle Kit migrations for PostgreSQL and wire runtime migrator

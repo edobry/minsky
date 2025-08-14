@@ -42,7 +42,30 @@ export function registerSessionEditTools(commandMapper: CommandMapper): void {
     name: "session.edit_file",
     description: `Use this tool to make an edit to an existing file. This will be read by a less intelligent model, which will quickly apply the edit. You should make it clear what the edit is, while also minimizing the unchanged code you write.
 
-When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.`,
+When writing the edit, you should specify each edit in sequence, with the special comment // ... existing code ... to represent unchanged code in between edited lines.
+
+For example:
+
+// ... existing code ...
+FIRST_EDIT
+// ... existing code ...
+SECOND_EDIT
+// ... existing code ...
+THIRD_EDIT
+// ... existing code ...
+
+You should still bias towards repeating as few lines of the original file as possible to convey the change. But, each edit should contain sufficient context of unchanged lines around the code you're editing to resolve ambiguity.
+DO NOT omit spans of pre-existing code (or comments) without using the // ... existing code ... comment to indicate its absence. If you omit the existing code comment, the model may inadvertently delete these lines.
+If you plan on deleting a section, you must provide context before and after to delete it. If the initial code is \`code
+Block 1
+Block 2
+Block 3
+code\`, and you want to remove Block 2, you would output \`// ... existing code ...
+Block 1
+Block 3
+// ... existing code ...\`.
+Make sure it is clear what the edit should be, and where it should be applied.
+Make edits to a file in a single edit_file call instead of multiple edit_file calls to the same file. The apply model can handle many distinct edits at once.`,
     parameters: SessionFileEditSchema,
     handler: async (args: EditFileArgs): Promise<Record<string, any>> => {
       try {
@@ -191,10 +214,25 @@ When writing the edit, you should specify each edit in sequence, with the specia
  * Apply edit pattern using fast-apply providers with fallback support
  * Uses AI-powered editing to replace legacy string-based pattern matching
  */
-async function applyEditPattern(originalContent: string, editContent: string): Promise<string> {
-  // Import required dependencies
+export async function applyEditPattern(
+  originalContent: string,
+  editContent: string,
+  instruction?: string
+): Promise<string> {
+  // Import required dependencies with enhanced error handling
+  const { EnhancedAICompletionService } = await import(
+    "../../domain/ai/enhanced-completion-service"
+  );
   const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+  const { IntelligentRetryService } = await import("../../domain/ai/intelligent-retry-service");
+  const { RateLimitError, AuthenticationError, ServerError } = await import(
+    "../../domain/ai/enhanced-error-types"
+  );
+  const { analyzeEditPattern, createMorphCompletionParams, MorphFastApplyRequest } = await import(
+    "../../domain/ai/edit-pattern-utils"
+  );
   const { getConfiguration } = await import("../../domain/configuration");
+  const { initializeConfiguration } = await import("../../domain/configuration");
 
   // Get AI configuration
   const config = getConfiguration();
@@ -202,6 +240,15 @@ async function applyEditPattern(originalContent: string, editContent: string): P
 
   if (!aiConfig?.providers) {
     throw new Error("No AI providers configured for edit operations");
+  }
+
+  // Analyze edit pattern for validation and optimization
+  const analysis = analyzeEditPattern(editContent);
+  if (!analysis.validation.isValid) {
+    log.warn("Edit pattern validation issues detected", {
+      issues: analysis.validation.issues,
+      suggestions: analysis.validation.suggestions,
+    });
   }
 
   // Find fast-apply capable provider (currently Morph, extendable to others)
@@ -235,13 +282,46 @@ async function applyEditPattern(originalContent: string, editContent: string): P
     log.debug(`Fast-apply providers unavailable, using fallback provider: ${provider}`);
   }
 
-  // Create AI completion service
-  const completionService = new DefaultAICompletionService({
+  // Create enhanced AI completion service with retry logic and circuit breaker
+  const configService = await initializeConfiguration();
+  const defaultCompletionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);
+  const retryService = new IntelligentRetryService();
+  const completionService = new EnhancedAICompletionService(
+    defaultCompletionService,
+    retryService,
+    configService
+  );
 
-  // Create edit prompt optimized for the provider type
-  const prompt = `Apply the following edit pattern to the original content:
+  try {
+    let completionParams;
+
+    // Use Morph Fast Apply format for fast-apply providers
+    if (isFastApply && provider === "morph") {
+      const morphRequest: MorphFastApplyRequest = {
+        instruction: instruction || "Apply the edit pattern to the original code",
+        originalCode: originalContent,
+        editPattern: editContent,
+      };
+
+      completionParams = createMorphCompletionParams(morphRequest, {
+        provider,
+        model,
+        temperature: 0.1,
+        maxTokens: Math.max(originalContent.length * 2, 4000),
+      });
+
+      log.debug("Using Morph Fast Apply format", {
+        provider,
+        model,
+        hasMarkers: analysis.hasMarkers,
+        markerCount: analysis.markerCount,
+        editLength: editContent.length,
+      });
+    } else {
+      // Generic fallback prompt format
+      const prompt = `Apply the following edit pattern to the original content:
 
 Original content:
 \`\`\`
@@ -260,31 +340,73 @@ Instructions:
 - Preserve all formatting, indentation, and structure
 - Do not include explanations or markdown formatting`;
 
-  // Generate the edited content using the selected provider
-  const response = await completionService.complete({
-    prompt,
-    provider,
-    model,
-    temperature: 0.1, // Low temperature for precise edits
-    maxTokens: Math.max(originalContent.length * 2, 4000),
-    systemPrompt:
-      "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
-  });
+      completionParams = {
+        prompt,
+        provider,
+        model,
+        temperature: 0.1, // Low temperature for precise edits
+        maxTokens: Math.max(originalContent.length * 2, 4000),
+        systemPrompt:
+          "You are a precise code editor. Apply the edit pattern exactly as specified and return only the final updated content.",
+      };
 
-  const result = response.content.trim();
-
-  // Log usage for monitoring
-  log.debug(
-    `Edit completed using ${isFastApply ? "fast-apply" : "fallback"} provider: ${provider}`,
-    {
-      tokensUsed: response.usage.totalTokens,
-      originalLength: originalContent.length,
-      resultLength: result.length,
-      isFastApply,
+      log.debug("Using generic edit format", { provider, hasMarkers: analysis.hasMarkers });
     }
-  );
 
-  return result;
+    // Generate the edited content using the enhanced completion service
+    const response = await completionService.complete(completionParams);
+    const result = response.content.trim();
+
+    // Log usage for monitoring
+    log.debug(
+      `Edit completed using ${isFastApply ? "fast-apply" : "fallback"} provider: ${provider}`,
+      {
+        provider,
+        model,
+        originalLength: originalContent.length,
+        editLength: editContent.length,
+        resultLength: result.length,
+        hasMarkers: analysis.hasMarkers,
+        markerCount: analysis.markerCount,
+      }
+    );
+
+    return result;
+  } catch (error) {
+    // Enhanced error handling and reporting
+    if (error instanceof RateLimitError) {
+      log.warn(`Rate limit encountered for ${provider}`, {
+        provider,
+        retryAfter: error.retryAfter,
+        remaining: error.remaining,
+        limit: error.limit,
+        resetTime: error.resetTime,
+      });
+      // Use the enhanced user-friendly message
+      throw new Error(error.getUserFriendlyMessage());
+    } else if (error instanceof AuthenticationError) {
+      log.error(`Authentication failed for ${provider}`, {
+        provider,
+        code: error.code,
+        type: error.type,
+      });
+      throw new Error(error.getUserFriendlyMessage());
+    } else if (error instanceof ServerError) {
+      log.error(`Server error from ${provider}`, {
+        provider,
+        statusCode: error.statusCode,
+        isTransient: error.isTransient,
+      });
+      throw new Error(`Server error from ${provider} (${error.statusCode}): ${error.message}`);
+    } else {
+      log.error(`Unexpected error during AI completion`, {
+        provider,
+        errorType: error.constructor.name,
+        errorMessage: error.message,
+      });
+      throw error;
+    }
+  }
 }
 
 /**
