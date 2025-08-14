@@ -324,6 +324,46 @@ async function runSchemaMigrationsForConfiguredBackend(
   throw new Error(`Unsupported backend: ${backend}`);
 }
 
+/**
+ * Helper: run schema migrations for an explicit backend (used during data migrations to prep target DB)
+ */
+async function runSchemaMigrationsForBackend(
+  backend: "sqlite" | "postgres",
+  options: { verbose?: boolean; sqlitePath?: string; connectionString?: string } = {}
+): Promise<void> {
+  const { verbose = false, sqlitePath, connectionString } = options;
+  if (backend === "sqlite") {
+    const dbPath = sqlitePath || getDefaultSqliteDbPath();
+    const { Database } = await import("bun:sqlite");
+    const { drizzle } = await import("drizzle-orm/bun-sqlite");
+    // @ts-expect-error - migrator path for bun-sqlite
+    const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
+    const sqlite = new Database(dbPath);
+    try {
+      const db = drizzle(sqlite, { logger: verbose });
+      await migrate(db as any, { migrationsFolder: "./src/domain/storage/migrations" });
+    } finally {
+      sqlite.close();
+    }
+    return;
+  }
+  if (backend === "postgres") {
+    const conn = connectionString;
+    if (!conn) return; // rely on storage.initialize() fallback
+    const { drizzle } = await import("drizzle-orm/postgres-js");
+    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+    const postgres = (await import("postgres")).default;
+    const sql = postgres(conn, { prepare: false, onnotice: () => {}, max: 10 });
+    try {
+      const db = drizzle(sql, { logger: verbose });
+      await migrate(db, { migrationsFolder: "./src/domain/storage/migrations/pg" });
+    } finally {
+      await sql.end();
+    }
+    return;
+  }
+}
+
 // Register sessiondb migrate command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.migrate",
@@ -544,10 +584,13 @@ sharedCommandRegistry.registerCommand({
 
       // Create target storage with config-driven approach
       const targetConfig: any = { backend: to };
+      let targetSqlitePath: string | undefined;
+      let targetPostgresConn: string | undefined;
 
       if (to === "sqlite") {
+        targetSqlitePath = sqlitePath || getDefaultSqliteDbPath();
         targetConfig.sqlite = {
-          dbPath: sqlitePath || getDefaultSqliteDbPath(),
+          dbPath: targetSqlitePath,
         };
       } else if (to === "postgres") {
         // Use config-driven PostgreSQL connection
@@ -566,11 +609,19 @@ sharedCommandRegistry.registerCommand({
         log.cli(
           `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
         );
+        targetPostgresConn = connectionString;
         targetConfig.postgres = { connectionString: connectionString };
       }
 
       const targetStorage = createStorageBackend(targetConfig);
       await targetStorage.initialize();
+
+      // Ensure target schema is fully migrated before writing
+      await runSchemaMigrationsForBackend(to, {
+        verbose,
+        sqlitePath: targetSqlitePath,
+        connectionString: targetPostgresConn,
+      });
 
       // Show execute plan (same as preview) before applying
       log.cli("");
@@ -607,15 +658,14 @@ sharedCommandRegistry.registerCommand({
         log.cli(`backend = "${to}"`);
 
         if (to === "postgres") {
-          const connectionString =
-            config.sessiondb?.postgres?.connectionString ||
-            config.sessiondb?.connectionString ||
-            process.env.MINSKY_POSTGRES_URL;
-          log.cli(`\n[sessiondb.postgres]`);
-          log.cli(`connectionString = "${connectionString}"`);
-        } else if (to === "sqlite" && sqlitePath) {
+          const connectionString = targetPostgresConn;
+          if (connectionString) {
+            log.cli(`\n[sessiondb.postgres]`);
+            log.cli(`connectionString = "${connectionString}"`);
+          }
+        } else if (to === "sqlite" && targetSqlitePath) {
           log.cli(`\n[sessiondb.sqlite]`);
-          log.cli(`path = "${sqlitePath}"`);
+          log.cli(`path = "${targetSqlitePath}"`);
         }
 
         log.cli(`\n💡 To revert: Change backend back to your previous setting`);
