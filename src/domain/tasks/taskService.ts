@@ -150,8 +150,20 @@ export class TaskService {
    */
   async getTask(id: string): Promise<TaskData | null> {
     const tasks = await this.getAllTasks();
-    const searchId = id;
-    return tasks.find((task) => task.id === searchId) || null;
+    // Exact match first
+    const exact = tasks.find((task) => task.id === id);
+    if (exact) return exact;
+
+    // Fallback: match by numeric portion to support qualified (md#123), legacy (#123), or plain (123)
+    const numericFromInput = parseInt(String(id).replace(/[^0-9]/g, ""), 10);
+    if (isNaN(numericFromInput)) return null;
+
+    const byNumber = tasks.find((task) => {
+      const taskNum = parseInt(String(task.id).replace(/[^0-9]/g, ""), 10);
+      return !isNaN(taskNum) && taskNum === numericFromInput;
+    });
+
+    return byNumber || null;
   }
 
   /**
