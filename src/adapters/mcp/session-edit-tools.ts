@@ -232,7 +232,9 @@ export async function applyEditPattern(
     "../../domain/ai/edit-pattern-utils"
   );
   const { getConfiguration } = await import("../../domain/configuration");
-  const { initializeConfiguration } = await import("../../domain/configuration");
+  const { CustomConfigFactory, initializeConfiguration } = await import(
+    "../../domain/configuration"
+  );
 
   // Get AI configuration
   const config = getConfiguration();
@@ -283,16 +285,12 @@ export async function applyEditPattern(
   }
 
   // Create enhanced AI completion service with retry logic and circuit breaker
-  const configService = await initializeConfiguration();
+  await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
   const defaultCompletionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);
   const retryService = new IntelligentRetryService();
-  const completionService = new EnhancedAICompletionService(
-    defaultCompletionService,
-    retryService,
-    configService
-  );
+  const completionService = new EnhancedAICompletionService(defaultCompletionService, retryService);
 
   try {
     let completionParams;

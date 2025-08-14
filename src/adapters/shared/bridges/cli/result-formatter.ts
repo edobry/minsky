@@ -125,8 +125,32 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         break;
 
       case "session.pr.list":
-        // List command handles its own formatting in the command class
-        this.formatGenericObject(result);
+        // Render table output when provided by command implementation
+        if (
+          result &&
+          typeof result === "object" &&
+          "table" in result &&
+          result.table &&
+          Array.isArray((result as any).table.headers) &&
+          Array.isArray((result as any).table.rows)
+        ) {
+          const { headers, rows } = (result as any).table as {
+            headers: string[];
+            rows: string[][];
+          };
+          this.formatTableResult(headers, rows);
+
+          if (typeof (result as any).count === "number") {
+            const count = (result as any).count as number;
+            log.cli("");
+            log.cli(`${count} pull request${count === 1 ? "" : "s"} found`);
+          }
+        } else if ((result as any)?.message) {
+          // Prefer explicit message when provided (e.g., empty results)
+          log.cli((result as any).message);
+        } else {
+          this.formatGenericObject(result);
+        }
         break;
 
       case "session.pr.get":
@@ -243,6 +267,38 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     } else {
       log.cli(String(result));
     }
+  }
+
+  /**
+   * Format a simple table given headers and rows
+   */
+  private formatTableResult(headers: string[], rows: string[][]): void {
+    // Calculate column widths
+    const colCount = headers.length;
+    const widths = headers.map((h, i) => {
+      const maxRowWidth = rows.reduce((max, row) => {
+        const cell = (row[i] ?? "").toString();
+        return Math.max(max, cell.length);
+      }, 0);
+      return Math.max(h.length, maxRowWidth);
+    });
+
+    const pad = (text: string, width: number) => text.padEnd(width, " ");
+
+    // Print header
+    log.cli(
+      headers
+        .map((h, i) => pad(h, widths[i]))
+        .join("  ")
+    );
+    // Print separator
+    log.cli(widths.map((w) => "-".repeat(w)).join("  "));
+
+    // Print rows
+    rows.forEach((row) => {
+      const cells = Array.from({ length: colCount }, (_, i) => pad((row[i] ?? "").toString(), widths[i]));
+      log.cli(cells.join("  "));
+    });
   }
 }
 

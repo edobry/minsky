@@ -1,4 +1,4 @@
-import { AICompletionService, CompletionParams, CompletionResult, LanguageModel } from "./types";
+import { AICompletionService, CompletionParams, CompletionResult } from "./types";
 import { DefaultAICompletionService } from "./completion-service";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import {
@@ -8,21 +8,17 @@ import {
   NetworkError,
 } from "./enhanced-error-types";
 import { log } from "../../utils/logger.js";
-import { CustomConfigFactory, initializeConfiguration } from "../configuration/index.js";
 
 export class EnhancedAICompletionService implements AICompletionService {
   private defaultCompletionService: DefaultAICompletionService;
   private retryService: IntelligentRetryService;
-  private configService: Awaited<ReturnType<typeof initializeConfiguration>>;
 
   constructor(
     defaultCompletionService: DefaultAICompletionService,
-    retryService: IntelligentRetryService,
-    configService: Awaited<ReturnType<typeof initializeConfiguration>>
+    retryService: IntelligentRetryService
   ) {
     this.defaultCompletionService = defaultCompletionService;
     this.retryService = retryService;
-    this.configService = configService;
   }
 
   async complete(params: CompletionParams): Promise<CompletionResult> {
@@ -31,8 +27,7 @@ export class EnhancedAICompletionService implements AICompletionService {
     try {
       return await this.retryService.execute(
         async () => {
-          const languageModel = await this.getLanguageModel(provider, model);
-          return this.defaultCompletionService.completeWithModel(params, languageModel);
+          return this.defaultCompletionService.complete(params);
         },
         (error) => {
           if (error instanceof RateLimitError) {
@@ -60,18 +55,5 @@ export class EnhancedAICompletionService implements AICompletionService {
       log.error("Failed to complete AI request after retries", { error });
       throw error; // Re-throw the final error
     }
-  }
-
-  private async getLanguageModel(provider?: string, model?: string): Promise<LanguageModel> {
-    // Delegate to the original completion service for proper model resolution
-    const defaultProvider = await this.configService.getDefaultProvider();
-    const resolvedProvider = provider || defaultProvider;
-    const providerConfig = await this.configService.getProviderConfig(resolvedProvider);
-
-    if (!providerConfig) {
-      throw new Error(`AI provider configuration not found for: ${resolvedProvider}`);
-    }
-
-    return this.defaultCompletionService.getLanguageModel(providerConfig, model);
   }
 }

@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Session PR List Output**: `minsky session pr list` now renders a readable table with headers and a count instead of a generic "✅ Success". JSON output remains unchanged when `--json` is used. This makes the command useful in human-readable mode and consistent with other list-style outputs.
 - tasks: `minsky tasks list` now correctly displays task IDs again. Restored ID rendering by enhancing `formatTaskIdForDisplay` to handle legacy (`#123`) and numeric (`123`) IDs, outputting qualified `md#NNN` in CLI list output. See commit 26d958bf3.
 
 - feat(sessiondb): add Drizzle Kit migrations for PostgreSQL and wire runtime migrator
