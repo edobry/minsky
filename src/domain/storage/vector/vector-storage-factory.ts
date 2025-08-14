@@ -1,6 +1,7 @@
 import { getConfiguration } from "../../configuration";
 import type { VectorStorage } from "./types";
 import { PostgresVectorStorage } from "./postgres-vector-storage";
+import { MemoryVectorStorage } from "./memory-vector-storage";
 
 export async function createVectorStorageFromConfig(dimension: number): Promise<VectorStorage> {
   const config = await getConfiguration();
@@ -20,6 +21,10 @@ export async function createVectorStorageFromConfig(dimension: number): Promise<
       const storage = new PostgresVectorStorage(conn, dimension);
       await storage.initialize();
       return storage;
+    }
+
+    case "memory": {
+      return new MemoryVectorStorage(dimension);
     }
 
     default:
