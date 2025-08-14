@@ -14,6 +14,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- **Session PR Merge Diagnostics**: When a GitHub PR cannot be merged, the error now includes specific, actionable reasons gathered from the GitHub API (e.g., merge conflicts, branch behind base, failing/pending checks, draft status, or repo merge-method restrictions). Previously it showed only "Pull Request Cannot Be Merged" without detail.
 - **Session PR List Output**: `minsky session pr list` now prints clean, human-friendly lines (no ASCII table). Shows `PR #<num> <status> - <title>` with session/task/updated info; `--verbose` adds branch and URL. `--json` remains structured.
   - Refined to a compact, high signal format: `#<num> [status] <title>  (s:<session>, t:<task>, <relative time>)`. `--verbose` adds indented `branch` and `url` lines. `--json` unchanged.
 - tasks: `minsky tasks list` now correctly displays task IDs again. Restored ID rendering by enhancing `formatTaskIdForDisplay` to handle legacy (`#123`) and numeric (`123`) IDs, outputting qualified `md#NNN` in CLI list output. See commit 26d958bf3.
