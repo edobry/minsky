@@ -182,9 +182,11 @@ describe("TaskService", () => {
       expect(task?.title).toBe("Task 1");
     });
 
-    test("should return null for unqualified IDs", async () => {
+    test("should find a task by ID without # prefix", async () => {
       const task = await taskService.getTask("002");
-      expect(task).toBeNull();
+
+      expect(task).not.toBeNull();
+      expect(task?.id).toBe("md#002"); // Updated to qualified format
     });
 
     test("should return null if task not found", async () => {

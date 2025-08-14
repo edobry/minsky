@@ -51,20 +51,11 @@ export interface ConfigBackupResult {
 /**
  * Configuration writer class
  */
-export interface FsLike {
-  existsSync: (path: string) => boolean;
-  readFileSync: (path: string, encoding: string) => string | Buffer;
-  writeFileSync: (path: string, data: string, encoding?: string) => void;
-  mkdirSync: (path: string, options?: { recursive?: boolean }) => void;
-  copyFileSync: (src: string, dest: string) => void;
-}
-
 export class ConfigWriter {
   private readonly options: Required<ConfigWriterOptions>;
   private readonly configDir: string;
-  private readonly fsImpl: FsLike = fs;
 
-  constructor(options: ConfigWriterOptions = {}, fsOverride?: FsLike) {
+  constructor(options: ConfigWriterOptions = {}) {
     this.options = {
       createBackup: true,
       format: "yaml",
@@ -73,7 +64,6 @@ export class ConfigWriter {
       ...options,
     };
     this.configDir = getUserConfigDir();
-    if (fsOverride) this.fsImpl = fsOverride;
   }
 
   /**
@@ -90,17 +80,12 @@ export class ConfigWriter {
       try {
         currentConfig = this.loadConfigFile(configFile);
       } catch (e: any) {
-        return {
-          success: false,
-          filePath: configFile,
-          error: e?.message || String(e),
-        };
+        return { success: false, filePath: configFile, error: e?.message || String(e) };
       }
 
-      // STEP 1: Create backup if configured
       let backupPath: string | undefined;
       if (this.options.createBackup) {
-        const backupResult = self.safeCreateBackup(this, configFile);
+        const backupResult = this.createBackup(configFile);
         if (!backupResult.success) {
           return {
             success: false,
@@ -117,9 +102,7 @@ export class ConfigWriter {
       if (this.options.validate) {
         const validationResult = ConfigSchema.safeParse(currentConfig);
         if (!validationResult.success) {
-          if (backupPath) {
-            this.restoreFromBackup(configFile, backupPath);
-          }
+          if (backupPath) this.restoreFromBackup(configFile, backupPath);
           return {
             success: false,
             filePath: configFile,
@@ -129,13 +112,10 @@ export class ConfigWriter {
         }
       }
 
-      // STEP 2: Persist to disk, with restore on failure (symmetric with unset)
       try {
         this.writeConfigFile(configFile, currentConfig);
       } catch (writeError: any) {
-        if (backupPath) {
-          this.restoreFromBackup(configFile, backupPath);
-        }
+        if (backupPath) this.restoreFromBackup(configFile, backupPath);
         return {
           success: false,
           filePath: configFile,
@@ -146,13 +126,7 @@ export class ConfigWriter {
 
       log.debug(`Config value set: ${keyPath} = ${JSON.stringify(value)}`);
 
-      return {
-        success: true,
-        filePath: configFile,
-        backupPath,
-        previousValue,
-        newValue: value,
-      };
+      return { success: true, filePath: configFile, backupPath, previousValue, newValue: value };
     } catch (error) {
       return {
         success: false,
@@ -167,22 +141,21 @@ export class ConfigWriter {
    */
   async unsetConfigValue(keyPath: string): Promise<ConfigModificationResult> {
     try {
-      // Resolve config file or initialize an empty one if allowed
-      const existing = this.findConfigFile();
-      const configFile = existing || this.getConfigFilePath();
-
-      if (!existing) {
-        console.log("unset: no-existing-config");
+      const configFile = this.findConfigFile();
+      if (!configFile) {
         return {
           success: false,
-          filePath: configFile,
+          filePath: this.getConfigFilePath(),
           error: "No configuration file found to modify",
         };
       }
 
-      log.debug(`unset using file: ${configFile}`);
-
-      const currentConfig = this.loadConfigFile(configFile);
+      let currentConfig: any;
+      try {
+        currentConfig = this.loadConfigFile(configFile);
+      } catch (e: any) {
+        return { success: false, filePath: configFile, error: e?.message || String(e) };
+      }
 
       const previousValue = this.getNestedValue(currentConfig, keyPath);
       if (previousValue === undefined) {
@@ -196,7 +169,7 @@ export class ConfigWriter {
 
       let backupPath: string | undefined;
       if (this.options.createBackup) {
-        const backupResult = self.safeCreateBackup(this, configFile);
+        const backupResult = this.createBackup(configFile);
         if (!backupResult.success) {
           return {
             success: false,
@@ -207,15 +180,12 @@ export class ConfigWriter {
         backupPath = backupResult.backupPath;
       }
 
-      // STEP 2: Remove value from config object
       this.unsetNestedValue(currentConfig, keyPath);
 
       if (this.options.validate) {
         const validationResult = ConfigSchema.safeParse(currentConfig);
         if (!validationResult.success) {
-          if (backupPath) {
-            this.restoreFromBackup(configFile, backupPath);
-          }
+          if (backupPath) this.restoreFromBackup(configFile, backupPath);
           return {
             success: false,
             filePath: configFile,
@@ -225,13 +195,10 @@ export class ConfigWriter {
         }
       }
 
-      // STEP 3: Persist to disk, with restore on failure
       try {
         this.writeConfigFile(configFile, currentConfig);
       } catch (writeError: any) {
-        if (backupPath) {
-          this.restoreFromBackup(configFile, backupPath);
-        }
+        if (backupPath) this.restoreFromBackup(configFile, backupPath);
         return {
           success: false,
           filePath: configFile,
@@ -258,21 +225,12 @@ export class ConfigWriter {
     }
   }
 
-  /**
-   * Create a backup of the configuration file
-   */
   private createBackup(configFile: string): ConfigBackupResult {
     try {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backupPath = `${configFile}.backup.${timestamp}`;
-
-      this.fsImpl.copyFileSync(configFile, backupPath);
-
-      return {
-        success: true,
-        originalPath: configFile,
-        backupPath,
-      };
+      fs.copyFileSync(configFile, backupPath);
+      return { success: true, originalPath: configFile, backupPath };
     } catch (error) {
       return {
         success: false,
@@ -283,73 +241,48 @@ export class ConfigWriter {
     }
   }
 
-  /**
-   * Restore configuration from backup
-   */
   private restoreFromBackup(configFile: string, backupPath: string): void {
     try {
-      this.fsImpl.copyFileSync(backupPath, configFile);
+      fs.copyFileSync(backupPath, configFile);
       log.debug(`Configuration restored from backup: ${backupPath}`);
     } catch (error) {
       log.error(`Failed to restore from backup: ${error}`);
     }
   }
 
-  /**
-   * Ensure configuration directory exists
-   */
   private ensureConfigDir(): void {
-    if (!this.fsImpl.existsSync(this.configDir)) {
-      this.fsImpl.mkdirSync(this.configDir, { recursive: true });
+    if (!fs.existsSync(this.configDir)) {
+      fs.mkdirSync(this.configDir, { recursive: true });
     }
   }
 
-  /**
-   * Find existing configuration file
-   */
   private findConfigFile(): string | null {
     for (const configFile of userConfigFiles) {
       const filePath = path.join(this.configDir, configFile);
-      if (this.fsImpl.existsSync(filePath)) {
+      if (fs.existsSync(filePath)) {
         return filePath;
       }
     }
     return null;
   }
 
-  /**
-   * Find existing configuration file or create a new one
-   */
   private findOrCreateConfigFile(): string {
     const existing = this.findConfigFile();
-    if (existing) {
-      return existing;
-    }
-
+    if (existing) return existing;
     const fileName = this.options.format === "json" ? "config.json" : "config.yaml";
     return path.join(this.configDir, fileName);
   }
 
-  /**
-   * Get the default configuration file path
-   */
   private getConfigFilePath(): string {
     const fileName = this.options.format === "json" ? "config.json" : "config.yaml";
     return path.join(this.configDir, fileName);
   }
 
-  /**
-   * Load configuration from file
-   */
   private loadConfigFile(filePath: string): any {
-    if (!this.fsImpl.existsSync(filePath)) {
-      return {};
-    }
-
+    if (!fs.existsSync(filePath)) return {};
     try {
-      const content = this.fsImpl.readFileSync(filePath, "utf8") as string;
+      const content = fs.readFileSync(filePath, "utf8") as string;
       const extension = filePath.split(".").pop()?.toLowerCase();
-
       switch (extension) {
         case "json":
           return JSON.parse(content);
@@ -364,13 +297,9 @@ export class ConfigWriter {
     }
   }
 
-  /**
-   * Write configuration to file
-   */
   private writeConfigFile(filePath: string, config: any): void {
     const extension = filePath.split(".").pop()?.toLowerCase();
     let content: string;
-
     switch (extension) {
       case "json":
         content = JSON.stringify(config, null, 2);
@@ -382,20 +311,16 @@ export class ConfigWriter {
       default:
         throw new Error(`Unsupported file format: ${extension}`);
     }
-
-    this.fsImpl.writeFileSync(filePath, content, "utf8");
+    fs.writeFileSync(filePath, content, "utf8");
   }
 
   private getNestedValue(obj: any, pathStr: string): any {
-    return pathStr.split(".").reduce((current, key) => {
-      return current?.[key];
-    }, obj);
+    return pathStr.split(".").reduce((current, key) => current?.[key], obj);
   }
 
   private setNestedValue(obj: any, pathStr: string, value: any): void {
     const keys = pathStr.split(".");
     const lastKey = keys.pop()!;
-
     let current = obj;
     for (const key of keys) {
       if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
@@ -403,14 +328,12 @@ export class ConfigWriter {
       }
       current = current[key];
     }
-
     current[lastKey] = value;
   }
 
   private unsetNestedValue(obj: any, pathStr: string): void {
     const keys = pathStr.split(".");
     const lastKey = keys.pop()!;
-
     let current = obj;
     for (const key of keys) {
       if (!(key in current) || typeof current[key] !== "object" || current[key] === null) {
@@ -418,22 +341,17 @@ export class ConfigWriter {
       }
       current = current[key];
     }
-
     delete current[lastKey];
-
     this.cleanupEmptyObjects(obj, keys);
   }
 
   private cleanupEmptyObjects(obj: any, keys: string[]): void {
     if (keys.length === 0) return;
-
     let current = obj;
     const pathToCheck = [...keys];
-
     for (let i = 0; i < pathToCheck.length - 1; i++) {
       current = current[pathToCheck[i]];
     }
-
     const lastKey = pathToCheck[pathToCheck.length - 1];
     if (
       current[lastKey] &&
@@ -446,27 +364,6 @@ export class ConfigWriter {
   }
 }
 
-/**
- * Helper namespace to avoid repeating try/catch in backup calls
- */
-namespace self {
-  export function safeCreateBackup(writer: ConfigWriter, configFile: string): ConfigBackupResult {
-    try {
-      return (writer as any).createBackup(configFile);
-    } catch (err) {
-      return {
-        success: false,
-        originalPath: configFile,
-        backupPath: "",
-        error: String(err),
-      } as ConfigBackupResult;
-    }
-  }
-}
-
-/**
- * Create a configuration writer instance
- */
 export function createConfigWriter(options?: ConfigWriterOptions): ConfigWriter {
   return new ConfigWriter(options);
 }
