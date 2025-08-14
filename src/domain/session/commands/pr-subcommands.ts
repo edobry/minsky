@@ -265,6 +265,7 @@ export async function sessionPrList(params: {
           session.backendType === "github"
             ? pr?.headBranch || session.session
             : prState?.branchName || pr?.headBranch || `pr/${session.session}`,
+        backendType: (session.backendType as any) || undefined,
       };
     });
 

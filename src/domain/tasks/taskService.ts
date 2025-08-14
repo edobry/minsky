@@ -150,20 +150,21 @@ export class TaskService {
    */
   async getTask(id: string): Promise<TaskData | null> {
     const tasks = await this.getAllTasks();
-    // Exact match first
+    // Strict: exact match first
     const exact = tasks.find((task) => task.id === id);
     if (exact) return exact;
 
-    // Fallback: match by numeric portion to support qualified (md#123), legacy (#123), or plain (123)
-    const numericFromInput = parseInt(String(id).replace(/[^0-9]/g, ""), 10);
-    if (isNaN(numericFromInput)) return null;
+    // Strict qualified handling: support mapping md#NNN → #NNN (storage in tasks.md)
+    const qualifiedMatch = id.match(/^[a-z-]+#(\d+)$/);
+    if (qualifiedMatch) {
+      const num = qualifiedMatch[1];
+      const hashForm = `#${num}`;
+      const alt = tasks.find((task) => task.id === hashForm);
+      if (alt) return alt;
+    }
 
-    const byNumber = tasks.find((task) => {
-      const taskNum = parseInt(String(task.id).replace(/[^0-9]/g, ""), 10);
-      return !isNaN(taskNum) && taskNum === numericFromInput;
-    });
-
-    return byNumber || null;
+    // No legacy/plain fallback
+    return null;
   }
 
   /**

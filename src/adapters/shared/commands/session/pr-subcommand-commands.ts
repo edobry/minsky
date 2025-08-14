@@ -428,6 +428,7 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
         if (pr.branch && pr.branch !== pr.sessionName) details.push(`Branch: ${pr.branch}`);
         if (pr.prNumber) details.push(`PR #${pr.prNumber}`);
         if (pr.updatedAt) details.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
+        if ((pr as any).backendType) details.push(`Backend: ${(pr as any).backendType}`);
         if (details.length > 0) lines.push(details.join("  "));
 
         // Third line: URL on its own line (no label)
