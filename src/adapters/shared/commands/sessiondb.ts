@@ -45,6 +45,22 @@ const sessiondbSearchCommandParams: CommandParameterMap = {
   },
 };
 
+// NEW: Parameters for running Postgres migrations (Drizzle)
+const sessiondbMigratePgParams: CommandParameterMap = {
+  dryRun: {
+    schema: z.boolean(),
+    description: "Show what would be executed without running migrations",
+    required: false,
+    defaultValue: false,
+  },
+  verbose: {
+    schema: z.boolean(),
+    description: "Verbose logging during migration",
+    required: false,
+    defaultValue: false,
+  },
+};
+
 // Register sessiondb search command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.search",
@@ -100,6 +116,69 @@ sharedCommandRegistry.registerCommand({
         error: getErrorMessage(error),
       });
       throw error;
+    }
+  },
+});
+
+// NEW: Register sessiondb.migrate-pg command to run Drizzle migrations
+sharedCommandRegistry.registerCommand({
+  id: "sessiondb.migrate-pg",
+  category: CommandCategory.SESSIONDB,
+  name: "migrate-pg",
+  description: "Run Drizzle migrations for PostgreSQL SessionDB (and embeddings)",
+  parameters: sessiondbMigratePgParams,
+  async execute(params: any, _context: CommandExecutionContext) {
+    const { dryRun = false, verbose = false } = params;
+
+    try {
+      const { getConfiguration } = await import("../../../domain/configuration");
+      const config = getConfiguration();
+      const connectionString =
+        config.sessiondb?.postgres?.connectionString ||
+        config.sessiondb?.connectionString ||
+        (process.env as any).MINSKY_POSTGRES_URL;
+
+      if (!connectionString) {
+        throw new Error(
+          "PostgreSQL connection string not found. Configure sessiondb.postgres.connectionString or set MINSKY_POSTGRES_URL."
+        );
+      }
+
+      if (dryRun) {
+        return {
+          success: true,
+          dryRun: true,
+          connection: connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@"),
+          migrationsFolder: "./src/domain/storage/migrations/pg",
+          note: "No changes applied (dry run).",
+        };
+      }
+
+      // Run migrations using Drizzle migrator with postgres-js
+      const { drizzle } = await import("drizzle-orm/postgres-js");
+      const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+      const postgres = (await import("postgres")).default;
+
+      const sql = postgres(connectionString, {
+        prepare: false,
+        onnotice: () => {},
+        max: 10,
+      });
+
+      try {
+        const db = drizzle(sql, { logger: verbose });
+        await migrate(db, { migrationsFolder: "./src/domain/storage/migrations/pg" });
+      } finally {
+        await sql.end();
+      }
+
+      return {
+        success: true,
+        applied: true,
+        migrationsFolder: "./src/domain/storage/migrations/pg",
+      };
+    } catch (error) {
+      throw new Error(`Migration failed: ${getErrorMessage(error)}`);
     }
   },
 });
