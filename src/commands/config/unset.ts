@@ -5,7 +5,7 @@
  */
 
 import { Command } from "commander";
-import { createConfigWriter } from "../../domain/configuration/config-writer";
+import * as configWriter from "../../domain/configuration/config-writer";
 import { log } from "../../utils/logger";
 
 interface UnsetOptions {
@@ -20,7 +20,7 @@ interface UnsetOptions {
 export async function executeConfigUnset(key: string, options: UnsetOptions): Promise<void> {
   try {
     // Create config writer
-    const writer = createConfigWriter({
+    const writer = configWriter.createConfigWriter({
       createBackup: !options.noBackup,
       format: options.format === "json" ? "json" : "yaml",
       validate: true,

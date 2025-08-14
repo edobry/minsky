@@ -57,7 +57,7 @@ mock.module("yaml", () => ({
   parse: mockYaml.parse,
   stringify: mockYaml.stringify,
 }));
-import { ConfigWriter } from "./config-writer";
+import { ConfigWriter, createConfigWriter } from "./config-writer";
 
 describe("ConfigWriter", () => {
   let writer: ConfigWriter;

@@ -301,7 +301,7 @@ export class ConfigWriter {
   private findConfigFile(): string | null {
     for (const configFile of userConfigFiles) {
       const filePath = path.join(this.configDir, configFile);
-      if (fs.existsSync(filePath)) {
+      if (this.fsImpl.existsSync(filePath)) {
         return filePath;
       }
     }
