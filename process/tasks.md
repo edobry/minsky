@@ -664,8 +664,10 @@
 
 - [ ] AI Resilience module for error/backoff/circuit breaker (optional adoption) [md#420](process/tasks/md#420-ai-resilience-module-for-error-backoff-circuit-breaker-optional-adoption-.md)
 
-<<<<<<< Updated upstream
 - [+] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
-=======
+
 - [ ] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
->>>>>>> Stashed changes
+
+- [ ] Extract reusable result-handling utilities for list/get commands [md#422](process/tasks/md#422-extract-reusable-result-handling-utilities-for-list-get-commands.md)
+
+- [ ] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
