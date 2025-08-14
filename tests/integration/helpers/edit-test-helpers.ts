@@ -1,6 +1,6 @@
 // Use mock.module() to mock filesystem operations
-// import { readFile } from "fs/promises";
-import { join } from "path";
+import { readFile } from "node:fs/promises";
+import { join } from "node:path";
 
 export interface EditTestCase {
   name: string;
@@ -12,6 +12,7 @@ export interface EditTestCase {
     containsNew: string[];
     shouldGrow: boolean;
     noMarkers: boolean;
+    notContains?: string[];
   };
 }
 
@@ -51,6 +52,14 @@ export function validateEditResult(
   if (expected.noMarkers) {
     if (result.includes("// ... existing code ...")) {
       throw new Error("Markers not removed from final content");
+    }
+  }
+
+  if (expected.notContains && expected.notContains.length > 0) {
+    for (const missing of expected.notContains) {
+      if (result.includes(missing)) {
+        throw new Error(`Result should not contain: ${missing}`);
+      }
     }
   }
 }
@@ -112,6 +121,30 @@ export const phase1TestCases: EditTestCase[] = [
     expected: {
       containsOriginal: true,
       containsNew: ["private cache: Map<string, User>", "maxRetries: number = 3"],
+      shouldGrow: true,
+      noMarkers: true,
+    },
+  },
+  {
+    name: "sequential edit chain (two additions)",
+    fixture: "typescript/simple-class.ts",
+    instruction: "Add subtract and multiply methods to the Calculator class",
+    editPattern: `export class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+
+  subtract(a: number, b: number): number {
+    return a - b;
+  }
+
+  multiply(a: number, b: number): number {
+    return a * b;
+  }
+}`,
+    expected: {
+      containsOriginal: true,
+      containsNew: ["subtract(", "multiply("],
       shouldGrow: true,
       noMarkers: true,
     },
@@ -210,6 +243,24 @@ export const phase2TestCases: EditTestCase[] = [
       containsNew: ["isActive: boolean"],
       shouldGrow: true,
       noMarkers: true,
+    },
+  },
+  {
+    name: "delete removal edit (remove method)",
+    fixture: "typescript/class-multiple-methods.ts",
+    instruction: "Remove subtract method from Calculator class",
+    editPattern: `export class Calculator {
+  add(a: number, b: number): number {
+    return a + b;
+  }
+
+  // ... existing code ...
+}`,
+    expected: {
+      containsOriginal: true,
+      containsNew: ["add(a: number, b: number)"],
+      shouldGrow: true,
+      noMarkers: false,
     },
   },
   {
@@ -360,6 +411,38 @@ export class Repo {
     expected: {
       containsOriginal: true,
       containsNew: ["/**", "@param id", "@returns", "updateUser("],
+      shouldGrow: true,
+      noMarkers: false,
+    },
+  },
+  {
+    name: "conflicting edit detection (ambiguous position)",
+    fixture: "typescript/simple-class.ts",
+    instruction: "Insert method using ambiguous markers only",
+    editPattern: `// ... existing code ...
+// ... existing code ...
+// ... existing code ...`,
+    expected: {
+      containsOriginal: true,
+      containsNew: [],
+      shouldGrow: false,
+      noMarkers: false,
+    },
+  },
+  {
+    name: "formatting preservation (spacing and comments)",
+    fixture: "typescript/commented-service.ts",
+    instruction: "Add noop method without altering existing indentation or comments",
+    editPattern: `  // ... existing code ...
+
+  // lightweight diagnostic utility
+  noop(): void {
+    // intentionally empty
+  }
+`,
+    expected: {
+      containsOriginal: true,
+      containsNew: ["noop(): void"],
       shouldGrow: true,
       noMarkers: false,
     },

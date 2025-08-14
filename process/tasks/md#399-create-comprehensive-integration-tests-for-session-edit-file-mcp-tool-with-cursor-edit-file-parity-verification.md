@@ -2,17 +2,17 @@
 
 ## Context
 
-✅ **COMPLETED** - Create comprehensive integration tests that verify `session.edit_file` works identically to Cursor's built-in `edit_file` tool, using real Morph API calls and diverse code editing scenarios. All 22 test cases implemented and passing with 100% success rate.
+✅ **COMPLETED (TS scope)** - Create comprehensive integration tests that verify `session.edit_file` works identically to Cursor's built-in `edit_file` tool, using real Morph API calls and diverse code editing scenarios. 22 TypeScript cases implemented and passing with 100% success rate via Morph Fast Apply.
 
 Based on reverse engineering analysis from `docs/cursor-built-in-tools-analysis.md`, Cursor's `edit_file` tool has specific behaviors and patterns that our `session.edit_file` tool must replicate exactly. The goal is to ensure functional parity while adding session-awareness.
 
 ## Requirements
 
-✅ **ALL COMPLETED** - 22 comprehensive test cases, real Morph API integration, enhanced error handling, and optional enhancements.
+✅ **ALL COMPLETED (TS scope)** - 22 TypeScript test cases, real Morph API integration, enhanced error handling, and optional enhancements.
 
 ## Solution
 
-⏳ In progress: Core Morph integration verified; expanding test coverage to full TS matrix and restoring helpers.
+✅ Restored helpers and fixtures; enabled Phases 1–3 for TypeScript; added sequential edits, delete/removal, ambiguous/conflict, and formatting-preservation cases.
 
 ### Primary Goal
 

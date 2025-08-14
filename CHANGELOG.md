@@ -33,6 +33,13 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
+### Tests
+
+- test(md#399): Restored and expanded Morph Fast Apply integration tests for `session.edit_file` (TypeScript only)
+  - Reintroduced helpers and fixtures, enabled Phases 1–3
+  - Added 4 cases: sequential edits, delete/removal, ambiguous/conflict, formatting preservation
+  - All 22 TS cases pass against real Morph configuration
+
 
   - Separate `session pr create` and `session pr edit` functionality - create fails if PR already exists
   - Added `updatePullRequest` method to `RepositoryBackend` interface for backend-specific PR updates

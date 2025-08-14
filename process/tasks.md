@@ -636,8 +636,6 @@
 
 - [ ] Implement GitHub repository quality guardrails configuration [#408](process/tasks/408-implement-github-repository-quality-guardrails-configuration.md)
 
-- [-] Implement session pr open command for GitHub backend [#409](process/tasks/409-implement-session-pr-open-command-for-github-backend.md)
-
 - [ ] Implement session pr open command for GitHub backend [#409](process/tasks/409-implement-session-pr-open-command-for-github-backend.md)
 
 - [+] Fix task status update to use main workspace and configure main workspace path [#410](process/tasks/410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
@@ -647,8 +645,6 @@
 - [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
-
-- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
 - [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
