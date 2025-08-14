@@ -26,14 +26,14 @@ describe("resolveSessionContext", () => {
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
-          taskId: "123", // Plain format for storage
+          taskId: "md#123", // Strict qualified format
         },
         {
           session: "task#456",
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-02T00:00:00Z",
-          taskId: "456", // Plain format for storage
+          taskId: "md#456", // Strict qualified format
         },
       ],
     });
@@ -48,7 +48,7 @@ describe("resolveSessionContext", () => {
       });
 
       expect(result.sessionName).toBe("test-session");
-      expect(result.taskId).toBe("123");
+      expect(result.taskId).toBe("md#123");
       expect(result.resolvedBy).toBe("explicit-session");
       expect(result.workingDirectory).toBeTruthy();
     });
@@ -67,7 +67,7 @@ describe("resolveSessionContext", () => {
   describe("task ID resolution", () => {
     test("resolves session by task ID", async () => {
       const result = await resolveSessionContext({
-        task: "456",
+        task: "md#456",
         sessionProvider: mockSessionProvider,
         allowAutoDetection: false,
       });
@@ -81,7 +81,7 @@ describe("resolveSessionContext", () => {
     test("throws error for non-existent task", async () => {
       await expect(
         resolveSessionContext({
-          task: "999",
+          task: "md#999",
           sessionProvider: mockSessionProvider,
           allowAutoDetection: false,
         })

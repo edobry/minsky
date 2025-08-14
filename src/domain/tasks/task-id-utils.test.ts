@@ -9,79 +9,45 @@ import {
   getTaskIdNumber,
 } from "./task-id-utils";
 
-describe("Task ID Utilities for Task 283", () => {
-  describe("normalizeTaskIdForStorage", () => {
-    test("should convert display format to qualified storage format", () => {
-      expect(normalizeTaskIdForStorage("#283")).toBe("md#283");
-      expect(normalizeTaskIdForStorage("#001")).toBe("md#001");
-      expect(normalizeTaskIdForStorage("#64")).toBe("md#64");
+describe("Task ID Utilities - Strict In/Out", () => {
+  describe("normalizeTaskIdForStorage (strict)", () => {
+    test("should return same for qualified formats", () => {
+      expect(normalizeTaskIdForStorage("md#283")).toBe("md#283");
+      expect(normalizeTaskIdForStorage("gh#001")).toBe("gh#001");
+      expect(normalizeTaskIdForStorage("task#64")).toBe("task#64");
     });
 
-    test("should convert legacy format to qualified storage format", () => {
-      expect(normalizeTaskIdForStorage("283")).toBe("md#283");
-      expect(normalizeTaskIdForStorage("001")).toBe("md#001");
-      expect(normalizeTaskIdForStorage("64")).toBe("md#64");
-    });
-
-    test("should handle task# prefix format", () => {
-      expect(normalizeTaskIdForStorage("task#283")).toBe("md#283");
-      expect(normalizeTaskIdForStorage("TASK#64")).toBe("md#64");
-      expect(normalizeTaskIdForStorage("Task#001")).toBe("md#001");
-    });
-
-    test("should strip multiple # prefixes", () => {
-      expect(normalizeTaskIdForStorage("##283")).toBe("md#283");
-      expect(normalizeTaskIdForStorage("###64")).toBe("md#64");
-    });
-
-    test("should handle whitespace", () => {
-      expect(normalizeTaskIdForStorage("  283  ")).toBe("md#283");
-      expect(normalizeTaskIdForStorage("  #64  ")).toBe("md#64");
-      expect(normalizeTaskIdForStorage("  task#001  ")).toBe("md#001");
-    });
-
-    test("should return null for invalid input", () => {
+    test("should return null for non-qualified formats", () => {
+      expect(normalizeTaskIdForStorage("283")).toBeNull();
+      expect(normalizeTaskIdForStorage("#283")).toBeNull();
+      expect(normalizeTaskIdForStorage("##283")).toBeNull();
+      expect(normalizeTaskIdForStorage("  #64  ")).toBeNull();
       expect(normalizeTaskIdForStorage("")).toBeNull();
       expect(normalizeTaskIdForStorage("   ")).toBeNull();
       expect(normalizeTaskIdForStorage("abc")).toBeNull();
-      expect(normalizeTaskIdForStorage("#abc")).toBeNull();
       expect(normalizeTaskIdForStorage("283abc")).toBeNull();
-      expect(normalizeTaskIdForStorage("abc283")).toBeNull();
       expect(normalizeTaskIdForStorage(null as any)).toBeNull();
       expect(normalizeTaskIdForStorage(undefined as any)).toBeNull();
       expect(normalizeTaskIdForStorage(123 as any)).toBeNull();
     });
-
-    test("should handle edge cases", () => {
-      expect(normalizeTaskIdForStorage("0")).toBe("md#0");
-      expect(normalizeTaskIdForStorage("#0")).toBe("md#0");
-      expect(normalizeTaskIdForStorage("000")).toBe("md#000");
-      expect(normalizeTaskIdForStorage("#000")).toBe("md#000");
-    });
   });
 
-  describe("formatTaskIdForDisplay", () => {
-    test("should handle legacy storage format by converting to qualified", () => {
-      expect(formatTaskIdForDisplay("283")).toBe("md#283");
-      expect(formatTaskIdForDisplay("001")).toBe("md#001");
-      expect(formatTaskIdForDisplay("64")).toBe("md#64");
+  describe("formatTaskIdForDisplay (strict)", () => {
+    test("should return same for qualified formats", () => {
+      expect(formatTaskIdForDisplay("md#283")).toBe("md#283");
+      expect(formatTaskIdForDisplay("gh#001")).toBe("gh#001");
     });
 
-    test("should handle legacy display format by converting to qualified", () => {
-      expect(formatTaskIdForDisplay("#283")).toBe("md#283");
-      expect(formatTaskIdForDisplay("#001")).toBe("md#001");
-      expect(formatTaskIdForDisplay("#64")).toBe("md#64");
+    test("should return empty for non-qualified input", () => {
+      expect(formatTaskIdForDisplay("283")).toBe("");
+      expect(formatTaskIdForDisplay("#283")).toBe("");
+      expect(formatTaskIdForDisplay("0")).toBe("");
     });
 
     test("should handle invalid input", () => {
       expect(formatTaskIdForDisplay("")).toBe("");
       expect(formatTaskIdForDisplay(null as any)).toBe("");
       expect(formatTaskIdForDisplay(undefined as any)).toBe("");
-    });
-
-    test("should handle edge cases", () => {
-      expect(formatTaskIdForDisplay("0")).toBe("md#0");
-      expect(formatTaskIdForDisplay("000")).toBe("md#000");
     });
   });
 
@@ -147,101 +113,66 @@ describe("Task ID Utilities for Task 283", () => {
     });
   });
 
-  describe("convertTaskIdFormat", () => {
-    test("should convert to qualified storage format", () => {
-      expect(convertTaskIdFormat("#283", "storage")).toBe("md#283");
-      expect(convertTaskIdFormat("283", "storage")).toBe("md#283");
-      expect(convertTaskIdFormat("task#283", "storage")).toBe("md#283");
+  describe("convertTaskIdFormat (strict)", () => {
+    test("should return same for qualified input", () => {
+      expect(convertTaskIdFormat("md#283", "storage")).toBe("md#283");
+      expect(convertTaskIdFormat("gh#283", "display")).toBe("gh#283");
     });
 
-    test("should convert to qualified display format", () => {
-      expect(convertTaskIdFormat("283", "display")).toBe("md#283");
-      expect(convertTaskIdFormat("#283", "display")).toBe("md#283");
-      expect(convertTaskIdFormat("task#283", "display")).toBe("md#283");
-    });
-
-    test("should return null for invalid input", () => {
-      expect(convertTaskIdFormat("abc", "storage")).toBeNull();
-      expect(convertTaskIdFormat("abc", "display")).toBeNull();
+    test("should return null for non-qualified input", () => {
+      expect(convertTaskIdFormat("283", "storage")).toBeNull();
+      expect(convertTaskIdFormat("#283", "display")).toBeNull();
       expect(convertTaskIdFormat("", "storage")).toBeNull();
-      expect(convertTaskIdFormat("", "display")).toBeNull();
+      expect(convertTaskIdFormat("abc", "display")).toBeNull();
     });
   });
 
-  describe("isValidTaskIdInput", () => {
-    test("should accept valid formats", () => {
-      expect(isValidTaskIdInput("283")).toBe(true);
-      expect(isValidTaskIdInput("#283")).toBe(true);
+  describe("isValidTaskIdInput (strict)", () => {
+    test("should accept qualified formats", () => {
+      expect(isValidTaskIdInput("md#283")).toBe(true);
+      expect(isValidTaskIdInput("gh#001")).toBe(true);
       expect(isValidTaskIdInput("task#283")).toBe(true);
-      expect(isValidTaskIdInput("001")).toBe(true);
-      expect(isValidTaskIdInput("#001")).toBe(true);
-      expect(isValidTaskIdInput("0")).toBe(true);
     });
 
-    test("should reject invalid formats", () => {
+    test("should reject non-qualified formats", () => {
       expect(isValidTaskIdInput("")).toBe(false);
+      expect(isValidTaskIdInput("283")).toBe(false);
+      expect(isValidTaskIdInput("#283")).toBe(false);
       expect(isValidTaskIdInput("abc")).toBe(false);
-      expect(isValidTaskIdInput("283abc")).toBe(false);
-      expect(isValidTaskIdInput("#abc")).toBe(false);
-      expect(isValidTaskIdInput("##283")).toBe(true); // Multiple # are stripped, so this is valid
+      expect(isValidTaskIdInput("##283")).toBe(false);
     });
   });
 
-  describe("getTaskIdNumber", () => {
-    test("should extract numbers from valid formats", () => {
-      expect(getTaskIdNumber("283")).toBe(283);
-      expect(getTaskIdNumber("#283")).toBe(283);
-      expect(getTaskIdNumber("task#283")).toBe(283);
-      expect(getTaskIdNumber("001")).toBe(1);
-      expect(getTaskIdNumber("#001")).toBe(1);
-      expect(getTaskIdNumber("0")).toBe(0);
+  describe("getTaskIdNumber (strict)", () => {
+    test("should extract numbers from qualified formats", () => {
+      expect(getTaskIdNumber("md#283")).toBe(283);
+      expect(getTaskIdNumber("gh#001")).toBe(1);
+      expect(getTaskIdNumber("task#007")).toBe(7);
     });
 
-    test("should return null for invalid formats", () => {
+    test("should return null for non-qualified formats", () => {
       expect(getTaskIdNumber("")).toBeNull();
       expect(getTaskIdNumber("abc")).toBeNull();
       expect(getTaskIdNumber("283abc")).toBeNull();
       expect(getTaskIdNumber("#abc")).toBeNull();
-    });
-
-    test("should handle leading zeros correctly", () => {
-      expect(getTaskIdNumber("000")).toBe(0);
-      expect(getTaskIdNumber("007")).toBe(7);
-      expect(getTaskIdNumber("#007")).toBe(7);
+      expect(getTaskIdNumber("283")).toBeNull();
+      expect(getTaskIdNumber("#283")).toBeNull();
     });
   });
 
-  describe("integration scenarios", () => {
-    test("should handle full workflow: input -> storage -> display (PERMISSIVE IN, STRICT OUT)", () => {
-      const userInputs = ["283", "#283", "task#283", "  #283  "];
+  describe("integration scenarios (strict)", () => {
+    test("should require qualified input across workflow", () => {
+      const userInputs = ["md#283", "gh#283", "task#283"];
 
       for (const input of userInputs) {
-        // Normalize for storage (qualified format)
         const storageId = normalizeTaskIdForStorage(input);
-        expect(storageId).toBe("md#283");
+        expect(storageId).toBe(input);
 
-        // Format for display (same as storage - qualified format)
         const displayId = formatTaskIdForDisplay(storageId!);
-        expect(displayId).toBe("md#283");
+        expect(displayId).toBe(input);
 
-        // Verify format detection
         expect(isStorageFormat(storageId!)).toBe(true);
         expect(isDisplayFormat(displayId)).toBe(true);
-      }
-    });
-
-    test("should maintain data consistency with qualified format", () => {
-      const testCases = [
-        { input: "1", storage: "md#1", display: "md#1", number: 1 },
-        { input: "#064", storage: "md#064", display: "md#064", number: 64 },
-        { input: "task#283", storage: "md#283", display: "md#283", number: 283 },
-      ];
-
-      for (const testCase of testCases) {
-        expect(normalizeTaskIdForStorage(testCase.input)).toBe(testCase.storage);
-        expect(formatTaskIdForDisplay(testCase.storage)).toBe(testCase.display);
-        expect(getTaskIdNumber(testCase.input)).toBe(testCase.number);
-        expect(isValidTaskIdInput(testCase.input)).toBe(true);
       }
     });
   });

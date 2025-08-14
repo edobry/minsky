@@ -124,7 +124,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Assert: Verify approval operations were called
       expect(mockCreateRepositoryBackend).toHaveBeenCalled();
       expect(mockRepositoryBackend.approvePullRequest).toHaveBeenCalledWith(PR_BRANCH, undefined);
-      expect(result.sessionName).toBe(SESSION_NAME);
+      expect(result.session).toBe(SESSION_NAME);
       expect(result.prBranch).toBe(PR_BRANCH);
       expect(result.approvalInfo).toBeDefined();
     });
@@ -213,7 +213,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Act & Assert: Command should throw approval error
       await expect(
         approveSessionPr(
-          { task: TASK_ID, repo: REPO_PATH },
+          { task: `md#${TASK_ID}`, repo: REPO_PATH },
           {
             sessionDB: mockSessionDB,
             createRepositoryBackendForSession: mockCreateRepositoryBackend,
@@ -290,7 +290,7 @@ describe("Session Approve - Bug Regression Tests", () => {
 
       // Act: Should handle already approved gracefully
       const result = await approveSessionPr(
-        { task: TASK_ID, repo: REPO_PATH },
+        { task: `md#${TASK_ID}`, repo: REPO_PATH },
         {
           sessionDB: mockSessionDB,
           createRepositoryBackendForSession: mockCreateRepositoryBackend,

@@ -106,14 +106,8 @@ export async function resolveSessionContext(
   if (task) {
     log.debug("Resolving session from task ID", { task });
 
-    // Accept permissive input and normalize using task-id-utils
-    const { normalizeTaskIdForStorage } = await import("../tasks/task-id-utils");
-    const normalizedTaskId = normalizeTaskIdForStorage(task);
-    if (!normalizedTaskId) {
-      throw new ValidationError(
-        `Invalid task ID: "${task}". Please provide a valid task identifier (e.g., md#283, #283, 283, task#283).`
-      );
-    }
+    // Strict input: require qualified task ID format
+    const normalizedTaskId = taskIdSchema.parse(task);
     const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
 
     if (!sessionRecord) {
