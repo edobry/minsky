@@ -447,6 +447,9 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
         session: params.session,
         task: params.task,
         status: params.status,
+        backend: params.backend,
+        since: params.since,
+        until: params.until,
         repo: params.repo,
         json: params.json,
         verbose: params.verbose,
@@ -620,6 +623,9 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
         task: params.task,
         repo: params.repo,
         json: params.json,
+        status: params.status,
+        since: params.since,
+        until: params.until,
         content: params.content,
       });
 

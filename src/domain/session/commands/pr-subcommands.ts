@@ -208,7 +208,10 @@ export async function sessionPrEdit(
 export async function sessionPrList(params: {
   session?: string;
   task?: string;
-  status?: "open" | "closed" | "merged" | "draft";
+  status?: string; // comma-separated list or 'all'
+  backend?: "github" | "remote" | "local";
+  since?: string; // YYYY-MM-DD or relative like 7d, 24h
+  until?: string; // YYYY-MM-DD or relative like 7d, 24h
   repo?: string;
   json?: boolean;
   verbose?: boolean;
@@ -222,6 +225,7 @@ export async function sessionPrList(params: {
     url?: string;
     updatedAt?: string;
     branch?: string;
+    backendType?: string;
   }>;
 }> {
   const sessionDB = createSessionProvider();
@@ -269,16 +273,77 @@ export async function sessionPrList(params: {
       };
     });
 
-    // Apply status filter if specified
-    if (params.status) {
-      // Note: This filter may not work well until we have GitHub API integration
-      // For now, only filter exact matches
-      return {
-        pullRequests: pullRequests.filter((pr) => pr.status === params.status),
-      };
-    }
+    // Parse status filter (comma-separated or 'all')
+    const normalizedStatuses = ((): Set<string> | null => {
+      if (!params.status) return null;
+      const raw = params.status.trim().toLowerCase();
+      if (raw === "all") return null;
+      const parts = raw
+        .split(",")
+        .map((s) => s.trim())
+        .filter((s) => s.length > 0);
+      if (parts.length === 0) return null;
+      return new Set(parts);
+    })();
 
-    return { pullRequests };
+    // Time window filters
+    const parseTime = (value?: string): number | null => {
+      if (!value) return null;
+      const v = value.trim();
+      // Relative formats like 7d, 24h, 90m
+      const rel = v.match(/^(\d+)([dhm])$/i);
+      if (rel) {
+        const amount = parseInt(rel[1], 10);
+        const unit = rel[2].toLowerCase();
+        const now = Date.now();
+        const ms =
+          unit === "d" ? amount * 86400000 : unit === "h" ? amount * 3600000 : amount * 60000;
+        return now - ms; // since: now - ms; until: handled separately
+      }
+      // Date format YYYY-MM-DD
+      const t = Date.parse(v);
+      return Number.isNaN(t) ? null : t;
+    };
+
+    const sinceTsRaw = parseTime(params.since);
+    const untilTsRaw = parseTime(params.until);
+    const nowTs = Date.now();
+    const sinceTs = (() => {
+      if (sinceTsRaw === null) return null;
+      // If relative provided, parseTime returns now - delta already
+      return sinceTsRaw;
+    })();
+    const untilTs = (() => {
+      if (untilTsRaw === null) return null;
+      // For relative like 7d in 'until', interpret as now (i.e., no-op), unless explicitly smaller
+      // but parseTime returns now - delta; for until, we want now (upper bound) by default.
+      // If user provided relative for until, treat as now - delta as an absolute upper bound.
+      return untilTsRaw > nowTs ? nowTs : untilTsRaw;
+    })();
+
+    const byFilters = pullRequests.filter((pr) => {
+      // backend filter
+      if (params.backend && pr.backendType !== params.backend) return false;
+
+      // status filter
+      if (normalizedStatuses) {
+        const st = (pr.status || "").toLowerCase();
+        if (!normalizedStatuses.has(st)) return false;
+      }
+
+      // time filters use updatedAt if available
+      if (sinceTs !== null || untilTs !== null) {
+        if (!pr.updatedAt) return false;
+        const prTs = Date.parse(pr.updatedAt);
+        if (Number.isNaN(prTs)) return false;
+        if (sinceTs !== null && prTs < sinceTs) return false;
+        if (untilTs !== null && prTs > untilTs) return false;
+      }
+
+      return true;
+    });
+
+    return { pullRequests: byFilters };
   } catch (error) {
     throw new MinskyError(`Failed to list session PRs: ${getErrorMessage(error)}`);
   }
@@ -294,6 +359,10 @@ export async function sessionPrGet(params: {
   task?: string;
   repo?: string;
   json?: boolean;
+  backend?: "github" | "remote" | "local";
+  status?: string; // optional constraint
+  since?: string;
+  until?: string;
   content?: boolean;
 }): Promise<{
   pullRequest: {
@@ -527,7 +596,48 @@ export async function sessionPrGet(params: {
       author: finalPullRequest?.github?.author,
       filesChanged: finalPullRequest?.filesChanged,
       commits: finalPullRequest?.commits,
+      backendType: (sessionRecord.backendType as any) || undefined,
     };
+
+    // Optional backend/status/time constraints
+    const normalizeStatus = (s?: string) => (s || "").toLowerCase();
+    const matchesBackend = params.backend ? pullRequest.backendType === params.backend : true;
+    const matchesStatus = (() => {
+      if (!params.status || params.status.trim().toLowerCase() === "all") return true;
+      const set = new Set(
+        params.status
+          .toLowerCase()
+          .split(",")
+          .map((x) => x.trim())
+          .filter(Boolean)
+      );
+      return set.has(normalizeStatus(pullRequest.status));
+    })();
+    const parseTs = (v?: string): number | null => {
+      if (!v) return null;
+      const rel = v.match(/^(\d+)([dhm])$/i);
+      if (rel) {
+        const n = parseInt(rel[1], 10);
+        const u = rel[2].toLowerCase();
+        return Date.now() - (u === "d" ? n * 86400000 : u === "h" ? n * 3600000 : n * 60000);
+      }
+      const t = Date.parse(v);
+      return Number.isNaN(t) ? null : t;
+    };
+    const sinceTs = parseTs(params.since);
+    const untilTs = parseTs(params.until);
+    const prUpdatedTs = pullRequest.updatedAt ? Date.parse(pullRequest.updatedAt) : NaN;
+    const matchesTime = (() => {
+      if (sinceTs === null && untilTs === null) return true;
+      if (Number.isNaN(prUpdatedTs)) return false;
+      if (sinceTs !== null && prUpdatedTs < sinceTs) return false;
+      if (untilTs !== null && prUpdatedTs > untilTs) return false;
+      return true;
+    })();
+
+    if (!matchesBackend || !matchesStatus || !matchesTime) {
+      throw new ResourceNotFoundError("No PR found matching the specified filters");
+    }
 
     return { pullRequest };
   } catch (error) {
