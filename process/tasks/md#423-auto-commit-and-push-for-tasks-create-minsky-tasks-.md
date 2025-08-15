@@ -25,6 +25,10 @@ Acceptance Criteria
 - Unit tests cover: commit/push occurs after creation; and commit is suppressed when there are no changes.
 - Docs/changelog updated.
 
+Implementation Notes
+- Centralize commit/push logic in the Markdown Tasks backend so callers (CLI/MCP) do not need to manually perform VCS operations.
+- Ensure the backend path used by `tasks status set` is invoked for task creation as well, reusing shared utilities for staging, committing, and pushing.
+
 
 ## Requirements
 

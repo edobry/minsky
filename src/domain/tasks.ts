@@ -18,6 +18,7 @@ const matter = require("gray-matter");
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants";
 import type { TaskStatus } from "./tasks/taskConstants";
 import { getTaskSpecRelativePath } from "./tasks/taskIO";
+import { createGitService } from "./git";
 
 // Import and re-export functions from taskCommands.ts
 import {
@@ -372,6 +373,25 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
+    // Prepare git stash/commit/push flow (reuse status update pattern)
+    const gitService = createGitService();
+    let hasStashedChanges = false;
+    try {
+      const workdir = this.workspacePath;
+      const hasUncommittedChanges = await gitService.hasUncommittedChanges(workdir);
+      if (hasUncommittedChanges) {
+        log.cli("📦 Stashing uncommitted changes...");
+        const stashResult = await gitService.stashChanges(workdir);
+        hasStashedChanges = stashResult.stashed;
+        if (hasStashedChanges) {
+          log.cli("✅ Changes stashed successfully");
+        }
+      }
+    } catch (statusError) {
+      log.debug("Could not check/stash git status before task creation", { error: statusError });
+    }
+
+    try {
     // Validate that the spec file exists
     const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
     try {
@@ -522,8 +542,40 @@ export class MarkdownTaskBackend implements TaskBackend {
     const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
     const tasksFileContent = `${content}\n${taskEntry}`;
     await fs.writeFile(this.filePath, tasksFileContent, "utf-8");
+    
+    // Commit and push the changes
+    try {
+      const workdir = this.workspacePath;
+      const hasChangesToCommit = await gitService.hasUncommittedChanges(workdir);
+      if (hasChangesToCommit) {
+        log.cli("💾 Committing task creation...");
+        await gitService.execInRepository(workdir, "git add -A");
+        const qualifiedId = `md#${task.id.replace(/^#/, "")}`;
+        const commitMessage = `chore(task): create ${qualifiedId} ${title}`;
+        await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
+        log.cli("📤 Pushing changes...");
+        await gitService.execInRepository(workdir, "git push");
+        log.cli("✅ Changes committed and pushed successfully");
+      }
+    } catch (commitError) {
+      log.warn("Failed to commit task creation", { error: commitError, taskId: task.id });
+      log.cli(`⚠️ Warning: Failed to commit changes: ${commitError}`);
+    }
 
     return task;
+    } finally {
+      if (hasStashedChanges) {
+        try {
+          log.cli("📂 Restoring stashed changes...");
+          const workdir = this.workspacePath;
+          await gitService.popStash(workdir);
+          log.cli("✅ Stashed changes restored successfully");
+        } catch (popError) {
+          log.warn("Failed to restore stashed changes", { error: popError });
+          log.cli(`⚠️ Warning: Failed to restore stashed changes: ${popError}`);
+        }
+      }
+    }
   }
 
   /**
