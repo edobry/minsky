@@ -16,14 +16,24 @@ function createDeps(repoUrl: string): StartSessionDependencies {
   const taskService = {
     getTaskStatus: vi.fn(async () => "TODO"),
     setTaskStatus: vi.fn(async () => {}),
-    createTaskFromTitleAndDescription: vi.fn(async (t: string, d: string) => ({ id: "md#999", title: t, description: d })),
+    createTaskFromTitleAndDescription: vi.fn(async (t: string, d: string) => ({
+      id: "md#999",
+      title: t,
+      description: d,
+    })),
     getTask: vi.fn(async () => ({ id: "md#999" })),
   } as any;
   const workspaceUtils = {
     isSessionWorkspace: vi.fn(async () => false),
   } as any;
   const resolveRepoPath = vi.fn(async () => repoUrl);
-  return { sessionDB, gitService, taskService, workspaceUtils, resolveRepoPath } as StartSessionDependencies;
+  return {
+    sessionDB,
+    gitService,
+    taskService,
+    workspaceUtils,
+    resolveRepoPath,
+  } as StartSessionDependencies;
 }
 
 describe("startSessionImpl - backendType", () => {

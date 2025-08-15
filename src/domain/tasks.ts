@@ -392,177 +392,179 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     try {
-    // Validate that the spec file exists
-    const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
-    try {
-      await fs.access(fullSpecPath);
-    } catch (error) {
-      throw new Error(`Spec file not found: ${specPath}`);
-    }
+      // Validate that the spec file exists
+      const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+      try {
+        await fs.access(fullSpecPath);
+      } catch (error) {
+        throw new Error(`Spec file not found: ${specPath}`);
+      }
 
-    // Read and parse the spec file
-    const specContent = String(await fs.readFile(fullSpecPath, "utf-8"));
-    const lines = specContent.split("\n");
+      // Read and parse the spec file
+      const specContent = String(await fs.readFile(fullSpecPath, "utf-8"));
+      const lines = specContent.split("\n");
 
-    // Extract title from the first heading
-    const titleLine = lines.find((line) => line.startsWith("# "));
-    if (!titleLine) {
-      throw new Error("Invalid spec file: Missing title heading");
-    }
+      // Extract title from the first heading
+      const titleLine = lines.find((line) => line.startsWith("# "));
+      if (!titleLine) {
+        throw new Error("Invalid spec file: Missing title heading");
+      }
 
-    // Support multiple title formats for backward compatibility:
-    // 1. Old format with task number: "# Task #XXX: Title"
-    // 2. Old format without number: "# Task: Title"
-    // 3. New clean format: "# Title"
-    const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
-    const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
-    const cleanTitleMatch = titleLine.match(/^# (.+)$/);
+      // Support multiple title formats for backward compatibility:
+      // 1. Old format with task number: "# Task #XXX: Title"
+      // 2. Old format without number: "# Task: Title"
+      // 3. New clean format: "# Title"
+      const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
+      const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
+      const cleanTitleMatch = titleLine.match(/^# (.+)$/);
 
-    let title: string;
-    let hasTaskId = false;
-    let existingId: string | undefined = undefined;
+      let title: string;
+      let hasTaskId = false;
+      let existingId: string | undefined = undefined;
 
-    if (titleWithIdMatch && titleWithIdMatch[2]) {
-      // Old format: "# Task #XXX: Title"
-      title = titleWithIdMatch[2];
-      existingId = `#${titleWithIdMatch[1]}`;
-      hasTaskId = true;
-    } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
-      // Old format: "# Task: Title"
-      title = titleWithoutIdMatch[1];
-    } else if (cleanTitleMatch && cleanTitleMatch[1]) {
-      // New clean format: "# Title"
-      title = cleanTitleMatch[1];
-      // Skip if this looks like an old task format to avoid false positives
-      if (title.startsWith("Task ")) {
+      if (titleWithIdMatch && titleWithIdMatch[2]) {
+        // Old format: "# Task #XXX: Title"
+        title = titleWithIdMatch[2];
+        existingId = `#${titleWithIdMatch[1]}`;
+        hasTaskId = true;
+      } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
+        // Old format: "# Task: Title"
+        title = titleWithoutIdMatch[1];
+      } else if (cleanTitleMatch && cleanTitleMatch[1]) {
+        // New clean format: "# Title"
+        title = cleanTitleMatch[1];
+        // Skip if this looks like an old task format to avoid false positives
+        if (title.startsWith("Task ")) {
+          throw new Error(
+            'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
+          );
+        }
+      } else {
         throw new Error(
           'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
         );
       }
-    } else {
-      throw new Error(
-        'Invalid spec file: Missing or invalid title. Expected formats: "# Title", "# Task: Title" or "# Task #XXX: Title"'
-      );
-    }
 
-    // Extract description from the Context section
-    const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
-    if (contextIndex === -1) {
-      throw new Error("Invalid spec file: Missing Context section");
-    }
-    let description = "";
-    for (let i = contextIndex + 1; i < lines.length; i++) {
-      const line = lines[i] || "";
-      if (line.trim().startsWith("## ")) break;
-      if (line.trim()) description += `${line.trim()}\n`;
-    }
-    if (!description.trim()) {
-      throw new Error("Invalid spec file: Empty Context section");
-    }
-
-    // If we have an existing task ID, validate it doesn't conflict with existing tasks
-    let taskId: string;
-    if (hasTaskId && existingId) {
-      // Verify the task ID doesn't already exist
-      const existingTask = await this.getTask(existingId);
-      if (existingTask && !options.force) {
-        throw new Error(`Task ${existingId} already exists. Use --force to overwrite.`);
+      // Extract description from the Context section
+      const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
+      if (contextIndex === -1) {
+        throw new Error("Invalid spec file: Missing Context section");
       }
-      taskId = existingId;
-    } else {
-      // Find the next available task ID
-      const tasks = await this.parseTasks();
-      const maxId = tasks.reduce((max, task) => {
-        const id = parseInt(task.id.slice(1));
-        return id > max ? id : max;
-      }, 0);
-      taskId = `#${String(maxId + 1).padStart(3, "0")}`;
-    }
-
-    const taskIdNum = taskId.slice(1); // Remove the # prefix for file naming
-
-    // Generate the standardized filename
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const newSpecPath = getTaskSpecRelativePath(taskId, title, this.workspacePath);
-    const fullNewPath = join(this.workspacePath, newSpecPath);
-
-    // Update the title in the spec file to use clean format
-    let updatedContent = specContent;
-    const cleanTitleLine = `# ${title}`;
-    updatedContent = updatedContent.replace(titleLine, cleanTitleLine);
-
-    // Rename and update the spec file
-    try {
-      // Create the tasks directory if it doesn't exist
-      const tasksDir = join(this.workspacePath, "process", "tasks");
-      try {
-        await fs.mkdir(tasksDir, { recursive: true });
-      } catch (error) {
-        // Ignore if directory already exists
+      let description = "";
+      for (let i = contextIndex + 1; i < lines.length; i++) {
+        const line = lines[i] || "";
+        if (line.trim().startsWith("## ")) break;
+        if (line.trim()) description += `${line.trim()}\n`;
+      }
+      if (!description.trim()) {
+        throw new Error("Invalid spec file: Empty Context section");
       }
 
-      // Check if the target file already exists
-      try {
-        await fs.access(fullNewPath);
-        if (!options.force) {
-          throw new Error(`Target file already exists: ${newSpecPath}. Use --force to overwrite.`);
+      // If we have an existing task ID, validate it doesn't conflict with existing tasks
+      let taskId: string;
+      if (hasTaskId && existingId) {
+        // Verify the task ID doesn't already exist
+        const existingTask = await this.getTask(existingId);
+        if (existingTask && !options.force) {
+          throw new Error(`Task ${existingId} already exists. Use --force to overwrite.`);
         }
-      } catch (error) {
-        // File doesn't exist, which is fine
+        taskId = existingId;
+      } else {
+        // Find the next available task ID
+        const tasks = await this.parseTasks();
+        const maxId = tasks.reduce((max, task) => {
+          const id = parseInt(task.id.slice(1));
+          return id > max ? id : max;
+        }, 0);
+        taskId = `#${String(maxId + 1).padStart(3, "0")}`;
       }
 
-      // Write the updated content to the new file
-      await fs.writeFile(fullNewPath, updatedContent, "utf-8");
+      const taskIdNum = taskId.slice(1); // Remove the # prefix for file naming
 
-      // Delete the original file if it's different from the new one
-      if (fullSpecPath !== fullNewPath) {
+      // Generate the standardized filename
+      const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+      const newSpecPath = getTaskSpecRelativePath(taskId, title, this.workspacePath);
+      const fullNewPath = join(this.workspacePath, newSpecPath);
+
+      // Update the title in the spec file to use clean format
+      let updatedContent = specContent;
+      const cleanTitleLine = `# ${title}`;
+      updatedContent = updatedContent.replace(titleLine, cleanTitleLine);
+
+      // Rename and update the spec file
+      try {
+        // Create the tasks directory if it doesn't exist
+        const tasksDir = join(this.workspacePath, "process", "tasks");
         try {
-          await fs.access(fullSpecPath);
-          await fs.unlink(fullSpecPath);
-        } catch (error: any) {
-          // If file doesn't exist or can't be deleted, just log it
-          log.warn("Could not delete original spec file", { error, path: fullSpecPath });
+          await fs.mkdir(tasksDir, { recursive: true });
+        } catch (error) {
+          // Ignore if directory already exists
         }
+
+        // Check if the target file already exists
+        try {
+          await fs.access(fullNewPath);
+          if (!options.force) {
+            throw new Error(
+              `Target file already exists: ${newSpecPath}. Use --force to overwrite.`
+            );
+          }
+        } catch (error) {
+          // File doesn't exist, which is fine
+        }
+
+        // Write the updated content to the new file
+        await fs.writeFile(fullNewPath, updatedContent, "utf-8");
+
+        // Delete the original file if it's different from the new one
+        if (fullSpecPath !== fullNewPath) {
+          try {
+            await fs.access(fullSpecPath);
+            await fs.unlink(fullSpecPath);
+          } catch (error: any) {
+            // If file doesn't exist or can't be deleted, just log it
+            log.warn("Could not delete original spec file", { error, path: fullSpecPath });
+          }
+        }
+      } catch (error: any) {
+        throw new Error(`Failed to rename or update spec file: ${getErrorMessage(error as any)}`);
       }
-    } catch (error: any) {
-      throw new Error(`Failed to rename or update spec file: ${getErrorMessage(error as any)}`);
-    }
 
-    // Create the task entry
-    const task: Task = {
-      id: taskId,
-      title,
-      description: description.trim(),
-      status: TASK_STATUS.TODO,
-      specPath: newSpecPath,
-    };
+      // Create the task entry
+      const task: Task = {
+        id: taskId,
+        title,
+        description: description.trim(),
+        status: TASK_STATUS.TODO,
+        specPath: newSpecPath,
+      };
 
-    // Add the task to tasks.md
-    const content = String(await fs.readFile(this.filePath, "utf-8"));
-    const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
-    const tasksFileContent = `${content}\n${taskEntry}`;
-    await fs.writeFile(this.filePath, tasksFileContent, "utf-8");
-    
-    // Commit and push the changes
-    try {
-      const workdir = this.workspacePath;
-      const hasChangesToCommit = await gitService.hasUncommittedChanges(workdir);
-      if (hasChangesToCommit) {
-        log.cli("💾 Committing task creation...");
-        await gitService.execInRepository(workdir, "git add -A");
-        const qualifiedId = `md#${task.id.replace(/^#/, "")}`;
-        const commitMessage = `chore(task): create ${qualifiedId} ${title}`;
-        await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
-        log.cli("📤 Pushing changes...");
-        await gitService.execInRepository(workdir, "git push");
-        log.cli("✅ Changes committed and pushed successfully");
+      // Add the task to tasks.md
+      const content = String(await fs.readFile(this.filePath, "utf-8"));
+      const taskEntry = `- [ ] ${title} [${taskId}](${newSpecPath})\n`;
+      const tasksFileContent = `${content}\n${taskEntry}`;
+      await fs.writeFile(this.filePath, tasksFileContent, "utf-8");
+
+      // Commit and push the changes
+      try {
+        const workdir = this.workspacePath;
+        const hasChangesToCommit = await gitService.hasUncommittedChanges(workdir);
+        if (hasChangesToCommit) {
+          log.cli("💾 Committing task creation...");
+          await gitService.execInRepository(workdir, "git add -A");
+          const qualifiedId = `md#${task.id.replace(/^#/, "")}`;
+          const commitMessage = `chore(task): create ${qualifiedId} ${title}`;
+          await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
+          log.cli("📤 Pushing changes...");
+          await gitService.execInRepository(workdir, "git push");
+          log.cli("✅ Changes committed and pushed successfully");
+        }
+      } catch (commitError) {
+        log.warn("Failed to commit task creation", { error: commitError, taskId: task.id });
+        log.cli(`⚠️ Warning: Failed to commit changes: ${commitError}`);
       }
-    } catch (commitError) {
-      log.warn("Failed to commit task creation", { error: commitError, taskId: task.id });
-      log.cli(`⚠️ Warning: Failed to commit changes: ${commitError}`);
-    }
 
-    return task;
+      return task;
     } finally {
       if (hasStashedChanges) {
         try {
