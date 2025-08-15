@@ -58,17 +58,16 @@ export function handleCliError(error: any): never {
       const errorLine = errorLineMatch ? errorLineMatch[1].trim() : "Database error";
       const paramsBlock = paramsMatch ? paramsMatch[0].trim() : "";
 
-      // Pull just the SQL statement (first line after "Failed query:")
+      // Pull the complete SQL statement after "Failed query:"
       let sqlSnippet = "";
       if (failedQueryBlock) {
         const lines = failedQueryBlock.split("\n");
-        // Find the first non-empty line after the label
-        const firstSqlLine =
-          lines
-            .slice(1)
-            .map((l) => l.trim())
-            .find((l) => l.length > 0) || "";
-        sqlSnippet = firstSqlLine;
+        // Get all non-empty lines after the label and join them
+        const sqlLines = lines
+          .slice(1)
+          .map((l) => l.trim())
+          .filter((l) => l.length > 0);
+        sqlSnippet = sqlLines.join(" ").trim();
       }
 
       if (showFull) {
@@ -195,11 +194,13 @@ export function handleCliError(error: any): never {
     const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
     let sqlSnippet = "";
     if (failedQueryBlock) {
+      // Extract the complete SQL statement, not just the first line
       const lines = failedQueryBlock
         .split("\n")
-        .slice(1)
-        .map((l) => l.trim());
-      sqlSnippet = lines.find((l) => l.length > 0) || "";
+        .slice(1) // Skip "Failed query:" line
+        .map((l) => l.trim())
+        .filter((l) => l.length > 0); // Remove empty lines
+      sqlSnippet = lines.join(" ").trim();
     }
 
     // Try to derive table name from the failed SQL if driver didn't provide it
