@@ -130,3 +130,8 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - feat(session.pr.create): Add `--type` (required) and automatic conventional commit title generation. Title must be description-only (no `feat:`, `feat(scope):`). The command auto-detects task ID from session context (or uses provided `--task`) and generates `type(taskId): title`. This is a breaking change: `--type` is now mandatory and prefixed titles are rejected.
+
+- feat(tasks-backend): Implement backend-driven auto-commit/push for Markdown task creation (md#423)
+  - Added stash/commit/push/restore flow to `src/domain/tasks/markdownTaskBackend.ts` for both object and spec-file creation paths
+  - Commit message format: `chore(task): create <id> <title>`; push attempted with warnings on failure
+  - Exposed injectable `gitService` for testability; added unit tests to validate commit/push behavior and no-op when no changes

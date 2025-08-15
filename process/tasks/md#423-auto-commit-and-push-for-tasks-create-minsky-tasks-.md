@@ -9,27 +9,30 @@ Goal
 - Make task creation flows auto-stage, commit, and push the generated/updated files by default to ensure persistence and visibility without manual follow-up.
 
 Scope
-- Implement auto-commit + push in the task creation path used by the MCP/CLI tasks_create command.
+- Implement auto-commit + push in the Markdown Tasks backend (same backend used by `tasks status set`).
+- Reuse the exact same commit/push logic as `tasks status set` (stash/commit/push/restore flow). No duplicate implementations.
+- Do NOT implement commit/push behavior inside the `tasks create` CLI command; the CLI must delegate to the backend which performs commit/push.
 - Commit message format: `chore(task): create <qualified-id> <title>`
-- Include all created/updated files: new task spec, tasks.md index (or registry), and any sidecar files.
-- Provide flags:
-  - `--no-commit` to disable committing
-  - `--no-push` to disable pushing (still commits locally)
-- Detect and handle dirty workspace: stage only relevant task files; do not include unrelated changes by default; provide `--all` override if desired (future).
-- Error handling: clear errors if remote push fails; still return created task id and local commit outcome.
-- Config awareness: respect default remote/branch from repo; use repo's current branch unless overridden.
-- Tests: e2e test that verifies a commit exists after creation, with expected message; integration test for `--no-commit`/`--no-push`.
-- Docs: update process/tasks.md and CLI help to document new behavior and flags.
+- Include all created/updated files: new task spec, `process/tasks.md` index (registry), and any sidecar files.
+- Detect and handle dirty workspace by stashing before write and restoring after push.
+- Error handling: pushing may fail; creation must still succeed locally and report a warning.
+- Tests: unit tests assert that create triggers commit/push with the expected message and a no-op when there are no changes.
 
 Acceptance Criteria
-- tasks_create produces a new commit with the new task spec and registry update by default and pushes it.
-- Flags work as specified.
-- Commit message includes the qualified id and title.
-- Tests pass and docs updated.
+- Creating a task (via MCP or CLI `tasks create`) triggers the Markdown Tasks backend which stages, commits, and pushes by default.
+- Backend logic is the same as `tasks status set` (stash/commit/push/restore) and is implemented exclusively in the backend, not in the CLI layer.
+- Commit message includes the qualified id and title, e.g. `chore(task): create md#123 Some Title`.
+- Unit tests cover: commit/push occurs after creation; and commit is suppressed when there are no changes.
+- Docs/changelog updated.
 
 
 ## Requirements
 
 ## Solution
+- Implemented in `src/domain/tasks/markdownTaskBackend.ts` within the session workspace.
+- Added injectable `gitService` to facilitate unit testing without global mocks.
+- Implemented stash/commit/push/restore flow around task creation for both spec-file and object creation paths.
+- Commit message format: `chore(task): create <qualified-id> <title>`.
+- Added focused unit tests to verify commit/push behavior and no-op when no changes.
 
 ## Notes
