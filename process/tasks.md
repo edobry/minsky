@@ -688,4 +688,8 @@
 
 - [+] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
 
+<<<<<<< Updated upstream
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
+=======
+- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
+>>>>>>> Stashed changes
