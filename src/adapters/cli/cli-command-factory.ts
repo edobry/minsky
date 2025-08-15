@@ -729,16 +729,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
             alias: "n",
             description: "Simulate migration without making changes",
           },
-          verify: {
-            alias: "V",
-            description: "Verify migration after completion",
-          },
-          debug: {
-            description: "Enable debug mode for detailed output",
-          },
-          showSql: {
-            description: "Show full SQL in errors (prints full failed query)",
-          },
+          // debug/showSql retained as global CLI flags
         },
       },
     },

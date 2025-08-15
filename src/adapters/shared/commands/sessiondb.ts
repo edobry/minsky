@@ -148,12 +148,7 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
-  verbose: {
-    schema: z.boolean(),
-    description: "Verbose logging during schema migration",
-    required: false,
-    defaultValue: false,
-  },
+  // verbose removed: full details shown by default
   debug: {
     schema: z.boolean(),
     description: "Enable debug mode for detailed output",
@@ -170,9 +165,9 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
  * Helper: run schema migrations for the configured backend
  */
 async function runSchemaMigrationsForConfiguredBackend(
-  options: { dryRun?: boolean; verbose?: boolean; showSql?: boolean } = {}
+  options: { dryRun?: boolean; showSql?: boolean } = {}
 ): Promise<any> {
-  const { dryRun = false, verbose = false, showSql = false } = options;
+  const { dryRun = false, showSql = false } = options;
   const { getConfiguration } = await import("../../../domain/configuration/index");
   const config = getConfiguration();
   const backend = (config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
@@ -251,12 +246,12 @@ async function runSchemaMigrationsForConfiguredBackend(
         },
       } as const;
 
-      if (verbose) {
+      {
         (plan as any).printed = true;
         delete (plan as any).message;
       }
 
-      if (verbose) {
+      {
         log.cli("=== SessionDB Schema Migration (sqlite) — DRY RUN ===");
         log.cli("");
         log.cli(`Database: ${dbPath}`);
@@ -295,7 +290,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       let latestHash: string | undefined;
       let latestAt: string | undefined;
 
-      if (verbose) {
+      {
         try {
           const { readdirSync } = await import("fs");
           const { basename } = await import("path");
@@ -364,7 +359,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       const db = drizzle(sqlite, { logger: showSql });
       const start = Date.now();
       await migrate(db as any, { migrationsFolder });
-      if (verbose) {
+      {
         const ms = Date.now() - start;
         log.cli(`Applied migrations in ${ms}ms`);
       }
@@ -379,7 +374,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       migrationsFolder: "./src/domain/storage/migrations",
       message: `Schema migration applied for sqlite (migrations: ./src/domain/storage/migrations)`,
     };
-    if (verbose) {
+    {
       appliedRes.printed = true;
       delete appliedRes.message;
     }
@@ -476,12 +471,12 @@ async function runSchemaMigrationsForConfiguredBackend(
         },
       } as const;
 
-      if (verbose) {
+      {
         (plan as any).printed = true;
         delete (plan as any).message;
       }
 
-      if (verbose) {
+      {
         log.cli("=== SessionDB Schema Migration (postgres) — DRY RUN ===");
         log.cli("");
         log.cli(`Database: ${maskedConn}`);
@@ -584,7 +579,7 @@ async function runSchemaMigrationsForConfiguredBackend(
         // best-effort pre-checks
       }
 
-      if (verbose) {
+      {
         log.cli("=== SessionDB Schema Migration (postgres) ===");
         log.cli("");
         log.cli(`Database: ${masked}`);
@@ -619,7 +614,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       }
 
       const start = Date.now();
-      if (verbose && files.length > 0) {
+      if (files.length > 0) {
         const pending = Math.max(files.length - appliedCount, 0);
         if (pending > 0) {
           log.cli("Running migrations (in order):");
@@ -628,7 +623,7 @@ async function runSchemaMigrationsForConfiguredBackend(
         }
       }
       await migrate(db, { migrationsFolder });
-      if (verbose) {
+      {
         const ms = Date.now() - start;
         // Re-check applied count
         try {
@@ -654,7 +649,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       migrationsFolder: "./src/domain/storage/migrations/pg",
       message: `Schema migration applied for postgres (migrations: ./src/domain/storage/migrations/pg)`,
     };
-    if (verbose) {
+    {
       appliedPg.printed = true;
       delete appliedPg.message;
     }
@@ -669,9 +664,9 @@ async function runSchemaMigrationsForConfiguredBackend(
  */
 async function runSchemaMigrationsForBackend(
   backend: "sqlite" | "postgres",
-  options: { verbose?: boolean; sqlitePath?: string; connectionString?: string } = {}
+  options: { sqlitePath?: string; connectionString?: string } = {}
 ): Promise<void> {
-  const { verbose = false, sqlitePath, connectionString } = options;
+  const { sqlitePath, connectionString } = options;
   if (backend === "sqlite") {
     const dbPath = sqlitePath || getDefaultSqliteDbPath();
     const { Database } = await import("bun:sqlite");
@@ -679,7 +674,7 @@ async function runSchemaMigrationsForBackend(
     const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
     const sqlite = new Database(dbPath);
     try {
-      const db = drizzle(sqlite, { logger: verbose });
+      const db = drizzle(sqlite, { logger: false });
       await migrate(db as any, { migrationsFolder: "./src/domain/storage/migrations" });
     } finally {
       sqlite.close();
@@ -694,7 +689,7 @@ async function runSchemaMigrationsForBackend(
     const postgres = (await import("postgres")).default;
     const sql = postgres(conn, { prepare: false, onnotice: () => {}, max: 10 });
     try {
-      const db = drizzle(sql, { logger: verbose });
+      const db = drizzle(sql, { logger: false });
       await migrate(db, { migrationsFolder: "./src/domain/storage/migrations/pg" });
     } finally {
       await sql.end();
@@ -712,16 +707,7 @@ sharedCommandRegistry.registerCommand({
     "Migrate session database between backends, or run schema migrations when no target is provided",
   parameters: sessiondbMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
-    const {
-      to,
-      from,
-      sqlitePath,
-      backup = true,
-      execute,
-      setDefault,
-      dryRun = false,
-      verbose = false,
-    } = params;
+    const { to, from, sqlitePath, backup = true, execute, setDefault, dryRun = false } = params;
 
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
@@ -730,7 +716,6 @@ sharedCommandRegistry.registerCommand({
         const shouldApply = Boolean(execute);
         const result = await runSchemaMigrationsForConfiguredBackend({
           dryRun: !shouldApply,
-          verbose,
           showSql: Boolean((params as any)?.showSql),
         });
 
@@ -966,7 +951,6 @@ sharedCommandRegistry.registerCommand({
 
       // Ensure target schema is fully migrated before writing
       await runSchemaMigrationsForBackend(to, {
-        verbose,
         sqlitePath: targetSqlitePath,
         connectionString: targetPostgresConn,
       });
