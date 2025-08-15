@@ -170,9 +170,9 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
  * Helper: run schema migrations for the configured backend
  */
 async function runSchemaMigrationsForConfiguredBackend(
-  options: { dryRun?: boolean; verbose?: boolean } = {}
+  options: { dryRun?: boolean; verbose?: boolean; showSql?: boolean } = {}
 ): Promise<any> {
-  const { dryRun = false, verbose = false } = options;
+  const { dryRun = false, verbose = false, showSql = false } = options;
   const { getConfiguration } = await import("../../../domain/configuration/index");
   const config = getConfiguration();
   const backend = (config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
@@ -198,8 +198,18 @@ async function runSchemaMigrationsForConfiguredBackend(
 
     const sqlite = new Database(dbPath);
     try {
-      const db = drizzle(sqlite, { logger: verbose });
+      if (verbose) {
+        log.cli("=== SessionDB Schema Migration (sqlite) ===");
+        log.cli(`Database: ${dbPath}`);
+        log.cli(`Migrations: ./src/domain/storage/migrations`);
+      }
+      const db = drizzle(sqlite, { logger: false });
+      const start = Date.now();
       await migrate(db as any, { migrationsFolder: "./src/domain/storage/migrations" });
+      if (verbose) {
+        const ms = Date.now() - start;
+        log.cli(`Applied migrations in ${ms}ms`);
+      }
     } finally {
       sqlite.close();
     }
@@ -238,11 +248,97 @@ async function runSchemaMigrationsForConfiguredBackend(
     const { drizzle } = await import("drizzle-orm/postgres-js");
     const { migrate } = await import("drizzle-orm/postgres-js/migrator");
     const postgres = (await import("postgres")).default;
+    const { readdirSync } = await import("fs");
+    const { basename } = await import("path");
 
     const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 10 });
     try {
-      const db = drizzle(sql, { logger: verbose });
-      await migrate(db, { migrationsFolder: "./src/domain/storage/migrations/pg" });
+      const db = drizzle(sql, { logger: false });
+
+      const masked = (() => {
+        try {
+          const u = new URL(connectionString);
+          return `${u.host}${u.pathname}`;
+        } catch {
+          return "<connection>";
+        }
+      })();
+
+      const migrationsFolder = "./src/domain/storage/migrations/pg";
+      const files = (() => {
+        try {
+          return readdirSync(migrationsFolder)
+            .filter((n) => n.endsWith(".sql"))
+            .sort((a, b) => a.localeCompare(b));
+        } catch {
+          return [] as string[];
+        }
+      })();
+
+      // Pre-check applied vs files
+      let appliedCount = 0;
+      let schemaExists = false;
+      let metaExists = false;
+      try {
+        const sch = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM information_schema.schemata WHERE schema_name = 'drizzle'
+          ) as exists;
+        `;
+        schemaExists = Boolean(sch?.[0]?.exists);
+        const meta = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+          ) as exists;
+        `;
+        metaExists = Boolean(meta?.[0]?.exists);
+        if (metaExists) {
+          const cnt = await sql<{ count: string }[]>`
+            SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+          `;
+          appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+        }
+      } catch {
+        // best-effort pre-checks
+      }
+
+      if (verbose) {
+        log.cli("=== SessionDB Schema Migration (postgres) ===");
+        log.cli(`Database: ${masked}`);
+        log.cli(`Migrations: ${migrationsFolder}`);
+        log.cli(
+          `Status: schema=${schemaExists ? "present" : "missing"}, metaTable=${
+            metaExists ? "present" : "missing"
+          }`
+        );
+        log.cli(
+          `Plan: ${files.length} file(s), ${appliedCount} applied, ${Math.max(
+            files.length - appliedCount,
+            0
+          )} pending`
+        );
+        if (files.length > 0) {
+          log.cli(`Files:`);
+          files.forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+        }
+        log.cli(`Executing...`);
+      }
+
+      const start = Date.now();
+      await migrate(db, { migrationsFolder });
+      if (verbose) {
+        const ms = Date.now() - start;
+        // Re-check applied count
+        try {
+          const cnt2 = await sql<{ count: string }[]>`
+            SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+          `;
+          const applied2 = parseInt(cnt2?.[0]?.count || "0", 10);
+          log.cli(`Applied ${Math.max(applied2 - appliedCount, 0)} migration(s) in ${ms}ms`);
+        } catch {
+          log.cli(`Applied migrations in ${ms}ms`);
+        }
+      }
     } finally {
       await sql.end();
     }
@@ -326,6 +422,7 @@ sharedCommandRegistry.registerCommand({
         const result = await runSchemaMigrationsForConfiguredBackend({
           dryRun: !shouldApply,
           verbose,
+          showSql: Boolean((params as any)?.showSql),
         });
 
         if (context.format === "human") {
