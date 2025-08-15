@@ -29,6 +29,48 @@ import {
 import { createSessionProvider } from "../../../domain/session";
 
 /**
+ * Generate fresh migrations using drizzle-kit
+ */
+async function generateMigrations(): Promise<void> {
+  try {
+    const { spawn } = await import("child_process");
+    const { promisify } = await import("util");
+
+    log.cli("🔄 Generating fresh migrations from schema...");
+
+    // Run drizzle-kit generate via CLI
+    const child = spawn("bunx", ["drizzle-kit", "generate", "--config", "./drizzle.pg.config.ts"], {
+      stdio: ["inherit", "pipe", "pipe"],
+      cwd: process.cwd(),
+    });
+
+    let stdout = "";
+    let stderr = "";
+
+    child.stdout?.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    child.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    const exitCode = await new Promise<number>((resolve) => {
+      child.on("close", resolve);
+    });
+
+    if (exitCode === 0) {
+      log.cli("✅ Generated fresh migrations successfully");
+    } else {
+      throw new Error(`drizzle-kit generate failed with exit code ${exitCode}:\n${stderr}`);
+    }
+  } catch (error) {
+    log.error("Failed to generate migrations:", error);
+    throw new Error(`Migration generation failed: ${getErrorMessage(error)}`);
+  }
+}
+
+/**
  * Parameters for the sessiondb search command
  */
 const sessiondbSearchCommandParams: CommandParameterMap = {
@@ -152,6 +194,11 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
   debug: {
     schema: z.boolean(),
     description: "Enable debug mode for detailed output",
+    required: false,
+  },
+  generate: {
+    schema: z.boolean(),
+    description: "Generate fresh migrations from schema before applying (PostgreSQL only)",
     required: false,
   },
 };
@@ -693,11 +740,33 @@ sharedCommandRegistry.registerCommand({
     "Migrate session database between backends, or run schema migrations when no target is provided",
   parameters: sessiondbMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
-    const { to, from, sqlitePath, backup = true, execute, setDefault, dryRun = false } = params;
+    const {
+      to,
+      from,
+      sqlitePath,
+      backup = true,
+      execute,
+      setDefault,
+      dryRun = false,
+      generate = false,
+    } = params;
 
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
       try {
+        // Generate fresh migrations if requested (PostgreSQL only)
+        if (generate) {
+          const { getConfiguration } = await import("../../../domain/configuration/index");
+          const config = getConfiguration();
+          const backend = config.sessiondb?.backend;
+
+          if (backend === "postgres") {
+            await generateMigrations();
+          } else {
+            log.cli("⚠️ Migration generation is only supported for PostgreSQL backend");
+          }
+        }
+
         // DEFAULT: dry-run; require --execute to apply
         const shouldApply = Boolean(execute);
         const result = await runSchemaMigrationsForConfiguredBackend({
