@@ -32,6 +32,7 @@ import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
 import { normalizeTaskIdForStorage } from "./task-id-utils";
 import { getNextTaskId } from "./taskFunctions";
+import { get as getConfig, has as hasConfig } from "../configuration";
 
 // TaskState is now imported from schemas/storage
 
@@ -69,12 +70,25 @@ export class JsonFileTaskBackend implements TaskBackend {
       // Use provided path from configuration
       dbFilePath = options.dbFilePath;
     } else {
-      // Try team-shareable location first
-      const teamLocation = join(this.workspacePath, "process", "tasks.json");
-      dbFilePath = teamLocation;
+      // Prefer configured main workspace path if available
+      try {
+        if (hasConfig("workspace") && hasConfig("workspace.mainPath")) {
+          const mainPath = getConfig<string>("workspace.mainPath");
+          if (typeof mainPath === "string" && mainPath.trim().length > 0) {
+            dbFilePath = join(mainPath, "process", "tasks.json");
+          }
+        }
+      } catch (_err) {
+        // fall through
+      }
+
+      // Fallback: team-shareable location in the detected workspace
+      if (!dbFilePath) {
+        const teamLocation = join(this.workspacePath, "process", "tasks.json");
+        dbFilePath = teamLocation;
+      }
 
       // TODO: Add fallback logic if process/ directory doesn't exist
-      // For now, default to team-shareable location to encourage adoption
     }
 
     // Create storage instance
@@ -186,7 +200,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       const validatedData = validateTaskState(rawData);
       return validatedData.tasks;
     } catch (error) {
-      // If JSON parsing or validation fails, fall back to markdown parsing
+      // If JSON parsing || validation fails, fall back to markdown parsing
       return this.parseMarkdownTasks(content);
     }
   }
@@ -218,7 +232,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       if (trimmed.startsWith("# ")) {
         const headerText = trimmed.slice(2);
 
-        // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
+        // Try to extract task ID         &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&                &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&         title from header like "Task #TEST_VALUE: Title"
         const taskMatch = headerText.match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
           id = `#${taskMatch[1]}`;
@@ -298,7 +312,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 
   /**
-   * Create a task from title and description
+   * Create a task from title        &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&        description
    * @param title Title of the task
    * @param description Description of the task
    * @param options Options for creating the task
@@ -348,7 +362,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 
   /**
-   * Generate a task specification file content from title and description
+   * Generate a task specification file content from title        &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&        description
    * @param title Title of the task
    * @param description Description of the task
    * @returns The generated task specification content
@@ -567,7 +581,7 @@ ${description}
   /**
    * Get a task by ID from the database
    * @param id Task ID
-   * @returns Promise resolving to task data or null
+   * @returns Promise resolving to task data || null
    */
   async getTaskById(id: string): Promise<TaskData | null> {
     try {
@@ -604,7 +618,7 @@ ${description}
    * Update a task in the database
    * @param id Task ID
    * @param updates Task data updates
-   * @returns Promise resolving to updated task data or null
+   * @returns Promise resolving to updated task data || null
    */
   async updateTaskData(id: string, updates: Partial<TaskData>): Promise<TaskData | null> {
     try {
@@ -670,9 +684,9 @@ ${description}
       const trimmed = line.trim();
       if (trimmed.startsWith("- [ ] ") || trimmed.startsWith("- [x] ")) {
         const completed = trimmed.startsWith("- [x] ");
-        const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' or '- [x] '
+        const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' || '- [x] '
 
-        // Extract task ID and title
+        // Extract task ID       &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&       title
         const idMatch = taskLine.match(/\[#(\d+)\]/);
         const linkMatch = taskLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
 
@@ -706,7 +720,7 @@ export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): T
 }
 
 /**
- * Configure workspace and database file path for JSON backend
+ * Configure workspace     &&    &&      &&    &&        &&    &&      &&    &&     database file path for JSON backend
  */
 function configureJsonBackendWorkspace(config: any): JsonFileTaskBackendOptions {
   // 1. Use explicitly provided workspace path
@@ -719,7 +733,24 @@ function configureJsonBackendWorkspace(config: any): JsonFileTaskBackendOptions 
     };
   }
 
-  // 2. Use current working directory as default
+  // 2. Prefer configured main workspace path if present
+  try {
+    if (hasConfig("workspace") && hasConfig("workspace.mainPath")) {
+      const mainPath = getConfig<string>("workspace.mainPath");
+      if (typeof mainPath === "string" && mainPath.trim().length > 0) {
+        const dbFilePath = config.dbFilePath || join(mainPath, "process", "tasks.json");
+        return {
+          ...config,
+          workspacePath: mainPath,
+          dbFilePath,
+        };
+      }
+    }
+  } catch (_err) {
+    // fall through
+  }
+
+  // 3. Use current working directory as default
   const currentDir = (process as any).cwd();
   const dbFilePath = config.dbFilePath || join(currentDir, "process", "tasks.json");
 
@@ -731,7 +762,7 @@ function configureJsonBackendWorkspace(config: any): JsonFileTaskBackendOptions 
 }
 
 /**
- * Create a JSON backend with workspace and storage configuration
+ * Create a JSON backend with workspace  &&  storage configuration
  */
 export function createJsonBackendWithConfig(config: any): TaskBackend {
   const backendConfig = configureJsonBackendWorkspace(config);
