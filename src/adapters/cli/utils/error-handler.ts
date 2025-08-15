@@ -58,32 +58,6 @@ export function handleCliError(error: any): never {
       const errorLine = errorLineMatch ? errorLineMatch[1].trim() : "Database error";
       const paramsBlock = paramsMatch ? paramsMatch[0].trim() : "";
 
-      // Pull a meaningful SQL snippet after "Failed query:"
-      let sqlSnippet = "";
-      if (failedQueryBlock) {
-        const lines = failedQueryBlock.split("\n");
-        // Get all non-empty lines after the label and join them
-        const sqlLines = lines
-          .slice(1)
-          .map((l) => l.trim())
-          .filter((l) => l.length > 0);
-        const fullSql = sqlLines.join(" ").trim();
-
-        // For CREATE TABLE statements, show just the table creation part
-        if (fullSql.match(/^CREATE\s+TABLE/i)) {
-          const createMatch = fullSql.match(
-            /^(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^\s(]+)/i
-          );
-          if (createMatch) {
-            sqlSnippet = `${createMatch[1]} (...)`;
-          } else {
-            sqlSnippet = fullSql.slice(0, 80);
-          }
-        } else {
-          sqlSnippet = fullSql;
-        }
-      }
-
       if (showFull) {
         // In debug/full mode, include the entire failed query block for maximum context
         const details: string[] = [];
@@ -93,19 +67,9 @@ export function handleCliError(error: any): never {
         return details.join("\n");
       }
 
-      // In normal mode, provide a concise but actionable message
-      const maxSqlLength = 80;
-      const compactSql =
-        sqlSnippet.length > maxSqlLength ? `${sqlSnippet.slice(0, maxSqlLength)}...` : sqlSnippet;
+      // For migration commands, full SQL is shown by Drizzle logger, so just return error message
       const compactError = (errorLine.split("\n")[0] || errorLine).slice(0, 200);
-      const parts = [
-        `Database operation failed: ${compactError}`.trim(),
-        compactSql ? `Query: ${compactSql}` : "",
-        sqlSnippet.length > maxSqlLength
-          ? "(use --show-sql for full SQL)"
-          : "(use --show-sql or --debug for full SQL, error cause, and params)",
-      ].filter(Boolean);
-      return parts.join("\n");
+      return `Database operation failed: ${compactError}`.trim();
     }
 
     // Default: Only the first line to avoid verbose stacks in CLI output
@@ -202,37 +166,13 @@ export function handleCliError(error: any): never {
         .trim();
     }
 
-    // Try to extract failed SQL snippet from drizzle-wrapped message
-    const showFull = isDebugMode() || process.env.MINSKY_SHOW_SQL === "true";
+    // Extract failed SQL block for table name parsing only (not for display)
     const msgForQuery: string =
       typeof normalizedError.message === "string"
         ? normalizedError.message
         : String(normalizedError.message);
     const failedQueryMatch = msgForQuery.match(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i);
     const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
-    let sqlSnippet = "";
-    if (failedQueryBlock) {
-      // Extract a meaningful snippet that identifies the operation
-      const lines = failedQueryBlock
-        .split("\n")
-        .slice(1) // Skip "Failed query:" line
-        .map((l) => l.trim())
-        .filter((l) => l.length > 0); // Remove empty lines
-
-      const fullSql = lines.join(" ").trim();
-
-      // For CREATE TABLE statements, show just the table creation part
-      if (fullSql.match(/^CREATE\s+TABLE/i)) {
-        const createMatch = fullSql.match(/^(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^\s(]+)/i);
-        if (createMatch) {
-          sqlSnippet = `${createMatch[1]} (...)`;
-        } else {
-          sqlSnippet = fullSql.slice(0, 80);
-        }
-      } else {
-        sqlSnippet = fullSql;
-      }
-    }
 
     // Try to derive table name from the failed SQL if driver didn't provide it
     let tableNameFromQuery: string | undefined;
@@ -268,19 +208,7 @@ export function handleCliError(error: any): never {
     if (constraint) lines.push(`constraint: ${constraint}`);
     if (detail) lines.push(`detail: ${detail}`);
     if (hint) lines.push(`hint: ${hint}`);
-    if (sqlSnippet && !showFull) {
-      // Show a concise, readable snippet for non-verbose mode
-      const maxLength = 80;
-      const snippet =
-        sqlSnippet.length > maxLength ? `${sqlSnippet.slice(0, maxLength)}...` : sqlSnippet;
-      lines.push(`query: ${snippet}`);
-      if (sqlSnippet.length > maxLength) {
-        lines.push("(use --show-sql for full SQL)");
-      }
-    }
-    if (!sqlSnippet && !showFull) {
-      lines.push("(use --show-sql or --debug for full failed SQL)");
-    }
+    // SQL query is now always shown by Drizzle logger above the error, so we don't duplicate it here
     log.cliError(lines.join("\n"));
   } else {
     log.cliError(`❌ ${sanitizeMessage(normalizedError.message)}`);
