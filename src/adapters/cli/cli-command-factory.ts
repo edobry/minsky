@@ -733,6 +733,12 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
             alias: "V",
             description: "Verify migration after completion",
           },
+          debug: {
+            description: "Enable debug mode for detailed output",
+          },
+          showSql: {
+            description: "Show full SQL in errors (prints full failed query)",
+          },
         },
       },
     },

@@ -154,6 +154,16 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
     required: false,
     defaultValue: false,
   },
+  debug: {
+    schema: z.boolean(),
+    description: "Enable debug mode for detailed output",
+    required: false,
+  },
+  showSql: {
+    schema: z.boolean(),
+    description: "Show full SQL in errors (equivalent to --debug for SQL errors)",
+    required: false,
+  },
 };
 
 /**

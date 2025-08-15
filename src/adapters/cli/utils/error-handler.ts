@@ -83,7 +83,7 @@ export function handleCliError(error: any): never {
       const parts = [
         `Database operation failed: ${compactError}`.trim(),
         compactSql ? `Query: ${compactSql}` : "",
-        "(rerun with DEBUG=1 or MINSKY_SHOW_SQL=true for full SQL and details)",
+        "(use --show-sql or --debug for full SQL and details)",
       ].filter(Boolean);
       return parts.join("\n");
     }

@@ -141,6 +141,16 @@ export class CommandGeneratorCore {
           options
         );
 
+        // Propagate CLI flags to runtime toggles for better error reporting
+        // Enable debug mode if requested
+        if (rawParameters && (rawParameters as any).debug && !process.env.DEBUG) {
+          process.env.DEBUG = "1";
+        }
+        // Show full SQL in errors if requested
+        if (rawParameters && (rawParameters as any).showSql) {
+          process.env.MINSKY_SHOW_SQL = "true";
+        }
+
         // Create execution context
         const context: CliExecutionContext = {
           interface: "cli",
