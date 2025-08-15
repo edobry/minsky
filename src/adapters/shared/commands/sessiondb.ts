@@ -726,9 +726,6 @@ sharedCommandRegistry.registerCommand({
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
       try {
-        if (verbose) {
-          log.cli("🚀 SessionDB Schema Migration (configured backend)");
-        }
         // DEFAULT: dry-run; require --execute to apply
         const shouldApply = Boolean(execute);
         const result = await runSchemaMigrationsForConfiguredBackend({
