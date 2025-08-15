@@ -1,8 +1,8 @@
-# Implement Task Similarity Search Using Embeddings
+# Implement Task Similarity Search Using Embeddings and Task Metadata Storage
 
 ## Status
 
-BACKLOG
+IN-PROGRESS
 
 ## Priority
 
@@ -10,7 +10,7 @@ MEDIUM
 
 ## Description
 
-# Implement Task Similarity Search Using Embeddings (PostgreSQL Spike)
+# Extend Task Embeddings Infrastructure for General Task Metadata Storage
 
 ## Context
 
