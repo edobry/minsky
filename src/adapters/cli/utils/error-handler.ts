@@ -80,12 +80,16 @@ export function handleCliError(error: any): never {
       }
 
       // In normal mode, provide a concise but actionable message
-      const compactSql = sqlSnippet.length > 200 ? `${sqlSnippet.slice(0, 200)}…` : sqlSnippet;
+      const maxSqlLength = 80;
+      const compactSql =
+        sqlSnippet.length > maxSqlLength ? `${sqlSnippet.slice(0, maxSqlLength)}...` : sqlSnippet;
       const compactError = (errorLine.split("\n")[0] || errorLine).slice(0, 200);
       const parts = [
         `Database operation failed: ${compactError}`.trim(),
         compactSql ? `Query: ${compactSql}` : "",
-        "(use --show-sql or --debug for full SQL, error cause, and params)",
+        sqlSnippet.length > maxSqlLength
+          ? "(use --show-sql for full SQL)"
+          : "(use --show-sql or --debug for full SQL, error cause, and params)",
       ].filter(Boolean);
       return parts.join("\n");
     }
@@ -237,7 +241,16 @@ export function handleCliError(error: any): never {
     if (constraint) lines.push(`constraint: ${constraint}`);
     if (detail) lines.push(`detail: ${detail}`);
     if (hint) lines.push(`hint: ${hint}`);
-    if (sqlSnippet && !showFull) lines.push(`query: ${sqlSnippet}`);
+    if (sqlSnippet && !showFull) {
+      // Show a concise, readable snippet for non-verbose mode
+      const maxLength = 80;
+      const snippet =
+        sqlSnippet.length > maxLength ? `${sqlSnippet.slice(0, maxLength)}...` : sqlSnippet;
+      lines.push(`query: ${snippet}`);
+      if (sqlSnippet.length > maxLength) {
+        lines.push("(use --show-sql for full SQL)");
+      }
+    }
     if (!sqlSnippet && !showFull) {
       lines.push("(use --show-sql or --debug for full failed SQL)");
     }
