@@ -1,28 +1,42 @@
-# md#414: Continue fixing failing tests and stabilize configuration writer via fs DI
+# md#414: Fix post-merge test regressions after md#397 merge
 
 ## Status
-- In progress
+- In progress (failures reduced to 14)
 
-## Summary
-- Refactored `src/domain/configuration/config-writer.ts` to support dependency injection for `fs` via a minimal `FsLike` interface.
-- Updated `src/domain/configuration/config-writer.test.ts` to:
-  - Create a fresh in-memory mock filesystem per test using `createMockFilesystem()`
-  - Instantiate `ConfigWriter` with the per-test mock `fs` (no dynamic imports or module overrides)
-- Began reconciling unset flows to ensure correct behavior and return values.
+## Scope
+- Enforce strict-in/strict-out qualified task IDs (e.g., `md#123`, `gh#456`) across schemas, services, and tests. No legacy or numeric equivalence.
+- Ensure tests interact with mocks only; no real resources.
+- Stabilize session start/approve workflows; fix DB insertion ordering and approval-only behavior.
+- Refactor ConfigWriter tests to Bun-native mocking patterns and per-test isolation.
 
-## Changes
-- Added `FsLike` and optional `fsOverride` parameter to `ConfigWriter` constructor.
-- Replaced direct `fs.*` calls with `this.fsImpl.*` in `ConfigWriter`.
-- Removed dynamic `import()` and `mock.module()` usage from `config-writer.test.ts`; switched to DI with fresh per-test mocks.
-- Intermediate progress on unset flows:
-  - Preserving previous scalar value on unset for assertions
-  - Planning to convert remaining `.mock(...)` reassignments to `.mockImplementation(...)` and ensure `existsSync` returns true where needed
+## Completed
+- Strict ID policy
+  - Restored strict validation in `task-id-utils`, `taskIdSchema`, session resolver, and task services
+  - Updated tests to use qualified IDs; removed legacy/numeric equivalence expectations
+  - Added `docs/architecture/ids-policy.md` with rationale (no cross-backend numeric mapping)
+- Session approval flow
+  - `approveSessionFromParams` now returns `sessionName`
+  - Approval/branch-cleanup/workflow tests passing
+- Session clone regression tests
+  - Updated to qualified IDs; ordering validated (git ops before DB insert)
+- ConfigWriter tests
+  - Final rewrite to fresh per-test Bun mocks with `spyOn` wiring; no cross-test reuse
+  - Eliminated grouped holder reassignments; ESLint `custom/no-jest-patterns` compliant
+  - All ConfigWriter tests pass locally and in isolation
+- Changelog updated
 
-## Rationale
-- Aligns with no-dynamic-imports and per-test isolation patterns adopted across the suite.
-- Improves test reliability by eliminating cross-test leakage and global module override behaviors.
+## Remaining Failures (14)
+- Interface-agnostic task command functions (parameter handling, backend option)
+- Multi-backend task service (list/update/status across backends)
+- Task parsing/add flows (constants and parsing utilities)
 
-## Next Steps
-- Finalize unset tests by standardizing `.mockImplementation(...)` usage and ensuring positive paths set `existsSync` appropriately.
-- Remove remaining references to `createConfigWriter` in tests or provide a thin factory that forwards the injected `fs`.
-- Continue driving failing tests to green, then expand DI pattern to other modules as needed.
+## Next Actions
+- Triage the remaining 14 failures:
+  - Fix interface-agnostic task functions to require qualified IDs and pass backend options consistently
+  - Align multi-backend service tests with strict ID policy; ensure all backends are mocked and routed correctly
+  - Correct task parsing utilities to accept only qualified IDs and update add/replace flows accordingly
+- Keep all tests fully mocked; no real fs/git/network
+
+## Notes
+- PR double-prefix bug test asserts current buggy behavior intentionally; fix tracked separately.
+- Per-user guidance: session names are not parsed; task association in session record is authoritative.
