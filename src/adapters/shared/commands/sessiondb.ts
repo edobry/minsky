@@ -153,7 +153,7 @@ async function runMigrationsWithDrizzleKit(options: {
 /**
  * Check if migrations need to be generated and auto-generate them
  */
-async function checkAndGenerateMigrations(): Promise<void> {
+async function checkAndGenerateMigrations(): Promise<{ nothingToDo?: boolean }> {
   try {
     const { spawn } = await import("child_process");
     const { loadConfiguration } = await import("../../../domain/configuration/loader.js");
@@ -243,8 +243,10 @@ async function checkAndGenerateMigrations(): Promise<void> {
       }
     } else {
       log.cli("✅ Migrations are up to date");
+      return { nothingToDo: true };
     }
     log.cli(""); // Add spacing after migration check
+    return {};
   } catch (error) {
     log.error("Failed to check/generate migrations:", error);
     throw new Error(`Migration check/generation failed: ${getErrorMessage(error)}`);
@@ -695,6 +697,15 @@ async function runSchemaMigrationsForConfiguredBackend(
       }
 
       {
+        const pendingCount = Math.max(fileNames.length - appliedCount, 0);
+
+        // Optimized output for no-migration case
+        if (pendingCount === 0 && fileNames.length === 0) {
+          log.cli("✅ Database schema is up to date (no migrations needed)");
+          log.cli("");
+          return { ...plan, nothingToDo: true };
+        }
+
         log.cli("=== SessionDB Schema Migration (postgres) — DRY RUN ===");
         log.cli("");
         log.cli(`Database: ${maskedConn}`);
@@ -713,10 +724,7 @@ async function runSchemaMigrationsForConfiguredBackend(
           );
         }
         log.cli(
-          `Plan: ${fileNames.length} file(s), ${appliedCount} applied, ${Math.max(
-            fileNames.length - appliedCount,
-            0
-          )} pending`
+          `Plan: ${fileNames.length} file(s), ${appliedCount} applied, ${pendingCount} pending`
         );
         log.cli("");
         log.cli("(use --execute to apply)");
@@ -927,7 +935,15 @@ sharedCommandRegistry.registerCommand({
         const backend = config.sessiondb?.backend;
 
         if (backend === "postgres") {
-          await checkAndGenerateMigrations();
+          const migrationStatus = await checkAndGenerateMigrations();
+
+          // If there are no migrations to run, provide optimized output
+          if (migrationStatus?.nothingToDo) {
+            return {
+              message: "✅ Database schema is up to date",
+              printed: true,
+            };
+          }
 
           // Use drizzle-kit delegation for better compatibility
           const shouldApply = Boolean(execute);
