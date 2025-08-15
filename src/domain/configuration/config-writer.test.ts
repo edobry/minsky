@@ -11,28 +11,29 @@ import * as os from "os";
 import * as yaml from "yaml";
 import * as fs from "fs";
 
-// Mock filesystem operations
+// Mock holders using Bun mock() functions. We NEVER call mockImplementation on fs/* directly.
+// Instead, we bind fs/* to these holders via spyOn in beforeEach and override holders per-test
+// by reassigning holder functions to mock(() => value).
 const mockFs = {
-  readFileSync: mock(),
-  writeFileSync: mock(),
-  existsSync: mock(),
-  mkdirSync: mock(),
-  copyFileSync: mock(),
+  readFileSync: mock(() => ""),
+  writeFileSync: mock(() => {}),
+  existsSync: mock(() => false),
+  mkdirSync: mock(() => {}),
+  copyFileSync: mock(() => {}),
 };
 
 const mockPath = {
-  join: mock(),
-  dirname: mock(),
+  join: mock((...args: any[]) => (args as any[]).join("/")),
+  dirname: mock((p: string) => p.split("/").slice(0, -1).join("/")),
 };
 
 const mockOs = {
-  homedir: mock(),
+  homedir: mock(() => "/home/user"),
 };
 
-// Mock YAML operations
 const mockYaml = {
-  parse: mock(),
-  stringify: mock(),
+  parse: mock(() => ({})),
+  stringify: mock(() => ""),
 };
 
 describe("ConfigWriter", () => {
@@ -41,21 +42,22 @@ describe("ConfigWriter", () => {
   const mockConfigFile = "/home/user/.config/minsky/config.yaml";
 
   beforeEach(() => {
-    // Reset all mocks
-    Object.values(mockFs).forEach((m) => m.mockReset());
-    Object.values(mockPath).forEach((m) => m.mockReset());
-    Object.values(mockOs).forEach((m) => m.mockReset());
-    Object.values(mockYaml).forEach((m) => m.mockReset());
+    // Reset holders to default implementations via reassignment
+    mockFs.readFileSync = mock(() => "");
+    mockFs.writeFileSync = mock(() => {});
+    mockFs.existsSync = mock(() => false);
+    mockFs.mkdirSync = mock(() => {});
+    mockFs.copyFileSync = mock(() => {});
 
-    // Setup default mock behaviors
+    mockPath.join = mock((...args: any[]) => (args as any[]).join("/"));
+    mockPath.dirname = mock((p: string) => p.split("/").slice(0, -1).join("/"));
+
     mockOs.homedir = mock(() => "/home/user");
-    mockPath.join = mock((...args) => (args as any[]).join("/"));
-    mockPath.dirname = mock((p) => (p as string).split("/").slice(0, -1).join("/"));
 
-    // Setup environment variable mock
-    process.env.XDG_CONFIG_HOME = undefined;
+    mockYaml.parse = mock(() => ({}));
+    mockYaml.stringify = mock(() => "");
 
-    // Bind module functions to our mock implementations
+    // Bind spies to module functions delegating to our holders
     spyOn(fs, "readFileSync").mockImplementation(mockFs.readFileSync as any);
     spyOn(fs, "writeFileSync").mockImplementation(mockFs.writeFileSync as any);
     spyOn(fs, "existsSync").mockImplementation(mockFs.existsSync as any);
@@ -83,28 +85,28 @@ describe("ConfigWriter", () => {
 
   describe("setConfigValue", () => {
     test("should create config directory if it doesn't exist", async () => {
-      mockFs.existsSync = mock(() => false);
+      mockFs.existsSync = mock((p: string) => (p === mockConfigFile ? false : false));
       mockFs.readFileSync = mock(() => "{}");
       mockYaml.parse = mock(() => ({}));
       mockYaml.stringify = mock(() => "key: value\n");
 
       await writer.setConfigValue("key", "value");
 
-      expect(mockFs.mkdirSync).toHaveBeenCalledWith(mockConfigDir, { recursive: true });
+      expect(fs.mkdirSync).toHaveBeenCalledWith(mockConfigDir, { recursive: true });
     });
 
     test("should create backup before modifying existing config", async () => {
       const existingConfig = { existing: "value" };
 
-      mockFs.existsSync = mock((p) => p === mockConfigFile || p === mockConfigDir);
+      mockFs.existsSync = mock((p: string) => p === mockConfigFile || p === mockConfigDir);
       mockFs.readFileSync = mock(() => "existing: value\n");
       mockYaml.parse = mock(() => existingConfig);
       mockYaml.stringify = mock(() => "existing: value\nkey: newValue\n");
 
       const result = await writer.setConfigValue("key", "newValue");
 
-      expect(mockFs.copyFileSync).toHaveBeenCalled();
-      const copyCall = (mockFs.copyFileSync as any).mock.calls[0];
+      expect(fs.copyFileSync).toHaveBeenCalled();
+      const copyCall = (fs.copyFileSync as any).mock.calls[0];
       expect(copyCall[0]).toBe(mockConfigFile);
       expect(copyCall[1]).toMatch(/config\.yaml\.backup\./);
       expect(result.success).toBe(true);
@@ -121,13 +123,13 @@ describe("ConfigWriter", () => {
 
       expect(result.success).toBe(true);
       expect(result.newValue).toBe("gpt-4");
-      expect(mockFs.writeFileSync).toHaveBeenCalled();
-      const writeCall = (mockFs.writeFileSync as any).mock.calls[0];
+      expect(fs.writeFileSync).toHaveBeenCalled();
+      const writeCall = (fs.writeFileSync as any).mock.calls[0];
       expect(writeCall[0]).toBe(mockConfigFile);
     });
 
     test("should preserve existing values when setting new ones", async () => {
-      const existingConfig = { backend: "markdown", logger: { level: "info" } };
+      const existingConfig = { backend: "markdown", logger: { level: "info" } } as any;
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "backend: markdown\nlogger:\n  level: info\n");
@@ -191,7 +193,7 @@ describe("ConfigWriter", () => {
 
   describe("unsetConfigValue", () => {
     test("should remove configuration value and create backup", async () => {
-      const existingConfig = { key: "value", other: "remains" };
+      const existingConfig = { key: "value", other: "remains" } as any;
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: value\nother: remains\n");
@@ -203,11 +205,11 @@ describe("ConfigWriter", () => {
       expect(result.success).toBe(true);
       expect(result.previousValue).toBe("value");
       expect(result.newValue).toBeUndefined();
-      expect((mockFs.copyFileSync as any).mock.calls.length > 0).toBe(true);
+      expect((fs.copyFileSync as any).mock.calls.length > 0).toBe(true);
     });
 
     test("should handle unsetting non-existent values gracefully", async () => {
-      const existingConfig = { other: "value" };
+      const existingConfig = { other: "value" } as any;
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "other: value\n");
@@ -218,7 +220,7 @@ describe("ConfigWriter", () => {
       expect(result.success).toBe(true);
       expect(result.previousValue).toBeUndefined();
       expect(result.newValue).toBeUndefined();
-      expect((mockFs.copyFileSync as any).mock.calls.length).toBe(0);
+      expect((fs.copyFileSync as any).mock.calls.length).toBe(0);
     });
 
     test("should handle unsetting nested values", async () => {
@@ -226,7 +228,7 @@ describe("ConfigWriter", () => {
         ai: {
           providers: { openai: { model: "gpt-4" }, anthropic: { model: "claude-3" } },
         },
-      };
+      } as any;
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(
@@ -246,7 +248,7 @@ describe("ConfigWriter", () => {
       const existingConfig = {
         ai: { providers: { openai: { model: "gpt-4" } } },
         backend: "markdown",
-      };
+      } as any;
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(
@@ -270,7 +272,7 @@ describe("ConfigWriter", () => {
     });
 
     test("should restore from backup if file write fails after unset", async () => {
-      const existingConfig = { key: "value" };
+      const existingConfig = { key: "value" } as any;
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: value\n");
@@ -284,7 +286,7 @@ describe("ConfigWriter", () => {
 
       expect(result.success).toBe(false);
       expect(result.error).toContain("Write failed");
-      expect((mockFs.copyFileSync as any).mock.calls.length > 0).toBe(true);
+      expect((fs.copyFileSync as any).mock.calls.length > 0).toBe(true);
     });
   });
 
@@ -378,13 +380,9 @@ describe("ConfigWriter", () => {
 
       const result = await writerNoBackup.setConfigValue("key", "value");
 
-      if (!result.success) {
-        console.log("Test failure debug:", result);
-      }
-
       expect(result.success).toBe(true);
       expect(result.backupPath).toBeUndefined();
-      expect((mockFs.copyFileSync as any).mock.calls.length).toBe(0);
+      expect((fs.copyFileSync as any).mock.calls.length).toBe(0);
     });
   });
 });
