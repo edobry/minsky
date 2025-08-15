@@ -228,12 +228,18 @@ async function runSchemaMigrationsForConfiguredBackend(
         // Best effort
       }
 
+      const summary = `Schema migration (dry run) for sqlite\nDatabase: ${dbPath}\nMigrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ${appliedCount} applied, ${Math.max(
+        fileNames.length - appliedCount,
+        0
+      )} pending`;
+
       const plan = {
         success: true,
         backend,
         dryRun: true,
         sqlitePath: dbPath,
         migrationsFolder,
+        message: `${summary}\n\n(use --execute to apply)`,
         status: { metaTable: metaExists ? "present" : "missing" },
         plan: {
           files: fileNames,
@@ -301,6 +307,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       applied: true,
       backend,
       migrationsFolder: "./src/domain/storage/migrations",
+      message: `Schema migration applied for sqlite (migrations: ./src/domain/storage/migrations)`,
     };
   }
 
@@ -368,12 +375,18 @@ async function runSchemaMigrationsForConfiguredBackend(
         await sql.end();
       }
 
+      const summary = `Schema migration (dry run) for postgres\nDatabase: ${maskedConn}\nMigrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ${appliedCount} applied, ${Math.max(
+        fileNames.length - appliedCount,
+        0
+      )} pending`;
+
       const plan = {
         success: true,
         backend,
         dryRun: true,
         connection: maskedConn,
         migrationsFolder,
+        message: `${summary}\n\n(use --execute to apply)`,
         status: {
           schema: schemaExists ? "present" : "missing",
           metaTable: metaExists ? "present" : "missing",
@@ -551,6 +564,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       applied: true,
       backend,
       migrationsFolder: "./src/domain/storage/migrations/pg",
+      message: `Schema migration applied for postgres (migrations: ./src/domain/storage/migrations/pg)`,
     };
   }
 
