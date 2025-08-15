@@ -292,9 +292,17 @@ export const sessionInspectCommandParams = {
  */
 export const sessionPrCreateCommandParams = {
   title: {
-    schema: z.string(),
-    description: "PR title",
-    required: false,
+    schema: z.string().refine((t) => !/^(?:[a-z]+)(?:\([^)]*\))?:\s*/i.test(t), {
+      message:
+        "Title should be description only. Do not include conventional prefix like 'feat:' or 'feat(scope):'",
+    }),
+    description: "PR title (description only when --type is provided)",
+    required: true,
+  },
+  type: {
+    schema: z.enum(["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore"]),
+    description: "Conventional commit type to generate title prefix",
+    required: true,
   },
   body: {
     schema: z.string(),
@@ -375,8 +383,26 @@ export const sessionPrListCommandParams = {
   },
   task: commonSessionParams.task,
   status: {
-    schema: z.enum(["open", "closed", "merged", "draft"]),
-    description: "Filter by PR status",
+    schema: z.string(),
+    description:
+      "Filter by PR status. Accepts comma-separated values: open,closed,merged,draft,created or 'all'",
+    required: false,
+  },
+  backend: {
+    schema: z.enum(["github", "remote", "local"]),
+    description: "Filter by repository backend type",
+    required: false,
+  },
+  since: {
+    schema: z.string(),
+    description:
+      "Only include PRs updated on/after this time (YYYY-MM-DD or relative like 7d, 24h)",
+    required: false,
+  },
+  until: {
+    schema: z.string(),
+    description:
+      "Only include PRs updated on/before this time (YYYY-MM-DD or relative like 7d, 24h)",
     required: false,
   },
   repo: commonSessionParams.repo,
@@ -403,6 +429,27 @@ export const sessionPrGetCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  backend: {
+    schema: z.enum(["github", "remote", "local"]),
+    description: "Restrict to a specific repository backend type",
+    required: false,
+  },
+  status: {
+    schema: z.string(),
+    description:
+      "Optional state constraint for the matched PR: open,closed,merged,draft,created or 'all'",
+    required: false,
+  },
+  since: {
+    schema: z.string(),
+    description: "Only match if PR was updated on/after this time (YYYY-MM-DD or 7d/24h)",
+    required: false,
+  },
+  until: {
+    schema: z.string(),
+    description: "Only match if PR was updated on/before this time (YYYY-MM-DD or 7d/24h)",
+    required: false,
+  },
   content: {
     schema: z.boolean(),
     description: "Include PR description and diff content",

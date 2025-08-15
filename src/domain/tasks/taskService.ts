@@ -150,8 +150,21 @@ export class TaskService {
    */
   async getTask(id: string): Promise<TaskData | null> {
     const tasks = await this.getAllTasks();
-    const searchId = id;
-    return tasks.find((task) => task.id === searchId) || null;
+    // Strict: exact match first
+    const exact = tasks.find((task) => task.id === id);
+    if (exact) return exact;
+
+    // Strict qualified handling: support mapping md#NNN → #NNN (storage in tasks.md)
+    const qualifiedMatch = id.match(/^[a-z-]+#(\d+)$/);
+    if (qualifiedMatch) {
+      const num = qualifiedMatch[1];
+      const hashForm = `#${num}`;
+      const alt = tasks.find((task) => task.id === hashForm);
+      if (alt) return alt;
+    }
+
+    // No legacy/plain fallback
+    return null;
   }
 
   /**

@@ -183,7 +183,8 @@ export function createLogger(configOverride?: LoggerConfig) {
     format: programLogFormat,
     transports: [
       new transports.Console({
-        stderrLevels: ["error", "warn", "info", "http", "verbose", "debug", "silly"],
+        // Route only non-normal levels to stderr; keep normal output (info) on stdout
+        stderrLevels: ["error", "warn", "debug", "http", "verbose", "silly"],
       }),
     ], // Ensure only stderr
     exitOnError: false,

@@ -192,7 +192,7 @@ const ambiguousCode = `function test() {
 
 #### **Infrastructure & Error Handling** ✅
 - [x] Configuration system integration with real Morph API
-- [x] Test fixtures and directory structure  
+- [x] Test fixtures and directory structure
 - [x] Comprehensive API request/response logging
 - [x] HTTP request interception for debugging
 - [x] Enhanced error types (RateLimitError, AuthenticationError, ServerError)
@@ -210,7 +210,7 @@ const ambiguousCode = `function test() {
 
 #### **Phase 1: Core Edit Patterns (High Priority)** ✅ COMPLETED
 - [x] ✅ Single function/method addition
-- [x] ✅ Method replacement  
+- [x] ✅ Method replacement
 - [x] ✅ Multiple method addition
 - [x] ✅ Property/field addition to classes
 - [x] ✅ Import statement addition
@@ -497,7 +497,7 @@ async function cleanupTestSession(sessionName: string): Promise<void> {
 
 ### 🎯 **Validated Scenarios**
 - ✅ Simple function/method addition and replacement
-- ✅ Property and import statement additions  
+- ✅ Property and import statement additions
 - ✅ Constructor parameter and static method modifications
 - ✅ Async method patterns and middle insertions
 - ✅ Mixed operations (add + replace + modify simultaneously)
