@@ -232,7 +232,7 @@ export class JsonFileTaskBackend implements TaskBackend {
       if (trimmed.startsWith("# ")) {
         const headerText = trimmed.slice(2);
 
-        // Try to extract task ID         &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&                &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&         title from header like "Task #TEST_VALUE: Title"
+        // Try to extract task ID and title from header like "Task #TEST_VALUE: Title"
         const taskMatch = headerText.match(/^Task\s+#?([A-Za-z0-9_]+):\s*(.+)$/);
         if (taskMatch && taskMatch[1] && taskMatch[2]) {
           id = `#${taskMatch[1]}`;
@@ -312,7 +312,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 
   /**
-   * Create a task from title        &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&        description
+   * Create a task from title and description
    * @param title Title of the task
    * @param description Description of the task
    * @param options Options for creating the task
@@ -362,7 +362,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 
   /**
-   * Generate a task specification file content from title        &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&              &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&        description
+   * Generate a task specification file content from title and description
    * @param title Title of the task
    * @param description Description of the task
    * @returns The generated task specification content
@@ -686,7 +686,7 @@ ${description}
         const completed = trimmed.startsWith("- [x] ");
         const taskLine = trimmed.slice(SIZE_6); // Remove '- [ ] ' || '- [x] '
 
-        // Extract task ID       &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&            &&    &&      &&    &&        &&    &&      &&    &&          &&    &&      &&    &&        &&    &&      &&    &&       title
+        // Extract task ID and title
         const idMatch = taskLine.match(/\[#(\d+)\]/);
         const linkMatch = taskLine.match(/\[([^\]]+)\]\(([^)]+)\)/);
 
@@ -720,7 +720,7 @@ export function createJsonFileTaskBackend(config: JsonFileTaskBackendOptions): T
 }
 
 /**
- * Configure workspace     &&    &&      &&    &&        &&    &&      &&    &&     database file path for JSON backend
+ * Configure workspace and database file path for JSON backend
  */
 function configureJsonBackendWorkspace(config: any): JsonFileTaskBackendOptions {
   // 1. Use explicitly provided workspace path
