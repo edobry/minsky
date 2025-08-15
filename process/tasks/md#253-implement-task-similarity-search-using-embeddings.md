@@ -18,7 +18,7 @@ MEDIUM
 
 **Current Implementation Includes:**
 - ✅ Task similarity search: `minsky tasks similar <task-id>`
-- ✅ Natural language task search: `minsky tasks search <query>`  
+- ✅ Natural language task search: `minsky tasks search <query>`
 - ✅ Embedding indexing: `minsky tasks index-embeddings [--task <id>]`
 - ✅ PostgreSQL + pgvector storage using session database connection
 - ✅ OpenAI embedding service with configurable providers
@@ -44,7 +44,7 @@ CREATE TABLE task_embeddings (
 ### Configuration (Current)
 ```toml
 [vectorStorage]
-backend = "postgres"              # or "memory" 
+backend = "postgres"              # or "memory"
 useSessionDb = true               # Default: reuse session DB connection
 
 [embeddings]
@@ -102,7 +102,7 @@ The existing `task_embeddings` table provides the perfect foundation for general
 - ✅ Ranked results with cosine similarity scores
 - ✅ Integrates with all task backends (JSON, Markdown, GitHub Issues)
 
-**`minsky tasks search <query>`** - **WORKING**  
+**`minsky tasks search <query>`** - **WORKING**
 - ✅ Search for tasks similar to a natural language query
 - ✅ Useful for discovering existing tasks before creating new ones
 - ✅ OpenAI-powered semantic search with embedding generation

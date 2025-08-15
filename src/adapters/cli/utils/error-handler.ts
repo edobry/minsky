@@ -156,56 +156,53 @@ export function handleCliError(error: any): never {
     if ((error as any).command) {
       log.cliError(`Command: ${(error as any).command}`);
     }
-  } else if (error instanceof MinskyError) {
-    log.cliError(`Error: ${sanitizeMessage(normalizedError.message)}`);
-  } else {
-    // Try to surface driver error code/name if available
+  } else if (isLikelyPostgresError(error)) {
     const anyErr: any = error as any;
     const code = anyErr?.code || anyErr?.originalError?.code || anyErr?.cause?.code;
-    const name = anyErr?.name || anyErr?.originalError?.name || anyErr?.cause?.name;
-    const pgFriendlyName = mapPostgresSqlStateToName(code);
-    const labelParts: string[] = [];
-    if (pgFriendlyName) labelParts.push(pgFriendlyName);
-    if (code) labelParts.push(`(${code})`);
-    const label = labelParts.length > 0 ? `${labelParts.join(" ")}: ` : "";
-    log.cliError(`❌ ${label}${sanitizeMessage(normalizedError.message)}`);
+    const message =
+      anyErr?.message || anyErr?.originalError?.message || String(normalizedError.message);
+    const detail = anyErr?.detail || anyErr?.originalError?.detail || anyErr?.cause?.detail;
+    const hint = anyErr?.hint || anyErr?.originalError?.hint || anyErr?.cause?.hint;
+    const schema = anyErr?.schema || anyErr?.originalError?.schema || anyErr?.cause?.schema;
+    const table = anyErr?.table || anyErr?.originalError?.table || anyErr?.cause?.table;
+    const constraint =
+      anyErr?.constraint || anyErr?.originalError?.constraint || anyErr?.cause?.constraint;
 
-    // Postgres-specific guidance based on SQLSTATE error codes
-    const hints: string[] = [];
-    const add = (line: string) => hints.push(line);
-    if (typeof code === "string") {
-      switch (code) {
-        case "42P07": // duplicate_table
-          add("Why: The table already exists (duplicate_table)");
-          add("Fix: The database is already initialized or was initialized manually.");
-          add(" - Run: minsky sessiondb check --report");
-          add(
-            " - If schema is correct, skip creating the table (mark migration as applied) or drop the existing table then retry"
-          );
-          add(" - Table: 'sessions' (parsed from failed CREATE TABLE)");
-          break;
-        case "42P01": // undefined_table
-          add("Why: Referenced table does not exist (undefined_table)");
-          add("Fix: Run migrations to create required tables");
-          add(" - Run: minsky sessiondb migrate --execute --show-sql");
-          break;
-        case "3F000": // schema_does_not_exist
-          add("Why: Target schema does not exist");
-          add("Fix: Ensure schema exists or configure correct search_path");
-          break;
-        case "23505": // unique_violation
-          add("Why: Duplicate key violates unique constraint");
-          add("Fix: Resolve conflicting row or adjust data before retrying");
-          break;
-        case "28P01": // invalid_password
-          add("Why: Authentication failed for database user");
-          add("Fix: Verify connection string credentials");
-          break;
-      }
+    // Try to extract failed SQL snippet from drizzle-wrapped message
+    const showFull = isDebugMode() || process.env.MINSKY_SHOW_SQL === "true";
+    const msg: string =
+      typeof normalizedError.message === "string"
+        ? normalizedError.message
+        : String(normalizedError.message);
+    const failedQueryMatch = msg.match(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i);
+    const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
+    let sqlSnippet = "";
+    if (failedQueryBlock) {
+      const lines = failedQueryBlock
+        .split("\n")
+        .slice(1)
+        .map((l) => l.trim());
+      sqlSnippet = lines.find((l) => l.length > 0) || "";
     }
-    if (hints.length > 0) {
-      log.cliError(hints.map((h) => `• ${h}`).join("\n"));
+
+    // Compose a clean, high-signal output
+    const lines: string[] = [];
+    const header = code
+      ? `❌ Database error (${code}): ${message}`
+      : `❌ Database error: ${message}`;
+    lines.push(header);
+    if (schema) lines.push(`schema: ${schema}`);
+    if (table) lines.push(`table: ${table}`);
+    if (constraint) lines.push(`constraint: ${constraint}`);
+    if (detail) lines.push(`detail: ${detail}`);
+    if (hint) lines.push(`hint: ${hint}`);
+    if (sqlSnippet && !showFull) lines.push(`query: ${sqlSnippet}`);
+    if (!sqlSnippet && !showFull) {
+      lines.push("(use --show-sql or --debug for full failed SQL)");
     }
+    log.cliError(lines.join("\n"));
+  } else {
+    log.cliError(`❌ ${sanitizeMessage(normalizedError.message)}`);
   }
 
   // Show detailed debug information only in debug mode
@@ -240,21 +237,13 @@ export function handleCliError(error: any): never {
  * Map common PostgreSQL SQLSTATE codes to human-friendly names
  * Reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
  */
-function mapPostgresSqlStateToName(code?: string): string | undefined {
-  if (!code) return undefined;
-  const map: Record<string, string> = {
-    // Class 42 — Syntax Error or Access Rule Violation
-    "42P07": "duplicate_table",
-    "42P01": "undefined_table",
-    "42P02": "undefined_parameter",
-    // Class 28 — Invalid Authorization Specification
-    "28P01": "invalid_password",
-    // Class 3F — Invalid Schema Name
-    "3F000": "schema_does_not_exist",
-    // Class 23 — Integrity Constraint Violation
-    "23505": "unique_violation",
-  };
-  return map[code];
+function isLikelyPostgresError(err: unknown): boolean {
+  const e: any = err as any;
+  return Boolean(
+    (e && typeof e === "object" && (e.code || e.severity || e.schema || e.table)) ||
+      (e?.originalError && (e.originalError.code || e.originalError.severity)) ||
+      (e?.cause && (e.cause.code || e.cause.severity))
+  );
 }
 
 /**
