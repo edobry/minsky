@@ -1,16 +1,29 @@
 import type { Config } from "drizzle-kit";
 
-// Helper function to get PostgreSQL connection string from Minsky config
+// Helper function to get PostgreSQL connection string from Minsky config system
 function getPostgresConnectionString(): string {
-  // Since drizzle-kit loads this synchronously, we need to fall back to environment variables
-  // The async config loading will be handled by the migration command itself
-  const envUrl = process.env.MINSKY_SESSIONDB_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
+  // Environment variables set by Minsky's sessiondb migrate command
+  // which loads the full configuration system and exports the necessary values
 
+  // 1. Check for Minsky-loaded database config (set by migration command)
+  if (process.env.MINSKY_DB_CONFIG) {
+    try {
+      const dbConfig = JSON.parse(process.env.MINSKY_DB_CONFIG);
+      if (dbConfig.postgres?.connectionString) {
+        return dbConfig.postgres.connectionString;
+      }
+    } catch (error) {
+      console.warn("Failed to parse MINSKY_DB_CONFIG:", error);
+    }
+  }
+
+  // 2. Fall back to direct environment variables
+  const envUrl = process.env.MINSKY_SESSIONDB_POSTGRES_URL || process.env.MINSKY_POSTGRES_URL;
   if (envUrl) {
     return envUrl;
   }
 
-  // Fallback for development
+  // 3. Development fallback
   return "postgresql://localhost:5432/minsky";
 }
 
@@ -22,7 +35,7 @@ export default {
   out: "./src/domain/storage/migrations/pg",
   dialect: "postgresql",
   dbCredentials: {
-    // Load connection string from environment variables (Minsky config system sets these)
+    // Load connection string from Minsky configuration system via environment variables
     url: getPostgresConnectionString(),
   },
 } satisfies Config;

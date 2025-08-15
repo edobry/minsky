@@ -33,16 +33,51 @@ import { createSessionProvider } from "../../../domain/session";
  */
 async function checkAndGenerateMigrations(): Promise<void> {
   try {
+    const { spawn } = await import("child_process");
+    const { loadConfiguration } = await import("../../../domain/configuration/loader.js");
+
     log.cli("🔍 Checking migration status...");
 
+    // Load Minsky configuration and prepare environment variables for drizzle-kit
+    let configuredEnv: Record<string, string> = {};
+    try {
+      const configResult = await loadConfiguration();
+      const config = configResult.config;
+
+      // Prepare database configuration for drizzle-kit
+      const dbConfig = {
+        postgres: {
+          connectionString: config.sessiondb?.postgres?.connectionString || null,
+        },
+        sqlite: {
+          path: config.sessiondb?.sqlite?.path || null,
+        },
+        backend: config.sessiondb?.backend || "sqlite",
+      };
+
+      // Set environment variable that drizzle config will read
+      configuredEnv = {
+        ...(process.env as Record<string, string>),
+        MINSKY_DB_CONFIG: JSON.stringify(dbConfig),
+      };
+
+      log.cli(`📋 Loaded database config for backend: ${dbConfig.backend}`);
+    } catch (error) {
+      log.warn(
+        "Failed to load Minsky configuration, using environment variables as fallback:",
+        error
+      );
+      configuredEnv = { ...process.env } as Record<string, string>;
+    }
+
     // Use drizzle-kit check to detect if migrations are up to date
-    const { spawn } = await import("child_process");
     const checkProcess = spawn(
       "bunx",
       ["drizzle-kit", "check", "--config", "./drizzle.pg.config.ts"],
       {
         stdio: ["inherit", "pipe", "pipe"],
         cwd: process.cwd(),
+        env: configuredEnv,
       }
     );
 
@@ -66,6 +101,7 @@ async function checkAndGenerateMigrations(): Promise<void> {
         {
           stdio: ["inherit", "pipe", "pipe"],
           cwd: process.cwd(),
+          env: configuredEnv,
         }
       );
 
