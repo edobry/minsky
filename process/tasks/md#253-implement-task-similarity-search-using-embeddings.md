@@ -18,7 +18,7 @@ MEDIUM
 
 **Current Implementation Includes:**
 - ✅ Task similarity search: `minsky tasks similar <task-id>`
-- ✅ Natural language task search: `minsky tasks search <query>`  
+- ✅ Natural language task search: `minsky tasks search <query>`
 - ✅ Embedding indexing: `minsky tasks index-embeddings [--task <id>]`
 - ✅ PostgreSQL + pgvector storage using session database connection
 - ✅ OpenAI embedding service with configurable providers
@@ -44,7 +44,7 @@ CREATE TABLE task_embeddings (
 ### Configuration (Current)
 ```toml
 [vectorStorage]
-backend = "postgres"              # or "memory" 
+backend = "postgres"              # or "memory"
 useSessionDb = true               # Default: reuse session DB connection
 
 [embeddings]
@@ -102,7 +102,7 @@ The existing `task_embeddings` table provides the perfect foundation for general
 - ✅ Ranked results with cosine similarity scores
 - ✅ Integrates with all task backends (JSON, Markdown, GitHub Issues)
 
-**`minsky tasks search <query>`** - **WORKING**  
+**`minsky tasks search <query>`** - **WORKING**
 - ✅ Search for tasks similar to a natural language query
 - ✅ Useful for discovering existing tasks before creating new ones
 - ✅ OpenAI-powered semantic search with embedding generation
@@ -114,142 +114,252 @@ The existing `task_embeddings` table provides the perfect foundation for general
 
 ### 🚧 NEW: Task Metadata Storage Extension
 
-**Goal**: Extend the `task_embeddings` table to become a general `task_metadata` table that supports:
+**Primary Goal**: Rename and extend `task_embeddings` → `task_metadata` while preserving embeddings:
 
-### 2. Duplicate Detection
+1. **Structural Metadata** (from Task #315):
+   - Task dependencies (`prerequisite`, `optional`, `related`)
+   - Parent-child relationships (subtasks)
+   - Cross-task references and relationships
 
-**`minsky tasks find-duplicates [--threshold=0.8]`**
+2. **Provenance Metadata** (from Task #315):
+   - Original user requirements preservation
+   - AI-enhanced specification tracking
+   - Task creation context and history
 
-- Identify potential duplicate tasks across the entire task database
-- Configurable similarity threshold for duplicate detection
-- Batch processing for large task databases
-- Generate reports with suggested merge/close actions
+3. **Backend Integration Metadata**:
+   - Task backend routing information
+   - Cross-backend task relationships
+   - External system synchronization data
 
-**`minsky tasks check-duplicate <task-id>`**
+4. **Enhanced Search Metadata**:
+   - Content hashing for staleness detection
+   - Last embedding update tracking
+   - Search optimization metadata
 
-- Check if a specific task has potential duplicates
-- Useful during task creation workflow
-- Integration with `minsky tasks create` for duplicate prevention
+### 📋 FUTURE: Advanced Analysis Features
 
-### 3. Dependency Discovery
+The following advanced features can be built **after** the metadata extension is complete:
 
-**`minsky tasks find-dependencies <task-id>`**
-
-- Discover implicit dependencies between tasks
-- Identify tasks that should be completed before or after a given task
-- Support for both forward and backward dependency analysis
-- Integration with task hierarchy system
-
-**`minsky tasks suggest-blockers <task-id>`**
-
-- Suggest tasks that might be blocking the given task
-- Analyze task content for implicit dependencies
-- Useful for project planning and task prioritization
-
-### 4. Task Clustering and Analysis
-
-**`minsky tasks cluster [--by-similarity]`**
-
-- Group related tasks into thematic clusters
-- Useful for project organization and sprint planning
-- Support for different clustering algorithms and parameters
-- Export clusters to external project management tools
-
-**`minsky tasks analyze-relationships`**
-
-- Comprehensive analysis of task relationships
-- Generate task relationship graphs
-- Identify orphaned tasks and missing connections
-- Support for project health metrics
+- **Duplicate Detection**: `minsky tasks find-duplicates` using similarity thresholds
+- **Dependency Discovery**: `minsky tasks suggest-dependencies` using content analysis  
+- **Task Clustering**: `minsky tasks cluster` for project organization
+- **Relationship Analysis**: `minsky tasks analyze-relationships` for project health
 
 ## Technical Implementation
 
-### Embedding-Based Similarity Analysis
+### ✅ CURRENT: Embedding Infrastructure (Working)
 
-Using OpenAI embeddings via existing AI completion infrastructure:
+**Embedding Generation** - Using OpenAI embeddings via AI completion infrastructure:
+- ✅ Extract content from task titles, descriptions, and specifications
+- ✅ OpenAI `text-embedding-3-small` with 1536 dimensions
+- ✅ Batch processing and error handling
+- ✅ Content hashing for staleness detection
 
-1. **Task Content Processing:**
+**PostgreSQL + pgvector Storage** - Using session database connection:
+- ✅ `task_embeddings` table with `vector(1536)` column
+- ✅ IVFFlat indexing for fast approximate nearest neighbor search  
+- ✅ SQL KNN queries: `ORDER BY embedding <-> $1::vector LIMIT k`
+- ✅ Session database reuse via `vectorStorage.useSessionDb = true`
 
-   - Extract meaningful content from task titles, descriptions, and specifications
-   - Handle structured content (markdown, code blocks, lists)
-   - Content chunking for large tasks
-   - Normalize text for consistent embedding generation
+**Vector Storage Abstraction**:
+- ✅ `PostgresVectorStorage`: Production pgvector storage
+- ✅ `MemoryVectorStorage`: Development/testing storage
+- ✅ `VectorStorage` interface for future backends
 
-2. **Embedding Generation:**
+### 🚧 PLANNED: Metadata Extension Architecture
 
-   - Leverage existing `DefaultAICompletionService` for provider management
-   - Start with OpenAI text-embedding-3-small for cost efficiency
-   - Easily configurable for other providers (OpenAI large, future providers)
-   - Batch processing for efficient API usage
-   - Error handling and retry logic
+**Schema Evolution Strategy** - Extend `task_embeddings` → `task_metadata`:
 
-3. **SQLite Vector Architecture:**
+```sql
+-- Phase 1: Add new columns (preserving existing data)
+ALTER TABLE task_embeddings 
+ADD COLUMN task_metadata JSONB DEFAULT '{}',
+ADD COLUMN qualified_task_id TEXT,
+ADD COLUMN content_hash TEXT,
+ADD COLUMN last_indexed_at TIMESTAMPTZ;
 
-   - **sqlite-vec virtual tables**: Store vectors as native SQLite columns with type safety
-   - **Multiple vector formats**: float32 (standard), int8 (quantized), bit (binary)
-   - **Distance metrics**: L2 (Euclidean), L1 (Manhattan), cosine, Hamming (for binary)
-   - **SIMD acceleration**: AVX/NEON optimized distance calculations
-   - **Native SQL KNN**: `WHERE vector MATCH ? ORDER BY distance LIMIT k`
+-- Phase 2: Populate qualified task IDs
+UPDATE task_embeddings 
+SET qualified_task_id = CASE 
+  WHEN task_id ~ '^[a-z]+#[0-9]+$' THEN task_id  -- Already qualified
+  WHEN task_id ~ '^[0-9]+$' THEN 'md#' || task_id -- Legacy format
+  ELSE task_id
+END;
 
-### Task Search Service Architecture
+-- Phase 3: Rename table (optional, can keep existing name)
+-- ALTER TABLE task_embeddings RENAME TO task_metadata;
 
-Building on proven patterns from Task #182:
+-- Phase 4: Add constraints and indexes
+ALTER TABLE task_embeddings 
+ADD CONSTRAINT unique_qualified_task_id UNIQUE (qualified_task_id);
 
-1. **Service Design:**
+CREATE INDEX idx_task_embeddings_metadata ON task_embeddings USING gin (task_metadata);
+```
 
-   ```typescript
-   interface EmbeddingService {
-     generateEmbedding(content: string): Promise<number[]>;
-     generateEmbeddings(contents: string[]): Promise<number[][]>;
-   }
+**Extended Metadata Schema**:
 
-   interface VectorStorage {
-     store(id: string, vector: number[], metadata?: any): Promise<void>;
-     search(queryVector: number[], limit?: number, threshold?: number): Promise<SearchResult[]>;
-     delete(id: string): Promise<void>;
-   }
+```typescript
+interface TaskMetadata {
+  // Existing embedding metadata (preserved)
+  embedding?: {
+    model: string;
+    dimension: number;
+    contentHash: string;
+    lastIndexed: string;
+  };
+  
+  // NEW: Structural metadata (Task #315)
+  structure?: {
+    parentTask?: string;
+    subtasks?: string[];
+    dependencies?: {
+      prerequisite?: string[];
+      optional?: string[]; 
+      related?: string[];
+    };
+  };
+  
+  // NEW: Provenance metadata (Task #315)
+  provenance?: {
+    originalRequirements?: string;
+    aiEnhanced?: boolean;
+    creationContext?: string;
+    lastModified?: string;
+  };
+  
+  // NEW: Backend integration metadata
+  backend?: {
+    sourceBackend: string;
+    externalId?: string;
+    lastSync?: string;
+    syncMetadata?: Record<string, any>;
+  };
+}
+```
 
-   class TaskSimilarityService {
-     constructor(
-       private embeddingService: EmbeddingService,
-       private vectorStorage: VectorStorage,
-       private taskService: TaskService
-     ) {}
-   }
-   ```
+### Migration Strategy for Legacy Task IDs
 
-2. **Provider Abstraction:**
+**Problem**: Existing embeddings may use unqualified task IDs ("123" vs "md#123")
 
-   - OpenAI embedding service implementation using existing AI config
-   - Easy addition of other providers (Cohere, OpenSource models)
-   - Fallback to keyword search when embedding service unavailable
-   - Configuration-driven provider selection
+**Solution**: Safe, non-destructive migration:
 
-3. **Storage Abstraction:**
+1. **Detection**: Query existing `task_id` values to identify formats
+2. **Qualification**: Convert unqualified IDs using current backend detection rules  
+3. **Verification**: Cross-reference with actual task existence
+4. **Update**: Populate `qualified_task_id` field with normalized values
+5. **Cleanup**: Eventually deprecate `task_id` in favor of `qualified_task_id`
 
-   - In-memory storage for development and testing
-   - Interface designed for easy migration to persistent storage
-   - Support for incremental updates and bulk operations
-   - Metadata storage for task context and timestamps
+## Implementation Plan
 
-### Integration with Task Management
+### Phase 1: Database Schema Extension ⚡ (Non-Breaking)
 
-1. **Task Service Integration:**
+**Goal**: Add metadata columns without disrupting existing functionality
 
-   - Seamless integration with existing TaskService
-   - Support for all task backends (JSON, database, GitHub Issues)
-   - Consistent API across different storage backends
+```bash
+# Create migration for schema extension
+minsky sessiondb migrate --dry-run  # Preview changes
+minsky sessiondb migrate --execute  # Apply migration
+```
 
-2. **Real-time Updates:**
+**Migration Tasks**:
+1. ✅ Add new columns (`task_metadata`, `qualified_task_id`, `content_hash`, `last_indexed_at`)
+2. ✅ Preserve all existing embedding data and functionality  
+3. ✅ Create GIN index on JSONB metadata for efficient queries
+4. ✅ Add unique constraint on qualified task IDs
 
-   - Automatic embedding generation for new tasks
-   - Incremental updates for task modifications
-   - Background processing for large-scale operations
+### Phase 2: Legacy Task ID Migration 🔄
 
-3. **CLI Integration:**
-   - New similarity commands in the tasks CLI
-   - Integration with existing task creation and management workflows
-   - Support for both interactive and programmatic usage
+**Goal**: Normalize task IDs without losing embeddings
+
+```bash  
+# New command to handle ID migration
+minsky tasks migrate-embeddings --dry-run  # Preview changes
+minsky tasks migrate-embeddings --execute  # Apply migration
+```
+
+**Migration Process**:
+1. **Analyze**: Query all existing `task_id` values and categorize formats
+2. **Detect Backend**: Use current task backend detection rules
+3. **Qualify IDs**: Convert "123" → "md#123" based on detected backend
+4. **Verify Tasks**: Cross-check qualified IDs against actual task existence
+5. **Update Records**: Populate `qualified_task_id` field for all existing embeddings
+6. **Report Results**: Show migration summary and any conflicts
+
+### Phase 3: Metadata Service Integration 🔌
+
+**Goal**: Integrate with existing TaskService for metadata operations
+
+**New Services**:
+```typescript
+interface TaskMetadataService {
+  // Core metadata operations  
+  getTaskMetadata(taskId: string): Promise<TaskMetadata | null>;
+  setTaskMetadata(taskId: string, metadata: TaskMetadata): Promise<void>;
+  updateTaskMetadata(taskId: string, updates: Partial<TaskMetadata>): Promise<void>;
+  
+  // Relationship operations (Task #315 architecture)
+  getTaskDependencies(taskId: string): Promise<string[]>;
+  setTaskDependencies(taskId: string, deps: string[]): Promise<void>;
+  getSubtasks(parentId: string): Promise<string[]>;
+  
+  // Search and query operations
+  queryTasksByMetadata(query: MetadataQuery): Promise<string[]>;
+  findTasksByStructure(structure: Partial<TaskStructure>): Promise<string[]>;
+}
+```
+
+**TaskService Integration**:
+- Extend existing TaskService to use TaskMetadataService
+- Support hybrid workflows (GitHub Issues + local metadata)
+- Maintain backward compatibility with existing backends
+
+### Phase 4: Hybrid Backend Implementation 🔀  
+
+**Goal**: Enable the GitHub Issues + local metadata workflow from Task #315
+
+**Hybrid Patterns**:
+1. **GitHub + Metadata**: GitHub Issues for specs, PostgreSQL for metadata
+2. **Markdown + Metadata**: Markdown files for specs, PostgreSQL for metadata  
+3. **JSON + Metadata**: Enhanced JSON backend with embedded metadata support
+
+**Configuration**:
+```toml
+[taskMetadata]
+backend = "postgres"        # or "sqlite" 
+useSessionDb = true         # Reuse session database connection
+enableHybridMode = true     # Support spec/metadata separation
+
+[vectorStorage] 
+backend = "postgres"
+useSessionDb = true         # Same database as metadata
+
+[embeddings]
+provider = "openai"
+model = "text-embedding-3-small"
+```
+
+## Benefits of This Approach
+
+### 🎯 Strategic Advantages
+
+1. **Preserves Investment**: All existing embeddings and similarity functionality remain intact
+2. **Progressive Enhancement**: Non-breaking changes that extend functionality gradually
+3. **Infrastructure Reuse**: Leverages proven session database architecture
+4. **Task #315 Completion**: Achieves the spec/metadata separation architecture goal
+
+### 🚀 Technical Benefits
+
+1. **Single Database**: Embeddings and metadata in one place reduces complexity
+2. **JSONB Flexibility**: Rich metadata without rigid schema constraints
+3. **PostgreSQL Power**: Advanced querying, indexing, and relationship capabilities
+4. **Hybrid Workflows**: Support for any task backend + rich local metadata
+
+### 🔄 Migration Safety
+
+1. **Zero Downtime**: All changes are additive, existing features work throughout
+2. **Rollback Capability**: Can revert changes without losing existing data
+3. **Gradual Adoption**: Users can migrate to metadata features incrementally
+4. **Legacy Support**: Existing embeddings continue working with legacy task IDs
 
 ## Use Cases
 
@@ -388,41 +498,48 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 ## Acceptance Criteria
 
-### Core Functionality
+### ✅ PHASE 1: Similarity Search (COMPLETED)
 
-- [ ] Generate embeddings for all task content using OpenAI embedding service
-- [ ] Store vectors in SQLite using sqlite-vec extension with native vector columns
-- [ ] `minsky tasks similar <task-id>` returns ranked similar tasks with distances
-- [ ] `minsky tasks search <query>` supports natural language queries
-- [ ] Native SQL KNN search: `WHERE vector MATCH ? ORDER BY distance LIMIT k`
+- [x] **Embedding Generation**: OpenAI embedding service with `text-embedding-3-small`
+- [x] **Vector Storage**: PostgreSQL + pgvector using session database connection
+- [x] **Similarity Search**: `minsky tasks similar <task-id>` returns ranked similar tasks
+- [x] **Natural Language Search**: `minsky tasks search <query>` supports semantic queries
+- [x] **Batch Indexing**: `minsky tasks index-embeddings` generates embeddings efficiently
+- [x] **Backend Integration**: Works with JSON, Markdown, and GitHub Issues backends
 
-### Embedding Infrastructure
+### 🚧 PHASE 2: Metadata Extension (CURRENT GOAL)
 
-- [ ] OpenAI embedding service integrated with existing AI completion system
-- [ ] In-memory vector storage with efficient similarity search
-- [ ] Easily swappable providers (OpenAI models, future providers)
-- [ ] Easily swappable storage backends (in-memory → SQLite → PostgreSQL)
+#### Database Schema Extension
+- [ ] **Non-Breaking Migration**: Add metadata columns without disrupting existing embeddings
+- [ ] **JSONB Metadata Field**: Support rich metadata storage with GIN indexing
+- [ ] **Qualified Task IDs**: Add `qualified_task_id` column with unique constraints
+- [ ] **Content Tracking**: Add `content_hash` and `last_indexed_at` for staleness detection
 
-### Performance and Scalability
+#### Legacy Task ID Migration  
+- [ ] **ID Analysis**: Analyze existing `task_id` formats (qualified vs unqualified)
+- [ ] **Safe Migration**: Convert legacy "123" → "md#123" without data loss
+- [ ] **Verification**: Cross-check qualified IDs against actual task existence
+- [ ] **Migration Command**: `minsky tasks migrate-embeddings` with dry-run support
 
-- [ ] Efficient embedding generation and storage for 525+ tasks
-- [ ] Batch processing for embedding generation and similarity search
-- [ ] Incremental updates when tasks are created or modified
-- [ ] Caching strategies for frequently accessed embeddings
+#### Metadata Service Integration
+- [ ] **TaskMetadataService**: Core service for metadata operations
+- [ ] **Relationship Support**: Dependencies, subtasks, and cross-task references
+- [ ] **Provenance Tracking**: Original requirements, AI enhancements, creation context
+- [ ] **Backend Integration**: Support for hybrid workflows (spec + metadata separation)
 
-### Integration
+#### Configuration & CLI
+- [ ] **Extended Configuration**: `taskMetadata` and enhanced `vectorStorage` config blocks
+- [ ] **Hybrid Mode Support**: Enable spec/metadata separation workflows  
+- [ ] **Backward Compatibility**: Existing similarity commands continue working unchanged
+- [ ] **Migration Tooling**: Safe, reversible migration commands with dry-run support
 
-- [ ] Works with all existing task backends (JSON, database, GitHub Issues)
-- [ ] Seamless integration with existing TaskService API
-- [ ] Consistent behavior across different storage backends
-- [ ] Integration with task hierarchy system
+### 🎯 SUCCESS METRICS
 
-### User Experience
-
-- [ ] Clear, actionable similarity search results
-- [ ] Configurable output formats (table, JSON, summary)
-- [ ] Helpful error messages and guidance
-- [ ] Integration with existing CLI patterns and conventions
+1. **Preservation**: All existing similarity search functionality continues working
+2. **Extension**: Support for Task #315 metadata architecture (dependencies, subtasks, provenance)
+3. **Migration**: Legacy task IDs successfully migrated without embedding loss
+4. **Performance**: Metadata operations perform efficiently on 500+ task database
+5. **Integration**: Hybrid backends work seamlessly (GitHub Issues + local metadata)
 
 ## Future Enhancements
 
