@@ -159,7 +159,7 @@ export function handleCliError(error: any): never {
   } else if (isLikelyPostgresError(error)) {
     const anyErr: any = error as any;
     const code = anyErr?.code || anyErr?.originalError?.code || anyErr?.cause?.code;
-    const message =
+    const rawMessage =
       anyErr?.message || anyErr?.originalError?.message || String(normalizedError.message);
     const detail = anyErr?.detail || anyErr?.originalError?.detail || anyErr?.cause?.detail;
     const hint = anyErr?.hint || anyErr?.originalError?.hint || anyErr?.cause?.hint;
@@ -168,13 +168,30 @@ export function handleCliError(error: any): never {
     const constraint =
       anyErr?.constraint || anyErr?.originalError?.constraint || anyErr?.cause?.constraint;
 
+    // Extract concise driver error message from Drizzle-wrapped text (strip query/params blocks)
+    const drizzleMsg: string =
+      typeof rawMessage === "string" ? rawMessage : String(rawMessage || "");
+    let conciseDriverMessage = drizzleMsg;
+    // Prefer the text after an explicit "Error:" if present
+    const errorOnlyMatch = drizzleMsg.match(/\nError:\s*([\s\S]*?)(?=(\nparams:|$))/i);
+    if (errorOnlyMatch && errorOnlyMatch[1]) {
+      conciseDriverMessage = errorOnlyMatch[1].trim();
+    } else if (/^Failed query:/i.test(drizzleMsg)) {
+      // Remove the failed query and params blocks
+      conciseDriverMessage = drizzleMsg
+        .replace(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i, "")
+        .replace(/\nparams:[\s\S]*$/i, "")
+        .replace(/^Error:\s*/i, "")
+        .trim();
+    }
+
     // Try to extract failed SQL snippet from drizzle-wrapped message
     const showFull = isDebugMode() || process.env.MINSKY_SHOW_SQL === "true";
-    const msg: string =
+    const msgForQuery: string =
       typeof normalizedError.message === "string"
         ? normalizedError.message
         : String(normalizedError.message);
-    const failedQueryMatch = msg.match(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i);
+    const failedQueryMatch = msgForQuery.match(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i);
     const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
     let sqlSnippet = "";
     if (failedQueryBlock) {
@@ -188,8 +205,8 @@ export function handleCliError(error: any): never {
     // Compose a clean, high-signal output
     const lines: string[] = [];
     const header = code
-      ? `❌ Database error (${code}): ${message}`
-      : `❌ Database error: ${message}`;
+      ? `❌ Database error (${code}): ${conciseDriverMessage}`
+      : `❌ Database error: ${conciseDriverMessage}`;
     lines.push(header);
     if (schema) lines.push(`schema: ${schema}`);
     if (table) lines.push(`table: ${table}`);
