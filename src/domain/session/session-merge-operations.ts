@@ -25,6 +25,7 @@ import { getErrorMessage } from "../../errors";
 import type { SessionRecord } from "./types";
 import { cleanupSessionImpl } from "./session-lifecycle-operations";
 import { cleanupLocalBranches } from "./session-approve-operations";
+import { resolveRepository } from "../repository";
 
 /**
  * CRITICAL: Validate that a session is approved before allowing merge
@@ -158,8 +159,18 @@ export async function mergeSessionPr(
   // This ensures consistent security enforcement across all merge operations
   validateSessionApprovedForMerge(sessionRecord, sessionNameToUse);
 
-  // Get the original repo path for task updates (not session workspace)
-  const originalRepoPath = params.repo || sessionRecord.repoUrl || process.cwd();
+  // Get the main repository path for task updates (not session workspace)
+  // Resolve to a local filesystem path to avoid using remote URLs as workdirs
+  let originalRepoPath = process.cwd();
+  try {
+    const repository = await resolveRepository({
+      uri: params.repo || sessionRecord.repoUrl,
+      autoDetect: true,
+    });
+    originalRepoPath = repository.isLocal && repository.path ? repository.path : process.cwd();
+  } catch (_err) {
+    originalRepoPath = process.cwd();
+  }
 
   // Set up dependencies with proper task backend configuration
   // Use createConfiguredTaskService to respect the configured backend (like GitHub Issues)
@@ -326,7 +337,7 @@ export async function mergeSessionPr(
         // After updating task status, check if there are uncommitted changes that need to be committed
         try {
           const statusOutput = await gitService.execInRepository(
-            workingDirectory,
+            originalRepoPath,
             "git status --porcelain"
           );
           const hasUncommittedChanges = statusOutput.trim().length > 0;
@@ -338,19 +349,19 @@ export async function mergeSessionPr(
             log.debug("Task status update created uncommitted changes, committing them");
 
             // Stage the tasks.md file (or any other changed files from task status update)
-            await gitService.execInRepository(workingDirectory, "git add process/tasks.md");
+            await gitService.execInRepository(originalRepoPath, "git add process/tasks.md");
 
             // Commit the task status update with conventional commits format
             try {
               await gitService.execInRepository(
-                workingDirectory,
+                originalRepoPath,
                 `git commit -m "chore(${taskId}): update task status to DONE"`
               );
               log.debug(`Committed task ${taskId} status update`);
 
               // Try to push the commit
               try {
-                await gitService.execInRepository(workingDirectory, "git push");
+                await gitService.execInRepository(originalRepoPath, "git push");
                 log.debug(`Pushed task ${taskId} status update`);
                 if (!params.json) {
                   log.cli("✅ Task status updated and committed");
