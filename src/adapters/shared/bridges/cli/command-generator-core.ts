@@ -145,9 +145,6 @@ export class CommandGeneratorCore {
         if (rawParameters && (rawParameters as any).debug && !process.env.DEBUG) {
           process.env.DEBUG = "1";
         }
-        if (rawParameters && (rawParameters as any).showSql) {
-          process.env.MINSKY_SHOW_SQL = "true";
-        }
 
         // Create execution context
         const context: CliExecutionContext = {

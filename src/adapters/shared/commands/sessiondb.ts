@@ -154,20 +154,15 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
     description: "Enable debug mode for detailed output",
     required: false,
   },
-  showSql: {
-    schema: z.boolean(),
-    description: "Show full SQL in errors (equivalent to --debug for SQL errors)",
-    required: false,
-  },
 };
 
 /**
  * Helper: run schema migrations for the configured backend
  */
 async function runSchemaMigrationsForConfiguredBackend(
-  options: { dryRun?: boolean; showSql?: boolean } = {}
+  options: { dryRun?: boolean } = {}
 ): Promise<any> {
-  const { dryRun = false, showSql = false } = options;
+  const { dryRun = false } = options;
   const { getConfiguration } = await import("../../../domain/configuration/index");
   const config = getConfiguration();
   const backend = (config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
@@ -356,7 +351,7 @@ async function runSchemaMigrationsForConfiguredBackend(
         }
       }
 
-      const db = drizzle(sqlite, { logger: showSql });
+      const db = drizzle(sqlite, { logger: true });
       const start = Date.now();
       await migrate(db as any, { migrationsFolder });
       {
@@ -516,7 +511,7 @@ async function runSchemaMigrationsForConfiguredBackend(
 
     const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 10 });
     try {
-      const db = drizzle(sql, { logger: showSql });
+      const db = drizzle(sql, { logger: true });
 
       const masked = (() => {
         try {
@@ -707,7 +702,6 @@ sharedCommandRegistry.registerCommand({
         const shouldApply = Boolean(execute);
         const result = await runSchemaMigrationsForConfiguredBackend({
           dryRun: !shouldApply,
-          showSql: Boolean((params as any)?.showSql),
         });
 
         if (context.format === "human") {
