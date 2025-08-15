@@ -1,3 +1,8 @@
+- feat(sessiondb): integrate Minsky config system with drizzle config and add --generate flag for fresh migrations
+  - Update drizzle.pg.config.ts to use Minsky configuration system for DB connection strings
+  - Add --generate flag to sessiondb migrate command for PostgreSQL fresh migration generation
+  - Implement generateMigrations() function using drizzle-kit CLI via child_process
+  - Ensure proper fallbacks for configuration loading errors
 - fix(github-merge): Use PR title/body for merge commit message in GitHub backend and remove legacy branch persistence from session creation paths. Updated repo guardrails spec to include default merge commit message settings (PR title/body).
 - feat(session): add `session.migrate-backend` command to switch a session's repo backend to GitHub by reading origin URL and updating `backendType`
   - Detects origin with `git remote get-url origin` from the session workspace
