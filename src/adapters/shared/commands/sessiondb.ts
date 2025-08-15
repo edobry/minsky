@@ -434,9 +434,7 @@ sharedCommandRegistry.registerCommand({
               createdAt: typedSessionData.createdAt || new Date().toISOString(),
               taskId: typedSessionData.taskId || "",
               prBranch:
-                (typedSessionData as any).prBranch ||
-                (typedSessionData as any).branch ||
-                "",
+                (typedSessionData as any).prBranch || (typedSessionData as any).branch || "",
               ...typedSessionData,
             });
           }
@@ -828,9 +826,7 @@ async function validateSqliteBackend(
         Array.isArray(integrityResult.suggestedActions) &&
         integrityResult.suggestedActions.length > 0
       ) {
-        suggestions.push(
-          ...integrityResult.suggestedActions.map((action) => action.description)
-        );
+        suggestions.push(...integrityResult.suggestedActions.map((action) => action.description));
       }
     }
 

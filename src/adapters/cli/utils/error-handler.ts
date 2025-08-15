@@ -61,10 +61,11 @@ export function handleCliError(error: any): never {
       if (failedQueryBlock) {
         const lines = failedQueryBlock.split("\n");
         // Find the first non-empty line after the label
-        const firstSqlLine = lines
-          .slice(1)
-          .map((l) => l.trim())
-          .find((l) => l.length > 0) || "";
+        const firstSqlLine =
+          lines
+            .slice(1)
+            .map((l) => l.trim())
+            .find((l) => l.length > 0) || "";
         sqlSnippet = firstSqlLine;
       }
 
