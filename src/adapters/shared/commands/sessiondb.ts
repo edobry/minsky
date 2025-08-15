@@ -500,11 +500,6 @@ async function runSchemaMigrationsForConfiguredBackend(
             0
           )} pending`
         );
-        if (fileNames.length > 0) {
-          log.cli("");
-          log.cli("Files:");
-          fileNames.forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
-        }
         log.cli("");
         log.cli("(use --execute to apply)");
         log.cli("");
