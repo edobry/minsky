@@ -16,7 +16,7 @@ const TEST_VALUE = 123;
 
 // Test constants to avoid magic strings
 const TEST_SESSION_NAME = "test-session";
-const TEST_TASK_ID = "265";
+const TEST_TASK_ID = "md#265";
 const TEST_REPO_NAME = "test-repo";
 const TEST_REPO_PATH = "/test/repo/path";
 const TEST_WORKDIR = "/test/workdir";
