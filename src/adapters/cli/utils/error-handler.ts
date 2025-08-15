@@ -202,14 +202,37 @@ export function handleCliError(error: any): never {
       sqlSnippet = lines.find((l) => l.length > 0) || "";
     }
 
+    // Try to derive table name from the failed SQL if driver didn't provide it
+    let tableNameFromQuery: string | undefined;
+    if (failedQueryBlock) {
+      const m1 = failedQueryBlock.match(
+        /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"[^"]+"\.)?"([^"]+)"/i
+      );
+      if (m1 && m1[1]) {
+        tableNameFromQuery = m1[1];
+      }
+    }
+
     // Compose a clean, high-signal output
     const lines: string[] = [];
+    // Ensure we always have a non-empty driver message
+    let headerMessage = conciseDriverMessage;
+    if (!headerMessage || headerMessage.length === 0) {
+      if (code === "42P07") {
+        headerMessage = tableNameFromQuery
+          ? `relation "${tableNameFromQuery}" already exists`
+          : "relation already exists";
+      } else {
+        headerMessage = "database operation failed";
+      }
+    }
     const header = code
-      ? `❌ Database error (${code}): ${conciseDriverMessage}`
-      : `❌ Database error: ${conciseDriverMessage}`;
+      ? `❌ Database error (${code}): ${headerMessage}`
+      : `❌ Database error: ${headerMessage}`;
     lines.push(header);
     if (schema) lines.push(`schema: ${schema}`);
-    if (table) lines.push(`table: ${table}`);
+    const effectiveTable = table || tableNameFromQuery;
+    if (effectiveTable) lines.push(`table: ${effectiveTable}`);
     if (constraint) lines.push(`constraint: ${constraint}`);
     if (detail) lines.push(`detail: ${detail}`);
     if (hint) lines.push(`hint: ${hint}`);
