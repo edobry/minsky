@@ -633,7 +633,9 @@ sharedCommandRegistry.registerCommand({
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
       try {
-        log.cli("🚀 SessionDB Schema Migration (configured backend)");
+        if (verbose) {
+          log.cli("🚀 SessionDB Schema Migration (configured backend)");
+        }
         // DEFAULT: dry-run; require --execute to apply
         const shouldApply = Boolean(execute);
         const result = await runSchemaMigrationsForConfiguredBackend({
@@ -643,10 +645,15 @@ sharedCommandRegistry.registerCommand({
         });
 
         if (context.format === "human") {
-          if (result.dryRun) {
-            return `Schema migration (dry run) for ${result.backend || "sqlite"} using ${result.migrationsFolder}`;
+          // Prefer explicit message when provided (more informative summary)
+          if (result && typeof result === "object" && (result as any).message) {
+            return (result as any).message as string;
           }
-          return `Schema migration applied for ${result.backend || "sqlite"} using ${result.migrationsFolder}`;
+          // Fallback concise summaries
+          if (result.dryRun) {
+            return `Schema migration (dry run) for ${result.backend || "sqlite"}`;
+          }
+          return `Schema migration applied for ${result.backend || "sqlite"}`;
         }
 
         return result;
