@@ -29,44 +29,66 @@ import {
 import { createSessionProvider } from "../../../domain/session";
 
 /**
- * Generate fresh migrations using drizzle-kit
+ * Check if migrations need to be generated and auto-generate them
  */
-async function generateMigrations(): Promise<void> {
+async function checkAndGenerateMigrations(): Promise<void> {
   try {
+    log.cli("🔍 Checking migration status...");
+
+    // Use drizzle-kit check to detect if migrations are up to date
     const { spawn } = await import("child_process");
-    const { promisify } = await import("util");
+    const checkProcess = spawn(
+      "bunx",
+      ["drizzle-kit", "check", "--config", "./drizzle.pg.config.ts"],
+      {
+        stdio: ["inherit", "pipe", "pipe"],
+        cwd: process.cwd(),
+      }
+    );
 
-    log.cli("🔄 Generating fresh migrations from schema...");
-
-    // Run drizzle-kit generate via CLI
-    const child = spawn("bunx", ["drizzle-kit", "generate", "--config", "./drizzle.pg.config.ts"], {
-      stdio: ["inherit", "pipe", "pipe"],
-      cwd: process.cwd(),
+    let checkStderr = "";
+    checkProcess.stderr?.on("data", (data) => {
+      checkStderr += data.toString();
     });
 
-    let stdout = "";
-    let stderr = "";
-
-    child.stdout?.on("data", (data) => {
-      stdout += data.toString();
+    const checkExitCode = await new Promise<number>((resolve) => {
+      checkProcess.on("close", resolve);
     });
 
-    child.stderr?.on("data", (data) => {
-      stderr += data.toString();
-    });
+    // If check fails (non-zero exit), it means migrations are out of sync
+    if (checkExitCode !== 0) {
+      log.cli("🔄 Schema changes detected, generating fresh migrations...");
 
-    const exitCode = await new Promise<number>((resolve) => {
-      child.on("close", resolve);
-    });
+      // Generate new migrations
+      const generateProcess = spawn(
+        "bunx",
+        ["drizzle-kit", "generate", "--config", "./drizzle.pg.config.ts"],
+        {
+          stdio: ["inherit", "pipe", "pipe"],
+          cwd: process.cwd(),
+        }
+      );
 
-    if (exitCode === 0) {
-      log.cli("✅ Generated fresh migrations successfully");
+      let generateStderr = "";
+      generateProcess.stderr?.on("data", (data) => {
+        generateStderr += data.toString();
+      });
+
+      const generateExitCode = await new Promise<number>((resolve) => {
+        generateProcess.on("close", resolve);
+      });
+
+      if (generateExitCode === 0) {
+        log.cli("✅ Generated fresh migrations successfully");
+      } else {
+        throw new Error(`Migration generation failed:\n${generateStderr}`);
+      }
     } else {
-      throw new Error(`drizzle-kit generate failed with exit code ${exitCode}:\n${stderr}`);
+      log.cli("✅ Migrations are up to date");
     }
   } catch (error) {
-    log.error("Failed to generate migrations:", error);
-    throw new Error(`Migration generation failed: ${getErrorMessage(error)}`);
+    log.error("Failed to check/generate migrations:", error);
+    throw new Error(`Migration check/generation failed: ${getErrorMessage(error)}`);
   }
 }
 
@@ -194,11 +216,6 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
   debug: {
     schema: z.boolean(),
     description: "Enable debug mode for detailed output",
-    required: false,
-  },
-  generate: {
-    schema: z.boolean(),
-    description: "Generate fresh migrations from schema before applying (PostgreSQL only)",
     required: false,
   },
 };
@@ -740,31 +757,18 @@ sharedCommandRegistry.registerCommand({
     "Migrate session database between backends, or run schema migrations when no target is provided",
   parameters: sessiondbMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
-    const {
-      to,
-      from,
-      sqlitePath,
-      backup = true,
-      execute,
-      setDefault,
-      dryRun = false,
-      generate = false,
-    } = params;
+    const { to, from, sqlitePath, backup = true, execute, setDefault, dryRun = false } = params;
 
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
       try {
-        // Generate fresh migrations if requested (PostgreSQL only)
-        if (generate) {
-          const { getConfiguration } = await import("../../../domain/configuration/index");
-          const config = getConfiguration();
-          const backend = config.sessiondb?.backend;
+        // Auto-check and generate migrations if needed (PostgreSQL only)
+        const { getConfiguration } = await import("../../../domain/configuration/index");
+        const config = getConfiguration();
+        const backend = config.sessiondb?.backend;
 
-          if (backend === "postgres") {
-            await generateMigrations();
-          } else {
-            log.cli("⚠️ Migration generation is only supported for PostgreSQL backend");
-          }
+        if (backend === "postgres") {
+          await checkAndGenerateMigrations();
         }
 
         // DEFAULT: dry-run; require --execute to apply

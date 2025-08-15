@@ -12,16 +12,11 @@ async function getPostgresConnectionString(): Promise<string> {
       return config.sessiondb.postgres.connectionString;
     }
 
-    // Fallback to environment variable (for backwards compatibility)
-    if (process.env.MINSKY_SESSIONDB_POSTGRES_URL) {
-      return process.env.MINSKY_SESSIONDB_POSTGRES_URL;
-    }
-
-    // Last resort fallback for development
+    // Fallback for development (config system should handle env vars and defaults)
     return "postgresql://localhost:5432/minsky";
   } catch (error) {
     console.warn("Failed to load Minsky configuration, using fallback connection string:", error);
-    return process.env.MINSKY_SESSIONDB_POSTGRES_URL || "postgresql://localhost:5432/minsky";
+    return "postgresql://localhost:5432/minsky";
   }
 }
 
