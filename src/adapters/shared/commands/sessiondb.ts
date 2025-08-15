@@ -9,7 +9,7 @@
 import { z } from "zod";
 import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
 import { dirname, join } from "path";
-import { getErrorMessage } from "../../../errors/index";
+import { getErrorMessage, ensureError } from "../../../errors/index";
 import {
   sharedCommandRegistry,
   CommandCategory,
@@ -337,9 +337,8 @@ sharedCommandRegistry.registerCommand({
 
         return result;
       } catch (error) {
-        const msg = getErrorMessage(error);
-        // Preserve full error details for the CLI error handler to present
-        throw new Error(`Schema migration failed: ${msg}`);
+        // Re-throw as proper Error while preserving original message for handler parsing
+        throw ensureError(error);
       }
     }
 
@@ -639,9 +638,8 @@ sharedCommandRegistry.registerCommand({
 
       return result;
     } catch (error) {
-      const msg = getErrorMessage(error);
-      // Preserve full error details for the CLI error handler to present
-      throw new Error(`Migration failed: ${msg}`);
+      // Re-throw as proper Error while preserving original message for handler parsing
+      throw ensureError(error);
     }
   },
 });

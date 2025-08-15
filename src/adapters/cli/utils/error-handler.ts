@@ -50,11 +50,13 @@ export function handleCliError(error: any): never {
       const showFull = isDebugMode() || process.env.MINSKY_SHOW_SQL === "true";
 
       // Extract the failed query block and primary error message when possible
-      const failedQueryMatch = msg.match(/Failed query:[\s\S]*?(?=(\nError:)|$)/i);
+      const failedQueryMatch = msg.match(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i);
       const errorLineMatch = msg.match(/\n(Error:[\s\S]*$)/i);
+      const paramsMatch = msg.match(/\nparams:[\s\S]*$/i);
 
       const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
       const errorLine = errorLineMatch ? errorLineMatch[1].trim() : "Database error";
+      const paramsBlock = paramsMatch ? paramsMatch[0].trim() : "";
 
       // Pull just the SQL statement (first line after "Failed query:")
       let sqlSnippet = "";
@@ -74,6 +76,7 @@ export function handleCliError(error: any): never {
         const details: string[] = [];
         if (errorLine) details.push(errorLine);
         if (failedQueryBlock) details.push(failedQueryBlock.trim());
+        if (paramsBlock && !/^params:\s*$/i.test(paramsBlock)) details.push(paramsBlock);
         return details.join("\n");
       }
 
@@ -83,7 +86,7 @@ export function handleCliError(error: any): never {
       const parts = [
         `Database operation failed: ${compactError}`.trim(),
         compactSql ? `Query: ${compactSql}` : "",
-        "(use --show-sql or --debug for full SQL and details)",
+        "(use --show-sql or --debug for full SQL, error cause, and params)",
       ].filter(Boolean);
       return parts.join("\n");
     }
@@ -156,7 +159,12 @@ export function handleCliError(error: any): never {
   } else if (error instanceof MinskyError) {
     log.cliError(`Error: ${sanitizeMessage(normalizedError.message)}`);
   } else {
-    log.cliError(`❌ ${sanitizeMessage(normalizedError.message)}`);
+    // Try to surface driver error code/name if available
+    const anyErr: any = error as any;
+    const code = anyErr?.code || anyErr?.originalError?.code || anyErr?.cause?.code;
+    const name = anyErr?.name || anyErr?.originalError?.name || anyErr?.cause?.name;
+    const prefix = code || name ? `${code || name}: ` : "";
+    log.cliError(`❌ ${prefix}${sanitizeMessage(normalizedError.message)}`);
   }
 
   // Show detailed debug information only in debug mode
