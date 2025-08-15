@@ -91,8 +91,13 @@ export interface SessionMergeParams {
 export interface SessionMergeResult {
   session: string;
   taskId?: string;
-  prBranch: string;
+  prBranch?: string;
   mergeInfo: MergeInfo;
+  sessionCleanup?: {
+    performed: boolean;
+    directoriesRemoved: string[];
+    errors: string[];
+  };
 }
 
 /**
@@ -117,6 +122,7 @@ export async function mergeSessionPr(
       getTask?: (taskId: string) => Promise<any>;
     };
     gitService?: any;
+    createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<any>;
   }
 ): Promise<SessionMergeResult> {
   if (!params.json) {
@@ -303,7 +309,7 @@ export async function mergeSessionPr(
     await cleanupLocalBranches(
       gitService,
       mainRepoPath,
-      sessionRecord.prBranch,
+      sessionRecord.prBranch || "",
       sessionNameToUse,
       sessionRecord.taskId
     );
@@ -434,7 +440,7 @@ export async function mergeSessionPr(
           taskId: sessionRecord.taskId,
           force: true, // After successful merge, we can force cleanup
         },
-        { sessionDB }
+        { sessionDB: sessionDB as any }
       );
 
       sessionCleanup = {
