@@ -88,6 +88,63 @@ export const taskDeletionParams = {
   force: CommonParameters.force,
 };
 
+/**
+ * Index embeddings parameters
+ */
+export const tasksIndexEmbeddingsParams: CommandParameterMap = {
+  // Optional single-task target
+  taskId: TaskParameters.taskIdOptional,
+  limit: {
+    schema: z.number().int().positive().default(10),
+    description: "Max number of tasks to index (to avoid heavy costs)",
+    required: false,
+  },
+  ...taskContextParams,
+  ...outputFormatParams,
+};
+
+/**
+ * Similarity parameters (taskId + limit/threshold)
+ */
+export const tasksSimilarParams: CommandParameterMap = {
+  ...taskIdParam,
+  limit: {
+    schema: z.number().int().positive().default(10),
+    description: "Max number of results",
+    required: false,
+  },
+  threshold: {
+    schema: z.number().optional(),
+    description: "Optional distance threshold (lower is closer)",
+    required: false,
+  },
+  ...taskContextParams,
+  ...outputFormatParams,
+};
+
+/**
+ * Search-by-text parameters
+ */
+export const tasksSearchParams: CommandParameterMap = {
+  query: {
+    schema: z.string(),
+    description: "Natural language query",
+    required: true,
+  },
+  limit: {
+    schema: z.number().int().positive().default(10),
+    description: "Max number of results",
+    required: false,
+  },
+  threshold: {
+    schema: z.number().optional(),
+    description: "Optional distance threshold (lower is closer)",
+    required: false,
+  },
+  ...taskContextParams,
+  ...outputFormatParams,
+};
+
 // Combined parameter sets for each command
 
 /**

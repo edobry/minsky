@@ -141,6 +141,11 @@ export class CommandGeneratorCore {
           options
         );
 
+        // Propagate CLI flags to runtime toggles for better error reporting
+        if (rawParameters && (rawParameters as any).debug && !process.env.DEBUG) {
+          process.env.DEBUG = "1";
+        }
+
         // Create execution context
         const context: CliExecutionContext = {
           interface: "cli",

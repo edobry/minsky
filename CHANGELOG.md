@@ -1,3 +1,11 @@
+- feat(sessiondb): integrate Minsky configuration system with drizzle-kit using environment variable pattern
+  - **FIXED**: Implement workaround for drizzle-kit's lack of top-level await support using environment variables (addresses drizzle-team/drizzle-orm#1982 and #3481)
+  - **NEW**: Create scripts/drizzle-config-loader.ts that loads Minsky config asynchronously for standalone drizzle-kit usage
+  - **NEW**: Update drizzle.pg.config.ts to read from MINSKY_DB_CONFIG environment variable set by migration command
+  - **NEW**: Migration command now loads Minsky config and exports database credentials to environment before calling drizzle-kit
+  - **ENHANCED**: Proper integration with Minsky configuration system for database credentials in both migration and generation operations
+  - Replace --generate flag with automatic staleness detection and generation
+  - Simplify workflow: migrations are checked and generated automatically using proper Minsky database configuration
 - fix(github-merge): Use PR title/body for merge commit message in GitHub backend and remove legacy branch persistence from session creation paths. Updated repo guardrails spec to include default merge commit message settings (PR title/body).
 - feat(session): add `session.migrate-backend` command to switch a session's repo backend to GitHub by reading origin URL and updating `backendType`
   - Detects origin with `git remote get-url origin` from the session workspace
@@ -24,6 +32,7 @@ All notable changes to this project will be documented in this file.
 - **CLI stdout/stderr routing**: Normal command output now prints to stdout rather than stderr. `minsky tasks list` and similar commands write human-readable output to stdout; warnings/errors remain on stderr. Adjusted logger configuration in `src/utils/logger.ts` and `src/domain/utils/logger.ts` to keep only non-info levels on stderr.
 - **Session PR List Output**: `minsky session pr list` now prints clean, human-friendly lines (no ASCII table). Shows `PR #<num> <status> - <title>` with session/task/updated info; `--verbose` adds branch and URL. `--json` remains structured.
   - Refined to a compact, high signal format: `#<num> [status] <title>  (s:<session>, t:<task>, <relative time>)`. `--verbose` adds indented `branch` and `url` lines. `--json` unchanged.
+  - Harmonized title line with `session pr get` so both now render: `🟢 [feat] [md#123] Title text [#89]`. Removed redundant `PR #<num>` and `Backend:` labels from list details as they are already evident.
 - tasks: `minsky tasks list` now correctly displays task IDs again. Restored ID rendering by enhancing `formatTaskIdForDisplay` to handle legacy (`#123`) and numeric (`123`) IDs, outputting qualified `md#NNN` in CLI list output. See commit 26d958bf3.
 
 - feat(sessiondb): add Drizzle Kit migrations for PostgreSQL and wire runtime migrator

@@ -41,11 +41,38 @@ export function handleCliError(error: any): never {
   // In human mode, use programLogger for all user-facing errors
   // In structured mode, use both loggers as configured
 
-  // Sanitize noisy error messages (e.g., Drizzle "Failed query: ...")
+  // Sanitize and enrich database error messages (e.g., Drizzle "Failed query: ...")
   const sanitizeMessage = (msg: string): string => {
     if (!msg) return msg;
-    if (msg.includes("Failed query")) return "database operation failed";
-    // Use only first line to avoid long stacks in message
+
+    // Detect Drizzle-style error strings and extract useful parts
+    if (msg.includes("Failed query")) {
+      const showFull = isDebugMode() || process.env.MINSKY_SHOW_SQL === "true";
+
+      // Extract the failed query block and primary error message when possible
+      const failedQueryMatch = msg.match(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i);
+      const errorLineMatch = msg.match(/\n(Error:[\s\S]*$)/i);
+      const paramsMatch = msg.match(/\nparams:[\s\S]*$/i);
+
+      const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
+      const errorLine = errorLineMatch ? errorLineMatch[1].trim() : "Database error";
+      const paramsBlock = paramsMatch ? paramsMatch[0].trim() : "";
+
+      if (showFull) {
+        // In debug/full mode, include the entire failed query block for maximum context
+        const details: string[] = [];
+        if (errorLine) details.push(errorLine);
+        if (failedQueryBlock) details.push(failedQueryBlock.trim());
+        if (paramsBlock && !/^params:\s*$/i.test(paramsBlock)) details.push(paramsBlock);
+        return details.join("\n");
+      }
+
+      // For migration commands, full SQL is shown by Drizzle logger, so just return error message
+      const compactError = (errorLine.split("\n")[0] || errorLine).slice(0, 200);
+      return `Database operation failed: ${compactError}`.trim();
+    }
+
+    // Default: Only the first line to avoid verbose stacks in CLI output
     return (msg.split("\n")[0] || msg).slice(0, 200);
   };
 
@@ -110,8 +137,79 @@ export function handleCliError(error: any): never {
     if ((error as any).command) {
       log.cliError(`Command: ${(error as any).command}`);
     }
-  } else if (error instanceof MinskyError) {
-    log.cliError(`Error: ${sanitizeMessage(normalizedError.message)}`);
+  } else if (isLikelyPostgresError(error)) {
+    const anyErr: any = error as any;
+    const code = anyErr?.code || anyErr?.originalError?.code || anyErr?.cause?.code;
+    const rawMessage =
+      anyErr?.message || anyErr?.originalError?.message || String(normalizedError.message);
+    const detail = anyErr?.detail || anyErr?.originalError?.detail || anyErr?.cause?.detail;
+    const hint = anyErr?.hint || anyErr?.originalError?.hint || anyErr?.cause?.hint;
+    const schema = anyErr?.schema || anyErr?.originalError?.schema || anyErr?.cause?.schema;
+    const table = anyErr?.table || anyErr?.originalError?.table || anyErr?.cause?.table;
+    const constraint =
+      anyErr?.constraint || anyErr?.originalError?.constraint || anyErr?.cause?.constraint;
+
+    // Extract concise driver error message from Drizzle-wrapped text (strip query/params blocks)
+    const drizzleMsg: string =
+      typeof rawMessage === "string" ? rawMessage : String(rawMessage || "");
+    let conciseDriverMessage = drizzleMsg;
+    // Prefer the text after an explicit "Error:" if present
+    const errorOnlyMatch = drizzleMsg.match(/\nError:\s*([\s\S]*?)(?=(\nparams:|$))/i);
+    if (errorOnlyMatch && errorOnlyMatch[1]) {
+      conciseDriverMessage = errorOnlyMatch[1].trim();
+    } else if (/^Failed query:/i.test(drizzleMsg)) {
+      // Remove the failed query and params blocks
+      conciseDriverMessage = drizzleMsg
+        .replace(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i, "")
+        .replace(/\nparams:[\s\S]*$/i, "")
+        .replace(/^Error:\s*/i, "")
+        .trim();
+    }
+
+    // Extract failed SQL block for table name parsing only (not for display)
+    const msgForQuery: string =
+      typeof normalizedError.message === "string"
+        ? normalizedError.message
+        : String(normalizedError.message);
+    const failedQueryMatch = msgForQuery.match(/Failed query:[\s\S]*?(?=(\nError:|\nparams:|$))/i);
+    const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
+
+    // Try to derive table name from the failed SQL if driver didn't provide it
+    let tableNameFromQuery: string | undefined;
+    if (failedQueryBlock) {
+      const m1 = failedQueryBlock.match(
+        /CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?(?:"[^"]+"\.)?"([^"]+)"/i
+      );
+      if (m1 && m1[1]) {
+        tableNameFromQuery = m1[1];
+      }
+    }
+
+    // Compose a clean, high-signal output
+    const lines: string[] = [];
+    // Ensure we always have a non-empty driver message
+    let headerMessage = conciseDriverMessage;
+    if (!headerMessage || headerMessage.length === 0) {
+      if (code === "42P07") {
+        headerMessage = tableNameFromQuery
+          ? `relation "${tableNameFromQuery}" already exists`
+          : "relation already exists";
+      } else {
+        headerMessage = "database operation failed";
+      }
+    }
+    const header = code
+      ? `❌ Database error (${code}): ${headerMessage}`
+      : `❌ Database error: ${headerMessage}`;
+    lines.push(header);
+    if (schema) lines.push(`schema: ${schema}`);
+    const effectiveTable = table || tableNameFromQuery;
+    if (effectiveTable) lines.push(`table: ${effectiveTable}`);
+    if (constraint) lines.push(`constraint: ${constraint}`);
+    if (detail) lines.push(`detail: ${detail}`);
+    if (hint) lines.push(`hint: ${hint}`);
+    // SQL query is now always shown by Drizzle logger above the error, so we don't duplicate it here
+    log.cliError(lines.join("\n"));
   } else {
     log.cliError(`❌ ${sanitizeMessage(normalizedError.message)}`);
   }
@@ -142,6 +240,19 @@ export function handleCliError(error: any): never {
   }
 
   exit(1);
+}
+
+/**
+ * Map common PostgreSQL SQLSTATE codes to human-friendly names
+ * Reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
+ */
+function isLikelyPostgresError(err: unknown): boolean {
+  const e: any = err as any;
+  return Boolean(
+    (e && typeof e === "object" && (e.code || e.severity || e.schema || e.table)) ||
+      (e?.originalError && (e.originalError.code || e.originalError.severity)) ||
+      (e?.cause && (e.cause.code || e.cause.severity))
+  );
 }
 
 /**
