@@ -24,13 +24,15 @@ export class TaskSimilarityService {
     if (!task) return [];
     const content = this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
-    const effectiveThreshold = threshold ?? this.config.similarityThreshold ?? 0.0;
+    const effectiveThreshold =
+      threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
     return this.vectorStorage.search(vector, limit, effectiveThreshold);
   }
 
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const vector = await this.embeddingService.generateEmbedding(query);
-    const effectiveThreshold = threshold ?? this.config.similarityThreshold ?? 0.0;
+    const effectiveThreshold =
+      threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
     return this.vectorStorage.search(vector, limit, effectiveThreshold);
   }
 
