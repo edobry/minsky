@@ -52,6 +52,20 @@ export class TasksSearchCommand extends BaseTaskCommand {
     const threshold = params.threshold;
 
     const service = await this.createService();
+
+    try {
+      const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
+      const provider =
+        (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
+      const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+      const effThreshold =
+        threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
+      this.debug(`tasks.search provider=${provider}, model=${model}`);
+      this.debug(`tasks.search limit=${limit}, threshold=${String(effThreshold)}`);
+    } catch {
+      // ignore debug preflight errors
+    }
+
     const results = await service.searchByText(query, limit, threshold);
 
     return this.formatResult(

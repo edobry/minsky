@@ -1,4 +1,5 @@
 import type { Task } from "../tasks";
+import { log } from "../../utils/logger";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../storage/vector/types";
 import { createHash } from "crypto";
@@ -31,9 +32,43 @@ export class TaskSimilarityService {
 
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const vector = await this.embeddingService.generateEmbedding(query);
+    // Debug: embedding stats (length only)
+    try {
+      log.debug("[tasks.search] Embedding generated", {
+        length: Array.isArray(vector) ? vector.length : undefined,
+        model: this.config.model,
+        dimension: this.config.dimension,
+      });
+    } catch {
+      // ignore debug logging errors
+    }
+
     const effectiveThreshold =
       threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
-    return this.vectorStorage.search(vector, limit, effectiveThreshold);
+
+    // Debug: ANN search params
+    try {
+      log.debug("[tasks.search] Running ANN search", {
+        limit,
+        threshold: effectiveThreshold,
+      });
+    } catch {
+      // ignore debug logging errors
+    }
+
+    const results = await this.vectorStorage.search(vector, limit, effectiveThreshold);
+
+    // Debug: ANN results (ids and scores)
+    try {
+      log.debug("[tasks.search] ANN results", {
+        count: results.length,
+        top: results.slice(0, 5),
+      });
+    } catch {
+      // ignore debug logging errors
+    }
+
+    return results;
   }
 
   async indexTask(taskId: string): Promise<void> {
