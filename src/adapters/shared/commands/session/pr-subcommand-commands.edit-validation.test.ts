@@ -8,9 +8,9 @@ describe("SessionPrEditCommand - title/type validation", () => {
 
   it("throws when --title is description-only without --type", async () => {
     const cmd = new SessionPrEditCommand();
-    await expect(async () => {
-      await cmd.executeCommand({ title: "add something", name: "s" }, context);
-    }).rejects.toThrow(/Invalid title|conventional commit/i);
+    await expect(
+      cmd.executeCommand({ title: "add something", name: "s" }, context)
+    ).rejects.toThrow(/Invalid title|conventional commit/i);
   });
 
   it("accepts description-only title when --type provided (composed)", async () => {

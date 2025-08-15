@@ -12,15 +12,15 @@ describe("session pr edit - conventional commit title validation", () => {
 
   it("rejects non-conventional title when --type is not provided", async () => {
     const cmd = new SessionPrEditCommand();
-    await expect(async () => {
-      await cmd.executeCommand(
+    await expect(
+      cmd.executeCommand(
         {
           title: "Update the title without proper prefix",
           name: "dummy-session",
         },
         context
-      );
-    }).rejects.toThrow(/Invalid title\.|full conventional commit title/i);
+      )
+    ).rejects.toThrow(/Invalid title|full conventional commit title/i);
   });
 
   it("accepts full conventional title without --type", async () => {
