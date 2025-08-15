@@ -233,7 +233,7 @@ async function runSchemaMigrationsForConfiguredBackend(
         0
       )} pending`;
 
-      const plan = {
+      const plan: any = {
         success: true,
         backend,
         dryRun: true,
@@ -250,6 +250,11 @@ async function runSchemaMigrationsForConfiguredBackend(
           latestAt,
         },
       } as const;
+
+      if (verbose) {
+        (plan as any).printed = true;
+        delete (plan as any).message;
+      }
 
       if (verbose) {
         log.cli("=== SessionDB Schema Migration (sqlite) — DRY RUN ===");
@@ -302,13 +307,18 @@ async function runSchemaMigrationsForConfiguredBackend(
       sqlite.close();
     }
 
-    return {
+    const appliedRes: any = {
       success: true,
       applied: true,
       backend,
       migrationsFolder: "./src/domain/storage/migrations",
       message: `Schema migration applied for sqlite (migrations: ./src/domain/storage/migrations)`,
     };
+    if (verbose) {
+      appliedRes.printed = true;
+      delete appliedRes.message;
+    }
+    return appliedRes;
   }
 
   if (backend === "postgres") {
@@ -380,7 +390,7 @@ async function runSchemaMigrationsForConfiguredBackend(
         0
       )} pending`;
 
-      const plan = {
+      const plan: any = {
         success: true,
         backend,
         dryRun: true,
@@ -400,6 +410,11 @@ async function runSchemaMigrationsForConfiguredBackend(
           latestAt,
         },
       } as const;
+
+      if (verbose) {
+        (plan as any).printed = true;
+        delete (plan as any).message;
+      }
 
       if (verbose) {
         log.cli("=== SessionDB Schema Migration (postgres) — DRY RUN ===");
@@ -559,13 +574,18 @@ async function runSchemaMigrationsForConfiguredBackend(
       await sql.end();
     }
 
-    return {
+    const appliedPg: any = {
       success: true,
       applied: true,
       backend,
       migrationsFolder: "./src/domain/storage/migrations/pg",
       message: `Schema migration applied for postgres (migrations: ./src/domain/storage/migrations/pg)`,
     };
+    if (verbose) {
+      appliedPg.printed = true;
+      delete appliedPg.message;
+    }
+    return appliedPg;
   }
 
   throw new Error(`Unsupported backend: ${backend}`);
