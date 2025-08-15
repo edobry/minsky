@@ -165,6 +165,43 @@ export function handleCliError(error: any): never {
     const name = anyErr?.name || anyErr?.originalError?.name || anyErr?.cause?.name;
     const prefix = code || name ? `${code || name}: ` : "";
     log.cliError(`❌ ${prefix}${sanitizeMessage(normalizedError.message)}`);
+
+    // Postgres-specific guidance based on SQLSTATE error codes
+    const hints: string[] = [];
+    const add = (line: string) => hints.push(line);
+    if (typeof code === "string") {
+      switch (code) {
+        case "42P07": // duplicate_table
+          add("Why: The table already exists (duplicate_table)");
+          add("Fix: The database is already initialized or was initialized manually.");
+          add(" - Run: minsky sessiondb check --report");
+          add(
+            " - If schema is correct, skip creating the table (mark migration as applied) or drop the existing table then retry"
+          );
+          add(" - Table: 'sessions' (parsed from failed CREATE TABLE)");
+          break;
+        case "42P01": // undefined_table
+          add("Why: Referenced table does not exist (undefined_table)");
+          add("Fix: Run migrations to create required tables");
+          add(" - Run: minsky sessiondb migrate --execute --show-sql");
+          break;
+        case "3F000": // schema_does_not_exist
+          add("Why: Target schema does not exist");
+          add("Fix: Ensure schema exists or configure correct search_path");
+          break;
+        case "23505": // unique_violation
+          add("Why: Duplicate key violates unique constraint");
+          add("Fix: Resolve conflicting row or adjust data before retrying");
+          break;
+        case "28P01": // invalid_password
+          add("Why: Authentication failed for database user");
+          add("Fix: Verify connection string credentials");
+          break;
+      }
+    }
+    if (hints.length > 0) {
+      log.cliError(hints.map((h) => `• ${h}`).join("\n"));
+    }
   }
 
   // Show detailed debug information only in debug mode
