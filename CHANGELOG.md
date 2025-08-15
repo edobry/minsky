@@ -20,6 +20,7 @@ All notable changes to this project will be documented in this file.
   - Status accepts comma-separated or `all`; backend: `github|remote|local`; time accepts `YYYY-MM-DD` or relative `7d|24h|30m`.
 
 ### Fixed
+- Task md#425: Suppress [DEBUG] logs during `session start` unless debug is explicitly enabled. Replaced unguarded console logs with `log.debug(...)` in `startSessionFromParams` so they are hidden by default.
 - **CLI stdout/stderr routing**: Normal command output now prints to stdout rather than stderr. `minsky tasks list` and similar commands write human-readable output to stdout; warnings/errors remain on stderr. Adjusted logger configuration in `src/utils/logger.ts` and `src/domain/utils/logger.ts` to keep only non-info levels on stderr.
 - **Session PR List Output**: `minsky session pr list` now prints clean, human-friendly lines (no ASCII table). Shows `PR #<num> <status> - <title>` with session/task/updated info; `--verbose` adds branch and URL. `--json` remains structured.
   - Refined to a compact, high signal format: `#<num> [status] <title>  (s:<session>, t:<task>, <relative time>)`. `--verbose` adds indented `branch` and `url` lines. `--json` unchanged.
