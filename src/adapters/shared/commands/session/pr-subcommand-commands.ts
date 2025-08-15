@@ -418,9 +418,60 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
         }
       }
 
+      // Compose or validate title for edit
+      let finalTitle: string | undefined = params.title;
+      if (params.title) {
+        const { assertValidPrTitle } = await import(
+          "../../../../domain/session/validation/title-validation"
+        );
+        // Base title hygiene checks (length, markdown, newlines)
+        assertValidPrTitle(params.title);
+
+        if (params.type) {
+          try {
+            const { resolveSessionContextWithFeedback } = await import(
+              "../../../../domain/session/session-context-resolver"
+            );
+            const { createSessionProvider } = await import("../../../../domain/session");
+            const { formatTaskIdForDisplay } = await import(
+              "../../../../domain/tasks/task-id-utils"
+            );
+
+            const sessionProvider = createSessionProvider();
+            const resolved = await resolveSessionContextWithFeedback({
+              session: params.name,
+              task: params.task,
+              repo: params.repo,
+              sessionProvider,
+              allowAutoDetection: true,
+            });
+
+            const taskId: string | undefined = resolved.taskId || params.task;
+            finalTitle = composeConventionalTitle({
+              type: params.type,
+              title: params.title,
+              taskId: taskId ? formatTaskIdForDisplay(taskId) : undefined,
+            });
+          } catch {
+            // Fallback: compose without task scope
+            finalTitle = composeConventionalTitle({ type: params.type, title: params.title });
+          }
+        } else {
+          // No --type provided; accept only a fully-formed conventional commit title
+          const conventionalRe = /^(feat|fix|docs|style|refactor|perf|test|chore)(\([^)]*\))?:\s+/i;
+          if (!conventionalRe.test(params.title)) {
+            throw new ValidationError(
+              "Invalid title. Provide either:\n" +
+                "  • --type <feat|fix|docs|style|refactor|perf|test|chore> with a description-only --title\n" +
+                "  • or a full conventional commit title like 'feat(scope): short description'"
+            );
+          }
+        }
+      }
+
       const result = await sessionPrEdit(
         {
-          title: params.title,
+          title: finalTitle,
           body: params.body,
           bodyPath: params.bodyPath,
           name: params.name,

@@ -1,20 +1,3 @@
-- feat(sessiondb): integrate Minsky configuration system with drizzle-kit using environment variable pattern
-  - **FIXED**: Implement workaround for drizzle-kit's lack of top-level await support using environment variables (addresses drizzle-team/drizzle-orm#1982 and #3481)
-  - **NEW**: Create scripts/drizzle-config-loader.ts that loads Minsky config asynchronously for standalone drizzle-kit usage
-  - **NEW**: Update drizzle.pg.config.ts to read from MINSKY_DB_CONFIG environment variable set by migration command
-  - **NEW**: Migration command now loads Minsky config and exports database credentials to environment before calling drizzle-kit
-  - **ENHANCED**: Proper integration with Minsky configuration system for database credentials in both migration and generation operations
-  - Replace --generate flag with automatic staleness detection and generation
-  - Simplify workflow: migrations are checked and generated automatically using proper Minsky database configuration
-- fix(github-merge): Use PR title/body for merge commit message in GitHub backend and remove legacy branch persistence from session creation paths. Updated repo guardrails spec to include default merge commit message settings (PR title/body).
-- feat(session): add `session.migrate-backend` command to switch a session's repo backend to GitHub by reading origin URL and updating `backendType`
-  - Detects origin with `git remote get-url origin` from the session workspace
-  - Sets `repoUrl` to the detected remote URL and `backendType` to `github`
-  - Exposed via shared command registry; available alongside other session management commands
-- fix(config): resolve configuration validation errors
-  - Removed invalid `json` sessiondb backend from default configuration
-  - Fixed undefined `github.token` in defaults that was interfering with user token validation
-
 # Changelog
 
 All notable changes to this project will be documented in this file.
@@ -123,12 +106,6 @@ All notable changes to this project will be documented in this file.
 
 - **Test Task Cleanup**: Successfully removed all generic test tasks with names like "Test session for MCP fix verification", "Fix the authentication bug", "Test to see exact MCP error", and other temporary testing tasks. Cleaned up task IDs: md#003, md#377, md#382, md#383, md#399, and their associated spec files. This cleanup improves task list clarity and removes outdated testing artifacts.
 
-### Fixed
-
-- **Session PR Merge Working Directory**: Fixed `session pr merge` command to use correct working directory for LocalGitBackend. Applied test-driven bug fix approach: wrote failing tests that reproduced the "Not possible to fast-forward" error, then implemented the fix. LocalGitBackend now uses the main repository path (record.repoUrl) instead of session workspace for merge operations, since PR branches exist in the main repository. RemoteGitBackend correctly continues using session workspace since repoUrl is a remote URL.
-- **Remote Branch Deletion Failures**: Enhanced error reporting and visibility for remote branch deletion operations during merge, providing better user feedback when cleanup fails
-- **Silent Cleanup Failures**: Session cleanup failures are now visible to users instead of failing silently
-
 ### Changed
 
 - **Session Cleanup Default Behavior**: Session cleanup is now enabled by default for merge operations. Users can still disable cleanup with the `--skip-cleanup` flag to preserve session files when needed. This ensures sessions don't accumulate after successful merges while maintaining flexibility for edge cases.
@@ -146,3 +123,10 @@ All notable changes to this project will be documented in this file.
   - Added stash/commit/push/restore flow to `src/domain/tasks/markdownTaskBackend.ts` for both object and spec-file creation paths
   - Commit message format: `chore(task): create <id> <title>`; push attempted with warnings on failure
   - Exposed injectable `gitService` for testability; added unit tests to validate commit/push behavior and no-op when no changes
+>>>>>>> origin/main
+
+## md#427: Enforce conventional-commit title validation on session pr edit
+- session pr edit now enforces conventional-commit title rules similar to session pr create
+- Added optional --type for edit to compose titles from description-only --title
+- Validation runs regardless of --no-status-update
+- Added tests under tests/integration/session/pr-edit-validation.test.ts and src/adapters/shared/commands/session/pr-subcommand-commands.edit-validation.test.ts

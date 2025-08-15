@@ -352,7 +352,13 @@ export const sessionPrCreateCommandParams = {
 export const sessionPrEditCommandParams = {
   title: {
     schema: z.string(),
-    description: "PR title (to update)",
+    description:
+      "PR title (to update). With --type, pass description-only; otherwise pass full conventional title",
+    required: false,
+  },
+  type: {
+    schema: z.enum(["feat", "fix", "docs", "style", "refactor", "perf", "test", "chore"]),
+    description: "Conventional commit type to generate prefix when editing (optional)",
     required: false,
   },
   body: {
