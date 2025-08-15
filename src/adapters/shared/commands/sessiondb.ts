@@ -29,6 +29,128 @@ import {
 import { createSessionProvider } from "../../../domain/session";
 
 /**
+ * Run migrations using drizzle-kit migrate command
+ */
+async function runMigrationsWithDrizzleKit(options: {
+  dryRun: boolean;
+}): Promise<{ message: string; printed: boolean }> {
+  try {
+    const { spawn } = await import("child_process");
+    const { loadConfiguration } = await import("../../../domain/configuration/loader.js");
+
+    // Load Minsky configuration and prepare environment variables for drizzle-kit
+    let configuredEnv: Record<string, string> = {};
+    try {
+      const configResult = await loadConfiguration();
+      const config = configResult.config;
+
+      // Prepare database configuration for drizzle-kit
+      const dbConfig = {
+        postgres: {
+          connectionString: config.sessiondb?.postgres?.connectionString || null,
+        },
+        sqlite: {
+          path: config.sessiondb?.sqlite?.path || null,
+        },
+        backend: config.sessiondb?.backend || "sqlite",
+      };
+
+      // Set environment variable that drizzle config will read
+      configuredEnv = {
+        ...(process.env as Record<string, string>),
+        MINSKY_DB_CONFIG: JSON.stringify(dbConfig),
+      };
+
+      log.cli(`📋 Loaded database config for backend: ${dbConfig.backend}`);
+    } catch (error) {
+      log.warn(
+        "Failed to load Minsky configuration, using environment variables as fallback:",
+        error
+      );
+      configuredEnv = { ...process.env } as Record<string, string>;
+    }
+
+    const args = ["drizzle-kit", "migrate", "--config", "./drizzle.pg.config.ts"];
+    if (options.dryRun) {
+      // For dry run, we'll use our existing preview logic since drizzle-kit doesn't have a dry-run mode for migrate
+      return runSchemaMigrationsForConfiguredBackend({ dryRun: true });
+    }
+
+    log.cli("🚀 Executing migrations with drizzle-kit...");
+
+    const migrateProcess = spawn("bunx", args, {
+      stdio: ["inherit", "pipe", "pipe"],
+      cwd: process.cwd(),
+      env: configuredEnv,
+    });
+
+    let stderr = "";
+    let stdout = "";
+
+    migrateProcess.stdout?.on("data", (data) => {
+      stdout += data.toString();
+    });
+
+    migrateProcess.stderr?.on("data", (data) => {
+      stderr += data.toString();
+    });
+
+    const exitCode = await new Promise<number>((resolve) => {
+      migrateProcess.on("close", resolve);
+    });
+
+    if (exitCode === 0) {
+      // Check if there was any useful output from drizzle-kit
+      const cleanStdout = stdout.trim();
+      if (cleanStdout && !cleanStdout.includes("Reading config file")) {
+        log.cli(cleanStdout);
+      }
+
+      return {
+        message: "✅ Migrations executed successfully",
+        printed: true,
+      };
+    } else {
+      // Extract the actual database error from drizzle's verbose output
+      let cleanError = stderr;
+
+      // Look for the database error cause
+      const causeMatch = stderr.match(/cause:\s*error:\s*(.+?)(?:\n|$)/);
+      if (causeMatch) {
+        const dbError = causeMatch[1];
+
+        // Look for the failing SQL
+        const sqlMatch = stderr.match(/Failed query:\s*(.*?)(?:\n\nparams:|$)/s);
+        const sql = sqlMatch ? sqlMatch[1].trim() : "";
+
+        if (sql) {
+          // Try to extract just the first line of SQL for brevity
+          const sqlFirstLine = sql.split("\n")[0].trim();
+          cleanError = `Database error: ${dbError}\n\nFailed SQL: ${sqlFirstLine}${sql.includes("\n") ? "..." : ""}`;
+        } else {
+          cleanError = `Database error: ${dbError}`;
+        }
+      } else {
+        // Fallback: clean up the original error
+        cleanError = stderr
+          .replace(/^\s*at\s+.*$/gm, "") // Remove stack trace lines
+          .replace(/\n{2,}/g, "\n") // Remove multiple newlines
+          .replace(/DrizzleQueryError:\s*/, "") // Remove Drizzle prefix
+          .replace(/Failed query:\s*/, "Failed SQL:\n") // Better label
+          .replace(/params:\s*$/m, "") // Remove empty params line
+          .replace(/^\s*\.\.\.\s*\d+\s*lines\s*matching.*$/gm, "") // Remove stack trace indicators
+          .trim();
+      }
+
+      throw new Error(`❌ ${cleanError}`);
+    }
+  } catch (error) {
+    log.error("Failed to execute migrations:", error);
+    throw new Error(`Migration execution failed: ${getErrorMessage(error)}`);
+  }
+}
+
+/**
  * Check if migrations need to be generated and auto-generate them
  */
 async function checkAndGenerateMigrations(): Promise<void> {
@@ -122,6 +244,7 @@ async function checkAndGenerateMigrations(): Promise<void> {
     } else {
       log.cli("✅ Migrations are up to date");
     }
+    log.cli(""); // Add spacing after migration check
   } catch (error) {
     log.error("Failed to check/generate migrations:", error);
     throw new Error(`Migration check/generation failed: ${getErrorMessage(error)}`);
@@ -805,13 +928,21 @@ sharedCommandRegistry.registerCommand({
 
         if (backend === "postgres") {
           await checkAndGenerateMigrations();
-        }
 
-        // DEFAULT: dry-run; require --execute to apply
-        const shouldApply = Boolean(execute);
-        const result = await runSchemaMigrationsForConfiguredBackend({
-          dryRun: !shouldApply,
-        });
+          // Use drizzle-kit delegation for better compatibility
+          const shouldApply = Boolean(execute);
+          const result = await runMigrationsWithDrizzleKit({
+            dryRun: !shouldApply,
+          });
+
+          return result;
+        } else {
+          // For SQLite, keep existing logic for now
+          const shouldApply = Boolean(execute);
+          const result = await runSchemaMigrationsForConfiguredBackend({
+            dryRun: !shouldApply,
+          });
+        }
 
         if (context.format === "human") {
           // Prefer explicit message when provided (more informative summary)
