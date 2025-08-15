@@ -58,7 +58,7 @@ export function handleCliError(error: any): never {
       const errorLine = errorLineMatch ? errorLineMatch[1].trim() : "Database error";
       const paramsBlock = paramsMatch ? paramsMatch[0].trim() : "";
 
-      // Pull the complete SQL statement after "Failed query:"
+      // Pull a meaningful SQL snippet after "Failed query:"
       let sqlSnippet = "";
       if (failedQueryBlock) {
         const lines = failedQueryBlock.split("\n");
@@ -67,7 +67,21 @@ export function handleCliError(error: any): never {
           .slice(1)
           .map((l) => l.trim())
           .filter((l) => l.length > 0);
-        sqlSnippet = sqlLines.join(" ").trim();
+        const fullSql = sqlLines.join(" ").trim();
+
+        // For CREATE TABLE statements, show just the table creation part
+        if (fullSql.match(/^CREATE\s+TABLE/i)) {
+          const createMatch = fullSql.match(
+            /^(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^\s(]+)/i
+          );
+          if (createMatch) {
+            sqlSnippet = `${createMatch[1]} (...)`;
+          } else {
+            sqlSnippet = fullSql.slice(0, 80);
+          }
+        } else {
+          sqlSnippet = fullSql;
+        }
       }
 
       if (showFull) {
@@ -198,13 +212,26 @@ export function handleCliError(error: any): never {
     const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
     let sqlSnippet = "";
     if (failedQueryBlock) {
-      // Extract the complete SQL statement, not just the first line
+      // Extract a meaningful snippet that identifies the operation
       const lines = failedQueryBlock
         .split("\n")
         .slice(1) // Skip "Failed query:" line
         .map((l) => l.trim())
         .filter((l) => l.length > 0); // Remove empty lines
-      sqlSnippet = lines.join(" ").trim();
+
+      const fullSql = lines.join(" ").trim();
+
+      // For CREATE TABLE statements, show just the table creation part
+      if (fullSql.match(/^CREATE\s+TABLE/i)) {
+        const createMatch = fullSql.match(/^(CREATE\s+TABLE\s+(?:IF\s+NOT\s+EXISTS\s+)?[^\s(]+)/i);
+        if (createMatch) {
+          sqlSnippet = `${createMatch[1]} (...)`;
+        } else {
+          sqlSnippet = fullSql.slice(0, 80);
+        }
+      } else {
+        sqlSnippet = fullSql;
+      }
     }
 
     // Try to derive table name from the failed SQL if driver didn't provide it
