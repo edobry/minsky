@@ -141,7 +141,7 @@ The existing `task_embeddings` table provides the perfect foundation for general
 The following advanced features can be built **after** the metadata extension is complete:
 
 - **Duplicate Detection**: `minsky tasks find-duplicates` using similarity thresholds
-- **Dependency Discovery**: `minsky tasks suggest-dependencies` using content analysis  
+- **Dependency Discovery**: `minsky tasks suggest-dependencies` using content analysis
 - **Task Clustering**: `minsky tasks cluster` for project organization
 - **Relationship Analysis**: `minsky tasks analyze-relationships` for project health
 
@@ -157,7 +157,7 @@ The following advanced features can be built **after** the metadata extension is
 
 **PostgreSQL + pgvector Storage** - Using session database connection:
 - ✅ `task_embeddings` table with `vector(1536)` column
-- ✅ IVFFlat indexing for fast approximate nearest neighbor search  
+- ✅ IVFFlat indexing for fast approximate nearest neighbor search
 - ✅ SQL KNN queries: `ORDER BY embedding <-> $1::vector LIMIT k`
 - ✅ Session database reuse via `vectorStorage.useSessionDb = true`
 
@@ -172,15 +172,15 @@ The following advanced features can be built **after** the metadata extension is
 
 ```sql
 -- Phase 1: Add new columns (preserving existing data)
-ALTER TABLE task_embeddings 
+ALTER TABLE task_embeddings
 ADD COLUMN task_metadata JSONB DEFAULT '{}',
 ADD COLUMN qualified_task_id TEXT,
 ADD COLUMN content_hash TEXT,
 ADD COLUMN last_indexed_at TIMESTAMPTZ;
 
 -- Phase 2: Populate qualified task IDs
-UPDATE task_embeddings 
-SET qualified_task_id = CASE 
+UPDATE task_embeddings
+SET qualified_task_id = CASE
   WHEN task_id ~ '^[a-z]+#[0-9]+$' THEN task_id  -- Already qualified
   WHEN task_id ~ '^[0-9]+$' THEN 'md#' || task_id -- Legacy format
   ELSE task_id
@@ -190,7 +190,7 @@ END;
 -- ALTER TABLE task_embeddings RENAME TO task_metadata;
 
 -- Phase 4: Add constraints and indexes
-ALTER TABLE task_embeddings 
+ALTER TABLE task_embeddings
 ADD CONSTRAINT unique_qualified_task_id UNIQUE (qualified_task_id);
 
 CREATE INDEX idx_task_embeddings_metadata ON task_embeddings USING gin (task_metadata);
@@ -207,18 +207,18 @@ interface TaskMetadata {
     contentHash: string;
     lastIndexed: string;
   };
-  
+
   // NEW: Structural metadata (Task #315)
   structure?: {
     parentTask?: string;
     subtasks?: string[];
     dependencies?: {
       prerequisite?: string[];
-      optional?: string[]; 
+      optional?: string[];
       related?: string[];
     };
   };
-  
+
   // NEW: Provenance metadata (Task #315)
   provenance?: {
     originalRequirements?: string;
@@ -226,7 +226,7 @@ interface TaskMetadata {
     creationContext?: string;
     lastModified?: string;
   };
-  
+
   // NEW: Backend integration metadata
   backend?: {
     sourceBackend: string;
@@ -244,7 +244,7 @@ interface TaskMetadata {
 **Solution**: Safe, non-destructive migration:
 
 1. **Detection**: Query existing `task_id` values to identify formats
-2. **Qualification**: Convert unqualified IDs using current backend detection rules  
+2. **Qualification**: Convert unqualified IDs using current backend detection rules
 3. **Verification**: Cross-reference with actual task existence
 4. **Update**: Populate `qualified_task_id` field with normalized values
 5. **Cleanup**: Eventually deprecate `task_id` in favor of `qualified_task_id`
@@ -263,7 +263,7 @@ minsky sessiondb migrate --execute  # Apply migration
 
 **Migration Tasks**:
 1. ✅ Add new columns (`task_metadata`, `qualified_task_id`, `content_hash`, `last_indexed_at`)
-2. ✅ Preserve all existing embedding data and functionality  
+2. ✅ Preserve all existing embedding data and functionality
 3. ✅ Create GIN index on JSONB metadata for efficient queries
 4. ✅ Add unique constraint on qualified task IDs
 
@@ -271,7 +271,7 @@ minsky sessiondb migrate --execute  # Apply migration
 
 **Goal**: Normalize task IDs without losing embeddings
 
-```bash  
+```bash
 # New command to handle ID migration
 minsky tasks migrate-embeddings --dry-run  # Preview changes
 minsky tasks migrate-embeddings --execute  # Apply migration
@@ -292,16 +292,16 @@ minsky tasks migrate-embeddings --execute  # Apply migration
 **New Services**:
 ```typescript
 interface TaskMetadataService {
-  // Core metadata operations  
+  // Core metadata operations
   getTaskMetadata(taskId: string): Promise<TaskMetadata | null>;
   setTaskMetadata(taskId: string, metadata: TaskMetadata): Promise<void>;
   updateTaskMetadata(taskId: string, updates: Partial<TaskMetadata>): Promise<void>;
-  
+
   // Relationship operations (Task #315 architecture)
   getTaskDependencies(taskId: string): Promise<string[]>;
   setTaskDependencies(taskId: string, deps: string[]): Promise<void>;
   getSubtasks(parentId: string): Promise<string[]>;
-  
+
   // Search and query operations
   queryTasksByMetadata(query: MetadataQuery): Promise<string[]>;
   findTasksByStructure(structure: Partial<TaskStructure>): Promise<string[]>;
@@ -313,23 +313,23 @@ interface TaskMetadataService {
 - Support hybrid workflows (GitHub Issues + local metadata)
 - Maintain backward compatibility with existing backends
 
-### Phase 4: Hybrid Backend Implementation 🔀  
+### Phase 4: Hybrid Backend Implementation 🔀
 
 **Goal**: Enable the GitHub Issues + local metadata workflow from Task #315
 
 **Hybrid Patterns**:
 1. **GitHub + Metadata**: GitHub Issues for specs, PostgreSQL for metadata
-2. **Markdown + Metadata**: Markdown files for specs, PostgreSQL for metadata  
+2. **Markdown + Metadata**: Markdown files for specs, PostgreSQL for metadata
 3. **JSON + Metadata**: Enhanced JSON backend with embedded metadata support
 
 **Configuration**:
 ```toml
 [taskMetadata]
-backend = "postgres"        # or "sqlite" 
+backend = "postgres"        # or "sqlite"
 useSessionDb = true         # Reuse session database connection
 enableHybridMode = true     # Support spec/metadata separation
 
-[vectorStorage] 
+[vectorStorage]
 backend = "postgres"
 useSessionDb = true         # Same database as metadata
 
@@ -515,7 +515,7 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 - [ ] **Qualified Task IDs**: Add `qualified_task_id` column with unique constraints
 - [ ] **Content Tracking**: Add `content_hash` and `last_indexed_at` for staleness detection
 
-#### Legacy Task ID Migration  
+#### Legacy Task ID Migration
 - [ ] **ID Analysis**: Analyze existing `task_id` formats (qualified vs unqualified)
 - [ ] **Safe Migration**: Convert legacy "123" → "md#123" without data loss
 - [ ] **Verification**: Cross-check qualified IDs against actual task existence
@@ -529,7 +529,7 @@ minsky tasks similar 250 --include-closed --threshold=0.5
 
 #### Configuration & CLI
 - [ ] **Extended Configuration**: `taskMetadata` and enhanced `vectorStorage` config blocks
-- [ ] **Hybrid Mode Support**: Enable spec/metadata separation workflows  
+- [ ] **Hybrid Mode Support**: Enable spec/metadata separation workflows
 - [ ] **Backward Compatibility**: Existing similarity commands continue working unchanged
 - [ ] **Migration Tooling**: Safe, reversible migration commands with dry-run support
 

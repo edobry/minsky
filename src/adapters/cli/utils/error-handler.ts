@@ -41,11 +41,53 @@ export function handleCliError(error: any): never {
   // In human mode, use programLogger for all user-facing errors
   // In structured mode, use both loggers as configured
 
-  // Sanitize noisy error messages (e.g., Drizzle "Failed query: ...")
+  // Sanitize and enrich database error messages (e.g., Drizzle "Failed query: ...")
   const sanitizeMessage = (msg: string): string => {
     if (!msg) return msg;
-    if (msg.includes("Failed query")) return "database operation failed";
-    // Use only first line to avoid long stacks in message
+
+    // Detect Drizzle-style error strings and extract useful parts
+    if (msg.includes("Failed query")) {
+      const showFull = isDebugMode() || process.env.MINSKY_SHOW_SQL === "true";
+
+      // Extract the failed query block and primary error message when possible
+      const failedQueryMatch = msg.match(/Failed query:[\s\S]*?(?=(\nError:)|$)/i);
+      const errorLineMatch = msg.match(/\n(Error:[\s\S]*$)/i);
+
+      const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
+      const errorLine = errorLineMatch ? errorLineMatch[1].trim() : "Database error";
+
+      // Pull just the SQL statement (first line after "Failed query:")
+      let sqlSnippet = "";
+      if (failedQueryBlock) {
+        const lines = failedQueryBlock.split("\n");
+        // Find the first non-empty line after the label
+        const firstSqlLine = lines
+          .slice(1)
+          .map((l) => l.trim())
+          .find((l) => l.length > 0) || "";
+        sqlSnippet = firstSqlLine;
+      }
+
+      if (showFull) {
+        // In debug/full mode, include the entire failed query block for maximum context
+        const details: string[] = [];
+        if (errorLine) details.push(errorLine);
+        if (failedQueryBlock) details.push(failedQueryBlock.trim());
+        return details.join("\n");
+      }
+
+      // In normal mode, provide a concise but actionable message
+      const compactSql = sqlSnippet.length > 200 ? `${sqlSnippet.slice(0, 200)}…` : sqlSnippet;
+      const compactError = (errorLine.split("\n")[0] || errorLine).slice(0, 200);
+      const parts = [
+        `Database operation failed: ${compactError}`.trim(),
+        compactSql ? `Query: ${compactSql}` : "",
+        "(rerun with DEBUG=1 or MINSKY_SHOW_SQL=true for full SQL and details)",
+      ].filter(Boolean);
+      return parts.join("\n");
+    }
+
+    // Default: Only the first line to avoid verbose stacks in CLI output
     return (msg.split("\n")[0] || msg).slice(0, 200);
   };
 

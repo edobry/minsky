@@ -71,7 +71,7 @@ sharedCommandRegistry.registerCommand({
           session.repoName?.toLowerCase().includes(lowerQuery) ||
           session.repoUrl?.toLowerCase().includes(lowerQuery) ||
           session.taskId?.toLowerCase().includes(lowerQuery) ||
-          session.branch?.toLowerCase().includes(lowerQuery) ||
+          session.prBranch?.toLowerCase().includes(lowerQuery) ||
           session.prState?.branchName?.toLowerCase().includes(lowerQuery)
         );
       });
@@ -184,7 +184,6 @@ async function runSchemaMigrationsForConfiguredBackend(
 
     const { Database } = await import("bun:sqlite");
     const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    // @ts-expect-error - migrator path for bun-sqlite
     const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
 
     const sqlite = new Database(dbPath);
@@ -261,7 +260,6 @@ async function runSchemaMigrationsForBackend(
     const dbPath = sqlitePath || getDefaultSqliteDbPath();
     const { Database } = await import("bun:sqlite");
     const { drizzle } = await import("drizzle-orm/bun-sqlite");
-    // @ts-expect-error - migrator path for bun-sqlite
     const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
     const sqlite = new Database(dbPath);
     try {
@@ -329,7 +327,8 @@ sharedCommandRegistry.registerCommand({
 
         return result;
       } catch (error) {
-        const msg = getErrorMessage(error).split("\n")[0];
+        const msg = getErrorMessage(error);
+        // Preserve full error details for the CLI error handler to present
         throw new Error(`Schema migration failed: ${msg}`);
       }
     }
@@ -338,11 +337,10 @@ sharedCommandRegistry.registerCommand({
     const isPreviewMode = !execute;
 
     try {
-      // Check for JSON backend deprecation
-      if (to === "json") {
+      // Guard against unsupported targets (JSON removed)
+      if (to !== "sqlite" && to !== "postgres") {
         throw new Error(
-          "❌ CRITICAL: JSON backend is deprecated and no longer supported. " +
-            "Please use 'sqlite' or 'postgres' as target backend."
+          `❌ Unsupported backend target: ${String(to)}. Supported backends: sqlite, postgres`
         );
       }
 
@@ -352,9 +350,8 @@ sharedCommandRegistry.registerCommand({
 
       // Check for drift in current configuration
       const configuredBackend = config.sessiondb?.backend;
-      if (configuredBackend === "json") {
-        log.cli("⚠️  WARNING: JSON backend configured but deprecated. Migration recommended.");
-      }
+      // JSON backend has been removed; retain guardrails without impossible comparisons
+      // (no action needed here)
 
       log.cli(`🚀 SessionDB Migration - Target: ${to}`);
       log.cli("");
@@ -436,7 +433,10 @@ sharedCommandRegistry.registerCommand({
               repoUrl: typedSessionData.repoUrl || sessionId,
               createdAt: typedSessionData.createdAt || new Date().toISOString(),
               taskId: typedSessionData.taskId || "",
-              branch: typedSessionData.branch || "main",
+              prBranch:
+                (typedSessionData as any).prBranch ||
+                (typedSessionData as any).branch ||
+                "",
               ...typedSessionData,
             });
           }
@@ -449,7 +449,7 @@ sharedCommandRegistry.registerCommand({
       );
       const skippedLegacy = sessionRecords.length - filteredRecords.length;
 
-      // No need to normalize branch now that column is dropped in Postgres schema
+      // No need to normalize branch now that column is represented as prBranch in schema
       const normalizedRecords = filteredRecords;
 
       // Prepare operations plan
@@ -631,7 +631,8 @@ sharedCommandRegistry.registerCommand({
 
       return result;
     } catch (error) {
-      const msg = getErrorMessage(error).split("\n")[0];
+      const msg = getErrorMessage(error);
+      // Preserve full error details for the CLI error handler to present
       throw new Error(`Migration failed: ${msg}`);
     }
   },
@@ -690,11 +691,11 @@ sharedCommandRegistry.registerCommand({
         const config = getConfiguration();
         const configuredBackend = config.sessiondb?.backend;
 
-        // Check for drift (configured vs runtime mismatch)
-        if (configuredBackend === "json") {
+        // Guard against unsupported historical backends
+        if (configuredBackend && !["sqlite", "postgres"].includes(configuredBackend as string)) {
           throw new Error(
-            "❌ CRITICAL: JSON backend is deprecated and no longer supported. " +
-              "Please migrate to SQLite or PostgreSQL using 'minsky sessiondb migrate'."
+            `❌ CRITICAL: Unsupported backend configured: ${configuredBackend}. ` +
+              "Supported backends: sqlite, postgres"
           );
         }
 
@@ -733,16 +734,22 @@ sharedCommandRegistry.registerCommand({
         log.cli(`Status: ${validationResult.success ? "✅ HEALTHY" : "❌ ISSUES FOUND"}`);
         log.cli(`Details: ${validationResult.details}`);
 
-        if (validationResult.issues && validationResult.issues.length > 0) {
+        if (
+          Array.isArray((validationResult as any).issues) &&
+          (validationResult as any).issues.length > 0
+        ) {
           log.cli(`\n⚠️ Issues Found:`);
-          validationResult.issues.forEach((issue, idx) => {
+          (validationResult as any).issues.forEach((issue: string, idx: number) => {
             log.cli(`  ${idx + 1}. ${issue}`);
           });
         }
 
-        if (validationResult.suggestions && validationResult.suggestions.length > 0) {
+        if (
+          Array.isArray((validationResult as any).suggestions) &&
+          (validationResult as any).suggestions.length > 0
+        ) {
           log.cli(`\n💡 Suggestions:`);
-          validationResult.suggestions.forEach((suggestion, idx) => {
+          (validationResult as any).suggestions.forEach((suggestion: string, idx: number) => {
             log.cli(`  ${idx + 1}. ${suggestion}`);
           });
         }
@@ -814,11 +821,16 @@ async function validateSqliteBackend(
 
     if (!integrityResult.isValid) {
       issues.push("SQLite integrity check failed");
-      if (integrityResult.errors) {
-        issues.push(...integrityResult.errors.map((err) => err.description));
+      if (Array.isArray(integrityResult.issues) && integrityResult.issues.length > 0) {
+        issues.push(...integrityResult.issues);
       }
-      if (integrityResult.suggestedActions) {
-        suggestions.push(...integrityResult.suggestedActions.map((action) => action.description));
+      if (
+        Array.isArray(integrityResult.suggestedActions) &&
+        integrityResult.suggestedActions.length > 0
+      ) {
+        suggestions.push(
+          ...integrityResult.suggestedActions.map((action) => action.description)
+        );
       }
     }
 
