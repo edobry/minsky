@@ -200,14 +200,17 @@ async function runSchemaMigrationsForConfiguredBackend(
     try {
       if (verbose) {
         log.cli("=== SessionDB Schema Migration (sqlite) ===");
+        log.cli("");
         log.cli(`Database: ${dbPath}`);
         log.cli(`Migrations: ./src/domain/storage/migrations`);
+        log.cli("");
       }
       const db = drizzle(sqlite, { logger: false });
       const start = Date.now();
       await migrate(db as any, { migrationsFolder: "./src/domain/storage/migrations" });
       if (verbose) {
         const ms = Date.now() - start;
+        log.cli("");
         log.cli(`Applied migrations in ${ms}ms`);
       }
     } finally {
@@ -277,6 +280,8 @@ async function runSchemaMigrationsForConfiguredBackend(
 
       // Pre-check applied vs files
       let appliedCount = 0;
+      let latestHash: string | undefined;
+      let latestAt: string | undefined;
       let schemaExists = false;
       let metaExists = false;
       try {
@@ -293,10 +298,17 @@ async function runSchemaMigrationsForConfiguredBackend(
         `;
         metaExists = Boolean(meta?.[0]?.exists);
         if (metaExists) {
-          const cnt = await sql<{ count: string }[]>`
-            SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+          const rows = await sql<
+            { count: string; hash: string | null; created_at: string | null }[]
+          >`
+            SELECT COUNT(*)::text as count,
+                   MAX(hash) as hash,
+                   MAX(created_at)::text as created_at
+            FROM "drizzle"."__drizzle_migrations";
           `;
-          appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+          appliedCount = parseInt(rows?.[0]?.count || "0", 10);
+          latestHash = rows?.[0]?.hash || undefined;
+          latestAt = rows?.[0]?.created_at || undefined;
         }
       } catch {
         // best-effort pre-checks
@@ -304,13 +316,22 @@ async function runSchemaMigrationsForConfiguredBackend(
 
       if (verbose) {
         log.cli("=== SessionDB Schema Migration (postgres) ===");
+        log.cli("");
         log.cli(`Database: ${masked}`);
         log.cli(`Migrations: ${migrationsFolder}`);
+        log.cli("");
         log.cli(
           `Status: schema=${schemaExists ? "present" : "missing"}, metaTable=${
             metaExists ? "present" : "missing"
           }`
         );
+        if (metaExists) {
+          log.cli(
+            `Meta: applied=${appliedCount}${latestHash ? `, latest=${latestHash}` : ""}${
+              latestAt ? `, last_at=${latestAt}` : ""
+            }`
+          );
+        }
         log.cli(
           `Plan: ${files.length} file(s), ${appliedCount} applied, ${Math.max(
             files.length - appliedCount,
@@ -318,10 +339,13 @@ async function runSchemaMigrationsForConfiguredBackend(
           )} pending`
         );
         if (files.length > 0) {
+          log.cli("");
           log.cli(`Files:`);
           files.forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
         }
+        log.cli("");
         log.cli(`Executing...`);
+        log.cli("");
       }
 
       const start = Date.now();
@@ -330,11 +354,13 @@ async function runSchemaMigrationsForConfiguredBackend(
         const ms = Date.now() - start;
         // Re-check applied count
         try {
-          const cnt2 = await sql<{ count: string }[]>`
-            SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+          const cnt2 = await sql<{ count: string; last: string | null }[]>`
+            SELECT COUNT(*)::text as count, MAX(hash) as last FROM "drizzle"."__drizzle_migrations";
           `;
           const applied2 = parseInt(cnt2?.[0]?.count || "0", 10);
+          const last = cnt2?.[0]?.last || "";
           log.cli(`Applied ${Math.max(applied2 - appliedCount, 0)} migration(s) in ${ms}ms`);
+          if (last) log.cli(`Latest applied: ${last}`);
         } catch {
           log.cli(`Applied migrations in ${ms}ms`);
         }
