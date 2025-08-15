@@ -27,6 +27,7 @@ import { loggerConfigSchema, type LoggerConfig } from "./logger";
 
 import { validationConfigSchema, type ValidationConfig } from "./validation";
 import { tasksConfigSchema, type TasksConfig } from "./tasks";
+import { embeddingsConfigSchema, type EmbeddingsConfig } from "./embeddings";
 
 /**
  * Complete application configuration schema
@@ -49,6 +50,9 @@ export const configurationSchema = z
 
     // AI providers configuration
     ai: aiConfigSchema,
+
+    // Embeddings configuration
+    embeddings: embeddingsConfigSchema,
 
     // Logging configuration
     logger: loggerConfigSchema,
@@ -244,6 +248,7 @@ export type {
   AIConfig,
   LoggerConfig,
   TasksConfig,
+  EmbeddingsConfig,
 };
 
 // Re-export schemas for external use
@@ -256,6 +261,7 @@ export {
   aiConfigSchema,
   loggerConfigSchema,
   tasksConfigSchema,
+  embeddingsConfigSchema,
 };
 
 // Export the main schema as default

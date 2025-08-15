@@ -1,6 +1,6 @@
 {
-  "id": "6f1b9be8-2874-4ae8-a142-391c98073ecc",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "2e60af0c-a485-4e8e-932f-2a617b5766dc",
+  "prevId": "0b028ece-a1b8-4787-9f81-25bc7bb9c04b",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -99,12 +99,6 @@
           "primaryKey": false,
           "notNull": true
         },
-        "embedding": {
-          "name": "embedding",
-          "type": "vector(1536)",
-          "primaryKey": false,
-          "notNull": false
-        },
         "metadata": {
           "name": "metadata",
           "type": "jsonb",
@@ -126,24 +120,7 @@
           "default": "now()"
         }
       },
-      "indexes": {
-        "idx_task_embeddings_ivf": {
-          "name": "idx_task_embeddings_ivf",
-          "columns": [
-            {
-              "expression": "embedding",
-              "isExpression": false,
-              "asc": true,
-              "nulls": "last",
-              "opclass": "vector_l2_ops"
-            }
-          ],
-          "isUnique": false,
-          "concurrently": false,
-          "method": "ivfflat",
-          "with": {}
-        }
-      },
+      "indexes": {},
       "foreignKeys": {},
       "compositePrimaryKeys": {},
       "uniqueConstraints": {},

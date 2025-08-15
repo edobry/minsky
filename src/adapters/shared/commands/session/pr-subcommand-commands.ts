@@ -57,6 +57,67 @@ export function composeConventionalTitle(input: {
 }
 
 /**
+ * Shared helpers for formatting PR titles consistently across commands
+ */
+function parseConventionalTitleShared(title: string): {
+  type?: string;
+  scope?: string;
+  title: string;
+} {
+  if (!title) return { title: "" };
+  const match =
+    title.match(/^([a-z]+)!?\(([^)]*)\):\s*(.*)$/i) || title.match(/^([a-z]+)!?:\s*(.*)$/i);
+  if (match) {
+    if (match.length === 4) {
+      const [, type, scope, rest] = match;
+      return { type: type.toLowerCase(), scope, title: rest };
+    }
+    if (match.length === 3) {
+      const [, type, rest] = match;
+      return { type: type.toLowerCase(), title: rest };
+    }
+  }
+  return { title };
+}
+
+function getStatusIconShared(status?: string): string {
+  const normalized = (status || "").toLowerCase();
+  switch (normalized) {
+    case "open":
+      return "🟢";
+    case "draft":
+      return "📝";
+    case "merged":
+      return "🟣";
+    case "closed":
+      return "🔴";
+    case "created":
+      return "🆕";
+    default:
+      return "•";
+  }
+}
+
+function formatPrTitleLineShared(input: {
+  status?: string;
+  rawTitle: string;
+  prNumber?: number;
+  taskId?: string;
+  sessionName?: string;
+}): string {
+  const displayId = input.taskId || input.sessionName || "";
+  const { type, title: cleanedTitle } = parseConventionalTitleShared(input.rawTitle || "");
+  const statusIcon = getStatusIconShared(input.status);
+
+  const idBadge = displayId ? `[${displayId}]` : "";
+  const typeBadge = type ? `[${type}]` : "";
+  const prSuffix = input.prNumber ? `[#${input.prNumber}]` : "";
+  return [statusIcon, typeBadge, idBadge, cleanedTitle, prSuffix]
+    .filter((p) => p && p.trim().length > 0)
+    .join(" ");
+}
+
+/**
  * Session PR Create Command
  * Replaces the current 'session pr' command
  */
@@ -478,16 +539,14 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
       const lines: string[] = [];
       sorted.forEach((pr) => {
         const displayId = pr.taskId || pr.sessionName || "";
-        const { type, scope, title: cleanedTitle } = this.parseConventionalTitle(pr.title || "");
-        const statusIcon = this.getStatusIcon(pr.status);
-
-        const idBadge = displayId ? `[${displayId}]` : "";
-        const typeBadge = type ? `[${type}]` : "";
-        const prSuffix = pr.prNumber ? `[#${pr.prNumber}]` : "";
-        const firstLineParts = [statusIcon, typeBadge, idBadge, cleanedTitle, prSuffix].filter(
-          (p) => p && p.trim().length > 0
-        );
-        lines.push(firstLineParts.join(" "));
+        const titleLine = formatPrTitleLineShared({
+          status: pr.status,
+          rawTitle: pr.title || "",
+          prNumber: pr.prNumber,
+          taskId: pr.taskId,
+          sessionName: pr.sessionName,
+        });
+        lines.push(titleLine);
 
         // Second line: Session, Branch (if different from session), PR number, Updated
         const details: string[] = [];
@@ -499,9 +558,7 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
           }
         }
         if (pr.branch && pr.branch !== pr.sessionName) details.push(`Branch: ${pr.branch}`);
-        if (pr.prNumber) details.push(`PR #${pr.prNumber}`);
         if (pr.updatedAt) details.push(`Updated: ${this.formatRelativeTime(pr.updatedAt)}`);
-        if ((pr as any).backendType) details.push(`Backend: ${(pr as any).backendType}`);
         if (details.length > 0) lines.push(details.join("  "));
 
         // Third line: URL on its own line (no label)
@@ -554,44 +611,7 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
     return result.length > max ? `${result.substring(0, max - 3)}...` : result;
   }
 
-  private parseConventionalTitle(title: string): {
-    type?: string;
-    scope?: string;
-    title: string;
-  } {
-    if (!title) return { title: "" };
-    const match =
-      title.match(/^([a-z]+)!?\(([^)]*)\):\s*(.*)$/i) || title.match(/^([a-z]+)!?:\s*(.*)$/i);
-    if (match) {
-      if (match.length === 4) {
-        const [, type, scope, rest] = match;
-        return { type: type.toLowerCase(), scope, title: rest };
-      }
-      if (match.length === 3) {
-        const [, type, rest] = match;
-        return { type: type.toLowerCase(), title: rest };
-      }
-    }
-    return { title };
-  }
-
-  private getStatusIcon(status?: string): string {
-    const normalized = (status || "").toLowerCase();
-    switch (normalized) {
-      case "open":
-        return "🟢";
-      case "draft":
-        return "📝";
-      case "merged":
-        return "🟣";
-      case "closed":
-        return "🔴";
-      case "created":
-        return "🆕";
-      default:
-        return "•";
-    }
-  }
+  // parseConventionalTitle and getStatusIcon moved to shared helpers above
 }
 
 /**
@@ -636,9 +656,13 @@ export class SessionPrGetCommand extends BaseSessionCommand<any, any> {
       // Format detailed output
       const { pullRequest } = result;
 
-      const titleLine = pullRequest.number
-        ? `${pullRequest.title} [#${pullRequest.number}]`
-        : pullRequest.title;
+      const titleLine = formatPrTitleLineShared({
+        status: pullRequest.status,
+        rawTitle: pullRequest.title,
+        prNumber: pullRequest.number,
+        taskId: pullRequest.taskId,
+        sessionName: pullRequest.sessionName,
+      });
 
       const output = [
         titleLine,

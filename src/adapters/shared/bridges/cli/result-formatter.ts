@@ -231,8 +231,14 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
    */
   private formatGenericObject(result: any): void {
     // Try to find meaningful fields to display
+    if ((result as any).printed) {
+      // Command already printed a verbose report; avoid redundant summary
+      return;
+    }
     if (result.message) {
+      // Prefer explicit message if present
       log.cli(result.message);
+      return;
     } else if (result.success !== undefined) {
       log.cli(result.success ? "✅ Success" : "❌ Failed");
 

@@ -39,24 +39,25 @@ export class ModularTasksCommandManager {
       log.debug("[ModularTasksCommandManager] Requiring migrate-command");
       const { createMigrateTasksCommand } = require("./tasks/migrate-command");
 
+      // Similarity + embeddings indexing commands
+      log.debug("[ModularTasksCommandManager] Requiring similarity and index-embeddings commands");
+      const { TasksSimilarCommand, TasksSearchCommand } = require("./tasks/similarity-commands");
+      const { TasksIndexEmbeddingsCommand } = require("./tasks/index-embeddings-command");
+
       // Create command instances to get their parameter definitions
       log.debug("[ModularTasksCommandManager] Creating command instances");
       const listCommand = createTasksListCommand();
-      log.debug("[ModularTasksCommandManager] Created listCommand");
       const getCommand = createTasksGetCommand();
-      log.debug("[ModularTasksCommandManager] Created getCommand");
       const createCommand = createTasksCreateCommand();
-      log.debug("[ModularTasksCommandManager] Created createCommand");
       const deleteCommand = createTasksDeleteCommand();
-      log.debug("[ModularTasksCommandManager] Created deleteCommand");
       const specCommand = createTasksSpecCommand();
-      log.debug("[ModularTasksCommandManager] Created specCommand");
       const statusGetCommand = createTasksStatusGetCommand();
-      log.debug("[ModularTasksCommandManager] Created statusGetCommand");
       const statusSetCommand = createTasksStatusSetCommand();
-      log.debug("[ModularTasksCommandManager] Created statusSetCommand");
       const migrateCommand = createMigrateTasksCommand();
-      log.debug("[ModularTasksCommandManager] Created migrateCommand");
+
+      const similarCommand = new TasksSimilarCommand();
+      const searchCommand = new TasksSearchCommand();
+      const indexEmbeddingsCommand = new TasksIndexEmbeddingsCommand();
 
       // Register list command
       sharedCommandRegistry.registerCommand({
@@ -153,6 +154,35 @@ export class ModularTasksCommandManager {
           return await migrateCommand.execute(params, context);
         },
       });
+
+      // Register similarity commands
+      sharedCommandRegistry.registerCommand({
+        id: similarCommand.id,
+        category: CommandCategory.TASKS,
+        name: similarCommand.name,
+        description: similarCommand.description,
+        parameters: (similarCommand as any).parameters,
+        execute: similarCommand.execute.bind(similarCommand),
+      });
+
+      sharedCommandRegistry.registerCommand({
+        id: searchCommand.id,
+        category: CommandCategory.TASKS,
+        name: searchCommand.name,
+        description: searchCommand.description,
+        parameters: (searchCommand as any).parameters,
+        execute: searchCommand.execute.bind(searchCommand),
+      });
+
+      // Register index embeddings command
+      sharedCommandRegistry.registerCommand({
+        id: indexEmbeddingsCommand.id,
+        category: CommandCategory.TASKS,
+        name: indexEmbeddingsCommand.name,
+        description: indexEmbeddingsCommand.description,
+        parameters: (indexEmbeddingsCommand as any).parameters,
+        execute: indexEmbeddingsCommand.execute.bind(indexEmbeddingsCommand),
+      });
     } catch (error) {
       console.warn("Failed to register task commands:", error);
     }
@@ -162,10 +192,6 @@ export class ModularTasksCommandManager {
    * Get a specific task command by ID
    */
   getCommand(commandId: string) {
-    // This method is no longer needed as commands are created on-demand
-    // and not stored in a registry.
-    // For now, return null or throw an error if commandId is not found.
-    // In a real scenario, you might need a more sophisticated command lookup.
     console.warn("getCommand is deprecated. Commands are created on-demand.");
     return null;
   }
@@ -174,9 +200,6 @@ export class ModularTasksCommandManager {
    * Get all registered task commands
    */
   getAllCommands() {
-    // This method is no longer needed as commands are created on-demand
-    // and not stored in a registry.
-    // For now, return an empty array.
     console.warn("getAllCommands is deprecated. Commands are created on-demand.");
     return [];
   }
@@ -185,9 +208,6 @@ export class ModularTasksCommandManager {
    * Get all task command registrations for the shared registry
    */
   getAllRegistrations() {
-    // This method is no longer needed as commands are created on-demand
-    // and not stored in a registry.
-    // For now, return an empty array.
     console.warn("getAllRegistrations is deprecated. Commands are created on-demand.");
     return [];
   }
@@ -196,9 +216,6 @@ export class ModularTasksCommandManager {
    * Execute a task command by ID with the given parameters
    */
   async executeCommand(commandId: string, params: any, context: any) {
-    // This method is no longer needed as commands are created on-demand
-    // and not stored in a registry.
-    // For now, throw an error.
     console.warn("executeCommand is deprecated. Commands are created on-demand.");
     throw new Error(`Task command not found: ${commandId}`);
   }
@@ -207,8 +224,6 @@ export class ModularTasksCommandManager {
    * Reset and re-register all commands (useful for testing)
    */
   resetCommands(): void {
-    // This method is no longer needed as commands are created on-demand
-    // and not stored in a registry.
     console.warn("resetCommands is deprecated. Commands are created on-demand.");
   }
 }

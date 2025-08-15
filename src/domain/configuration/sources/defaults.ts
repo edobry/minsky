@@ -111,6 +111,13 @@ export const defaultConfiguration: PartialConfiguration = {
     },
   },
 
+  // Embeddings configuration defaults
+  embeddings: {
+    provider: "openai",
+    model: "text-embedding-3-small",
+    normalize: false,
+  },
+
   // Logger configuration
   logger: {
     mode: "auto",
