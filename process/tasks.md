@@ -670,7 +670,7 @@
 
 - [ ] Extract reusable result-handling utilities for list/get commands [md#422](process/tasks/md#422-extract-reusable-result-handling-utilities-for-list-get-commands.md)
 
-- [+] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
+- [-] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
 
 - [+] Disable [DEBUG] logs for session start unless debug logging is enabled [md#425](process/tasks/md#425-disable-debug-logs-for-session-start-unless-debug-logging-is-enabled.md)
 
