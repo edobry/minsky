@@ -420,7 +420,7 @@
 
 - [ ] Design and implement task management UI system [md#252](process/tasks/md#252-design-and-implement-task-management-ui-system.md)
 
-- [+] Implement Task Similarity Search Using Embeddings [md#253](process/tasks/md#253-implement-task-similarity-search-using-embeddings.md)
+- [-] Implement Task Similarity Search Using Embeddings [md#253](process/tasks/md#253-implement-task-similarity-search-using-embeddings.md)
 
 - [ ] Implement Commit History Similarity Search Using Embeddings [md#254](process/tasks/md#254-implement-commit-history-similarity-search-using-embeddings.md)
 
@@ -675,3 +675,13 @@
 - [+] Disable [DEBUG] logs for session start unless debug logging is enabled [md#425](process/tasks/md#425-disable-debug-logs-for-session-start-unless-debug-logging-is-enabled.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+
+- [+] Plan: Automated Embedding Sync/Update Process [md#417](process/tasks/md#417-plan-automated-embedding-sync-update-process.md)
+
+- [+] Plan: Support Postgres→Postgres SessionDB Migration [md#418](process/tasks/md#418-plan-support-postgres-postgres-sessiondb-migration.md)
+
+- [+] Plan: Explore Migrating from SQLite to PGlite [md#419](process/tasks/md#419-plan-explore-migrating-from-sqlite-to-pglite.md)
+
+- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#1](process/tasks/md#1-plan-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+
+- [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)

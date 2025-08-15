@@ -37,3 +37,9 @@ export { MigrateTasksCommand, createMigrateTasksCommand } from "./migrate-comman
 
 // Export registry setup functions from separate module
 export { createAllTaskCommands, setupTaskCommandRegistry } from "./registry-setup";
+
+// Similarity commands
+export { TasksSimilarCommand, TasksSearchCommand } from "./similarity-commands";
+
+// Index embeddings command
+export { TasksIndexEmbeddingsCommand } from "./index-embeddings-command";

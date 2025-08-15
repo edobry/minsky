@@ -10,6 +10,8 @@ import { eq } from "drizzle-orm";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import postgres from "postgres";
 import { log } from "../../../utils/logger";
+import { readdirSync, statSync } from "fs";
+import { join } from "path";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -87,11 +89,86 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   }
 
   /**
+   * Determine if there are pending migrations by comparing the number of
+   * migration files in the migrations folder with the number of applied
+   * migrations in the __drizzle_migrations meta table.
+   */
+  private async hasPendingMigrations(): Promise<{
+    pending: boolean;
+    appliedCount: number;
+    fileCount: number;
+  }> {
+    // Count migration files in folder
+    const migrationsFolder = "./src/domain/storage/migrations/pg";
+    let fileCount = 0;
+    try {
+      const entries = readdirSync(migrationsFolder);
+      fileCount = entries.filter((name) => name.endsWith(".sql")).length;
+    } catch (e) {
+      // If folder not present, assume no migrations to apply
+      fileCount = 0;
+    }
+
+    // Check if meta table exists
+    const existsRes = await this.sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables
+        WHERE table_schema = 'public' AND table_name = '__drizzle_migrations'
+      ) as exists;
+    `;
+    const metaExists = Boolean(existsRes?.[0]?.exists);
+
+    if (!metaExists) {
+      return { pending: fileCount > 0, appliedCount: 0, fileCount };
+    }
+
+    // Count applied migrations
+    const countRes = await this.sql<{ count: string }[]>`
+      SELECT COUNT(*)::text as count FROM "__drizzle_migrations";
+    `;
+    const appliedCount = parseInt(countRes?.[0]?.count || "0", 10);
+
+    return { pending: appliedCount < fileCount, appliedCount, fileCount };
+  }
+
+  /**
+   * Verify DB schema is up-to-date; throw with guidance if not.
+   */
+  private async enforceMigrationsUpToDate(): Promise<void> {
+    try {
+      const { pending, appliedCount, fileCount } = await this.hasPendingMigrations();
+      if (pending) {
+        const masked = (() => {
+          try {
+            const url = new URL(this.connectionString);
+            return `postgresql://${url.host}${url.pathname}`;
+          } catch {
+            return "postgresql://<redacted>";
+          }
+        })();
+        const guidance = [
+          "Database schema is out of date.",
+          `Applied migrations: ${appliedCount} / Files: ${fileCount}`,
+          `Connection: ${masked}`,
+          "Run schema migrations:",
+          "  minsky sessiondb migrate --dry-run",
+          "  minsky sessiondb migrate",
+        ].join("\n");
+        throw new Error(guidance);
+      }
+    } catch (error) {
+      // Surface concise error upstream
+      const message = error instanceof Error ? error.message : String(error as any);
+      throw new Error(message);
+    }
+  }
+
+  /**
    * Initialize the storage (create tables if needed)
    */
   async initialize(): Promise<boolean> {
-    // Use Drizzle migrations for all schema changes; do not execute manual DDL here
-    await this.runMigrations();
+    // Do not auto-run migrations; enforce up-to-date schema and instruct user
+    await this.enforceMigrationsUpToDate();
     return true;
   }
 

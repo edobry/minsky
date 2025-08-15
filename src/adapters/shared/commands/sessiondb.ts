@@ -45,6 +45,8 @@ const sessiondbSearchCommandParams: CommandParameterMap = {
   },
 };
 
+// (Removed) PG-specific migrate wrapper; unified under sessiondb.migrate
+
 // Register sessiondb search command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.search",
@@ -104,14 +106,16 @@ sharedCommandRegistry.registerCommand({
   },
 });
 
+// (Removed) see unified 'sessiondb.migrate'
+
 /**
  * Parameters for the sessiondb migrate command
  */
 const sessiondbMigrateCommandParams: CommandParameterMap = {
   to: {
-    schema: z.enum(["sqlite", "postgres"]),
-    description: "Target backend type",
-    required: true,
+    schema: z.enum(["sqlite", "postgres"]).optional(),
+    description: "Target backend type (if omitted, run schema migrations for current backend)",
+    required: false,
   },
   from: {
     schema: z.string(),
@@ -138,45 +142,199 @@ const sessiondbMigrateCommandParams: CommandParameterMap = {
     description: "Update configuration to use migrated backend as default",
     required: false,
   },
+  dryRun: {
+    schema: z.boolean(),
+    description: "For schema-only mode: show what would be executed without applying",
+    required: false,
+    defaultValue: false,
+  },
+  verbose: {
+    schema: z.boolean(),
+    description: "Verbose logging during schema migration",
+    required: false,
+    defaultValue: false,
+  },
 };
 
 /**
- * Parameters for the sessiondb check command
+ * Helper: run schema migrations for the configured backend
  */
-const sessiondbCheckCommandParams: CommandParameterMap = {
-  file: {
-    schema: z.string(),
-    description: "Path to database file to check (SQLite only)",
-    required: false,
-  },
-  backend: {
-    schema: z.enum(["sqlite", "postgres"]),
-    description: "Force specific backend validation",
-    required: false,
-  },
-  fix: {
-    schema: z.boolean(),
-    description: "Automatically fix issues when possible",
-    required: false,
-  },
-  report: {
-    schema: z.boolean(),
-    description: "Show detailed integrity report",
-    required: false,
-  },
-};
+async function runSchemaMigrationsForConfiguredBackend(
+  options: { dryRun?: boolean; verbose?: boolean } = {}
+): Promise<any> {
+  const { dryRun = false, verbose = false } = options;
+  const { getConfiguration } = await import("../../../domain/configuration/index");
+  const config = getConfiguration();
+  const backend = (config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
+
+  if (backend === "sqlite") {
+    // SQLite: bun:sqlite + drizzle migrator
+    const dbPath =
+      config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+    if (dryRun) {
+      return {
+        success: true,
+        backend,
+        dryRun: true,
+        sqlitePath: dbPath,
+        migrationsFolder: "./src/domain/storage/migrations",
+        note: "No changes applied (dry run).",
+      };
+    }
+
+    const { Database } = await import("bun:sqlite");
+    const { drizzle } = await import("drizzle-orm/bun-sqlite");
+    // @ts-expect-error - migrator path for bun-sqlite
+    const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
+
+    const sqlite = new Database(dbPath);
+    try {
+      const db = drizzle(sqlite, { logger: verbose });
+      await migrate(db as any, { migrationsFolder: "./src/domain/storage/migrations" });
+    } finally {
+      sqlite.close();
+    }
+
+    return {
+      success: true,
+      applied: true,
+      backend,
+      migrationsFolder: "./src/domain/storage/migrations",
+    };
+  }
+
+  if (backend === "postgres") {
+    const connectionString =
+      config.sessiondb?.postgres?.connectionString ||
+      config.sessiondb?.connectionString ||
+      (process.env as any).MINSKY_POSTGRES_URL;
+
+    if (!connectionString) {
+      throw new Error(
+        "PostgreSQL connection string not found. Configure sessiondb.postgres.connectionString or set MINSKY_POSTGRES_URL."
+      );
+    }
+
+    if (dryRun) {
+      return {
+        success: true,
+        backend,
+        dryRun: true,
+        connection: connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@"),
+        migrationsFolder: "./src/domain/storage/migrations/pg",
+        note: "No changes applied (dry run).",
+      };
+    }
+
+    const { drizzle } = await import("drizzle-orm/postgres-js");
+    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+    const postgres = (await import("postgres")).default;
+
+    const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 10 });
+    try {
+      const db = drizzle(sql, { logger: verbose });
+      await migrate(db, { migrationsFolder: "./src/domain/storage/migrations/pg" });
+    } finally {
+      await sql.end();
+    }
+
+    return {
+      success: true,
+      applied: true,
+      backend,
+      migrationsFolder: "./src/domain/storage/migrations/pg",
+    };
+  }
+
+  throw new Error(`Unsupported backend: ${backend}`);
+}
+
+/**
+ * Helper: run schema migrations for an explicit backend (used during data migrations to prep target DB)
+ */
+async function runSchemaMigrationsForBackend(
+  backend: "sqlite" | "postgres",
+  options: { verbose?: boolean; sqlitePath?: string; connectionString?: string } = {}
+): Promise<void> {
+  const { verbose = false, sqlitePath, connectionString } = options;
+  if (backend === "sqlite") {
+    const dbPath = sqlitePath || getDefaultSqliteDbPath();
+    const { Database } = await import("bun:sqlite");
+    const { drizzle } = await import("drizzle-orm/bun-sqlite");
+    // @ts-expect-error - migrator path for bun-sqlite
+    const { migrate } = await import("drizzle-orm/bun-sqlite/migrator");
+    const sqlite = new Database(dbPath);
+    try {
+      const db = drizzle(sqlite, { logger: verbose });
+      await migrate(db as any, { migrationsFolder: "./src/domain/storage/migrations" });
+    } finally {
+      sqlite.close();
+    }
+    return;
+  }
+  if (backend === "postgres") {
+    const conn = connectionString;
+    if (!conn) return; // rely on storage.initialize() fallback
+    const { drizzle } = await import("drizzle-orm/postgres-js");
+    const { migrate } = await import("drizzle-orm/postgres-js/migrator");
+    const postgres = (await import("postgres")).default;
+    const sql = postgres(conn, { prepare: false, onnotice: () => {}, max: 10 });
+    try {
+      const db = drizzle(sql, { logger: verbose });
+      await migrate(db, { migrationsFolder: "./src/domain/storage/migrations/pg" });
+    } finally {
+      await sql.end();
+    }
+    return;
+  }
+}
 
 // Register sessiondb migrate command
 sharedCommandRegistry.registerCommand({
   id: "sessiondb.migrate",
   category: CommandCategory.SESSIONDB,
   name: "migrate",
-  description: "Migrate session database between backends",
+  description:
+    "Migrate session database between backends, or run schema migrations when no target is provided",
   parameters: sessiondbMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
-    const { to, from, sqlitePath, backup = true, execute, setDefault } = params;
+    const {
+      to,
+      from,
+      sqlitePath,
+      backup = true,
+      execute,
+      setDefault,
+      dryRun = false,
+      verbose = false,
+    } = params;
 
-    // Default is preview mode unless --execute is specified
+    // If no target backend provided, run schema migrations for current backend
+    if (!to) {
+      try {
+        log.cli("🚀 SessionDB Schema Migration (configured backend)");
+        // DEFAULT: dry-run; require --execute to apply
+        const shouldApply = Boolean(execute);
+        const result = await runSchemaMigrationsForConfiguredBackend({
+          dryRun: !shouldApply,
+          verbose,
+        });
+
+        if (context.format === "human") {
+          if (result.dryRun) {
+            return `Schema migration (dry run) for ${result.backend || "sqlite"} using ${result.migrationsFolder}`;
+          }
+          return `Schema migration applied for ${result.backend || "sqlite"} using ${result.migrationsFolder}`;
+        }
+
+        return result;
+      } catch (error) {
+        const msg = getErrorMessage(error).split("\n")[0];
+        throw new Error(`Schema migration failed: ${msg}`);
+      }
+    }
+
+    // DEFAULT: preview unless user passes --execute
     const isPreviewMode = !execute;
 
     try {
@@ -356,10 +514,13 @@ sharedCommandRegistry.registerCommand({
 
       // Create target storage with config-driven approach
       const targetConfig: any = { backend: to };
+      let targetSqlitePath: string | undefined;
+      let targetPostgresConn: string | undefined;
 
       if (to === "sqlite") {
+        targetSqlitePath = sqlitePath || getDefaultSqliteDbPath();
         targetConfig.sqlite = {
-          dbPath: sqlitePath || getDefaultSqliteDbPath(),
+          dbPath: targetSqlitePath,
         };
       } else if (to === "postgres") {
         // Use config-driven PostgreSQL connection
@@ -378,11 +539,19 @@ sharedCommandRegistry.registerCommand({
         log.cli(
           `Using PostgreSQL connection: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
         );
+        targetPostgresConn = connectionString;
         targetConfig.postgres = { connectionString: connectionString };
       }
 
       const targetStorage = createStorageBackend(targetConfig);
       await targetStorage.initialize();
+
+      // Ensure target schema is fully migrated before writing
+      await runSchemaMigrationsForBackend(to, {
+        verbose,
+        sqlitePath: targetSqlitePath,
+        connectionString: targetPostgresConn,
+      });
 
       // Show execute plan (same as preview) before applying
       log.cli("");
@@ -419,15 +588,14 @@ sharedCommandRegistry.registerCommand({
         log.cli(`backend = "${to}"`);
 
         if (to === "postgres") {
-          const connectionString =
-            config.sessiondb?.postgres?.connectionString ||
-            config.sessiondb?.connectionString ||
-            process.env.MINSKY_POSTGRES_URL;
-          log.cli(`\n[sessiondb.postgres]`);
-          log.cli(`connectionString = "${connectionString}"`);
-        } else if (to === "sqlite" && sqlitePath) {
+          const connectionString = targetPostgresConn;
+          if (connectionString) {
+            log.cli(`\n[sessiondb.postgres]`);
+            log.cli(`connectionString = "${connectionString}"`);
+          }
+        } else if (to === "sqlite" && targetSqlitePath) {
           log.cli(`\n[sessiondb.sqlite]`);
-          log.cli(`path = "${sqlitePath}"`);
+          log.cli(`path = "${targetSqlitePath}"`);
         }
 
         log.cli(`\n💡 To revert: Change backend back to your previous setting`);
@@ -468,6 +636,32 @@ sharedCommandRegistry.registerCommand({
     }
   },
 });
+
+/**
+ * Parameters for the sessiondb check command
+ */
+const sessiondbCheckCommandParams: CommandParameterMap = {
+  file: {
+    schema: z.string(),
+    description: "Path to database file to check (SQLite only)",
+    required: false,
+  },
+  backend: {
+    schema: z.enum(["sqlite", "postgres"]),
+    description: "Force specific backend validation",
+    required: false,
+  },
+  fix: {
+    schema: z.boolean(),
+    description: "Automatically fix issues when possible",
+    required: false,
+  },
+  report: {
+    schema: z.boolean(),
+    description: "Show detailed integrity report",
+    required: false,
+  },
+};
 
 // Register sessiondb check command
 sharedCommandRegistry.registerCommand({
