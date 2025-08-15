@@ -71,7 +71,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 
     const params = {
-      task: "160",
+      task: "md#160",
       repo: "local/minsky",
       quiet: false,
       noStatusUpdate: false,
@@ -150,7 +150,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 
     const params = {
-      task: "160",
+      task: "md#160",
       repo: "local/minsky",
       quiet: false,
       noStatusUpdate: false,
