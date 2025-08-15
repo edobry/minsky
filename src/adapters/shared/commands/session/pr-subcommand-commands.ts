@@ -538,6 +538,7 @@ export class SessionPrListCommand extends BaseSessionCommand<any, any> {
 
       const lines: string[] = [];
       sorted.forEach((pr) => {
+        const displayId = pr.taskId || pr.sessionName || "";
         const titleLine = formatPrTitleLineShared({
           status: pr.status,
           rawTitle: pr.title || "",
