@@ -1,4 +1,5 @@
 import type { Config } from "drizzle-kit";
+import { execSync } from "child_process";
 
 // Helper function to get PostgreSQL connection string from Minsky config system
 function getPostgresConnectionString(): string {
@@ -23,7 +24,22 @@ function getPostgresConnectionString(): string {
     return envUrl;
   }
 
-  // 3. Development fallback
+  // 3. Load from Minsky configuration system using helper script
+  // This handles standalone drizzle-kit commands
+  try {
+    const configOutput = execSync("bun ./scripts/drizzle-config-loader.ts", {
+      encoding: "utf8",
+      stdio: ["inherit", "pipe", "pipe"],
+    });
+    const dbConfig = JSON.parse(configOutput.trim());
+    if (dbConfig.postgres?.connectionString) {
+      return dbConfig.postgres.connectionString;
+    }
+  } catch (error) {
+    console.warn("Failed to load Minsky configuration via helper script:", error);
+  }
+
+  // 4. Development fallback
   return "postgresql://localhost:5432/minsky";
 }
 
