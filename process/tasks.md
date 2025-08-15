@@ -672,7 +672,7 @@
 
 - [-] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
 
-- [+] Disable [DEBUG] logs for session start unless debug logging is enabled [md#425](process/tasks/md#425-disable-debug-logs-for-session-start-unless-debug-logging-is-enabled.md)
+- [x] Disable [DEBUG] logs for session start unless debug logging is enabled [md#425](process/tasks/md#425-disable-debug-logs-for-session-start-unless-debug-logging-is-enabled.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
@@ -686,4 +686,8 @@
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
-- [ ] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
+- [+] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
+
+- [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
+
+- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)

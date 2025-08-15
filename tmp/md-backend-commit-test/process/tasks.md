@@ -1,0 +1,1 @@
+- [ ] No-change commit suppression [#1](#)

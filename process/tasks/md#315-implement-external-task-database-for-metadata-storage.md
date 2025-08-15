@@ -27,36 +27,38 @@ Implement true spec/metadata separation by extending the existing `task_embeddin
 
 ### 1) Schema evolution (non-breaking)
 
-- Extend `task_embeddings` with:
-  - `qualified_task_id TEXT` (nullable initially), unique index
-  - `task_metadata JSONB DEFAULT '{}'` (GIN index)
-  - `content_hash TEXT`, `last_indexed_at TIMESTAMPTZ` (for staleness tracking)
-- Migration steps (idempotent):
-  - Add columns if not exist
-  - Backfill `qualified_task_id` from `task_id` using rules: `^[0-9]+$` → `md#<id>`; leave pre-qualified as-is
-  - Add unique constraint on `qualified_task_id` (deferred until backfill complete)
-  - Keep table name as `task_embeddings` to avoid disruption, but treat it as metadata+embeddings
+- Normalize and use existing `task_id` column (currently empty) instead of introducing a new field:
+  - Backfill `task_id` with the normalized/qualified task ID (e.g., `md#<id>` for markdown tasks)
+  - Add a unique constraint on `task_id` after backfill completes successfully
+- Keep embedding tracking fields:
+  - `content_hash TEXT`, `last_indexed_at TIMESTAMPTZ`
+- Do NOT add a generic JSONB metadata column. We will add specific, first-class columns for metadata (e.g., `priority`, `category`, `tags`, relationships) in dedicated follow-up tasks as they are specified.
+- Keep table name as `task_embeddings` for now to avoid disruption; in future we may rename after full adoption.
+
+Migration steps (idempotent):
+- Ensure `task_id` column exists (it does) and is nullable initially
+- Compute normalized `task_id` from existing primary key `id` using backend-aware rules:
+  - Numeric `^[0-9]+$` → `md#<id>` (markdown backend)
+  - Already-qualified values remain unchanged
+- Add unique index/constraint on `task_id` only after backfill validation passes
 
 ### 2) Services
 
-- Introduce `TaskMetadataService` with:
-  - `getTaskMetadata(qualifiedId)` / `setTaskMetadata(qualifiedId, data)`
-  - Relationship helpers: `getDependencies`, `setDependencies`, `getSubtasks`
-  - Query helpers: `queryByMetadata` (JSONB predicates)
-- Wire to use the same Postgres connection as session DB when configured
+- No generic metadata service at this time. We are not introducing arbitrary free-form metadata handling.
+- Future metadata features (dependencies, tags, categories, priorities, etc.) will each add explicit columns and narrowly-scoped service/CLI operations in their own tasks/specs.
 
 ### 3) CLI and migration
 
-- Add `tasks migrate-embeddings` command:
+- Add `tasks migrate-embeddings` command focused solely on ID normalization into `task_id`:
   - Dry-run by default; `--execute` to apply
-  - Reports legacy vs qualified IDs, conflicts, updates performed
-- Add `tasks metadata` commands (get/set/update/query) with JSON input/output
+  - Reports legacy vs normalized IDs, conflicts, updates performed
+- No generic `tasks metadata get/set/update/query` commands.
 
 ### 4) Backward/forward compatibility
 
 - No changes required to similarity commands
-- `tasks.index-embeddings` populates `content_hash`/`last_indexed_at`
-- Future: optional rename to `task_metadata` table once codepaths fully adopt new fields
+- `tasks.index-embeddings` continues to maintain `content_hash`/`last_indexed_at`
+- Future, metadata-specific tasks will extend schema and surface narrowly-scoped commands as needed
 
 ## Metadata schema (JSONB)
 
@@ -72,11 +74,10 @@ interface TaskMetadata {
 
 ## Acceptance Criteria (updated)
 
-- [ ] Non-breaking migration extends `task_embeddings` with metadata fields
-- [ ] Legacy `task_id` values normalized into `qualified_task_id` with dry-run + execute flow
-- [ ] `TaskMetadataService` implemented with CRUD, relationships, and query
-- [ ] CLI: `tasks migrate-embeddings`, `tasks metadata get/set/update/query`
-- [ ] Documentation updated and examples provided
+- [ ] Non-breaking migration populates `task_id` with normalized task IDs and adds a unique constraint post-backfill
+- [ ] No generic JSONB metadata column added; future metadata is modeled with explicit columns in separate tasks
+- [ ] CLI: `tasks migrate-embeddings` implements dry-run/execute flow for ID normalization only
+- [ ] Documentation updated to reflect `task_id` normalization approach and forward plan for specific metadata fields
 
 ## Notes
 
