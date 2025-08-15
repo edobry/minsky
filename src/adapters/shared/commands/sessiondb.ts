@@ -182,14 +182,93 @@ async function runSchemaMigrationsForConfiguredBackend(
     const dbPath =
       config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
     if (dryRun) {
-      return {
+      // Build preview plan
+      const migrationsFolder = "./src/domain/storage/migrations";
+      const { readdirSync } = await import("fs");
+      const { basename } = await import("path");
+      let fileNames: string[] = [];
+      try {
+        fileNames = readdirSync(migrationsFolder)
+          .filter((n) => n.endsWith(".sql"))
+          .sort((a, b) => a.localeCompare(b));
+      } catch {
+        // ignore
+      }
+
+      let metaExists = false;
+      let appliedCount = 0;
+      let latestHash: string | undefined;
+      let latestAt: string | undefined;
+      try {
+        const { Database } = await import("bun:sqlite");
+        const db = new Database(dbPath);
+        try {
+          // Check meta table
+          const tables = db
+            .query(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'"
+            )
+            .all();
+          metaExists = Array.isArray(tables) && tables.length > 0;
+          if (metaExists) {
+            const cnt = db.query("SELECT COUNT(*) as count FROM __drizzle_migrations").get() as any;
+            appliedCount = parseInt(String(cnt?.count || 0), 10);
+            const last = db
+              .query(
+                "SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1"
+              )
+              .get() as any;
+            latestHash = last?.hash || undefined;
+            latestAt = last?.created_at ? String(last.created_at) : undefined;
+          }
+        } finally {
+          db.close();
+        }
+      } catch {
+        // Best effort
+      }
+
+      const plan = {
         success: true,
         backend,
         dryRun: true,
         sqlitePath: dbPath,
-        migrationsFolder: "./src/domain/storage/migrations",
-        note: "No changes applied (dry run).",
-      };
+        migrationsFolder,
+        status: { metaTable: metaExists ? "present" : "missing" },
+        plan: {
+          files: fileNames,
+          fileCount: fileNames.length,
+          appliedCount,
+          pendingCount: Math.max(fileNames.length - appliedCount, 0),
+          latestHash,
+          latestAt,
+        },
+      } as const;
+
+      if (verbose) {
+        log.cli("=== SessionDB Schema Migration (sqlite) — DRY RUN ===");
+        log.cli("");
+        log.cli(`Database: ${dbPath}`);
+        log.cli(`Migrations: ${migrationsFolder}`);
+        log.cli("");
+        log.cli(`Status: metaTable=${metaExists ? "present" : "missing"}`);
+        log.cli(
+          `Plan: ${fileNames.length} file(s), ${appliedCount} applied, ${Math.max(
+            fileNames.length - appliedCount,
+            0
+          )} pending`
+        );
+        if (fileNames.length > 0) {
+          log.cli("");
+          log.cli("Files:");
+          fileNames.forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+        }
+        log.cli("");
+        log.cli("(use --execute to apply)");
+        log.cli("");
+      }
+
+      return plan as any;
     }
 
     const { Database } = await import("bun:sqlite");
@@ -238,14 +317,112 @@ async function runSchemaMigrationsForConfiguredBackend(
     }
 
     if (dryRun) {
-      return {
+      // Build preview plan
+      const maskedConn = connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@");
+      const { readdirSync } = await import("fs");
+      const { basename } = await import("path");
+      const migrationsFolder = "./src/domain/storage/migrations/pg";
+      let fileNames: string[] = [];
+      try {
+        fileNames = readdirSync(migrationsFolder)
+          .filter((n) => n.endsWith(".sql"))
+          .sort((a, b) => a.localeCompare(b));
+      } catch {
+        // ignore
+      }
+
+      const postgres = (await import("postgres")).default;
+      const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 5 });
+      let schemaExists = false;
+      let metaExists = false;
+      let appliedCount = 0;
+      let latestHash: string | undefined;
+      let latestAt: string | undefined;
+      try {
+        const sch = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM information_schema.schemata WHERE schema_name = 'drizzle'
+          ) as exists;
+        `;
+        schemaExists = Boolean(sch?.[0]?.exists);
+        const meta = await sql<{ exists: boolean }[]>`
+          SELECT EXISTS (
+            SELECT 1 FROM information_schema.tables WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+          ) as exists;
+        `;
+        metaExists = Boolean(meta?.[0]?.exists);
+        if (metaExists) {
+          const rows = await sql<{ hash: string | null; created_at: string | null }[]>`
+            SELECT hash, created_at::text FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1;
+          `;
+          latestHash = rows?.[0]?.hash || undefined;
+          latestAt = rows?.[0]?.created_at || undefined;
+          const cnt = await sql<{ count: string }[]>`
+            SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+          `;
+          appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+        }
+      } catch {
+        // best-effort only
+      } finally {
+        await sql.end();
+      }
+
+      const plan = {
         success: true,
         backend,
         dryRun: true,
-        connection: connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@"),
-        migrationsFolder: "./src/domain/storage/migrations/pg",
-        note: "No changes applied (dry run).",
-      };
+        connection: maskedConn,
+        migrationsFolder,
+        status: {
+          schema: schemaExists ? "present" : "missing",
+          metaTable: metaExists ? "present" : "missing",
+        },
+        plan: {
+          files: fileNames,
+          fileCount: fileNames.length,
+          appliedCount,
+          pendingCount: Math.max(fileNames.length - appliedCount, 0),
+          latestHash,
+          latestAt,
+        },
+      } as const;
+
+      if (verbose) {
+        log.cli("=== SessionDB Schema Migration (postgres) — DRY RUN ===");
+        log.cli("");
+        log.cli(`Database: ${maskedConn}`);
+        log.cli(`Migrations: ${migrationsFolder}`);
+        log.cli("");
+        log.cli(
+          `Status: schema=${schemaExists ? "present" : "missing"}, metaTable=${
+            metaExists ? "present" : "missing"
+          }`
+        );
+        if (metaExists) {
+          log.cli(
+            `Meta: applied=${appliedCount}${latestHash ? `, latest=${latestHash}` : ""}${
+              latestAt ? `, last_at=${latestAt}` : ""
+            }`
+          );
+        }
+        log.cli(
+          `Plan: ${fileNames.length} file(s), ${appliedCount} applied, ${Math.max(
+            fileNames.length - appliedCount,
+            0
+          )} pending`
+        );
+        if (fileNames.length > 0) {
+          log.cli("");
+          log.cli("Files:");
+          fileNames.forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+        }
+        log.cli("");
+        log.cli("(use --execute to apply)");
+        log.cli("");
+      }
+
+      return plan as any;
     }
 
     const { drizzle } = await import("drizzle-orm/postgres-js");
