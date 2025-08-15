@@ -288,19 +288,84 @@ async function runSchemaMigrationsForConfiguredBackend(
 
     const sqlite = new Database(dbPath);
     try {
+      const migrationsFolder = "./src/domain/storage/migrations";
+      let fileNames: string[] = [];
+      let metaExists = false;
+      let appliedCount = 0;
+      let latestHash: string | undefined;
+      let latestAt: string | undefined;
+
       if (verbose) {
-        log.cli("=== SessionDB Schema Migration (sqlite) ===");
-        log.cli("");
-        log.cli(`Database: ${dbPath}`);
-        log.cli(`Migrations: ./src/domain/storage/migrations`);
-        log.cli("");
+        try {
+          const { readdirSync } = await import("fs");
+          const { basename } = await import("path");
+          fileNames = readdirSync(migrationsFolder)
+            .filter((n) => n.endsWith(".sql"))
+            .sort((a, b) => a.localeCompare(b));
+
+          const tables = sqlite
+            .query(
+              "SELECT name FROM sqlite_master WHERE type='table' AND name='__drizzle_migrations'"
+            )
+            .all();
+          metaExists = Array.isArray(tables) && tables.length > 0;
+          if (metaExists) {
+            const cnt = sqlite
+              .query("SELECT COUNT(*) as count FROM __drizzle_migrations")
+              .get() as any;
+            appliedCount = parseInt(String(cnt?.count || 0), 10);
+            const last = sqlite
+              .query(
+                "SELECT hash, created_at FROM __drizzle_migrations ORDER BY created_at DESC LIMIT 1"
+              )
+              .get() as any;
+            latestHash = last?.hash || undefined;
+            latestAt = last?.created_at ? String(last.created_at) : undefined;
+          }
+
+          log.cli("=== SessionDB Schema Migration (sqlite) ===");
+          log.cli("");
+          log.cli(`Database: ${dbPath}`);
+          log.cli(`Migrations: ${migrationsFolder}`);
+          log.cli("");
+          log.cli(`Status: metaTable=${metaExists ? "present" : "missing"}`);
+          if (metaExists) {
+            log.cli(
+              `Meta: applied=${appliedCount}${latestHash ? `, latest=${latestHash}` : ""}${
+                latestAt ? `, last_at=${latestAt}` : ""
+              }`
+            );
+          }
+          log.cli(
+            `Plan: ${fileNames.length} file(s), ${appliedCount} applied, ${Math.max(
+              fileNames.length - appliedCount,
+              0
+            )} pending`
+          );
+          if (fileNames.length > 0) {
+            log.cli("");
+            log.cli("Files:");
+            fileNames.forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+            const pending = fileNames.slice(appliedCount);
+            if (pending.length > 0) {
+              log.cli("");
+              log.cli("Pending:");
+              pending.forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+            }
+          }
+          log.cli("");
+          log.cli("Executing...");
+          log.cli("");
+        } catch {
+          // ignore preview issues
+        }
       }
-      const db = drizzle(sqlite, { logger: false });
+
+      const db = drizzle(sqlite, { logger: showSql });
       const start = Date.now();
-      await migrate(db as any, { migrationsFolder: "./src/domain/storage/migrations" });
+      await migrate(db as any, { migrationsFolder });
       if (verbose) {
         const ms = Date.now() - start;
-        log.cli("");
         log.cli(`Applied migrations in ${ms}ms`);
       }
     } finally {
@@ -461,7 +526,7 @@ async function runSchemaMigrationsForConfiguredBackend(
 
     const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 10 });
     try {
-      const db = drizzle(sql, { logger: false });
+      const db = drizzle(sql, { logger: showSql });
 
       const masked = (() => {
         try {
@@ -554,6 +619,14 @@ async function runSchemaMigrationsForConfiguredBackend(
       }
 
       const start = Date.now();
+      if (verbose && files.length > 0) {
+        const pending = Math.max(files.length - appliedCount, 0);
+        if (pending > 0) {
+          log.cli("Running migrations (in order):");
+          files.slice(appliedCount).forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+          log.cli("");
+        }
+      }
       await migrate(db, { migrationsFolder });
       if (verbose) {
         const ms = Date.now() - start;
