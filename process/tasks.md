@@ -685,3 +685,5 @@
 - [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#1](process/tasks/md#1-plan-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+
+- [ ] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
