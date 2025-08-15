@@ -1,9 +1,11 @@
-- refactor(sessiondb): improve migration system with automatic staleness detection and fix drizzle-kit compatibility
-  - **FIXED**: Remove top-level await from drizzle config to fix drizzle-kit compatibility (drizzle-kit loads config synchronously)
-  - Replace --generate flag with automatic staleness detection using drizzle-kit check
-  - Auto-generate migrations when schema changes are detected, eliminating manual flag requirement
-  - Simplify workflow: migrations are checked and generated automatically on every run for PostgreSQL
-  - Drizzle config now uses environment variables (which Minsky config system populates) for database connection
+- feat(sessiondb): integrate Minsky configuration system with drizzle-kit using environment variable pattern
+  - **FIXED**: Implement workaround for drizzle-kit's lack of top-level await support using environment variables (addresses drizzle-team/drizzle-orm#1982 and #3481)
+  - **NEW**: Create scripts/drizzle-config-loader.ts that loads Minsky config asynchronously for standalone drizzle-kit usage
+  - **NEW**: Update drizzle.pg.config.ts to read from MINSKY_DB_CONFIG environment variable set by migration command
+  - **NEW**: Migration command now loads Minsky config and exports database credentials to environment before calling drizzle-kit
+  - **ENHANCED**: Proper integration with Minsky configuration system for database credentials in both migration and generation operations
+  - Replace --generate flag with automatic staleness detection and generation
+  - Simplify workflow: migrations are checked and generated automatically using proper Minsky database configuration
 - fix(github-merge): Use PR title/body for merge commit message in GitHub backend and remove legacy branch persistence from session creation paths. Updated repo guardrails spec to include default merge commit message settings (PR title/body).
 - feat(session): add `session.migrate-backend` command to switch a session's repo backend to GitHub by reading origin URL and updating `backendType`
   - Detects origin with `git remote get-url origin` from the session workspace
