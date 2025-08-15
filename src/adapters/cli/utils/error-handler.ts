@@ -163,8 +163,12 @@ export function handleCliError(error: any): never {
     const anyErr: any = error as any;
     const code = anyErr?.code || anyErr?.originalError?.code || anyErr?.cause?.code;
     const name = anyErr?.name || anyErr?.originalError?.name || anyErr?.cause?.name;
-    const prefix = code || name ? `${code || name}: ` : "";
-    log.cliError(`❌ ${prefix}${sanitizeMessage(normalizedError.message)}`);
+    const pgFriendlyName = mapPostgresSqlStateToName(code);
+    const labelParts: string[] = [];
+    if (pgFriendlyName) labelParts.push(pgFriendlyName);
+    if (code) labelParts.push(`(${code})`);
+    const label = labelParts.length > 0 ? `${labelParts.join(" ")}: ` : "";
+    log.cliError(`❌ ${label}${sanitizeMessage(normalizedError.message)}`);
 
     // Postgres-specific guidance based on SQLSTATE error codes
     const hints: string[] = [];
@@ -230,6 +234,27 @@ export function handleCliError(error: any): never {
   }
 
   exit(1);
+}
+
+/**
+ * Map common PostgreSQL SQLSTATE codes to human-friendly names
+ * Reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
+ */
+function mapPostgresSqlStateToName(code?: string): string | undefined {
+  if (!code) return undefined;
+  const map: Record<string, string> = {
+    // Class 42 — Syntax Error or Access Rule Violation
+    "42P07": "duplicate_table",
+    "42P01": "undefined_table",
+    "42P02": "undefined_parameter",
+    // Class 28 — Invalid Authorization Specification
+    "28P01": "invalid_password",
+    // Class 3F — Invalid Schema Name
+    "3F000": "schema_does_not_exist",
+    // Class 23 — Integrity Constraint Violation
+    "23505": "unique_violation",
+  };
+  return map[code];
 }
 
 /**
