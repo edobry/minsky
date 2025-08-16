@@ -117,43 +117,9 @@ export async function sessionPr(
       options
     );
 
-    // For GitHub backend, we don't use pr/ branches - work directly with session branch
-    let commitHash = "";
-    let prBranchName = result.prBranch; // For GitHub backend this should be session name; for others may be pr/<...>
-
-    // Only get commit hash from pr/ branch for local/remote backends
-    if (sessionRecord.backendType !== "github") {
-      try {
-        const commitHashResult = await gitService.execInRepository(
-          workdir,
-          `git rev-parse pr/${resolvedContext.sessionName}`
-        );
-        commitHash = commitHashResult.trim();
-      } catch (e) {
-        log.debug("Skipping pr/ commit hash extraction for non-GitHub backend", {
-          error: getErrorMessage(e as any),
-        });
-        commitHash = "";
-      }
-    } else {
-      // For GitHub backend, use the session branch commit hash
-      const commitHashResult = await gitService.execInRepository(workdir, `git rev-parse HEAD`);
-      commitHash = commitHashResult.trim();
-      prBranchName = resolvedContext.sessionName; // GitHub PRs use session branch directly
-    }
-
-    // Update session record with PR state
-    await sessionDB.updateSession(resolvedContext.sessionName, {
-      ...sessionRecord,
-      prBranch: prBranchName, // Set prBranch field for approval validation
-      prState: {
-        branchName: prBranchName,
-        commitHash: commitHash,
-        lastChecked: new Date().toISOString(),
-        createdAt: new Date().toISOString(),
-      },
-    });
-
+    // Let repository backends handle PR state updates per backend type
+    // Local backend records prBranch and commitHash; GitHub backend records pullRequest info
+    const prBranchName = result.prBranch;
     // Include session information in the result for CLI formatting
     return {
       ...result,
