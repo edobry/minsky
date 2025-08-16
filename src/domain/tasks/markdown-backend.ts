@@ -11,6 +11,7 @@ import type { TaskBackend } from "./taskBackend";
 import type { MarkdownConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { TaskBackendConfig } from "../../types/tasks/taskData";
 import { log } from "../../utils/logger";
+import { get as getConfig, has as hasConfig } from "../configuration";
 
 /**
  * Resolve workspace path using configuration
@@ -25,7 +26,23 @@ function resolveWorkspacePath(config: MarkdownConfig): WorkspaceResolutionResult
     };
   }
 
-  // 2. Use current working directory as default
+  // 2. Prefer configured main workspace path if present
+  try {
+    if (hasConfig("workspace") && hasConfig("workspace.mainPath")) {
+      const mainPath = getConfig<string>("workspace.mainPath");
+      if (typeof mainPath === "string" && mainPath.trim().length > 0) {
+        return {
+          workspacePath: mainPath,
+          method: "config",
+          description: "Using configured workspace.mainPath",
+        };
+      }
+    }
+  } catch (_err) {
+    // fall through to default
+  }
+
+  // 3. Use current working directory as default
   const workspacePath = process.cwd();
 
   return {

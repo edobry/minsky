@@ -28,6 +28,7 @@ import { loggerConfigSchema, type LoggerConfig } from "./logger";
 import { validationConfigSchema, type ValidationConfig } from "./validation";
 import { tasksConfigSchema, type TasksConfig } from "./tasks";
 import { embeddingsConfigSchema, type EmbeddingsConfig } from "./embeddings";
+import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
 
 /**
  * Complete application configuration schema
@@ -62,6 +63,9 @@ export const configurationSchema = z
 
     // Tasks configuration
     tasks: tasksConfigSchema,
+
+    // Workspace configuration
+    workspace: workspaceConfigSchema,
   })
   .passthrough(); // Use passthrough instead of strict to allow extra properties
 
@@ -249,6 +253,7 @@ export type {
   LoggerConfig,
   TasksConfig,
   EmbeddingsConfig,
+  WorkspaceConfig,
 };
 
 // Re-export schemas for external use
@@ -262,6 +267,7 @@ export {
   loggerConfigSchema,
   tasksConfigSchema,
   embeddingsConfigSchema,
+  workspaceConfigSchema,
 };
 
 // Export the main schema as default
