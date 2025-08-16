@@ -699,3 +699,5 @@
 - [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
+
+- [ ] Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431-implement-programmatic-pending-drizzle-migrations-detection.md)
