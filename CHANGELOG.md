@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- feat(config): add workspace.mainPath; wire markdown/json task backends to main workspace path (md#410)
 - session pr: status/backend/time filters
   - `minsky session pr list --status open,merged --backend github --since 7d --until 2025-08-01`
   - `minsky session pr get --task md#413 --status all --since 24h`
