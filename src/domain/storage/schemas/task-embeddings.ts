@@ -38,7 +38,7 @@ export const tasksTable = pgTable(
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
-    index("idx_tasks_ivf").using("ivfflat", table.embedding.asc().nullsLast().op("vector_l2_ops")),
+    index("idx_tasks_hnsw").using("hnsw", table.embedding.asc().nullsLast().op("vector_l2_ops")),
     uniqueIndex("uq_tasks_task_id").on(table.taskId),
   ]
 );

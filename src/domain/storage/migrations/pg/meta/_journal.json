@@ -15,6 +15,13 @@
       "when": 1755366323777,
       "tag": "0001_true_nocturne",
       "breakpoints": true
+    },
+    {
+      "idx": 2,
+      "version": "7",
+      "when": 1755379835053,
+      "tag": "0002_cloudy_magdalene",
+      "breakpoints": true
     }
   ]
 }
