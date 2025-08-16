@@ -141,6 +141,11 @@ export const tasksSearchParams: CommandParameterMap = {
     description: "Optional distance threshold (lower is closer)",
     required: false,
   },
+  details: {
+    schema: z.boolean().default(false),
+    description: "Show human-friendly diagnostic details (embedding model, length, ANN rows)",
+    required: false,
+  },
   ...taskContextParams,
   ...outputFormatParams,
 };

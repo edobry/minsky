@@ -1,4 +1,5 @@
 import type { Task } from "../tasks";
+import { log } from "../../utils/logger";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../storage/vector/types";
 import { createHash } from "crypto";
@@ -24,14 +25,60 @@ export class TaskSimilarityService {
     if (!task) return [];
     const content = this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
-    const effectiveThreshold = threshold ?? this.config.similarityThreshold ?? 0.0;
+    const effectiveThreshold =
+      threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
     return this.vectorStorage.search(vector, limit, effectiveThreshold);
   }
 
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const vector = await this.embeddingService.generateEmbedding(query);
-    const effectiveThreshold = threshold ?? this.config.similarityThreshold ?? 0.0;
-    return this.vectorStorage.search(vector, limit, effectiveThreshold);
+    // Debug: embedding stats (length only)
+    try {
+      log.debug("[tasks.search] Embedding generated", {
+        length: Array.isArray(vector) ? vector.length : undefined,
+        model: this.config.model,
+        dimension: this.config.dimension,
+      });
+    } catch {
+      // ignore debug logging errors
+    }
+
+    const effectiveThreshold =
+      threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
+
+    // Debug: ANN search params
+    try {
+      log.debug("[tasks.search] Running ANN search", {
+        limit,
+        threshold: effectiveThreshold,
+      });
+    } catch {
+      // ignore debug logging errors
+    }
+
+    let results = await this.vectorStorage.search(vector, limit, effectiveThreshold);
+
+    // Deduplicate legacy vs qualified IDs, prefer qualified (e.g., md#123 over #123)
+    const seen = new Set<string>();
+    results = results.filter((r) => {
+      const normalized =
+        r.id.startsWith("md#") || r.id.includes("#") ? r.id.replace(/^#/, "md#") : r.id;
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
+
+    // Debug: ANN results (ids and scores)
+    try {
+      log.debug("[tasks.search] ANN results", {
+        count: results.length,
+        top: results.slice(0, 5),
+      });
+    } catch {
+      // ignore debug logging errors
+    }
+
+    return results;
   }
 
   async indexTask(taskId: string): Promise<void> {

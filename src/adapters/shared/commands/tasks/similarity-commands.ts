@@ -52,6 +52,27 @@ export class TasksSearchCommand extends BaseTaskCommand {
     const threshold = params.threshold;
 
     const service = await this.createService();
+
+    // Optional human-friendly diagnostics (no global debug needed)
+    if ((params as any).details) {
+      try {
+        const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
+        const provider =
+          (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
+        const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+        const effThreshold =
+          threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
+        // Print to CLI in human-friendly lines
+        const { log } = await import("../../../../utils/logger");
+        log.cli(`Search provider: ${provider}`);
+        log.cli(`Model: ${model}`);
+        log.cli(`Limit: ${limit}`);
+        log.cli(`Threshold: ${String(effThreshold)}`);
+      } catch {
+        // ignore details preflight errors
+      }
+    }
+
     const results = await service.searchByText(query, limit, threshold);
 
     return this.formatResult(
@@ -87,7 +108,6 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
 
   return new TaskSimilarityService(embedding, storage, findTaskById, searchTasks, {
-    similarityThreshold: 0.0,
     vectorLimit: 10,
     model,
     dimension,

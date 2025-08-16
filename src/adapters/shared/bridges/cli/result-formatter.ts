@@ -190,6 +190,34 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         }
         break;
 
+      case "tasks.search":
+      case "tasks.similar":
+        if (result && typeof result === "object" && Array.isArray((result as any).results)) {
+          const results = (result as any).results as Array<{ id: string; score?: number }>;
+          if (results.length === 0) {
+            log.cli("No matching tasks found.");
+          } else {
+            results.forEach((r) => {
+              const scoreText =
+                typeof r.score === "number" && isFinite(r.score)
+                  ? ` (score: ${r.score.toFixed(3)})`
+                  : "";
+              log.cli(`- ${r.id}${scoreText}`);
+            });
+
+            if (typeof (result as any).count === "number") {
+              const count = (result as any).count as number;
+              log.cli("");
+              log.cli(`${count} result${count === 1 ? "" : "s"} found`);
+            }
+          }
+        } else if ((result as any)?.message) {
+          log.cli((result as any).message);
+        } else {
+          this.formatGenericObject(result);
+        }
+        break;
+
       case "debug.echo":
         formatDebugEchoDetails(result);
         break;

@@ -1,0 +1,5 @@
+- Implemented validation parity: `session pr edit` now mirrors `create` title rules
+- Added optional `--type` for edit
+- Reused `assertValidPrTitle`
+- Tests added
+- Docs and changelog updated

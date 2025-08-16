@@ -2,6 +2,7 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { getConfiguration } from "../../configuration";
 import type { VectorStorage, SearchResult } from "./types";
+import { log } from "../../../utils/logger";
 
 export class PostgresVectorStorage implements VectorStorage {
   private readonly sql: ReturnType<typeof postgres>;
@@ -48,21 +49,40 @@ export class PostgresVectorStorage implements VectorStorage {
 
   async store(id: string, vector: number[], metadata?: Record<string, any>): Promise<void> {
     const vectorLiteral = `[${vector.join(",")}]`;
+    // Normalize id to qualified form if it looks like legacy (e.g., "#123")
+    const qualifiedId = id.startsWith("#") ? `md#${id.slice(1)}` : id;
     await this.sql.unsafe(
       `INSERT INTO task_embeddings (id, dimension, embedding, metadata, updated_at)
        VALUES ($1, $2, $3::vector, $4::jsonb, NOW())
        ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, metadata = EXCLUDED.metadata, updated_at = NOW()`,
-      [id, this.dimension, vectorLiteral, metadata ? JSON.stringify(metadata) : null]
+      [qualifiedId, this.dimension, vectorLiteral, metadata ? JSON.stringify(metadata) : null]
     );
   }
 
   async search(queryVector: number[], limit = 10, threshold = 0.0): Promise<SearchResult[]> {
     const vectorLiteral = `[${queryVector.join(",")}]`;
+    try {
+      log.debug("[vector.search] Using Postgres vector storage", {
+        limit,
+        threshold,
+        dimension: this.dimension,
+      });
+    } catch {
+      // ignore debug logging errors
+    }
     const rows = await this.sql.unsafe(
-      `SELECT id, (embedding <-> $1::vector) AS score
-       FROM task_embeddings
-       ORDER BY embedding <-> $1::vector
-       LIMIT $2`,
+      `WITH ranked AS (
+         SELECT id, (embedding <-> $1::vector) AS score,
+                CASE WHEN id LIKE 'md#%' THEN regexp_replace(id, '^md#', '')
+                     WHEN id LIKE '#%' THEN regexp_replace(id, '^#', '')
+                     ELSE id END AS local
+         FROM task_embeddings
+         ORDER BY embedding <-> $1::vector
+         LIMIT $2
+       )
+       SELECT DISTINCT ON (local) id, score
+       FROM ranked
+       ORDER BY local, score ASC`,
       [vectorLiteral, limit]
     );
 
@@ -70,6 +90,14 @@ export class PostgresVectorStorage implements VectorStorage {
       id: String((r as any).id),
       score: Number((r as any).score),
     }));
+    try {
+      log.debug("[vector.search] Raw ANN rows", {
+        count: (rows as any[]).length,
+        sample: (rows as any[]).slice(0, 5),
+      });
+    } catch {
+      // ignore debug logging errors
+    }
     return results.filter((r) => (isFinite(threshold) ? r.score <= threshold : true));
   }
 

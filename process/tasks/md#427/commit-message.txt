@@ -1,0 +1,6 @@
+fix(md#427): enforce conventional-commit title validation on session pr edit
+
+- Add optional --type to compose titles from description-only --title
+- Validate titles when --type omitted; require full conventional commit title
+- Reuse assertValidPrTitle hygiene checks
+- Add tests and docs
