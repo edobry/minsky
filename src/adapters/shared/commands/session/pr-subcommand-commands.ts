@@ -244,7 +244,9 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
         }
       );
 
-      return this.createSuccessResult(result);
+      // Do not surface local prBranch in CLI result; GitHub backend does not use it
+      const { prBranch, ...rest } = result as any;
+      return this.createSuccessResult(rest);
     } catch (error) {
       throw this.handlePrError(error, params);
     }

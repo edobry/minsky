@@ -119,15 +119,22 @@ export async function sessionPr(
 
     // For GitHub backend, we don't use pr/ branches - work directly with session branch
     let commitHash = "";
-    let prBranchName = result.prBranch;
+    let prBranchName = result.prBranch; // For GitHub backend this should be session name; for others may be pr/<...>
 
     // Only get commit hash from pr/ branch for local/remote backends
     if (sessionRecord.backendType !== "github") {
-      const commitHashResult = await gitService.execInRepository(
-        workdir,
-        `git rev-parse pr/${resolvedContext.sessionName}`
-      );
-      commitHash = commitHashResult.trim();
+      try {
+        const commitHashResult = await gitService.execInRepository(
+          workdir,
+          `git rev-parse pr/${resolvedContext.sessionName}`
+        );
+        commitHash = commitHashResult.trim();
+      } catch (e) {
+        log.debug("Skipping pr/ commit hash extraction for non-GitHub backend", {
+          error: getErrorMessage(e as any),
+        });
+        commitHash = "";
+      }
     } else {
       // For GitHub backend, use the session branch commit hash
       const commitHashResult = await gitService.execInRepository(workdir, `git rev-parse HEAD`);
