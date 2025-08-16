@@ -28,7 +28,14 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand {
         session: params.session,
         json: true,
       } as any);
+      const { log } = await import("../../../../utils/logger");
+      if (!(params.json || ctx.format === "json")) {
+        log.cli(`Indexing embeddings for ${task.id}...`);
+      }
       await service.indexTask(task.id);
+      if (!(params.json || ctx.format === "json")) {
+        log.cli(`Done. Indexed 1 task.`);
+      }
       return this.formatResult({ success: true, indexed: 1 }, params.json || ctx.format === "json");
     }
 
@@ -46,9 +53,20 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand {
     });
 
     let indexed = 0;
+    const { log } = await import("../../../../utils/logger");
+    if (!(params.json || ctx.format === "json")) {
+      log.cli(`Indexing embeddings for ${tasks.length} task(s)...`);
+    }
     for (const t of tasks) {
+      if (!(params.json || ctx.format === "json")) {
+        log.cli(`- ${t.id}`);
+      }
       await service.indexTask(t.id);
       indexed++;
+    }
+    if (!(params.json || ctx.format === "json")) {
+      log.cli("");
+      log.cli(`Done. Indexed ${indexed} task(s).`);
     }
 
     return this.formatResult({ success: true, indexed }, params.json || ctx.format === "json");

@@ -56,7 +56,17 @@ export class TaskSimilarityService {
       // ignore debug logging errors
     }
 
-    const results = await this.vectorStorage.search(vector, limit, effectiveThreshold);
+    let results = await this.vectorStorage.search(vector, limit, effectiveThreshold);
+
+    // Deduplicate legacy vs qualified IDs, prefer qualified (e.g., md#123 over #123)
+    const seen = new Set<string>();
+    results = results.filter((r) => {
+      const normalized =
+        r.id.startsWith("md#") || r.id.includes("#") ? r.id.replace(/^#/, "md#") : r.id;
+      if (seen.has(normalized)) return false;
+      seen.add(normalized);
+      return true;
+    });
 
     // Debug: ANN results (ids and scores)
     try {

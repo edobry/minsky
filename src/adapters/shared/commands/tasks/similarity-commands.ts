@@ -53,17 +53,24 @@ export class TasksSearchCommand extends BaseTaskCommand {
 
     const service = await this.createService();
 
-    try {
-      const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
-      const provider =
-        (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
-      const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
-      const effThreshold =
-        threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
-      this.debug(`tasks.search provider=${provider}, model=${model}`);
-      this.debug(`tasks.search limit=${limit}, threshold=${String(effThreshold)}`);
-    } catch {
-      // ignore debug preflight errors
+    // Optional human-friendly diagnostics (no global debug needed)
+    if ((params as any).details) {
+      try {
+        const cfg = await (await import("../../../../domain/configuration")).getConfiguration();
+        const provider =
+          (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
+        const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+        const effThreshold =
+          threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
+        // Print to CLI in human-friendly lines
+        const { log } = await import("../../../../utils/logger");
+        log.cli(`Search provider: ${provider}`);
+        log.cli(`Model: ${model}`);
+        log.cli(`Limit: ${limit}`);
+        log.cli(`Threshold: ${String(effThreshold)}`);
+      } catch {
+        // ignore details preflight errors
+      }
     }
 
     const results = await service.searchByText(query, limit, threshold);
