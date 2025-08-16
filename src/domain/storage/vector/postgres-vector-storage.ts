@@ -82,7 +82,7 @@ export class PostgresVectorStorage implements VectorStorage {
        )
        SELECT DISTINCT ON (local) id, score
        FROM ranked
-       ORDER BY local, score ASC`,
+       ORDER BY local, (CASE WHEN id LIKE 'md#%' THEN 0 ELSE 1 END), score ASC`,
       [vectorLiteral, limit]
     );
 
