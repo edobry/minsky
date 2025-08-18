@@ -1230,6 +1230,153 @@ Repository: https://github.com/${this.owner}/${this.repo}
   }
 
   /**
+   * Backend-agnostic PR detail retrieval for GitHub
+   */
+  async getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }) {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to get PR details");
+    }
+
+    // Resolve PR number
+    let prNumber: number | undefined;
+    if (options.prIdentifier !== undefined) {
+      prNumber =
+        typeof options.prIdentifier === "string"
+          ? parseInt(options.prIdentifier, 10)
+          : options.prIdentifier;
+      if (isNaN(prNumber as number)) {
+        // If identifier is a branch name, resolve to PR number
+        prNumber = await this.findPRNumberForBranch(String(options.prIdentifier));
+      }
+    } else if (options.session) {
+      // Try to get PR number from session record
+      const sessionRecord = await this.sessionDB.getSession(options.session);
+      if (sessionRecord?.pullRequest?.number) {
+        prNumber =
+          typeof sessionRecord.pullRequest.number === "string"
+            ? parseInt(sessionRecord.pullRequest.number, 10)
+            : sessionRecord.pullRequest.number;
+      } else if (sessionRecord?.pullRequest?.headBranch) {
+        prNumber = await this.findPRNumberForBranch(sessionRecord.pullRequest.headBranch);
+      }
+    }
+
+    if (prNumber === undefined) {
+      throw new MinskyError("Unable to resolve GitHub PR number for details retrieval");
+    }
+
+    const { getConfiguration } = require("../configuration/index");
+    const config = getConfiguration();
+    const githubToken = config.github.token;
+    if (!githubToken) {
+      throw new MinskyError("GitHub token required for PR operations");
+    }
+    const octokit = new Octokit({
+      auth: githubToken,
+      log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    });
+
+    const prResp = await octokit.rest.pulls.get({
+      owner: this.owner!,
+      repo: this.repo!,
+      pull_number: prNumber,
+    });
+    const pr = prResp.data;
+    return {
+      number: pr.number,
+      url: pr.html_url,
+      state: pr.state,
+      title: pr.title || undefined,
+      body: pr.body || undefined,
+      headBranch: pr.head?.ref,
+      baseBranch: pr.base?.ref,
+      author: pr.user?.login,
+      createdAt: pr.created_at,
+      updatedAt: pr.updated_at,
+      mergedAt: pr.merged_at || undefined,
+    };
+  }
+
+  /**
+   * Backend-agnostic PR diff retrieval for GitHub
+   */
+  async getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }) {
+    if (!this.owner || !this.repo) {
+      throw new MinskyError("GitHub owner and repo must be configured to get PR diff");
+    }
+
+    // Resolve PR number similarly to details
+    let prNumber: number | undefined;
+    if (options.prIdentifier !== undefined) {
+      prNumber =
+        typeof options.prIdentifier === "string"
+          ? parseInt(options.prIdentifier, 10)
+          : options.prIdentifier;
+      if (isNaN(prNumber as number)) {
+        prNumber = await this.findPRNumberForBranch(String(options.prIdentifier));
+      }
+    } else if (options.session) {
+      const sessionRecord = await this.sessionDB.getSession(options.session);
+      if (sessionRecord?.pullRequest?.number) {
+        prNumber =
+          typeof sessionRecord.pullRequest.number === "string"
+            ? parseInt(sessionRecord.pullRequest.number, 10)
+            : sessionRecord.pullRequest.number;
+      } else if (sessionRecord?.pullRequest?.headBranch) {
+        prNumber = await this.findPRNumberForBranch(sessionRecord.pullRequest.headBranch);
+      }
+    }
+
+    if (prNumber === undefined) {
+      throw new MinskyError("Unable to resolve GitHub PR number for diff retrieval");
+    }
+
+    const { getConfiguration } = require("../configuration/index");
+    const config = getConfiguration();
+    const githubToken = config.github.token;
+    if (!githubToken) {
+      throw new MinskyError("GitHub token required for PR operations");
+    }
+    const octokit = new Octokit({
+      auth: githubToken,
+      log: { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+      request: {
+        // Ensure we can request diff content
+        headers: { accept: "application/vnd.github.v3.diff" },
+      },
+    });
+
+    // Fetch diff as raw
+    const diffResponse = await octokit.request("GET /repos/{owner}/{repo}/pulls/{pull_number}", {
+      owner: this.owner!,
+      repo: this.repo!,
+      pull_number: prNumber,
+      headers: { accept: "application/vnd.github.v3.diff" },
+    });
+    const diff = String((diffResponse as any).data || "");
+
+    // Also fetch files to compute stats
+    const filesResponse = await octokit.rest.pulls.listFiles({
+      owner: this.owner!,
+      repo: this.repo!,
+      pull_number: prNumber,
+      per_page: 100,
+    });
+    const files = filesResponse.data;
+    const stats = files.reduce(
+      (acc: { filesChanged: number; insertions: number; deletions: number }, f: any) => {
+        acc.filesChanged += 1;
+        acc.insertions += f.additions || 0;
+        acc.deletions += f.deletions || 0;
+        return acc;
+      },
+      { filesChanged: 0, insertions: 0, deletions: 0 }
+    );
+
+    return { diff, stats };
+  }
+
+  /**
    * Diagnose why a PR cannot be merged and return a user-friendly description
    */
   private async diagnoseMergeBlocker(prNumber: number, octokit: Octokit): Promise<string> {

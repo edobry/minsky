@@ -46,10 +46,12 @@ This makes it difficult to debug AI behavior, optimize prompts, or understand co
    - Accumulate telemetry during execution
    - Display formatted summary at end
 3. **Provider-Specific Collection**:
+
    - Extract metadata from Vercel AI SDK responses
    - Handle different metadata formats per provider
 
 4. **Optional AI Resilience Integration** (reference: md#420)
+
    - When available, surface retry attempts, backoff timings, and error classifications from the AI Resilience module
    - Do not require adoption; if resilience is not in use, show basic error/attempt counts only
    - Include circuit-breaker state in verbose output when available (provider, state, failures, nextAttemptTime)

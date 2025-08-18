@@ -36,6 +36,7 @@ Implement true spec/metadata separation by extending the existing `task_embeddin
 - Keep table name as `task_embeddings` for now to avoid disruption; in future we may rename after full adoption.
 
 Migration steps (idempotent):
+
 - Ensure `task_id` column exists (it does) and is nullable initially
 - Compute normalized `task_id` from existing primary key `id` using backend-aware rules:
   - Numeric `^[0-9]+$` → `md#<id>` (markdown backend)
@@ -65,9 +66,23 @@ Migration steps (idempotent):
 ```ts
 interface TaskMetadata {
   embedding?: { model: string; dimension: number; contentHash?: string; lastIndexed?: string };
-  structure?: { parentTask?: string; subtasks?: string[]; dependencies?: { prerequisite?: string[]; optional?: string[]; related?: string[] } };
-  provenance?: { originalRequirements?: string; aiEnhanced?: boolean; creationContext?: string; lastModified?: string };
-  backend?: { sourceBackend?: string; externalId?: string; lastSync?: string; syncMetadata?: Record<string, any> };
+  structure?: {
+    parentTask?: string;
+    subtasks?: string[];
+    dependencies?: { prerequisite?: string[]; optional?: string[]; related?: string[] };
+  };
+  provenance?: {
+    originalRequirements?: string;
+    aiEnhanced?: boolean;
+    creationContext?: string;
+    lastModified?: string;
+  };
+  backend?: {
+    sourceBackend?: string;
+    externalId?: string;
+    lastSync?: string;
+    syncMetadata?: Record<string, any>;
+  };
   custom?: Record<string, any>;
 }
 ```

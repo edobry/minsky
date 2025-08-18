@@ -109,11 +109,11 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       fileCount = 0;
     }
 
-    // Check if meta table exists
+    // Check if meta table exists in the drizzle schema (Drizzle default)
     const existsRes = await this.sql<{ exists: boolean }[]>`
       SELECT EXISTS (
         SELECT 1 FROM information_schema.tables
-        WHERE table_schema = 'public' AND table_name = '__drizzle_migrations'
+        WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
       ) as exists;
     `;
     const metaExists = Boolean(existsRes?.[0]?.exists);
@@ -122,9 +122,9 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       return { pending: fileCount > 0, appliedCount: 0, fileCount };
     }
 
-    // Count applied migrations
+    // Count applied migrations (qualified schema)
     const countRes = await this.sql<{ count: string }[]>`
-      SELECT COUNT(*)::text as count FROM "__drizzle_migrations";
+      SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
     `;
     const appliedCount = parseInt(countRes?.[0]?.count || "0", 10);
 

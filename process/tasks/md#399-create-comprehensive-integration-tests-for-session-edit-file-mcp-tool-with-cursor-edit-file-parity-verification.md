@@ -147,7 +147,7 @@ const editPattern3 = `class Calculator {
 
 **Test Cases**:
 
-```typescript
+````typescript
 // Test 2A: Create new TypeScript file
 await testSessionEditFile({
   sessionName: "test-session",
@@ -317,7 +317,7 @@ const ambiguousCode = `function test() {
 
 // Verify: Error messages are helpful and actionable
 // Verify: Partial edits are rolled back on failure
-```
+````
 
 ### Performance Tests
 
@@ -434,6 +434,7 @@ FORCE_INTEGRATION_TESTS=1 bun test tests/integration/
 - Tests will gracefully skip if configuration unavailable
 
 ### 🔍 Current Focus: Error Handling
+
 - **Issue**: Silent failures masquerading as successful completions
 - **Solution**: Test-driven bugfix approach with comprehensive error scenario coverage
 
@@ -602,3 +603,4 @@ This comprehensive integration test suite will ensure that `session.edit_file` p
 - Circuit breaker management provides production-grade reliability
 - Comprehensive monitoring and health check capabilities added
 - User-friendly error messages with actionable recovery guidance implemented
+```

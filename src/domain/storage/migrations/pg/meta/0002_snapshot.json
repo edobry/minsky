@@ -1,6 +1,6 @@
 {
-  "id": "6f1b9be8-2874-4ae8-a142-391c98073ecc",
-  "prevId": "00000000-0000-0000-0000-000000000000",
+  "id": "231ba86a-acb5-4611-a40b-26ced65dc8d2",
+  "prevId": "7373a4ac-fc80-4acc-b54b-ee33b135b56e",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -77,8 +77,8 @@
       "checkConstraints": {},
       "isRLSEnabled": false
     },
-    "public.task_embeddings": {
-      "name": "task_embeddings",
+    "public.tasks": {
+      "name": "tasks",
       "schema": "",
       "columns": {
         "id": {
@@ -89,6 +89,25 @@
         },
         "task_id": {
           "name": "task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "status": {
+          "name": "status",
+          "type": "task_status",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "title": {
+          "name": "title",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "spec": {
+          "name": "spec",
           "type": "text",
           "primaryKey": false,
           "notNull": false
@@ -111,6 +130,18 @@
           "primaryKey": false,
           "notNull": false
         },
+        "content_hash": {
+          "name": "content_hash",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "last_indexed_at": {
+          "name": "last_indexed_at",
+          "type": "timestamp with time zone",
+          "primaryKey": false,
+          "notNull": false
+        },
         "created_at": {
           "name": "created_at",
           "type": "timestamp with time zone",
@@ -127,8 +158,8 @@
         }
       },
       "indexes": {
-        "idx_task_embeddings_ivf": {
-          "name": "idx_task_embeddings_ivf",
+        "idx_tasks_hnsw": {
+          "name": "idx_tasks_hnsw",
           "columns": [
             {
               "expression": "embedding",
@@ -140,7 +171,22 @@
           ],
           "isUnique": false,
           "concurrently": false,
-          "method": "ivfflat",
+          "method": "hnsw",
+          "with": {}
+        },
+        "uq_tasks_task_id": {
+          "name": "uq_tasks_task_id",
+          "columns": [
+            {
+              "expression": "task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
           "with": {}
         }
       },
@@ -152,7 +198,13 @@
       "isRLSEnabled": false
     }
   },
-  "enums": {},
+  "enums": {
+    "public.task_status": {
+      "name": "task_status",
+      "schema": "public",
+      "values": ["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]
+    }
+  },
   "schemas": {},
   "sequences": {},
   "roles": {},

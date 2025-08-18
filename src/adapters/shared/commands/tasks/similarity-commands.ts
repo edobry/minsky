@@ -64,10 +64,11 @@ export class TasksSearchCommand extends BaseTaskCommand {
           threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
         // Print to CLI in human-friendly lines
         const { log } = await import("../../../../utils/logger");
-        log.cli(`Search provider: ${provider}`);
-        log.cli(`Model: ${model}`);
-        log.cli(`Limit: ${limit}`);
-        log.cli(`Threshold: ${String(effThreshold)}`);
+        // Write diagnostics to stderr so --json stays clean on stdout
+        log.cliWarn(`Search provider: ${provider}`);
+        log.cliWarn(`Model: ${model}`);
+        log.cliWarn(`Limit: ${limit}`);
+        log.cliWarn(`Threshold: ${String(effThreshold)}`);
       } catch {
         // ignore details preflight errors
       }

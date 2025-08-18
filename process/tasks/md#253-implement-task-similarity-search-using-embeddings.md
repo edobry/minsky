@@ -17,6 +17,7 @@ MEDIUM
 **✅ PHASE 1 COMPLETED ([PR #89](https://github.com/edobry/minsky/pull/89))**: Task similarity search using embeddings has been successfully implemented with PostgreSQL + pgvector, reusing the existing session database infrastructure.
 
 **Current Implementation Includes:**
+
 - ✅ Task similarity search: `minsky tasks similar <task-id>`
 - ✅ Natural language task search: `minsky tasks search <query>`
 - ✅ Embedding indexing: `minsky tasks index-embeddings [--task <id>]`
@@ -29,6 +30,7 @@ MEDIUM
 ## Current Architecture (Post-PR #89)
 
 ### Database Schema (task_embeddings table)
+
 ```sql
 CREATE TABLE task_embeddings (
   id TEXT PRIMARY KEY,              -- UUID or generated ID
@@ -42,6 +44,7 @@ CREATE TABLE task_embeddings (
 ```
 
 ### Configuration (Current)
+
 ```toml
 [vectorStorage]
 backend = "postgres"              # or "memory"
@@ -53,6 +56,7 @@ model = "text-embedding-3-small"  # Default embedding model
 ```
 
 ### Services Implemented
+
 - **TaskSimilarityService**: Core similarity search logic
 - **PostgresVectorStorage**: pgvector-based storage using session DB
 - **MemoryVectorStorage**: In-memory storage for development
@@ -77,6 +81,7 @@ model = "text-embedding-3-small"  # Default embedding model
 ### 🎯 Extension Opportunity
 
 The existing `task_embeddings` table provides the perfect foundation for general task metadata storage:
+
 - ✅ Already uses session database (PostgreSQL/SQLite infrastructure)
 - ✅ Has JSONB metadata field that can be expanded
 - ✅ Contains task_id linkage for cross-referencing
@@ -87,6 +92,7 @@ The existing `task_embeddings` table provides the perfect foundation for general
 **PHASE 2 GOAL**: Transform the existing `task_embeddings` table into a unified **task metadata and embeddings storage system**, achieving the spec/metadata separation architecture from Task #315 while preserving all existing embedding functionality.
 
 **Key Outcomes:**
+
 1. **Preserve Existing Functionality**: All current similarity search features continue working
 2. **Extend Metadata Storage**: Support general task metadata (dependencies, subtasks, provenance)
 3. **Handle Legacy Task IDs**: Migrate and normalize task ID formats
@@ -97,17 +103,20 @@ The existing `task_embeddings` table provides the perfect foundation for general
 ### ✅ IMPLEMENTED: Task Similarity Search
 
 **`minsky tasks similar <task-id>`** - **WORKING**
+
 - ✅ Find tasks similar to a given task using embeddings
 - ✅ Configurable similarity threshold and result limit
 - ✅ Ranked results with cosine similarity scores
 - ✅ Integrates with all task backends (JSON, Markdown, GitHub Issues)
 
 **`minsky tasks search <query>`** - **WORKING**
+
 - ✅ Search for tasks similar to a natural language query
 - ✅ Useful for discovering existing tasks before creating new ones
 - ✅ OpenAI-powered semantic search with embedding generation
 
 **`minsky tasks index-embeddings [--task <id>]`** - **WORKING**
+
 - ✅ Generate and store embeddings for all tasks or specific task
 - ✅ Batch processing for large task collections
 - ✅ Incremental updates and re-indexing support

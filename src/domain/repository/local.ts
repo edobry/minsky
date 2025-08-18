@@ -612,4 +612,98 @@ export class LocalGitBackend implements RepositoryBackend {
       );
     }
   }
+
+  /**
+   * Backend-agnostic PR detail retrieval for Local backend
+   */
+  async getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }) {
+    // For local backend, PR is represented by a branch (default pr/<session>)
+    let sessionName: string | undefined = options.session;
+    if (!sessionName && options.prIdentifier) {
+      const prId = String(options.prIdentifier);
+      // Try to find session by prBranch
+      const sessions = await this.sessionDB.listSessions();
+      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
+      sessionName = record?.session;
+    }
+    if (!sessionName) {
+      throw new MinskyError("Local backend requires session or prIdentifier to resolve PR details");
+    }
+
+    const record = await this.sessionDB.getSession(sessionName);
+    if (!record) {
+      throw new MinskyError(`Session '${sessionName}' not found`);
+    }
+
+    const number = record.prBranch || `pr/${sessionName}`;
+    return {
+      number,
+      url: number,
+      state: record.prApproved ? "approved" : "open",
+      title: record.pullRequest?.title,
+      body: record.pullRequest?.body,
+      headBranch: number,
+      baseBranch: record.pullRequest?.baseBranch || "main",
+      author: undefined,
+      createdAt: record.pullRequest?.createdAt,
+      updatedAt: record.pullRequest?.updatedAt,
+      mergedAt: record.pullRequest?.mergedAt,
+    };
+  }
+
+  /**
+   * Backend-agnostic PR diff retrieval for Local backend
+   */
+  async getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }) {
+    let sessionName: string | undefined = options.session;
+    let prBranch: string | undefined;
+
+    if (!sessionName && options.prIdentifier) {
+      const prId = String(options.prIdentifier);
+      const sessions = await this.sessionDB.listSessions();
+      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
+      sessionName = record?.session;
+      prBranch = prId;
+    }
+
+    if (!sessionName) {
+      throw new MinskyError("Local backend requires session or prIdentifier to resolve PR diff");
+    }
+
+    const workdir = this.getSessionWorkdir(sessionName);
+    // Determine base branch (default main) and prBranch
+    const baseBranch = "main";
+    if (!prBranch) {
+      const sessionRecord = await this.sessionDB.getSession(sessionName);
+      prBranch = sessionRecord?.prBranch || `pr/${sessionName}`;
+    }
+
+    // Ensure we have latest
+    await execGitWithTimeout("fetch", "fetch origin", { workdir });
+
+    const diff = await execGitWithTimeout(
+      "diff",
+      `diff origin/${baseBranch}...origin/${prBranch}`,
+      { workdir }
+    );
+
+    // Compute stats via --shortstat
+    const shortstat = await execGitWithTimeout(
+      "diff-shortstat",
+      `diff --shortstat origin/${baseBranch}...origin/${prBranch}`,
+      { workdir }
+    );
+    const match = String(shortstat).match(
+      /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
+    );
+    const stats = match
+      ? {
+          filesChanged: parseInt(match[1] || "0", 10),
+          insertions: parseInt(match[2] || "0", 10),
+          deletions: parseInt(match[3] || "0", 10),
+        }
+      : undefined;
+
+    return { diff: String(diff), stats };
+  }
 }

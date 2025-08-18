@@ -7,14 +7,17 @@ Add automatic conventional commit title generation to the `session pr create` co
 ## Requirements
 
 1. **Add `--type` parameter** to `session pr create` command
+
    - Accepts conventional commit types: `feat`, `fix`, `docs`, `style`, `refactor`, `perf`, `test`, `chore`
    - Required parameter (no default)
 
 2. **Modify `--title` parameter behavior**
+
    - Should only accept the description part (e.g., "implement session pr open command for GitHub backend")
    - Should NOT include the conventional commit prefix
 
 3. **Automatic title generation**
+
    - Generate full title as: `{type}({task_id}): {title}`
    - Task ID should use full format (e.g., `md#409` not `#409`)
    - Auto-detect task ID from session context when available
@@ -28,10 +31,12 @@ Add automatic conventional commit title generation to the `session pr create` co
 ### Implementation Steps
 
 1. **Update parameter schema** in `session-parameters.ts`
+
    - Add `type` parameter with enum validation
    - Update `title` parameter description
 
 2. **Update command logic** in `pr-subcommand-commands.ts`
+
    - Add title generation logic when `type` is provided
    - Combine `type`, `task_id`, and `title` into conventional commit format
 

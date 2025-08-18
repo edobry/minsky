@@ -3,6 +3,7 @@
 ## Context
 
 We currently support:
+
 - Data migration between different backends via `minsky sessiondb migrate --to <backend>`
 - Schema migrations for the configured backend when `--to` is omitted
 
@@ -11,6 +12,7 @@ We do not yet support migrating data directly between two named PostgreSQL insta
 ## Goal
 
 Enable Postgres→Postgres data migration with explicit source and target connection strings, including:
+
 - Dry-run planning and counts
 - Target schema preparation (Drizzle migrator)
 - Full data copy with chunking/transaction boundaries

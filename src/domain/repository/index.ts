@@ -285,6 +285,33 @@ export interface RepositoryBackend {
   getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus>;
 
   /**
+   * Get PR details for review rendering (backend-agnostic)
+   * If prIdentifier is omitted, implementation should infer from session when possible
+   */
+  getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }): Promise<{
+    number?: number | string;
+    url?: string;
+    state?: string;
+    title?: string;
+    body?: string;
+    headBranch?: string;
+    baseBranch?: string;
+    author?: string;
+    createdAt?: string;
+    updatedAt?: string;
+    mergedAt?: string;
+  }>;
+
+  /**
+   * Get PR diff and optional stats (backend-agnostic)
+   * If prIdentifier is omitted, implementation should infer from session when possible
+   */
+  getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }): Promise<{
+    diff: string;
+    stats?: { filesChanged: number; insertions: number; deletions: number };
+  }>;
+
+  /**
    * Post-session-update hook for backend-specific operations
    * Called after a session is updated to allow backends to perform additional work
    *
