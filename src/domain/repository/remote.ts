@@ -542,4 +542,84 @@ Repository: ${this.repoUrl}
 
     return await mergePreparedMergeCommitPR(options);
   }
+
+  /**
+   * Backend-agnostic PR detail retrieval for Remote backend
+   */
+  async getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }) {
+    // For remote backend, treat PR as a branch prepared via prepared-merge workflow
+    let sessionName = options.session;
+    if (!sessionName && options.prIdentifier) {
+      const prId = String(options.prIdentifier);
+      const sessions = await this.sessionDB.listSessions();
+      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
+      sessionName = record?.session;
+    }
+    if (!sessionName) {
+      throw new MinskyError(
+        "Remote backend requires session or prIdentifier to resolve PR details"
+      );
+    }
+    const record = await this.sessionDB.getSession(sessionName);
+    const number = record?.prBranch || `pr/${sessionName}`;
+    return {
+      number,
+      url: number,
+      state: record?.prApproved ? "approved" : "open",
+      title: record?.pullRequest?.title,
+      body: record?.pullRequest?.body,
+      headBranch: number,
+      baseBranch: record?.pullRequest?.baseBranch || "main",
+      author: undefined,
+      createdAt: record?.pullRequest?.createdAt,
+      updatedAt: record?.pullRequest?.updatedAt,
+      mergedAt: record?.pullRequest?.mergedAt,
+    };
+  }
+
+  /**
+   * Backend-agnostic PR diff retrieval for Remote backend
+   */
+  async getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }) {
+    let sessionName = options.session;
+    let prBranch: string | undefined;
+    if (!sessionName && options.prIdentifier) {
+      const prId = String(options.prIdentifier);
+      const sessions = await this.sessionDB.listSessions();
+      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
+      sessionName = record?.session;
+      prBranch = prId;
+    }
+    if (!sessionName) {
+      throw new MinskyError("Remote backend requires session or prIdentifier to resolve PR diff");
+    }
+    const workdir = this.getSessionWorkdir(sessionName);
+    const baseBranch = this.defaultBranch || "main";
+    if (!prBranch) {
+      const record = await this.sessionDB.getSession(sessionName);
+      prBranch = record?.prBranch || `pr/${sessionName}`;
+    }
+    await execGitWithTimeout("fetch", "fetch origin", { workdir });
+    const diff = await execGitWithTimeout(
+      "diff",
+      `diff origin/${baseBranch}...origin/${prBranch}`,
+      { workdir }
+    );
+    const shortstat = await execGitWithTimeout(
+      "diff-shortstat",
+      `diff --shortstat origin/${baseBranch}...origin/${prBranch}`,
+      { workdir }
+    );
+    const match = String(shortstat).match(
+      /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
+    );
+    const stats = match
+      ? {
+          filesChanged: parseInt(match[1] || "0", 10),
+          insertions: parseInt(match[2] || "0", 10),
+          deletions: parseInt(match[3] || "0", 10),
+        }
+      : undefined;
+    return { diff: String(diff), stats };
+  }
 }

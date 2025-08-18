@@ -573,6 +573,172 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           }
         },
       },
+      "config.set": {
+        useFirstRequiredParamAsArgument: false,
+        parameters: {
+          key: {
+            asArgument: true,
+            description: "Configuration key path (e.g., ai.providers.openai.model)",
+          },
+          value: {
+            asArgument: true,
+            description: "Value to set",
+          },
+          noBackup: {
+            description: "Skip creating backup before modification",
+          },
+          format: {
+            description: "File format to use (yaml|json)",
+          },
+        },
+        outputFormatter: (result: any) => {
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
+          if (result.success) {
+            log.cli("✅ Configuration updated successfully");
+            if (result.key) log.cli(`   Key: ${result.key}`);
+            if (result.previousValue !== undefined)
+              log.cli(`   Previous value: ${JSON.stringify(result.previousValue)}`);
+            if (result.newValue !== undefined)
+              log.cli(`   New value: ${JSON.stringify(result.newValue)}`);
+            if (result.filePath) log.cli(`   File: ${result.filePath}`);
+            if (result.backupPath) log.cli(`   Backup: ${result.backupPath}`);
+          } else if (result.error) {
+            log.cli(result.error);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
+        },
+      },
+      // Remove a configuration value
+      "config.unset": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          key: {
+            asArgument: true,
+            description: "Configuration key path to remove",
+          },
+          noBackup: {
+            description: "Skip creating backup before modification",
+          },
+          format: {
+            description: "File format to use (yaml|json)",
+          },
+        },
+        outputFormatter: (result: any) => {
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
+          if (result.success) {
+            if (result.previousValue === undefined) {
+              log.cli("ℹ️  Configuration key was already unset");
+              if (result.key) log.cli(`   Key: ${result.key}`);
+            } else {
+              log.cli("✅ Configuration removed successfully");
+              if (result.key) log.cli(`   Key: ${result.key}`);
+              log.cli(`   Previous value: ${JSON.stringify(result.previousValue)}`);
+              if (result.backupPath) log.cli(`   Backup: ${result.backupPath}`);
+            }
+            if (result.filePath) log.cli(`   File: ${result.filePath}`);
+          } else if (result.error) {
+            log.cli(result.error);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
+        },
+      },
+      // Validate configuration
+      "config.validate": {
+        parameters: {
+          verbose: {
+            description: "Show detailed validation results",
+          },
+        },
+        outputFormatter: (result: any) => {
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
+          const hasErrors = result.hasErrors;
+          const hasWarnings = result.hasWarnings;
+          if (result.valid && !hasErrors && result.totalIssues === 0) {
+            log.cli("✅ Configuration is valid");
+            if (result.verbose && result.sources) {
+              const paths = (result.sources as any[])
+                .map((s: any) => s.path)
+                .filter(Boolean)
+                .join(", ");
+              if (paths) log.cli(`   Configuration loaded from: ${paths}`);
+            }
+          } else {
+            if (hasErrors) {
+              log.cli("❌ Configuration has errors");
+            } else if (hasWarnings) {
+              log.cli("⚠️  Configuration has warnings");
+            }
+            log.cli(`   Total issues: ${result.totalIssues}`);
+            if (result.errors && (result.verbose || result.errors.length <= 10)) {
+              log.cli("");
+              for (const error of result.errors as any[]) {
+                const icon =
+                  error.severity === "error" ? "❌" : error.severity === "warning" ? "⚠️" : "ℹ️";
+                log.cli(`${icon} ${error.path}: ${error.message}`);
+              }
+            } else if (result.errors) {
+              log.cli("   Use --verbose to see all issues");
+            }
+          }
+        },
+      },
+      // Diagnose configuration
+      "config.doctor": {
+        parameters: {
+          verbose: {
+            description: "Show detailed diagnostic results",
+          },
+        },
+        outputFormatter: (result: any) => {
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
+          const errors = result.summary?.errors ?? 0;
+          const warnings = result.summary?.warnings ?? 0;
+          if (errors === 0 && warnings === 0) {
+            log.cli("✅ Configuration is healthy");
+          } else if (errors === 0) {
+            log.cli("⚠️  Configuration has some warnings");
+          } else {
+            log.cli("❌ Configuration has issues that need attention");
+          }
+          if (result.summary) {
+            log.cli(`   Checks run: ${result.summary.total}`);
+            log.cli(
+              `   Passed: ${result.summary.passed}, Warnings: ${result.summary.warnings}, Errors: ${result.summary.errors}`
+            );
+            log.cli("");
+          }
+          if (result.diagnostics) {
+            for (const diagnostic of result.diagnostics as any[]) {
+              const icon =
+                diagnostic.status === "pass" ? "✅" : diagnostic.status === "warning" ? "⚠️" : "❌";
+              log.cli(`${icon} ${diagnostic.check}`);
+              if (diagnostic.status !== "pass" || result.verbose) {
+                if (diagnostic.message) log.cli(`   ${diagnostic.message}`);
+                if (diagnostic.suggestion) log.cli(`   💡 ${diagnostic.suggestion}`);
+              }
+              log.cli("");
+            }
+          }
+        },
+      },
     },
   });
 

@@ -34,35 +34,42 @@ This document explores the problem space, constraints, possible approaches, and 
 
 ## Potential Approaches
 
-1) Event-triggered indexing (lightweight)
+1. Event-triggered indexing (lightweight)
+
 - On task create: enqueue/perform a single embedding generation.
 - On task update: compute content hash; if changed, enqueue/perform re-embedding.
 - Pros: Freshness with minimal overhead. Cons: still risks surprise cost unless gated by config.
 
-2) Scheduled/CI sync
+2. Scheduled/CI sync
+
 - Nightly/CI job runs `minsky tasks embeddings sync --changed-only`.
 - Computes staleness via contentHash/model/dimension and updates only needed rows.
 - Pros: Cost predictable, auditable. Cons: Staleness window between edits and sync.
 
-3) Hybrid (recommended default posture)
+3. Hybrid (recommended default posture)
+
 - Auto-index on create (configurable). Updates handled by scheduled `sync`.
 - Admin can run `status` to see missing/stale/orphans and take action.
 
-4) Full background daemon
+4. Full background daemon
+
 - File watchers or git hooks trigger real-time re-index.
 - Pros: Always fresh. Cons: Complex, platform-specific, and cost surprises.
 
 ## CLI Surface (Tentative)
 
 - `minsky tasks embeddings status`:
+
   - Shows counts and lists for: missing, stale (hash/model/dimension mismatch), orphans.
   - Options: `--json`, `--limit`, `--since <git-ref>`
 
 - `minsky tasks embeddings sync`:
+
   - Flags: `--changed-only` (default), `--all`, `--dry-run`, `--batch-size`, `--sleep-ms`, `--since <git-ref>`
   - Behavior: recompute embeddings where stale/missing; supports resumable batches.
 
 - `minsky tasks index-embeddings`:
+
   - Existing command; will remain as direct indexing utility.
   - Additions: `--task <id>` supported (single task).
 

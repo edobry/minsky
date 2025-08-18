@@ -11,27 +11,32 @@ Migrate markdown-based tasks to the database `tasks` table with ID normalization
 ## Requirements
 
 1. Schema readiness
+
    - Ensure `tasks` table exists with columns: `id` (PK), `task_id` (unique after backfill), `status`, `title`, `spec` (markdown), `content_hash`, `last_indexed_at`, timestamps
    - No manual SQL; update Drizzle schema only, Drizzle Kit generates migrations
 
 2. Importer CLI
+
    - Command: `minsky tasks import-from-markdown` (name TBD)
    - Dry-run by default; `--execute` to apply changes
    - Options: `--limit`, `--filter-status`, `--reindex-embeddings` (optional)
    - Output: clear plan of inserts/updates/skips; JSON mode supported
 
 3. ID normalization
+
    - Convert legacy numeric IDs to qualified form (e.g., `123` → `md#123`) when writing `task_id`
    - Preserve existing qualified IDs
    - Deduplicate on `task_id` (idempotent reruns)
 
 4. Data mapping
+
    - Source: central `process/tasks.md` + per-task spec files
    - Target fields: `task_id`, `status`, `title`, `spec`
    - Compute and store `content_hash` for spec
    - Set `last_indexed_at` only if embeddings reindex opt-in
 
 5. Safety & idempotency
+
    - No destructive operations by default
    - Re-runnable without duplication (UPSERT on `task_id`)
    - Clear conflict handling/reporting
@@ -47,11 +52,13 @@ Migrate markdown-based tasks to the database `tasks` table with ID normalization
 `minsky tasks import-from-markdown [--execute] [--limit N] [--filter-status STATUS] [--json] [--reindex-embeddings]`
 
 Behavior:
+
 - Scan markdown tasks and spec files
 - Normalize IDs and upsert into `tasks`
 - On `--reindex-embeddings`, compute embeddings and write `embedding`, `dimension`, update `content_hash` and `last_indexed_at`
 
 ### Implementation Notes
+
 - Use existing markdown parsing utilities to read tasks and specs
 - Use the configuration-backed PG connection (sessiondb.postgres) for DB writes
 - Use Drizzle for inserts/updates, respecting unique `task_id`

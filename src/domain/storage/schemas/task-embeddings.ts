@@ -9,6 +9,7 @@ import {
   uniqueIndex,
 } from "drizzle-orm/pg-core";
 import { vector } from "drizzle-orm/pg-core";
+import { enumSchemas } from "../../configuration/schemas/base";
 
 // Enumerated task status matching markdown backend
 export const taskStatusEnum = pgEnum("task_status", [
@@ -20,12 +21,18 @@ export const taskStatusEnum = pgEnum("task_status", [
   "CLOSED",
 ]);
 
+// Enumerated backend type (reuse centralized backend type values)
+const BACKEND_VALUES = enumSchemas.backendType.options as [string, ...string[]];
+export const taskBackendEnum = pgEnum("task_backend", BACKEND_VALUES);
+
 // Drizzle schema for tasks (renamed from task_embeddings)
 export const tasksTable = pgTable(
   "tasks",
   {
     id: text("id").primaryKey(),
     taskId: text("task_id"),
+    sourceTaskId: text("source_task_id"),
+    backend: taskBackendEnum("backend"),
     status: taskStatusEnum("status"),
     title: text("title"),
     spec: text("spec"),

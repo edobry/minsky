@@ -13,23 +13,26 @@ Reference: `docs_drizzle-migration-status.md`
 ## Requirements
 
 ### 1) Library function
-   - Location: `src/db/checkPendingMigrations.ts`
-   - API: `checkPendingMigrations(configPath?: string): Promise<{ totals: { files: number; applied: number; pending: number }, pending: Array<{ name: string; hash: string; sqlPreview: string }>, migrationsFolder: string, migrationsTable: string, migrationsSchema?: string, dialect: string }>`
-   - Behavior:
-     - Parse drizzle config via drizzle-kit internal `prepareMigrateConfig`
-     - Create dialect-specific connection via drizzle-kit internal helpers
-     - Read local migration files with `readMigrationFiles`
-     - Query DB migrations table for applied hashes (handle "table not found" as zero applied)
-     - Compare and return pending list with previews (truncated)
+
+- Location: `src/db/checkPendingMigrations.ts`
+- API: `checkPendingMigrations(configPath?: string): Promise<{ totals: { files: number; applied: number; pending: number }, pending: Array<{ name: string; hash: string; sqlPreview: string }>, migrationsFolder: string, migrationsTable: string, migrationsSchema?: string, dialect: string }>`
+- Behavior:
+  - Parse drizzle config via drizzle-kit internal `prepareMigrateConfig`
+  - Create dialect-specific connection via drizzle-kit internal helpers
+  - Read local migration files with `readMigrationFiles`
+  - Query DB migrations table for applied hashes (handle "table not found" as zero applied)
+  - Compare and return pending list with previews (truncated)
 
 ### 2) CLI/CI script
-   - Location: `scripts/assert-no-pending-migrations.ts`
-   - Behavior: exit non-zero if `pending > 0`, printing a concise list
-   - Integrate with CI job as a pre-commit/pre-merge check (doc note)
+
+- Location: `scripts/assert-no-pending-migrations.ts`
+- Behavior: exit non-zero if `pending > 0`, printing a concise list
+- Integrate with CI job as a pre-commit/pre-merge check (doc note)
 
 ### 3) Documentation
-   - Add a short section to `docs/sessiondb-migration-guide.md` referencing the helper and the CI script
-   - Explain risks of internal drizzle-kit imports; pin version and add smoke test
+
+- Add a short section to `docs/sessiondb-migration-guide.md` referencing the helper and the CI script
+- Explain risks of internal drizzle-kit imports; pin version and add smoke test
 
 ## Solution
 
@@ -44,6 +47,7 @@ Reference: `docs_drizzle-migration-status.md`
 ### Detailed Design
 
 - Config discovery
+
   - Input: optional `configPath` (defaults to project’s `drizzle.pg.config.ts`)
   - Use `prepareMigrateConfig(configPath)` to resolve:
     - `dialect` (postgresql | mysql | sqlite | libsql | singlestore)
@@ -53,6 +57,7 @@ Reference: `docs_drizzle-migration-status.md`
     - `credentials` (driver credentials)
 
 - DB connection
+
   - Postgres: `preparePostgresDB(cfg.credentials)`
   - MySQL: `connectToMySQL(cfg.credentials)`
   - SQLite: `connectToSQLite(cfg.credentials)`
@@ -60,10 +65,12 @@ Reference: `docs_drizzle-migration-status.md`
   - Return object exposes `query(sql, params?)`
 
 - Read migration files
+
   - `readMigrationFiles({ migrationsFolder: cfg.out })` → returns `{ name, hash, sql }[]`
   - Note: `hash` is the source-of-truth identity used by drizzle-orm
 
 - Read applied migrations
+
   - Build fully-qualified table ref:
     - Postgres: `"{schema}"."{table}"` (schema optional)
     - MySQL/SingleStore: \`{table}\`
@@ -72,11 +79,13 @@ Reference: `docs_drizzle-migration-status.md`
   - If the table doesn’t exist, treat as zero applied (fresh DB)
 
 - Compute pending
+
   - `pending = files.filter(f => !appliedHashes.has(f.hash))`
   - For each pending, include `{ name, hash, sqlPreview }`
     - `sqlPreview = (sql || '').slice(0, 120).replace(/\s+/g, ' ') + (sql.length > 120 ? '…' : '')`
 
 - Output structure
+
   - `{ dialect, migrationsFolder, migrationsTable, migrationsSchema?, totals: { files, applied, pending }, pending }`
 
 - Error handling

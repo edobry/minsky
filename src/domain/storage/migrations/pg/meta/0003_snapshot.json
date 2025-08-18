@@ -1,6 +1,6 @@
 {
-  "id": "7373a4ac-fc80-4acc-b54b-ee33b135b56e",
-  "prevId": "6f1b9be8-2874-4ae8-a142-391c98073ecc",
+  "id": "bcc20bd9-6dda-4a3c-85c7-5243ac631e79",
+  "prevId": "231ba86a-acb5-4611-a40b-26ced65dc8d2",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -93,6 +93,19 @@
           "primaryKey": false,
           "notNull": false
         },
+        "source_task_id": {
+          "name": "source_task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": false
+        },
+        "backend": {
+          "name": "backend",
+          "type": "task_backend",
+          "typeSchema": "public",
+          "primaryKey": false,
+          "notNull": false
+        },
         "status": {
           "name": "status",
           "type": "task_status",
@@ -158,8 +171,8 @@
         }
       },
       "indexes": {
-        "idx_tasks_ivf": {
-          "name": "idx_tasks_ivf",
+        "idx_tasks_hnsw": {
+          "name": "idx_tasks_hnsw",
           "columns": [
             {
               "expression": "embedding",
@@ -171,7 +184,7 @@
           ],
           "isUnique": false,
           "concurrently": false,
-          "method": "ivfflat",
+          "method": "hnsw",
           "with": {}
         },
         "uq_tasks_task_id": {
@@ -199,6 +212,11 @@
     }
   },
   "enums": {
+    "public.task_backend": {
+      "name": "task_backend",
+      "schema": "public",
+      "values": ["markdown", "json-file", "github-issues"]
+    },
     "public.task_status": {
       "name": "task_status",
       "schema": "public",

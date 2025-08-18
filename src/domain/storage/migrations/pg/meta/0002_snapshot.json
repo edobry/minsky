@@ -202,14 +202,7 @@
     "public.task_status": {
       "name": "task_status",
       "schema": "public",
-      "values": [
-        "TODO",
-        "IN-PROGRESS",
-        "IN-REVIEW",
-        "DONE",
-        "BLOCKED",
-        "CLOSED"
-      ]
+      "values": ["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]
     }
   },
   "schemas": {},

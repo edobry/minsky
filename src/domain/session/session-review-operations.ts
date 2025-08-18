@@ -13,6 +13,7 @@ import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
+import { createRepositoryBackend, RepositoryBackendType } from "../repository";
 import {
   TaskService,
   TASK_STATUS,
@@ -163,16 +164,12 @@ export async function sessionReviewImpl(
   // Get session workdir
   const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
 
-  // Determine PR branch name (pr/<session-name>)
-  const prBranchToUse = params.prBranch || `pr/${sessionNameToUse}`;
-  const baseBranch = "main"; // Default base branch, could be made configurable
-
-  // Initialize result
+  // Initialize result (prBranch/baseBranch will be filled from backend details when available)
   const result: SessionReviewResult = {
     session: sessionNameToUse,
     taskId,
-    prBranch: prBranchToUse,
-    baseBranch,
+    prBranch: params.prBranch || `pr/${sessionNameToUse}`,
+    baseBranch: "main",
   };
 
   // 1. Get task specification if available
@@ -195,88 +192,47 @@ export async function sessionReviewImpl(
     }
   }
 
-  // 2. Get PR description (from git log of the PR branch)
+  // 2. Get PR details and diff from repository backend (backend-agnostic)
   try {
-    // First check if the branch exists remotely
-    const remoteBranchOutput = await deps.gitService.execInRepository(
-      sessionWorkdir,
-      `git ls-remote --heads origin ${prBranchToUse}`
-    );
-    const remoteBranchExists = remoteBranchOutput.trim().length > 0;
+    // Determine backend from session record
+    const backendType: RepositoryBackendType = ((): RepositoryBackendType => {
+      if (sessionRecord.backendType === "github") return RepositoryBackendType.GITHUB;
+      if (sessionRecord.backendType === "remote") return RepositoryBackendType.REMOTE;
+      return RepositoryBackendType.LOCAL;
+    })();
 
-    if (remoteBranchExists) {
-      // Fetch the PR branch to ensure we have latest
-      await gitFetchWithTimeout("origin", prBranchToUse, { workdir: sessionWorkdir });
+    const backend = await createRepositoryBackend({
+      type: backendType,
+      repoUrl: sessionRecord.repoUrl,
+      github: sessionRecord.github,
+    });
 
-      // Get the PR description from the remote branch's last commit
-      const prDescription = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git log -1 --pretty=format:%B origin/${prBranchToUse}`
-      );
+    // Fetch PR details; if GitHub, backend infers PR number from session
+    const details = await backend.getPullRequestDetails({ session: sessionNameToUse });
+    if (details) {
+      if (details.headBranch) result.prBranch = details.headBranch;
+      if (details.baseBranch) result.baseBranch = details.baseBranch;
+      result.prDescription = details.body;
+    }
 
-      result.prDescription = prDescription;
-    } else {
-      // Check if branch exists locally
-      const localBranchOutput = await deps.gitService.execInRepository(
-        sessionWorkdir,
-        `git show-ref --verify --quiet refs/heads/${prBranchToUse} || echo "not-exists"`
-      );
-      const localBranchExists = localBranchOutput.trim() !== "not-exists";
-
-      if (localBranchExists) {
-        // Get the PR description from the local branch's last commit
-        const prDescription = await deps.gitService.execInRepository(
-          sessionWorkdir,
-          `git log -1 --pretty=format:%B ${prBranchToUse}`
-        );
-
-        result.prDescription = prDescription;
+    // Fetch diff
+    const diffInfo = await backend.getPullRequestDiff({ session: sessionNameToUse });
+    if (diffInfo) {
+      result.diff = diffInfo.diff;
+      if (diffInfo.stats) {
+        result.diffStats = diffInfo.stats;
       }
     }
   } catch (error) {
-    log.debug("Error getting PR description", {
+    log.debug("Error getting PR details/diff from repository backend", {
       error: getErrorMessage(error),
-      prBranch: prBranchToUse,
+      session: sessionNameToUse,
+      repoUrl: sessionRecord.repoUrl,
+      backendType: sessionRecord.backendType,
     });
   }
 
-  // 3. Get diff stats and full diff
-  try {
-    // Fetch latest changes
-    await gitFetchWithTimeout("origin", undefined, { workdir: sessionWorkdir });
-
-    // Get diff stats
-    const diffStatsOutput = await deps.gitService.execInRepository(
-      sessionWorkdir,
-      `git diff --stat origin/${baseBranch}...origin/${prBranchToUse}`
-    );
-
-    // Parse diff stats
-    const statsMatch = diffStatsOutput.match(
-      /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
-    );
-    if (statsMatch) {
-      result.diffStats = {
-        filesChanged: parseInt(statsMatch[1] || "0", 10),
-        insertions: parseInt(statsMatch[2] || "0", 10),
-        deletions: parseInt(statsMatch[3] || "0", 10),
-      };
-    }
-
-    // Get full diff
-    const diffOutput = await deps.gitService.execInRepository(
-      sessionWorkdir,
-      `git diff origin/${baseBranch}...origin/${prBranchToUse}`
-    );
-
-    result.diff = diffOutput;
-  } catch (error) {
-    log.debug("Error getting diff information", {
-      error: getErrorMessage(error),
-      baseBranch,
-      prBranch: prBranchToUse,
-    });
-  }
+  // Note: direct git-based diff code removed in favor of backend methods
 
   return result;
 }

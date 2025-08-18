@@ -27,8 +27,9 @@ import {
   getCurrentSessionContext,
 } from "../workspace";
 import * as WorkspaceUtils from "../workspace";
-import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
-import type { SessionRecord } from "./types";
+import { createSessionProvider } from "../session";
+import type { SessionProviderInterface } from "../session";
+import type { SessionRecord } from "../session";
 import { updatePrStateOnMerge } from "./session-update-operations";
 import { createRepositoryBackendForSession } from "./repository-backend-detection";
 import {
@@ -79,12 +80,7 @@ async function createRepositoryBackendFromSession(
   };
 
   // Add GitHub-specific configuration if available
-  if (backendType === RepositoryBackendType.GITHUB && sessionRecord.github) {
-    config.github = {
-      owner: sessionRecord.github.owner || "",
-      repo: sessionRecord.github.repo || "",
-    };
-  }
+  // For GitHub, owner/repo will be derived from repoUrl by the backend
 
   return await createRepositoryBackend(config);
 }
@@ -263,13 +259,13 @@ The task exists but has no associated session to approve.
   // The session workspace state becomes irrelevant for approval
   const workingDirectory = originalRepoPath;
 
-  // Determine PR branch name (pr/<session-name>)
+  // Determine PR branch name (local/remote only). GitHub path will delegate to backend
   const featureBranch = sessionNameToUse;
   const prBranch = `pr/${featureBranch}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
 
-  // Early exit check: If task is already DONE and PR branch doesn't exist, session is already complete
-  if (taskId && deps.taskService.getTaskStatus) {
+  // Early exit check (non-GitHub only): If DONE and PR branch missing, session is complete
+  if (taskId && deps.taskService.getTaskStatus && sessionRecord.backendType !== "github") {
     try {
       const currentStatus = await deps.taskService.getTaskStatus(taskId);
       if (currentStatus === TASK_STATUS.DONE) {
@@ -318,7 +314,7 @@ The task exists but has no associated session to approve.
     }
   }
 
-  // Track whether we stashed changes for restoration logic
+  // Track whether we stashed changes for restoration logic (non-GitHub only)
   let hasStashedChanges = false;
 
   // Initialize merge tracking variables
@@ -343,8 +339,8 @@ The task exists but has no associated session to approve.
       log.cli(`📦 Using ${backendType} repository backend for merge`);
     }
 
-    // Check for uncommitted changes and automatically stash them if needed
-    if (!params.noStash) {
+    // Check for uncommitted changes and stash if needed (non-GitHub only)
+    if (!params.noStash && sessionRecord.backendType !== "github") {
       try {
         const hasUncommittedChanges = await deps.gitService.hasUncommittedChanges(workingDirectory);
         if (hasUncommittedChanges) {
@@ -370,14 +366,11 @@ The task exists but has no associated session to approve.
     }
 
     // Determine PR identifier based on backend type
-    let prIdentifier: string | number;
+    let prIdentifier: string | number = prBranch; // default
     if (backendType === "github") {
-      // For GitHub, we need to find the actual PR number
-      // For now, use the branch name as identifier (could be enhanced later)
-      prIdentifier = prBranch;
-    } else {
-      // For local/remote backends, use the PR branch name
-      prIdentifier = prBranch;
+      // For GitHub, backend will resolve PR number from session context; leave identifier undefined
+      // Some backends require an identifier; we pass session via second argument
+      prIdentifier = sessionNameToUse;
     }
 
     if (!params.json) {
@@ -552,8 +545,8 @@ The task exists but has no associated session to approve.
       }
     }
 
-    // Restore stashed changes if we stashed them
-    if (hasStashedChanges && !params.noStash) {
+    // Restore stashed changes if we stashed them (non-GitHub only)
+    if (hasStashedChanges && !params.noStash && sessionRecord.backendType !== "github") {
       try {
         if (!params.json) {
           log.cli("📦 Restoring stashed changes...");

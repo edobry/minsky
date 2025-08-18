@@ -74,7 +74,6 @@ CLI Examples:
 
 ## Notes
 
-
 ## Requirements
 
 ## Solution
