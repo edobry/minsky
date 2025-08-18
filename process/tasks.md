@@ -656,7 +656,7 @@
 
 - [ ] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
 
-- [-] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
+- [x] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
 - [ ] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
@@ -678,7 +678,7 @@
 
 - [+] Plan: Explore Migrating from SQLite to PGlite [md#434](process/tasks/md#434-plan-explore-migrating-from-sqlite-to-pglite.md)
 
-- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-plan-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
