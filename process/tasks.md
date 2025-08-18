@@ -618,8 +618,6 @@
 
 - [ ] Improve test mock filesystem approach with external libraries [md#398](process/tasks/md#398-improve-test-mock-filesystem-approach-with-external-libraries.md)
 
-- [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
-
 - [ ] Explore alternative task entry methods and reference resolution [md#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
 - [x] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
@@ -666,7 +664,7 @@
 
 - [x] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
 
-- [ ] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
+
 
 - [ ] Extract reusable result-handling utilities for list/get commands [md#422](process/tasks/md#422-extract-reusable-result-handling-utilities-for-list-get-commands.md)
 
@@ -690,14 +688,8 @@
 
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
-- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
-
 - [+] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
-
-- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
-
-- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
