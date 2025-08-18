@@ -11,6 +11,8 @@ All notable changes to this project will be documented in this file.
   - `minsky session pr get --task md#413 --status all --since 24h`
   - Status accepts comma-separated or `all`; backend: `github|remote|local`; time accepts `YYYY-MM-DD` or relative `7d|24h|30m`.
 
+- tasks storage (md#315): add `backend` enum and `source_task_id` columns to `tasks` table; populate from qualified IDs; reuse centralized backend enum values from `enumSchemas.backendType`; update PG vector storage to write these fields.
+
 ### Fixed
 
 - **Tasks Search/Similar CLI Output**: `minsky tasks search` and `minsky tasks similar` now display human-friendly output in non-JSON mode, listing result IDs with scores and showing a result count, instead of only printing "✅ Success".

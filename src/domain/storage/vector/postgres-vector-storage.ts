@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { getConfiguration } from "../../configuration";
+import { TaskBackend } from "../../configuration/backend-detection";
 import type { VectorStorage, SearchResult } from "./types";
 import { log } from "../../../utils/logger";
 
@@ -27,35 +28,42 @@ export class PostgresVectorStorage implements VectorStorage {
 
   async initialize(): Promise<void> {
     await this.sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
-    await this.sql.unsafe(
-      `CREATE TABLE IF NOT EXISTS task_embeddings (
-        id TEXT PRIMARY KEY,
-        task_id TEXT,
-        dimension INT NOT NULL,
-        embedding vector(${this.dimension}),
-        metadata JSONB,
-        created_at TIMESTAMPTZ DEFAULT NOW(),
-        updated_at TIMESTAMPTZ DEFAULT NOW()
-      )`
-    );
-    try {
-      await this.sql.unsafe(
-        "CREATE INDEX IF NOT EXISTS idx_task_embeddings_ivf ON task_embeddings USING ivfflat (embedding vector_l2_ops)"
-      );
-    } catch {
-      // ignore if not supported
-    }
+    // Tables are managed by Drizzle migrations. No-op here to avoid drift.
   }
 
   async store(id: string, vector: number[], metadata?: Record<string, any>): Promise<void> {
     const vectorLiteral = `[${vector.join(",")}]`;
     // Normalize id to qualified form if it looks like legacy (e.g., "#123")
     const qualifiedId = id.startsWith("#") ? `md#${id.slice(1)}` : id;
+    const localId = qualifiedId.includes("#") ? qualifiedId.split("#")[1] : qualifiedId;
+    const backendPrefix = qualifiedId.split("#")[0];
+    let backendValue: string | null = null;
+    if (backendPrefix === "md") backendValue = TaskBackend.MARKDOWN;
+    else if (backendPrefix === "gh") backendValue = TaskBackend.GITHUB_ISSUES;
+    else if (backendPrefix === "json") backendValue = TaskBackend.JSON_FILE;
+
     await this.sql.unsafe(
-      `INSERT INTO task_embeddings (id, dimension, embedding, metadata, updated_at)
-       VALUES ($1, $2, $3::vector, $4::jsonb, NOW())
-       ON CONFLICT (id) DO UPDATE SET embedding = EXCLUDED.embedding, metadata = EXCLUDED.metadata, updated_at = NOW()`,
-      [qualifiedId, this.dimension, vectorLiteral, metadata ? JSON.stringify(metadata) : null]
+      `INSERT INTO tasks (id, task_id, source_task_id, backend, dimension, embedding, metadata, content_hash, last_indexed_at, updated_at)
+       VALUES ($1, $2, $3, $4::task_backend, $5, $6::vector, $7::jsonb, $8, NOW(), NOW())
+       ON CONFLICT (id) DO UPDATE SET
+         task_id = EXCLUDED.task_id,
+         source_task_id = EXCLUDED.source_task_id,
+         backend = EXCLUDED.backend,
+         embedding = EXCLUDED.embedding,
+         metadata = EXCLUDED.metadata,
+         content_hash = EXCLUDED.content_hash,
+         last_indexed_at = EXCLUDED.last_indexed_at,
+         updated_at = NOW()`,
+      [
+        qualifiedId,
+        qualifiedId,
+        localId,
+        backendValue,
+        this.dimension,
+        vectorLiteral,
+        metadata ? JSON.stringify(metadata) : null,
+        metadata && typeof metadata.contentHash === "string" ? metadata.contentHash : null,
+      ]
     );
   }
 
@@ -76,7 +84,7 @@ export class PostgresVectorStorage implements VectorStorage {
                 CASE WHEN id LIKE 'md#%' THEN regexp_replace(id, '^md#', '')
                      WHEN id LIKE '#%' THEN regexp_replace(id, '^#', '')
                      ELSE id END AS local
-         FROM task_embeddings
+         FROM tasks
          ORDER BY embedding <-> $1::vector
          LIMIT $2
        )
@@ -102,6 +110,6 @@ export class PostgresVectorStorage implements VectorStorage {
   }
 
   async delete(id: string): Promise<void> {
-    await this.sql.unsafe(`DELETE FROM task_embeddings WHERE id = $1`, [id]);
+    await this.sql.unsafe(`DELETE FROM tasks WHERE id = $1`, [id]);
   }
 }
