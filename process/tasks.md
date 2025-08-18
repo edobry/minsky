@@ -678,7 +678,7 @@
 
 - [+] Plan: Explore Migrating from SQLite to PGlite [md#434](process/tasks/md#434-plan-explore-migrating-from-sqlite-to-pglite.md)
 
-- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-plan-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
