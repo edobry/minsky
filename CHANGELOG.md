@@ -148,6 +148,7 @@ All notable changes to this project will be documented in this file.
 - **Task Delete Functionality**: Fixed task deletion bug where qualified task IDs (e.g., `md#399`) were not properly handled during deletion operations. The MarkdownTaskBackend now uses the existing `getTaskById` utility function for consistent task ID comparison across all formats, ensuring reliable deletion of tasks regardless of ID format used.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 - **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.
+ - **Tasks Status No-Op Messaging (md#410)**: `minsky tasks status set` now reports a clear no-op when the new status equals the current status, e.g., `status is already DONE (no change)`, instead of misleading "changed from DONE to DONE".
 
 ### Cleanup
 
