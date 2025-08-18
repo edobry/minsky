@@ -640,7 +640,7 @@
 
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
-- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#435](process/tasks/md#435-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+- [x] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#435](process/tasks/md#435-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
