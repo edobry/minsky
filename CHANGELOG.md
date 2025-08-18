@@ -135,6 +135,7 @@ All notable changes to this project will be documented in this file.
 - session.edit_file (md#417): Optional `instructions` parameter now supported end-to-end
   - Schema: `instructions` is now optional in MCP `SessionFileEditSchema`
   - Handler: passes `instructions` to `applyEditPattern(original, content, instruction)`
+  - CLI: `--instruction` flag is now optional
   - Tests: added integration test verifying instruction-guided placement (e.g., method after constructor)
 
 ### Fixed

@@ -300,7 +300,10 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
       properties: {
         sessionName: { type: "string", description: "Session identifier" },
         path: { type: "string", description: "Path to the file within the session workspace" },
-        instructions: { type: "string", description: "Instructions describing the edit to make" },
+        instructions: {
+          type: "string",
+          description: "Optional high-level instruction guiding how to apply the edit",
+        },
         content: {
           type: "string",
           description: "The edit content with '// ... existing code ...' markers",
@@ -311,7 +314,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           default: true,
         },
       },
-      required: ["sessionName", "path", "instructions", "content"],
+      required: ["sessionName", "path", "content"],
     },
     handler: async (args: any) => {
       try {

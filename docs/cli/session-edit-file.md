@@ -9,7 +9,7 @@ This command allows you to edit files in a session workspace by providing edit i
 ## Usage
 
 ```bash
-minsky session edit-file --path <file-path> --instruction "<description>" [options]
+minsky session edit-file --path <file-path> [--instruction "<description>"] [options]
 ```
 
 ## Parameters
@@ -17,11 +17,11 @@ minsky session edit-file --path <file-path> --instruction "<description>" [optio
 ### Required Parameters
 
 - `--path <path>`: Path to the file within the session workspace
-- `--instruction <text>`: Instructions describing the edit to make
 
 ### Optional Parameters
 
 - `--session <name>` or `-s <name>`: Session name (auto-detected from workspace if not provided)
+- `--instruction <text>`: Optional high-level guidance that can affect placement/order of edits
 - `--pattern-file <path>` or `-f <path>`: Path to file containing edit pattern
 - `--dry-run` or `-n`: Preview changes without writing to disk
 - `--create-dirs`: Create parent directories if they don't exist (default: true)
