@@ -43,10 +43,9 @@ export class PostgresVectorStorage implements VectorStorage {
     else if (backendPrefix === "json") backendValue = TaskBackend.JSON_FILE;
 
     await this.sql.unsafe(
-      `INSERT INTO tasks (id, task_id, source_task_id, backend, dimension, embedding, metadata, content_hash, last_indexed_at, updated_at)
-       VALUES ($1, $2, $3, $4::task_backend, $5, $6::vector, $7::jsonb, $8, NOW(), NOW())
+      `INSERT INTO tasks (id, source_task_id, backend, dimension, embedding, metadata, content_hash, last_indexed_at, updated_at)
+       VALUES ($1, $2, $3::task_backend, $4, $5::vector, $6::jsonb, $7, NOW(), NOW())
        ON CONFLICT (id) DO UPDATE SET
-         task_id = EXCLUDED.task_id,
          source_task_id = EXCLUDED.source_task_id,
          backend = EXCLUDED.backend,
          embedding = EXCLUDED.embedding,
@@ -55,7 +54,6 @@ export class PostgresVectorStorage implements VectorStorage {
          last_indexed_at = EXCLUDED.last_indexed_at,
          updated_at = NOW()`,
       [
-        qualifiedId,
         qualifiedId,
         localId,
         backendValue,

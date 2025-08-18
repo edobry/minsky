@@ -30,7 +30,6 @@ export const tasksTable = pgTable(
   "tasks",
   {
     id: text("id").primaryKey(),
-    taskId: text("task_id"),
     sourceTaskId: text("source_task_id"),
     backend: taskBackendEnum("backend"),
     status: taskStatusEnum("status"),
@@ -46,6 +45,5 @@ export const tasksTable = pgTable(
   },
   (table) => [
     index("idx_tasks_hnsw").using("hnsw", table.embedding.asc().nullsLast().op("vector_l2_ops")),
-    uniqueIndex("uq_tasks_task_id").on(table.taskId),
   ]
 );
