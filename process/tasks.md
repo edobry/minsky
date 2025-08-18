@@ -656,7 +656,7 @@
 
 - [ ] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
 
-- [+] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
+- [x] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
 - [+] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
