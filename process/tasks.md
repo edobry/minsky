@@ -590,7 +590,7 @@
 
 - [x] Fix missing session.pr command in template system causing 5 template generation failures [md#364](process/tasks/md#364-fix-missing-session-pr-command-in-template-system-causing-5-template-generation-failures.md)
 
-- [ ] Fix Session Start with Qualified Task IDs [md#368](process/tasks/md#368-fix-session-start-with-qualified-task-ids.md)
+- [x] Fix Session Start with Qualified Task IDs [md#368](process/tasks/md#368-fix-session-start-with-qualified-task-ids.md)
 
 - [ ] Multi-Backend System Polish & Optimization [md#369](process/tasks/md#369-multi-backend-system-polish-optimization.md)
 
