@@ -174,12 +174,7 @@ export const SearchReplaceSchema = z.object({
  * Used in edit_file operations
  */
 export const EditInstructionsSchema = z.object({
-  instructions: z
-    .string()
-    .optional()
-    .describe(
-      "Optional high-level instruction to guide how to apply the edit (e.g., placement/order)"
-    ),
+  instructions: z.string().describe("Instructions describing the edit to make"),
   content: z.string().describe("The edit content with '// ... existing code ...' markers"),
 });
 

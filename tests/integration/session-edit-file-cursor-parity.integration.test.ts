@@ -383,7 +383,7 @@ describe("session.edit_file Cursor Parity Integration", () => {
       // This test validates the core edit pattern following MorphLLM best practices
       // Use minimal pattern - only show what's being added, not existing code
       const editPattern = `// ... existing code ...
-  
+
   multiply(a: number, b: number): number {
     return a * b;
   }
