@@ -247,6 +247,7 @@ async function gatherCredentialInfo(credentialResolver: DefaultCredentialResolve
 export function registerConfigCommands() {
   sharedCommandRegistry.registerCommand(configListRegistration);
   sharedCommandRegistry.registerCommand(configShowRegistration);
+  sharedCommandRegistry.registerCommand(configGetRegistration);
   sharedCommandRegistry.registerCommand(configSetRegistration);
   sharedCommandRegistry.registerCommand(configUnsetRegistration);
   sharedCommandRegistry.registerCommand(configValidateRegistration);
@@ -277,6 +278,53 @@ function parseConfigValue(value: string): any {
 
   return value;
 }
+
+/**
+ * Config get command
+ */
+const configGetRegistration = {
+  id: "config.get",
+  category: CommandCategory.CONFIG,
+  name: "get",
+  description: "Get a configuration value by key path",
+  parameters: composeParams(configCommandParams, {
+    key: { schema: z.string(), description: "Configuration key path", required: true },
+  }),
+  execute: async (params: any) => {
+    try {
+      const { getConfigurationProvider } = await import("../../../domain/configuration/index");
+      const provider = getConfigurationProvider();
+
+      const exists = provider.has(params.key);
+      if (!exists) {
+        return {
+          success: false,
+          json: params.json || false,
+          error: `Configuration path '${params.key}' not found`,
+          key: params.key,
+          exists: false,
+        };
+      }
+
+      // Will throw if not found, but we've already checked with has()
+      const value = provider.get(params.key);
+      return {
+        success: true,
+        json: params.json || false,
+        key: params.key,
+        value,
+        exists: true,
+      };
+    } catch (error) {
+      return {
+        success: false,
+        json: params.json || false,
+        error: getErrorMessage(error as any),
+        key: params.key,
+      };
+    }
+  },
+} as any;
 
 /**
  * Config set command

@@ -66,6 +66,7 @@ All notable changes to this project will be documented in this file.
 
 - **Task #404**: Add configuration management subcommands
 
+  - **`minsky config get <key>`** - Get a configuration value (raw value in CLI; JSON with --json)
   - **`minsky config set <key> <value>`** - Set configuration values programmatically
   - **`minsky config unset <key>`** - Remove configuration values
   - **`minsky config validate`** - Validate configuration against schemas

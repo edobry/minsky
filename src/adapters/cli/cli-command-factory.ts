@@ -573,6 +573,37 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           }
         },
       },
+      "config.get": {
+        useFirstRequiredParamAsArgument: true,
+        parameters: {
+          key: {
+            asArgument: true,
+            description: "Configuration key path (e.g., sessiondb.backend)",
+          },
+        },
+        outputFormatter: (result: any) => {
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
+
+          if (result.success) {
+            // Print the raw value when possible for easy scripting
+            const value = (result as any).value;
+            if (value === null || value === undefined) {
+              log.cli("");
+            } else if (typeof value === "object") {
+              log.cli(JSON.stringify(value));
+            } else {
+              log.cli(String(value));
+            }
+          } else if ((result as any).error) {
+            log.cli(`Error: ${(result as any).error}`);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
+        },
+      },
       "config.set": {
         useFirstRequiredParamAsArgument: false,
         parameters: {
