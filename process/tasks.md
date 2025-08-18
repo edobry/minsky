@@ -686,15 +686,13 @@
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
-<<<<<<< Updated upstream
-
 - [x] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
 
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
 - [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
-- [ ] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
+- [+] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
 
 - [+] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
 
@@ -702,8 +700,8 @@
 
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
-- [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431-implement-programmatic-pending-drizzle-migrations-detection.md)
+- [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
+
 - [+] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
 
 - [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
-  > > > > > > > Stashed changes
