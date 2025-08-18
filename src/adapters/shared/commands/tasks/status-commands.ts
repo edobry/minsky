@@ -91,6 +91,19 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
       status = await this.promptForStatus(previousStatus);
     }
 
+    // If no change, return a clear no-op message and skip update
+    if (status === previousStatus) {
+      const message = `Task ${normalizedTaskId} status is already ${status} (no change)`;
+      return this.formatResult(
+        this.createSuccessResult(normalizedTaskId, message, {
+          previousStatus,
+          newStatus: status,
+          changed: false,
+        }),
+        params.json
+      );
+    }
+
     // Set the task status
     this.debug("Setting task status");
     const result = await setTaskStatusFromParams({
@@ -106,6 +119,7 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
       this.createSuccessResult(normalizedTaskId, message, {
         previousStatus,
         newStatus: status,
+        changed: true,
         result,
       }),
       params.json
