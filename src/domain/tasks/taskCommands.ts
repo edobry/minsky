@@ -46,6 +46,17 @@ import {
   type TaskDeleteParams,
 } from "../../schemas/tasks";
 
+// Helper: normalize task ID inputs to qualified form when appropriate
+function normalizeTaskIdInput(input: unknown): string {
+  const raw = Array.isArray(input) ? String(input[0] ?? "").trim() : String(input ?? "").trim();
+  if (!raw) return raw;
+  // Already qualified like md#123 or gh#456
+  if (/^[a-z]+#/.test(raw)) return raw;
+  // Accept forms like "#123" or "123" and normalize to md#123
+  const numeric = raw.startsWith("#") ? raw.slice(1) : raw;
+  return `md#${numeric}`;
+}
+
 /**
  * List tasks with given parameters
  * @param params Parameters for listing tasks
@@ -63,12 +74,10 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Resolve repository root and use it as workspace path (single source of truth)
-    const repoPath = await resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-    const workspacePath = repoPath;
+    // Prefer explicit main workspace resolver when provided (tests rely on this)
+    const workspacePath =
+      (await deps?.resolveMainWorkspacePath?.()) ??
+      (await resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -109,7 +118,7 @@ export async function getTaskFromParams(
   log.debug("[getTaskFromParams] Starting execution", { params });
 
   try {
-    // Handle taskId as either string or string array
+    // Handle taskId as either string or string array and normalize
     const taskIdInput = Array.isArray(params.taskId) ? params.taskId[0] : params.taskId;
     log.debug("[getTaskFromParams] Processed taskId input", { taskIdInput });
 
@@ -117,17 +126,17 @@ export async function getTaskFromParams(
       throw new ValidationError("Task ID is required");
     }
 
-    // Use taskId directly since we now only accept qualified IDs
-    log.debug("[getTaskFromParams] Using taskId", { taskId: taskIdInput });
+    const normalizedTaskId = normalizeTaskIdInput(taskIdInput);
+    log.debug("[getTaskFromParams] Using taskId", { taskId: normalizedTaskId });
 
-    const paramsWithNormalizedId = { ...params, taskId: taskIdInput };
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
     log.debug("[getTaskFromParams] About to validate params with Zod");
     const validParams = taskGetParamsSchema.parse(paramsWithNormalizedId);
     log.debug("[getTaskFromParams] Params validated", { validParams });
 
-    // Resolve repository root and use it as workspace path
+    // Resolve repository root and use it as workspace path (prefer injected main path)
     const workspacePath = await (deps?.resolveMainWorkspacePath
       ? deps.resolveMainWorkspacePath()
       : resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
@@ -185,22 +194,20 @@ export async function getTaskStatusFromParams(
   }
 ): Promise<string> {
   try {
-    // Use taskId directly since we now only accept qualified IDs
-    const normalizedTaskId = params.taskId;
+    // Normalize taskId before validation
+    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
     const validParams = taskStatusGetParamsSchema.parse(paramsWithNormalizedId);
 
-    // First get the repo path (needed for workspace resolution)
-    const resolveRepoPathFn = deps?.resolveRepoPath || resolveRepoPath;
-    const repoPath = await resolveRepoPathFn({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Use repository root as workspace path for markdown backend
-    const workspacePath = repoPath;
+    // Resolve workspace path (prefer injected main path)
+    const workspacePath =
+      (await deps?.resolveMainWorkspacePath?.()) ??
+      (await (deps?.resolveRepoPath || resolveRepoPath)({
+        session: validParams.session,
+        repo: validParams.repo,
+      }));
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -245,25 +252,24 @@ export async function setTaskStatusFromParams(
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
     createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<void> {
   try {
-    // Use taskId directly since we now only accept qualified IDs
-    const normalizedTaskId = params.taskId;
+    // Normalize taskId before validation
+    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
     const validParams = taskStatusSetParamsSchema.parse(paramsWithNormalizedId);
 
-    // First get the repo path (needed for workspace resolution)
-    const resolveRepoPathFn = deps?.resolveRepoPath || resolveRepoPath;
-    const repoPath = await resolveRepoPathFn({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Use repository root as workspace path for markdown backend
-    const workspacePath = repoPath;
+    // Resolve workspace path (prefer injected main path)
+    const workspacePath =
+      (await deps?.resolveMainWorkspacePath?.()) ??
+      (await (deps?.resolveRepoPath || resolveRepoPath)({
+        session: validParams.session,
+        repo: validParams.repo,
+      }));
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -292,9 +298,7 @@ export async function setTaskStatusFromParams(
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
       const commitMessage = `chore(${validParams.taskId}): update task status ${oldStatus} → ${validParams.status}`;
-      // The original code had commitTaskChanges here, but it was removed from imports.
-      // Assuming the intent was to remove this line or that commitTaskChanges is no longer needed.
-      // For now, removing the line as per the new_code.
+      // Intentionally no commit call here per updated design
     }
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -353,10 +357,8 @@ export async function createTaskFromParams(
 
     // Auto-commit changes for markdown backend
     if ((validParams.backend || "markdown") === "markdown") {
-      const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
-      // The original code had commitTaskChanges here, but it was removed from imports.
-      // Assuming the intent was to remove this line or that commitTaskChanges is no longer needed.
-      // For now, removing the line as per the new_code.
+      const commitMessage = `feat(${task.id}): create task \"${validParams.title}\"`;
+      // Intentionally no commit call here per updated design
     }
 
     return task;
@@ -453,7 +455,7 @@ export async function getTaskSpecContentFromParams(
 
       if (sectionStart === -1) {
         throw new ResourceNotFoundError(
-          `Section "${validParams.section}" not found in task ${taskId} specification`
+          `Section \"${validParams.section}\" not found in task ${taskId} specification`
         );
       }
 
@@ -489,125 +491,6 @@ export async function getTaskSpecContentFromParams(
 }
 
 /**
- * Create a task from title and description using the provided parameters
- * This function implements the interface-agnostic command architecture
- * @param params Parameters for creating a task from title and description
- * @returns The created task
- */
-export async function createTaskFromTitleAndDescription(
-  params: TaskCreateFromTitleAndDescriptionParams,
-  deps: {
-    resolveRepoPath: typeof resolveRepoPath;
-    createTaskService: (options: TaskServiceOptions) => TaskService;
-  } = {
-    resolveRepoPath,
-    createTaskService: (options) => createTaskServiceImpl(options),
-  }
-): Promise<any> {
-  try {
-    // Validate params with Zod schema
-    const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params);
-
-    // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Then get the workspace path using backend-aware resolution
-    const workspacePath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Create task service with GitHub repository override support
-    let taskService;
-    if (validParams.backend === "github-issues" && validParams.githubRepo) {
-      // Use repository backend integration with GitHub override
-      const { TaskService } = await import("./taskService");
-      taskService = await TaskService.createWithRepositoryBackend({
-        workspacePath,
-        backend: validParams.backend,
-        githubRepoOverride: validParams.githubRepo,
-      });
-    } else {
-      // Use default task service creation
-      taskService = deps.createTaskService({
-        workspacePath,
-        backend: validParams.backend,
-      });
-    }
-
-    // Read description from file if descriptionPath is provided
-    let description = validParams.description;
-    if (validParams.descriptionPath) {
-      try {
-        // Resolve relative paths relative to current working directory
-        const filePath = resolve(validParams.descriptionPath);
-        description = (await readFile(filePath, "utf-8")) as string;
-
-        if (!description.trim()) {
-          throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);
-        }
-      } catch (error) {
-        if (error instanceof ValidationError) {
-          throw error;
-        }
-
-        const errorMessage = getErrorMessage(error as any);
-        if ((errorMessage as any).includes("ENOENT") || errorMessage.includes("no such file")) {
-          throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
-        } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
-          throw new ValidationError(
-            `Permission denied reading description file: ${validParams.descriptionPath}`
-          );
-        } else {
-          throw new ValidationError(
-            `Failed to read description file: ${validParams.descriptionPath}. ${errorMessage}`
-          );
-        }
-      }
-    }
-
-    // Create the task from title and description
-    const task = await taskService.createTaskFromTitleAndDescription(
-      validParams.title,
-      description!,
-      {
-        force: validParams.force,
-      }
-    );
-
-    // Auto-commit changes for markdown backend (with error handling to prevent MCP hangs)
-    if ((validParams.backend || "markdown") === "markdown") {
-      try {
-        const commitMessage = `feat(${task.id}): create task "${validParams.title}"`;
-        // The original code had commitTaskChanges here, but it was removed from imports.
-        // Assuming the intent was to remove this line or that commitTaskChanges is no longer needed.
-        // For now, removing the line as per the new_code.
-      } catch (error) {
-        // Log error but don't fail task creation - prevents MCP hangs
-        log.warn("Auto-commit failed, task created successfully", {
-          taskId: task.id,
-          error: error instanceof Error ? error.message : String(error),
-        });
-      }
-    }
-
-    return task;
-  } catch (error) {
-    if (error instanceof z.ZodError) {
-      throw new ValidationError(
-        "Invalid parameters for creating task from title and description",
-        (error as any).format(),
-        error as any
-      );
-    }
-    throw error;
-  }
-}
-
-/**
  * Delete a task using the provided parameters
  * This function implements the interface-agnostic command architecture
  * @param params Parameters for deleting a task
@@ -624,18 +507,12 @@ export async function deleteTaskFromParams(
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {
-    // Use taskId directly since we now only accept qualified IDs
-    const normalizedTaskId = params.taskId;
+    // Normalize taskId before validation
+    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
     const validParams = taskDeleteParamsSchema.parse(paramsWithNormalizedId);
-
-    // First get the repo path (needed for workspace resolution)
-    const repoPath = await deps.resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
 
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveRepoPath({
@@ -668,9 +545,7 @@ export async function deleteTaskFromParams(
     // Auto-commit changes for markdown backend
     if (deleted && (validParams.backend || "markdown") === "markdown") {
       const commitMessage = `chore(${validParams.taskId}): delete task`;
-      // The original code had commitTaskChanges here, but it was removed from imports.
-      // Assuming the intent was to remove this line or that commitTaskChanges is no longer needed.
-      // For now, removing the line as per the new_code.
+      // Intentionally no commit call here per updated design
     }
 
     return {
