@@ -74,6 +74,20 @@ export function createMockFilesystem(
       const content = files.get(String(path));
       return encoding === "utf8" || encoding === "utf-8" ? content : Buffer.from(content || "");
     }),
+    copyFileSync: createMock((srcPath: unknown, destPath: unknown) => {
+      const src = String(srcPath);
+      const dest = String(destPath);
+      if (!files.has(src)) {
+        throw new Error(`ENOENT: no such file or directory, open '${src}'`);
+      }
+      const content = files.get(src) ?? "";
+      // Ensure destination directory exists
+      const destDir = String(dest).split("/").slice(0, -1).join("/");
+      if (destDir) {
+        directories.add(destDir);
+      }
+      files.set(dest, content);
+    }),
     // Convenience alias used by some tests (synchronous)
     readFile: createMock((path: unknown) => {
       if (!files.has(path as string)) {
@@ -294,6 +308,7 @@ export function createMockFilesystem(
       mkdirSync: (path: unknown, options?: unknown) => mockFs.mkdirSync(path, options),
       statSync: (path: unknown) => mockFs.statSync(path),
       readdirSync: (path: unknown) => mockFs.readdirSync(path),
+      copyFileSync: (src: unknown, dest: unknown) => mockFs.copyFileSync(src, dest),
     },
     fsPromises: {
       readFile: (path: unknown, encoding?: unknown) => mockFs.readFileAsync(path, encoding),

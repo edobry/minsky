@@ -4,72 +4,31 @@
  * Test-driven development for configuration file writing with mocked filesystem operations
  */
 
-import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { ConfigWriter, createConfigWriter } from "./config-writer";
-// Use mock.module() to mock filesystem operations
-// import * as fs from "fs";
-import * as path from "path";
-import * as os from "os";
-import * as yaml from "yaml";
-
-// Mock filesystem operations
-const mockFs = {
-  readFileSync: mock(),
-  writeFileSync: mock(),
-  existsSync: mock(),
-  mkdirSync: mock(),
-  copyFileSync: mock(),
-};
-
-const mockPath = {
-  join: mock(),
-  dirname: mock(),
-};
-
-const mockOs = {
-  homedir: mock(),
-};
-
-// Mock YAML operations
-const mockYaml = {
-  parse: mock(),
-  stringify: mock(),
-};
+import matter from "gray-matter";
+import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
 describe("ConfigWriter", () => {
   let writer: ConfigWriter;
   const mockConfigDir = "/home/user/.config/minsky";
   const mockConfigFile = "/home/user/.config/minsky/config.yaml";
+  let mockFs: ReturnType<typeof createMockFilesystem>;
+  let originalEnv: NodeJS.ProcessEnv;
 
   beforeEach(() => {
-    // Reset all mocks
-    Object.values(mockFs).forEach((m) => m.mockReset());
-    Object.values(mockPath).forEach((m) => m.mockReset());
-    Object.values(mockOs).forEach((m) => m.mockReset());
-    Object.values(mockYaml).forEach((m) => m.mockReset());
+    // Capture env and create isolated mock filesystem per test
+    originalEnv = { ...process.env };
+    mockFs = createMockFilesystem();
 
-    // Setup default mock behaviors
-    mockOs.homedir = mock(() => "/home/user");
-    mockPath.join = mock((...args) => args.join("/"));
-    mockPath.dirname = mock((p) => p.split("/").slice(0, -1).join("/"));
+    // Provide deterministic user config dir and available files via DI module mock
+    mock.module("./sources/user", () => ({
+      getUserConfigDir: () => mockConfigDir,
+      userConfigFiles: ["config.yaml", "config.json"],
+    }));
 
-    // Setup environment variable mock
-    process.env.XDG_CONFIG_HOME = undefined;
-
-    // Mock the imports by spying on the modules
-    spyOn(fs, "readFileSync").mockImplementation(mockFs.readFileSync);
-    spyOn(fs, "writeFileSync").mockImplementation(mockFs.writeFileSync);
-    spyOn(fs, "existsSync").mockImplementation(mockFs.existsSync);
-    spyOn(fs, "mkdirSync").mockImplementation(mockFs.mkdirSync);
-    spyOn(fs, "copyFileSync").mockImplementation(mockFs.copyFileSync);
-
-    spyOn(path, "join").mockImplementation(mockPath.join);
-    spyOn(path, "dirname").mockImplementation(mockPath.dirname);
-
-    spyOn(os, "homedir").mockImplementation(mockOs.homedir);
-
-    spyOn(yaml, "parse").mockImplementation(mockYaml.parse);
-    spyOn(yaml, "stringify").mockImplementation(mockYaml.stringify);
+    // Replace fs with mock filesystem
+    mock.module("fs", () => mockFs.fs);
 
     writer = createConfigWriter({
       createBackup: true,
@@ -79,8 +38,10 @@ describe("ConfigWriter", () => {
   });
 
   afterEach(() => {
-    // Restore original implementations
+    // Restore mocks and environment
     mock.restore();
+    process.env = originalEnv;
+    mockFs.cleanup();
   });
 
   describe("setConfigValue", () => {
@@ -88,8 +49,6 @@ describe("ConfigWriter", () => {
       // Bug scenario: Config directory doesn't exist yet
       mockFs.existsSync = mock(() => false);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(() => "key: value\n");
 
       await writer.setConfigValue("key", "value");
 
@@ -99,14 +58,10 @@ describe("ConfigWriter", () => {
 
     test("should create backup before modifying existing config", async () => {
       // Test scenario: Existing config file needs backup before modification
-      const existingConfig = { existing: "value" };
-
-      mockFs.existsSync = mock((path) => {
-        return path === mockConfigFile || path === mockConfigDir;
-      });
+      mockFs.existsSync = mock((path) => path === mockConfigFile || path === mockConfigDir);
       mockFs.readFileSync = mock(() => "existing: value\n");
-      mockYaml.parse = mock(() => existingConfig);
-      mockYaml.stringify = mock(() => "existing: value\nkey: newValue\n");
+      // Pre-seed file to allow backup
+      mockFs.writeFileSync(mockConfigFile, "existing: value\n");
 
       const result = await writer.setConfigValue("key", "newValue");
 
@@ -121,12 +76,8 @@ describe("ConfigWriter", () => {
 
     test("should handle nested key paths correctly", async () => {
       // Test scenario: Setting nested configuration values
-      const existingConfig = {};
-
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => existingConfig);
-      mockYaml.stringify = mock(() => "ai:\n  providers:\n    openai:\n      model: gpt-4\n");
 
       const result = await writer.setConfigValue("ai.providers.openai.model", "gpt-4");
 
@@ -141,17 +92,8 @@ describe("ConfigWriter", () => {
 
     test("should preserve existing values when setting new ones", async () => {
       // Test scenario: Adding new config without losing existing ones
-      const existingConfig = {
-        backend: "markdown",
-        logger: { level: "info" },
-      };
-
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "backend: markdown\nlogger:\n  level: info\n");
-      mockYaml.parse = mock(() => ({ ...existingConfig }));
-      mockYaml.stringify = mock(
-        () => "backend: markdown\nlogger:\n  level: info\nsessiondb:\n  backend: sqlite\n"
-      );
 
       const result = await writer.setConfigValue("sessiondb.backend", "sqlite");
 
@@ -164,7 +106,6 @@ describe("ConfigWriter", () => {
       // Bug scenario: Backup creation fails (permissions, disk space, etc.)
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => {});
       mockFs.copyFileSync = mock(() => {
         throw new Error("Permission denied");
       });
@@ -180,8 +121,6 @@ describe("ConfigWriter", () => {
       // Bug scenario: Writing to config file fails
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(() => "key: value\n");
       mockFs.writeFileSync = mock(() => {
         throw new Error("Disk full");
       });
@@ -194,12 +133,8 @@ describe("ConfigWriter", () => {
 
     test("should return previous value when overwriting existing config", async () => {
       // Test scenario: Overwriting existing configuration value
-      const existingConfig = { key: "oldValue" };
-
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: oldValue\n");
-      mockYaml.parse = mock(() => ({ ...existingConfig }));
-      mockYaml.stringify = mock(() => "key: newValue\n");
 
       const result = await writer.setConfigValue("key", "newValue");
 
@@ -219,8 +154,6 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: value\nother: remains\n");
-      mockYaml.parse = mock(() => ({ ...existingConfig }));
-      mockYaml.stringify = mock(() => "other: remains\n");
 
       const result = await writer.unsetConfigValue("key");
 
@@ -236,7 +169,6 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "other: value\n");
-      mockYaml.parse = mock(() => ({ ...existingConfig }));
 
       const result = await writer.unsetConfigValue("nonExistent");
 
@@ -263,8 +195,6 @@ describe("ConfigWriter", () => {
         () =>
           "ai:\n  providers:\n    openai:\n      model: gpt-4\n    anthropic:\n      model: claude-3\n"
       );
-      mockYaml.parse = mock(() => ({ ...existingConfig }));
-      mockYaml.stringify = mock(() => "ai:\n  providers:\n    anthropic:\n      model: claude-3\n");
 
       const result = await writer.unsetConfigValue("ai.providers.openai.model");
 
@@ -287,8 +217,6 @@ describe("ConfigWriter", () => {
       mockFs.readFileSync = mock(
         () => "ai:\n  providers:\n    openai:\n      model: gpt-4\nbackend: markdown\n"
       );
-      mockYaml.parse = mock(() => ({ ...existingConfig }));
-      mockYaml.stringify = mock(() => "backend: markdown\n");
 
       const result = await writer.unsetConfigValue("ai.providers.openai.model");
 
@@ -309,12 +237,8 @@ describe("ConfigWriter", () => {
 
     test("should restore from backup if file write fails after unset", async () => {
       // Bug scenario: File write fails after successful unset operation
-      const existingConfig = { key: "value" };
-
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "key: value\n");
-      mockYaml.parse = mock(() => ({ ...existingConfig }));
-      mockYaml.stringify = mock(() => "");
       mockFs.writeFileSync = mock(() => {
         throw new Error("Write failed");
       });
@@ -333,9 +257,6 @@ describe("ConfigWriter", () => {
       // Bug scenario: Existing config file has invalid YAML syntax
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "invalid: yaml: content:\n  - badly\nformatted");
-      mockYaml.parse = mock(() => {
-        throw new Error("YAML parse error");
-      });
 
       const result = await writer.setConfigValue("key", "value");
 
@@ -362,11 +283,6 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(
-        () =>
-          "level1:\n  level2:\n    level3:\n      level4:\n        level5:\n          key: value\n"
-      );
 
       const result = await writer.setConfigValue(deepPath, "value");
 
@@ -381,10 +297,6 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(
-        () => `special:\n  "key-with_chars": "value with spaces & symbols!@#$%"\n`
-      );
 
       const result = await writer.setConfigValue(specialKey, specialValue);
 
@@ -398,8 +310,6 @@ describe("ConfigWriter", () => {
       // Test requirement: Backup files should have timestamps as specified in requirements
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(() => "key: value\n");
 
       const result = await writer.setConfigValue("key", "value");
 
@@ -417,8 +327,6 @@ describe("ConfigWriter", () => {
 
       mockFs.existsSync = mock(() => true);
       mockFs.readFileSync = mock(() => "{}");
-      mockYaml.parse = mock(() => {});
-      mockYaml.stringify = mock(() => "key: value\n");
 
       const result = await writerNoBackup.setConfigValue("key", "value");
 
