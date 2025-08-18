@@ -321,38 +321,22 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
   // Exposed for testing: method used by tests to check refresh decision
   async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
     try {
-      // Resolve session context similarly to execute flow
-      const currentDir = process.cwd();
-      const isSessionWorkspace = currentDir.includes("/sessions/");
-      let sessionName = params.name as string | undefined;
-
+      // Resolve via task or explicit name; do not depend on cwd for testability
+      let sessionName: string | undefined = params.name;
       if (!sessionName && params.task) {
-        try {
-          const { resolveSessionContextWithFeedback } = await import(
-            "../../../../domain/session/session-context-resolver"
-          );
-          const { createSessionProvider } = await import("../../../../domain/session");
-          const sessionProvider = createSessionProvider();
-          const resolved = await resolveSessionContextWithFeedback({
-            session: params.name,
-            task: params.task,
-            repo: params.repo,
-            sessionProvider,
-            allowAutoDetection: !isSessionWorkspace,
-          });
-          sessionName = resolved.sessionName;
-        } catch {
-          // No resolvable session; cannot refresh
-          return false;
-        }
-      }
-
-      if (!sessionName && isSessionWorkspace) {
-        const parts = currentDir.split("/");
-        const idx = parts.indexOf("sessions");
-        if (idx >= 0 && idx < parts.length - 1) {
-          sessionName = parts[idx + 1];
-        }
+        const { resolveSessionContextWithFeedback } = await import(
+          "../../../../domain/session/session-context-resolver"
+        );
+        const { createSessionProvider } = await import("../../../../domain/session");
+        const sessionProvider = createSessionProvider();
+        const resolved = await resolveSessionContextWithFeedback({
+          session: params.name,
+          task: params.task,
+          repo: params.repo,
+          sessionProvider,
+          allowAutoDetection: true,
+        });
+        sessionName = resolved.sessionName;
       }
 
       if (!sessionName) return false;
@@ -394,7 +378,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       );
     } else {
       return new MinskyError(
-        `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
+        `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
       );
     }
   }
@@ -580,6 +564,14 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
         `❌ Failed to edit session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify the session has an existing PR\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
       );
     }
+  }
+
+  protected getAdditionalLogContext(params: any): Record<string, any> {
+    return {
+      title: params.title,
+      hasBody: !!params.body,
+      hasBodyPath: !!params.bodyPath,
+    };
   }
 }
 

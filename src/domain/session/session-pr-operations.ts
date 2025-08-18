@@ -121,9 +121,12 @@ export async function sessionPrImpl(
     throw error;
   }
 
-  // STEP 0.5: Body validation is handled at the command layer
-  // Command layer checks if this is a new PR vs existing PR refresh
-  // and enforces body requirement accordingly
+  // STEP 0.5: Body validation must run before workspace guards
+  if (!params.body && !params.bodyPath) {
+    throw new ValidationError(
+      "PR description is required for new pull request creation. Provide --body or --body-path."
+    );
+  }
 
   // STEP 1: Validate we're in a session workspace and on a session branch (CLI only)
   const currentDir = options?.workingDirectory || process.cwd();
