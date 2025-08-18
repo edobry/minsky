@@ -46,6 +46,17 @@ import {
   type TaskDeleteParams,
 } from "../../schemas/tasks";
 
+// Helper: normalize task ID inputs to qualified form when appropriate
+function normalizeTaskIdInput(input: unknown): string {
+  const raw = Array.isArray(input) ? String(input[0] ?? "").trim() : String(input ?? "").trim();
+  if (!raw) return raw;
+  // Already qualified like md#123 or gh#456
+  if (/^[a-z-]+#\d+$/.test(raw)) return raw;
+  // Accept forms like "#123" or "123" and normalize to md#123
+  const numeric = raw.startsWith("#") ? raw.slice(1) : raw;
+  return `md#${numeric}`;
+}
+
 /**
  * List tasks with given parameters
  * @param params Parameters for listing tasks
@@ -63,12 +74,13 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Resolve repository root and use it as workspace path (single source of truth)
-    const repoPath = await resolveRepoPath({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-    const workspacePath = repoPath;
+    // Prefer injected main workspace path for tests; otherwise resolve from repo
+    const workspacePath =
+      (await deps?.resolveMainWorkspacePath?.()) ??
+      (await resolveRepoPath({
+        session: validParams.session,
+        repo: validParams.repo,
+      }));
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -109,7 +121,7 @@ export async function getTaskFromParams(
   log.debug("[getTaskFromParams] Starting execution", { params });
 
   try {
-    // Handle taskId as either string or string array
+    // Handle taskId as either string or string array and normalize
     const taskIdInput = Array.isArray(params.taskId) ? params.taskId[0] : params.taskId;
     log.debug("[getTaskFromParams] Processed taskId input", { taskIdInput });
 
@@ -117,17 +129,17 @@ export async function getTaskFromParams(
       throw new ValidationError("Task ID is required");
     }
 
-    // Use taskId directly since we now only accept qualified IDs
-    log.debug("[getTaskFromParams] Using taskId", { taskId: taskIdInput });
+    const normalizedTaskId = normalizeTaskIdInput(taskIdInput);
+    log.debug("[getTaskFromParams] Using taskId", { taskId: normalizedTaskId });
 
-    const paramsWithNormalizedId = { ...params, taskId: taskIdInput };
+    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
     log.debug("[getTaskFromParams] About to validate params with Zod");
     const validParams = taskGetParamsSchema.parse(paramsWithNormalizedId);
     log.debug("[getTaskFromParams] Params validated", { validParams });
 
-    // Resolve repository root and use it as workspace path
+    // Resolve repository root and use it as workspace path (prefer injected main path)
     const workspacePath = await (deps?.resolveMainWorkspacePath
       ? deps.resolveMainWorkspacePath()
       : resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
@@ -185,22 +197,20 @@ export async function getTaskStatusFromParams(
   }
 ): Promise<string> {
   try {
-    // Use taskId directly since we now only accept qualified IDs
-    const normalizedTaskId = params.taskId;
+    // Normalize taskId before validation
+    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
     const validParams = taskStatusGetParamsSchema.parse(paramsWithNormalizedId);
 
-    // First get the repo path (needed for workspace resolution)
-    const resolveRepoPathFn = deps?.resolveRepoPath || resolveRepoPath;
-    const repoPath = await resolveRepoPathFn({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Use repository root as workspace path for markdown backend
-    const workspacePath = repoPath;
+    // Resolve workspace path (prefer injected main path)
+    const workspacePath =
+      (await deps?.resolveMainWorkspacePath?.()) ??
+      (await (deps?.resolveRepoPath || resolveRepoPath)({
+        session: validParams.session,
+        repo: validParams.repo,
+      }));
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -245,25 +255,24 @@ export async function setTaskStatusFromParams(
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
     createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<void> {
   try {
-    // Use taskId directly since we now only accept qualified IDs
-    const normalizedTaskId = params.taskId;
+    // Normalize taskId before validation
+    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema
     const validParams = taskStatusSetParamsSchema.parse(paramsWithNormalizedId);
 
-    // First get the repo path (needed for workspace resolution)
-    const resolveRepoPathFn = deps?.resolveRepoPath || resolveRepoPath;
-    const repoPath = await resolveRepoPathFn({
-      session: validParams.session,
-      repo: validParams.repo,
-    });
-
-    // Use repository root as workspace path for markdown backend
-    const workspacePath = repoPath;
+    // Resolve workspace path (prefer injected main path)
+    const workspacePath =
+      (await deps?.resolveMainWorkspacePath?.()) ??
+      (await (deps?.resolveRepoPath || resolveRepoPath)({
+        session: validParams.session,
+        repo: validParams.repo,
+      }));
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -624,8 +633,8 @@ export async function deleteTaskFromParams(
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {
-    // Use taskId directly since we now only accept qualified IDs
-    const normalizedTaskId = params.taskId;
+    // Normalize taskId before validation
+    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
     const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
 
     // Validate params with Zod schema

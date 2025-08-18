@@ -42,9 +42,9 @@ describe("SessionEditFileCommand", () => {
       expect(schema.path.required).toBe(true);
     });
 
-    test("should have required instruction parameter", () => {
+    test("should have optional instruction parameter", () => {
       const schema = command.getParameterSchema();
-      expect(schema.instruction.required).toBe(true);
+      expect(schema.instruction.required).toBe(false);
     });
 
     test("should have optional session parameter", () => {

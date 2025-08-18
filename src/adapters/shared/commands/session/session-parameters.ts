@@ -539,8 +539,8 @@ export const sessionEditFileCommandParams = {
   },
   instruction: {
     schema: z.string(),
-    description: "Instructions describing the edit to make",
-    required: true,
+    description: "Optional high-level instruction guiding how to apply the edit",
+    required: false,
   },
   patternFile: {
     schema: z.string(),
