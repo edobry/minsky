@@ -281,13 +281,17 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         });
 
         if (!success && !quiet) {
-          log.cliWarn(`Warning: Dependency installation failed. You may need to run install manually.
-Error: ${error}`);
+          (log.cliWarn ?? log.warn).call(
+            log,
+            `Warning: Dependency installation failed. You may need to run install manually.
+Error: ${error}`
+          );
         }
       } catch (installError) {
         // Log but don't fail session creation
         if (!quiet) {
-          log.cliWarn(
+          (log.cliWarn ?? log.warn).call(
+            log,
             `Warning: Dependency installation failed. You may need to run install manually.
 Error: ${getErrorMessage(installError)}`
           );
@@ -305,7 +309,8 @@ Error: ${getErrorMessage(installError)}`
         await deps.taskService.setTaskStatus(taskId, TASK_STATUS.IN_PROGRESS);
       } catch (error) {
         // Log the error but don't fail the session creation
-        log.cliWarn(
+        (log.cliWarn ?? log.warn).call(
+          log,
           `Warning: Failed to update status for task ${taskId}: ${getErrorMessage(error)}`
         );
       }

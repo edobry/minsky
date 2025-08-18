@@ -636,11 +636,11 @@
 
 - [ ] Implement session pr open command for GitHub backend [md#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
 
-- [+] Fix task status update to use main workspace and configure main workspace path [md#410](process/tasks/md#410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
+- [-] Fix task status update to use main workspace and configure main workspace path [md#410](process/tasks/md#410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
 
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
-- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#435](process/tasks/md#435-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
@@ -674,13 +674,13 @@
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
-- [+] Plan: Automated Embedding Sync/Update Process [md#417](process/tasks/md#417-plan-automated-embedding-sync-update-process.md)
+- [+] Plan: Automated Embedding Sync/Update Process [md#432](process/tasks/md#432-plan-automated-embedding-sync-and-update-process.md)
 
-- [+] Plan: Support Postgres→Postgres SessionDB Migration [md#418](process/tasks/md#418-plan-support-postgres-postgres-sessiondb-migration.md)
+- [+] Plan: Support Postgres→Postgres SessionDB Migration [md#433](process/tasks/md#433-postgres-to-postgres-migration-support.md)
 
-- [+] Plan: Explore Migrating from SQLite to PGlite [md#419](process/tasks/md#419-plan-explore-migrating-from-sqlite-to-pglite.md)
+- [+] Plan: Explore Migrating from SQLite to PGlite [md#434](process/tasks/md#434-explore-sqlite-to-pglite-migration.md)
 
-- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-plan-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 

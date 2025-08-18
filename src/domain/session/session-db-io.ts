@@ -22,33 +22,50 @@ export interface SessionDbFileOptions {
  * Read sessions from the database file
  */
 export function readSessionDbFile(
-  options: SessionDbFileOptions | undefined | null = {}
-): SessionDbState {
-  const safeOptions = options || {};
+  optionsOrPath: SessionDbFileOptions | string | undefined | null = {}
+): SessionDbState | SessionRecord[] {
+  // Backwards compatibility: allow string path to return array of sessions (used by tests)
+  const isStringPath = typeof optionsOrPath === "string";
+  const safeOptions = (isStringPath ? { dbPath: optionsOrPath } : optionsOrPath) || {};
   const stateDir = getMinskyStateDir();
-  const dbPath = safeOptions.dbPath || getDefaultJsonDbPath();
-  const baseDir = safeOptions.baseDir || stateDir;
+  const dbPath = (safeOptions as SessionDbFileOptions).dbPath || getDefaultJsonDbPath();
+  const baseDir = (safeOptions as SessionDbFileOptions).baseDir || stateDir;
 
   try {
     if (!existsSync(dbPath)) {
-      return {
-        sessions: [],
-        baseDir: baseDir,
-      };
+      return isStringPath
+        ? []
+        : {
+            sessions: [],
+            baseDir: baseDir,
+          };
     }
 
     const data = readFileSync(dbPath, "utf8") as string;
+    if (!data || data.trim().length === 0) {
+      return isStringPath
+        ? []
+        : {
+            sessions: [],
+            baseDir: baseDir,
+          };
+    }
     const parsed = JSON.parse(data);
 
     // Handle both legacy format (array) and new format (SessionDbState object)
     if (Array.isArray(parsed)) {
       // Legacy format: file contains just the sessions array
-      return {
-        sessions: parsed,
-        baseDir: baseDir,
-      };
+      return isStringPath
+        ? (parsed as SessionRecord[])
+        : {
+            sessions: parsed,
+            baseDir: baseDir,
+          };
     } else if (parsed && typeof parsed === "object" && Array.isArray(parsed.sessions)) {
       // New format: file contains SessionDbState object
+      if (isStringPath) {
+        return (parsed.sessions as SessionRecord[]) || [];
+      }
       return {
         sessions: parsed.sessions,
         baseDir: parsed.baseDir || baseDir,
@@ -56,17 +73,21 @@ export function readSessionDbFile(
     } else {
       // Invalid or corrupted data, return empty state
       log.warn(`Invalid session database format in ${dbPath}, initializing empty state`);
-      return {
-        sessions: [],
-        baseDir: baseDir,
-      };
+      return isStringPath
+        ? []
+        : {
+            sessions: [],
+            baseDir: baseDir,
+          };
     }
   } catch (error) {
     log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
-    return {
-      sessions: [],
-      baseDir: baseDir,
-    };
+    return isStringPath
+      ? []
+      : {
+          sessions: [],
+          baseDir: baseDir,
+        };
   }
 }
 
@@ -88,6 +109,19 @@ export async function writeSessionsToFile(
       mkdirSync(dbDir, { recursive: true });
     }
 
+    writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
+  } catch (error) {
+    log.error(`Error writing session database: ${getErrorMessage(error as any)}`);
+  }
+}
+
+// Backward-compatibility API expected by tests
+export function writeSessionDbFile(dbPath: string, sessions: SessionRecord[]): void {
+  try {
+    const dbDir = dirname(dbPath);
+    if (!existsSync(dbDir)) {
+      mkdirSync(dbDir, { recursive: true });
+    }
     writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
   } catch (error) {
     log.error(`Error writing session database: ${getErrorMessage(error as any)}`);

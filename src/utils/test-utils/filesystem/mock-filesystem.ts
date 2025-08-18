@@ -255,6 +255,24 @@ export function createMockFilesystem(
       files.clear();
       directories.clear();
     },
+    // Expose shapes compatible with mock.module factories
+    fs: {
+      existsSync: (path: unknown) => mockFs.existsSync(path),
+      readFileSync: (path: unknown, encoding?: unknown) => mockFs.readFileSync(path, encoding),
+      writeFileSync: (path: unknown, data: unknown) => mockFs.writeFileSync(path, data),
+      mkdirSync: (path: unknown, options?: unknown) => mockFs.mkdirSync(path, options),
+      statSync: (path: unknown) => mockFs.statSync(path),
+      readdirSync: (path: unknown) => mockFs.readdirSync(path),
+    },
+    fsPromises: {
+      readFile: (path: unknown, encoding?: unknown) => mockFs.readFile(path, encoding),
+      writeFile: (path: unknown, data: unknown) => mockFs.writeFile(path, data),
+      mkdir: (path: unknown, options?: unknown) => mockFs.mkdir(path, options as any),
+      readdir: (path: unknown) => mockFs.readdir(path),
+      mkdtemp: (prefix: unknown) => mockFs.mkdtemp(prefix),
+      access: (path: unknown) => mockFs.access(path),
+      rm: (path: unknown, options?: unknown) => mockFs.rm(path, options as any),
+    },
   };
 
   return mockFs;
