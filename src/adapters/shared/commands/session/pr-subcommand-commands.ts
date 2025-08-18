@@ -252,7 +252,8 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     }
   }
 
-  private async validateNoPrExists(params: any): Promise<void> {
+  // Exposed for testing: validate absence of existing PR (previously private)
+  async validateNoPrExists(params: any): Promise<void> {
     // Check if there's already an existing PR and fail if so
     const currentDir = process.cwd();
     const isSessionWorkspace = currentDir.includes("/sessions/");
@@ -314,6 +315,54 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       }
       // If we can't verify session state, continue with PR creation
       return;
+    }
+  }
+
+  // Exposed for testing: method used by tests to check refresh decision
+  async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
+    try {
+      // Resolve session context similarly to execute flow
+      const currentDir = process.cwd();
+      const isSessionWorkspace = currentDir.includes("/sessions/");
+      let sessionName = params.name as string | undefined;
+
+      if (!sessionName && params.task) {
+        try {
+          const { resolveSessionContextWithFeedback } = await import(
+            "../../../../domain/session/session-context-resolver"
+          );
+          const { createSessionProvider } = await import("../../../../domain/session");
+          const sessionProvider = createSessionProvider();
+          const resolved = await resolveSessionContextWithFeedback({
+            session: params.name,
+            task: params.task,
+            repo: params.repo,
+            sessionProvider,
+            allowAutoDetection: !isSessionWorkspace,
+          });
+          sessionName = resolved.sessionName;
+        } catch {
+          // No resolvable session; cannot refresh
+          return false;
+        }
+      }
+
+      if (!sessionName && isSessionWorkspace) {
+        const parts = currentDir.split("/");
+        const idx = parts.indexOf("sessions");
+        if (idx >= 0 && idx < parts.length - 1) {
+          sessionName = parts[idx + 1];
+        }
+      }
+
+      if (!sessionName) return false;
+
+      const { createSessionProvider } = await import("../../../../domain/session");
+      const sessionDB = createSessionProvider();
+      const record = await sessionDB.getSession(sessionName);
+      return Boolean(record && record.prBranch && record.prState && record.prState.exists);
+    } catch {
+      return false;
     }
   }
 
