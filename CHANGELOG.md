@@ -65,6 +65,8 @@ All notable changes to this project will be documented in this file.
 
 - **Session Review/Approve Backend Delegation (md#410)**: Removed direct `pr/` branch assumptions from session review and approval flows. Introduced backend APIs `getPullRequestDetails()` and `getPullRequestDiff()` and implemented them for GitHub, Local, and Remote backends. Session review now fetches PR description and diff via the repository backend; approval flow gates stash/branch cleanup to non-GitHub backends and delegates merge/approval to backend.
 
+- **Session Start GitHub Auto-Detect (md#435)**: Domain `startSessionImpl` now honors `repository.default_repo_backend=github` by auto-detecting the GitHub remote when `--repo` is not provided, persisting `backendType` accordingly. The CLI adapter is thin and delegates entirely to the domain implementation.
+
 ### Added
 
 - **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
@@ -129,6 +131,11 @@ All notable changes to this project will be documented in this file.
   - Add backend drift warnings in SessionDB provider
 
 - **Session Cleanup Functionality**: Comprehensive session cleanup implementation that automatically removes old sessions for completed and merged tasks, addressing the gap identified in Task #353. Includes complete filesystem directory removal, **cleanup enabled by default** for merge operations, enhanced session delete commands with comprehensive cleanup, and CLI parameter support with `--skip-cleanup` flag to override default behavior when needed.
+
+- session.edit_file (md#417): Optional `instructions` parameter now supported end-to-end
+  - Schema: `instructions` is now optional in MCP `SessionFileEditSchema`
+  - Handler: passes `instructions` to `applyEditPattern(original, content, instruction)`
+  - Tests: added integration test verifying instruction-guided placement (e.g., method after constructor)
 
 ### Fixed
 

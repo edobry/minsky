@@ -152,6 +152,41 @@ describe("Session Edit File Integration Tests", () => {
     });
   });
 
+  describe("Instruction-Guided Placement", () => {
+    test("should place new method after constructor when instructed", async () => {
+      if (!testConfig.hasValidMorphConfig) {
+        console.log("⏭️  Skipping - Morph not configured");
+        return;
+      }
+
+      const originalContent = await loadFixture("typescript/class-with-properties.ts");
+
+      const editPattern = `export class UserService {
+  // ... existing code ...
+
+  healthCheck(): boolean {
+    return true;
+  }
+}`;
+
+      const instruction =
+        "Place the new healthCheck method immediately after the constructor and before other methods.";
+
+      const result = await applyEditPattern(originalContent, editPattern, instruction);
+
+      const idxConstructor = result.indexOf("constructor(");
+      const idxHealth = result.indexOf("healthCheck(): boolean");
+      const idxGetUser = result.indexOf("getUserById(");
+
+      expect(idxConstructor).toBeGreaterThan(-1);
+      expect(idxHealth).toBeGreaterThan(-1);
+      expect(idxGetUser).toBeGreaterThan(-1);
+
+      expect(idxConstructor).toBeLessThan(idxHealth);
+      expect(idxHealth).toBeLessThan(idxGetUser);
+    });
+  });
+
   describe("Phase 2: Structural Complexity", () => {
     phase2TestCases.forEach((testCase) => {
       test(`should handle ${testCase.name}`, async () => {

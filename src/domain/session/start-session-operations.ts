@@ -17,7 +17,12 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
-import { resolveRepositoryAndBackend } from "./repository-backend-detection";
+import {
+  resolveRepositoryAndBackend,
+  detectRepositoryBackendTypeFromUrl,
+} from "./repository-backend-detection";
+import { getConfiguration } from "../configuration/index";
+import { execSync } from "child_process";
 import { taskIdToSessionName } from "../tasks/task-id";
 
 export interface StartSessionDependencies {
@@ -89,11 +94,43 @@ Sessions are isolated workspaces for specific tasks. Creating nested sessions wo
 Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
-    // Determine repo URL and backend type using unified resolver (defaults to GitHub)
-    const { repoUrl, backendType } = await resolveRepositoryAndBackend({
-      repoParam: repo,
-      cwd: process.cwd(),
-    });
+    // Determine repo URL first using DI to keep tests deterministic.
+    // If not provided and default_repo_backend is github, auto-detect GitHub remote.
+    // Otherwise, fall back to DI resolver and finally unified resolver.
+    let repoUrl: string | undefined = repo;
+    if (!repoUrl) {
+      const cfg = getConfiguration();
+      const defaultRepoBackend = cfg.repository?.default_repo_backend;
+      if (defaultRepoBackend === "github") {
+        try {
+          const remoteUrl = execSync("git remote get-url origin", {
+            cwd: process.cwd(),
+            encoding: "utf8",
+          })
+            .toString()
+            .trim();
+          if (!remoteUrl.includes("github.com")) {
+            throw new ValidationError(
+              "Default repository backend is GitHub, but current directory does not have a GitHub remote. Pass --repo <github-url> or change to a GitHub repository."
+            );
+          }
+          repoUrl = remoteUrl;
+        } catch (_err) {
+          throw new ValidationError(
+            "Default repository backend is GitHub, but could not detect GitHub remote. Ensure you're in a git repository with GitHub remote or pass --repo <github-url>."
+          );
+        }
+      }
+    }
+    if (!repoUrl) {
+      try {
+        repoUrl = await deps.resolveRepoPath({});
+      } catch (_e) {
+        const resolved = await resolveRepositoryAndBackend({ repoParam: repo, cwd: process.cwd() });
+        repoUrl = resolved.repoUrl;
+      }
+    }
+    const backendType = detectRepositoryBackendTypeFromUrl(repoUrl);
 
     // Determine the session name using task ID if provided
     let sessionName = name;
@@ -270,13 +307,13 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         });
 
         if (!success && !quiet) {
-          log.cliWarn(`Warning: Dependency installation failed. You may need to run install manually.
+          log.cli(`Warning: Dependency installation failed. You may need to run install manually.
 Error: ${error}`);
         }
       } catch (installError) {
         // Log but don't fail session creation
         if (!quiet) {
-          log.cliWarn(
+          log.cli(
             `Warning: Dependency installation failed. You may need to run install manually.
 Error: ${getErrorMessage(installError)}`
           );

@@ -95,8 +95,8 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         let finalContent: string;
 
         if (fileExists && args.content.includes("// ... existing code ...")) {
-          // Apply the edit pattern using fast-apply providers
-          finalContent = await applyEditPattern(originalContent, args.content);
+          // Apply the edit pattern using fast-apply providers, passing optional instruction
+          finalContent = await applyEditPattern(originalContent, args.content, args.instructions);
         } else {
           // Direct write for new files or complete replacements
           finalContent = args.content;
