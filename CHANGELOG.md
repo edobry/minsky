@@ -5,6 +5,15 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
+- CLI ergonomics for session.edit_file (md#419)
+
+  - Add `minsky session edit-file` CLI command as user-friendly wrapper
+  - Support for reading edit patterns from stdin or `--pattern-file`
+  - Session auto-detection from workspace context
+  - Rich output formatting with dry-run previews and diff summaries
+  - Comprehensive CLI documentation and examples
+
 - feat(config): add workspace.mainPath; wire markdown/json task backends to main workspace path (md#410)
 - session pr: status/backend/time filters
 
@@ -151,7 +160,6 @@ All notable changes to this project will be documented in this file.
   - Added stash/commit/push/restore flow to `src/domain/tasks/markdownTaskBackend.ts` for both object and spec-file creation paths
   - Commit message format: `chore(task): create <id> <title>`; push attempted with warnings on failure
   - Exposed injectable `gitService` for testability; added unit tests to validate commit/push behavior and no-op when no changes
-
 
 ## md#427: Enforce conventional-commit title validation on session pr edit
 

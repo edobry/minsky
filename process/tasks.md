@@ -658,7 +658,7 @@
 
 - [x] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
-- [+] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
+- [-] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
 - [ ] AI Resilience module for error/backoff/circuit breaker (optional adoption) [md#420](process/tasks/md#420-ai-resilience-module-for-error-backoff-circuit-breaker-optional-adoption-.md)
 

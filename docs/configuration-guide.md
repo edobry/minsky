@@ -29,7 +29,7 @@ export MINSKY_WORKSPACE_MAIN_PATH="/absolute/path/to/main/workspace"  # NEW
 ```yaml
 version: 1
 workspace:
-  mainPath: "/absolute/path/to/main/workspace"  # NEW
+  mainPath: "/absolute/path/to/main/workspace" # NEW
 sessiondb:
   backend: sqlite
   sqlite:
@@ -41,7 +41,7 @@ sessiondb:
 ```yaml
 version: 1
 workspace:
-  mainPath: "/absolute/path/to/main/workspace"  # NEW
+  mainPath: "/absolute/path/to/main/workspace" # NEW
 backends:
   default: "github-issues"
 ```
@@ -64,4 +64,5 @@ workspace:
 - Environment override: `MINSKY_WORKSPACE_MAIN_PATH`.
 
 ## Notes
+
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
