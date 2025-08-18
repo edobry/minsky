@@ -35,13 +35,13 @@ Stabilize the test suite after md#397 merge by addressing regressions in session
 
 ## Next Actions
 
-1) Logger API: implement/export `cliWarn` or use existing `warn` with CLI formatting; update `start-session-operations.ts` accordingly.
-2) Export fix: ensure `writeSessionDbFile` is exported from `session-db-io.ts` and update imports.
-3) Validation: adjust PR body validation to be interface-layer; make domain util independent of workspace context.
-4) Interface-agnostic task functions: reconcile ID normalization with strict policy; add tests for `md#`-only acceptance; update error messages.
-5) ConfigWriter: stabilize tests by verifying yaml/json branches; ensure backup/write flow uses mock fs only.
-6) Markdown backend integration: re-check regex constants and `taskFunctions` parsers used by update; add targeted unit for update-line replacement.
-7) Re-run full suite; iterate until failures converge.
+1. Logger API: implement/export `cliWarn` or use existing `warn` with CLI formatting; update `start-session-operations.ts` accordingly.
+2. Export fix: ensure `writeSessionDbFile` is exported from `session-db-io.ts` and update imports.
+3. Validation: adjust PR body validation to be interface-layer; make domain util independent of workspace context.
+4. Interface-agnostic task functions: reconcile ID normalization with strict policy; add tests for `md#`-only acceptance; update error messages.
+5. ConfigWriter: stabilize tests by verifying yaml/json branches; ensure backup/write flow uses mock fs only.
+6. Markdown backend integration: re-check regex constants and `taskFunctions` parsers used by update; add targeted unit for update-line replacement.
+7. Re-run full suite; iterate until failures converge.
 
 ## Notes
 

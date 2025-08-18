@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 - feat(config): add workspace.mainPath; wire markdown/json task backends to main workspace path (md#410)
 - session pr: status/backend/time filters
+
   - `minsky session pr list --status open,merged --backend github --since 7d --until 2025-08-01`
   - `minsky session pr get --task md#413 --status all --since 24h`
   - Status accepts comma-separated or `all`; backend: `github|remote|local`; time accepts `YYYY-MM-DD` or relative `7d|24h|30m`.
@@ -14,6 +15,7 @@ All notable changes to this project will be documented in this file.
 - tasks storage (md#315): add `backend` enum and `source_task_id` columns to `tasks` table; populate from qualified IDs; reuse centralized backend enum values from `enumSchemas.backendType`; update PG vector storage to write these fields.
 
 ### Fixed
+
 - tasks: Corrected misnumbered plan reference in `process/tasks.md` for "Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs" from `md#1` to the proper existing task `md#426`.
 - tasks: Deduplicated duplicate task entries in `process/tasks.md`:
   - Removed redundant `[ ]` entries for `md#428` (kept single `[+]` entry)
@@ -24,6 +26,7 @@ All notable changes to this project will be documented in this file.
 - docs(md#414): Updated task spec with current status and resolved session update conflicts for `task-md#414`; session brought current via CLI.
 
 - sessiondb/postgres: Correct meta-table detection for Drizzle migrations
+
   - Fixed `PostgresStorage.hasPendingMigrations()` to look for `__drizzle_migrations` in the `drizzle` schema and to count from `drizzle.__drizzle_migrations`.
   - Resolves false "Database schema is out of date" errors when `drizzle-kit generate` and `drizzle-kit migrate` report no changes.
 
