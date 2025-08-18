@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+- CLI ergonomics for session.edit_file (md#419)
+  - Add `minsky session edit-file` CLI command as user-friendly wrapper
+  - Support for reading edit patterns from stdin or `--pattern-file`
+  - Session auto-detection from workspace context
+  - Rich output formatting with dry-run previews and diff summaries
+  - Comprehensive CLI documentation and examples
+
 - feat(config): add workspace.mainPath; wire markdown/json task backends to main workspace path (md#410)
 - session pr: status/backend/time filters
 
