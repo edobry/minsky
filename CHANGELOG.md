@@ -43,9 +43,13 @@ All notable changes to this project will be documented in this file.
 - **Task md#421**: Suppress low-value Octokit HTTP transport logs during `session pr merge` unless `--debug` is enabled. Added concise human-friendly status lines for approval count and branch protection summary before merging. Structured `--json` outputs unchanged.
 - **Session Tasks File Resolution**: Fixed `session pr merge` post-merge task status update to resolve the main workspace to a local repo path before reading/writing `process/tasks.md`. Prevents malformed remote URL paths like `https:/github.com/.../process/tasks.md` and ensures updates and branch cleanup run against the main repository instead of the session workspace.
 
+- **Session Review/Approve Backend Delegation (md#410)**: Removed direct `pr/` branch assumptions from session review and approval flows. Introduced backend APIs `getPullRequestDetails()` and `getPullRequestDiff()` and implemented them for GitHub, Local, and Remote backends. Session review now fetches PR description and diff via the repository backend; approval flow gates stash/branch cleanup to non-GitHub backends and delegates merge/approval to backend.
+
 ### Added
 
 - **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
+
+- **Configuration**: Added `workspace.mainPath` integration across task backends (Markdown/JSON) and environment mapping (`MINSKY_WORKSPACE_MAIN_PATH`). Backends prefer `workspace.mainPath` for main workspace resolution.
 
 ### Tests
 
