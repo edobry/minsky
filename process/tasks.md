@@ -622,7 +622,7 @@
 
 - [x] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [ ] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
+- [x] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
 
 - [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [md#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
 
