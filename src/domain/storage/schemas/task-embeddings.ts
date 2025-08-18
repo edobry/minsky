@@ -47,3 +47,23 @@ export const tasksTable = pgTable(
     index("idx_tasks_hnsw").using("hnsw", table.embedding.asc().nullsLast().op("vector_l2_ops")),
   ]
 );
+
+// Drizzle schema for tasks embeddings (vectors only)
+// Separate from `tasks` metadata for clear responsibility boundaries
+export const tasksEmbeddingsTable = pgTable(
+  "tasks_embeddings",
+  {
+    taskId: text("task_id").primaryKey(),
+    dimension: integer("dimension").notNull(),
+    embedding: vector("embedding", { dimensions: 1536 }),
+    lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  (table) => [
+    index("idx_tasks_embeddings_hnsw").using(
+      "hnsw",
+      table.embedding.asc().nullsLast().op("vector_l2_ops")
+    ),
+  ]
+);

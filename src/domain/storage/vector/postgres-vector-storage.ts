@@ -1,9 +1,16 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { getConfiguration } from "../../configuration";
-import { TaskBackend } from "../../configuration/backend-detection";
 import type { VectorStorage, SearchResult } from "./types";
 import { log } from "../../../utils/logger";
+
+export interface PostgresVectorStorageConfig {
+  tableName: string;
+  idColumn: string; // e.g., task_id
+  embeddingColumn: string; // e.g., embedding
+  dimensionColumn: string; // e.g., dimension
+  lastIndexedAtColumn?: string; // e.g., last_indexed_at
+}
 
 export class PostgresVectorStorage implements VectorStorage {
   private readonly sql: ReturnType<typeof postgres>;
@@ -11,19 +18,36 @@ export class PostgresVectorStorage implements VectorStorage {
 
   constructor(
     private readonly connectionString: string,
-    private readonly dimension: number
+    private readonly dimension: number,
+    private readonly config: PostgresVectorStorageConfig
   ) {
     this.sql = postgres(connectionString, { prepare: false, onnotice: () => {} });
     this.db = drizzle(this.sql);
   }
 
-  static async fromSessionDbConfig(dimension: number): Promise<PostgresVectorStorage> {
-    const config = await getConfiguration();
-    const conn = config.sessiondb?.postgres?.connectionString;
-    if (!conn) throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
-    const storage = new PostgresVectorStorage(conn, dimension);
+  static async fromSessionDbConfig(
+    dimension: number,
+    config: PostgresVectorStorageConfig
+  ): Promise<PostgresVectorStorage> {
+    const runtimeConfig = await getConfiguration();
+    const conn = runtimeConfig.sessiondb?.postgres?.connectionString;
+    if (!conn) {
+      throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
+    }
+    const storage = new PostgresVectorStorage(conn, dimension, config);
     await storage.initialize();
     return storage;
+  }
+
+  // Convenience for task embeddings
+  static async forTasksEmbeddingsFromConfig(dimension: number): Promise<PostgresVectorStorage> {
+    return PostgresVectorStorage.fromSessionDbConfig(dimension, {
+      tableName: "tasks_embeddings",
+      idColumn: "task_id",
+      embeddingColumn: "embedding",
+      dimensionColumn: "dimension",
+      lastIndexedAtColumn: "last_indexed_at",
+    });
   }
 
   async initialize(): Promise<void> {
@@ -31,38 +55,53 @@ export class PostgresVectorStorage implements VectorStorage {
     // Tables are managed by Drizzle migrations. No-op here to avoid drift.
   }
 
-  async store(id: string, vector: number[], metadata?: Record<string, any>): Promise<void> {
+  async store(id: string, vector: number[], _metadata?: Record<string, any>): Promise<void> {
     const vectorLiteral = `[${vector.join(",")}]`;
-    // Normalize id to qualified form if it looks like legacy (e.g., "#123")
-    const qualifiedId = id.startsWith("#") ? `md#${id.slice(1)}` : id;
-    const localId = qualifiedId.includes("#") ? qualifiedId.split("#")[1] : qualifiedId;
-    const backendPrefix = qualifiedId.split("#")[0];
-    let backendValue: string | null = null;
-    if (backendPrefix === "md") backendValue = TaskBackend.MARKDOWN;
-    else if (backendPrefix === "gh") backendValue = TaskBackend.GITHUB_ISSUES;
-    else if (backendPrefix === "json") backendValue = TaskBackend.JSON_FILE;
 
-    await this.sql.unsafe(
-      `INSERT INTO tasks (id, source_task_id, backend, dimension, embedding, metadata, content_hash, last_indexed_at, updated_at)
-       VALUES ($1, $2, $3::task_backend, $4, $5::vector, $6::jsonb, $7, NOW(), NOW())
-       ON CONFLICT (id) DO UPDATE SET
-         source_task_id = EXCLUDED.source_task_id,
-         backend = EXCLUDED.backend,
-         embedding = EXCLUDED.embedding,
-         metadata = EXCLUDED.metadata,
-         content_hash = EXCLUDED.content_hash,
-         last_indexed_at = EXCLUDED.last_indexed_at,
-         updated_at = NOW()`,
-      [
-        qualifiedId,
-        localId,
-        backendValue,
-        this.dimension,
-        vectorLiteral,
-        metadata ? JSON.stringify(metadata) : null,
-        metadata && typeof metadata.contentHash === "string" ? metadata.contentHash : null,
-      ]
-    );
+    const cols = [
+      this.config.idColumn,
+      this.config.dimensionColumn,
+      this.config.embeddingColumn,
+      this.config.lastIndexedAtColumn ? this.config.lastIndexedAtColumn : undefined,
+      "updated_at",
+    ].filter(Boolean) as string[];
+
+    const placeholders: string[] = [];
+    const values: any[] = [];
+
+    // id
+    placeholders.push("$1");
+    values.push(id);
+
+    // dimension
+    placeholders.push("$2");
+    values.push(this.dimension);
+
+    // embedding (vector)
+    placeholders.push("$3::vector");
+    values.push(vectorLiteral);
+
+    let idx = 3;
+    if (this.config.lastIndexedAtColumn) {
+      placeholders.push("NOW()");
+    }
+    // updated_at
+    placeholders.push("NOW()");
+
+    const updateSets: string[] = [
+      `${this.config.embeddingColumn} = EXCLUDED.${this.config.embeddingColumn}`,
+      `${this.config.dimensionColumn} = EXCLUDED.${this.config.dimensionColumn}`,
+      `updated_at = NOW()`,
+    ];
+    if (this.config.lastIndexedAtColumn) {
+      updateSets.push(`${this.config.lastIndexedAtColumn} = NOW()`);
+    }
+
+    const sql = `INSERT INTO ${this.config.tableName} (${cols.join(", ")})
+       VALUES (${placeholders.join(", ")})
+       ON CONFLICT (${this.config.idColumn}) DO UPDATE SET ${updateSets.join(", ")}`;
+
+    await this.sql.unsafe(sql, values);
   }
 
   async search(queryVector: number[], limit = 10, threshold = 0.0): Promise<SearchResult[]> {
@@ -72,23 +111,17 @@ export class PostgresVectorStorage implements VectorStorage {
         limit,
         threshold,
         dimension: this.dimension,
+        table: this.config.tableName,
       });
     } catch {
       // ignore debug logging errors
     }
+
     const rows = await this.sql.unsafe(
-      `WITH ranked AS (
-         SELECT id, (embedding <-> $1::vector) AS score,
-                CASE WHEN id LIKE 'md#%' THEN regexp_replace(id, '^md#', '')
-                     WHEN id LIKE '#%' THEN regexp_replace(id, '^#', '')
-                     ELSE id END AS local
-         FROM tasks
-         ORDER BY embedding <-> $1::vector
-         LIMIT $2
-       )
-       SELECT DISTINCT ON (local) id, score
-       FROM ranked
-       ORDER BY local, (CASE WHEN id LIKE 'md#%' THEN 0 ELSE 1 END), score ASC`,
+      `SELECT ${this.config.idColumn} AS id, (${this.config.embeddingColumn} <-> $1::vector) AS score
+       FROM ${this.config.tableName}
+       ORDER BY ${this.config.embeddingColumn} <-> $1::vector
+       LIMIT $2`,
       [vectorLiteral, limit]
     );
 
@@ -96,18 +129,14 @@ export class PostgresVectorStorage implements VectorStorage {
       id: String((r as any).id),
       score: Number((r as any).score),
     }));
-    try {
-      log.debug("[vector.search] Raw ANN rows", {
-        count: (rows as any[]).length,
-        sample: (rows as any[]).slice(0, 5),
-      });
-    } catch {
-      // ignore debug logging errors
-    }
+
     return results.filter((r) => (isFinite(threshold) ? r.score <= threshold : true));
   }
 
   async delete(id: string): Promise<void> {
-    await this.sql.unsafe(`DELETE FROM tasks WHERE id = $1`, [id]);
+    await this.sql.unsafe(
+      `DELETE FROM ${this.config.tableName} WHERE ${this.config.idColumn} = $1`,
+      [id]
+    );
   }
 }

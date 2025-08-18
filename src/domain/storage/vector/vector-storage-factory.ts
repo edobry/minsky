@@ -12,14 +12,20 @@ export async function createVectorStorageFromConfig(dimension: number): Promise<
       const vsConfig = (config as any).vectorStorage?.postgres || {};
       const useSessionDb = vsConfig.useSessionDb !== false; // default true
       if (useSessionDb) {
-        return PostgresVectorStorage.fromSessionDbConfig(dimension);
+        return PostgresVectorStorage.forTasksEmbeddingsFromConfig(dimension);
       }
       const conn =
         vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
       if (!conn) {
         throw new Error("PostgreSQL connection string not configured for vectorStorage.postgres");
       }
-      const storage = new PostgresVectorStorage(conn, dimension);
+      const storage = new PostgresVectorStorage(conn, dimension, {
+        tableName: "tasks_embeddings",
+        idColumn: "task_id",
+        embeddingColumn: "embedding",
+        dimensionColumn: "dimension",
+        lastIndexedAtColumn: "last_indexed_at",
+      });
       await storage.initialize();
       return storage;
     }
