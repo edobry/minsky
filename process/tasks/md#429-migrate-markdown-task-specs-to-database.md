@@ -2,11 +2,11 @@
 
 ## Status
 
-TODO
+IN-PROGRESS
 
 ## Context
 
-Migrate markdown-based tasks to the database `tasks` table with ID normalization via the existing `minsky tasks migrate` command. This task extends the existing migration command with an importer mode rather than adding a new command. It does not introduce or switch to a new backend; it provides an importer only, keeping current behavior intact while enabling a migration path.
+Migrate markdown-based tasks to the database `tasks` table using the existing `minsky tasks migrate` command. This task extends the existing migration command to import markdown task metadata into the database by default (no separate importer flag). It does not introduce or switch to a new backend; it provides an importer only, keeping current behavior intact while enabling a migration path.
 
 ## Requirements
 
@@ -18,42 +18,46 @@ Migrate markdown-based tasks to the database `tasks` table with ID normalization
      - `source_task_id` (local ID after `md#`, stored as string)
      - `status`, `title`, `spec` (markdown content)
      - `content_hash`, `last_indexed_at`, timestamps
-   - Introduce separate `task_embeddings` table for vector data (split from `tasks`):
+   - Introduce separate `tasks_embeddings` table for vector data (split from `tasks`):
      - `task_id` (PK, references `tasks.id`)
      - `dimension` (INT NOT NULL)
      - `embedding` (vector)
      - `last_indexed_at` (TIMESTAMPTZ)
-     - Index: HNSW on `embedding` using `vector_l2_ops` (avoid IVFFlat to bypass maintenance_work_mem limits)
-   - Remove `dimension` and `embedding` from `tasks` in a follow-up migration within this task
+     - Index: HNSW on `embedding` using `vector_l2_ops` (avoid IVFFlat; HNSW only)
+   - Remove `dimension`, `embedding`, `metadata` (and the HNSW index) from `tasks` in a follow-up migration within this task
    - No manual SQL; update Drizzle schema only, Drizzle Kit generates migrations
 
-2. Importer CLI (extend existing)
+2. CLI import (extend existing)
 
-   - Extend `minsky tasks migrate` with an importer mode for markdown → DB, instead of creating a new command
-   - Proposed usage:
-     - `minsky tasks migrate --import-specs-to-db [--execute] [--limit N] [--filter-status STATUS] [--reindex-embeddings] [--json]`
+   - `minsky tasks migrate` imports markdown → DB by default (no `--import-specs-to-db` flag)
    - Dry-run by default; `--execute` to apply changes
+   - Options: `--limit N`, `--filter-status STATUS`, `--json`
    - Output: clear plan of inserts/updates/skips; JSON mode supported
 
-3. ID normalization
+3. ID handling
 
-   - Convert legacy numeric or `#123` IDs to qualified form (e.g., `123`/`#123` → `md#123`) for the `id` PK
-   - Derive and store `backend = 'markdown'` and `source_task_id = '123'`
+   - No legacy ID normalization (legacy formats are no longer accepted)
+   - Derive and store `backend = 'markdown'` and `source_task_id = '123'` from qualified IDs
    - Deduplicate on `id` (idempotent reruns)
 
 4. Data mapping
 
    - Source: central `process/tasks.md` + per-task spec files
    - Target fields (metadata): `id` (qualified), `backend`, `source_task_id`, `status`, `title`, `spec`, `content_hash`
-   - On `--reindex-embeddings`, compute embedding and write to `task_embeddings` with `task_id = id`, set `dimension`, `embedding`, and `last_indexed_at`
 
-5. Safety & idempotency
+5. Embeddings
+
+   - `PostgresVectorStorage` must not write task metadata
+   - Store embeddings exclusively in `tasks_embeddings`
+   - Use existing `minsky tasks index-embeddings` to compute/store vectors; do not add a reindex flag to migrate
+
+6. Safety & idempotency
 
    - No destructive operations by default
-   - Re-runnable without duplication (UPSERT on `tasks.id` and `task_embeddings.task_id`)
+   - Re-runnable without duplication (UPSERT on `tasks.id` and `tasks_embeddings.task_id`)
    - Clear conflict handling/reporting
 
-6. Documentation
+7. Documentation
    - Update docs to describe schema-first migrations and import workflow
    - Explain intermediate state (still using markdown backend; importer prepares data for later backend swap)
 
@@ -61,15 +65,13 @@ Migrate markdown-based tasks to the database `tasks` table with ID normalization
 
 ### CLI
 
-Extend existing `tasks migrate`:
-
-`minsky tasks migrate --import-specs-to-db [--execute] [--limit N] [--filter-status STATUS] [--json] [--reindex-embeddings]`
+Extend existing `tasks migrate` (no importer flag):
 
 Behavior:
 
 - Scan markdown tasks and spec files
-- Normalize IDs and upsert into `tasks`
-- On `--reindex-embeddings`, compute embeddings and write to `task_embeddings` (with HNSW index), update `last_indexed_at`
+- Upsert normalized metadata into `tasks` (no legacy ID conversion; assume qualified IDs)
+- Embeddings are not handled by migrate; use `minsky tasks index-embeddings` to populate `tasks_embeddings`
 
 ### Implementation Notes
 
@@ -77,8 +79,9 @@ Behavior:
 - Use the configuration-backed PG connection (sessiondb.postgres) for DB writes
 - Use Drizzle for inserts/updates, with UPSERT on `tasks.id`
 - Set `backend = 'markdown'` and derive `source_task_id` from `id`
-- Refactor `PostgresVectorStorage` to use `task_embeddings` exclusively for vector data; it must not write task metadata
-- Add HNSW index creation for `task_embeddings` and drop any legacy IVFFlat references
+- Refactor `PostgresVectorStorage` to use `tasks_embeddings` exclusively for vector data; it must not write task metadata
+- Add HNSW index creation for `tasks_embeddings` and remove any legacy IVFFlat references
+- Follow-up migration: drop `tasks.dimension`, `tasks.embedding`, `tasks.metadata`, and the `idx_tasks_hnsw` index on `tasks`
 - Defer any backend switching; this task is import-only
 
 ## Considerations & Non-Goals

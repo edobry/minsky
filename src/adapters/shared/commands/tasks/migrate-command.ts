@@ -1,194 +1,79 @@
 /**
- * Task Migration Command
+ * Task Migration / Import Command (md#429)
  *
- * CLI command for migrating legacy task IDs to qualified format
+ * Extends migrate to import markdown specs/metadata into DB by default.
  */
 
 import { z } from "zod";
 import type { CommandExecutionContext } from "../../command-registry";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
-import { TaskMigrationService } from "../../../../domain/tasks/task-migration-service";
+import { BaseTaskCommand } from "./base-task-command";
 import { log } from "../../../../utils/logger";
 import { tasksMigrateParams } from "./task-parameters";
+import { TasksImporterService } from "../../../../domain/tasks/tasks-importer-service";
 
-/**
- * Schema for migrate command parameters
- */
-const migrateTasksParamsSchema = z.object({
-  dryRun: z.boolean().optional().default(false),
-  toBackend: z.string().optional().default("md"),
-  statusFilter: z.string().optional(),
-  createBackup: z.boolean().optional().default(true),
-  force: z.boolean().optional().default(false),
+const migrateParamsSchema = z.object({
+  execute: z.boolean().optional().default(false),
+  limit: z.number().int().positive().optional(),
+  filterStatus: z.string().optional(),
   quiet: z.boolean().optional().default(false),
   json: z.boolean().optional().default(false),
 });
 
-export type MigrateTasksParams = z.infer<typeof migrateTasksParamsSchema>;
+export type MigrateParams = z.infer<typeof migrateParamsSchema>;
 
-/**
- * Command for migrating legacy task IDs to qualified format
- */
-export class MigrateTasksCommand extends BaseTaskCommand<MigrateTasksParams, any> {
+export class MigrateTasksCommand extends BaseTaskCommand<MigrateParams, any> {
   readonly id = "tasks.migrate";
   readonly name = "migrate";
-  readonly description = "Migrate legacy task IDs to qualified format";
+  readonly description = "Import markdown task specs/metadata into DB (dry-run by default)";
   readonly parameters = tasksMigrateParams;
 
-  getCommandId(): string {
-    return "tasks.migrate";
+  async execute(params: MigrateParams, context: CommandExecutionContext): Promise<any> {
+    const p = migrateParamsSchema.parse(params);
+    const dryRun = !p.execute;
+
+    if (!p.quiet) {
+      log.cli(
+        dryRun ? "🔍 DRY RUN: Previewing markdown → DB import..." : "🚀 Importing markdown → DB..."
+      );
+      if (p.filterStatus) log.cli(`📋 Filter status: ${p.filterStatus}`);
+      if (typeof p.limit === "number") log.cli(`🔢 Limit: ${p.limit}`);
+    }
+
+    const importer = new TasksImporterService(context.workspacePath || process.cwd());
+    const result = await importer.importMarkdownToDb({
+      dryRun,
+      limit: p.limit,
+      filterStatus: p.filterStatus,
+    });
+
+    if (p.json || context.format === "json") {
+      return this.createSuccessResult(result);
+    }
+
+    this.display(result, dryRun);
+    return this.createSuccessResult({
+      summary: {
+        total: result.total,
+        inserted: result.inserted,
+        updated: result.updated,
+        skipped: result.skipped,
+        errors: result.errors,
+      },
+    });
   }
 
-  getCommandName(): string {
-    return "migrate";
-  }
+  private display(result: any, dryRun: boolean): void {
+    log.cli("\n📊 RESULTS:");
+    log.cli(`📝 Total: ${result.total}`);
+    if (result.inserted) log.cli(`➕ Inserted: ${result.inserted}`);
+    if (result.updated) log.cli(`♻️  Updated: ${result.updated}`);
+    if (result.skipped) log.cli(`⏭️  Skipped: ${result.skipped}`);
+    if (result.errors) log.cli(`❌ Errors: ${result.errors}`);
 
-  getCommandDescription(): string {
-    return "Migrate legacy task IDs (#123) to qualified format (md#123) and rename spec files";
-  }
-
-  getParameterSchema(): Record<string, any> {
-    return {
-      dryRun: {
-        schema: z.boolean().default(false),
-        description: "Show what would be changed without making changes",
-        required: false,
-      },
-      toBackend: {
-        schema: z.string().default("md"),
-        description: "Target backend for migration (e.g., 'md', 'gh')",
-        required: false,
-      },
-      statusFilter: {
-        schema: z.string(),
-        description: "Filter tasks by status (TODO, IN-PROGRESS, DONE, etc.)",
-        required: false,
-      },
-      createBackup: {
-        schema: z.boolean().default(true),
-        description: "Create backup before migration",
-        required: false,
-      },
-      force: {
-        schema: z.boolean().default(false),
-        description: "Force migration even if some tasks might be lost",
-        required: false,
-      },
-      quiet: {
-        schema: z.boolean().default(false),
-        description: "Suppress output",
-        required: false,
-      },
-      json: {
-        schema: z.boolean().default(false),
-        description: "Output in JSON format",
-        required: false,
-      },
-    };
-  }
-
-  async execute(params: MigrateTasksParams, context: CommandExecutionContext): Promise<any> {
-    const validatedParams = migrateTasksParamsSchema.parse(params);
-
-    const { dryRun, toBackend, statusFilter, createBackup, force, quiet, json } = validatedParams;
-
-    if (!quiet) {
-      if (dryRun) {
-        log.cli("🔍 DRY RUN: Previewing task ID and spec-file migration...");
-      } else {
-        log.cli("🚀 Starting task ID and spec-file migration...");
-      }
-
-      if (statusFilter) {
-        log.cli(`📋 Filtering by status: ${statusFilter}`);
-      }
-
-      log.cli(`🎯 Target backend: ${toBackend}`);
-    }
-
-    try {
-      // Initialize migration service
-      const migrationService = new TaskMigrationService(context.workspacePath || process.cwd());
-
-      // Perform migration (includes tasks.md updates and spec-file renames)
-      const result = await migrationService.migrateTaskIds({
-        dryRun,
-        toBackend,
-        statusFilter,
-        createBackup,
-        force,
-      });
-
-      // Output results
-      if (json) {
-        return this.createSuccessResult(result);
-      }
-
-      // Human-readable output
-      if (!quiet) {
-        this.displayMigrationResults(result, dryRun);
-      }
-
-      return this.createSuccessResult({
-        summary: {
-          totalTasks: result.totalTasks,
-          migratedTasks: result.migratedTasks,
-          alreadyQualified: result.alreadyQualified,
-          failedTasks: result.failedTasks,
-        },
-        backupPath: result.backupPath,
-      });
-    } catch (error) {
-      const errorMessage = error instanceof Error ? error.message : String(error);
-
-      if (json) {
-        return this.createErrorResult(`Migration failed: ${errorMessage}`);
-      }
-
-      log.cli(`❌ Migration failed: ${errorMessage}`);
-      throw error;
-    }
-  }
-
-  /**
-   * Display migration results in human-readable format
-   */
-  private displayMigrationResults(result: any, dryRun: boolean): void {
-    const { totalTasks, migratedTasks, alreadyQualified, failedTasks } = result;
-
-    if (dryRun) {
-      log.cli("\n📊 DRY RUN RESULTS:");
-    } else {
-      log.cli("\n📊 MIGRATION RESULTS:");
-    }
-
-    log.cli(`📝 Total tasks processed: ${totalTasks}`);
-
-    if (migratedTasks > 0) {
-      log.cli(`✅ Tasks migrated: ${migratedTasks}`);
-    }
-
-    if (alreadyQualified > 0) {
-      log.cli(`✨ Already qualified: ${alreadyQualified}`);
-    }
-
-    if (failedTasks > 0) {
-      log.cli(`❌ Failed migrations: ${failedTasks}`);
-    }
-
-    if (result.backupPath) {
-      log.cli(`💾 Backup created: ${result.backupPath}`);
-    }
-
-    if (dryRun && migratedTasks > 0) {
-      log.cli("\n💡 To perform the actual migration, run the same command without --dry-run");
-    }
+    if (dryRun) log.cli("\n💡 Run with --execute to apply changes.");
   }
 }
 
-/**
- * Factory function to create the migrate command
- */
 export function createMigrateTasksCommand(): MigrateTasksCommand {
   return new MigrateTasksCommand();
 }

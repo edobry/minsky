@@ -13,6 +13,12 @@ All notable changes to this project will be documented in this file.
 
 - tasks storage (md#315): add `backend` enum and `source_task_id` columns to `tasks` table; populate from qualified IDs; reuse centralized backend enum values from `enumSchemas.backendType`; update PG vector storage to write these fields.
 
+- md#429: Import markdown task specs/metadata to DB by default via `minsky tasks migrate` (dry-run; `--execute` to apply)
+  - Added `tasks_embeddings` table (HNSW index) to store vectors separately from `tasks`
+  - Refactored vector storage to a generic Postgres storage and wired it to `tasks_embeddings`
+  - Introduced `TasksImporterService` used by `tasks migrate` (no legacy ID normalization; assumes qualified IDs)
+  - Embeddings are populated via existing `minsky tasks index-embeddings`
+
 ### Fixed
 
 - sessiondb/postgres: Correct meta-table detection for Drizzle migrations
