@@ -143,6 +143,37 @@ export async function createRepositoryBackendForSession(
 }
 
 /**
+ * Unified resolver used by session start flow
+ * Resolves repository URL and backend type from explicit param or current working directory
+ */
+export async function resolveRepositoryAndBackend(options: {
+  repoParam?: string | undefined;
+  cwd: string;
+}): Promise<{ repoUrl: string; backendType: RepositoryBackendType }> {
+  const { repoParam, cwd } = options;
+  if (repoParam && repoParam.trim().length > 0) {
+    const backendType = detectRepositoryBackendTypeFromUrl(repoParam);
+    return { repoUrl: repoParam, backendType };
+  }
+
+  // Fallback to current git remote
+  try {
+    const remoteUrl = execSync("git remote get-url origin", { cwd, encoding: "utf8" })
+      .toString()
+      .trim();
+    const backendType = detectRepositoryBackendTypeFromUrl(remoteUrl);
+    return { repoUrl: remoteUrl, backendType };
+  } catch (error) {
+    log.debug("resolveRepositoryAndBackend: failed to read git remote", {
+      cwd,
+      error: getErrorMessage(error as any),
+    });
+    // Default to local with cwd as a file path-like URL
+    return { repoUrl: cwd, backendType: RepositoryBackendType.LOCAL };
+  }
+}
+
+/**
  * Extract GitHub owner and repo from URL
  */
 export function extractGitHubInfoFromUrl(
