@@ -656,15 +656,13 @@
 
 - [ ] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
 
-- [+] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
+- [-] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
 - [ ] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
 - [ ] AI Resilience module for error/backoff/circuit breaker (optional adoption) [md#420](process/tasks/md#420-ai-resilience-module-for-error-backoff-circuit-breaker-optional-adoption-.md)
 
 - [x] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
-
-
 
 - [ ] Extract reusable result-handling utilities for list/get commands [md#422](process/tasks/md#422-extract-reusable-result-handling-utilities-for-list-get-commands.md)
 
