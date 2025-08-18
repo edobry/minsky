@@ -55,12 +55,8 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
 
       // Format and return the result
       return this.formatResult(mcpResult, params);
-
     } catch (error) {
-      throw new MinskyError(
-        `Failed to edit file: ${getErrorMessage(error)}`,
-        error
-      );
+      throw new MinskyError(`Failed to edit file: ${getErrorMessage(error)}`, error);
     }
   }
 
@@ -75,11 +71,11 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     // Auto-detect session from current workspace
     const { getCurrentSession } = await import("../../../../domain/workspace");
     const currentSession = await getCurrentSession();
-    
+
     if (!currentSession) {
       throw new MinskyError(
         "No session specified and could not auto-detect from workspace. " +
-        "Please provide --session <name> or run from within a session workspace."
+          "Please provide --session <name> or run from within a session workspace."
       );
     }
 
@@ -93,7 +89,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     if (params.patternFile) {
       // Read from pattern file
       try {
-        const content = await fs.readFile(params.patternFile, 'utf8');
+        const content = await fs.readFile(params.patternFile, "utf8");
         return content;
       } catch (error) {
         throw new MinskyError(
@@ -111,64 +107,133 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
    */
   private async readFromStdin(): Promise<string> {
     return new Promise((resolve, reject) => {
-      let content = '';
-      
+      let content = "";
+
       // Check if stdin has data
       if (process.stdin.isTTY) {
-        reject(new MinskyError(
-          "No edit pattern provided. Please provide either:\n" +
-          "  --pattern-file <path>  Read pattern from file\n" +
-          "  <command> | minsky session edit-file  Pipe pattern via stdin\n\n" +
-          "Example:\n" +
-          "  echo '// ... existing code ...\\nmy changes\\n// ... existing code ...' | \\\n" +
-          "    minsky session edit-file --path src/file.ts --instruction 'Add feature'"
-        ));
+        reject(
+          new MinskyError(
+            "No edit pattern provided. Please provide either:\n" +
+              "  --pattern-file <path>  Read pattern from file\n" +
+              "  <command> | minsky session edit-file  Pipe pattern via stdin\n\n" +
+              "Example:\n" +
+              "  echo '// ... existing code ...\\nmy changes\\n// ... existing code ...' | \\\n" +
+              "    minsky session edit-file --path src/file.ts --instruction 'Add feature'"
+          )
+        );
         return;
       }
 
-      process.stdin.setEncoding('utf8');
-      
-      process.stdin.on('data', (chunk) => {
+      process.stdin.setEncoding("utf8");
+
+      process.stdin.on("data", (chunk) => {
         content += chunk;
       });
 
-      process.stdin.on('end', () => {
+      process.stdin.on("end", () => {
         resolve(content.trim());
       });
 
-      process.stdin.on('error', (error) => {
+      process.stdin.on("error", (error) => {
         reject(new MinskyError(`Failed to read from stdin: ${getErrorMessage(error)}`));
       });
     });
   }
 
   /**
-   * Call the session.edit_file MCP tool
+   * Call the session.edit_file MCP tool directly
    */
   private async callSessionEditFileMcpTool(args: {
     sessionName: string;
-    path: string; 
+    path: string;
     instructions: string;
     content: string;
     dryRun: boolean;
     createDirs: boolean;
   }): Promise<any> {
-    // Import the MCP command mapper and session edit tools
-    const { CommandMapper } = await import("../../../../mcp/command-mapper");
-    const { registerSessionEditTools } = await import("../../../../adapters/mcp/session-edit-tools");
+    // Import the required modules for session edit functionality
+    const { readFile, writeFile, stat } = await import("fs/promises");
+    const { dirname } = await import("path");
+    const { mkdir } = await import("fs/promises");
+    const { SessionPathResolver } = await import("../../../../adapters/mcp/session-files");
+    const { generateUnifiedDiff, generateDiffSummary } = await import("../../../../utils/diff");
+    const { createSuccessResponse } = await import("../../../../domain/schemas");
 
-    // Create a command mapper and register the session edit tools
-    const commandMapper = new CommandMapper();
-    registerSessionEditTools(commandMapper);
+    // Create path resolver
+    const pathResolver = new SessionPathResolver();
+    const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
-    // Get the session.edit_file command
-    const editFileCommand = commandMapper.getCommand("session.edit_file");
-    if (!editFileCommand) {
-      throw new MinskyError("session.edit_file MCP tool not found");
+    // Check if file exists
+    let fileExists = false;
+    let originalContent = "";
+
+    try {
+      await stat(resolvedPath);
+      fileExists = true;
+      originalContent = (await readFile(resolvedPath, "utf8")).toString();
+    } catch (error) {
+      // File doesn't exist - that's ok for new files
+      fileExists = false;
     }
 
-    // Call the MCP tool
-    return await editFileCommand.handler(args);
+    // If file doesn't exist and we have existing code markers, that's an error
+    if (!fileExists && args.content.includes("// ... existing code ...")) {
+      throw new MinskyError(
+        `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
+      );
+    }
+
+    let finalContent: string;
+
+    if (fileExists && args.content.includes("// ... existing code ...")) {
+      // For now, throw an error for edit patterns - this would need the fast-apply integration
+      throw new MinskyError(
+        "Edit pattern application is not yet implemented in the CLI wrapper. " +
+          "Please use the MCP tool directly for pattern-based edits."
+      );
+    } else {
+      // Direct write for new files or complete replacements
+      finalContent = args.content;
+    }
+
+    // Handle dry-run mode
+    if (args.dryRun) {
+      // Generate diff for dry-run mode
+      const diff = generateUnifiedDiff(originalContent, finalContent, args.path);
+      const diffSummary = generateDiffSummary(originalContent, finalContent);
+
+      return createSuccessResponse({
+        timestamp: new Date().toISOString(),
+        path: args.path,
+        session: args.sessionName,
+        resolvedPath,
+        dryRun: true,
+        proposedContent: finalContent,
+        diff,
+        diffSummary,
+        edited: fileExists,
+        created: !fileExists,
+      });
+    }
+
+    // Create parent directories if needed
+    if (args.createDirs) {
+      await mkdir(dirname(resolvedPath), { recursive: true });
+    }
+
+    // Write the file
+    await writeFile(resolvedPath, finalContent, "utf8");
+    const bytesWritten = Buffer.byteLength(finalContent, "utf8");
+
+    return createSuccessResponse({
+      timestamp: new Date().toISOString(),
+      path: args.path,
+      session: args.sessionName,
+      resolvedPath,
+      bytesWritten,
+      edited: fileExists,
+      created: !fileExists,
+    });
   }
 
   /**
@@ -196,7 +261,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
         type: "edit-applied",
         path: mcpResult.path,
         session: mcpResult.session,
-        message: mcpResult.edited 
+        message: mcpResult.edited
           ? `✅ Successfully edited ${mcpResult.path}`
           : `✅ Successfully created ${mcpResult.path}`,
         bytesWritten: mcpResult.bytesWritten,
@@ -210,9 +275,9 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
   private formatDryRunMessage(result: any): string {
     const { diffSummary } = result;
     const action = result.created ? "create" : "edit";
-    
+
     let message = `🔍 Dry-run: Would ${action} ${result.path}\n\n`;
-    
+
     if (diffSummary) {
       message += `📊 Changes summary:\n`;
       message += `  +${diffSummary.linesAdded} lines added\n`;
@@ -228,7 +293,7 @@ export class SessionEditFileCommand extends BaseSessionCommand<any, any> {
     }
 
     message += `💡 To apply these changes, run the same command without --dry-run`;
-    
+
     return message;
   }
 }

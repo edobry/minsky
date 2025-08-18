@@ -1,5 +1,5 @@
-import React, { useState, useEffect } from 'react';
-import PropTypes from 'prop-types';
+import React, { useState, useEffect } from "react";
+import PropTypes from "prop-types";
 
 /**
  * A reusable user profile component
@@ -18,11 +18,11 @@ export const UserProfile = ({ userId, onUserUpdate }) => {
       setLoading(true);
       setError(null);
       const response = await fetch(`/api/users/${userId}`);
-      
+
       if (!response.ok) {
-        throw new Error('Failed to fetch user');
+        throw new Error("Failed to fetch user");
       }
-      
+
       const userData = await response.json();
       setUser(userData);
     } catch (err) {
@@ -35,15 +35,15 @@ export const UserProfile = ({ userId, onUserUpdate }) => {
   const handleSave = async (updatedUser) => {
     try {
       const response = await fetch(`/api/users/${userId}`, {
-        method: 'PUT',
+        method: "PUT",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
         },
         body: JSON.stringify(updatedUser),
       });
 
       if (!response.ok) {
-        throw new Error('Failed to update user');
+        throw new Error("Failed to update user");
       }
 
       const savedUser = await response.json();

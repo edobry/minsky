@@ -6,7 +6,7 @@ import { SessionEditFileCommand } from "../../../../../src/adapters/shared/comma
 
 describe("SessionEditFileCommand", () => {
   let command: SessionEditFileCommand;
-  
+
   beforeEach(() => {
     command = new SessionEditFileCommand();
   });

@@ -78,7 +78,7 @@ import { createSessionConflictsCommand } from "./conflicts-command";
 // Import repair command
 export { SessionRepairCommand, createSessionRepairCommand } from "./repair-command";
 
-// Import file commands  
+// Import file commands
 export { SessionEditFileCommand, createSessionEditFileCommand } from "./file-commands";
 
 // Import workflow factory functions for internal use

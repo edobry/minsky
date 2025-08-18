@@ -534,7 +534,7 @@ export const sessionEditFileCommandParams = {
   },
   path: {
     schema: z.string(),
-    description: "Path to the file within the session workspace", 
+    description: "Path to the file within the session workspace",
     required: true,
   },
   instruction: {

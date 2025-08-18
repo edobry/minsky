@@ -89,6 +89,7 @@ minsky session edit-file \
 ```
 
 Expected output:
+
 ```
 🔍 Dry-run: Would edit package.json
 
@@ -128,11 +129,13 @@ minsky session edit-file \
 ### Standard Output
 
 For successful edits:
+
 ```
 ✅ Successfully edited src/app.ts
 ```
 
 For new file creation:
+
 ```
 ✅ Successfully created src/new-file.ts
 ```
