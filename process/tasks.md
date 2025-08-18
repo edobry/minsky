@@ -650,7 +650,7 @@
 
 - [ ] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
 
-- [+] Improve sessiondb migration command and plan PostgreSQL cutover [md#415](process/tasks/md#415-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+
 
 - [x] CLI demo for session.edit_file tool [md#416](process/tasks/md#416-cli-demo-for-session-edit-file-tool.md)
 
