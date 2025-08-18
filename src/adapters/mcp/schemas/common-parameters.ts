@@ -179,6 +179,18 @@ export const EditInstructionsSchema = z.object({
 });
 
 /**
+ * Dry-run option parameter
+ * Used in edit operations to preview changes without writing to disk
+ */
+export const DryRunSchema = z.object({
+  dryRun: z
+    .boolean()
+    .optional()
+    .default(false)
+    .describe("Return proposed content and diff without writing to disk"),
+});
+
+/**
  * Optional explanation parameter
  * Used across tools for debugging/logging purposes
  */
@@ -233,10 +245,11 @@ export const SessionFileWriteSchema =
 
 /**
  * Schema for session file edit operations
- * Includes edit instructions and directory creation options
+ * Includes edit instructions, directory creation options, and dry-run support
  */
-export const SessionFileEditSchema =
-  SessionFileOperationSchema.merge(EditInstructionsSchema).merge(CreateDirectoriesSchema);
+export const SessionFileEditSchema = SessionFileOperationSchema.merge(EditInstructionsSchema)
+  .merge(CreateDirectoriesSchema)
+  .merge(DryRunSchema);
 
 /**
  * Schema for session search and replace operations
@@ -350,6 +363,18 @@ export const FileOperationResponseSchema = z.union([
     created: z.boolean().optional(),
     bytesWritten: z.number().optional(),
     recursive: z.boolean().optional(),
+    // Additional properties for dry-run operations
+    dryRun: z.boolean().optional(),
+    proposedContent: z.string().optional(),
+    diff: z.string().optional(),
+    diffSummary: z
+      .object({
+        linesAdded: z.number(),
+        linesRemoved: z.number(),
+        linesChanged: z.number(),
+        totalLines: z.number(),
+      })
+      .optional(),
   }),
   BaseErrorResponseSchema.extend({
     path: z.string().optional(),

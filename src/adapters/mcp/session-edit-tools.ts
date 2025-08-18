@@ -12,6 +12,7 @@ import { Buffer } from "buffer";
 import { getErrorMessage } from "../../errors/index";
 import { FileEditSchema } from "../../domain/schemas";
 import { createSuccessResponse, createErrorResponse } from "../../domain/schemas";
+import { generateUnifiedDiff, generateDiffSummary } from "../../utils/diff";
 
 // Import schemas that haven't been migrated yet
 import {
@@ -99,6 +100,35 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
         } else {
           // Direct write for new files or complete replacements
           finalContent = args.content;
+        }
+
+        // Handle dry-run mode
+        if (args.dryRun) {
+          // Generate diff for dry-run mode
+          const diff = generateUnifiedDiff(originalContent, finalContent, args.path);
+          const diffSummary = generateDiffSummary(originalContent, finalContent);
+
+          log.debug("Session file edit dry-run completed", {
+            session: args.sessionName,
+            path: args.path,
+            resolvedPath,
+            fileExisted: fileExists,
+            proposedContentLength: finalContent.length,
+            diffSummary,
+          });
+
+          return createSuccessResponse({
+            timestamp: new Date().toISOString(),
+            path: args.path,
+            session: args.sessionName,
+            resolvedPath,
+            dryRun: true,
+            proposedContent: finalContent,
+            diff,
+            diffSummary,
+            edited: fileExists,
+            created: !fileExists,
+          });
         }
 
         // Create parent directories if needed
