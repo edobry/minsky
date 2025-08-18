@@ -17,6 +17,11 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - tasks: Corrected misnumbered plan reference in `process/tasks.md` for "Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs" from `md#1` to the proper existing task `md#426`.
+- tasks: Deduplicated duplicate task entries in `process/tasks.md`:
+  - Removed redundant `[ ]` entries for `md#428` (kept single `[+]` entry)
+  - Removed duplicate `[ ]` entry for `md#421` (kept `[x]` entry)
+  - Removed duplicate `md#399` entry so only one remains
+  - Fixed incorrect plan link for `md#426` and removed conflicting `md#420` automated migrations entry
 - tasks: Deduplicated conflicting entries for `md#427` in `process/tasks.md` so status reporting is consistent between `tasks status get` and `tasks list` (kept DONE as the single source of truth).
 - docs(md#414): Updated task spec with current status and resolved session update conflicts for `task-md#414`; session brought current via CLI.
 
