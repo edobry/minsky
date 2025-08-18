@@ -658,7 +658,7 @@
 
 - [+] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
-- [ ] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
+- [+] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
 - [ ] AI Resilience module for error/backoff/circuit breaker (optional adoption) [md#420](process/tasks/md#420-ai-resilience-module-for-error-backoff-circuit-breaker-optional-adoption-.md)
 
@@ -677,8 +677,6 @@
 - [+] Plan: Support Postgres→Postgres SessionDB Migration [md#433](process/tasks/md#433-plan-support-postgres-postgres-sessiondb-migration.md)
 
 - [+] Plan: Explore Migrating from SQLite to PGlite [md#434](process/tasks/md#434-plan-explore-migrating-from-sqlite-to-pglite.md)
-
-- [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
 - [x] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
 

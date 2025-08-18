@@ -22,6 +22,7 @@ All notable changes to this project will be documented in this file.
   - Removed duplicate `[ ]` entry for `md#421` (kept `[x]` entry)
   - Removed duplicate `md#399` entry so only one remains
   - Fixed incorrect plan link for `md#426` and removed conflicting `md#420` automated migrations entry
+  - Renumbered plan/spec IDs to resolve collisions: `md#417→432`, `md#418→433`, `md#419→434`, `md#398 (fix)`→`md#435`
 - tasks: Deduplicated conflicting entries for `md#427` in `process/tasks.md` so status reporting is consistent between `tasks status get` and `tasks list` (kept DONE as the single source of truth).
 - docs(md#414): Updated task spec with current status and resolved session update conflicts for `task-md#414`; session brought current via CLI.
 
