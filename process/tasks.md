@@ -650,6 +650,8 @@
 
 - [ ] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
 
+- [ ] Improve CLI Error Summarization with Structured Detection [md#415](process/tasks/md#415-improve-cli-error-summarization-with-structured-detection.md)
+
 - [x] CLI demo for session.edit_file tool [md#416](process/tasks/md#416-cli-demo-for-session-edit-file-tool.md)
 
 - [x] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)

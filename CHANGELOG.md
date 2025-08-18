@@ -26,6 +26,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - tasks: Removed duplicate spec `md#415` for SessionDB migration cutover (duplicate of `md#401`); cleaned reference in `process/tasks.md`. The remaining `md#415` now exclusively tracks CLI error summarization follow-up.
+ - tasks: Added missing entry to `process/tasks.md` for `md#415` (Improve CLI Error Summarization with Structured Detection).
 
 - tasks: Corrected misnumbered plan reference in `process/tasks.md` for "Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs" from `md#1` to the proper existing task `md#426`.
 - tasks: Deduplicated duplicate task entries in `process/tasks.md`:
