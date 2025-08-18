@@ -658,7 +658,7 @@
 
 - [ ] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
 
-- [ ] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
+- [+] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
 - [ ] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
@@ -682,7 +682,7 @@
 
 - [+] Plan: Explore Migrating from SQLite to PGlite [md#419](process/tasks/md#419-plan-explore-migrating-from-sqlite-to-pglite.md)
 
-- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-plan-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
@@ -694,12 +694,10 @@
 
 - [+] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
 
-
 - [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
-
 
 - [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
