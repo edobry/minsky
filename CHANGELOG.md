@@ -6,7 +6,17 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- CLI ergonomics for session.edit_file (md#419)
+
+  - Add `minsky session edit-file` CLI command as user-friendly wrapper
+  - Support for reading edit patterns from stdin or `--pattern-file`
+  - Session auto-detection from workspace context
+  - Rich output formatting with dry-run previews and diff summaries
+  - Comprehensive CLI documentation and examples
+
+- feat(config): add workspace.mainPath; wire markdown/json task backends to main workspace path (md#410)
 - session pr: status/backend/time filters
+
   - `minsky session pr list --status open,merged --backend github --since 7d --until 2025-08-01`
   - `minsky session pr get --task md#413 --status all --since 24h`
   - Status accepts comma-separated or `all`; backend: `github|remote|local`; time accepts `YYYY-MM-DD` or relative `7d|24h|30m`.
@@ -21,7 +31,18 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- tasks: Corrected misnumbered plan reference in `process/tasks.md` for "Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs" from `md#1` to the proper existing task `md#426`.
+- tasks: Deduplicated duplicate task entries in `process/tasks.md`:
+  - Removed redundant `[ ]` entries for `md#428` (kept single `[+]` entry)
+  - Removed duplicate `[ ]` entry for `md#421` (kept `[x]` entry)
+  - Removed duplicate `md#399` entry so only one remains
+  - Fixed incorrect plan link for `md#426` and removed conflicting `md#420` automated migrations entry
+  - Renumbered plan/spec IDs to resolve collisions: `md#417→432`, `md#418→433`, `md#419→434`, `md#398 (fix)`→`md#435`
+- tasks: Deduplicated conflicting entries for `md#427` in `process/tasks.md` so status reporting is consistent between `tasks status get` and `tasks list` (kept DONE as the single source of truth).
+- docs(md#414): Updated task spec with current status and resolved session update conflicts for `task-md#414`; session brought current via CLI.
+
 - sessiondb/postgres: Correct meta-table detection for Drizzle migrations
+
   - Fixed `PostgresStorage.hasPendingMigrations()` to look for `__drizzle_migrations` in the `drizzle` schema and to count from `drizzle.__drizzle_migrations`.
   - Resolves false "Database schema is out of date" errors when `drizzle-kit generate` and `drizzle-kit migrate` report no changes.
 
@@ -48,9 +69,13 @@ All notable changes to this project will be documented in this file.
 - **Task md#421**: Suppress low-value Octokit HTTP transport logs during `session pr merge` unless `--debug` is enabled. Added concise human-friendly status lines for approval count and branch protection summary before merging. Structured `--json` outputs unchanged.
 - **Session Tasks File Resolution**: Fixed `session pr merge` post-merge task status update to resolve the main workspace to a local repo path before reading/writing `process/tasks.md`. Prevents malformed remote URL paths like `https:/github.com/.../process/tasks.md` and ensures updates and branch cleanup run against the main repository instead of the session workspace.
 
+- **Session Review/Approve Backend Delegation (md#410)**: Removed direct `pr/` branch assumptions from session review and approval flows. Introduced backend APIs `getPullRequestDetails()` and `getPullRequestDiff()` and implemented them for GitHub, Local, and Remote backends. Session review now fetches PR description and diff via the repository backend; approval flow gates stash/branch cleanup to non-GitHub backends and delegates merge/approval to backend.
+
 ### Added
 
 - **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
+
+- **Configuration**: Added `workspace.mainPath` integration across task backends (Markdown/JSON) and environment mapping (`MINSKY_WORKSPACE_MAIN_PATH`). Backends prefer `workspace.mainPath` for main workspace resolution.
 
 ### Tests
 
@@ -141,7 +166,6 @@ All notable changes to this project will be documented in this file.
   - Added stash/commit/push/restore flow to `src/domain/tasks/markdownTaskBackend.ts` for both object and spec-file creation paths
   - Commit message format: `chore(task): create <id> <title>`; push attempted with warnings on failure
   - Exposed injectable `gitService` for testability; added unit tests to validate commit/push behavior and no-op when no changes
-    > > > > > > > origin/main
 
 ## md#427: Enforce conventional-commit title validation on session pr edit
 

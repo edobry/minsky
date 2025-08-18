@@ -244,13 +244,16 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
         }
       );
 
-      return this.createSuccessResult(result);
+      // Do not surface local prBranch in CLI result; GitHub backend does not use it
+      const { prBranch, ...rest } = result as any;
+      return this.createSuccessResult(rest);
     } catch (error) {
       throw this.handlePrError(error, params);
     }
   }
 
-  private async validateNoPrExists(params: any): Promise<void> {
+  // Exposed for testing: validate absence of existing PR (previously private)
+  async validateNoPrExists(params: any): Promise<void> {
     // Check if there's already an existing PR and fail if so
     const currentDir = process.cwd();
     const isSessionWorkspace = currentDir.includes("/sessions/");
@@ -312,6 +315,38 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       }
       // If we can't verify session state, continue with PR creation
       return;
+    }
+  }
+
+  // Exposed for testing: method used by tests to check refresh decision
+  async checkIfPrCanBeRefreshed(params: any): Promise<boolean> {
+    try {
+      // Resolve via task or explicit name; do not depend on cwd for testability
+      let sessionName: string | undefined = params.name;
+      if (!sessionName && params.task) {
+        const { resolveSessionContextWithFeedback } = await import(
+          "../../../../domain/session/session-context-resolver"
+        );
+        const { createSessionProvider } = await import("../../../../domain/session");
+        const sessionProvider = createSessionProvider();
+        const resolved = await resolveSessionContextWithFeedback({
+          session: params.name,
+          task: params.task,
+          repo: params.repo,
+          sessionProvider,
+          allowAutoDetection: true,
+        });
+        sessionName = resolved.sessionName;
+      }
+
+      if (!sessionName) return false;
+
+      const { createSessionProvider } = await import("../../../../domain/session");
+      const sessionDB = createSessionProvider();
+      const record = await sessionDB.getSession(sessionName);
+      return Boolean(record && record.prBranch && record.prState && record.prState.exists);
+    } catch {
+      return false;
     }
   }
 

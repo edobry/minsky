@@ -31,7 +31,9 @@ export class PostgresVectorStorage implements VectorStorage {
   ): Promise<PostgresVectorStorage> {
     const runtimeConfig = await getConfiguration();
     const conn = runtimeConfig.sessiondb?.postgres?.connectionString;
-    if (!conn) throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
+    if (!conn) {
+      throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
+    }
     const storage = new PostgresVectorStorage(conn, dimension, config);
     await storage.initialize();
     return storage;

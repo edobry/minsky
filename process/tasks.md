@@ -618,13 +618,11 @@
 
 - [ ] Improve test mock filesystem approach with external libraries [md#398](process/tasks/md#398-improve-test-mock-filesystem-approach-with-external-libraries.md)
 
-- [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
-
 - [ ] Explore alternative task entry methods and reference resolution [md#400](process/tasks/md#400-explore-alternative-task-entry-methods-and-reference-resolution.md)
 
 - [x] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [ ] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
+- [x] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
 
 - [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [md#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
 
@@ -636,13 +634,13 @@
 
 - [ ] Implement GitHub repository quality guardrails configuration [md#408](process/tasks/md#408-implement-github-repository-quality-guardrails-configuration.md)
 
-- [ ] Implement session pr open command for GitHub backend [md#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
+- [x] Implement session pr open command for GitHub backend [md#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
 
-- [+] Fix task status update to use main workspace and configure main workspace path [md#410](process/tasks/md#410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
+- [x] Fix task status update to use main workspace and configure main workspace path [md#410](process/tasks/md#410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
 
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
-- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#398](process/tasks/md#398-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#435](process/tasks/md#435-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
@@ -654,54 +652,38 @@
 
 - [+] Improve sessiondb migration command and plan PostgreSQL cutover [md#415](process/tasks/md#415-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [+] CLI demo for session.edit_file tool [md#416](process/tasks/md#416-cli-demo-for-session-edit-file-tool.md)
+- [x] CLI demo for session.edit_file tool [md#416](process/tasks/md#416-cli-demo-for-session-edit-file-tool.md)
 
-- [ ] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
+- [+] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
 
-- [ ] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
+- [x] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
-- [ ] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
+- [x] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
 - [ ] AI Resilience module for error/backoff/circuit breaker (optional adoption) [md#420](process/tasks/md#420-ai-resilience-module-for-error-backoff-circuit-breaker-optional-adoption-.md)
 
 - [x] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
 
-- [ ] Improve session PR merge output: hide low-value Octokit HTTP logs unless --debug; show concise approval/branch-protection status [md#421](process/tasks/md#421-improve-session-pr-merge-output-hide-low-value-octokit-http-logs-unless-debug-show-concise-approval-branch-protection-status.md)
-
 - [ ] Extract reusable result-handling utilities for list/get commands [md#422](process/tasks/md#422-extract-reusable-result-handling-utilities-for-list-get-commands.md)
 
-- [-] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
+- [x] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
 
 - [x] Disable [DEBUG] logs for session start unless debug logging is enabled [md#425](process/tasks/md#425-disable-debug-logs-for-session-start-unless-debug-logging-is-enabled.md)
 
 - [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#426](process/tasks/md#426-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
 
-- [+] Plan: Automated Embedding Sync/Update Process [md#417](process/tasks/md#417-plan-automated-embedding-sync-update-process.md)
+- [+] Plan: Automated Embedding Sync/Update Process [md#432](process/tasks/md#432-plan-automated-embedding-sync-update-process.md)
 
-- [+] Plan: Support Postgres→Postgres SessionDB Migration [md#418](process/tasks/md#418-plan-support-postgres-postgres-sessiondb-migration.md)
+- [+] Plan: Support Postgres→Postgres SessionDB Migration [md#433](process/tasks/md#433-plan-support-postgres-postgres-sessiondb-migration.md)
 
-- [+] Plan: Explore Migrating from SQLite to PGlite [md#419](process/tasks/md#419-plan-explore-migrating-from-sqlite-to-pglite.md)
-
-- [+] Plan: Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#1](process/tasks/md#1-plan-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
-
-- [ ] Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs [md#420](process/tasks/md#420-automated-migrations-strategy-boot-time-orchestrated-and-remote-runs.md)
+- [+] Plan: Explore Migrating from SQLite to PGlite [md#434](process/tasks/md#434-plan-explore-migrating-from-sqlite-to-pglite.md)
 
 - [x] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
 
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
-- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
-
 - [+] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
-
-- [+] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
-
-- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
-
-- [+] Enforce conventional-commit title validation on session pr edit [md#427](process/tasks/md#427-enforce-conventional-commit-title-validation-on-session-pr-edit.md)
-
-- [ ] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)

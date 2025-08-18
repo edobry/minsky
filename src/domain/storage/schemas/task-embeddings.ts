@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, jsonb, index, pgEnum } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, index, pgEnum } from "drizzle-orm/pg-core";
 import { vector } from "drizzle-orm/pg-core";
 import { enumSchemas } from "../../configuration/schemas/base";
 

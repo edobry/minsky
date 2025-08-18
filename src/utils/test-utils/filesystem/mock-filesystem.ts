@@ -63,12 +63,24 @@ export function createMockFilesystem(
     existsSync: createMock((path: unknown) => {
       return files.has(path as string) || directories.has(path as string);
     }),
+    // Convenience alias used by some tests
+    exists: createMock((path: unknown) => {
+      return files.has(path as string) || directories.has(path as string);
+    }),
     readFileSync: createMock((path: unknown, encoding?: unknown) => {
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
       const content = files.get(String(path));
       return encoding === "utf8" || encoding === "utf-8" ? content : Buffer.from(content || "");
+    }),
+    // Convenience alias used by some tests (synchronous)
+    readFile: createMock((path: unknown) => {
+      if (!files.has(path as string)) {
+        throw new Error(`ENOENT: no such file or directory, open '${path}'`);
+      }
+      const content = files.get(String(path)) || "";
+      return content;
     }),
     writeFileSync: createMock((path: unknown, data: unknown) => {
       files.set(path as string, data as string);
@@ -78,10 +90,29 @@ export function createMockFilesystem(
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
+    // Convenience alias used by some tests (synchronous)
+    writeFile: createMock((path: unknown, data: unknown) => {
+      files.set(path as string, String(data));
+      const parts = (path as string).split("/");
+      for (let i = 1; i < parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+    }),
     mkdirSync: createMock((path: unknown, options?: unknown) => {
       directories.add(path as string);
       // If recursive option, add all parent directories
       if ((options as { recursive?: boolean })?.recursive) {
+        const parts = (path as string).split("/");
+        for (let i = 1; i <= parts.length; i++) {
+          directories.add(parts.slice(0, i).join("/"));
+        }
+      }
+    }),
+    // Convenience alias used by some tests (synchronous)
+    mkdir: createMock((path: unknown, options?: unknown) => {
+      directories.add(path as string);
+      const recursive = (options as { recursive?: boolean } | undefined)?.recursive;
+      if (recursive) {
         const parts = (path as string).split("/");
         for (let i = 1; i <= parts.length; i++) {
           directories.add(parts.slice(0, i).join("/"));
@@ -138,7 +169,7 @@ export function createMockFilesystem(
     }),
 
     // Async methods (fs/promises)
-    readFile: createMock(async (path: unknown, encoding?: unknown) => {
+    readFileAsync: createMock(async (path: unknown, encoding?: unknown) => {
       if (!files.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, open '${path}'`);
       }
@@ -150,7 +181,7 @@ export function createMockFilesystem(
         return Buffer.from(content || "", "utf-8"); // Return as Buffer
       }
     }),
-    writeFile: createMock(async (path: unknown, data: unknown) => {
+    writeFileAsync: createMock(async (path: unknown, data: unknown) => {
       files.set(path as string, data as string);
       // Add parent directories
       const parts = (path as string).split("/");
@@ -158,7 +189,7 @@ export function createMockFilesystem(
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
-    mkdir: createMock(async (path: unknown, ...args: unknown[]) => {
+    mkdirAsync: createMock(async (path: unknown, ...args: unknown[]) => {
       directories.add(path as string);
       const options = args[0] as { recursive?: boolean } | undefined;
       // If recursive option, add all parent directories
@@ -169,7 +200,7 @@ export function createMockFilesystem(
         }
       }
     }),
-    readdir: createMock(async (path: unknown) => {
+    readdirAsync: createMock(async (path: unknown) => {
       const dirPath = path as string;
       const contents: string[] = [];
 
@@ -192,7 +223,7 @@ export function createMockFilesystem(
 
       return contents;
     }),
-    mkdtemp: createMock(async (prefix: unknown) => {
+    mkdtempAsync: createMock(async (prefix: unknown) => {
       // Generate a unique temporary directory name
       const timestamp = Date.now();
       const random = Math.random().toString(36).substring(2, 8);
@@ -200,13 +231,13 @@ export function createMockFilesystem(
       directories.add(tempDir);
       return tempDir;
     }),
-    access: createMock(async (path: unknown) => {
+    accessAsync: createMock(async (path: unknown) => {
       if (!files.has(path as string) && !directories.has(path as string)) {
         throw new Error(`ENOENT: no such file or directory, access '${path}'`);
       }
       // If file/directory exists, access succeeds (returns void)
     }),
-    rm: createMock(async (path: unknown, options?: unknown) => {
+    rmAsync: createMock(async (path: unknown, options?: unknown) => {
       const pathStr = path as string;
       const opts = options as { recursive?: boolean; force?: boolean } | undefined;
 
@@ -254,6 +285,24 @@ export function createMockFilesystem(
     reset: () => {
       files.clear();
       directories.clear();
+    },
+    // Expose shapes compatible with mock.module factories
+    fs: {
+      existsSync: (path: unknown) => mockFs.existsSync(path),
+      readFileSync: (path: unknown, encoding?: unknown) => mockFs.readFileSync(path, encoding),
+      writeFileSync: (path: unknown, data: unknown) => mockFs.writeFileSync(path, data),
+      mkdirSync: (path: unknown, options?: unknown) => mockFs.mkdirSync(path, options),
+      statSync: (path: unknown) => mockFs.statSync(path),
+      readdirSync: (path: unknown) => mockFs.readdirSync(path),
+    },
+    fsPromises: {
+      readFile: (path: unknown, encoding?: unknown) => mockFs.readFileAsync(path, encoding),
+      writeFile: (path: unknown, data: unknown) => mockFs.writeFileAsync(path, data),
+      mkdir: (path: unknown, options?: unknown) => mockFs.mkdirAsync(path, options as any),
+      readdir: (path: unknown) => mockFs.readdirAsync(path),
+      mkdtemp: (prefix: unknown) => mockFs.mkdtempAsync(prefix),
+      access: (path: unknown) => mockFs.accessAsync(path),
+      rm: (path: unknown, options?: unknown) => mockFs.rmAsync(path, options as any),
     },
   };
 

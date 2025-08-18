@@ -1,8 +1,7 @@
 /**
  * Environment Variable Configuration Source
  *
- * Maps environment variables to configuration values using automatic pattern matching
- * and explicit mappings. Provides the highest priority configuration source.
+ * Maps environment variables to configuration values using automatic pattern matching and explicit mappings. Provides the highest priority configuration source.
  */
 
 import type { PartialConfiguration } from "../schemas";
@@ -16,6 +15,9 @@ import type { PartialConfiguration } from "../schemas";
 export const environmentMappings = {
   // Backend configuration
   MINSKY_BACKEND: "backend",
+
+  // Workspace configuration (NEW)
+  MINSKY_WORKSPACE_MAIN_PATH: "workspace.mainPath",
 
   // GitHub configuration
   GITHUB_TOKEN: "github.token",
@@ -179,6 +181,13 @@ function envVarToConfigPath(envVar: string): string | null {
       return `sessiondb.${camelCase(parts[1]!)}`;
     } else if (parts.length === 3) {
       return `sessiondb.${parts[1]}.${camelCase(parts[2]!)}`;
+    }
+  }
+
+  if (parts[0] === "workspace") {
+    // WORKSPACE_MAIN_PATH -> workspace.mainPath
+    if (parts[1] === "main" && parts[2] === "path") {
+      return "workspace.mainPath";
     }
   }
 

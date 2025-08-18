@@ -17,7 +17,7 @@ import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
 import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
-import { detectRepositoryBackendTypeFromUrl } from "./repository-backend-detection";
+import { resolveRepositoryAndBackend } from "./repository-backend-detection";
 import { taskIdToSessionName } from "../tasks/task-id";
 
 export interface StartSessionDependencies {
@@ -89,18 +89,11 @@ Sessions are isolated workspaces for specific tasks. Creating nested sessions wo
 Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
-    // Determine repo URL or path first
-    let repoUrl = repo;
-    if (!repoUrl) {
-      try {
-        repoUrl = await deps.resolveRepoPath({});
-      } catch (err) {
-        const error = err instanceof Error ? err : new Error(String(err));
-        throw new MinskyError(
-          `--repo is required (not in a git repo and no --repo provided): ${error.message}`
-        );
-      }
-    }
+    // Determine repo URL and backend type using unified resolver (defaults to GitHub)
+    const { repoUrl, backendType } = await resolveRepositoryAndBackend({
+      repoParam: repo,
+      cwd: process.cwd(),
+    });
 
     // Determine the session name using task ID if provided
     let sessionName = name;
@@ -205,10 +198,6 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         );
       }
     }
-
-    // Prepare session record but don't add to DB yet (branch no longer persisted)
-    // Detect repository backend type up-front so session records have correct backendType
-    const backendType = detectRepositoryBackendTypeFromUrl(repoUrl);
 
     const sessionRecord: SessionRecord = {
       session: sessionName,
