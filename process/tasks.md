@@ -576,7 +576,7 @@
 
 - [x] Implement Multi-Backend Task System Architecture [md#356](process/tasks/md#356-implement-multi-backend-task-system-architecture.md)
 
-- [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [md#357](process/tasks/md#357-integrate-github-issues-backend-with-repository-backend-architecture.md)
+- [x] Integrate GitHub Issues Backend with Repository Backend Architecture [md#357](process/tasks/md#357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [md#359](process/tasks/md#359-restructure-session-pr-command-with-explicit-subcommands.md)
 
