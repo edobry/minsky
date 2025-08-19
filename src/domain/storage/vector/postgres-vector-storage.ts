@@ -81,7 +81,6 @@ export class PostgresVectorStorage implements VectorStorage {
     placeholders.push("$3::vector");
     values.push(vectorLiteral);
 
-    let idx = 3;
     if (this.config.lastIndexedAtColumn) {
       placeholders.push("NOW()");
     }
