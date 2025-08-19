@@ -9,7 +9,8 @@ All notable changes to this project will be documented in this file.
 - Enhanced task search output with immediate usability improvements
 
   - Task search results now display title, status, and spec path by default
-  - Improved CLI format: `ID: Title [Status]` with indented details (spec path, score)
+  - Improved CLI format: `#. Title [ID] - Status` with numbered ranking and clear hierarchy
+  - Reduced indentation for better readability and less visual clutter
   - `--details` flag support to include description in output
   - JSON output maintains backward compatibility with both enhanced and raw results
   - Enhanced output applies to both `tasks search` and `tasks similar` commands
