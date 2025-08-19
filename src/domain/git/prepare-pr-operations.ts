@@ -147,17 +147,7 @@ export async function preparePrImpl(
             const repoName = normalizeRepoName(repoUrl.trim());
 
             // Extract task ID from session name using proper utilities
-            let taskId = sessionNameToTaskId(options.session);
-
-            // Handle legacy patterns - extract plain numbers for enhancement to handle properly
-            const legacyPlainMatch = options.session.match(/^task(\d+)$/); // task123 → 123
-            const legacyHashMatch = options.session.match(/^task#(\d+)$/); // task#456 → 456
-
-            if (legacyPlainMatch) {
-              taskId = legacyPlainMatch[1]; // Keep as plain number for enhancement to handle
-            } else if (legacyHashMatch) {
-              taskId = legacyHashMatch[1]; // Keep as plain number for enhancement to handle
-            }
+            const taskId = sessionNameToTaskId(options.session);
 
             // Create basic session record
             const basicSessionRecord: SessionRecord = {
@@ -170,14 +160,8 @@ export async function preparePrImpl(
             };
 
             // Enhance with multi-backend support
-            const enhancedRecord =
+            const newSessionRecord =
               SessionMultiBackendIntegration.enhanceSessionRecord(basicSessionRecord);
-
-            // Ensure legacyTaskId is always explicitly set for test compatibility
-            const newSessionRecord = {
-              ...enhancedRecord,
-              legacyTaskId: enhancedRecord.legacyTaskId ?? undefined,
-            };
 
             // Register the session
             await deps.sessionDb.addSession(newSessionRecord);

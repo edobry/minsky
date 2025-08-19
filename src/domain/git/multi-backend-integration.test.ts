@@ -93,7 +93,6 @@ describe("Git Operations Multi-Backend Integration", () => {
             session: "task-md#123",
             taskId: "md#123", // Should extract qualified task ID
             taskBackend: "md", // Should add backend information
-            legacyTaskId: undefined, // No legacy ID for qualified format
           })
         );
       } finally {
@@ -117,13 +116,11 @@ describe("Git Operations Multi-Backend Integration", () => {
           deps
         );
 
-        // Should have migrated legacy format to qualified format
+        // Legacy format should create session with undefined taskId (no migration)
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
             session: "task123", // Original session name preserved
-            taskId: "md#123", // Should migrate to qualified format
-            taskBackend: "md", // Should default to markdown backend
-            legacyTaskId: "123", // Should preserve original task ID
+            taskId: undefined, // Legacy format → no valid task ID
           })
         );
       } finally {
@@ -149,9 +146,7 @@ describe("Git Operations Multi-Backend Integration", () => {
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
             session: "task#456",
-            taskId: "md#456", // Should migrate task# format
-            taskBackend: "md",
-            legacyTaskId: "456",
+            taskId: undefined, // Legacy task# format → no valid task ID
           })
         );
       } finally {
