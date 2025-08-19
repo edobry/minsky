@@ -30,6 +30,7 @@ import {
 } from "../../../utils/option-descriptions";
 import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
 import { getConfiguration } from "../../../domain/configuration";
+import fs from "fs/promises";
 import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
 import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
@@ -317,6 +318,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             dimension INT NOT NULL,
             embedding VECTOR(${vectorDim}),
             metadata JSONB,
+            content_hash TEXT,
             last_indexed_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -346,6 +348,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           dimensionColumn: "dimension",
           lastIndexedAtColumn: "last_indexed_at",
           metadataColumn: "metadata",
+          contentHashColumn: "content_hash",
         });
 
         // Resolve workspace and list rules
@@ -365,37 +368,46 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         let skipped = 0;
         for (const rule of slice) {
           try {
-            const textParts: string[] = [];
-            if (rule.name) textParts.push(String(rule.name));
-            if (rule.description) textParts.push(String(rule.description));
-            if ((rule as any).tags && Array.isArray((rule as any).tags)) {
-              textParts.push((rule as any).tags.join(" "));
+            // Prefer full rule content; fallback to file; then to metadata
+            let content = "";
+            const rawFromRule = (rule as any).content;
+            if (typeof rawFromRule === "string" && rawFromRule.trim().length > 0) {
+              content = rawFromRule;
+            } else if (typeof (rule as any).path === "string") {
+              try {
+                const fileText = await fs.readFile(String((rule as any).path), "utf-8");
+                if (fileText && fileText.trim().length > 0) content = fileText;
+              } catch {
+                // ignore file read errors
+              }
             }
-            // Fallback to content if name/description/tags are missing
-            if (!(textParts.length > 0) && (rule as any).content) {
-              const raw = String((rule as any).content);
-              // Use a concise prefix of content to control token usage
-              textParts.push(raw.slice(0, 1000));
-            }
-
-            const content = textParts.join("\n\n").trim();
             if (!content) {
+              const textParts: string[] = [];
+              if (rule.name) textParts.push(String(rule.name));
+              if (rule.description) textParts.push(String(rule.description));
+              if ((rule as any).tags && Array.isArray((rule as any).tags)) {
+                textParts.push((rule as any).tags.join(" "));
+              }
+              // As a last resort include rule id
+              if (textParts.length === 0) textParts.push(String(rule.id));
+              content = textParts.join("\n\n");
+            }
+            // Limit content length to reasonable window
+            const contentLimited = content.slice(0, 4000).trim();
+            if (!contentLimited) {
               skipped += 1;
-              continue; // Avoid invalid empty input to embeddings API
+              continue;
             }
 
-            const vector = await embeddingService.generateEmbedding(content);
-            const metadata: any = {
-              name: rule.name,
-              description: rule.description,
-            };
-            // Attach a content hash for provenance similar to tasks embeddings
+            const vector = await embeddingService.generateEmbedding(contentLimited);
+            const metadata: any = { name: rule.name, description: rule.description };
+            let contentHash: string | undefined;
             try {
               const { createHash } = await import("crypto");
-              const contentHash = createHash("sha256").update(content).digest("hex");
-              metadata.contentHash = contentHash;
+              contentHash = createHash("sha256").update(contentLimited).digest("hex");
             } catch {}
-            await storage.store(rule.id, vector, metadata);
+            // Store metadata JSON and content hash in dedicated column for staleness detection
+            await storage.store(rule.id, vector, { ...metadata, contentHash });
             indexed += 1;
           } catch (e) {
             // Skip problematic rule and continue; surface count in JSON
