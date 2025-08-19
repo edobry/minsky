@@ -14,7 +14,7 @@ import { exit } from "../../utils/process";
 import fs from "fs/promises";
 import { getEmbeddingDimension } from "../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../domain/ai/embedding-service-factory";
-import { PostgresVectorStorage } from "../../domain/storage/vector/postgres-vector-storage";
+import { createRulesVectorStorageFromConfig } from "../../domain/storage/vector/vector-storage-factory";
 import { RuleSimilarityService } from "../../domain/rules/rule-similarity-service";
 
 interface SuggestRulesOptions {
@@ -101,13 +101,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
     const model = (config as any).embeddings?.model || "text-embedding-3-small";
     const dimension = getEmbeddingDimension(model, 1536);
     const embedding = await createEmbeddingServiceFromConfig();
-    const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
-      tableName: "rules_embeddings",
-      idColumn: "rule_id",
-      embeddingColumn: "embedding",
-      dimensionColumn: "dimension",
-      lastIndexedAtColumn: "last_indexed_at",
-    });
+    const storage = await createRulesVectorStorageFromConfig(dimension);
     const sim = new RuleSimilarityService(embedding, storage, {});
     const limit = parseInt(String(options.limit || 5), 10);
     const threshold = options.threshold !== undefined ? Number(options.threshold) : undefined;
