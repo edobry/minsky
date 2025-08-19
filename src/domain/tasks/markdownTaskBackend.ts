@@ -47,11 +47,7 @@ import {
   getTaskSpecRelativePath,
 } from "./taskIO";
 
-import {
-  normalizeTaskIdForStorage,
-  formatTaskIdForDisplay,
-  getTaskIdNumber,
-} from "./task-id-utils";
+import { validateQualifiedTaskId, formatTaskIdForDisplay, getTaskIdNumber } from "./task-id-utils";
 
 // Helper import to avoid promise conversion issues
 import { readdir } from "fs/promises";

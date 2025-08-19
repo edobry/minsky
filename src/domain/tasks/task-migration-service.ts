@@ -8,7 +8,7 @@
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
 import { log } from "../../utils/logger";
-import { normalizeTaskIdForStorage, getTaskIdNumber } from "./task-id-utils";
+import { validateQualifiedTaskId, getTaskIdNumber } from "./task-id-utils";
 import { getTasksFilePath, getTaskSpecsDirectoryPath, listFiles } from "./taskIO";
 
 export interface MigrationOptions {
@@ -330,9 +330,9 @@ export class TaskMigrationService {
         const taskMatch = line.match(/\[([^\]]+)\]/);
         if (taskMatch) {
           const taskId = taskMatch[1];
-          const normalized = normalizeTaskIdForStorage(taskId);
+          const validated = validateQualifiedTaskId(taskId);
 
-          if (!normalized) {
+          if (!validated) {
             errors.push(`Line ${index + 1}: Invalid task ID format: ${taskId}`);
           }
         }
