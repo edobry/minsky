@@ -181,6 +181,12 @@ export function createMockFilesystem(
 
       return contents;
     }),
+    access: createMock(async (path: unknown) => {
+      if (!files.has(path as string) && !directories.has(path as string)) {
+        throw new Error(`ENOENT: no such file or directory, access '${path}'`);
+      }
+      // If file/directory exists, access succeeds (returns void)
+    }),
 
     // Async methods (fs/promises)
     readFileAsync: createMock(async (path: unknown, encoding?: unknown) => {
