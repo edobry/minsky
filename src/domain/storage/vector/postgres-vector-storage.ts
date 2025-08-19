@@ -10,6 +10,7 @@ export interface PostgresVectorStorageConfig {
   embeddingColumn: string; // e.g., embedding
   dimensionColumn: string; // e.g., dimension
   lastIndexedAtColumn?: string; // e.g., last_indexed_at
+  metadataColumn?: string; // e.g., metadata (JSONB)
 }
 
 export class PostgresVectorStorage implements VectorStorage {
@@ -58,33 +59,38 @@ export class PostgresVectorStorage implements VectorStorage {
   async store(id: string, vector: number[], _metadata?: Record<string, any>): Promise<void> {
     const vectorLiteral = `[${vector.join(",")}]`;
 
-    const cols = [
-      this.config.idColumn,
-      this.config.dimensionColumn,
-      this.config.embeddingColumn,
-      this.config.lastIndexedAtColumn ? this.config.lastIndexedAtColumn : undefined,
-      "updated_at",
-    ].filter(Boolean) as string[];
-
+    const cols: string[] = [this.config.idColumn, this.config.dimensionColumn, this.config.embeddingColumn];
     const placeholders: string[] = [];
     const values: any[] = [];
+    let paramIndex = 1;
 
     // id
-    placeholders.push("$1");
+    placeholders.push(`$${paramIndex++}`);
     values.push(id);
 
     // dimension
-    placeholders.push("$2");
+    placeholders.push(`$${paramIndex++}`);
     values.push(this.dimension);
 
     // embedding (vector)
-    placeholders.push("$3::vector");
+    placeholders.push(`$${paramIndex++}::vector`);
     values.push(vectorLiteral);
 
+    // optional metadata JSONB
+    if (this.config.metadataColumn) {
+      cols.push(this.config.metadataColumn);
+      placeholders.push(`$${paramIndex++}::jsonb`);
+      values.push(_metadata ? JSON.stringify(_metadata) : JSON.stringify({}));
+    }
+
+    // optional lastIndexedAt
     if (this.config.lastIndexedAtColumn) {
+      cols.push(this.config.lastIndexedAtColumn);
       placeholders.push("NOW()");
     }
+
     // updated_at
+    cols.push("updated_at");
     placeholders.push("NOW()");
 
     const updateSets: string[] = [
@@ -92,6 +98,9 @@ export class PostgresVectorStorage implements VectorStorage {
       `${this.config.dimensionColumn} = EXCLUDED.${this.config.dimensionColumn}`,
       `updated_at = NOW()`,
     ];
+    if (this.config.metadataColumn) {
+      updateSets.push(`${this.config.metadataColumn} = EXCLUDED.${this.config.metadataColumn}`);
+    }
     if (this.config.lastIndexedAtColumn) {
       updateSets.push(`${this.config.lastIndexedAtColumn} = NOW()`);
     }

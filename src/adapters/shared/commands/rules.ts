@@ -316,6 +316,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             rule_id TEXT PRIMARY KEY,
             dimension INT NOT NULL,
             embedding VECTOR(${vectorDim}),
+            metadata JSONB,
             last_indexed_at TIMESTAMPTZ,
             created_at TIMESTAMPTZ DEFAULT NOW(),
             updated_at TIMESTAMPTZ DEFAULT NOW()
@@ -344,6 +345,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           embeddingColumn: "embedding",
           dimensionColumn: "dimension",
           lastIndexedAtColumn: "last_indexed_at",
+          metadataColumn: "metadata",
         });
 
         // Resolve workspace and list rules
@@ -360,24 +362,60 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
 
         const start = Date.now();
         let indexed = 0;
+        let skipped = 0;
         for (const rule of slice) {
-          const textParts: string[] = [];
-          if (rule.name) textParts.push(String(rule.name));
-          if (rule.description) textParts.push(String(rule.description));
-          if ((rule as any).tags && Array.isArray((rule as any).tags)) {
-            textParts.push((rule as any).tags.join(" "));
+          try {
+            const textParts: string[] = [];
+            if (rule.name) textParts.push(String(rule.name));
+            if (rule.description) textParts.push(String(rule.description));
+            if ((rule as any).tags && Array.isArray((rule as any).tags)) {
+              textParts.push((rule as any).tags.join(" "));
+            }
+            // Fallback to content if name/description/tags are missing
+            if (!(textParts.length > 0) && (rule as any).content) {
+              const raw = String((rule as any).content);
+              // Use a concise prefix of content to control token usage
+              textParts.push(raw.slice(0, 1000));
+            }
+
+            const content = textParts.join("\n\n").trim();
+            if (!content) {
+              skipped += 1;
+              continue; // Avoid invalid empty input to embeddings API
+            }
+
+            const vector = await embeddingService.generateEmbedding(content);
+            const metadata: any = {
+              name: rule.name,
+              description: rule.description,
+            };
+            // Attach a content hash for provenance similar to tasks embeddings
+            try {
+              const { createHash } = await import("crypto");
+              const contentHash = createHash("sha256").update(content).digest("hex");
+              metadata.contentHash = contentHash;
+            } catch {}
+            await storage.store(rule.id, vector, metadata);
+            indexed += 1;
+          } catch (e) {
+            // Skip problematic rule and continue; surface count in JSON
+            skipped += 1;
           }
-          const content = textParts.join("\n").trim();
-          const vector = await embeddingService.generateEmbedding(content);
-          await storage.store(rule.id, vector, { name: rule.name, description: rule.description });
-          indexed += 1;
         }
         const elapsed = Date.now() - start;
 
         if (params.json || ctx?.format === "json") {
-          return { success: true, indexed, total: slice.length, ms: elapsed, dimension, model };
+          return {
+            success: true,
+            indexed,
+            skipped,
+            total: slice.length,
+            ms: elapsed,
+            dimension,
+            model,
+          };
         }
-        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms`);
+        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped: ${skipped})`);
         return { success: true };
       } catch (error) {
         const message = getErrorMessage(error as any);
