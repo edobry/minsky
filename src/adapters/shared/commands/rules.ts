@@ -324,6 +324,15 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             updated_at TIMESTAMPTZ DEFAULT NOW()
           )`
         );
+        // Ensure new columns exist if table was created by an older version
+        await sql.unsafe(
+          `ALTER TABLE rules_embeddings
+             ADD COLUMN IF NOT EXISTS metadata JSONB,
+             ADD COLUMN IF NOT EXISTS content_hash TEXT,
+             ADD COLUMN IF NOT EXISTS last_indexed_at TIMESTAMPTZ,
+             ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
+             ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`
+        );
         // Create HNSW index if not exists
         await sql.unsafe(
           `DO $$
