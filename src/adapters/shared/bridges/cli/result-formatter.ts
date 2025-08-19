@@ -222,6 +222,43 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         formatDebugEchoDetails(result);
         break;
 
+      case "session.commit": {
+        const shortHash = (
+          result.shortHash || (result.commitHash ? String(result.commitHash).slice(0, 7) : "")
+        ).trim();
+        const subject = result.subject || result.message || "";
+        const branch = result.branch || "";
+        const filesChanged = Number.isFinite(result.filesChanged) ? result.filesChanged : 0;
+        const insertions = Number.isFinite(result.insertions) ? result.insertions : 0;
+        const deletions = Number.isFinite(result.deletions) ? result.deletions : 0;
+
+        if (result.oneline) {
+          log.cli(
+            `${shortHash} ${subject} | ${branch} | ${filesChanged} files, +${insertions} -${deletions}`
+          );
+        } else {
+          const quotedSubject = subject ? `"${subject}"` : "";
+          log.cli(`Committed ${shortHash} ${quotedSubject} to branch ${branch}`);
+          if (result.authorName || result.authorEmail || result.timestamp) {
+            const author = `${result.authorName || ""}${result.authorEmail ? ` <${result.authorEmail}>` : ""}`;
+            const when = result.timestamp ? ` at ${result.timestamp}` : "";
+            log.cli(`Author: ${author}${when}`);
+          }
+          log.cli(
+            `${filesChanged} files changed, ${insertions} insertions(+), ${deletions} deletions(-)`
+          );
+
+          if (!result.noFiles && Array.isArray(result.files) && result.files.length > 0) {
+            result.files.forEach((f: any) => {
+              if (f && f.status && f.path) {
+                log.cli(`${f.status} ${f.path}`);
+              }
+            });
+          }
+        }
+        break;
+      }
+
       default:
         this.formatGenericObject(result);
         break;
