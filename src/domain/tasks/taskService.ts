@@ -11,7 +11,7 @@ import { log } from "../../utils/logger";
 import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
-import { normalizeTaskIdForStorage } from "./task-id-utils";
+import { validateQualifiedTaskId } from "./task-id-utils";
 import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 import { detectRepositoryBackendType } from "../session/repository-backend-detection";
@@ -166,7 +166,7 @@ export class TaskService {
 
     // Use proper task ID normalization from systematic architecture
     // This handles the transition period where storage might be in either format
-    const storageId = normalizeTaskIdForStorage(id);
+    const storageId = validateQualifiedTaskId(id);
     if (!storageId) {
       throw new Error(`Invalid task ID format: ${id}`);
     }

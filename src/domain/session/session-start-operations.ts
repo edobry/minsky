@@ -29,7 +29,7 @@ import type {
   SessionRecord,
   Session,
 } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
-import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
+import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import {
   SessionMultiBackendIntegration,
   SessionBackwardCompatibility,

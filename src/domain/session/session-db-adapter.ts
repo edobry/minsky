@@ -19,7 +19,7 @@ import {
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import {
-  normalizeTaskIdForStorage,
+  validateQualifiedTaskId,
   formatTaskIdForDisplay,
   isValidTaskIdInput,
 } from "../tasks/task-id-utils";
@@ -142,29 +142,29 @@ export class SessionDbAdapter implements SessionProviderInterface {
       availableSessions: sessions.map((s) => ({ session: s.session, taskId: s.taskId })),
     });
 
-    // TASK 283: Normalize input task ID to storage format for comparison
-    const normalizedTaskId = normalizeTaskIdForStorage(taskId);
-    if (!normalizedTaskId) {
+    // STRICT QUALIFIED IDs ONLY: Validate input task ID
+    const validatedTaskId = validateQualifiedTaskId(taskId);
+    if (!validatedTaskId) {
       log.debug("Invalid task ID format", { taskId });
       return null;
     }
 
-    log.debug("Normalized task ID for lookup", { original: taskId, normalized: normalizedTaskId });
+    log.debug("Validated task ID for lookup", { original: taskId, validated: validatedTaskId });
 
-    // Find session where stored task ID matches normalized input
+    // Find session where stored task ID matches validated input
     const matchingSession =
       sessions.find((s) => {
         if (!s.taskId) return false;
-        // Normalize the stored task ID for comparison
-        const storedNormalized = normalizeTaskIdForStorage(s.taskId);
+        // Validate the stored task ID for comparison
+        const storedValidated = validateQualifiedTaskId(s.taskId);
         log.debug("Comparing task IDs", {
           session: s.session,
           sessionTaskId: s.taskId,
-          storedNormalized,
-          lookingFor: normalizedTaskId,
-          matches: storedNormalized === normalizedTaskId,
+          storedValidated,
+          lookingFor: validatedTaskId,
+          matches: storedValidated === validatedTaskId,
         });
-        return storedNormalized === normalizedTaskId;
+        return storedValidated === validatedTaskId;
       }) || null;
 
     if (matchingSession) {
