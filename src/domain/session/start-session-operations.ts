@@ -95,7 +95,6 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Determine repo URL or path first using unified resolver (defaults to GitHub)
     const resolved = await resolveRepositoryAndBackend({ repoParam: repo, cwd: process.cwd() });
     const repoUrl = resolved.repoUrl;
-    const backendType = resolved.backendType;
 
     // Determine the session name using task ID if provided
     let sessionName = name;
@@ -203,6 +202,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     // Prepare session record but don't add to DB yet (branch no longer persisted)
     // Detect repository backend type up-front so session records have correct backendType
+    const backendType = resolved.backendType;
     const sessionRecord: SessionRecord = {
       session: sessionName,
       repoUrl,
