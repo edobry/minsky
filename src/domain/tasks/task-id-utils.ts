@@ -52,7 +52,10 @@ export function validateQualifiedTaskId(taskId: string): string | null {
   // For string IDs that don't match numeric patterns, return as-is for multi-backend support
   // This allows backend-specific string IDs like "update-test", "delete-test", etc.
   // Require hyphen or underscore to distinguish from invalid mixed patterns like "283abc"
-  if (/^[a-zA-Z][a-zA-Z0-9_-]*[a-zA-Z0-9]$/.test(trimmed) && (trimmed.includes('-') || trimmed.includes('_'))) {
+  if (
+    /^[a-zA-Z][a-zA-Z0-9_-]*[a-zA-Z0-9]$/.test(trimmed) &&
+    (trimmed.includes("-") || trimmed.includes("_"))
+  ) {
     return trimmed; // Return string IDs as-is for backend handling
   }
 

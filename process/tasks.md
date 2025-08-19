@@ -711,3 +711,5 @@
 - [ ] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
 
 - [ ] Explore task templates for different backends [md#448](process/tasks/md#448-explore-task-templates-for-different-backends.md)
+
+- [ ] Extend embeddings infra: server-side filtering and index-optimized queries [md#449](process/tasks/md#449-extend-embeddings-infra-server-side-filtering-and-index-optimized-queries.md)
