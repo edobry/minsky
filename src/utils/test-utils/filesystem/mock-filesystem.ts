@@ -90,6 +90,20 @@ export function createMockFilesystem(
         directories.add(parts.slice(0, i).join("/"));
       }
     }),
+    copyFileSync: createMock((srcPath: unknown, destPath: unknown) => {
+      const src = String(srcPath);
+      const dest = String(destPath);
+      if (!files.has(src)) {
+        throw new Error(`ENOENT: no such file or directory, open '${src}'`);
+      }
+      const content = files.get(src) ?? "";
+      // Ensure destination directory exists
+      const parts = dest.split("/");
+      for (let i = 1; i < parts.length; i++) {
+        directories.add(parts.slice(0, i).join("/"));
+      }
+      files.set(dest, content);
+    }),
     // Convenience alias used by some tests (synchronous)
     writeFile: createMock((path: unknown, data: unknown) => {
       files.set(path as string, String(data));
@@ -288,6 +302,7 @@ export function createMockFilesystem(
     },
     // Expose shapes compatible with mock.module factories
     fs: {
+      copyFileSync: (src: unknown, dest: unknown) => mockFs.copyFileSync(src, dest),
       existsSync: (path: unknown) => mockFs.existsSync(path),
       readFileSync: (path: unknown, encoding?: unknown) => mockFs.readFileSync(path, encoding),
       writeFileSync: (path: unknown, data: unknown) => mockFs.writeFileSync(path, data),

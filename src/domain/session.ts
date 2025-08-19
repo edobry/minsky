@@ -1720,7 +1720,7 @@ export async function sessionReviewFromParams(
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {
-    const taskIdToUse = taskIdSchema.parse(params.task);
+    const taskIdToUse = taskIdSchema.parse(params.task as string);
     taskId = taskIdToUse;
 
     // Get session by task ID

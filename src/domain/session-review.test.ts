@@ -181,7 +181,7 @@ describe("sessionReviewFromParams", () => {
     };
 
     // Test by task ID
-    const result = await sessionReviewFromParams({ task: "#123" }, deps);
+    const result = await sessionReviewFromParams({ task: "md#123" }, deps);
 
     // Verify calls with individual spies
     expect(getSessionByTaskIdSpy).toHaveBeenCalledWith("md#123");

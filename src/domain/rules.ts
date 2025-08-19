@@ -1,8 +1,8 @@
-import { promises as fs } from "fs";
+import { promises as nodeFsPromises } from "fs";
 import { HTTP_OK } from "../utils/constants";
 import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
-import { existsSync } from "fs";
+import { existsSync as nodeExistsSync } from "fs";
 import { log } from "../utils/logger";
 import { getErrorMessage } from "../errors/index";
 const COMMIT_HASH_SHORT_LENGTH = 7;
@@ -83,9 +83,25 @@ export interface SearchRuleOptions {
 
 export class RuleService {
   private workspacePath: string;
+  private fs: Pick<
+    typeof nodeFsPromises,
+    "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
+  >;
+  private existsSyncFn: (path: string) => boolean;
 
-  constructor(workspacePath: string) {
+  constructor(
+    workspacePath: string,
+    deps?: {
+      fsPromises?: Pick<
+        typeof nodeFsPromises,
+        "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
+      >;
+      existsSyncFn?: (path: string) => boolean;
+    }
+  ) {
     this.workspacePath = workspacePath;
+    this.fs = deps?.fsPromises || nodeFsPromises;
+    this.existsSyncFn = deps?.existsSyncFn || nodeExistsSync;
     // Log workspace path on initialization for debugging
     log.debug("RuleService initialized", { workspacePath });
   }
@@ -110,7 +126,7 @@ export class RuleService {
       }
 
       try {
-        const files = await fs.readdir(dirPath);
+        const files = await this.fs.readdir(dirPath);
 
         for (const file of files) {
           if (!file.endsWith(".mdc")) continue;
@@ -173,14 +189,14 @@ export class RuleService {
 
       try {
         // Check if file exists in the requested format
-        await fs.access(filePath);
+        await this.fs.access(filePath);
 
         if (options.debug) {
           log.debug("File exists in requested format", { filePath });
         }
 
         // File exists in requested format, read and parse it
-        const content = String(await fs.readFile(filePath, "utf-8")) as string;
+        const content = String(await this.fs.readFile(filePath, "utf-8")) as string;
 
         try {
           // FIXED: Added try/catch block around matter parsing to handle YAML parsing errors
@@ -266,14 +282,14 @@ export class RuleService {
 
       try {
         // Check if file exists
-        await fs.access(filePath);
+        await this.fs.access(filePath);
 
         if (options.debug) {
           log.debug("File exists in alternative format", { filePath });
         }
 
         // File exists, read and parse it
-        const content = String(await fs.readFile(filePath, "utf-8")) as string;
+        const content = String(await this.fs.readFile(filePath, "utf-8")) as string;
 
         try {
           // FIXED: Same try/catch pattern for frontmatter parsing in alternative formats
@@ -403,10 +419,10 @@ export class RuleService {
     const filePath = join(dirPath, `${id}.mdc`);
 
     // Ensure directory exists
-    await fs.mkdir(dirPath, { recursive: true });
+    await this.fs.mkdir(dirPath, { recursive: true });
 
     // Check if rule already exists
-    if (existsSync(filePath) && !options.overwrite) {
+    if (this.existsSyncFn(filePath) && !options.overwrite) {
       throw new Error(`Rule already exists: ${id}. Use --overwrite to replace it.`);
     }
 
@@ -422,7 +438,7 @@ export class RuleService {
     const fileContent = customMatterStringify(content, cleanMeta);
 
     // Write the file
-    await fs.writeFile(filePath, fileContent, "utf-8");
+    await this.fs.writeFile(filePath, fileContent, "utf-8");
 
     log.debug("Rule created/updated", {
       _path: filePath,
@@ -486,7 +502,7 @@ export class RuleService {
     const fileContent = customMatterStringify(updatedContent, metaForFrontmatter);
 
     // Write the file
-    await fs.writeFile(rule.path, fileContent, "utf-8");
+    await this.fs.writeFile(rule.path, fileContent, "utf-8");
 
     log.debug("Rule updated", {
       _path: rule.path,

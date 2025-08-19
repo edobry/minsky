@@ -375,6 +375,46 @@ export async function createTaskFromParams(
 }
 
 /**
+ * Create a task from title and description
+ * (exported for tests that import from ./tasks/taskCommands)
+ */
+export async function createTaskFromTitleAndDescription(
+  params: TaskCreateFromTitleAndDescriptionParams,
+  deps?: {
+    resolveRepoPath?: typeof resolveRepoPath;
+    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    resolveMainWorkspacePath?: () => Promise<string>;
+  }
+): Promise<any> {
+  // Validate params
+  const validParams = taskCreateFromTitleAndDescriptionParamsSchema.parse(params);
+
+  // Resolve workspace path (prefer injected main path)
+  const workspacePath =
+    (await deps?.resolveMainWorkspacePath?.()) ??
+    (await (deps?.resolveRepoPath || resolveRepoPath)({
+      session: validParams.session,
+      repo: validParams.repo,
+    }));
+
+  // Create task service
+  const createTaskService =
+    deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+  const taskService = await createTaskService({
+    workspacePath,
+    backend: validParams.backend || "markdown",
+  });
+
+  // Create the task from title and description
+  const task = await taskService.createTaskFromTitleAndDescription(
+    validParams.title,
+    validParams.description || ""
+  );
+
+  return task;
+}
+
+/**
  * Get task specification content using the provided parameters
  * This function implements the interface-agnostic command architecture
  * @param params Parameters for getting task specification content
