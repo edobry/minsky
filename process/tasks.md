@@ -706,4 +706,6 @@
 
 - [ ] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
 
-- [ ] Extract generic similarity search service with pluggable backends and fallback chain [md#446](process/tasks/md#446-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
+- [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
+
+- [ ] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)

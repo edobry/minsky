@@ -236,10 +236,11 @@ export const TaskParameters = {
   taskId: {
     schema: z.string().refine(
       (value) => {
-        return isQualifiedTaskId(value);
+        // Accept qualified task IDs (md#123, gh#456) or string IDs (update-test, delete-test)
+        return isQualifiedTaskId(value) || /^[a-zA-Z0-9_-]+$/.test(value);
       },
       {
-        message: "Task ID must be qualified (md#123, gh#456)",
+        message: "Task ID must be qualified (md#123, gh#456) or a valid string ID (update-test)",
       }
     ),
     description: "Task identifier (supports md#123, gh#456)",
@@ -254,10 +255,11 @@ export const TaskParameters = {
       .string()
       .refine(
         (value) => {
-          return isQualifiedTaskId(value);
+          // Accept qualified task IDs (md#123, gh#456) or string IDs (update-test, delete-test)
+          return isQualifiedTaskId(value) || /^[a-zA-Z0-9_-]+$/.test(value);
         },
         {
-          message: "Task ID must be qualified (md#123, gh#456)",
+          message: "Task ID must be qualified (md#123, gh#456) or a valid string ID (update-test)",
         }
       )
       .optional(),
