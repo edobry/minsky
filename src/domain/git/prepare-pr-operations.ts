@@ -91,6 +91,9 @@ export interface PreparePrDependencies {
   sessionDb: SessionProviderInterface;
   getSessionWorkdir: (session: string) => string;
   execInRepository: (workdir: string, command: string) => Promise<string>;
+  gitFetch?: (workdir: string, timeout?: number) => Promise<void>;
+  gitPush?: (workdir: string, branch: string, timeout?: number) => Promise<void>;
+  execAsync?: (command: string) => Promise<{ stdout: string; stderr: string }>;
 }
 
 /**

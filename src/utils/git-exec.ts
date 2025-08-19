@@ -46,17 +46,6 @@ export async function execGitWithTimeout(
   command: string,
   options: GitExecOptions = {}
 ): Promise<GitExecResult> {
-  // NEVER execute real git commands during tests
-  if (process.env.NODE_ENV === "test" || process.env.BUN_ENV === "test" || globalThis.Bun?.jest) {
-    return {
-      stdout: "task-md#123",
-      stderr: "",
-      command,
-      workdir: options.workdir,
-      executionTimeMs: 0,
-    };
-  }
-
   const {
     workdir,
     timeout = 30000, // Default 30 second timeout

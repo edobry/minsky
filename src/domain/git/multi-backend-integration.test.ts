@@ -61,6 +61,9 @@ function createMockDependencies() {
     sessionDb: mockSessionDb,
     execInRepository: mockExecInRepository,
     getSessionWorkdir: mock((sessionName: string) => `/mock/sessions/${sessionName}`),
+    gitFetch: mock(async () => {}),
+    gitPush: mock(async () => {}),
+    execAsync: mock(async () => ({ stdout: "0\t1", stderr: "" })),
   };
 }
 
