@@ -16,29 +16,29 @@
  */
 export function validateQualifiedTaskId(taskId: string): string | null {
   if (!taskId || typeof taskId !== "string") {
-    console.log("DEBUG: Invalid input type or empty");
+    log.debug("Invalid input type or empty");
     return null;
   }
 
   const trimmed = taskId.trim();
-  console.log("DEBUG: Processing trimmed input:", trimmed);
+  log.debug("Processing trimmed input:", trimmed);
 
   // Already qualified format (md#367, gh#123, md#update-test)
   if (/^[a-z-]+#.+$/.test(trimmed)) {
-    console.log("DEBUG: Matched qualified format");
+    log.debug("Matched qualified format");
     return trimmed;
   }
 
   // Legacy display format (#283) -> convert to qualified
   if (/^#\d+$/.test(trimmed)) {
-    console.log("DEBUG: Matched legacy display format");
+    log.debug("Matched legacy display format");
     const num = trimmed.replace(/^#/, "");
     return `md#${num}`;
   }
 
   // Legacy numeric format (283) -> convert to qualified
   if (/^\d+$/.test(trimmed)) {
-    console.log("DEBUG: Matched legacy numeric format");
+    log.debug("Matched legacy numeric format");
     return `md#${trimmed}`;
   }
 
