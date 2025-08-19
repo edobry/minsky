@@ -74,6 +74,68 @@ export function detectRepositoryBackendType(workdir: string): RepositoryBackendT
 }
 
 /**
+ * Unified resolver for repository URL and backend type
+ *
+ * Behavior:
+ * - If repoParam provided, use it and detect backend via URL
+ * - Otherwise, read configuration `repository.default_repo_backend` (default to "github")
+ * - If default is github, auto-detect GitHub remote URL from current working directory
+ * - Else, fall back to detecting current git repo path; if that fails, use process.cwd()
+ */
+export async function resolveRepositoryAndBackend(options?: {
+  repoParam?: string;
+  cwd?: string;
+}): Promise<{ repoUrl: string; backendType: RepositoryBackendType }> {
+  const cwd = options?.cwd || process.cwd();
+
+  if (options?.repoParam) {
+    const repoUrl = options.repoParam;
+    return { repoUrl, backendType: detectRepositoryBackendTypeFromUrl(repoUrl) };
+  }
+
+  // Lazy import to avoid cycles
+  let defaultBackend: string | undefined;
+  try {
+    const { getConfiguration } = await import("../configuration/index");
+    const cfg = getConfiguration();
+    defaultBackend = cfg.repository?.default_repo_backend || "github";
+  } catch (_err) {
+    defaultBackend = "github";
+  }
+
+  if (defaultBackend === "github") {
+    try {
+      const remoteUrl = execSync("git remote get-url origin", { cwd, encoding: "utf8" })
+        .toString()
+        .trim();
+      if (!remoteUrl.includes("github.com")) {
+        throw new Error(
+          "Default repository backend is GitHub, but current directory does not have a GitHub remote."
+        );
+      }
+      return { repoUrl: remoteUrl, backendType: RepositoryBackendType.GITHUB };
+    } catch (error) {
+      throw new Error(
+        `Default repository backend is GitHub, but could not detect GitHub remote: ${getErrorMessage(
+          error as any
+        )}`
+      );
+    }
+  }
+
+  // Non-GitHub default: attempt to resolve current git repo path
+  try {
+    const toplevel = execSync("git rev-parse --show-toplevel", { cwd, encoding: "utf8" })
+      .toString()
+      .trim();
+    return { repoUrl: toplevel, backendType: RepositoryBackendType.LOCAL };
+  } catch (_error) {
+    // Final fallback: use cwd and detect by URL rules
+    return { repoUrl: cwd, backendType: detectRepositoryBackendTypeFromUrl(cwd) };
+  }
+}
+
+/**
  * Create a repository backend instance for a session using the stored repoUrl
  * More efficient than createRepositoryBackendForSession when you have the repoUrl
  */
@@ -139,37 +201,6 @@ export async function createRepositoryBackendForSession(
     return await createRepositoryBackend(config);
   } catch (error) {
     throw new Error(`Failed to create repository backend: ${getErrorMessage(error as any)}`);
-  }
-}
-
-/**
- * Unified resolver used by session start flow
- * Resolves repository URL and backend type from explicit param or current working directory
- */
-export async function resolveRepositoryAndBackend(options: {
-  repoParam?: string | undefined;
-  cwd: string;
-}): Promise<{ repoUrl: string; backendType: RepositoryBackendType }> {
-  const { repoParam, cwd } = options;
-  if (repoParam && repoParam.trim().length > 0) {
-    const backendType = detectRepositoryBackendTypeFromUrl(repoParam);
-    return { repoUrl: repoParam, backendType };
-  }
-
-  // Fallback to current git remote
-  try {
-    const remoteUrl = execSync("git remote get-url origin", { cwd, encoding: "utf8" })
-      .toString()
-      .trim();
-    const backendType = detectRepositoryBackendTypeFromUrl(remoteUrl);
-    return { repoUrl: remoteUrl, backendType };
-  } catch (error) {
-    log.debug("resolveRepositoryAndBackend: failed to read git remote", {
-      cwd,
-      error: getErrorMessage(error as any),
-    });
-    // Default to local with cwd as a file path-like URL
-    return { repoUrl: cwd, backendType: RepositoryBackendType.LOCAL };
   }
 }
 

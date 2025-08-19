@@ -219,46 +219,25 @@ export const tasksDeleteParams: CommandParameterMap = {
 };
 
 /**
- * Task migration specific parameters
- */
-export const taskMigrationParams = {
-  dryRun: {
-    schema: z.boolean().default(false),
-    description: "Show what would be changed without making changes",
-    required: false,
-  },
-  toBackend: {
-    schema: z.string().default("md"),
-    description: "Target backend for migration (e.g., 'md', 'gh')",
-    required: false,
-  },
-  statusFilter: {
-    schema: z.string().optional(),
-    description: "Filter tasks by status (TODO, IN-PROGRESS, DONE, etc.)",
-    required: false,
-  },
-  createBackup: {
-    schema: z.boolean().default(true),
-    description: "Create backup before migration",
-    required: false,
-  },
-  force: {
-    schema: z.boolean().default(false),
-    description: "Force migration even if some tasks might be lost",
-    required: false,
-  },
-  quiet: {
-    schema: z.boolean().default(false),
-    description: "Suppress non-essential output",
-    required: false,
-  },
-};
-
-/**
- * Parameters for tasks migrate command
+ * Parameters for tasks migrate command (md#429 importer by default)
  */
 export const tasksMigrateParams: CommandParameterMap = {
-  ...taskMigrationParams,
+  execute: {
+    schema: z.boolean().default(false),
+    description: "Apply changes (defaults to dry-run without this flag)",
+    required: false,
+  },
+  limit: {
+    schema: z.number().int().positive().optional(),
+    description: "Limit number of tasks to import",
+    required: false,
+  },
+  filterStatus: {
+    schema: z.string().optional(),
+    description: "Filter tasks by status (e.g., TODO, IN-PROGRESS)",
+    required: false,
+  },
+  quiet: CommonParameters.quiet,
   ...taskContextParams,
   ...outputFormatParams,
 };

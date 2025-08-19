@@ -121,7 +121,8 @@ export async function sessionPrImpl(
     throw error;
   }
 
-  // STEP 0.5: Body validation must run before workspace guards
+  // STEP 0.5: Body validation (domain-level safety)
+  // Ensure new PRs provide a description before any workspace-specific checks
   if (!params.body && !params.bodyPath) {
     throw new ValidationError(
       "PR description is required for new pull request creation. Provide --body or --body-path."
