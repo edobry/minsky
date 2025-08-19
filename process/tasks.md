@@ -697,3 +697,5 @@
 - [+] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
 
 - [ ] Define Phased Future Direction: Backend-SoT + DB Overlay, MCP‑First (Minimal Path) [md#440](process/tasks/md#440-define-phased-future-direction-backend-sot-db-overlay-mcp-first-minimal-path-.md)
+
+- [ ] Implement MCP-Based Subagent System with Task Graph Integration [md#441](process/tasks/md#441-implement-mcp-based-subagent-system-with-task-graph-integration.md)
