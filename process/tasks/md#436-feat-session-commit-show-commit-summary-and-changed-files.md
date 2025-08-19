@@ -3,12 +3,15 @@
 ## Context
 
 ## Problem
+
 `minsky session commit` currently commits but provides minimal feedback. Users need immediate, actionable output that summarizes what was committed and which files were affected.
 
 ## Goal
+
 Enhance `minsky session commit` output to include concise commit metadata and a list of changed files, following meaningful-output-principles.
 
 ## Requirements
+
 - After a successful commit, print a summary that includes:
   - Commit hash (short) and subject line
   - Current branch name
@@ -22,6 +25,7 @@ Enhance `minsky session commit` output to include concise commit metadata and a 
 - Exit codes unchanged
 
 ## Output Examples
+
 - Default (human):
   ```
   Committed 3c1a5d9 "session: include commit summary" to branch feature/improve-commit
@@ -56,6 +60,7 @@ Enhance `minsky session commit` output to include concise commit metadata and a 
   ```
 
 ## Acceptance Criteria
+
 - Running `minsky session commit` on a repo with staged changes prints the summary and per-file list as specified
 - `--json` emits only valid JSON with all specified keys and no extra logs
 - `--no-files` hides file list but shows summary lines
@@ -65,26 +70,31 @@ Enhance `minsky session commit` output to include concise commit metadata and a 
 - Covered by tests per framework-specific-tests and meaningful-output-principles
 
 ## Notes / Implementation Sketch
+
 - After commit, read: latest commit via `git log -1 --pretty=...` and diffstat via `git show --stat --pretty=...` or use `--numstat` for machine parsing
 - Parse changed files from `git show --name-status -1 --pretty=format:`
 - Centralize formatting in a small formatter module so both human and JSON share the same data source
 - Respect `--verbose` to potentially include full commit body in future; out of scope for now
 
 ## Testing
+
 - Add integration tests for human output, `--json`, `--oneline`, `--no-files`
 - Include cases: added/modified/deleted/renamed, no changes, many files
 - Validate JSON schema and that no extra logs pollute `--json` output
 
 ## Non-Goals
+
 - Showing diffs or patch content
 - Changing commit behavior itself
 
 ## References
+
 - Rules: meaningful-output-principles, framework-specific-tests, tests
 - Related command: `session pr` output style for consistency
 
-## Requirements
+## Implementation
 
-## Solution
-
-## Notes
+- Added flags to `sessionCommitCommandParams`: `oneline`, `noFiles`
+- Extended `SessionCommitParametersSchema` and `SessionCommitResponseSchema` with metadata fields
+- Enhanced domain `sessionCommit()` to collect commit metadata and file-status list using git commands
+- Updated CLI formatter to render summary, per-file list, and `--oneline` variant; JSON output unchanged except for extra fields

@@ -183,6 +183,8 @@ export const SessionCommitParametersSchema = z.object({
   all: z.boolean().default(false),
   amend: z.boolean().default(false),
   noStage: z.boolean().default(false),
+  oneline: z.boolean().default(false).optional(),
+  noFiles: z.boolean().default(false).optional(),
 });
 
 // ========================
@@ -269,8 +271,24 @@ export const SessionCommitResponseSchema = z.union([
   BaseSuccessResponseSchema.extend({
     sessionName: SessionNameSchema,
     commitHash: z.string(),
+    shortHash: z.string().optional(),
+    subject: z.string().optional(),
+    branch: z.string().optional(),
+    authorName: z.string().optional(),
+    authorEmail: z.string().optional(),
+    timestamp: z.string().optional(),
     message: z.string(),
     filesChanged: z.number().optional(),
+    insertions: z.number().optional(),
+    deletions: z.number().optional(),
+    files: z
+      .array(
+        z.object({
+          path: z.string(),
+          status: z.string(),
+        })
+      )
+      .optional(),
   }),
   BaseErrorResponseSchema.extend({
     sessionName: SessionNameSchema.optional(),

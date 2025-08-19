@@ -57,9 +57,22 @@ export class SessionCommitCommand extends BaseSessionCommand<any, any> {
 
     return this.createSuccessResult({
       success: result.success,
+      sessionName: params.sessionName,
       commitHash: result.commitHash,
+      shortHash: result.shortHash,
+      subject: result.subject,
+      branch: result.branch,
+      authorName: result.authorName,
+      authorEmail: result.authorEmail,
+      timestamp: result.timestamp,
       message: result.message,
+      filesChanged: result.filesChanged,
+      insertions: result.insertions,
+      deletions: result.deletions,
+      files: result.files,
       pushed: result.pushed,
+      oneline: params.oneline === true,
+      noFiles: params.noFiles === true,
     });
   }
 }

@@ -51,18 +51,16 @@ All notable changes to this project will be documented in this file.
 
 - tasks storage (md#315): add `backend` enum and `source_task_id` columns to `tasks` table; populate from qualified IDs; reuse centralized backend enum values from `enumSchemas.backendType`; update PG vector storage to write these fields.
 
-- md#429: Import markdown task specs/metadata to DB by default via `minsky tasks migrate` (dry-run; `--execute` to apply)
-  - Added `tasks_embeddings` table (HNSW index) to store vectors separately from `tasks`
-  - Refactored vector storage to a generic Postgres storage and wired it to `tasks_embeddings`
-  - Introduced `TasksImporterService` used by `tasks migrate` (no legacy ID normalization; assumes qualified IDs)
-  - Embeddings are populated via existing `minsky tasks index-embeddings`
+- feat(session commit): enhanced output with commit summary and changed files (md#436)
+  - Default human output prints short hash, subject, branch, author/time, diffstat
+  - Per-file list with status codes; toggle with `--no-files`
+  - `--oneline` renders `<hash> <subject> | <branch> | <N files, +X -Y>`
+  - `--json` returns structured fields without extra logs
 
 ### Fixed
 
-- session PR CLI: Resolved unresolved merge conflict markers that caused `Unexpected <<` runtime error when running `minsky session pr list`. Cleaned conflicts in `src/domain/session/session-pr-operations.ts`, `src/domain/session/start-session-operations.ts`, `src/domain/session/session-merge-operations.ts`, and `src/domain/session/commands/start-command.ts`. Restored consistent repository backend detection and validation flow.
-
 - tasks: Removed duplicate spec `md#415` for SessionDB migration cutover (duplicate of `md#401`); cleaned reference in `process/tasks.md`. The remaining `md#415` now exclusively tracks CLI error summarization follow-up.
- - tasks: Added missing entry to `process/tasks.md` for `md#415` (Improve CLI Error Summarization with Structured Detection).
+- tasks: Added missing entry to `process/tasks.md` for `md#415` (Improve CLI Error Summarization with Structured Detection).
 
 - tasks: Corrected misnumbered plan reference in `process/tasks.md` for "Automated Migrations Strategy (Boot-time/Orchestrated) and Remote Runs" from `md#1` to the proper existing task `md#426`.
 - tasks: Deduplicated duplicate task entries in `process/tasks.md`:
@@ -129,6 +127,7 @@ All notable changes to this project will be documented in this file.
   - Backend delegation allows each repository type to handle PR updates appropriately
 
 - test(md#412): Comprehensive integration tests for `session.edit_file` with Cursor parity
+
   - Specifically-invoked integration suite using real Morph Fast Apply API
   - Phases 1–3 TypeScript scenarios with expected outcomes and validation helpers
   - Enhanced AI completion path wired with intelligent retry and circuit breaker
@@ -156,17 +155,6 @@ All notable changes to this project will be documented in this file.
   - JSON output option for scripting with `--json` flag
   - 59 comprehensive tests with 100% mocked filesystem operations
 
-- **Task #402**: Remove JSON sessiondb backend entirely from codebase
-
-  - **BREAKING CHANGE**: JSON sessiondb backend has been completely removed
-  - Updated default sessiondb backend from json to sqlite
-  - Removed JSON backend options from configuration schemas and validation
-  - Removed JSON backend support from storage factory functions
-  - Removed JSON backend test cases from sessiondb tests
-  - Updated CLI and configuration display logic to exclude JSON backend
-  - Generic JsonFileStorage used by task backends remains unchanged
-  - Users must migrate to SQLite or PostgreSQL backend for session storage
-
 - **Task #389**: Improve SessionDB migration and plan PostgreSQL cutover
 
   - Deprecate JSON SessionDB backend with warnings
@@ -191,7 +179,7 @@ All notable changes to this project will be documented in this file.
 - **Task Delete Functionality**: Fixed task deletion bug where qualified task IDs (e.g., `md#399`) were not properly handled during deletion operations. The MarkdownTaskBackend now uses the existing `getTaskById` utility function for consistent task ID comparison across all formats, ensuring reliable deletion of tasks regardless of ID format used.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 - **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.
- - **Tasks Status No-Op Messaging (md#410)**: `minsky tasks status set` now reports a clear no-op when the new status equals the current status, e.g., `status is already DONE (no change)`, instead of misleading "changed from DONE to DONE".
+- **Tasks Status No-Op Messaging (md#410)**: `minsky tasks status set` now reports a clear no-op when the new status equals the current status, e.g., `status is already DONE (no change)`, instead of misleading "changed from DONE to DONE".
 
 ### Cleanup
 
