@@ -146,6 +146,9 @@ export const tasksSearchParams: CommandParameterMap = {
     description: "Show human-friendly diagnostic details (embedding model, length, ANN rows)",
     required: false,
   },
+  // Add filtering options consistent with tasks list
+  all: TaskParameters.all,
+  status: TaskParameters.status,
   ...taskContextParams,
   ...outputFormatParams,
 };

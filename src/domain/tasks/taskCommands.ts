@@ -93,7 +93,7 @@ export async function listTasksFromParams(
 
     // Get tasks with filters - delegate filtering to domain layer
     const tasks = await taskService.listTasks({
-      status: validParams.filter as string,
+      status: (validParams as any).status as string | undefined,
       all: validParams.all,
     });
 

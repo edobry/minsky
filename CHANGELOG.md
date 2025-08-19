@@ -209,3 +209,12 @@ All notable changes to this project will be documented in this file.
 - Added optional --type for edit to compose titles from description-only --title
 - Validation runs regardless of --no-status-update
 - Added tests under tests/integration/session/pr-edit-validation.test.ts and src/adapters/shared/commands/session/pr-subcommand-commands.edit-validation.test.ts
+
+### Fixed
+
+- tasks: `listTasksFromParams` now correctly honors the `status` parameter instead of misusing `filter`, aligning behavior with `tasks list`.
+
+### Added
+
+- tasks search: Added `--status` and `--all` options to filter results by task status, matching `tasks list` semantics. By default, DONE and CLOSED tasks are hidden unless `--all` is provided. Applies to CLI and MCP adapters.
+- tasks: Centralized status filtering in `src/domain/tasks/task-filters.ts`; both `TaskService.listTasks` and `tasks search` use the same utility to ensure consistent behavior.
