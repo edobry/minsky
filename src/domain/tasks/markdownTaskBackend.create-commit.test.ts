@@ -1,6 +1,6 @@
 import { describe, it, expect, beforeEach } from "bun:test";
 // Use mock.module() to mock filesystem operations
-// import { promises as fs } from "fs";
+import { promises as fs } from "fs";
 import { join } from "path";
 
 // Simple counters to verify flow
