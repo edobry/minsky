@@ -204,20 +204,20 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
           if (results.length === 0) {
             log.cli("No matching tasks found.");
           } else {
-            results.forEach((r) => {
+            results.forEach((r, index) => {
               // Enhanced format: Show title and status by default
               if (r.title && r.status) {
-                // Main line: ID: Title [Status]
-                log.cli(`${r.id}: ${r.title} [${r.status}]`);
+                // Main line: #. Title [ID] - Status
+                log.cli(`${index + 1}. ${r.title} [${r.id}] - ${r.status}`);
 
-                // Spec path if available (indented)
+                // Spec path if available
                 if (r.specPath) {
-                  log.cli(`        Spec: ${r.specPath}`);
+                  log.cli(`   Spec: ${r.specPath}`);
                 }
 
-                // Score (indented)
+                // Score
                 if (typeof r.score === "number" && isFinite(r.score)) {
-                  log.cli(`        Score: ${r.score.toFixed(3)}`);
+                  log.cli(`   Score: ${r.score.toFixed(3)}`);
                 }
 
                 // Description if included (--details flag)
@@ -226,7 +226,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
                     r.description.trim().length > 100
                       ? `${r.description.trim().substring(0, 100)}...`
                       : r.description.trim();
-                  log.cli(`        Description: ${truncatedDesc}`);
+                  log.cli(`   Description: ${truncatedDesc}`);
                 }
 
                 // Add spacing between results
@@ -237,7 +237,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
                   typeof r.score === "number" && isFinite(r.score)
                     ? ` (score: ${r.score.toFixed(3)})`
                     : "";
-                log.cli(`- ${r.id}${scoreText}`);
+                log.cli(`${index + 1}. ${r.id}${scoreText}`);
               }
             });
 
