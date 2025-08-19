@@ -31,6 +31,8 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- session PR CLI: Resolved unresolved merge conflict markers that caused `Unexpected <<` runtime error when running `minsky session pr list`. Cleaned conflicts in `src/domain/session/session-pr-operations.ts`, `src/domain/session/start-session-operations.ts`, `src/domain/session/session-merge-operations.ts`, and `src/domain/session/commands/start-command.ts`. Restored consistent repository backend detection and validation flow. 
+
 - tasks: Removed duplicate spec `md#415` for SessionDB migration cutover (duplicate of `md#401`); cleaned reference in `process/tasks.md`. The remaining `md#415` now exclusively tracks CLI error summarization follow-up.
  - tasks: Added missing entry to `process/tasks.md` for `md#415` (Improve CLI Error Summarization with Structured Detection).
 
