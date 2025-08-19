@@ -1,6 +1,4 @@
-// Use mock.module() to mock filesystem operations
-// Use mock.module() to mock filesystem operations
-// import { readFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { join } from "node:path";
 
 export interface EditTestCase {
