@@ -10,6 +10,7 @@ import { join } from "path";
 import { log } from "../utils/logger";
 // normalizeTaskId removed
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
+import type { TaskBackend } from "./tasks/types";
 // normalizeTaskId removed
 export { createConfiguredTaskService } from "./tasks/taskService"; // Re-export createConfiguredTaskService from new location
 import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
@@ -118,22 +119,7 @@ export interface Task {
   };
 }
 
-export interface TaskBackend {
-  name: string;
-  listTasks(options?: TaskListOptions): Promise<Task[]>;
-  getTask(id: string): Promise<Task | null>;
-  getTaskStatus(id: string): Promise<string | undefined>;
-  setTaskStatus(id: string, status: string): Promise<void>;
-  getWorkspacePath(): string;
-  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-  createTaskFromTitleAndDescription(
-    title: string,
-    description: string,
-    options?: CreateTaskOptions
-  ): Promise<Task>;
-  setTaskMetadata?(id: string, metadata: any): Promise<void>;
-  deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
-}
+// TaskBackend interface moved to src/domain/tasks/types.ts to consolidate interfaces
 
 export interface TaskListOptions {
   status?: string;

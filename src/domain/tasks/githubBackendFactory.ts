@@ -3,7 +3,7 @@
  * Handles dynamic loading of GitHub backend to avoid hard dependencies
  */
 
-import type { TaskBackend } from "./taskBackend";
+import type { TaskBackend } from "./types";
 
 /**
  * Try to create a GitHub backend instance

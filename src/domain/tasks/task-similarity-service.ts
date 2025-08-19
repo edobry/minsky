@@ -17,13 +17,16 @@ export class TaskSimilarityService {
     private readonly vectorStorage: VectorStorage,
     private readonly findTaskById: (id: string) => Promise<Task | null>,
     private readonly searchTasks: (query: { text?: string }) => Promise<Task[]>,
+    private readonly getTaskSpecContent: (
+      id: string
+    ) => Promise<{ content: string; specPath: string; task: any }>,
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const task = await this.findTaskById(taskId);
     if (!task) return [];
-    const content = this.extractTaskContent(task);
+    const content = await this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
     const effectiveThreshold =
       threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
@@ -84,7 +87,9 @@ export class TaskSimilarityService {
   async indexTask(taskId: string): Promise<void> {
     const task = await this.findTaskById(taskId);
     if (!task) return;
-    const content = this.extractTaskContent(task);
+
+    // Get the full task content (title + spec content)
+    const content = await this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
 
     const contentHash = createHash("sha256").update(content).digest("hex");
@@ -99,12 +104,28 @@ export class TaskSimilarityService {
     await this.vectorStorage.store(taskId, vector, metadata);
   }
 
-  private extractTaskContent(task: Task): string {
+  private async extractTaskContent(task: Task): Promise<string> {
     const parts: string[] = [];
-    if (task.title) parts.push(task.title);
-    if ((task as any).description) parts.push((task as any).description);
-    if ((task as any).metadata?.originalRequirements)
-      parts.push((task as any).metadata.originalRequirements);
+
+    // Always include the task title
+    if (task.title) {
+      parts.push(task.title);
+    }
+
+    try {
+      // Get the full spec content for embedding
+      const specData = await this.getTaskSpecContent(task.id);
+      if (specData.content) {
+        parts.push(specData.content);
+      }
+    } catch (error) {
+      // If we can't get spec content, fall back to basic task info
+      log.debug(`Failed to get spec content for task ${task.id}:`, error);
+      if ((task as any).description) {
+        parts.push((task as any).description);
+      }
+    }
+
     return parts.join("\n\n");
   }
 }

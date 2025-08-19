@@ -25,9 +25,25 @@ export const tasksTable = pgTable(
     backend: taskBackendEnum("backend"),
     status: taskStatusEnum("status"),
     title: text("title"),
-    spec: text("spec"),
     contentHash: text("content_hash"),
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
+    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
+    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+  },
+  () => []
+);
+
+// Drizzle schema for task specs (content only)
+// Separate from `tasks` metadata for 3-table design
+export const taskSpecsTable = pgTable(
+  "task_specs",
+  {
+    taskId: text("task_id")
+      .primaryKey()
+      .references(() => tasksTable.id, { onDelete: "cascade" }),
+    content: text("content").notNull(),
+    contentHash: text("content_hash"),
+    version: integer("version").default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
   },
@@ -39,17 +55,17 @@ export const tasksTable = pgTable(
 export const tasksEmbeddingsTable = pgTable(
   "tasks_embeddings",
   {
-    taskId: text("task_id").primaryKey(),
-    dimension: integer("dimension").notNull(),
-    embedding: vector("embedding", { dimensions: 1536 }),
-    lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
-    updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
+    taskId: text("task_id")
+      .primaryKey()
+      .references(() => tasksTable.id, { onDelete: "cascade" }),
+    vector: vector("vector", { dimensions: 1536 }),
+    contentHash: text("content_hash"), // track when embeddings need regeneration
+    indexedAt: timestamp("indexed_at", { withTimezone: true }).defaultNow(),
   },
   (table) => [
     index("idx_tasks_embeddings_hnsw").using(
       "hnsw",
-      table.embedding.asc().nullsLast().op("vector_l2_ops")
+      table.vector.asc().nullsLast().op("vector_l2_ops")
     ),
   ]
 );

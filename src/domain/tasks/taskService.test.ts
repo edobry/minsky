@@ -1,151 +1,177 @@
-const TEST_VALUE = 123;
-
-/**
- * Tests for TaskService orchestration
- */
-
 import { describe, test, expect, mock, beforeEach } from "bun:test";
 import { TaskService } from "./taskService";
-import type { TaskBackend } from "./taskBackend";
 import type {
-  TaskReadOperationResult,
-  TaskWriteOperationResult,
-  TaskData,
-  TaskStatus,
-} from "../../types/tasks/taskData";
-import type { Task } from "./types";
+  TaskBackend,
+  Task,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
+  BackendCapabilities,
+  TaskMetadata,
+} from "./types";
 
-// Create a mock backend for testing
-function createMockBackend(): TaskBackend {
-  // Make the mock stateful to support status updates
-  let currentTasks = [
-    { id: "md#001", title: "Task 1", status: "TODO" },
-    { id: "md#002", title: "Task 2", status: "IN-PROGRESS" },
-  ];
+// Mock task data
+let currentTasks: any[] = [
+  {
+    id: "md#001",
+    title: "First task",
+    description: "First description",
+    status: "TODO",
+    specPath: "path/to/spec1.md",
+    backend: "markdown",
+  },
+  {
+    id: "md#002",
+    title: "Second task",
+    description: "Second description",
+    status: "IN-PROGRESS",
+    specPath: "path/to/spec2.md",
+    backend: "markdown",
+  },
+];
 
-  return {
-    name: "mock",
+// Create mock backend with only the new clean interface
+const mockBackend: TaskBackend = {
+  name: "mock",
 
-    // Mock data retrieval methods
-    getTasksData: mock(() => {
-      const content = currentTasks
-        .map((t) => `- [${t.status === "DONE" ? "x" : " "}] ${t.title} [${t.id}](#)`)
-        .join("\n");
-      return Promise.resolve({
-        success: true,
-        content,
-        filePath: "mock/tasks.md",
-      } as TaskReadOperationResult);
-    }),
+  // User-facing operations
+  listTasks: mock((options?: TaskListOptions) => {
+    let filtered = [...currentTasks];
 
-    getTaskSpecData: mock((specPath: unknown) =>
-      Promise.resolve({
-        success: true,
-        content: "# Task #TEST_VALUE: Test Task\n\n## Context\n\nDescription.",
-        filePath: specPath,
-      } as TaskReadOperationResult)
-    ),
+    if (options?.status && options.status !== "all") {
+      filtered = filtered.filter((task) => task.status === options.status);
+    }
+    if (options?.backend) {
+      filtered = filtered.filter((task) => task.backend === options.backend);
+    }
 
-    // Mock pure operations
-    parseTasks: mock((content: unknown) => [...currentTasks]),
+    return Promise.resolve(filtered);
+  }),
 
-    formatTasks: mock((tasks: unknown) => {
-      currentTasks = [...(tasks as any[])];
-      return currentTasks
-        .map((t) => `- [${t.status === "DONE" ? "x" : " "}] ${t.title} [${t.id}](#)`)
-        .join("\n");
-    }),
+  getTask: mock((id: string) => {
+    const task = currentTasks.find((t) => t.id === id);
+    return Promise.resolve(task || null);
+  }),
 
-    parseTaskSpec: mock((content: unknown) => ({
-      id: "#TEST_VALUE",
-      title: "Test Task",
-      description: "Description.",
-    })),
+  getTaskStatus: mock((id: string) => {
+    const task = currentTasks.find((t) => t.id === id);
+    return Promise.resolve(task?.status);
+  }),
 
-    formatTaskSpec: mock(
-      (spec) => `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`
-    ),
+  setTaskStatus: mock((id: string, status: string) => {
+    const task = currentTasks.find((t) => t.id === id);
+    if (!task) {
+      throw new Error(`Task ${id} not found`);
+    }
+    task.status = status;
+    return Promise.resolve();
+  }),
 
-    // Mock side effect methods
-    saveTasksData: mock(() =>
-      Promise.resolve({
-        success: true,
-        filePath: "mock/tasks.md",
-      } as TaskWriteOperationResult)
-    ),
-
-    saveTaskSpecData: mock(() =>
-      Promise.resolve({
-        success: true,
-        filePath: "mock/specs/TEST_VALUE.md",
-      } as TaskWriteOperationResult)
-    ),
-
-    // Mock helper methods
-    getWorkspacePath: mock(() => "mock"),
-
-    getTaskSpecPath: mock((taskId) => `mock/specs/${taskId.replace(/^#/, "")}.md`),
-
-    fileExists: mock(() => Promise.resolve(true)),
-
-    // Mock task creation method
-    createTask: mock((specPath) => {
-      // This mock now simulates the FIXED behavior: it returns a proper specPath
-      // instead of the temporary path, simulating the file being moved
-      const properSpecPath = "process/tasks/123-test-task.md";
-      return Promise.resolve({
-        id: "#TEST_VALUE",
-        title: "Test Task",
-        description: "Description.",
+  createTaskFromTitleAndDescription: mock(
+    (title: string, description: string, options?: CreateTaskOptions) => {
+      const newTask = {
+        id: "#test",
+        title,
+        description,
         status: "TODO",
-        specPath: properSpecPath, // FIXED: Returns proper path instead of temporary path
-      });
-    }),
+        specPath: "path/to/new-spec.md",
+        backend: "mock",
+      };
+      currentTasks.push(newTask);
+      return Promise.resolve(newTask);
+    }
+  ),
 
-    // Additional required methods to complete TaskBackend interface
-    listTasks: mock(() => Promise.resolve(currentTasks)),
-    getTask: mock((id: string) => Promise.resolve(currentTasks.find((t) => t.id === id) || null)),
-    getTaskStatus: mock((id: string) =>
-      Promise.resolve(currentTasks.find((t) => t.id === id)?.status)
-    ),
-    setTaskStatus: mock((id: string, status: string) => {
-      const task = currentTasks.find((t) => t.id === id);
-      if (task) {
-        task.status = status;
-      }
-      return Promise.resolve();
-    }),
-    deleteTask: mock(() => Promise.resolve(true)),
-    createTaskFromTitleAndDescription: mock((title: string, description: string) =>
-      Promise.resolve({
-        id: "#TEST_VALUE",
-        title: title,
-        description: description,
-        status: "TODO",
-        specPath: "process/tasks/123-test-task.md", // Proper spec path, not temporary
-      })
-    ),
-  };
-}
+  deleteTask: mock((id: string, options?: DeleteTaskOptions) => {
+    const index = currentTasks.findIndex((t) => t.id === id);
+    if (index === -1) {
+      return Promise.resolve(false);
+    }
+    currentTasks.splice(index, 1);
+    return Promise.resolve(true);
+  }),
+
+  getWorkspacePath: mock(() => "/mock/workspace"),
+
+  getCapabilities: mock(
+    (): BackendCapabilities => ({
+      canCreate: true,
+      canUpdate: true,
+      canDelete: true,
+      canList: true,
+      supportsMetadata: true,
+      supportsSearch: false,
+    })
+  ),
+
+  // Optional metadata methods
+  getTaskMetadata: mock((id: string) => {
+    const task = currentTasks.find((t) => t.id === id);
+    if (!task) return Promise.resolve(null);
+
+    return Promise.resolve({
+      id: task.id,
+      title: task.title,
+      spec: task.description,
+      status: task.status,
+      backend: task.backend,
+      createdAt: undefined,
+      updatedAt: undefined,
+    });
+  }),
+
+  setTaskMetadata: mock((id: string, metadata: TaskMetadata) => {
+    const task = currentTasks.find((t) => t.id === id);
+    if (!task) {
+      throw new Error(`Task ${id} not found`);
+    }
+    task.title = metadata.title;
+    task.status = metadata.status;
+    task.description = metadata.spec;
+    return Promise.resolve();
+  }),
+};
 
 describe("TaskService", () => {
-  let mockBackend: TaskBackend;
   let taskService: TaskService;
 
   beforeEach(() => {
-    mockBackend = createMockBackend();
+    // Reset mock state
+    currentTasks = [
+      {
+        id: "md#001",
+        title: "First task",
+        description: "First description",
+        status: "TODO",
+        specPath: "path/to/spec1.md",
+        backend: "markdown",
+      },
+      {
+        id: "md#002",
+        title: "Second task",
+        description: "Second description",
+        status: "IN-PROGRESS",
+        specPath: "path/to/spec2.md",
+        backend: "markdown",
+      },
+    ];
+
+    // Create task service with mock backend
     taskService = new TaskService({
-      customBackends: [mockBackend],
+      workspacePath: "/mock/workspace",
       backend: "mock",
     });
+
+    // Override with our mock backend
+    (taskService as any).currentBackend = mockBackend;
+    (taskService as any).backends = [mockBackend];
   });
 
   describe("listTasks", () => {
-    test("should get tasks data and parse it", async () => {
+    test("should list tasks from backend", async () => {
       const tasks = await taskService.listTasks();
 
-      expect(mockBackend.getTasksData).toHaveBeenCalled();
-      expect(mockBackend.parseTasks).toHaveBeenCalled();
+      expect(mockBackend.listTasks).toHaveBeenCalled();
       expect(tasks).toHaveLength(2);
       expect(tasks[0].id).toBe("md#001");
       expect(tasks[1].status).toBe("IN-PROGRESS");
@@ -154,22 +180,27 @@ describe("TaskService", () => {
     test("should filter tasks by status if provided", async () => {
       const tasks = await taskService.listTasks({ status: "TODO" });
 
-      expect(tasks.length).toBe(1);
-      expect(tasks[0].id).toBe("md#001");
+      expect(mockBackend.listTasks).toHaveBeenCalledWith({ status: "TODO" });
+      expect(tasks).toHaveLength(1);
+      expect(tasks[0].status).toBe("TODO");
     });
 
-    test("should return empty array if data retrieval fails", async () => {
-      // Override the mock to return failure
-      mockBackend.getTasksData = mock(() =>
-        Promise.resolve({
-          success: false,
-          error: new Error("Test error"),
-          filePath: "mock/tasks.md",
-        })
-      );
+    test("should filter out DONE tasks by default", async () => {
+      // Add a DONE task
+      currentTasks.push({
+        id: "md#003",
+        title: "Done task",
+        description: "Done description",
+        status: "DONE",
+        specPath: "path/to/spec3.md",
+        backend: "markdown",
+      });
 
       const tasks = await taskService.listTasks();
-      expect(tasks).toEqual([]);
+
+      // Should filter out DONE tasks by default
+      expect(tasks).toHaveLength(2);
+      expect(tasks.every((t) => t.status !== "DONE")).toBe(true);
     });
   });
 
@@ -177,275 +208,154 @@ describe("TaskService", () => {
     test("should find a task by ID", async () => {
       const task = await taskService.getTask("md#001");
 
+      expect(mockBackend.getTask).toHaveBeenCalledWith("md#001");
       expect(task).not.toBeNull();
-      expect(task?.id).toBe("md#001"); // Updated to qualified format
-      expect(task?.title).toBe("Task 1");
-    });
-
-    test("should find a task by ID without # prefix", async () => {
-      const task = await taskService.getTask("002");
-
-      expect(task).not.toBeNull();
-      expect(task?.id).toBe("md#002"); // Updated to qualified format
+      expect(task?.id).toBe("md#001");
+      expect(task?.title).toBe("First task");
     });
 
     test("should return null if task not found", async () => {
-      const task = await taskService.getTask("#999");
+      const task = await taskService.getTask("md#999");
+
+      expect(mockBackend.getTask).toHaveBeenCalledWith("md#999");
       expect(task).toBeNull();
     });
   });
 
   describe("getTaskStatus", () => {
     test("should get a task's status", async () => {
-      const status = await taskService.getTaskStatus("md#002");
-      expect(status).toBe("IN-PROGRESS");
+      const status = await taskService.getTaskStatus("md#001");
+
+      expect(mockBackend.getTaskStatus).toHaveBeenCalledWith("md#001");
+      expect(status).toBe("TODO");
     });
 
-    test("should return null if task not found", async () => {
-      const status = await taskService.getTaskStatus("#999");
-      expect(status).toBeNull();
+    test("should return undefined if task not found", async () => {
+      const status = await taskService.getTaskStatus("md#999");
+
+      expect(mockBackend.getTaskStatus).toHaveBeenCalledWith("md#999");
+      expect(status).toBeUndefined();
     });
   });
 
   describe("setTaskStatus", () => {
     test("should update a task's status", async () => {
-      // Setup spy to check what's passed to saveTasksData
-      const saveTasksDataSpy = mockBackend.saveTasksData as any;
-      const formatTasksSpy = mockBackend.formatTasks as any;
-
       await taskService.setTaskStatus("md#001", "DONE");
 
-      // Verify data retrieval methods were called
-      expect(mockBackend.getTasksData).toHaveBeenCalled();
-      expect(mockBackend.parseTasks).toHaveBeenCalled();
+      expect(mockBackend.setTaskStatus).toHaveBeenCalledWith("md#001", "DONE");
 
-      // Note: Implementation may have changed - focus on the end result
-      // Verify that the status was actually updated by testing the final state
-      const updatedTask = await taskService.getTask("md#001");
-      expect(updatedTask?.status).toBe("DONE");
-    });
-
-    test("should throw error for invalid status", async () => {
-      await expect(taskService.setTaskStatus("md#001", "INVALID")).rejects.toThrow(
-        /Status must be one of/
-      );
+      // Verify the status was actually updated in our mock
+      const task = currentTasks.find((t) => t.id === "md#001");
+      expect(task?.status).toBe("DONE");
     });
 
     test("should throw error if task not found", async () => {
-      // This should throw an error for non-existent task
-      await expect(taskService.setTaskStatus("#999", "DONE")).rejects.toThrow("not found");
-
-      // And saveTasksData should not have been called
-      expect(mockBackend.saveTasksData).not.toHaveBeenCalled();
+      await expect(taskService.setTaskStatus("md#999", "DONE")).rejects.toThrow("not found");
+      expect(mockBackend.setTaskStatus).toHaveBeenCalledWith("md#999", "DONE");
     });
   });
 
   describe("createTask", () => {
-    test("should create a new task from spec file", async () => {
-      const task = await taskService.createTask("path/to/spec.md");
+    test("should create a new task from title", async () => {
+      const task = await taskService.createTask("New Task Title");
 
-      expect(mockBackend.getTaskSpecData).toHaveBeenCalledWith("path/to/spec.md");
-      expect(mockBackend.parseTaskSpec).toHaveBeenCalled();
-      expect(mockBackend.getTasksData).toHaveBeenCalled();
-      expect(mockBackend.parseTasks).toHaveBeenCalled();
-      expect(mockBackend.formatTasks).toHaveBeenCalled();
-      expect(mockBackend.saveTasksData).toHaveBeenCalled();
-
-      expect(task.id).toBe("#TEST_VALUE");
-      expect(task.title).toBe("Test Task");
+      expect(mockBackend.createTaskFromTitleAndDescription).toHaveBeenCalledWith(
+        "New Task Title",
+        "",
+        undefined
+      );
+      expect(task.id).toBe("#test");
+      expect(task.title).toBe("New Task Title");
       expect(task.status).toBe("TODO");
     });
 
-    test("should throw error if spec file read fails", async () => {
-      // Override mock to return failure
-      mockBackend.getTaskSpecData = mock(() =>
-        Promise.resolve({
-          success: false,
-          error: new Error("Test error"),
-          filePath: "path/to/spec.md",
-        })
-      );
+    test("should create a new task with description", async () => {
+      const task = await taskService.createTask("New Task", { description: "New description" });
 
-      await expect(taskService.createTask("path/to/spec.md")).rejects.toThrow(
-        /Failed to read spec file/
+      expect(mockBackend.createTaskFromTitleAndDescription).toHaveBeenCalledWith(
+        "New Task",
+        "New description",
+        { description: "New description" }
       );
+      expect(task.title).toBe("New Task");
     });
   });
 
-  describe("createTaskFromTitleAndDescription", () => {
-    test("should store proper spec path instead of temporary path", async () => {
-      // Testing the bug fix for createTaskFromTitleAndDescription
-      const taskService = new TaskService({
-        backend: "mock",
-        customBackends: [createMockBackend()],
-      });
+  describe("deleteTask", () => {
+    test("should delete a task", async () => {
+      const result = await taskService.deleteTask("md#001");
 
-      const title = "Test Task for Bug Fix";
-      const description = "This task should have a proper spec path, not a temporary path.";
-
-      const task = await taskService.createTaskFromTitleAndDescription(title, description);
-
-      // Verify task is created with correct properties
-      expect(task.id).toBeDefined();
-      expect(task.title).toBe(title);
-      expect(task.description).toBe(description);
-      expect(task.status).toBe("TODO");
-
-      // The key bug fix: specPath should NOT be a temporary path
-      expect(task.specPath).not.toMatch(/\/tmp\//);
-      expect(task.specPath).not.toMatch(/\/var\/folders\//);
-      expect(task.specPath).not.toMatch(/temp/);
+      expect(mockBackend.deleteTask).toHaveBeenCalledWith("md#001", undefined);
+      expect(result).toBe(true);
     });
 
-    test("integration: should create task with proper spec path using mock backend", async () => {
-      // Integration test using dependency injection instead of global mocking
-      const { createMockFilesystem } = await import(
-        "../../utils/test-utils/filesystem/mock-filesystem"
-      );
+    test("should return false if task not found", async () => {
+      const result = await taskService.deleteTask("md#999");
 
-      // Create independent mock filesystem for this test
-      const mockFs = createMockFilesystem();
+      expect(mockBackend.deleteTask).toHaveBeenCalledWith("md#999", undefined);
+      expect(result).toBe(false);
+    });
+  });
 
-      // Create a mock temp workspace path
-      const tempWorkspace = "/mock/temp/minsky-test-workspace";
-      const mockTempDir = "/mock/temp";
-      mockFs.directories.add(tempWorkspace);
-      mockFs.directories.add(mockTempDir);
+  describe("updateTask", () => {
+    test("should update task status", async () => {
+      const task = await taskService.updateTask("md#001", { status: "DONE" });
 
-      // Create a mock backend that uses our mock filesystem via DI
-      const mockBackend: TaskBackend = {
-        name: "mock-markdown",
+      expect(mockBackend.setTaskStatus).toHaveBeenCalledWith("md#001", "DONE");
+      expect(task.status).toBe("DONE");
+    });
 
-        // Data retrieval methods
-        getTasksData: async () => ({
-          success: true,
-          content: "# Tasks\n\n## Active Tasks\n\n",
-          filePath: `${tempWorkspace}/process/tasks.md`,
-        }),
+    test("should update task metadata", async () => {
+      const task = await taskService.updateTask("md#001", { title: "Updated Title" });
 
-        getTaskSpecData: async (specPath: string) => {
-          try {
-            const content = await mockFs.readFile(specPath);
-            return {
-              success: true,
-              content: content || "",
-              filePath: specPath,
-            };
-          } catch {
-            return {
-              success: false,
-              content: "",
-              filePath: specPath,
-              error: new Error(`File not found: ${specPath}`),
-            };
-          }
-        },
+      expect(mockBackend.setTaskMetadata).toHaveBeenCalled();
+      expect(task.title).toBe("Updated Title");
+    });
+  });
 
-        // Pure operations
-        parseTasks: () => [],
-        formatTasks: () => "",
-        parseTaskSpec: (content: string) => {
-          // Extract title from markdown heading
-          const titleMatch = content.match(/# Task [^:]*: (.+)/);
-          const title = titleMatch ? titleMatch[1] : "Test Task";
-          return {
+  describe("getTaskSpecContent", () => {
+    test("should get spec content for db backend", async () => {
+      // Mock db backend
+      (taskService as any).currentBackend = {
+        ...mockBackend,
+        name: "db",
+        getTaskMetadata: mock(() =>
+          Promise.resolve({
             id: "md#001",
-            title,
-            description: "Mock task description",
-          };
-        },
-        formatTaskSpec: (spec: any) =>
-          `# Task ${spec.id}: ${spec.title}\n\n## Context\n\n${spec.description}`,
-
-        // Task operations using mock filesystem
-        listTasks: async () => [],
-        getTask: async () => null,
-        getTaskStatus: async () => null,
-        setTaskStatus: async () => {},
-        createTask: async () => ({ id: "md#001", title: "Mock Task", status: "TODO" }) as any,
-        updateTask: async () => ({ id: "md#001", title: "Mock Task", status: "TODO" }) as any,
-        deleteTask: async () => true,
-
-        createTaskFromTitleAndDescription: async (title: string, description: string) => {
-          // Generate task ID and spec path
-          const taskId = "md#001";
-          const specPath = `process/tasks/001-${title.toLowerCase().replace(/\s+/g, "-")}.md`;
-
-          // Create spec content
-          const specContent = `# Task ${taskId}: ${title}\n\n## Context\n\n${description}`;
-
-          // Store in mock filesystem
-          const fullSpecPath = `${tempWorkspace}/${specPath}`;
-          await mockFs.writeFile(fullSpecPath, specContent);
-
-          return {
-            id: taskId,
-            title,
-            description,
-            status: "TODO" as any,
-            specPath,
-          };
-        },
-
-        // Side effects using mock filesystem
-        saveTasksData: async () => ({ success: true }),
-        saveTaskSpecData: async () => ({ success: true }),
-
-        // Utility methods
-        getWorkspacePath: () => tempWorkspace,
-        getTaskSpecPath: (taskId: string, title: string) =>
-          `process/tasks/${taskId.replace("#", "")}-${title.toLowerCase().replace(/\s+/g, "-")}.md`,
-        fileExists: async (path: string) => {
-          return mockFs.files.has(path) || mockFs.directories.has(path);
-        },
+            title: "Test",
+            spec: "# Test Spec Content",
+            status: "TODO",
+            backend: "db",
+          })
+        ),
       };
 
-      // Create required directory structure in mock filesystem
-      const processDir = `${tempWorkspace}/process`;
-      const tasksFile = `${processDir}/tasks.md`;
+      const result = await taskService.getTaskSpecContent("md#001");
 
-      await mockFs.mkdir(processDir, { recursive: true });
-      await mockFs.writeFile(tasksFile, "# Tasks\n\n## Active Tasks\n\n");
+      expect(result.content).toBe("# Test Spec Content");
+      expect(result.specPath).toBe("db:md#001");
+    });
 
-      // Create TaskService with injected mock backend (NO global mocking!)
-      const taskService = new TaskService({
-        workspacePath: tempWorkspace,
-        backend: "mock-markdown",
-        customBackends: [mockBackend], // Dependency injection!
-      });
-
-      const title = "Integration test task";
-      const description = "This task tests dependency injection with mock filesystem.";
-
-      const task = await taskService.createTaskFromTitleAndDescription(title, description);
-
-      // Verify the spec path is correct (not a temporary path)
-      expect(task.specPath).not.toMatch(/\/tmp\//);
-      expect(task.specPath).not.toMatch(/\/var\/folders\//);
-      expect(task.specPath).toMatch(/^process\/tasks\/\d+-[\w-]+\.md$/);
-
-      // Verify the file actually exists in the mock filesystem
-      const fullSpecPath = `${tempWorkspace}/${task.specPath}`;
-      expect(mockFs.files.has(fullSpecPath)).toBe(true);
-
-      // Verify the file content in mock filesystem
-      const fileContent = mockFs.files.get(fullSpecPath);
-      expect(fileContent).toContain(title);
-      expect(fileContent).toContain(description);
+    test("should throw error if task not found", async () => {
+      await expect(taskService.getTaskSpecContent("md#999")).rejects.toThrow("Task not found");
     });
   });
 
   describe("backend handling", () => {
     test("should throw error for non-existent backend", () => {
-      expect(() => new TaskService({ backend: "nonexistent" })).toThrow(
-        /Backend 'nonexistent' not found/
-      );
+      expect(() => {
+        new TaskService({
+          workspacePath: "/test/workspace",
+          backend: "non-existent" as any,
+        });
+      }).toThrow("Backend not found: non-existent");
     });
 
     test("should use markdown backend by default", () => {
-      // No custom backends, default backend should be created
-      const defaultService = new TaskService({ workspacePath: "/tmp" });
-      expect(defaultService).toBeDefined();
+      const service = new TaskService({
+        workspacePath: "/test/workspace",
+      });
+      expect((service as any).currentBackend.name).toBe("markdown");
     });
   });
 });

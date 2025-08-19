@@ -6,7 +6,7 @@
 
 import { join } from "path";
 import { JsonFileTaskBackend } from "./jsonFileTaskBackend";
-import type { TaskBackend } from "./taskBackend";
+import type { TaskBackend } from "./types";
 import type { JsonConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { JsonFileTaskBackendOptions } from "./jsonFileTaskBackend";
 import { log } from "../../utils/logger";
