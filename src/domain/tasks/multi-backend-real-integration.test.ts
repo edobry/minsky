@@ -9,6 +9,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
   let service: MultiBackendTaskServiceImpl;
   let markdownBackend: any;
   let mockFs: ReturnType<typeof createMockFilesystem>;
+  let tasksFileContent: string;
 
   // Static mock paths to prevent environment dependencies
   const mockTempDir = "/mock/tmp/test-multi-backend";
@@ -17,21 +18,65 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     // Create isolated mock filesystem for each test
     mockFs = createMockFilesystem();
 
-    // Use mock.module() to mock filesystem operations
+    // Initialize stateful storage for tasks.md content
+    tasksFileContent = "# Tasks\n\n";
+
+    // Use mock.module() to mock filesystem operations with state
     mock.module("fs", () => ({
       promises: {
-        mkdir: mockFs.mkdir,
-        rm: mockFs.rm,
-        readFile: mockFs.readFile,
-        writeFile: mockFs.writeFile,
-        readdir: mockFs.readdir,
-        stat: mockFs.stat,
+        mkdir: mock(async () => {}),
+        rm: mock(async () => {}),
+        readFile: mock(async (path: string) => {
+          if (path.includes("tasks.md")) {
+            return tasksFileContent;
+          }
+          return "";
+        }),
+        writeFile: mock(async (path: string, content: string) => {
+          if (path.includes("tasks.md")) {
+            tasksFileContent = content;
+          }
+        }),
+        readdir: mock(async () => []),
+        stat: mock(async () => ({ isFile: () => true, isDirectory: () => false })),
+        access: mock(async () => {}),
+        unlink: mock(async () => {}),
       },
-      existsSync: mockFs.existsSync,
-      mkdirSync: mockFs.mkdirSync,
-      rmSync: mockFs.rmSync,
-      readFileSync: mockFs.readFileSync,
-      writeFileSync: mockFs.writeFileSync,
+      existsSync: mock(() => true),
+      mkdirSync: mock(() => {}),
+      rmSync: mock(() => {}),
+      readFileSync: mock((path: string) => {
+        if (path.includes("tasks.md")) {
+          return tasksFileContent;
+        }
+        return "";
+      }),
+      writeFileSync: mock((path: string, content: string) => {
+        if (path.includes("tasks.md")) {
+          tasksFileContent = content;
+        }
+      }),
+    }));
+
+    // Mock fs/promises module as well
+    mock.module("fs/promises", () => ({
+      mkdir: mock(async () => {}),
+      rm: mock(async () => {}),
+      readFile: mock(async (path: string) => {
+        if (path.includes("tasks.md")) {
+          return tasksFileContent;
+        }
+        return "";
+      }),
+      writeFile: mock(async (path: string, content: string) => {
+        if (path.includes("tasks.md")) {
+          tasksFileContent = content;
+        }
+      }),
+      readdir: mock(async () => []),
+      stat: mock(async () => ({ isFile: () => true, isDirectory: () => false })),
+      access: mock(async () => {}),
+      unlink: mock(async () => {}),
     }));
 
     // Ensure mock directories exist
@@ -39,10 +84,19 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     mockFs.ensureDirectoryExists(join(mockTempDir, "process"));
     mockFs.ensureDirectoryExists(join(mockTempDir, ".tmp"));
 
-    // Initialize backends with mock filesystem
+    // Create mock git service to prevent real git operations
+    const mockGitService = {
+      execInRepository: mock(async () => ""),
+      hasUncommittedChanges: mock(async () => false),
+      stashChanges: mock(async () => ({ stashed: false, workdir: mockTempDir })),
+      popStash: mock(async () => ({ stashed: false, workdir: mockTempDir })),
+    };
+
+    // Initialize backends with mock filesystem and git service
     markdownBackend = createMarkdownTaskBackend({
       name: "markdown",
       workspacePath: mockTempDir,
+      gitService: mockGitService,
     });
 
     // Initialize service with real backend
