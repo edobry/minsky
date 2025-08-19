@@ -1,4 +1,22 @@
-// ... keep all existing imports and class header ...
+import { promises as fs } from "fs";
+import type {
+  Task,
+  TaskBackend,
+  TaskBackendConfig,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
+  TaskMetadata,
+} from "./types";
+import type { TaskData } from "../types/tasks/taskData";
+import { createMarkdownTaskBackend } from "./markdownTaskBackend";
+import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { createDatabaseTaskBackend } from "./databaseTaskBackend";
+
+export interface TaskServiceOptions {
+  workspacePath: string;
+  backend?: string;
+}
 
 export class TaskService {
   private readonly backends: TaskBackend[] = [];
@@ -31,282 +49,224 @@ export class TaskService {
     this.currentBackend = backend;
   }
 
-  /**
-   * Get all tasks from the current backend
-   * @returns Promise resolving to array of tasks
-   */
+  // ---- Core Task Operations ----
+
   async getAllTasks(): Promise<TaskData[]> {
     const tasks = await this.currentBackend.listTasks();
-
-    // Convert to TaskData format for compatibility
     return tasks.map((task) => ({
       id: task.id,
       title: task.title,
-      description: task.description,
       status: task.status,
       specPath: task.specPath,
+      backend: task.backend,
     }));
   }
 
-  /**
-   * Get a single task by ID
-   * @param id Task ID
-   * @returns Promise resolving to task or null if not found
-   */
+  async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
+    const tasks = await this.currentBackend.listTasks(options);
+    return tasks.map((task) => ({
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      specPath: task.specPath,
+      backend: task.backend,
+    }));
+  }
+
   async getTask(id: string): Promise<TaskData | null> {
     const task = await this.currentBackend.getTask(id);
-    if (!task) {
-      return null;
-    }
+    if (!task) return null;
 
     return {
       id: task.id,
       title: task.title,
-      description: task.description,
       status: task.status,
       specPath: task.specPath,
+      backend: task.backend,
     };
   }
 
-  /**
-   * Create a new task from title and description
-   * @param title Task title
-   * @param options Create options
-   * @returns Promise resolving to the created task
-   */
   async createTask(title: string, options?: CreateTaskOptions): Promise<TaskData> {
-    const description = options?.description || "";
-    const task = await this.currentBackend.createTaskFromTitleAndSpec(title, description, options);
+    // This method creates a task with basic info
+    const spec =
+      options?.spec ||
+      `# ${title}\n\n## Context\n\n(Context to be added)\n\n## Requirements\n\n(Requirements to be added)\n\n## Implementation\n\n(Implementation to be added)`;
+
+    const task = await this.currentBackend.createTaskFromTitleAndSpec(title, spec, options);
 
     return {
       id: task.id,
       title: task.title,
-      description: task.description,
       status: task.status,
       specPath: task.specPath,
+      backend: task.backend,
     };
   }
 
-  /**
-   * Update a task's metadata
-   * @param id Task ID
-   * @param updates Task updates
-   * @returns Promise resolving to updated task
-   */
-  async updateTask(id: string, updates: Partial<TaskData>): Promise<TaskData> {
-    const task = await this.getTask(id);
-    if (!task) {
-      throw new Error(`Task not found: ${id}`);
-    }
+  async createTaskFromTitleAndSpec(
+    title: string,
+    spec: string,
+    options?: CreateTaskOptions
+  ): Promise<TaskData> {
+    const task = await this.currentBackend.createTaskFromTitleAndSpec(title, spec, options);
 
-    // Update status if provided
-    if (updates.status && updates.status !== task.status) {
+    return {
+      id: task.id,
+      title: task.title,
+      status: task.status,
+      specPath: task.specPath,
+      backend: task.backend,
+    };
+  }
+
+  async updateTask(id: string, updates: Partial<TaskData>): Promise<TaskData> {
+    // Update task status if provided
+    if (updates.status) {
       await this.currentBackend.setTaskStatus(id, updates.status);
     }
 
-    // Update metadata if provided
-    if (updates.title || updates.description) {
+    // Update task metadata if backend supports it
+    if (this.currentBackend.setTaskMetadata && (updates.title || (updates as any).spec)) {
       const metadata: TaskMetadata = {
-        id: task.id,
-        title: updates.title || task.title,
-        status: updates.status || task.status,
+        id,
+        title: updates.title || "",
+        spec: (updates as any).spec || "",
+        status: updates.status || "TODO",
         backend: this.currentBackend.name,
-        spec: updates.description || task.description,
       };
-
-      if (this.currentBackend.setTaskMetadata) {
-        await this.currentBackend.setTaskMetadata(id, metadata);
-      }
+      await this.currentBackend.setTaskMetadata(id, metadata);
     }
 
     // Return updated task
-    return (await this.getTask(id)) || task;
-  }
-
-  /**
-   * List tasks with optional filtering
-   * @param options List options
-   * @returns Promise resolving to array of tasks
-   */
-  async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
-    const tasks = await this.currentBackend.listTasks(options);
-
-    // Convert to TaskData format and apply additional filtering
-    let result = tasks.map((task) => ({
-      id: task.id,
-      title: task.title,
-      description: task.description,
-      status: task.status,
-      specPath: task.specPath,
-    }));
-
-    // Apply default filtering if no status filter specified
-    if (!options?.status && options?.all !== true) {
-      result = result.filter((task) => task.status !== "DONE");
+    const updatedTask = await this.getTask(id);
+    if (!updatedTask) {
+      throw new Error(`Task ${id} not found after update`);
     }
-
-    return result;
+    return updatedTask;
   }
 
-  /**
-   * Get task status
-   * @param id Task ID
-   * @returns Promise resolving to task status or undefined
-   */
-  async getTaskStatus(id: string): Promise<string | undefined> {
-    return await this.currentBackend.getTaskStatus(id);
-  }
-
-  /**
-   * Set task status
-   * @param id Task ID
-   * @param status New status
-   * @returns Promise that resolves when status is set
-   */
-  async setTaskStatus(id: string, status: string): Promise<void> {
-    await this.currentBackend.setTaskStatus(id, status);
-  }
-
-  /**
-   * Delete a task
-   * @param id Task ID
-   * @param options Delete options
-   * @returns Promise resolving to true if deleted, false if not found
-   */
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
     return await this.currentBackend.deleteTask(id, options);
   }
 
-  /**
-   * Get task specification content
-   * @param id Task ID
-   * @returns Promise resolving to task specification content with metadata
-   */
-  async getTaskSpecContent(id: string): Promise<{ content: string; specPath: string; task: any }> {
-    const task = await this.getTask(id);
-    if (!task) {
-      throw new Error(`Task not found: ${id}`);
-    }
-
-    // For database backend, get spec from metadata
-    if (this.currentBackend.name === "db" && this.currentBackend.getTaskMetadata) {
-      const metadata = await this.currentBackend.getTaskMetadata(id);
-      return {
-        content: metadata?.spec || "",
-        specPath: `db:${id}`,
-        task,
-      };
-    }
-
-    // For other backends, read from spec file
-    if (!task.specPath) {
-      throw new Error(`No spec path found for task ${id}`);
-    }
-
-    const content = await fs.readFile(task.specPath, "utf-8");
-    return {
-      content: content.toString(),
-      specPath: task.specPath,
-      task,
-    };
+  async getTaskStatus(id: string): Promise<string | undefined> {
+    return await this.currentBackend.getTaskStatus(id);
   }
 
-  /**
-   * Get the backend for a specific task
-   * @param id Task ID
-   * @returns Promise resolving to the appropriate backend or null if not found
-   */
-  async getBackendForTask(id: string): Promise<TaskBackend | null> {
-    for (const backend of this.backends) {
-      const task = await backend.getTask(id);
-      if (task) {
-        return backend;
-      }
-    }
-    return null;
+  async setTaskStatus(id: string, status: string): Promise<void> {
+    await this.currentBackend.setTaskStatus(id, status);
   }
 
-  /**
-   * Set task metadata
-   * @param id Task ID
-   * @param metadata Task metadata to set
-   * @returns Promise that resolves when metadata is set
-   */
-  async setTaskMetadata(id: string, metadata: TaskMetadata): Promise<void> {
-    if (!this.currentBackend.setTaskMetadata) {
-      throw new Error(`Backend ${this.currentBackend.name} does not support metadata operations`);
-    }
-
-    await this.currentBackend.setTaskMetadata(id, metadata);
-  }
-
-  /**
-   * Get task metadata
-   * @param id Task ID
-   * @returns Promise resolving to task metadata or null if not found
-   */
-  async getTaskMetadata(id: string): Promise<TaskMetadata | null> {
-    if (!this.currentBackend.getTaskMetadata) {
-      return null;
-    }
-
-    return await this.currentBackend.getTaskMetadata(id);
-  }
-
-  /**
-   * Get the workspace path
-   * @returns Workspace path
-   */
   getWorkspacePath(): string {
     return this.workspacePath;
   }
 
-  /**
-   * Create a task service with repository backend integration
-   * Used for GitHub Issues backend with repository override
-   */
-  static async createWithRepositoryBackend(options: {
-    workspacePath: string;
-    backend: string;
-    githubRepoOverride?: string;
-  }): Promise<TaskService> {
+  // ---- Spec Content Operations ----
+
+  async getTaskSpecContent(id: string): Promise<{ content: string; specPath: string; task: any }> {
+    const task = await this.currentBackend.getTask(id);
+    if (!task) {
+      throw new Error(`Task ${id} not found`);
+    }
+
+    if (task.specPath) {
+      try {
+        const content = await fs.readFile(task.specPath, "utf-8");
+        return { content, specPath: task.specPath, task };
+      } catch (error) {
+        throw new Error(`Failed to read spec file for task ${id}: ${error}`);
+      }
+    } else {
+      // For database backend, get spec content from metadata
+      if (this.currentBackend.getTaskMetadata) {
+        const metadata = await this.currentBackend.getTaskMetadata(id);
+        return {
+          content: metadata?.spec || "",
+          specPath: "(database)",
+          task,
+        };
+      } else {
+        throw new Error(`Task ${id} has no spec content available`);
+      }
+    }
+  }
+
+  // ---- Backend Management ----
+
+  async getBackendForTask(id: string): Promise<TaskBackend | null> {
+    const task = await this.currentBackend.getTask(id);
+    if (!task) return null;
+
+    return this.currentBackend;
+  }
+
+  // ---- Metadata Operations ----
+
+  async setTaskMetadata(id: string, metadata: TaskMetadata): Promise<void> {
+    if (!this.currentBackend.setTaskMetadata) {
+      throw new Error(`Backend ${this.currentBackend.name} does not support metadata operations`);
+    }
+    await this.currentBackend.setTaskMetadata(id, metadata);
+  }
+
+  async getTaskMetadata(id: string): Promise<TaskMetadata | null> {
+    if (!this.currentBackend.getTaskMetadata) {
+      return null;
+    }
+    return await this.currentBackend.getTaskMetadata(id);
+  }
+
+  // ---- Factory Methods ----
+
+  static async createWithRepositoryBackend(
+    workspacePath: string,
+    repoConfig?: any
+  ): Promise<TaskService> {
+    const effectiveBackend = repoConfig?.backend || "markdown";
+
+    let taskBackend: TaskBackend;
+    if (effectiveBackend === "markdown") {
+      taskBackend = createMarkdownTaskBackend({
+        name: "markdown",
+        workspacePath,
+      });
+    } else if (effectiveBackend === "json-file") {
+      taskBackend = createJsonFileTaskBackend({
+        name: "json-file",
+        workspacePath,
+      });
+    } else if (effectiveBackend === "db") {
+      taskBackend = createDatabaseTaskBackend({
+        name: "db",
+        workspacePath,
+      });
+    } else {
+      throw new Error(`Unsupported backend type: ${effectiveBackend}`);
+    }
+
     const service = new TaskService({
-      workspacePath: options.workspacePath,
-      backend: options.backend,
+      workspacePath,
+      backend: effectiveBackend,
     });
 
-    // Override backend if GitHub repo is specified
-    if (options.backend === "github-issues" && options.githubRepoOverride) {
-      const [owner, repo] = options.githubRepoOverride.split("/");
-      if (owner && repo) {
-        const effectiveBackend = options.backend;
-
-        let taskBackend: TaskBackend;
-        if (effectiveBackend === "markdown") {
-          taskBackend = createMarkdownTaskBackend({
-            name: "markdown",
-            workspacePath: options.workspacePath,
-          });
-        } else if (effectiveBackend === "json-file") {
-          taskBackend = createJsonFileTaskBackend({
-            name: "json-file",
-            workspacePath: options.workspacePath,
-          });
-        } else if (effectiveBackend === "db") {
-          taskBackend = createDatabaseTaskBackend({
-            name: "db",
-            workspacePath: options.workspacePath,
-          });
-        } else {
-          throw new Error(`Unsupported backend type: ${effectiveBackend}`);
-        }
-
-        service.currentBackend = taskBackend;
-      }
+    if (taskBackend) {
+      service.currentBackend = taskBackend;
     }
 
     return service;
   }
 }
 
-// ... keep existing factory functions ...
+// ---- Factory Functions ----
+
+export function createTaskService(options: TaskServiceOptions): TaskService {
+  return new TaskService(options);
+}
+
+export function createConfiguredTaskService(workspacePath: string, backend?: string): TaskService {
+  return new TaskService({ workspacePath, backend });
+}
+
+// ---- Type Exports ----
+
+export type { TaskServiceOptions };

@@ -1,7 +1,11 @@
-import { drizzle, PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { eq, desc, and, or } from "drizzle-orm";
+import { eq } from "drizzle-orm";
+import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getDb } from "../storage/db";
-import { tasksTable, taskSpecsTable } from "../storage/schemas/task-embeddings";
+import {
+  tasksTable,
+  taskSpecsTable,
+  tasksEmbeddingsTable,
+} from "../storage/schemas/task-embeddings";
 import type {
   Task,
   TaskBackend,
@@ -12,6 +16,7 @@ import type {
   BackendCapabilities,
   TaskMetadata,
 } from "./types";
+import * as crypto from "crypto";
 
 export class DatabaseTaskBackend implements TaskBackend {
   name = "db";
@@ -26,39 +31,37 @@ export class DatabaseTaskBackend implements TaskBackend {
   // ---- User-Facing Operations ----
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    const query = this.db.select().from(tasksTable).orderBy(desc(tasksTable.createdAt));
-
-    // Apply filters if provided
     const conditions = [];
-    if (options?.status) {
-      conditions.push(eq(tasksTable.status, options.status));
+
+    if (options?.status && options.status !== "all") {
+      conditions.push(eq(tasksTable.status, options.status as any));
     }
+
     if (options?.backend) {
-      conditions.push(eq(tasksTable.backend, options.backend));
+      conditions.push(eq(tasksTable.backend, options.backend as any));
     }
+
+    let query = this.db.select().from(tasksTable);
 
     if (conditions.length > 0) {
-      query.where(and(...conditions));
+      // Apply conditions if any exist
+      for (const condition of conditions) {
+        query = query.where(condition) as any;
+      }
     }
 
-    const dbTasks = await query.execute();
-
-    return dbTasks.map(this.mapDbTaskToTask);
+    const rows = await query;
+    return rows.map((row) => this.mapDbRowToTask(row));
   }
 
   async getTask(id: string): Promise<Task | null> {
-    const dbTask = await this.db
-      .select()
-      .from(tasksTable)
-      .where(eq(tasksTable.id, id))
-      .limit(1)
-      .execute();
+    const rows = await this.db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
 
-    if (dbTask.length === 0) {
+    if (rows.length === 0) {
       return null;
     }
 
-    return this.mapDbTaskToTask(dbTask[0]);
+    return this.mapDbRowToTask(rows[0]);
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
@@ -70,11 +73,10 @@ export class DatabaseTaskBackend implements TaskBackend {
     await this.db
       .update(tasksTable)
       .set({
-        status,
+        status: status as any,
         updatedAt: new Date(),
       })
-      .where(eq(tasksTable.id, id))
-      .execute();
+      .where(eq(tasksTable.id, id));
   }
 
   async createTaskFromTitleAndSpec(
@@ -116,9 +118,8 @@ export class DatabaseTaskBackend implements TaskBackend {
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
-    const result = await this.db.delete(tasksTable).where(eq(tasksTable.id, id)).execute();
-
-    return result.rowCount > 0;
+    const result = await this.db.delete(tasksTable).where(eq(tasksTable.id, id));
+    return (result as any).rowCount > 0;
   }
 
   getWorkspacePath(): string {
@@ -139,91 +140,79 @@ export class DatabaseTaskBackend implements TaskBackend {
   // ---- Optional Metadata Methods ----
 
   async getTaskMetadata(id: string): Promise<TaskMetadata | null> {
-    // Get both task and spec data
-    const taskQuery = this.db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
+    const task = await this.getTask(id);
+    if (!task) {
+      return null;
+    }
 
-    const specQuery = this.db
+    // Get spec content
+    const specRows = await this.db
       .select()
       .from(taskSpecsTable)
       .where(eq(taskSpecsTable.taskId, id))
       .limit(1);
 
-    const [taskResult, specResult] = await Promise.all([taskQuery.execute(), specQuery.execute()]);
-
-    if (taskResult.length === 0) {
-      return null;
-    }
-
-    const task = taskResult[0];
-    const spec = specResult[0];
+    const spec = specRows.length > 0 ? specRows[0].content : "";
 
     return {
       id: task.id,
       title: task.title,
-      spec: spec?.content || "",
+      spec,
       status: task.status,
-      backend: task.backend,
-      createdAt: task.createdAt,
-      updatedAt: task.updatedAt,
+      backend: task.backend || this.name,
+      createdAt: undefined,
+      updatedAt: undefined,
     };
   }
 
   async setTaskMetadata(id: string, metadata: TaskMetadata): Promise<void> {
-    const now = new Date();
+    // Update task metadata
+    await this.db
+      .update(tasksTable)
+      .set({
+        title: metadata.title,
+        status: metadata.status as any,
+        updatedAt: new Date(),
+      })
+      .where(eq(tasksTable.id, id));
 
-    await this.db.transaction(async (tx) => {
-      // Update task metadata
-      await tx
-        .update(tasksTable)
+    // Update spec content if provided
+    if (metadata.spec) {
+      await this.db
+        .update(taskSpecsTable)
         .set({
-          title: metadata.title,
-          status: metadata.status,
-          updatedAt: now,
+          content: metadata.spec,
+          contentHash: this.generateContentHash(metadata.spec),
+          updatedAt: new Date(),
         })
-        .where(eq(tasksTable.id, id));
-
-      // Update or insert spec
-      if (metadata.spec) {
-        const existing = await tx
-          .select()
-          .from(taskSpecsTable)
-          .where(eq(taskSpecsTable.taskId, id))
-          .limit(1);
-
-        if (existing.length > 0) {
-          await tx
-            .update(taskSpecsTable)
-            .set({
-              content: metadata.spec,
-              updatedAt: now,
-            })
-            .where(eq(taskSpecsTable.taskId, id));
-        } else {
-          await tx.insert(taskSpecsTable).values({
-            taskId: id,
-            content: metadata.spec,
-            createdAt: now,
-            updatedAt: now,
-          });
-        }
-      }
-    });
+        .where(eq(taskSpecsTable.taskId, id));
+    }
   }
 
-  // ---- Internal Helper Methods ----
+  // ---- Private Helper Methods ----
 
-  private mapDbTaskToTask(dbTask: any): Task {
+  private mapDbRowToTask(row: any): Task {
     return {
-      id: dbTask.id,
-      title: dbTask.title || "",
-      description: "", // Will be extracted from spec if needed
-      status: dbTask.status || "TODO",
-      specPath: `db:${dbTask.id}`,
-      backend: "db",
+      id: row.id,
+      title: row.title,
+      status: row.status,
+      backend: this.name,
     };
+  }
+
+  private generateTaskId(title: string): string {
+    // Generate a simple incrementing ID - in production you'd want something more robust
+    const timestamp = Date.now();
+    const random = Math.floor(Math.random() * 1000);
+    return `db#${timestamp}-${random}`;
+  }
+
+  private generateContentHash(content: string): string {
+    return crypto.createHash("sha256").update(content).digest("hex");
   }
 }
 
+// Factory function
 export function createDatabaseTaskBackend(config: TaskBackendConfig): DatabaseTaskBackend {
   return new DatabaseTaskBackend(config);
 }

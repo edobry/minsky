@@ -1,4 +1,19 @@
-// Keep all existing imports at the top
+import { promises as fs } from "fs";
+import path from "path";
+import type {
+  Task,
+  TaskBackend,
+  TaskBackendConfig,
+  TaskListOptions,
+  CreateTaskOptions,
+  DeleteTaskOptions,
+  BackendCapabilities,
+  TaskMetadata,
+} from "./types";
+import type { TaskData } from "../types/tasks/taskData";
+import type { DatabaseStorage } from "../storage/database-storage";
+import { createDatabaseStorage } from "../storage";
+import { TASK_STATUS } from "../constants";
 
 /**
  * JsonFileTaskBackend implementation using DatabaseStorage
@@ -132,7 +147,7 @@ export class JsonFileTaskBackend implements TaskBackend {
         title: task.title,
         spec: content,
         status: task.status,
-        backend: task.backend,
+        backend: task.backend || this.name,
         createdAt: undefined,
         updatedAt: undefined,
       };
@@ -164,7 +179,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   private async getAllTasks(): Promise<Task[]> {
     const tasks = await this.storage.getAll<TaskData>();
-    return tasks.map(this.mapTaskDataToTask);
+    return tasks.map(this.mapTaskDataToTask.bind(this));
   }
 
   private async saveAllTasks(tasks: Task[]): Promise<void> {
@@ -173,7 +188,6 @@ export class JsonFileTaskBackend implements TaskBackend {
       const taskData: TaskData = {
         id: task.id,
         title: task.title,
-        description: task.description,
         status: task.status,
         specPath: task.specPath,
       };
@@ -190,10 +204,9 @@ export class JsonFileTaskBackend implements TaskBackend {
     return {
       id: taskData.id,
       title: taskData.title,
-      description: taskData.description || "",
       status: taskData.status,
       specPath: taskData.specPath,
-      backend: "json-file",
+      backend: this.name,
     };
   }
 
@@ -218,4 +231,7 @@ export class JsonFileTaskBackend implements TaskBackend {
   }
 }
 
-// ... keep existing factory function and other exports ...
+// Factory function
+export function createJsonFileTaskBackend(config: TaskBackendConfig): JsonFileTaskBackend {
+  return new JsonFileTaskBackend(config);
+}
