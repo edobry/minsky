@@ -144,7 +144,7 @@
 
 - [x] Disable Debug Logs Unless Debug Log Level is Explicitly Set [md#081](process/tasks/md#081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
 
-- [ ] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
+- [+] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
 
 - [x] Fix Bugs in Minsky Rules CLI Command [md#083](process/tasks/md#083-fix-bugs-in-minsky-rules-cli-command.md)
 
@@ -701,3 +701,5 @@
 - [ ] Implement Task Routing System for Automated Implementation Planning [md#442](process/tasks/md#442-implement-task-routing-system-for-automated-implementation-planning.md)
 
 - [ ] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
+
+- [+] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
