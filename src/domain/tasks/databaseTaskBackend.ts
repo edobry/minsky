@@ -105,8 +105,9 @@ export class DatabaseTaskBackend implements TaskBackend {
     // Save spec content to task_specs table
     await this.db.insert(taskSpecsTable).values({
       taskId: id,
-      content: this.generateTaskSpecContent(title, spec),
+      content: spec, // Use the spec content directly
       contentHash: this.generateContentHash(spec),
+      version: 1,
       createdAt: new Date(),
       updatedAt: new Date(),
     });
@@ -220,23 +221,6 @@ export class DatabaseTaskBackend implements TaskBackend {
       specPath: `db:${dbTask.id}`,
       backend: "db",
     };
-  }
-
-  private generateTaskSpecContent(title: string, description: string): string {
-    return `# ${title}
-
-## Context
-
-${description}
-
-## Requirements
-
-(Requirements to be added)
-
-## Implementation
-
-(Implementation details to be added)
-`;
   }
 }
 

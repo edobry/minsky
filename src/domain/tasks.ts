@@ -576,65 +576,44 @@ export class MarkdownTaskBackend implements TaskBackend {
   async createTaskFromTitleAndSpec(
     title: string,
     spec: string,
-    options: CreateTaskOptions = {}
-  ): Promise<Task> {
-    // Generate a task specification file content
-    const taskSpecContent = this.generateTaskSpecification(title, description);
+    options?: CreateTaskOptions
+  ): Promise<TaskData> {
+    const taskSpecContent = spec; // Use the spec content directly
 
-    // Create a temporary file path for the spec
     const fs = await import("fs/promises");
     const path = await import("path");
     const os = await import("os");
 
-    const tempDir = os.tmpdir();
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
+    // Generate task ID and spec path
+    const taskId = this.generateTaskId(title);
+    const specPath = this.buildSpecPath(taskId, title);
 
+    // Create directories if needed
+    const specDir = path.dirname(specPath);
     try {
-      // Write the spec content to the temporary file
-      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-
-      // Use the existing createTask method
-      const task = await this.createTask(tempSpecPath, options);
-
-      // Clean up the temporary file
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (error) {
-        // Ignore cleanup errors
-      }
-
-      return task;
+      await fs.mkdir(specDir, { recursive: true });
     } catch (error) {
-      // Clean up the temporary file on error
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
-      throw error;
+      // Directory might already exist, ignore
     }
-  }
 
-  /**
-   * Generate a task specification file content from title and description
-   * @param title Title of the task
-   * @param description Description of the task
-   * @returns The generated task specification content
-   */
-  private generateTaskSpecification(title: string, description: string): string {
-    return `# ${title}
+    // Write spec file with the provided content
+    await fs.writeFile(specPath, taskSpecContent, "utf-8");
 
-## Context
+    // Create task data
+    const taskData: TaskData = {
+      id: taskId,
+      title,
+      status: "TODO",
+      specPath,
+      backend: this.name,
+    };
 
-${description}
+    // Add to tasks list
+    const tasks = await this.getAllTasks();
+    const updatedTasks = [...tasks, taskData];
+    await this.saveAllTasks(updatedTasks);
 
-## Requirements
-
-## Solution
-
-## Notes
-`;
+    return taskData;
   }
 
   /**

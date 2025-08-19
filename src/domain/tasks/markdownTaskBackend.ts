@@ -116,7 +116,8 @@ export class MarkdownTaskBackend implements TaskBackend {
   ): Promise<Task> {
     const id = this.generateTaskId(title);
     const specPath = this.buildSpecPath(id, title);
-    const specContent = this.generateTaskSpecContent(title, spec);
+    // Write the spec content directly instead of generating a template
+    const specContent = spec;
 
     // Create directory if it doesn't exist
     const specDir = dirname(specPath);
@@ -133,10 +134,9 @@ export class MarkdownTaskBackend implements TaskBackend {
       title,
       status: "TODO",
       specPath,
-      backend: this.name,
     };
 
-    // Update tasks.md
+    // Update tasks list
     await this.updateTasksFile([task]);
 
     return task;
@@ -348,23 +348,6 @@ export class MarkdownTaskBackend implements TaskBackend {
     } catch {
       return false;
     }
-  }
-
-  private generateTaskSpecContent(title: string, spec: string): string {
-    return `# ${title}
-
-## Context
-
-${spec}
-
-## Requirements
-
-(Requirements to be added)
-
-## Implementation
-
-(Implementation details to be added)
-`;
   }
 }
 

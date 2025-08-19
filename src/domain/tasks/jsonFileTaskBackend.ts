@@ -56,42 +56,35 @@ export class JsonFileTaskBackend implements TaskBackend {
     spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
+    // Generate new ID
     const tasks = await this.getAllTasks();
-
-    // Generate next ID
     const maxId = tasks.reduce((max, task) => {
-      const numId = parseInt(task.id.replace(/^(json-file)?#/, ""), 10);
-      return numId > max ? numId : max;
+      const match = task.id.match(/^json-file#(\d+)$/);
+      return match ? Math.max(max, parseInt(match[1], 10)) : max;
     }, 0);
 
     const newId = `json-file#${maxId + 1}`;
 
     // Create spec file
     const specPath = this.getTaskSpecPath(newId, title);
-    const specContent = this.generateTaskSpecification(title, description);
-
+    // Write the spec content directly instead of generating a template
     await fs.mkdir(path.dirname(specPath), { recursive: true });
-    await fs.writeFile(specPath, specContent);
+    await fs.writeFile(specPath, spec);
 
-    // Create task entry
+    // Create task data
     const newTask: TaskData = {
       id: newId,
       title,
-      description,
-      status: TASK_STATUS.TODO,
       specPath,
+      status: TASK_STATUS.TODO,
+      backend: this.name,
     };
 
-    await this.createTaskData(newTask);
+    // Save task data
+    const createdTask = await this.createTaskData(newTask);
+    await this.saveAllTasks([...tasks, createdTask]);
 
-    return {
-      id: newTask.id,
-      title: newTask.title,
-      description: newTask.description,
-      status: newTask.status,
-      specPath: newTask.specPath,
-      backend: "json-file",
-    };
+    return this.mapTaskDataToTask(createdTask);
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
@@ -222,23 +215,6 @@ export class JsonFileTaskBackend implements TaskBackend {
     } catch {
       return false;
     }
-  }
-
-  private generateTaskSpecification(title: string, description: string): string {
-    return `# ${title}
-
-## Context
-
-${description}
-
-## Requirements
-
-(Requirements to be added)
-
-## Implementation
-
-(Implementation details to be added)
-`;
   }
 }
 
