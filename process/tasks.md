@@ -703,3 +703,5 @@
 - [ ] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
 
 - [+] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+
+- [ ] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
