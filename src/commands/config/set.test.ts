@@ -8,23 +8,13 @@ import { describe, test, expect, beforeEach, afterEach, mock, spyOn } from "bun:
 import { executeConfigSet, parseConfigValue, formatValue } from "./set";
 import * as configWriter from "../../domain/configuration/config-writer";
 
-// Mock the config writer module
-let mockCreateConfigWriter = mock();
-let mockSetConfigValue = mock();
-
-const mockConfigWriter = {
-  setConfigValue: mockSetConfigValue,
-};
-
 describe("config set command", () => {
   let mockConsoleLog: any;
   let mockProcessExit: any;
+  let mockSetConfigValue: any;
+  let mockCreateConfigWriter: any;
 
   beforeEach(() => {
-    // Reset all mocks
-    mockCreateConfigWriter.mockReset();
-    mockSetConfigValue.mockReset();
-
     // Mock console methods
     mockConsoleLog = spyOn(console, "log").mockImplementation(() => {});
 
@@ -33,9 +23,23 @@ describe("config set command", () => {
       throw new Error("process.exit() called");
     });
 
-    // Mock the config writer factory
-    spyOn(configWriter, "createConfigWriter").mockImplementation(mockCreateConfigWriter);
+    // Create mocks for ConfigWriter methods
+    mockSetConfigValue = mock(() =>
+      Promise.resolve({
+        success: true,
+        filePath: "/home/user/.config/minsky/config.yaml",
+        previousValue: undefined,
+        newValue: "test-value",
+      })
+    );
+
+    const mockConfigWriter = {
+      setConfigValue: mockSetConfigValue,
+    };
+
+    // Mock the config writer factory to return our mock
     mockCreateConfigWriter = mock(() => mockConfigWriter);
+    spyOn(configWriter, "createConfigWriter").mockImplementation(mockCreateConfigWriter);
   });
 
   afterEach(() => {
