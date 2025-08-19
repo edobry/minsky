@@ -7,21 +7,24 @@
 import { Command } from "commander";
 import { DefaultRuleSuggestionService } from "../../domain/context/rule-suggestion";
 import { ModularRulesService } from "../../domain/rules/rules-service-modular";
-import { DefaultAICompletionService } from "../../domain/ai/completion-service";
-import { DefaultAIConfigurationService } from "../../domain/ai/config-service";
 import { getConfiguration } from "../../domain/configuration";
 import type { RuleSuggestionRequest, RuleSuggestionResponse } from "../../domain/context/types";
 import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
 import fs from "fs/promises";
+import { getEmbeddingDimension } from "../../domain/ai/embedding-models";
+import { createEmbeddingServiceFromConfig } from "../../domain/ai/embedding-service-factory";
+import { PostgresVectorStorage } from "../../domain/storage/vector/postgres-vector-storage";
+import { RuleSimilarityService } from "../../domain/rules/rule-similarity-service";
 
 interface SuggestRulesOptions {
   json?: boolean;
   maxSuggestions?: number;
   minRelevance?: number;
-  aiProvider?: string;
-  aiModel?: string;
   workspacePath?: string;
+  limit?: number;
+  threshold?: number;
+  noEmbeddings?: boolean;
 }
 
 /**
@@ -34,10 +37,9 @@ export function createSuggestRulesCommand(): Command {
     .description("Get AI-powered rule suggestions for your current task")
     .argument("<query>", "Natural language description of what you want to accomplish")
     .option("--json", "Output results in JSON format", false)
-    .option("--max-suggestions <number>", "Maximum number of suggestions to return", "5")
-    .option("--min-relevance <number>", "Minimum relevance score (0.0-1.0)", "0.1")
-    .option("--ai-provider <provider>", "AI provider to use (openai, anthropic, google)")
-    .option("--ai-model <model>", "AI model to use")
+    .option("--limit <number>", "Maximum number of suggestions to return", "5")
+    .option("--threshold <number>", "Maximum vector distance threshold (optional)")
+    .option("--no-embeddings", "Disable embeddings search and use keyword fallback only", false)
     .option("--workspace-path <path>", "Workspace path for context")
     .addHelpText(
       "after",
@@ -73,28 +75,12 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
 
   // Initialize services
   const config = getConfiguration();
-  const aiConfig = config.ai;
-
-  if (!aiConfig?.providers) {
-    log.cliError("No AI providers configured. Please configure at least one provider.");
-    exit(1);
-  }
-
-  const mockConfigService = {
-    loadConfiguration: () => Promise.resolve({ resolved: config }),
-  } as any;
-  const aiService = new DefaultAICompletionService(mockConfigService);
   const rulesService = new ModularRulesService(workspacePath);
 
-  // Create suggestion service with configuration
-  const suggestionService = new DefaultRuleSuggestionService(aiService, rulesService, {
-    maxSuggestions: parseInt(options.maxSuggestions || "5", 10),
-    minRelevanceScore: parseFloat(options.minRelevance || "0.1"),
-    aiProvider: options.aiProvider,
-    aiModel: options.aiModel,
-  });
+  // Choose embeddings-first path unless disabled
+  const useEmbeddings = options.noEmbeddings !== true;
 
-  // Load workspace rules
+  // Load workspace rules (for fallback/metadata enrichment)
   const workspaceRules = await rulesService.listRules();
 
   if (workspaceRules.length === 0) {
@@ -108,17 +94,72 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
   // Gather context hints
   const contextHints = await gatherContextHints(workspacePath);
 
-  // Create suggestion request
-  const request: RuleSuggestionRequest = {
-    query,
-    workspaceRules,
-    contextHints,
-  };
-
-  // Get suggestions
   const startTime = Date.now();
-  const response = await suggestionService.suggestRules(request);
-  const totalTime = Date.now() - startTime;
+  let totalTime = 0;
+  if (useEmbeddings) {
+    // Build embedding service and vector storage for rules
+    const model = (config as any).embeddings?.model || "text-embedding-3-small";
+    const dimension = getEmbeddingDimension(model, 1536);
+    const embedding = await createEmbeddingServiceFromConfig();
+    const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
+      tableName: "rules_embeddings",
+      idColumn: "rule_id",
+      embeddingColumn: "embedding",
+      dimensionColumn: "dimension",
+      lastIndexedAtColumn: "last_indexed_at",
+    });
+    const sim = new RuleSimilarityService(embedding, storage, {});
+    const limit = parseInt(String(options.limit || 5), 10);
+    const threshold = options.threshold !== undefined ? Number(options.threshold) : undefined;
+    const results = await sim.searchByText(query, limit, threshold);
+
+    // Hydrate results to suggestions compatible with output
+    const byId = new Map(workspaceRules.map((r) => [r.id, r] as const));
+    const suggestions = results
+      .map((r, idx) => ({
+        ruleId: r.id,
+        relevanceScore: Math.max(0, 1 - r.score),
+        reasoning: "Embedding similarity match",
+        confidenceLevel: r.score < 0.3 ? "high" : r.score < 0.6 ? "medium" : "low",
+        ruleName: byId.get(r.id)?.name,
+      }))
+      .slice(0, limit);
+
+    const response: RuleSuggestionResponse = {
+      suggestions,
+      queryAnalysis: {
+        intent: `Embeddings search for: ${query}`,
+        keywords: query.toLowerCase().split(/\s+/).filter((w) => w.length > 2),
+        suggestedCategories: [],
+      },
+      totalRulesAnalyzed: workspaceRules.length,
+      processingTimeMs: Math.max(1, Date.now() - startTime),
+    };
+    totalTime = response.processingTimeMs;
+    if (options.json) {
+      outputJsonResults(response);
+    } else {
+      outputHumanReadableResults(response, query, totalTime);
+    }
+    return;
+  } else {
+    // Fallback to existing AI-based suggestion service
+    const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
+    const mockConfigService = { loadConfiguration: () => Promise.resolve({ resolved: config }) } as any;
+    const aiService = new DefaultAICompletionService(mockConfigService);
+    const suggestionService = new DefaultRuleSuggestionService(aiService, rulesService, {
+      maxSuggestions: parseInt(String(options.limit || 5), 10),
+      minRelevanceScore: 0.1,
+    });
+    const request: RuleSuggestionRequest = { query, workspaceRules, contextHints };
+    const response = await suggestionService.suggestRules(request);
+    totalTime = Math.max(1, Date.now() - startTime);
+    if (options.json) {
+      outputJsonResults(response);
+    } else {
+      outputHumanReadableResults(response, query, totalTime);
+    }
+  }
 
   // Output results
   if (options.json) {
