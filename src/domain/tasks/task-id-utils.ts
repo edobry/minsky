@@ -23,6 +23,11 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 
   const trimmed = taskId.trim();
 
+  // Already qualified format (md#367, gh#123, md#update-test)
+  if (/^[a-z-]+#.+$/.test(trimmed)) {
+    return trimmed;
+  }
+
   // Legacy display format (#283) -> convert to qualified
   if (/^#\d+$/.test(trimmed)) {
     const num = trimmed.replace(/^#/, "");
@@ -39,12 +44,6 @@ export function validateQualifiedTaskId(taskId: string): string | null {
     const num = trimmed.replace(/^task#/i, "");
     return `md#${num}`;
   }
-
-  // Already qualified format (md#367, gh#123, md#update-test)
-  if (/^[a-z-]+#.+$/.test(trimmed)) {
-    return trimmed;
-  }
-
   // Strip multiple # prefixes (##283) -> convert to qualified
   if (/^#+\d+$/.test(trimmed)) {
     const num = trimmed.replace(/^#+/, "");
@@ -53,11 +52,7 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 
   // For string IDs that don't match numeric patterns, return as-is for multi-backend support
   // This allows backend-specific string IDs like "update-test", "delete-test", etc.
-  // Require hyphen or underscore to distinguish from invalid mixed patterns like "283abc"
-  if (
-    /^[a-zA-Z][a-zA-Z0-9_-]*[a-zA-Z0-9]$/.test(trimmed) &&
-    (trimmed.includes("-") || trimmed.includes("_"))
-  ) {
+  if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
     return trimmed; // Return string IDs as-is for backend handling
   }
 
@@ -81,6 +76,11 @@ export function formatTaskIdForDisplay(taskId: string): string {
 
   const trimmed = taskId.trim();
 
+  // Already qualified format (md#367, gh#123) - display as-is
+  if (/^[a-z-]+#.+$/.test(trimmed)) {
+    return trimmed;
+  }
+
   // Legacy display format (#283) -> convert to qualified
   if (/^#\d+$/.test(trimmed)) {
     const num = trimmed.replace(/^#/, "");
@@ -97,12 +97,6 @@ export function formatTaskIdForDisplay(taskId: string): string {
     const num = trimmed.replace(/^task#/i, "");
     return `md#${num}`;
   }
-
-  // Already qualified format (md#367, gh#123) - display as-is
-  if (/^[a-z-]+#.+$/.test(trimmed)) {
-    return trimmed;
-  }
-
   // String IDs (update-test, delete-test) - return as-is for multi-backend support
   if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
     return trimmed;
