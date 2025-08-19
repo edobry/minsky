@@ -86,14 +86,15 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
-      // Multi-backend ID format: accept any string format
+      // Multi-backend ID format: preserve task ID as-is for consistent storage/retrieval
       let displayId: string;
       if (task.id.includes("#")) {
         // Already has # somewhere (qualified or legacy format) - display as-is
         displayId = task.id;
       } else {
-        // Plain format without # - add # prefix for display
-        displayId = `#${task.id}`;
+        // For backend storage consistency, preserve local ID format without adding #
+        // This ensures round-trip consistency: store "update-test" → retrieve "update-test"
+        displayId = task.id;
       }
       const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
 

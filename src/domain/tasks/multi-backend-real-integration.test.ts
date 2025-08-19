@@ -177,14 +177,14 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
 
       // Update the task
       const updatedTask = {
-        status: "IN_PROGRESS",
+        status: "IN-PROGRESS",
         title: "Updated Task Title",
       };
 
       await service.updateTask("md#update-test", updatedTask);
       const retrievedTask = await service.getTask("md#update-test");
 
-      expect(retrievedTask?.status).toBe("IN_PROGRESS");
+      expect(retrievedTask?.status).toBe("IN-PROGRESS");
       expect(retrievedTask?.title).toBe("Updated Task Title");
     });
 

@@ -300,12 +300,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       throw new Error(`Task not found: ${taskId}`);
     }
 
-    // If updating status, use the existing setTaskStatus method
-    if (updates.status && updates.status !== currentTask.status) {
-      await this.setTaskStatus(taskId, updates.status);
-    }
-
-    // Get tasks data to update other fields
+    // Get tasks data to update all fields together (more reliable than separate calls)
     const result = await this.getTasksData();
     if (!result.success || !result.content) {
       throw new Error("Failed to read tasks data");
