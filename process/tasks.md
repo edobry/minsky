@@ -690,4 +690,6 @@
 
 - [+] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
 
-- [ ] RFC: Transitioning Minsky task system to backend-SoT with DB overlay; deprecate tasks.md; MCP tools for agent edits; GI sync path. [md#437](process/tasks/md#437-rfc-transitioning-minsky-task-system-to-backend-sot-with-db-overlay-deprecate-tasks-md-mcp-tools-for-agent-edits-gi-sync-path-.md)
+- [+] RFC: Transitioning Minsky task system to backend-SoT with DB overlay; deprecate tasks.md; MCP tools for agent edits; GI sync path. [md#437](process/tasks/md#437-rfc-transitioning-minsky-task-system-to-backend-sot-with-db-overlay-deprecate-tasks-md-mcp-tools-for-agent-edits-gi-sync-path-.md)
+
+- [+] Improve task search output to include title, spec path, and other relevant information by default, with additional details behind a flag. Update both CLI and JSON output formats. [md#438](process/tasks/md#438-improve-task-search-output-to-include-title-spec-path-and-other-relevant-information-by-default-with-additional-details-behind-a-flag-update-both-cli-and-json-output-formats-.md)

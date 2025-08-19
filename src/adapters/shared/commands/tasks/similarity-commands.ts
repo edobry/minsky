@@ -21,19 +21,84 @@ export class TasksSimilarCommand extends BaseTaskCommand {
   readonly description = "Find tasks similar to the given task using embeddings";
   readonly parameters = tasksSimilarParams;
 
+  /**
+   * Enhance search results with task details for better CLI output
+   */
+  private async enhanceSearchResults(
+    searchResults: Array<{ id: string; score?: number }>,
+    includeDetails: boolean = false
+  ): Promise<
+    Array<{
+      id: string;
+      score?: number;
+      title?: string;
+      status?: string;
+      specPath?: string;
+      description?: string;
+    }>
+  > {
+    const enhanced = [];
+
+    for (const result of searchResults) {
+      try {
+        // Get full task details
+        const tasksModule = await import("../../../../domain/tasks");
+        const taskService = await (tasksModule as any).createConfiguredTaskService({
+          backend: "markdown",
+        });
+        const task = await taskService.getTask(result.id);
+
+        if (task) {
+          enhanced.push({
+            id: result.id,
+            score: result.score,
+            title: task.title,
+            status: task.status,
+            specPath: task.specPath,
+            // Only include description if details requested
+            description: includeDetails ? task.description : undefined,
+          });
+        } else {
+          // Task not found, include minimal info
+          enhanced.push({
+            id: result.id,
+            score: result.score,
+            title: "(Task not found)",
+            status: "UNKNOWN",
+          });
+        }
+      } catch (error) {
+        // Error loading task, include minimal info
+        enhanced.push({
+          id: result.id,
+          score: result.score,
+          title: "(Error loading task)",
+          status: "ERROR",
+        });
+      }
+    }
+
+    return enhanced;
+  }
+
   async execute(params: TasksSimilarParams, ctx: CommandExecutionContext) {
     const taskId = this.validateRequired(params.taskId, "taskId");
     const limit = params.limit ?? 10;
     const threshold = params.threshold;
 
     const service = await this.createService();
-    const results = await service.similarToTask(taskId, limit, threshold);
+    const searchResults = await service.similarToTask(taskId, limit, threshold);
+
+    // Enhance results with task details for better usability
+    const enhancedResults = await this.enhanceSearchResults(searchResults, (params as any).details);
 
     return this.formatResult(
       {
         success: true,
-        count: results.length,
-        results,
+        count: enhancedResults.length,
+        results: enhancedResults,
+        // Include raw search results for programmatic use
+        searchResults: params.json || ctx.format === "json" ? searchResults : undefined,
       },
       params.json || ctx.format === "json"
     );
@@ -45,6 +110,66 @@ export class TasksSearchCommand extends BaseTaskCommand {
   readonly name = "search";
   readonly description = "Search for tasks similar to a natural language query";
   readonly parameters = tasksSearchParams;
+
+  /**
+   * Enhance search results with task details for better CLI output
+   */
+  private async enhanceSearchResults(
+    searchResults: Array<{ id: string; score?: number }>,
+    includeDetails: boolean = false
+  ): Promise<
+    Array<{
+      id: string;
+      score?: number;
+      title?: string;
+      status?: string;
+      specPath?: string;
+      description?: string;
+    }>
+  > {
+    const enhanced = [];
+
+    for (const result of searchResults) {
+      try {
+        // Get full task details
+        const tasksModule = await import("../../../../domain/tasks");
+        const taskService = await (tasksModule as any).createConfiguredTaskService({
+          backend: "markdown",
+        });
+        const task = await taskService.getTask(result.id);
+
+        if (task) {
+          enhanced.push({
+            id: result.id,
+            score: result.score,
+            title: task.title,
+            status: task.status,
+            specPath: task.specPath,
+            // Only include description if details requested
+            description: includeDetails ? task.description : undefined,
+          });
+        } else {
+          // Task not found, include minimal info
+          enhanced.push({
+            id: result.id,
+            score: result.score,
+            title: "(Task not found)",
+            status: "UNKNOWN",
+          });
+        }
+      } catch (error) {
+        // Error loading task, include minimal info
+        enhanced.push({
+          id: result.id,
+          score: result.score,
+          title: "(Error loading task)",
+          status: "ERROR",
+        });
+      }
+    }
+
+    return enhanced;
+  }
 
   async execute(params: TasksSearchParams, ctx: CommandExecutionContext) {
     const query = this.validateRequired(params.query, "query");
@@ -74,13 +199,18 @@ export class TasksSearchCommand extends BaseTaskCommand {
       }
     }
 
-    const results = await service.searchByText(query, limit, threshold);
+    const searchResults = await service.searchByText(query, limit, threshold);
+
+    // Enhance results with task details for better usability
+    const enhancedResults = await this.enhanceSearchResults(searchResults, (params as any).details);
 
     return this.formatResult(
       {
         success: true,
-        count: results.length,
-        results,
+        count: enhancedResults.length,
+        results: enhancedResults,
+        // Include raw search results for programmatic use
+        searchResults: params.json || ctx.format === "json" ? searchResults : undefined,
       },
       params.json || ctx.format === "json"
     );

@@ -187,7 +187,7 @@ export async function mergeSessionPr(
   // Use stored repoUrl for backend detection to avoid redundant git commands
   const repoUrl = params.repo || sessionRecord.repoUrl || process.cwd();
   const backendType =
-    (sessionRecord as any).backendType || detectRepositoryBackendTypeFromUrl(repoUrl);
+    (sessionRecord.backendType as any) || detectRepositoryBackendTypeFromUrl(repoUrl);
 
   // For merge operations, we still need a working directory (session workspace)
   const workingDirectory = await sessionDB.getSessionWorkdir(sessionNameToUse);
