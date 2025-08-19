@@ -92,6 +92,12 @@ All notable changes to this project will be documented in this file.
   - Improved error messages and validation for both create and edit operations
   - Backend delegation allows each repository type to handle PR updates appropriately
 
+- test(md#412): Comprehensive integration tests for `session.edit_file` with Cursor parity
+  - Specifically-invoked integration suite using real Morph Fast Apply API
+  - Phases 1–3 TypeScript scenarios with expected outcomes and validation helpers
+  - Enhanced AI completion path wired with intelligent retry and circuit breaker
+  - Skips gracefully when Morph is not configured; logs structured diagnostics
+
 - **Task md#407**: Extract shared DB service for sessions, tasks metadata, and embeddings (pgvector)
 
   - Introduces a new task to define a general-purpose `DbService` abstraction
