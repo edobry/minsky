@@ -682,14 +682,12 @@
 
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
-<<<<<<< HEAD
- - [x] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
-=======
 - [x] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
->>>>>>> 5f231e75b (chore(md#429): update task status IN-PROGRESS → DONE)
 
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
 
 - [+] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
+
+- [ ] RFC: Transitioning Minsky task system to backend-SoT with DB overlay; deprecate tasks.md; MCP tools for agent edits; GI sync path. [md#437](process/tasks/md#437-rfc-transitioning-minsky-task-system-to-backend-sot-with-db-overlay-deprecate-tasks-md-mcp-tools-for-agent-edits-gi-sync-path-.md)
