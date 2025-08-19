@@ -246,6 +246,7 @@ describe("Session CLI Commands", () => {
         {
           gitService: mockGitService,
           sessionDB: mockSessionDB,
+          getCurrentSession: async () => "update-session", // Mock current session detection
         }
       );
 
@@ -300,6 +301,7 @@ describe("Session CLI Commands", () => {
         {
           gitService: mockGitServiceWithCommands,
           sessionDB: mockSessionDB,
+          getCurrentSession: async () => "git-session", // Mock current session detection
         }
       );
 
