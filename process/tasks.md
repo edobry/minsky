@@ -713,3 +713,5 @@
 - [ ] Explore task templates for different backends [md#448](process/tasks/md#448-explore-task-templates-for-different-backends.md)
 
 - [ ] Extend embeddings infra: server-side filtering and index-optimized queries [md#449](process/tasks/md#449-extend-embeddings-infra-server-side-filtering-and-index-optimized-queries.md)
+
+- [ ] Explore embedding score normalization and distance metrics for similarity search (tasks & rules) [md#450](process/tasks/md#450-explore-embedding-score-normalization-and-distance-metrics-for-similarity-search-tasks-rules-.md)
