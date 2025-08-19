@@ -29,6 +29,11 @@ import {
   OVERWRITE_DESCRIPTION,
 } from "../../../utils/option-descriptions";
 import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
+import { getConfiguration } from "../../../domain/configuration";
+import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
+import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
+import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
+import postgres from "postgres";
 
 /**
  * Parameters for the rules list command
@@ -44,6 +49,29 @@ const rulesListCommandParams: CommandParameterMap = composeParams(
   {
     format: RulesParameters.format,
     tag: RulesParameters.tag,
+  },
+  {
+    json: CommonParameters.json,
+    debug: CommonParameters.debug,
+  }
+);
+
+/**
+ * Parameters for the rules index-embeddings command
+ */
+type RulesIndexEmbeddingsParams = {
+  limit?: number;
+  json?: boolean;
+  debug?: boolean;
+};
+
+const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
+  {
+    limit: {
+      schema: z.number().int().positive().optional(),
+      description: "Limit number of rules to index (for debugging)",
+      required: false,
+    },
   },
   {
     json: CommonParameters.json,
@@ -261,6 +289,106 @@ const rulesSearchCommandParams: CommandParameterMap = composeParams(
  */
 export function registerRulesCommands(registry?: typeof sharedCommandRegistry): void {
   const targetRegistry = registry || sharedCommandRegistry;
+  // Register rules index-embeddings command
+  targetRegistry.registerCommand({
+    id: "rules.index-embeddings",
+    category: CommandCategory.RULES,
+    name: "index-embeddings",
+    description: "Generate and store embeddings for rules (rules_embeddings)",
+    parameters: rulesIndexEmbeddingsParams,
+    execute: async (params: RulesIndexEmbeddingsParams, ctx?: CommandExecutionContext) => {
+      try {
+        const cfg = await getConfiguration();
+        const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+        const dimension = getEmbeddingDimension(model, 1536);
+
+        const conn = (cfg as any).sessiondb?.postgres?.connectionString;
+        if (!conn) {
+          throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
+        }
+
+        // Ensure rules_embeddings table exists (extension, table, index)
+        const sql = postgres(conn, { prepare: false, onnotice: () => {} });
+        const vectorDim = String(dimension);
+        await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
+        await sql.unsafe(
+          `CREATE TABLE IF NOT EXISTS rules_embeddings (
+            rule_id TEXT PRIMARY KEY,
+            dimension INT NOT NULL,
+            embedding VECTOR(${vectorDim}),
+            last_indexed_at TIMESTAMPTZ,
+            created_at TIMESTAMPTZ DEFAULT NOW(),
+            updated_at TIMESTAMPTZ DEFAULT NOW()
+          )`
+        );
+        // Create HNSW index if not exists
+        await sql.unsafe(
+          `DO $$
+          BEGIN
+            IF NOT EXISTS (
+              SELECT 1 FROM pg_class c
+              JOIN pg_namespace n ON n.oid = c.relnamespace
+              WHERE c.relname = 'idx_rules_embeddings_hnsw' AND n.nspname = 'public'
+            ) THEN
+              EXECUTE 'CREATE INDEX idx_rules_embeddings_hnsw ON rules_embeddings USING hnsw (embedding vector_l2_ops)';
+            END IF;
+          END$$;`
+        );
+        await sql.end({ timeout: 1 });
+
+        // Initialize embedding service and storage
+        const embeddingService = await createEmbeddingServiceFromConfig();
+        const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
+          tableName: "rules_embeddings",
+          idColumn: "rule_id",
+          embeddingColumn: "embedding",
+          dimensionColumn: "dimension",
+          lastIndexedAtColumn: "last_indexed_at",
+        });
+
+        // Resolve workspace and list rules
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
+        const rules = await ruleService.listRules({});
+
+        const limit = params.limit && params.limit > 0 ? params.limit : undefined;
+        const slice = typeof limit === "number" ? rules.slice(0, limit) : rules;
+
+        if (!params.json && ctx?.format !== "json") {
+          log.cli(`Indexing embeddings for ${slice.length} rule(s)...`);
+        }
+
+        const start = Date.now();
+        let indexed = 0;
+        for (const rule of slice) {
+          const textParts: string[] = [];
+          if (rule.name) textParts.push(String(rule.name));
+          if (rule.description) textParts.push(String(rule.description));
+          if ((rule as any).tags && Array.isArray((rule as any).tags)) {
+            textParts.push((rule as any).tags.join(" "));
+          }
+          const content = textParts.join("\n").trim();
+          const vector = await embeddingService.generateEmbedding(content);
+          await storage.store(rule.id, vector, { name: rule.name, description: rule.description });
+          indexed += 1;
+        }
+        const elapsed = Date.now() - start;
+
+        if (params.json || ctx?.format === "json") {
+          return { success: true, indexed, total: slice.length, ms: elapsed, dimension, model };
+        }
+        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms`);
+        return { success: true };
+      } catch (error) {
+        const message = getErrorMessage(error as any);
+        if (params.json || ctx?.format === "json") {
+          return { success: false, error: message };
+        }
+        log.cliError(`Failed to index rule embeddings: ${message}`);
+        throw error;
+      }
+    },
+  });
   // Register rules list command
   targetRegistry.registerCommand({
     id: "rules.list",

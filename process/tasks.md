@@ -704,7 +704,7 @@
 
 - [+] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
 
-- [ ] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+- [+] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
 
 - [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
 
