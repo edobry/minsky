@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Enhanced task search output with immediate usability improvements
+
+  - Task search results now display title, status, and spec path by default
+  - Improved CLI format: `ID: Title [Status]` with indented details (spec path, score)
+  - `--details` flag support to include description in output
+  - JSON output maintains backward compatibility with both enhanced and raw results
+  - Enhanced output applies to both `tasks search` and `tasks similar` commands
+  - Better readability while preserving programmatic access for tooling
+
 - CLI ergonomics for session.edit_file (md#419)
 
   - Add `minsky session edit-file` CLI command as user-friendly wrapper
