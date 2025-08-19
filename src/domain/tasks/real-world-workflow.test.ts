@@ -209,7 +209,7 @@ describe("Real-World Workflow Testing", () => {
 
       // Create explicit mock TaskService
       const mockTaskService = {
-        createTaskFromTitleAndDescription: mock((title: string, description: string) => {
+        createTaskFromTitleAndSpec: mock((title: string, description: string) => {
           if (title === "Service Task 1") return Promise.resolve(task1);
           if (title === "Service Task 2") return Promise.resolve(task2);
           throw new Error(`Unexpected title: ${title}`);
@@ -238,12 +238,12 @@ describe("Real-World Workflow Testing", () => {
       // Test the workflow with explicit mocks
 
       // 2. Create tasks via service
-      const createdTask1 = await mockTaskService.createTaskFromTitleAndDescription(
+      const createdTask1 = await mockTaskService.createTaskFromTitleAndSpec(
         "Service Task 1",
         "Created via TaskService"
       );
 
-      const createdTask2 = await mockTaskService.createTaskFromTitleAndDescription(
+      const createdTask2 = await mockTaskService.createTaskFromTitleAndSpec(
         "Service Task 2",
         "Another service task"
       );

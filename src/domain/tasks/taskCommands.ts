@@ -503,7 +503,7 @@ export async function getTaskSpecContentFromParams(
  * @param params Parameters for creating a task from title and description
  * @returns The created task
  */
-export async function createTaskFromTitleAndDescription(
+export async function createTaskFromTitleAndSpec(
   params: TaskCreateFromTitleAndDescriptionParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
@@ -547,16 +547,16 @@ export async function createTaskFromTitleAndDescription(
       });
     }
 
-    // Read description from file if descriptionPath is provided
+    // Read description from file if specPath is provided
     let description = validParams.description;
-    if (validParams.descriptionPath) {
+    if (validParams.specPath) {
       try {
         // Resolve relative paths relative to current working directory
-        const filePath = resolve(validParams.descriptionPath);
+        const filePath = resolve(validParams.specPath);
         description = (await readFile(filePath, "utf-8")) as string;
 
-        if (!description.trim()) {
-          throw new ValidationError(`Description file is empty: ${validParams.descriptionPath}`);
+        if (!spec.trim()) {
+          throw new ValidationError(`Description file is empty: ${validParams.specPath}`);
         }
       } catch (error) {
         if (error instanceof ValidationError) {
@@ -565,27 +565,23 @@ export async function createTaskFromTitleAndDescription(
 
         const errorMessage = getErrorMessage(error as any);
         if ((errorMessage as any).includes("ENOENT") || errorMessage.includes("no such file")) {
-          throw new ValidationError(`Description file not found: ${validParams.descriptionPath}`);
+          throw new ValidationError(`Description file not found: ${validParams.specPath}`);
         } else if (errorMessage.includes("EACCES") || errorMessage.includes("permission denied")) {
           throw new ValidationError(
-            `Permission denied reading description file: ${validParams.descriptionPath}`
+            `Permission denied reading description file: ${validParams.specPath}`
           );
         } else {
           throw new ValidationError(
-            `Failed to read description file: ${validParams.descriptionPath}. ${errorMessage}`
+            `Failed to read description file: ${validParams.specPath}. ${errorMessage}`
           );
         }
       }
     }
 
     // Create the task from title and description
-    const task = await taskService.createTaskFromTitleAndDescription(
-      validParams.title,
-      description!,
-      {
-        force: validParams.force,
-      }
-    );
+    const task = await taskService.createTaskFromTitleAndSpec(validParams.title, description!, {
+      force: validParams.force,
+    });
 
     // Auto-commit changes for markdown backend (with error handling to prevent MCP hangs)
     if ((validParams.backend || "markdown") === "markdown") {

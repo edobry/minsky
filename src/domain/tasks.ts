@@ -28,7 +28,7 @@ import {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
-  createTaskFromTitleAndDescription,
+  createTaskFromTitleAndSpec,
   getTaskSpecContentFromParams,
   deleteTaskFromParams,
 } from "./tasks/taskCommands";
@@ -39,7 +39,7 @@ export {
   getTaskStatusFromParams,
   setTaskStatusFromParams,
   createTaskFromParams,
-  createTaskFromTitleAndDescription,
+  createTaskFromTitleAndSpec,
   getTaskSpecContentFromParams,
   deleteTaskFromParams,
 };
@@ -86,9 +86,9 @@ export interface TaskServiceInterface {
   /**
    * Create a task from title and description
    */
-  createTaskFromTitleAndDescription(
+  createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ): Promise<Task>;
 
@@ -106,7 +106,7 @@ export interface TaskServiceInterface {
 export interface Task {
   id: string;
   title: string;
-  description?: string;
+  spec?: string;
   status: string;
   specPath?: string; // Path to the task specification document
   worklog?: Array<{ timestamp: string; message: string }>; // Work log entries
@@ -442,7 +442,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (line.trim().startsWith("## ")) break;
         if (line.trim()) description += `${line.trim()}\n`;
       }
-      if (!description.trim()) {
+      if (!spec.trim()) {
         throw new Error("Invalid spec file: Empty Context section");
       }
 
@@ -520,7 +520,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const task: Task = {
         id: taskId,
         title,
-        description: description.trim(),
+        description: spec.trim(),
         status: TASK_STATUS.TODO,
         specPath: newSpecPath,
       };
@@ -573,9 +573,9 @@ export class MarkdownTaskBackend implements TaskBackend {
    * @param options Options for creating the task
    * @returns Promise resolving to the created task
    */
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options: CreateTaskOptions = {}
   ): Promise<Task> {
     // Generate a task specification file content
@@ -790,9 +790,9 @@ export class GitHubTaskBackend implements TaskBackend {
     throw new Error("Method not implemented");
   }
 
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     _options: CreateTaskOptions = {}
   ): Promise<Task> {
     // Implementation needed
@@ -858,12 +858,12 @@ export class TaskService {
     return this.currentBackend.createTask(specPath, options);
   }
 
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options: CreateTaskOptions = {}
   ): Promise<Task> {
-    return this.currentBackend.createTaskFromTitleAndDescription(title, description, options);
+    return this.currentBackend.createTaskFromTitleAndSpec(title, description, options);
   }
 
   /**

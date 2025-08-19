@@ -54,9 +54,9 @@ export interface TaskBackend {
   getTask(id: string): Promise<Task | null>;
   getTaskStatus(id: string): Promise<string | undefined>;
   setTaskStatus(id: string, status: string): Promise<void>;
-  createTaskFromTitleAndDescription(
+  createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ): Promise<Task>;
   deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
@@ -82,7 +82,7 @@ export interface TaskListOptions {
  */
 export interface CreateTaskOptions {
   force?: boolean;
-  description?: string; // This is the spec content for creation
+  spec?: string; // This is the spec content for creation
 }
 
 /**

@@ -9,7 +9,7 @@ import {
   listTasksFromParams,
   getTaskFromParams,
   createTaskFromParams,
-  createTaskFromTitleAndDescription,
+  createTaskFromTitleAndSpec,
   deleteTaskFromParams,
 } from "../../../../domain/tasks";
 import { ValidationError } from "../../../../errors/index";
@@ -43,8 +43,8 @@ interface TasksGetParams extends BaseTaskParams {
  */
 interface TasksCreateParams extends BaseTaskParams {
   title: string;
-  description?: string;
-  descriptionPath?: string;
+  spec?: string;
+  specPath?: string;
   force?: boolean;
   githubRepo?: string;
 }
@@ -160,23 +160,23 @@ export class TasksCreateCommand extends BaseTaskCommand {
     // Validate required parameters
     const title = this.validateRequired(params.title, "title");
 
-    // Validate that either description or descriptionPath is provided
-    if (!params.description && !params.descriptionPath) {
+    // Validate that either description or specPath is provided
+    if (!params.description && !params.specPath) {
       throw new ValidationError("Either --description or --description-path must be provided");
     }
 
-    // Both description and descriptionPath provided is an error
-    if (params.description && params.descriptionPath) {
+    // Both description and specPath provided is an error
+    if (params.description && params.specPath) {
       throw new ValidationError(
         "Cannot provide both --description and --description-path - use one or the other"
       );
     }
 
     // Create the task using the same function as main branch
-    const result = await createTaskFromTitleAndDescription({
+    const result = await createTaskFromTitleAndSpec({
       title: params.title,
       description: params.description,
-      descriptionPath: params.descriptionPath,
+      specPath: params.specPath,
       force: params.force ?? false,
       backend: params.backend,
       repo: params.repo,

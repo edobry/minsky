@@ -26,7 +26,7 @@ function customMatterStringify(content: string, data: any): string {
   // Replace single-quoted descriptions with double-quoted ones
   yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
     // Check if description contains special characters that warrant quoting
-    if (description.includes(":") || description.includes("!") || description.includes("?")) {
+    if (spec.includes(":") || spec.includes("!") || spec.includes("?")) {
       return `description: "${description}"`;
     }
     return match;
@@ -38,7 +38,7 @@ function customMatterStringify(content: string, data: any): string {
 export interface Rule {
   id: string; // Filename without extension
   name?: string; // From frontmatter
-  description?: string; // From frontmatter
+  spec?: string; // From frontmatter
   globs?: string[]; // From frontmatter, file patterns that this rule applies to
   alwaysApply?: boolean; // From frontmatter, whether this rule is always applied
   tags?: string[]; // From frontmatter, optional tags for categorization
@@ -50,7 +50,7 @@ export interface Rule {
 
 export interface RuleMeta {
   name?: string;
-  description?: string;
+  spec?: string;
   globs?: string[];
   alwaysApply?: boolean;
   tags?: string[];
@@ -529,7 +529,7 @@ export class RuleService {
       }
 
       // Search in description
-      if (rule.description && rule.description.toLowerCase().includes(searchTerm)) {
+      if (rule.description && rule.spec.toLowerCase().includes(searchTerm)) {
         return true;
       }
 

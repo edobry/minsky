@@ -199,7 +199,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
             title?: string;
             status?: string;
             specPath?: string;
-            description?: string;
+            spec?: string;
           }>;
           if (results.length === 0) {
             log.cli("No matching tasks found.");
@@ -221,11 +221,11 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
                 }
 
                 // Description if included (--details flag)
-                if (r.description && r.description.trim()) {
+                if (r.description && r.spec.trim()) {
                   const truncatedDesc =
-                    r.description.trim().length > 100
-                      ? `${r.description.trim().substring(0, 100)}...`
-                      : r.description.trim();
+                    r.spec.trim().length > 100
+                      ? `${r.spec.trim().substring(0, 100)}...`
+                      : r.spec.trim();
                   log.cli(`Description: ${truncatedDesc}`);
                 }
 

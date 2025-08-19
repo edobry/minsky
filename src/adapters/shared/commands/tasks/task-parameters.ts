@@ -47,7 +47,7 @@ export const taskCreationParams = {
   title: TaskParameters.title,
   description: TaskParameters.description,
   force: CommonParameters.force,
-  descriptionPath: {
+  specPath: {
     schema: z.string(),
     description: "Path to file containing task description",
     required: false,

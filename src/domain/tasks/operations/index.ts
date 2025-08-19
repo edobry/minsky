@@ -54,7 +54,7 @@ export function createAllTaskOperations(deps?: TaskOperationDependencies) {
     // Mutation operations
     setTaskStatus: createSetTaskStatusOperation(deps),
     createTask: createCreateTaskOperation(deps),
-    createTaskFromTitleAndDescription: createCreateTaskFromTitleAndDescriptionOperation(deps),
+    createTaskFromTitleAndSpec: createCreateTaskFromTitleAndDescriptionOperation(deps),
     deleteTask: createDeleteTaskOperation(deps),
   };
 }
@@ -73,10 +73,7 @@ export function setupTaskOperationRegistry(
   registry.register("getTaskSpecContent", operations.getTaskSpecContent);
   registry.register("setTaskStatus", operations.setTaskStatus);
   registry.register("createTask", operations.createTask);
-  registry.register(
-    "createTaskFromTitleAndDescription",
-    operations.createTaskFromTitleAndDescription
-  );
+  registry.register("createTaskFromTitleAndSpec", operations.createTaskFromTitleAndSpec);
   registry.register("deleteTask", operations.deleteTask);
 
   return registry;

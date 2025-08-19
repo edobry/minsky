@@ -109,42 +109,37 @@ export class MarkdownTaskBackend implements TaskBackend {
     await this.saveTasks(tasks);
   }
 
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
-    const tasks = await this.parseTasks();
+    const id = this.generateTaskId(title);
+    const specPath = this.buildSpecPath(id, title);
+    const specContent = this.generateTaskSpecContent(title, spec);
 
-    // Generate next ID
-    const maxId = tasks.reduce((max, task) => {
-      const numId = parseInt(task.id.replace(/^(md)?#/, ""), 10);
-      return numId > max ? numId : max;
-    }, 0);
+    // Create directory if it doesn't exist
+    const specDir = dirname(specPath);
+    if (!(await this.fileExists(specDir))) {
+      await mkdir(specDir, { recursive: true });
+    }
 
-    const newId = `md#${maxId + 1}`;
+    // Write spec file
+    await writeFile(specPath, specContent, "utf-8");
 
-    // Create spec file
-    const specPath = this.getTaskSpecPath(newId, title);
-    const specContent = this.generateTaskSpecContent(title, description);
-
-    await fs.mkdir(path.dirname(specPath), { recursive: true });
-    await fs.writeFile(specPath, specContent);
-
-    // Create task entry
-    const newTask: Task = {
-      id: newId,
+    // Create task object
+    const task: Task = {
+      id,
       title,
-      description,
       status: "TODO",
       specPath,
-      backend: "markdown",
+      backend: this.name,
     };
 
-    tasks.push(newTask);
-    await this.saveTasks(tasks);
+    // Update tasks.md
+    await this.updateTasksFile([task]);
 
-    return newTask;
+    return task;
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
@@ -314,7 +309,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       lines.push(`${checkbox} ${task.title} ${task.id}`);
 
       if (task.description) {
-        const descLines = task.description.split("\n");
+        const descLines = task.spec.split("\n");
         for (const descLine of descLines) {
           if (descLine.trim()) {
             lines.push(`  ${descLine.trim()}`);
@@ -355,12 +350,12 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
   }
 
-  private generateTaskSpecContent(title: string, description: string): string {
+  private generateTaskSpecContent(title: string, spec: string): string {
     return `# ${title}
 
 ## Context
 
-${description}
+${spec}
 
 ## Requirements
 

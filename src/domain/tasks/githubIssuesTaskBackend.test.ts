@@ -140,7 +140,7 @@ describe("GitHubIssuesTaskBackend", () => {
     });
   });
 
-  describe("createTaskFromTitleAndDescription", () => {
+  describe("createTaskFromTitleAndSpec", () => {
     test("should create a new GitHub issue", async () => {
       const mockIssue = {
         number: 1,
@@ -153,7 +153,7 @@ describe("GitHubIssuesTaskBackend", () => {
 
       mockOctokit.rest.issues.create = mock(() => Promise.resolve({ data: mockIssue }));
 
-      const task = await backend.createTaskFromTitleAndDescription("New Task", "New description");
+      const task = await backend.createTaskFromTitleAndSpec("New Task", "New description");
 
       expect(mockOctokit.rest.issues.create).toHaveBeenCalledWith({
         owner: "test-owner",

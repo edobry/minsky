@@ -34,7 +34,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
       title?: string;
       status?: string;
       specPath?: string;
-      description?: string;
+      spec?: string;
     }>
   > {
     const enhanced = [];
@@ -122,7 +122,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
       title?: string;
       status?: string;
       specPath?: string;
-      description?: string;
+      spec?: string;
     }>
   > {
     const enhanced = [];

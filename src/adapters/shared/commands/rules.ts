@@ -157,7 +157,7 @@ const rulesGenerateCommandParams: CommandParameterMap = {
 type RulesCreateParams = {
   id: string;
   content: string;
-  description?: string;
+  spec?: string;
   name?: string;
   globs?: string;
   tags?: string;
@@ -196,7 +196,7 @@ const rulesCreateCommandParams: CommandParameterMap = composeParams(
 type RulesUpdateParams = {
   id: string;
   content?: string;
-  description?: string;
+  spec?: string;
   name?: string;
   globs?: string;
   tags?: string;

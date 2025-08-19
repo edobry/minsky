@@ -35,7 +35,7 @@ export interface CategoryCommandOptions {
   /** Override category name */
   name?: string;
   /** Override category description */
-  description?: string;
+  spec?: string;
   /** Command aliases */
   aliases?: string[];
   /** Custom options for specific commands */
@@ -55,7 +55,7 @@ export interface ParameterMappingOptions {
   /** Custom CLI option name */
   optionName?: string;
   /** Custom description for help text */
-  description?: string;
+  spec?: string;
   /** Default value */
   defaultValue?: any;
 }

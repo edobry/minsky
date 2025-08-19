@@ -176,7 +176,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         return task;
       },
 
-      async createTaskFromTitleAndDescription(title: string, description: string) {
+      async createTaskFromTitleAndSpec(title: string, description: string) {
         taskCounter++;
         const taskId = `md#${taskCounter}`;
         const task = {
@@ -346,7 +346,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
       expect(typeof backend.setTaskStatus).toBe("function");
       expect(typeof backend.getWorkspacePath).toBe("function");
       expect(typeof backend.createTask).toBe("function");
-      expect(typeof backend.createTaskFromTitleAndDescription).toBe("function");
+      expect(typeof backend.createTaskFromTitleAndSpec).toBe("function");
       expect(typeof backend.deleteTask).toBe("function");
       expect(typeof backend.getCapabilities).toBe("function");
     });
@@ -367,7 +367,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
   describe("Qualified Task ID Management", () => {
     it("should create tasks with qualified IDs (md#123)", async () => {
-      const task = await backend.createTaskFromTitleAndDescription("Test Task", "Test description");
+      const task = await backend.createTaskFromTitleAndSpec("Test Task", "Test description");
 
       expect(task.id).toMatch(/^md#\d+$/);
       expect(task.id).toBe("md#1"); // First task should be md#1
@@ -377,7 +377,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should retrieve tasks by qualified ID", async () => {
-      const createdTask = await backend.createTaskFromTitleAndDescription(
+      const createdTask = await backend.createTaskFromTitleAndSpec(
         "Qualified ID Test",
         "Testing qualified ID retrieval"
       );
@@ -389,7 +389,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should retrieve tasks by local ID for backward compatibility", async () => {
-      const createdTask = await backend.createTaskFromTitleAndDescription(
+      const createdTask = await backend.createTaskFromTitleAndSpec(
         "Local ID Test",
         "Testing local ID retrieval"
       );
@@ -402,9 +402,9 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should list tasks with qualified IDs", async () => {
-      await backend.createTaskFromTitleAndDescription("Task 1", "Description 1");
-      await backend.createTaskFromTitleAndDescription("Task 2", "Description 2");
-      await backend.createTaskFromTitleAndDescription("Task 3", "Description 3");
+      await backend.createTaskFromTitleAndSpec("Task 1", "Description 1");
+      await backend.createTaskFromTitleAndSpec("Task 2", "Description 2");
+      await backend.createTaskFromTitleAndSpec("Task 3", "Description 3");
 
       const tasks = await backend.listTasks();
       expect(tasks).toHaveLength(3);
@@ -464,7 +464,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
   describe("Task Operations", () => {
     it("should update task status correctly", async () => {
-      const task = await backend.createTaskFromTitleAndDescription(
+      const task = await backend.createTaskFromTitleAndSpec(
         "Original Title",
         "Original description"
       );
@@ -478,10 +478,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should delete tasks correctly", async () => {
-      const task = await backend.createTaskFromTitleAndDescription(
-        "To Delete",
-        "Task to be deleted"
-      );
+      const task = await backend.createTaskFromTitleAndSpec("To Delete", "Task to be deleted");
 
       // Verify task exists
       const beforeDelete = await backend.getTask(task.id);
@@ -496,16 +493,10 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should filter tasks by status", async () => {
-      const todoTask = await backend.createTaskFromTitleAndDescription(
-        "Todo Task",
-        "Todo description"
-      );
-      const doneTask = await backend.createTaskFromTitleAndDescription(
-        "Done Task",
-        "Done description"
-      );
+      const todoTask = await backend.createTaskFromTitleAndSpec("Todo Task", "Todo description");
+      const doneTask = await backend.createTaskFromTitleAndSpec("Done Task", "Done description");
       await backend.setTaskStatus(doneTask.id, TASK_STATUS.DONE);
-      const anotherTodoTask = await backend.createTaskFromTitleAndDescription(
+      const anotherTodoTask = await backend.createTaskFromTitleAndSpec(
         "Another Todo Task",
         "Another todo description"
       );
@@ -609,11 +600,8 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should persist tasks to markdown format", async () => {
-      const task1 = await backend.createTaskFromTitleAndDescription(
-        "Persisted Task",
-        "Description 1"
-      );
-      const task2 = await backend.createTaskFromTitleAndDescription("Done Task", "Description 2");
+      const task1 = await backend.createTaskFromTitleAndSpec("Persisted Task", "Description 1");
+      const task2 = await backend.createTaskFromTitleAndSpec("Done Task", "Description 2");
       await backend.setTaskStatus(task2.id, TASK_STATUS.DONE);
 
       // Read the raw file content

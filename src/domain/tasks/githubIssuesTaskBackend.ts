@@ -114,21 +114,26 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     }
   }
 
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
     try {
-      const response = await this.github.rest.issues.create({
+      const response = await this.octokit.rest.issues.create({
         owner: this.owner,
         repo: this.repo,
         title,
-        body: description,
+        body: spec,
         labels: ["TODO"],
       });
 
-      return this.mapIssueToTask(response.data);
+      return {
+        id: `gh#${response.data.number}`,
+        title: response.data.title,
+        status: "TODO",
+        backend: this.name,
+      };
     } catch (error) {
       throw new Error(
         `Failed to create GitHub issue: ${error instanceof Error ? error.message : "Unknown error"}`

@@ -73,7 +73,7 @@ describe("Session Database BaseDir Bug", () => {
       createTask: mock(() => Promise.resolve({ id: "md#335", title: "Test", status: "TODO" })),
       deleteTask: mock(() => Promise.resolve(false)),
       getWorkspacePath: mock(() => "/test/workspace"),
-      createTaskFromTitleAndDescription: mock(() =>
+      createTaskFromTitleAndSpec: mock(() =>
         Promise.resolve({ id: "md#335", title: "Test", status: "TODO" })
       ),
     };

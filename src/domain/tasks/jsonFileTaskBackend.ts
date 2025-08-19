@@ -51,9 +51,9 @@ export class JsonFileTaskBackend implements TaskBackend {
     await this.saveAllTasks(tasks);
   }
 
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
     const tasks = await this.getAllTasks();

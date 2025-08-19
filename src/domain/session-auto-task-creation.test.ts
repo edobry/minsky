@@ -64,7 +64,7 @@ describe("Session Auto-Task Creation", () => {
 
     // Mock task service using centralized factory with proper task creation mock
     mockTaskService = createMockTaskService({
-      createTaskFromTitleAndDescription: createTaskSpy,
+      createTaskFromTitleAndSpec: createTaskSpy,
       setTaskStatus: () => Promise.resolve(void 0),
       listTasks: () => Promise.resolve([]),
       getTaskStatus: () => Promise.resolve("TODO"),

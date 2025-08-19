@@ -67,20 +67,18 @@ const mockBackend: TaskBackend = {
     return Promise.resolve();
   }),
 
-  createTaskFromTitleAndDescription: mock(
-    (title: string, description: string, options?: CreateTaskOptions) => {
-      const newTask = {
-        id: "#test",
-        title,
-        description,
-        status: "TODO",
-        specPath: "path/to/new-spec.md",
-        backend: "mock",
-      };
-      currentTasks.push(newTask);
-      return Promise.resolve(newTask);
-    }
-  ),
+  createTaskFromTitleAndSpec: mock((title: string, spec: string, options?: CreateTaskOptions) => {
+    const newTask = {
+      id: "#test",
+      title,
+      description,
+      status: "TODO",
+      specPath: "path/to/new-spec.md",
+      backend: "mock",
+    };
+    currentTasks.push(newTask);
+    return Promise.resolve(newTask);
+  }),
 
   deleteTask: mock((id: string, options?: DeleteTaskOptions) => {
     const index = currentTasks.findIndex((t) => t.id === id);
@@ -259,7 +257,7 @@ describe("TaskService", () => {
     test("should create a new task from title", async () => {
       const task = await taskService.createTask("New Task Title");
 
-      expect(mockBackend.createTaskFromTitleAndDescription).toHaveBeenCalledWith(
+      expect(mockBackend.createTaskFromTitleAndSpec).toHaveBeenCalledWith(
         "New Task Title",
         "",
         undefined
@@ -272,7 +270,7 @@ describe("TaskService", () => {
     test("should create a new task with description", async () => {
       const task = await taskService.createTask("New Task", { description: "New description" });
 
-      expect(mockBackend.createTaskFromTitleAndDescription).toHaveBeenCalledWith(
+      expect(mockBackend.createTaskFromTitleAndSpec).toHaveBeenCalledWith(
         "New Task",
         "New description",
         { description: "New description" }

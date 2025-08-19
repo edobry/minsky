@@ -54,7 +54,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
         setTaskStatus: mock(async () => {}),
         getWorkspacePath: mock(() => "/test/workspace"),
         createTask: mock(async () => ({ id: "md#999", title: "Test Task" })),
-        createTaskFromTitleAndDescription: mock(async () => ({ id: "md#999", title: "Test Task" })),
+        createTaskFromTitleAndSpec: mock(async () => ({ id: "md#999", title: "Test Task" })),
         deleteTask: mock(async () => true),
         getBackendForTask: mock(async () => "md"),
       };
@@ -94,7 +94,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
         setTaskStatus: mock(async () => {}),
         getWorkspacePath: mock(() => "/test/workspace"),
         createTask: mock(async () => ({ id: "md#999", title: "Test Task" })),
-        createTaskFromTitleAndDescription: mock(async () => ({ id: "md#999", title: "Test Task" })),
+        createTaskFromTitleAndSpec: mock(async () => ({ id: "md#999", title: "Test Task" })),
         deleteTask: mock(async () => true),
         getBackendForTask: mock(async () => "md"),
       };
@@ -208,7 +208,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
         setTaskStatus: mock(async () => {}),
         getWorkspacePath: mock(() => "/test/workspace"),
         createTask: mock(async () => ({ id: qualifiedId, title: "Test Task" })),
-        createTaskFromTitleAndDescription: mock(async () => ({
+        createTaskFromTitleAndSpec: mock(async () => ({
           id: qualifiedId,
           title: "Test Task",
         })),

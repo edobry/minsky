@@ -37,7 +37,7 @@ function customMatterStringify(content: string, data: any): string {
   // Replace single-quoted descriptions with double-quoted ones
   yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
     // Check if description contains special characters that warrant quoting
-    if (description.includes(":") || description.includes("!") || description.includes("?")) {
+    if (spec.includes(":") || spec.includes("!") || spec.includes("?")) {
       return `description: \"${description}\"`;
     }
     return match;

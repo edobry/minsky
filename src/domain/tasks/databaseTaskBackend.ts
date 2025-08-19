@@ -77,53 +77,41 @@ export class DatabaseTaskBackend implements TaskBackend {
       .execute();
   }
 
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
-    // Generate next task ID
-    const existingTasks = await this.listTasks();
-    const maxId = existingTasks.reduce((max, task) => {
-      const numId = parseInt(task.id.replace(/^db#/, ""), 10);
-      return numId > max ? numId : max;
-    }, 0);
+    const id = this.generateTaskId(title);
+    const task: Task = {
+      id,
+      title,
+      status: "TODO",
+      backend: this.name,
+    };
 
-    const newId = `db#${maxId + 1}`;
-    const now = new Date();
-
-    // Create full spec content
-    const specContent = this.generateTaskSpecContent(title, description);
-
-    // Insert task and spec in transaction
-    await this.db.transaction(async (tx) => {
-      // Insert task metadata
-      await tx.insert(tasksTable).values({
-        id: newId,
-        backend: "db",
-        status: "TODO",
-        title,
-        createdAt: now,
-        updatedAt: now,
-      });
-
-      // Insert task spec
-      await tx.insert(taskSpecsTable).values({
-        taskId: newId,
-        content: specContent,
-        createdAt: now,
-        updatedAt: now,
-      });
+    // Save task metadata to tasks table
+    await this.db.insert(tasksTable).values({
+      id,
+      sourceTaskId: id.split("#")[1], // Extract the numeric part
+      backend: "db" as const,
+      status: "TODO" as const,
+      title,
+      contentHash: this.generateContentHash(title + spec),
+      createdAt: new Date(),
+      updatedAt: new Date(),
     });
 
-    return {
-      id: newId,
-      title,
-      description,
-      status: "TODO",
-      specPath: `db:${newId}`,
-      backend: "db",
-    };
+    // Save spec content to task_specs table
+    await this.db.insert(taskSpecsTable).values({
+      taskId: id,
+      content: this.generateTaskSpecContent(title, spec),
+      contentHash: this.generateContentHash(spec),
+      createdAt: new Date(),
+      updatedAt: new Date(),
+    });
+
+    return task;
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {

@@ -183,7 +183,7 @@ Only suggest rules that are actually relevant. If no rules match well, return em
           relevanceScore += 0.3;
         }
         // Less specific partial matches in description
-        else if (rule.description && rule.description.toLowerCase().includes(queryWord)) {
+        else if (rule.description && rule.spec.toLowerCase().includes(queryWord)) {
           matchedKeywords.push(queryWord);
           relevanceScore += 0.2;
         }

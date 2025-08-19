@@ -76,11 +76,7 @@ export class TaskService {
    */
   async createTask(title: string, options?: CreateTaskOptions): Promise<TaskData> {
     const description = options?.description || "";
-    const task = await this.currentBackend.createTaskFromTitleAndDescription(
-      title,
-      description,
-      options
-    );
+    const task = await this.currentBackend.createTaskFromTitleAndSpec(title, description, options);
 
     return {
       id: task.id,
