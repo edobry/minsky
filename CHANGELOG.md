@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - Task specification for automated task routing and implementation planning (md#442)
+
   - "Route to this task" feature that traverses dependency graphs to generate optimal implementation sequences
   - Intelligent pathfinding algorithms for task dependencies with multi-objective optimization
   - Parallel execution detection and resource-constrained planning
@@ -16,6 +17,7 @@ All notable changes to this project will be documented in this file.
   - Foundation for transforming manual implementation planning into automated, optimized process
 
 - Task specification for MCP-based subagent system (md#441)
+
   - Comprehensive architecture for implementing subagents as MCP tools
   - Integration with task/session system for state management
   - OODA loop implementation based on Task #349 agent analysis

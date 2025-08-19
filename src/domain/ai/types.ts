@@ -118,6 +118,12 @@ export interface AIModel {
     input: number;
     output: number;
   };
+  tokenizer?: {
+    id: string; // e.g., "cl100k_base", "o200k_base"
+    type: string; // e.g., "bpe", "sentencepiece"
+    source: "api" | "config" | "fallback";
+    library?: string; // preferred library: "gpt-tokenizer" | "tiktoken"
+  };
 }
 
 // Configuration service types

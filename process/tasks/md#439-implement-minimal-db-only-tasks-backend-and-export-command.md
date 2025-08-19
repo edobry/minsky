@@ -25,19 +25,23 @@ Introduce a minimal database-backed task backend (`backend = db`, task ID prefix
 ## Requirements
 
 - Schema/config
+
   - Ensure `task_backend` enum includes `db`.
   - Allow tasks with `backend = db` to be created/read/updated.
 
 - Backend/Adapter
+
   - Register new `db` task backend implementation.
   - All reads/writes for `db` backend go to/from DB only.
   - Remove any fallback reads of `process/tasks.md`.
 
 - Migration/Import
+
   - Update existing `tasks migrate`/import path so that it can write records as `backend = db` (option, or default when strict mode is enabled).
   - Preserve idempotency and verification.
 
 - Export (manual, not automatic)
+
   - `minsky tasks export --format markdown --out docs/tasks/` (or similar) to write per-task files.
   - Each file contains a prominent header: “GENERATED – DO NOT EDIT. Source of truth is the database.”
   - Stable formatting to minimize diffs; never read these files back.
@@ -50,6 +54,7 @@ Introduce a minimal database-backed task backend (`backend = db`, task ID prefix
 ## CLI/MCP Surface (initial)
 
 - MCP
+
   - `tasks.spec.get(id)`
   - `tasks.spec.set(id, content[, ifMatchContentHash])` with dry-run and optimistic concurrency.
   - `tasks.meta.get/set` for DB-owned fields (optional in this task if already present; otherwise stub).
