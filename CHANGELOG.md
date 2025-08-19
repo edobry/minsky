@@ -4,6 +4,10 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Debug output appearing without --debug flag**: Removed unconditional debug logging from task-id-utils.ts that was appearing in all commands. Debug statements in utility functions have been eliminated to prevent unwanted output when debug mode is not enabled.
+
 ### Added
 
 - **Multi-backend string ID support system** (md#414)

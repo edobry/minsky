@@ -16,29 +16,19 @@
  */
 export function validateQualifiedTaskId(taskId: string): string | null {
   if (!taskId || typeof taskId !== "string") {
-    log.debug("Invalid input type or empty");
     return null;
   }
 
   const trimmed = taskId.trim();
-  log.debug("Processing trimmed input:", trimmed);
-
-  // Already qualified format (md#367, gh#123, md#update-test)
-  if (/^[a-z-]+#.+$/.test(trimmed)) {
-    log.debug("Matched qualified format");
-    return trimmed;
-  }
 
   // Legacy display format (#283) -> convert to qualified
   if (/^#\d+$/.test(trimmed)) {
-    log.debug("Matched legacy display format");
     const num = trimmed.replace(/^#/, "");
     return `md#${num}`;
   }
 
   // Legacy numeric format (283) -> convert to qualified
   if (/^\d+$/.test(trimmed)) {
-    log.debug("Matched legacy numeric format");
     return `md#${trimmed}`;
   }
 
@@ -46,6 +36,11 @@ export function validateQualifiedTaskId(taskId: string): string | null {
   if (/^task#\d+$/i.test(trimmed)) {
     const num = trimmed.replace(/^task#/i, "");
     return `md#${num}`;
+  }
+
+  // Already qualified format (md#367, gh#123, md#update-test)
+  if (/^[a-z-]+#.+$/.test(trimmed)) {
+    return trimmed;
   }
 
   // Strip multiple # prefixes (##283) -> convert to qualified
@@ -56,7 +51,8 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 
   // For string IDs that don't match numeric patterns, return as-is for multi-backend support
   // This allows backend-specific string IDs like "update-test", "delete-test", etc.
-  if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+  // Require hyphen or underscore to distinguish from invalid mixed patterns like "283abc"
+  if (/^[a-zA-Z][a-zA-Z0-9_-]*[a-zA-Z0-9]$/.test(trimmed) && (trimmed.includes('-') || trimmed.includes('_'))) {
     return trimmed; // Return string IDs as-is for backend handling
   }
 
@@ -80,11 +76,6 @@ export function formatTaskIdForDisplay(taskId: string): string {
 
   const trimmed = taskId.trim();
 
-  // Already qualified format (md#367, gh#123) - display as-is
-  if (/^[a-z-]+#.+$/.test(trimmed)) {
-    return trimmed;
-  }
-
   // Legacy display format (#283) -> convert to qualified
   if (/^#\d+$/.test(trimmed)) {
     const num = trimmed.replace(/^#/, "");
@@ -94,6 +85,17 @@ export function formatTaskIdForDisplay(taskId: string): string {
   // Legacy numeric format (283) -> convert to qualified
   if (/^\d+$/.test(trimmed)) {
     return `md#${trimmed}`;
+  }
+
+  // Handle task# prefix format (task#283) -> convert to qualified
+  if (/^task#\d+$/i.test(trimmed)) {
+    const num = trimmed.replace(/^task#/i, "");
+    return `md#${num}`;
+  }
+
+  // Already qualified format (md#367, gh#123) - display as-is
+  if (/^[a-z-]+#.+$/.test(trimmed)) {
+    return trimmed;
   }
 
   // String IDs (update-test, delete-test) - return as-is for multi-backend support
@@ -138,7 +140,12 @@ export function convertTaskIdFormat(
   if (targetFormat === "storage") {
     return validateQualifiedTaskId(taskId);
   } else {
-    return formatTaskIdForDisplay(taskId) || null;
+    // For display format, first validate that it's a valid task ID
+    const validatedId = validateQualifiedTaskId(taskId);
+    if (validatedId === null) {
+      return null;
+    }
+    return formatTaskIdForDisplay(taskId);
   }
 }
 
