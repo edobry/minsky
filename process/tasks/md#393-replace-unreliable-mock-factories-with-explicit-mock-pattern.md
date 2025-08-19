@@ -129,6 +129,36 @@ The successful pattern from 100% test success implementation:
 - Focus on deterministic, predictable test behavior
 - Pattern here should prevent future unreliable mock introductions
 
+## ⚠️ COORDINATION NOTE: Revisit Required
+
+**IMPORTANT**: This task needs to be revisited and potentially coordinated with related test infrastructure tasks:
+
+- **md#397**: Continue Systematic ESLint-Guided Filesystem Violation Fixes
+  - Focuses on eliminating real filesystem operations in tests
+  - Uses dependency injection patterns and mock filesystem operations
+  - May conflict or overlap with mock factory patterns in this task
+
+- **md#414**: Fix post-merge test regressions after md#397 merge
+  - Addresses test failures introduced by filesystem violation fixes
+  - Involves logger API, session DB I/O, and validation messaging changes
+  - May have changed the mock patterns that this task targets
+
+- **md#115**: Implement Dependency Injection Test Patterns (DONE)
+  - Established dependency injection patterns for test isolation
+  - May provide foundation patterns that supersede the factory mock approach
+
+- **md#176**: Comprehensive Session Database Architecture Fix (DONE)
+  - Implemented universal DI patterns and perfect test isolation
+  - Likely established proven mock patterns that should be used consistently
+
+**ACTION REQUIRED**: Before continuing with md#393, review the current state of:
+1. Mock patterns established by md#115 and md#176
+2. ESLint filesystem violation fixes from md#397
+3. Any test regression fixes from md#414
+4. Ensure md#393 patterns align with and don't conflict with these efforts
+
+**POTENTIAL CONSOLIDATION**: Consider whether md#393 should be merged into md#397 or md#414, or whether the mock factory patterns are already addressed by the DI patterns from md#115/md#176.
+
 ## Requirements
 
 ## Solution

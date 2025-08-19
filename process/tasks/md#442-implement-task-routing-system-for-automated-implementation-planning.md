@@ -346,18 +346,18 @@ minsky tasks route --target "md#441" --strategy value-first
 # Output:
 # Implementation Route to Task #441 (Subagent System)
 # Strategy: Value-First Optimization
-# 
+#
 # Phase 1: Foundation + Quick Wins (2-3 weeks)
 # ├─ Parallel Track A:
 # │  ├─ Task #349: Agent OODA Analysis (research)
 # │  └─ Task #202: Rule Suggestions (quick value)
 # └─ Parallel Track B:
 #    └─ Task #082: Context Management (immediate value)
-# 
+#
 # Phase 2: Infrastructure Building (3-4 weeks)
 # ├─ Task #238: Subtask Support (depends on metadata)
 # └─ Task #256: Tool Management (high complexity)
-# 
+#
 # Total Estimated Effort: 8-10 weeks
 # Immediate Value Delivery: Week 2
 # Risk Factors: Task #256 complexity, Task #349 research uncertainty
