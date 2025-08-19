@@ -21,8 +21,8 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 
   const trimmed = taskId.trim();
 
-  // Only accept qualified IDs (md#367, gh#123)
-  if (/^[a-z-]+#\d+$/.test(trimmed)) {
+  // Only accept qualified IDs (md#367, gh#123) but NOT task# prefix
+  if (/^[a-z-]+#\d+$/.test(trimmed) && !trimmed.startsWith("task#")) {
     return trimmed;
   }
 
@@ -32,7 +32,7 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 
 // Backward compatibility alias
 // Backward-compat export name used across code/tests; implements strict validation
-export const normalizeTaskIdForStorage = validateQualifiedTaskId;
+// Removed normalizeTaskIdForStorage alias - use validateQualifiedTaskId directly
 
 /**
  * Format task ID for display (no-op since input === output)
