@@ -103,7 +103,7 @@ export const TASK_REGEX_PATTERNS = {
    * Supports both numeric and alphanumeric task IDs
    */
   TASK_LINE: new RegExp(
-    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[([a-z-]*#?[A-Za-z0-9_]+)\\]\\(([^)]+)\\)`
+    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[([a-z-]*#?[A-Za-z0-9_-]+)\\]\\(([^)]+)\\)`
   ),
 
   /**

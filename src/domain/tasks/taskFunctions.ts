@@ -39,8 +39,8 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
     if (!parsed) continue;
 
     const { checkbox, title, id } = parsed;
-    // Accept both legacy (#123) and qualified (md#123) ID formats
-    if (!title || !id || !/^(#\d+|[a-z-]+#\d+)$/.test(id)) continue; // skip malformed or empty
+    // Accept any ID format for multi-backend compatibility
+    if (!title || !id) continue; // skip if missing title or id
 
     const status = TASK_PARSING_UTILS.getStatusFromCheckbox(checkbox);
 
@@ -86,16 +86,13 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
     .map((task) => {
       const checkbox = TASK_PARSING_UTILS.getCheckboxFromStatus(task.status);
       const specPath = task.specPath || "#";
-      // Unified ID Format: STRICT OUT - display qualified IDs as-is, add # prefix to legacy formats
+      // Multi-backend ID format: accept any string format
       let displayId: string;
-      if (/^[a-z-]+#\d+$/.test(task.id)) {
-        // Already qualified format (md#380, gh#456) - display as-is
-        displayId = task.id;
-      } else if (task.id.startsWith("#")) {
-        // Legacy #-prefixed format (#378) - keep as-is
+      if (task.id.includes("#")) {
+        // Already has # somewhere (qualified or legacy format) - display as-is
         displayId = task.id;
       } else {
-        // Plain numeric (378) - add # prefix
+        // Plain format without # - add # prefix for display
         displayId = `#${task.id}`;
       }
       const taskLine = `- [${checkbox}] ${task.title} [${displayId}](${specPath})`;
@@ -115,26 +112,26 @@ export function formatTasksToMarkdown(tasks: TaskData[]): string {
 export function getTaskById(tasks: TaskData[], id: string): TaskData | null {
   if (!tasks || !id) return null;
 
-  // First try exact match
-  const exactMatch = tasks.find((task) => task.id === id);
-  if (exactMatch) {
-    return exactMatch;
-  }
+  // Use the same comprehensive ID matching logic as backend methods
+  const foundTask = tasks.find((task) => {
+    // Exact match first
+    if (task.id === id) return true;
 
-  // If no exact match, try numeric comparison
-  // This handles case where ID is provided without leading zeros
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return null;
+    // Extract local IDs for comparison
+    const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
+    const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
 
-  const numericId = parseInt(normalizedId.replace(/^#/, ""), 10);
-  if (isNaN(numericId)) return null;
+    // Compare local IDs (e.g., "delete-test" vs "delete-test")
+    if (taskLocalId === searchLocalId) return true;
 
-  const numericMatch = tasks.find((task) => {
-    const taskNumericId = parseInt(task.id.replace(/^#/, ""), 10);
-    return !isNaN(taskNumericId) && taskNumericId === numericId;
+    // Handle # prefix variations for legacy compatibility
+    if (!/^#/.test(id) && task.id === `#${id}`) return true;
+    if (id.startsWith("#") && task.id === id.substring(1)) return true;
+
+    return false;
   });
 
-  return numericMatch || null;
+  return foundTask || null;
 }
 
 /**

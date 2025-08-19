@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
 - feat(config): add workspace.mainPath; wire markdown/json task backends to main workspace path (md#410)
 - session pr: status/backend/time filters
 
@@ -151,7 +152,6 @@ All notable changes to this project will be documented in this file.
   - Added stash/commit/push/restore flow to `src/domain/tasks/markdownTaskBackend.ts` for both object and spec-file creation paths
   - Commit message format: `chore(task): create <id> <title>`; push attempted with warnings on failure
   - Exposed injectable `gitService` for testability; added unit tests to validate commit/push behavior and no-op when no changes
-
 
 ## md#427: Enforce conventional-commit title validation on session pr edit
 

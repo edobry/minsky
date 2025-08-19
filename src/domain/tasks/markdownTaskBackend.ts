@@ -128,15 +128,19 @@ export class MarkdownTaskBackend implements TaskBackend {
     const tasks = await this.listTasks();
 
     // Handle ID format mismatches for multi-backend compatibility
-    // Backend stores local IDs (123) but formatting may add # prefix (#123)
     const foundTask = tasks.find((task) => {
       // Exact match first
       if (task.id === id) return true;
 
-      // If searching for local ID (123), check against formatted version (#123)
-      if (!/^#/.test(id) && task.id === `#${id}`) return true;
+      // Extract local IDs for comparison
+      const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
+      const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
 
-      // If searching for formatted ID (#123), check against local version (123)
+      // Compare local IDs (e.g., "update-test" vs "update-test")
+      if (taskLocalId === searchLocalId) return true;
+
+      // Handle # prefix variations for legacy compatibility
+      if (!/^#/.test(id) && task.id === `#${id}`) return true;
       if (id.startsWith("#") && task.id === id.substring(1)) return true;
 
       return false;
@@ -161,23 +165,26 @@ export class MarkdownTaskBackend implements TaskBackend {
     const tasks = this.parseTasks(result.content);
     log.debug("stored task IDs", { taskIds: tasks.map((t) => t.id).slice(0, 5) });
 
-    // Use the same sophisticated ID matching logic as getTask would use
+    // Use the same sophisticated ID matching logic as getTask
     let taskIndex = -1;
-    const localId = id.replace(/^md#/, "");
 
-    // First try exact match with qualified ID
-    taskIndex = tasks.findIndex((t) => t.id === id || t.id === `md#${localId}`);
+    taskIndex = tasks.findIndex((task) => {
+      // Exact match first
+      if (task.id === id) return true;
 
-    // If not found, try legacy format matching
-    if (taskIndex === -1) {
-      const numericId = parseInt(localId.replace(/^#/, ""), 10);
-      if (!isNaN(numericId)) {
-        taskIndex = tasks.findIndex((t) => {
-          const taskNumericId = parseInt(t.id.replace(/^(md#|#)/, ""), 10);
-          return !isNaN(taskNumericId) && taskNumericId === numericId;
-        });
-      }
-    }
+      // Extract local IDs for comparison
+      const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
+      const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
+
+      // Compare local IDs (e.g., "update-test" vs "update-test")
+      if (taskLocalId === searchLocalId) return true;
+
+      // Handle # prefix variations for legacy compatibility
+      if (!/^#/.test(id) && task.id === `#${id}`) return true;
+      if (id.startsWith("#") && task.id === id.substring(1)) return true;
+
+      return false;
+    });
 
     log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
@@ -305,10 +312,26 @@ export class MarkdownTaskBackend implements TaskBackend {
     }
 
     const tasks = this.parseTasks(result.content);
-    const localId = taskId.replace(/^md#/, "");
 
-    // Find the task to update
-    let taskIndex = tasks.findIndex((t) => t.id === taskId || t.id === `md#${localId}`);
+    // Find the task to update using the same logic as getTask
+    let taskIndex = tasks.findIndex((task) => {
+      // Exact match first
+      if (task.id === taskId) return true;
+
+      // Extract local IDs for comparison
+      const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
+      const searchLocalId = taskId.includes("#") ? taskId.split("#").pop() : taskId;
+
+      // Compare local IDs
+      if (taskLocalId === searchLocalId) return true;
+
+      // Handle # prefix variations for legacy compatibility
+      if (!/^#/.test(taskId) && task.id === `#${taskId}`) return true;
+      if (taskId.startsWith("#") && task.id === taskId.substring(1)) return true;
+
+      return false;
+    });
+
     if (taskIndex === -1) {
       throw new Error(`Task not found: ${taskId}`);
     }
