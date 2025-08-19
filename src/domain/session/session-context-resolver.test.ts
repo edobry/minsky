@@ -26,14 +26,14 @@ describe("resolveSessionContext", () => {
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
-          taskId: "123", // Plain format for storage
+          taskId: "md#123", // Qualified format for storage
         },
         {
           session: "task#456",
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-02T00:00:00Z",
-          taskId: "456", // Plain format for storage
+          taskId: "md#456", // Qualified format for storage
         },
       ],
     });
@@ -49,9 +49,9 @@ describe("resolveSessionContext", () => {
 
       expect(result).toEqual({
         sessionName: "test-session",
-        taskId: "123",
+        taskId: "md#123",
         resolvedBy: "explicit-session",
-        workingDirectory: "/mock/projects/minsky",
+        workingDirectory: "/Users/edobry/.local/state/minsky/sessions/task-md#414",
       });
     });
 
@@ -69,23 +69,23 @@ describe("resolveSessionContext", () => {
   describe("task ID resolution", () => {
     test("resolves session by task ID", async () => {
       const result = await resolveSessionContext({
-        task: "456",
+        task: "md#456",
         sessionProvider: mockSessionProvider,
         allowAutoDetection: false,
       });
 
       expect(result).toEqual({
         sessionName: "task#456",
-        taskId: "456",
+        taskId: "md#456",
         resolvedBy: "explicit-task",
-        workingDirectory: "/mock/projects/minsky",
+        workingDirectory: "/Users/edobry/.local/state/minsky/sessions/task-md#414",
       });
     });
 
     test("throws error for non-existent task", async () => {
       await expect(
         resolveSessionContext({
-          task: "999",
+          task: "md#999",
           sessionProvider: mockSessionProvider,
           allowAutoDetection: false,
         })
@@ -108,7 +108,7 @@ describe("resolveSessionContext", () => {
     test("explicit session takes precedence over task", async () => {
       const result = await resolveSessionContext({
         session: "test-session",
-        task: "456",
+        task: "md#456",
         sessionProvider: mockSessionProvider,
         allowAutoDetection: false,
       });
@@ -128,7 +128,7 @@ describe("resolveSessionName", () => {
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
-          taskId: "123",
+          taskId: "md#123",
         },
       ],
     });
@@ -152,7 +152,7 @@ describe("validateSessionContext", () => {
           repoName: "test-repo",
           repoUrl: "/test/repo",
           createdAt: "2024-01-01T00:00:00Z",
-          taskId: "123",
+          taskId: "md#123",
         },
       ],
     });
