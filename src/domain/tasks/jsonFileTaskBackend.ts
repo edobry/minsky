@@ -1,5 +1,5 @@
 import { promises as fs } from "fs";
-import path from "path";
+import * as path from "path";
 import type {
   Task,
   TaskBackend,
@@ -10,22 +10,20 @@ import type {
   BackendCapabilities,
   TaskMetadata,
 } from "./types";
-import type { TaskData } from "../types/tasks/taskData";
-import type { DatabaseStorage } from "../storage/database-storage";
-import { createDatabaseStorage } from "../storage";
-import { TASK_STATUS } from "../constants";
+import type { TaskData } from "../../types/tasks/taskData";
+import { TASK_STATUS } from "./taskConstants";
 
 /**
- * JsonFileTaskBackend implementation using DatabaseStorage
+ * JsonFileTaskBackend implementation using simple JSON file storage
  */
 export class JsonFileTaskBackend implements TaskBackend {
   name = "json-file";
   private workspacePath: string;
-  private storage: DatabaseStorage;
+  private tasksFilePath: string;
 
   constructor(config: TaskBackendConfig) {
     this.workspacePath = config.workspacePath;
-    this.storage = createDatabaseStorage(this.workspacePath);
+    this.tasksFilePath = path.join(this.workspacePath, "process", "tasks", "tasks.json");
   }
 
   // ---- User-Facing Operations ----
@@ -87,7 +85,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     await fs.writeFile(specPath, spec);
 
     // Create task data
-    const newTask: TaskData = {
+    const newTask: Task = {
       id: newId,
       title,
       specPath,
@@ -96,10 +94,9 @@ export class JsonFileTaskBackend implements TaskBackend {
     };
 
     // Save task data
-    const createdTask = await this.createTaskData(newTask);
-    await this.saveAllTasks([...tasks, createdTask]);
+    await this.saveAllTasks([...tasks, newTask]);
 
-    return this.mapTaskDataToTask(createdTask);
+    return newTask;
   }
 
   async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
@@ -113,8 +110,11 @@ export class JsonFileTaskBackend implements TaskBackend {
       await fs.unlink(task.specPath);
     }
 
-    const deleted = await this.storage.delete(id);
-    return deleted;
+    const tasks = await this.getAllTasks();
+    const filteredTasks = tasks.filter((t) => t.id !== id);
+    await this.saveAllTasks(filteredTasks);
+
+    return true;
   }
 
   getWorkspacePath(): string {
@@ -178,36 +178,30 @@ export class JsonFileTaskBackend implements TaskBackend {
   // ---- Internal Methods ----
 
   private async getAllTasks(): Promise<Task[]> {
-    const tasks = await this.storage.getAll<TaskData>();
-    return tasks.map(this.mapTaskDataToTask.bind(this));
-  }
+    try {
+      if (!(await this.fileExists(this.tasksFilePath))) {
+        return [];
+      }
 
-  private async saveAllTasks(tasks: Task[]): Promise<void> {
-    // Convert back to TaskData and save each one
-    for (const task of tasks) {
-      const taskData: TaskData = {
-        id: task.id,
-        title: task.title,
-        status: task.status,
-        specPath: task.specPath,
-      };
-      await this.storage.update(task.id, taskData);
+      const content = await fs.readFile(this.tasksFilePath, "utf-8");
+      const data = JSON.parse(content);
+      return Array.isArray(data) ? data : [];
+    } catch (error) {
+      console.warn(`Failed to read tasks file: ${error}`);
+      return [];
     }
   }
 
-  private async createTaskData(task: TaskData): Promise<TaskData> {
-    await this.storage.create(task.id, task);
-    return task;
-  }
+  private async saveAllTasks(tasks: Task[]): Promise<void> {
+    try {
+      // Ensure directory exists
+      await fs.mkdir(path.dirname(this.tasksFilePath), { recursive: true });
 
-  private mapTaskDataToTask(taskData: TaskData): Task {
-    return {
-      id: taskData.id,
-      title: taskData.title,
-      status: taskData.status,
-      specPath: taskData.specPath,
-      backend: this.name,
-    };
+      // Write tasks to file
+      await fs.writeFile(this.tasksFilePath, JSON.stringify(tasks, null, 2));
+    } catch (error) {
+      throw new Error(`Failed to save tasks: ${error}`);
+    }
   }
 
   private getTaskSpecPath(taskId: string, title: string): string {

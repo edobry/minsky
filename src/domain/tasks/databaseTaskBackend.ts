@@ -1,6 +1,8 @@
 import { eq } from "drizzle-orm";
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { getDb } from "../storage/db";
+import { getConfiguration } from "../configuration";
 import {
   tasksTable,
   taskSpecsTable,
@@ -25,7 +27,27 @@ export class DatabaseTaskBackend implements TaskBackend {
 
   constructor(config: TaskBackendConfig) {
     this.workspacePath = config.workspacePath;
-    this.db = getDb(); // Assuming getDb() provides the Drizzle instance
+    this.db = this.createDbConnection();
+  }
+
+  private createDbConnection(): PostgresJsDatabase {
+    // For now, use a synchronous configuration approach
+    // In a real implementation, this would need to be async
+    try {
+      const runtimeConfig = getConfiguration();
+      const connectionString = runtimeConfig?.sessiondb?.postgres?.connectionString;
+
+      if (!connectionString) {
+        throw new Error(
+          "PostgreSQL connection string not configured (sessiondb.postgres.connectionString)"
+        );
+      }
+
+      const sql = postgres(connectionString, { prepare: false, onnotice: () => {} });
+      return drizzle(sql);
+    } catch (error) {
+      throw new Error(`Failed to connect to database: ${error}`);
+    }
   }
 
   // ---- User-Facing Operations ----
