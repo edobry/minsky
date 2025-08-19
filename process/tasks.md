@@ -682,7 +682,6 @@
 
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
-
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
@@ -700,3 +699,5 @@
 - [ ] Implement MCP-Based Subagent System with Task Graph Integration [md#441](process/tasks/md#441-implement-mcp-based-subagent-system-with-task-graph-integration.md)
 
 - [ ] Implement Task Routing System for Automated Implementation Planning [md#442](process/tasks/md#442-implement-task-routing-system-for-automated-implementation-planning.md)
+
+- [ ] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
