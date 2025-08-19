@@ -687,3 +687,5 @@
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
+
+- [ ] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
