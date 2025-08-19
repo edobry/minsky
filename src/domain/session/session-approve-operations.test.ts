@@ -172,7 +172,7 @@ describe("Session Approval Repository Backend Bug", () => {
 
     // Verify GitHub backend's mergePullRequest was called
     expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
-      "pr/task336", // PR branch name (will need actual PR number in real implementation)
+      "task336", // For GitHub backend, session name is used as PR identifier
       "task336" // Session name
     );
   });
