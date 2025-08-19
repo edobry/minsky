@@ -1,17 +1,24 @@
-// Mock the git-exec module FIRST before any imports
+// Mock ALL git-related modules FIRST before any imports
 import { mockModule, createMock } from "../../utils/test-utils/mocking";
 
+// Mock the exec utility that conflict-detection uses
+mockModule("../../utils/exec", () => ({
+  execAsync: createMock(async () => ({ stdout: "0\t1", stderr: "" })),
+}));
+
+// Mock git-exec module
 mockModule("../../utils/git-exec", () => ({
   execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
   gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
 }));
 
-// Also try mocking with absolute path
-mockModule("/Users/edobry/Projects/minsky/src/utils/git-exec", () => ({
-  execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
-  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+// Mock child_process directly to catch any remaining shell commands
+mockModule("node:child_process", () => ({
+  exec: createMock((command: string, callback: any) => {
+    // Mock all git commands to return success
+    process.nextTick(() => callback(null, { stdout: "0\t1", stderr: "" }));
+  }),
 }));
 
 import { describe, it, expect, mock } from "bun:test";
