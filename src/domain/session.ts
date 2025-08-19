@@ -1185,7 +1185,7 @@ export async function approveSessionFromParams(
   }
 
   // SECURITY: Use new approve-only operation
-  return await approveSessionPr(
+  const result = await approveSessionPr(
     {
       session: sessionToUse,
       task: params.task,
@@ -1195,6 +1195,15 @@ export async function approveSessionFromParams(
     },
     depsInput
   );
+
+  // Map the result to match expected return type
+  return {
+    sessionName: result.session,
+    taskId: result.taskId,
+    prBranch: result.prBranch,
+    approvalInfo: result.approvalInfo,
+    wasAlreadyApproved: result.wasAlreadyApproved,
+  };
 }
 
 /**
