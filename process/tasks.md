@@ -688,4 +688,4 @@
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
 
-- [ ] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
+- [+] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
