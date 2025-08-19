@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Task specification for MCP-based subagent system (md#441)
+  - Comprehensive architecture for implementing subagents as MCP tools
+  - Integration with task/session system for state management
+  - OODA loop implementation based on Task #349 agent analysis
+  - Ten phased implementation plan for progressive development
+  - Support for customized tool manifests and rule selection per subagent
+  - Conversation history tracking for execution analysis
+  - Foundation for transitioning from passive to active agent control
+
 - Enhanced task search output with immediate usability improvements
 
   - Task search results now display title, status, and spec path by default
