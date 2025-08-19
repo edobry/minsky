@@ -47,7 +47,7 @@ describe("Session Start Consistency Tests", () => {
     });
 
     mockTaskService = createMockTaskService({
-      getTask: () => Promise.resolve({ id: "160", title: "Test Task", status: "TODO" }),
+      getTask: () => Promise.resolve({ id: "md#160", title: "Test Task", status: "TODO" }),
       getTaskStatus: () => Promise.resolve("TODO"),
       setTaskStatus: () => Promise.resolve(),
     });
@@ -81,7 +81,7 @@ describe("Session Start Consistency Tests", () => {
     it("should only add session to database after git operations succeed", async () => {
       // Arrange
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -116,7 +116,7 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(gitError));
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -144,7 +144,7 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.branchWithoutSession = mock(() => Promise.reject(gitError));
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -172,7 +172,7 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(originalError));
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -204,14 +204,14 @@ describe("Session Start Consistency Tests", () => {
           repoUrl: "local/minsky",
           repoName: "local-minsky",
           createdAt: new Date().toISOString(),
-          taskId: "160",
+          taskId: "md#160",
           branch: "task#160",
         })
       );
       mockSessionDB.getSession = sessionGetSpy;
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -251,7 +251,7 @@ describe("Session Start Consistency Tests", () => {
       mockSessionDB.listSessions = listSessionsSpy;
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -280,7 +280,7 @@ describe("Session Start Consistency Tests", () => {
       mockTaskService.getTask = taskGetSpy;
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -313,7 +313,7 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(gitError));
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,
@@ -344,7 +344,7 @@ describe("Session Start Consistency Tests", () => {
       sessionDbMock.addSession = addSessionSpy;
 
       const params = {
-        task: "160",
+        task: "md#160",
         repo: "local/minsky",
         quiet: false,
         noStatusUpdate: false,

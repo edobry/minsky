@@ -97,8 +97,6 @@ export class TasksSimilarCommand extends BaseTaskCommand {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
-        // Include raw search results for programmatic use
-        searchResults: params.json || ctx.format === "json" ? searchResults : undefined,
       },
       params.json || ctx.format === "json"
     );
@@ -209,8 +207,6 @@ export class TasksSearchCommand extends BaseTaskCommand {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
-        // Include raw search results for programmatic use
-        searchResults: params.json || ctx.format === "json" ? searchResults : undefined,
       },
       params.json || ctx.format === "json"
     );
