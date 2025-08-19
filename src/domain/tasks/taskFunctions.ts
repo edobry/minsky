@@ -211,20 +211,23 @@ export function getNextTaskId(tasks: TaskData[]): string {
 export function setTaskStatus(tasks: TaskData[], id: string, status: TaskStatus): TaskData[] {
   if (!tasks || !id || !status) return tasks;
 
-  const normalizedId = normalizeTaskId(id);
-  if (!normalizedId) return tasks;
-
   // Validate status using centralized utility
   if (!isValidTaskStatusUtil(status)) {
     return tasks;
   }
 
-  return tasks.map((task) =>
-    task.id === normalizedId ||
-    parseInt(task.id.replace(/^#/, ""), 10) === parseInt(normalizedId.replace(/^#/, ""), 10)
-      ? { ...task, status }
-      : task
-  );
+  return tasks.map((task) => {
+    // Exact match for qualified IDs
+    if (task.id === id) return { ...task, status };
+
+    // Extract local IDs for comparison (md#123 vs md#123, or md#123 vs 123)
+    const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
+    const searchLocalId = id.includes("#") ? id.split("#").pop() : id;
+
+    if (taskLocalId === searchLocalId) return { ...task, status };
+
+    return task;
+  });
 }
 
 /**

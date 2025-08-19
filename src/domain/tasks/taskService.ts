@@ -149,22 +149,10 @@ export class TaskService {
    * @returns Promise resolving to the task or null if not found
    */
   async getTask(id: string): Promise<TaskData | null> {
+    // TaskService only accepts qualified IDs
+    // Backend routing will handle conversion to local IDs for backend operations
     const tasks = await this.getAllTasks();
-    // Strict: exact match first
-    const exact = tasks.find((task) => task.id === id);
-    if (exact) return exact;
-
-    // Strict qualified handling: support mapping md#NNN → #NNN (storage in tasks.md)
-    const qualifiedMatch = id.match(/^[a-z-]+#(\d+)$/);
-    if (qualifiedMatch) {
-      const num = qualifiedMatch[1];
-      const hashForm = `#${num}`;
-      const alt = tasks.find((task) => task.id === hashForm);
-      if (alt) return alt;
-    }
-
-    // No legacy/plain fallback
-    return null;
+    return tasks.find((task) => task.id === id) || null;
   }
 
   /**
