@@ -28,13 +28,15 @@ describe("Session Git Clone Bug Regression Test", () => {
     let cloneSpy = createMock();
     cloneSpy = mock(() =>
       Promise.reject(
-        new Error("fatal: destination path 'task#160' already exists and is not an empty directory")
+        new Error(
+          "fatal: destination path 'task-md#160' already exists and is not an empty directory"
+        )
       )
     );
 
     let branchSpy = createMock();
     branchSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" })
+      Promise.resolve({ workdir: "/test/sessions/task-md#160", branch: "task-md#160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
@@ -45,7 +47,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     });
 
     // Add getNewSessionRepoPath method not covered by centralized factory
-    (mockSessionDB as any).getNewSessionRepoPath = () => "/test/sessions/task#160";
+    (mockSessionDB as any).getNewSessionRepoPath = () => "/test/sessions/task-md#160";
 
     const mockGitService = createMockGitService({
       clone: cloneSpy,
@@ -57,7 +59,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockTaskService = createMockTaskService();
 
     // Add getTask method not covered by centralized factory
-    (mockTaskService as any).getTask = () => Promise.resolve({ id: "160", title: "Test Task" });
+    (mockTaskService as any).getTask = () => Promise.resolve({ id: "md#160", title: "Test Task" });
 
     // Create workspace utils mock with all required methods
     const mockWorkspaceUtils = createPartialMock<WorkspaceUtilsInterface>({
@@ -71,7 +73,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 
     const params = {
-      task: "160",
+      task: "md#160",
       repo: "local/minsky",
       quiet: false,
       noStatusUpdate: false,
@@ -87,7 +89,7 @@ describe("Session Git Clone Bug Regression Test", () => {
         workspaceUtils: mockWorkspaceUtils,
         resolveRepoPath: mockResolveRepoPath,
       })
-    ).rejects.toThrow("destination path 'task#160' already exists");
+    ).rejects.toThrow("destination path 'task-md#160' already exists");
 
     // Critical assertion: NO session record should be added to database
     expect(addSessionSpy).not.toHaveBeenCalled();
@@ -106,12 +108,12 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     let cloneSpy = createMock();
     cloneSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task#160", session: "task#160" })
+      Promise.resolve({ workdir: "/test/sessions/task-md#160", session: "task-md#160" })
     );
 
     let branchSpy = createMock();
     branchSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task#160", branch: "task#160" })
+      Promise.resolve({ workdir: "/test/sessions/task-md#160", branch: "task-md#160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
@@ -122,7 +124,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     });
 
     // Add getNewSessionRepoPath method not covered by centralized factory
-    (mockSessionDB as any).getNewSessionRepoPath = () => "/test/sessions/task#160";
+    (mockSessionDB as any).getNewSessionRepoPath = () => "/test/sessions/task-md#160";
 
     const mockGitService = createMockGitService({
       clone: cloneSpy,
@@ -134,7 +136,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockTaskService = createMockTaskService();
 
     // Add methods not covered by centralized factory
-    (mockTaskService as any).getTask = () => Promise.resolve({ id: "160", title: "Test Task" });
+    (mockTaskService as any).getTask = () => Promise.resolve({ id: "md#160", title: "Test Task" });
     (mockTaskService as any).getTaskStatus = () => Promise.resolve("TODO");
     (mockTaskService as any).setTaskStatus = () => Promise.resolve(undefined);
 
@@ -150,7 +152,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 
     const params = {
-      task: "160",
+      task: "md#160",
       repo: "local/minsky",
       quiet: false,
       noStatusUpdate: false,
