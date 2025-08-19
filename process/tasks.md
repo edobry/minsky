@@ -695,4 +695,7 @@
 - [x] Improve task search output to include title, spec path, and other relevant information by default, with additional details behind a flag. Update both CLI and JSON output formats. [md#438](process/tasks/md#438-improve-task-search-output-to-include-title-spec-path-and-other-relevant-information-by-default-with-additional-details-behind-a-flag-update-both-cli-and-json-output-formats-.md)
 
 - [ ] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
-- [ ] Define Phased Future Direction: Backend-SoT + DB Overlay, MCP‑First (Minimal Path) [md#440](process/tasks/md#440-define-phased-future-direction-backend-sot-db-overlay-mcp-first.md)
+
+- [ ] Define Phased Future Direction: Backend-SoT + DB Overlay, MCP‑First (Minimal Path) [md#440](process/tasks/md#440-define-phased-future-direction-backend-sot-db-overlay-mcp-first-minimal-path-.md)
+
+- [ ] Explore task templates for different backends [md#441](process/tasks/md#441-explore-task-templates-for-different-backends.md)
