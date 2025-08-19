@@ -21,6 +21,8 @@ mockModule("node:child_process", () => ({
   }),
 }));
 
+// No longer need to mock prepared-merge-commit-workflow since we use dependency injection
+
 import { describe, it, expect, mock } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
 import type { SessionProviderInterface, SessionRecord } from "../session/types";
