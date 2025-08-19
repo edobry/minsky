@@ -1,11 +1,16 @@
 import type { SessionStartParameters } from "../../../domain/schemas";
 import { startSessionImpl } from "../start-session-operations";
-import type { Session } from "../types";
 import * as WorkspaceUtils from "../../workspace";
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
 import { createConfiguredTaskService } from "../../tasks/taskService";
-import { resolveRepoPath } from "../../repo-utils";
+import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";
+import { resolveRepositoryAndBackend } from "../../session/repository-backend-detection";
+import { createTaskFromDescription } from "../../templates/session-templates";
+import { detectPackageManager, installDependencies } from "../../../utils/package-manager";
+import { log } from "../../utils/logger";
+import { Session, SessionRecord, SessionCreateDependencies } from "../types";
+import { MinskyError, ValidationError } from "../../errors/index";
 
 /**
  * Starts a new session based on parameters

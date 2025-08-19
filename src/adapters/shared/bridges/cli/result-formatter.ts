@@ -193,21 +193,56 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       case "tasks.search":
       case "tasks.similar":
         if (result && typeof result === "object" && Array.isArray((result as any).results)) {
-          const results = (result as any).results as Array<{ id: string; score?: number }>;
+          const results = (result as any).results as Array<{
+            id: string;
+            score?: number;
+            title?: string;
+            status?: string;
+            specPath?: string;
+            description?: string;
+          }>;
           if (results.length === 0) {
             log.cli("No matching tasks found.");
           } else {
-            results.forEach((r) => {
-              const scoreText =
-                typeof r.score === "number" && isFinite(r.score)
-                  ? ` (score: ${r.score.toFixed(3)})`
-                  : "";
-              log.cli(`- ${r.id}${scoreText}`);
+            results.forEach((r, index) => {
+              // Enhanced format: Show title and status by default
+              if (r.title && r.status) {
+                // Main line: #. Title [ID] [Status]
+                log.cli(`${index + 1}. ${r.title} [${r.id}] [${r.status}]`);
+
+                // Spec path if available
+                if (r.specPath) {
+                  log.cli(`Spec: ${r.specPath}`);
+                }
+
+                // Score
+                if (typeof r.score === "number" && isFinite(r.score)) {
+                  log.cli(`Score: ${r.score.toFixed(3)}`);
+                }
+
+                // Description if included (--details flag)
+                if (r.description && r.description.trim()) {
+                  const truncatedDesc =
+                    r.description.trim().length > 100
+                      ? `${r.description.trim().substring(0, 100)}...`
+                      : r.description.trim();
+                  log.cli(`Description: ${truncatedDesc}`);
+                }
+
+                // Add spacing between results
+                log.cli("");
+              } else {
+                // Fallback to old format for missing data
+                const scoreText =
+                  typeof r.score === "number" && isFinite(r.score)
+                    ? ` (score: ${r.score.toFixed(3)})`
+                    : "";
+                log.cli(`${index + 1}. ${r.id}${scoreText}`);
+              }
             });
 
             if (typeof (result as any).count === "number") {
               const count = (result as any).count as number;
-              log.cli("");
               log.cli(`${count} result${count === 1 ? "" : "s"} found`);
             }
           }
