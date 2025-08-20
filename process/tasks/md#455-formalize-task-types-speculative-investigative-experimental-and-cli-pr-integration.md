@@ -56,5 +56,3 @@ Research/documentation only. No code changes or schema migrations in this task.
 ## Out of Scope
 
 - No code or schema implementation; this task outputs research only.
-
-
