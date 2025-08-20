@@ -25,6 +25,7 @@ interface SuggestRulesOptions {
   limit?: number;
   threshold?: number;
   noEmbeddings?: boolean;
+  details?: boolean;
 }
 
 /**
@@ -40,6 +41,7 @@ export function createSuggestRulesCommand(): Command {
     .option("--limit <number>", "Maximum number of suggestions to return", "5")
     .option("--threshold <number>", "Maximum vector distance threshold (optional)")
     .option("--no-embeddings", "Disable embeddings search and use keyword fallback only", false)
+    .option("--details", "Show diagnostic details (top results, raw distances)", false)
     .option("--workspace-path <path>", "Workspace path for context")
     .addHelpText(
       "after",
@@ -106,6 +108,16 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
     const limit = parseInt(String(options.limit || 5), 10);
     const threshold = options.threshold !== undefined ? Number(options.threshold) : undefined;
     const results = await sim.searchByText(query, limit, threshold);
+
+    if (options.details && !options.json) {
+      try {
+        const top = results.slice(0, Math.min(results.length, 5));
+        log.cliWarn(`Diagnostics: ANN results (lower distance = closer)`);
+        for (const r of top) {
+          log.cliWarn(`- ${r.id}: distance=${typeof r.score === "number" ? r.score.toFixed(4) : String(r.score)}`);
+        }
+      } catch {}
+    }
 
     // Hydrate results to suggestions compatible with output
     const byId = new Map(workspaceRules.map((r) => [r.id, r] as const));
