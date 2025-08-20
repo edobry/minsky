@@ -11,23 +11,6 @@ export interface TaskSimilarityServiceConfig {
   dimension?: number;
 }
 
-/**
- * Content structure for embeddings generation
- * This is designed to be domain-agnostic and reusable for md#447
- */
-interface EmbeddingContent {
-  title: string;
-  summary?: string;
-  keyTerms: string[];
-  fullContent: string;
-  metadata: {
-    type: string;
-    id: string;
-    domain: string;
-    contentHash: string;
-  };
-}
-
 export class TaskSimilarityService {
   constructor(
     private readonly embeddingService: EmbeddingService,
@@ -123,151 +106,30 @@ export class TaskSimilarityService {
   }
 
   /**
-   * Extract structured content for embedding generation
-   * This approach prepares for the generic similarity service in md#447
+   * Extract content for embedding generation
+   * Simple approach: title + full spec content (as requested)
+   * This prepares for the generic similarity service in md#447
    */
   private async extractTaskContent(task: Task): Promise<string> {
-    try {
-      // Build structured content for better embeddings
-      const embeddingContent = await this.buildEmbeddingContent(task);
-      return this.formatContentForEmbedding(embeddingContent);
-    } catch (error) {
-      log.debug(`Failed to build structured content for task ${task.id}:`, error);
-      // Fallback to simple concatenation
-      return this.buildFallbackContent(task);
-    }
-  }
-
-  /**
-   * Build structured embedding content - designed for reuse in md#447
-   */
-  private async buildEmbeddingContent(task: Task): Promise<EmbeddingContent> {
-    // Get full spec content
-    const specData = await this.getTaskSpecContent(task.id);
-
-    // Extract key terms from title (basic implementation)
-    const keyTerms = this.extractKeyTerms(task.title);
-
-    // Extract summary from spec content (first paragraph or Context section)
-    const summary = this.extractSummary(specData.content);
-
-    // Generate content hash for metadata
-    const fullContent = specData.content || "";
-    const contentHash = createHash("sha256")
-      .update(task.title + fullContent)
-      .digest("hex");
-
-    return {
-      title: task.title,
-      summary,
-      keyTerms,
-      fullContent,
-      metadata: {
-        type: "task",
-        id: task.id,
-        domain: "tasks",
-        contentHash,
-      },
-    };
-  }
-
-  /**
-   * Format structured content for optimal embedding generation
-   * This formatting strategy will be part of the generic service in md#447
-   */
-  private formatContentForEmbedding(content: EmbeddingContent): string {
-    const sections: string[] = [];
-
-    // Title is most important for semantic understanding
-    sections.push(`Title: ${content.title}`);
-
-    // Summary provides context without full detail
-    if (content.summary) {
-      sections.push(`Summary: ${content.summary}`);
-    }
-
-    // Key terms help with keyword matching
-    if (content.keyTerms.length > 0) {
-      sections.push(`Key Terms: ${content.keyTerms.join(", ")}`);
-    }
-
-    // Full content provides detailed context
-    if (content.fullContent) {
-      sections.push(`Content:\n${content.fullContent}`);
-    }
-
-    return sections.join("\n\n");
-  }
-
-  /**
-   * Extract key terms from title for better searchability
-   */
-  private extractKeyTerms(title: string): string[] {
-    // Basic key term extraction - will be improved in md#447
-    const stopWords = new Set([
-      "the",
-      "a",
-      "an",
-      "and",
-      "or",
-      "but",
-      "in",
-      "on",
-      "at",
-      "to",
-      "for",
-      "of",
-      "with",
-      "by",
-    ]);
-
-    return title
-      .toLowerCase()
-      .split(/[\s\-_#]+/)
-      .filter((term) => term.length > 2 && !stopWords.has(term))
-      .slice(0, 5); // Limit to top 5 terms
-  }
-
-  /**
-   * Extract summary from spec content
-   */
-  private extractSummary(content: string): string | undefined {
-    if (!content) return undefined;
-
-    // Look for Summary section first
-    const summaryMatch = content.match(/##\s*Summary\s*\n(.*?)(?=\n##|\n#|$)/s);
-    if (summaryMatch) {
-      return summaryMatch[1].trim().substring(0, 200);
-    }
-
-    // Fall back to Context section
-    const contextMatch = content.match(/##\s*Context\s*\n(.*?)(?=\n##|\n#|$)/s);
-    if (contextMatch) {
-      return contextMatch[1].trim().substring(0, 200);
-    }
-
-    // Fall back to first paragraph
-    const firstParagraph = content.split("\n\n")[0];
-    if (firstParagraph && firstParagraph.length > 20) {
-      return firstParagraph.trim().substring(0, 200);
-    }
-
-    return undefined;
-  }
-
-  /**
-   * Fallback content building for when structured approach fails
-   */
-  private buildFallbackContent(task: Task): string {
     const parts: string[] = [];
 
+    // Always include the task title
     if (task.title) {
       parts.push(task.title);
     }
 
-    // Legacy fallback for description field
-    if ((task as any).description) {
-      parts.push((task as any).description);
+    try {
+      // Get the full spec content for embedding
+      const specData = await this.getTaskSpecContent(task.id);
+      if (specData.content) {
+        parts.push(specData.content);
+      }
+    } catch (error) {
+      // If we can't get spec content, fall back to basic task info
+      log.debug(`Failed to get spec content for task ${task.id}:`, error);
+      if ((task as any).description) {
+        parts.push((task as any).description);
+      }
     }
 
     return parts.join("\n\n");
