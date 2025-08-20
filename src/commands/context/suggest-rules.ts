@@ -109,30 +109,34 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
     const threshold = options.threshold !== undefined ? Number(options.threshold) : undefined;
     const results = await sim.searchByText(query, limit, threshold);
 
-    if (options.details && !options.json) {
-      try {
-        const top = results.slice(0, Math.min(results.length, 5));
-        log.cliWarn(`Diagnostics: ANN results (lower distance = closer)`);
-        for (const r of top) {
-          log.cliWarn(`- ${r.id}: distance=${typeof r.score === "number" ? r.score.toFixed(4) : String(r.score)}`);
+    // Human-readable: mirror tasks.search format (no extra analysis); show raw distance as Score
+    if (!options.json) {
+      const byId = new Map(workspaceRules.map((r) => [r.id, r] as const));
+      const top = results.slice(0, limit);
+      top.forEach((r, i) => {
+        const rule = byId.get(r.id);
+        const title = rule?.name || r.id;
+        console.log(`${i + 1}. ${title} [${r.id}]`);
+        if (rule?.path) {
+          console.log(`Spec: ${rule.path}`);
         }
-      } catch {}
+        const score = typeof r.score === "number" ? r.score.toFixed(3) : String(r.score ?? "n/a");
+        console.log(`Score: ${score}`);
+        console.log("");
+      });
+      console.log(`${top.length} results found`);
+      return;
     }
 
-    // Hydrate results to suggestions compatible with output (use raw distances like tasks)
-    const byId = new Map(workspaceRules.map((r) => [r.id, r] as const));
-    const suggestions = results
-      .map((r, idx) => ({
+    // JSON path: return structured results similar to prior response shape
+    const response: RuleSuggestionResponse = {
+      suggestions: results.slice(0, limit).map((r) => ({
         ruleId: r.id,
-        relevanceScore: 1, // placeholder for display; we mirror tasks by showing distances via --details
+        relevanceScore: 1,
         reasoning: "Embedding similarity match",
         confidenceLevel: "high",
-        ruleName: byId.get(r.id)?.name,
-      }))
-      .slice(0, limit);
-
-    const response: RuleSuggestionResponse = {
-      suggestions,
+        ruleName: undefined,
+      })),
       queryAnalysis: {
         intent: `Embeddings search for: ${query}`,
         keywords: query.toLowerCase().split(/\s+/).filter((w) => w.length > 2),
@@ -141,12 +145,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
       totalRulesAnalyzed: workspaceRules.length,
       processingTimeMs: Math.max(1, Date.now() - startTime),
     };
-    totalTime = response.processingTimeMs;
-    if (options.json) {
-      outputJsonResults(response);
-    } else {
-      outputHumanReadableResults(response, query, totalTime);
-    }
+    outputJsonResults(response);
     return;
   } else {
     // Fallback to existing AI-based suggestion service
