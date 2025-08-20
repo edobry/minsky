@@ -9,13 +9,17 @@ describe("GitHubIssuesTaskBackend", () => {
   let backend: GitHubIssuesTaskBackend;
 
   beforeEach(() => {
-    // Create backend instance for testing pure functions
+    // Create backend instance for testing pure functions with mocked label creation
     backend = createGitHubIssuesTaskBackend({
       name: "github-issues",
       workspacePath: "/test/workspace",
       githubToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
+      // Mock the createLabels dependency to prevent real API calls
+      createLabels: async () => {
+        // No-op mock - prevents real GitHub API calls during tests
+      },
     }) as GitHubIssuesTaskBackend;
   });
 
@@ -39,6 +43,10 @@ describe("GitHubIssuesTaskBackend", () => {
           DONE: "custom:done",
           BLOCKED: "custom:blocked",
           CLOSED: "custom:closed",
+        },
+        // Mock the createLabels dependency to prevent real API calls
+        createLabels: async () => {
+          // No-op mock - prevents real GitHub API calls during tests
         },
       });
 

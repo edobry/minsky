@@ -51,6 +51,16 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
     BLOCKED: string;
     CLOSED: string;
   };
+
+  /**
+   * Optional dependency injection for label creation (for testing)
+   */
+  createLabels?: (
+    octokit: any,
+    owner: string,
+    repo: string,
+    labels: Record<string, string>
+  ) => Promise<void>;
 }
 
 /**
@@ -116,6 +126,12 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   private readonly repo: string;
   private readonly statusLabels: Record<string, string>;
   private readonly tasksDirectory: string;
+  private readonly createLabels: (
+    octokit: any,
+    owner: string,
+    repo: string,
+    labels: Record<string, string>
+  ) => Promise<void>;
 
   constructor(options: GitHubIssuesTaskBackendOptions) {
     this.workspacePath = options.workspacePath;
@@ -123,6 +139,9 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     this.repo = options.repo;
     this.statusLabels = { ...DEFAULT_STATUS_LABELS, ...options.statusLabels };
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
+
+    // Use injected createLabels or default implementation
+    this.createLabels = options.createLabels || this.defaultCreateLabels;
 
     // Initialize GitHub API client
     this.octokit = new Octokit({
@@ -140,12 +159,24 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   }
 
   /**
+   * Default implementation for creating GitHub labels
+   */
+  private async defaultCreateLabels(
+    octokit: any,
+    owner: string,
+    repo: string,
+    labels: Record<string, string>
+  ): Promise<void> {
+    const { createGitHubLabels } = await import("./githubBackendConfig");
+    await createGitHubLabels(octokit, owner, repo, labels);
+  }
+
+  /**
    * Ensure GitHub labels exist for task statuses
    */
   private async ensureLabelsExist(): Promise<void> {
-    const { createGitHubLabels } = await import("./githubBackendConfig");
     try {
-      await createGitHubLabels(this.octokit, this.owner, this.repo, this.statusLabels);
+      await this.createLabels(this.octokit, this.owner, this.repo, this.statusLabels);
     } catch (error) {
       log.warn("Failed to ensure GitHub labels exist", {
         error: getErrorMessage(error as any),
