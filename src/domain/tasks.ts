@@ -22,8 +22,81 @@ import { getTaskSpecRelativePath } from "./tasks/taskIO";
 import { createGitService } from "./git";
 
 // Import and re-export functions from taskCommands.ts
-// Note: Command-level functions removed due to merge conflicts with main branch refactoring
-// Core task backend functionality is available through TaskService and individual backends
+// Command-level wrapper functions for CLI integration
+// These wrap TaskService methods with parameter validation and formatting
+
+import { TaskService } from "./tasks/taskService";
+import {
+  taskListParamsSchema,
+  taskGetParamsSchema,
+  taskCreateParamsSchema,
+  taskDeleteParamsSchema,
+  taskStatusSetParamsSchema,
+  taskStatusGetParamsSchema,
+  taskSpecContentParamsSchema,
+} from "../schemas/tasks";
+import { createFormattedValidationError } from "../utils/zod-error-formatter";
+
+// Create a task service instance for command functions
+const getTaskService = () => {
+  const workspacePath = process.cwd();
+  return new TaskService({ workspacePath });
+};
+
+export async function listTasksFromParams(params: any) {
+  const validParams = taskListParamsSchema.parse(params);
+  const taskService = getTaskService();
+  return await taskService.listTasks(validParams);
+}
+
+export async function getTaskFromParams(params: any) {
+  const validParams = taskGetParamsSchema.parse(params);
+  const taskService = getTaskService();
+  return await taskService.getTask(validParams.taskId);
+}
+
+export async function getTaskStatusFromParams(params: any) {
+  const validParams = taskStatusGetParamsSchema.parse(params);
+  const taskService = getTaskService();
+  return await taskService.getTaskStatus(validParams.taskId);
+}
+
+export async function setTaskStatusFromParams(params: any) {
+  const validParams = taskStatusSetParamsSchema.parse(params);
+  const taskService = getTaskService();
+  await taskService.setTaskStatus(validParams.taskId, validParams.status);
+  return { success: true, taskId: validParams.taskId, status: validParams.status };
+}
+
+export async function createTaskFromParams(params: any) {
+  const validParams = taskCreateParamsSchema.parse(params);
+  const taskService = getTaskService();
+  return await taskService.createTask(validParams.specPath);
+}
+
+export async function createTaskFromTitleAndSpec(params: any) {
+  // Parse using the existing schema (which may still use "description")
+  const validParams = taskCreateParamsSchema.parse(params);
+  const taskService = getTaskService();
+  // Use spec field, fallback to description for compatibility
+  const spec = (validParams as any).spec || (validParams as any).description || "";
+  const title = (validParams as any).title || "";
+  const backend = getTaskService().getCurrentBackend();
+  return await backend.createTaskFromTitleAndSpec(title, spec, validParams);
+}
+
+export async function deleteTaskFromParams(params: any) {
+  const validParams = taskDeleteParamsSchema.parse(params);
+  const taskService = getTaskService();
+  const success = await taskService.deleteTask(validParams.taskId, validParams);
+  return { success, taskId: validParams.taskId };
+}
+
+export async function getTaskSpecContentFromParams(params: any) {
+  const validParams = taskSpecContentParamsSchema.parse(params);
+  const taskService = getTaskService();
+  return await taskService.getTaskSpecContent(validParams.taskId);
+}
 
 // Re-export task status constants from centralized location
 export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
@@ -762,89 +835,5 @@ export class GitHubTaskBackend implements TaskBackend {
   async deleteTask(_id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
     // Implementation needed
     throw new Error("Method not implemented");
-  }
-}
-
-export interface TaskServiceOptions {
-  workspacePath?: string;
-  backend?: string;
-}
-
-export class TaskService {
-  private backends: TaskBackend[] = [];
-  private currentBackend: TaskBackend;
-
-  constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = (process as any).cwd(), backend = "markdown" } = options;
-
-    // Initialize backends
-    this.backends = [
-      new MarkdownTaskBackend(workspacePath),
-      new GitHubTaskBackend(workspacePath),
-      createJsonFileTaskBackend({ name: "json-file", workspacePath }),
-    ];
-
-    // Set current backend
-    const selectedBackend = this.backends.find((b) => b.name === backend);
-    if (!selectedBackend) {
-      throw new Error(
-        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
-      );
-    }
-    this.currentBackend = selectedBackend;
-  }
-
-  async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    return this.currentBackend.listTasks(options);
-  }
-
-  async getTask(id: string): Promise<Task | null> {
-    return this.currentBackend.getTask(id);
-  }
-
-  async getTaskStatus(id: string): Promise<string | undefined> {
-    return this.currentBackend.getTaskStatus(id);
-  }
-
-  async setTaskStatus(id: string, status: string): Promise<void> {
-    return this.currentBackend.setTaskStatus(id, status);
-  }
-
-  getWorkspacePath(): string {
-    return this.currentBackend.getWorkspacePath();
-  }
-
-  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
-    return this.currentBackend.createTask(specPath, options);
-  }
-
-  async createTaskFromTitleAndSpec(
-    title: string,
-    spec: string,
-    options: CreateTaskOptions = {}
-  ): Promise<Task> {
-    return this.currentBackend.createTaskFromTitleAndSpec(title, description, options);
-  }
-
-  /**
-   * Get the backend for a specific task
-   * @param id Task ID
-   * @returns The appropriate task backend for the task, or null if not found
-   */
-  async getBackendForTask(id: string): Promise<TaskBackend | null> {
-    // Strict: use ID as-is (qualified expected)
-    // Try to find the task in each backend
-    for (const backend of this.backends) {
-      const task = await backend.getTask(id);
-      if (task) {
-        return backend;
-      }
-    }
-
-    return null;
-  }
-
-  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
-    return this.currentBackend.deleteTask(id, options);
   }
 }
