@@ -27,7 +27,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData";
-import { TaskStatus, TASK_STATUS } from "./taskConstants";
+import { TaskStatus, TASK_STATUS, TASK_PARSING_UTILS, TASK_STATUS_CHECKBOX } from "./taskConstants";
 
 import {
   parseTasksFromMarkdown,
@@ -63,7 +63,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   constructor(config: TaskBackendConfig) {
     this.workspacePath = config.workspacePath;
-    this.filePath = path.join(this.workspacePath, "process", "tasks.md");
+    this.filePath = join(this.workspacePath, "process", "tasks.md");
   }
 
   // ---- User-Facing Operations ----
@@ -806,7 +806,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       .replace(/\s+/g, "-")
       .substring(0, 50);
 
-    return path.join(this.workspacePath, "process", "tasks", `${cleanId}-${slug}.md`);
+    return join(this.workspacePath, "process", "tasks", `${cleanId}-${slug}.md`);
   }
 
   private async fileExists(filePath: string): Promise<boolean> {

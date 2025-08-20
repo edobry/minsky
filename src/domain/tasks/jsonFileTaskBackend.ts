@@ -1,5 +1,5 @@
 import { promises as fs } from "fs";
-import * as path from "path";
+import { join, dirname } from "path";
 import type {
   Task,
   TaskBackend,
@@ -37,7 +37,7 @@ export class JsonFileTaskBackend implements TaskBackend {
 
   constructor(config: TaskBackendConfig) {
     this.workspacePath = config.workspacePath;
-    this.tasksFilePath = path.join(this.workspacePath, "process", "tasks", "tasks.json");
+    this.tasksFilePath = join(this.workspacePath, "process", "tasks", "tasks.json");
   }
 
   // ---- User-Facing Operations ----
@@ -305,7 +305,7 @@ ${description}
       .replace(/\s+/g, "-")
       .substring(0, 50);
 
-    return path.join(this.workspacePath, "process", "tasks", `${cleanId}-${slug}.md`);
+    return join(this.workspacePath, "process", "tasks", `${cleanId}-${slug}.md`);
   }
 
   private async fileExists(filePath: string): Promise<boolean> {
