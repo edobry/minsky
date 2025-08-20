@@ -1,4 +1,9 @@
-import { type ContextComponent, type ComponentInput, type ComponentOutput, type ComponentInputs } from "./types";
+import {
+  type ContextComponent,
+  type ComponentInput,
+  type ComponentOutput,
+  type ComponentInputs,
+} from "./types";
 
 interface TaskContextInputs {
   hasTask: boolean;
@@ -32,9 +37,9 @@ export const TaskContextComponent: ContextComponent = {
   // Phase 2: Pure rendering using template approach
   render(inputs: ComponentInputs, context: ComponentInput): ComponentOutput {
     const taskInputs = inputs as TaskContextInputs;
-    
+
     let content = `## Task Context\n\n`;
-    
+
     if (taskInputs.hasTask) {
       content += `### Current Task
 - Task ID: ${taskInputs.taskId}
@@ -55,9 +60,9 @@ ${taskInputs.userQuery}`;
 
     return {
       content,
-      metadata: { 
-        componentId: this.id, 
-        generatedAt: new Date().toISOString() 
+      metadata: {
+        componentId: this.id,
+        generatedAt: new Date().toISOString(),
       },
     };
   },
@@ -69,6 +74,6 @@ ${taskInputs.userQuery}`;
   },
 };
 
-export function createTaskContextComponent(): ContextComponent { 
-  return TaskContextComponent; 
+export function createTaskContextComponent(): ContextComponent {
+  return TaskContextComponent;
 }

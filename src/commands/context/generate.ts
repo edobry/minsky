@@ -43,12 +43,10 @@ interface GenerateResult {
 export function createGenerateCommand(): Command {
   // Register default components
   registerDefaultComponents();
-  
+
   // Get available components for help
   const componentHelp = getComponentHelp();
-  const helpText = componentHelp
-    .map(c => `  ${c.id.padEnd(18)} ${c.description}`)
-    .join("\n");
+  const helpText = componentHelp.map((c) => `  ${c.id.padEnd(18)} ${c.description}`).join("\n");
 
   return new Command("generate")
     .description("Generate AI context using modular components")
@@ -58,7 +56,9 @@ export function createGenerateCommand(): Command {
     .option("-t, --template <template>", "Use specific template for generation")
     .option("-m, --model <model>", "Target AI model for context generation", "gpt-4o")
     .option("-p, --prompt <prompt>", "User prompt to customize context generation")
-    .addHelpText("after", `
+    .addHelpText(
+      "after",
+      `
 Available Components:
 ${helpText}
 
@@ -67,16 +67,19 @@ Examples:
   minsky context generate --components environment,task-context --format json
   minsky context generate --template cursor-style --model claude-3-5-sonnet
   minsky context generate --prompt "focus on authentication and security rules"
-`)
+`
+    )
     .action(async (options: GenerateOptions) => {
       try {
         await executeGenerate(options);
       } catch (error) {
-        log.error("Failed to generate context", { 
+        log.error("Failed to generate context", {
           error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined
+          stack: error instanceof Error ? error.stack : undefined,
         });
-        console.error(`Failed to generate context: ${error instanceof Error ? error.message : String(error)}`);
+        console.error(
+          `Failed to generate context: ${error instanceof Error ? error.message : String(error)}`
+        );
         process.exit(1);
       }
     });
@@ -86,8 +89,8 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   log.info("Starting context generation", { options });
 
   // Determine which components to use
-  const requestedComponents = options.components 
-    ? options.components.split(",").map(c => c.trim())
+  const requestedComponents = options.components
+    ? options.components.split(",").map((c) => c.trim())
     : getDefaultComponents();
 
   // Validate components exist
@@ -103,18 +106,20 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
     input: {
       environment: {
         os: `${process.platform} ${process.arch}`,
-        shell: process.env.SHELL || "unknown"
+        shell: process.env.SHELL || "unknown",
       },
       workspacePath: process.cwd(),
       task: {
         id: "md#082",
         title: "Add Context Management Commands for Environment-Agnostic AI Collaboration",
         status: "IN-PROGRESS",
-        description: "Implementing modular context component system for testbench development"
+        description: "Implementing modular context component system for testbench development",
       },
-      userQuery: options.prompt || "Implementing context generate command and designing modular context components",
-      targetModel: options.model || "gpt-4o"
-    }
+      userQuery:
+        options.prompt ||
+        "Implementing context generate command and designing modular context components",
+      targetModel: options.model || "gpt-4o",
+    },
   };
 
   // Generate context
@@ -124,7 +129,7 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   if (options.format === "json") {
     const jsonOutput = {
       sections: result.components,
-      metadata: result.metadata
+      metadata: result.metadata,
     };
     console.log(JSON.stringify(jsonOutput, null, 2));
   } else {
@@ -135,7 +140,7 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
     totalTokens: result.metadata.totalTokens,
     componentsUsed: result.components.length,
     skipped: result.metadata.skipped,
-    generationTime: result.metadata.generationTime
+    generationTime: result.metadata.generationTime,
   });
 }
 
@@ -153,14 +158,14 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
   const startTime = Date.now();
   const registry = getContextComponentRegistry();
   const components = registry.getWithDependencies(request.components);
-  
+
   const outputs: Array<{
     component_id: string;
     content: string;
     generated_at: string;
     token_count?: number;
   }> = [];
-  
+
   const skipped: string[] = [];
   const errors: string[] = [];
 
@@ -168,7 +173,7 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
   for (const component of components) {
     try {
       log.debug(`Generating component: ${component.id}`);
-      
+
       // Use new split architecture if available, fallback to legacy generate method
       let output;
       if (component.gatherInputs && component.render) {
@@ -181,20 +186,20 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
       } else {
         throw new Error(`Component ${component.id} has no generation method`);
       }
-      
+
       // Estimate token count (rough approximation: 1 token ≈ 4 characters)
       const tokenCount = Math.floor(output.content.length / 4);
-      
+
       outputs.push({
         component_id: component.id,
         content: output.content,
         generated_at: output.metadata.generatedAt,
-        token_count: tokenCount
+        token_count: tokenCount,
       });
-      
-      log.debug(`Component ${component.id} generated successfully`, { 
+
+      log.debug(`Component ${component.id} generated successfully`, {
         tokens: tokenCount,
-        length: output.content.length 
+        length: output.content.length,
       });
     } catch (error) {
       const errorMsg = `Failed to generate component ${component.id}: ${error instanceof Error ? error.message : String(error)}`;
@@ -210,24 +215,24 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
   // Create combined text output
   let content: string;
   if (outputs.length > 0) {
-    const sections = outputs.map(o => o.content);
+    const sections = outputs.map((o) => o.content);
     content = [
       "# Generated AI Context",
       "",
       `Generated at: ${new Date().toISOString()}`,
       "",
-      `Components: ${outputs.map(o => o.component_id).join(", ")}`,
+      `Components: ${outputs.map((o) => o.component_id).join(", ")}`,
       "",
       `Template: ${request.input.targetModel ? "model-specific" : "default"}`,
       "",
       `Target Model: ${request.input.targetModel}`,
       "",
-      ...sections
+      ...sections,
     ].join("\n\n");
   } else {
     content = "# No Context Generated\n\nAll components failed to generate content.";
   }
-  
+
   return {
     content,
     components: outputs,
@@ -235,7 +240,7 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
       generationTime,
       totalTokens,
       skipped,
-      errors
-    }
+      errors,
+    },
   };
 }

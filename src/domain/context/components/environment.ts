@@ -1,4 +1,9 @@
-import { type ContextComponent, type ComponentInput, type ComponentOutput, type ComponentInputs } from "./types";
+import {
+  type ContextComponent,
+  type ComponentInput,
+  type ComponentOutput,
+  type ComponentInputs,
+} from "./types";
 
 interface EnvironmentInputs {
   osVersion: string;
@@ -30,7 +35,7 @@ export const EnvironmentComponent: ContextComponent = {
   // Phase 2: Pure rendering using template-style approach
   render(inputs: ComponentInputs, context: ComponentInput): ComponentOutput {
     const envInputs = inputs as EnvironmentInputs;
-    
+
     // Using template literal approach (could be enhanced with full template system later)
     const content = `## Environment Setup
 
@@ -42,9 +47,9 @@ Note: Context generated for AI collaboration in Minsky environment.`;
 
     return {
       content,
-      metadata: { 
-        componentId: this.id, 
-        generatedAt: new Date().toISOString() 
+      metadata: {
+        componentId: this.id,
+        generatedAt: new Date().toISOString(),
       },
     };
   },
@@ -56,6 +61,6 @@ Note: Context generated for AI collaboration in Minsky environment.`;
   },
 };
 
-export function createEnvironmentComponent(): ContextComponent { 
-  return EnvironmentComponent; 
+export function createEnvironmentComponent(): ContextComponent {
+  return EnvironmentComponent;
 }
