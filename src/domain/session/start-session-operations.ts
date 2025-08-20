@@ -16,7 +16,7 @@ import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
 import { type WorkspaceUtilsInterface } from "../workspace";
 import { createTaskFromDescription } from "../templates/session-templates";
 import type { SessionProviderInterface, SessionRecord, Session } from "../session";
-import { normalizeTaskIdForStorage, formatTaskIdForDisplay } from "../tasks/task-id-utils";
+import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import {
   detectRepositoryBackendTypeFromUrl,
   resolveRepositoryAndBackend,
@@ -122,7 +122,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
         normalizedTaskId = TaskIdSchema.parse(taskId);
       } catch (validationError) {
         // Fallback: if Zod validation fails, try manual normalization
-        const manualNormalized = normalizeTaskIdForStorage(taskId);
+        const manualNormalized = validateQualifiedTaskId(taskId);
         if (manualNormalized) {
           normalizedTaskId = manualNormalized;
         } else {
