@@ -34,7 +34,6 @@ import fs from "fs/promises";
 import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
 import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
-import postgres from "postgres";
 
 /**
  * Parameters for the rules list command
@@ -310,50 +309,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
         const dimension = getEmbeddingDimension(model, 1536);
 
-        const conn = (cfg as any).sessiondb?.postgres?.connectionString;
-        if (!conn) {
-          throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
-        }
-
-        // Ensure rules_embeddings table exists (extension, table, index)
-        const sql = postgres(conn, { prepare: false, onnotice: () => {} });
-        const vectorDim = String(dimension);
-        await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
-        await sql.unsafe(
-          `CREATE TABLE IF NOT EXISTS rules_embeddings (
-            rule_id TEXT PRIMARY KEY,
-            dimension INT NOT NULL,
-            embedding VECTOR(${vectorDim}),
-            metadata JSONB,
-            content_hash TEXT,
-            last_indexed_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-          )`
-        );
-        // Ensure new columns exist if table was created by an older version
-        await sql.unsafe(
-          `ALTER TABLE rules_embeddings
-             ADD COLUMN IF NOT EXISTS metadata JSONB,
-             ADD COLUMN IF NOT EXISTS content_hash TEXT,
-             ADD COLUMN IF NOT EXISTS last_indexed_at TIMESTAMPTZ,
-             ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
-             ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`
-        );
-        // Create HNSW index if not exists (L2 ops by default to match tasks)
-        await sql.unsafe(
-          `DO $$
-          BEGIN
-            IF NOT EXISTS (
-              SELECT 1 FROM pg_class c
-              JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE c.relname = 'idx_rules_embeddings_hnsw' AND n.nspname = 'public'
-            ) THEN
-              EXECUTE 'CREATE INDEX idx_rules_embeddings_hnsw ON rules_embeddings USING hnsw (embedding vector_l2_ops)';
-            END IF;
-          END$$;`
-        );
-        // Initialize embedding service and storage
+        // Initialize embedding service and storage (schema managed by Drizzle migrations)
         const embeddingService = await createEmbeddingServiceFromConfig();
         const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
           tableName: "rules_embeddings",
@@ -380,7 +336,6 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const start = Date.now();
         let indexed = 0;
         let skipped = 0;
-        let skippedUnchanged = 0;
         for (const rule of slice) {
           try {
             // Prefer full rule content; fallback to file; then to metadata
@@ -420,22 +375,6 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
               const { createHash } = await import("crypto");
               contentHash = createHash("sha256").update(contentLimited).digest("hex");
             } catch {}
-            // Skip if content hash unchanged unless forced
-            if (!params.force && contentHash) {
-              try {
-                const existing = (await sql.unsafe(
-                  `SELECT content_hash FROM rules_embeddings WHERE rule_id = $1 LIMIT 1`,
-                  [rule.id]
-                )) as Array<{ content_hash?: string | null }>;
-                if (existing?.[0]?.content_hash && existing[0].content_hash === contentHash) {
-                  skippedUnchanged += 1;
-                  continue;
-                }
-              } catch {
-                // ignore hash lookup errors
-              }
-            }
-
             const vector = await embeddingService.generateEmbedding(contentLimited);
             // Store metadata JSON and content hash in dedicated column for staleness detection
             await storage.store(rule.id, vector, { ...metadata, contentHash });
@@ -452,18 +391,13 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             success: true,
             indexed,
             skipped,
-            skippedUnchanged,
             total: slice.length,
             ms: elapsed,
             dimension,
             model,
           };
         }
-        log.cli(
-          `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped}, unchanged: ${skippedUnchanged})`
-        );
-        // Close SQL connection used for table DDL and hash lookups
-        try { await sql.end({ timeout: 1 }); } catch {}
+        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`);
         return { success: true };
       } catch (error) {
         const message = getErrorMessage(error as any);
