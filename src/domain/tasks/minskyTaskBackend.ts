@@ -1,4 +1,4 @@
-import { eq } from "drizzle-orm";
+import { eq, not, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
@@ -20,8 +20,8 @@ import type {
 } from "./types";
 import * as crypto from "crypto";
 
-export class DatabaseTaskBackend implements TaskBackend {
-  name = "db";
+export class MinskyTaskBackend implements TaskBackend {
+  name = "minsky";
   private readonly db: PostgresJsDatabase;
   private readonly workspacePath: string;
 
@@ -53,29 +53,28 @@ export class DatabaseTaskBackend implements TaskBackend {
   // ---- User-Facing Operations ----
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
+    let query = this.db.select().from(tasksTable);
+
     const conditions = [];
 
     if (options?.status && options.status !== "all") {
       conditions.push(eq(tasksTable.status, options.status as any));
+    } else if (!options?.all) {
+      // Default: exclude DONE and CLOSED tasks unless --all is specified
+      conditions.push(not(eq(tasksTable.status, "DONE")));
+      conditions.push(not(eq(tasksTable.status, "CLOSED")));
     }
 
-    if (options?.backend) {
-      conditions.push(eq(tasksTable.backend, options.backend as any));
-    }
-
-    let query = this.db.select().from(tasksTable);
+    // NOTE: Filter by backend to only show Minsky-native tasks (backend="minsky")
+    conditions.push(eq(tasksTable.backend, "minsky"));
 
     if (conditions.length > 0) {
-      // Apply conditions if any exist
-      for (const condition of conditions) {
-        query = query.where(condition) as any;
-      }
+      query = query.where(and(...conditions));
     }
 
     const rows = await query;
     return rows.map((row) => this.mapDbRowToTask(row));
   }
-
   async getTask(id: string): Promise<Task | null> {
     const rows = await this.db.select().from(tasksTable).where(eq(tasksTable.id, id)).limit(1);
 
@@ -118,7 +117,7 @@ export class DatabaseTaskBackend implements TaskBackend {
     await this.db.insert(tasksTable).values({
       id,
       sourceTaskId: id.split("#")[1], // Extract the numeric part
-      backend: "db" as const,
+      backend: "minsky" as const,
       status: "TODO" as const,
       title,
       contentHash: this.generateContentHash(title + spec),
@@ -226,7 +225,7 @@ export class DatabaseTaskBackend implements TaskBackend {
     // Generate a simple incrementing ID - in production you'd want something more robust
     const timestamp = Date.now();
     const random = Math.floor(Math.random() * 1000);
-    return `db#${timestamp}-${random}`;
+    return `mt#${timestamp}-${random}`;
   }
 
   private generateContentHash(content: string): string {
@@ -235,6 +234,6 @@ export class DatabaseTaskBackend implements TaskBackend {
 }
 
 // Factory function
-export function createDatabaseTaskBackend(config: TaskBackendConfig): DatabaseTaskBackend {
-  return new DatabaseTaskBackend(config);
+export function createMinskyTaskBackend(config: TaskBackendConfig): MinskyTaskBackend {
+  return new MinskyTaskBackend(config);
 }

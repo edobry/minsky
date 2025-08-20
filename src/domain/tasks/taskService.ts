@@ -11,7 +11,7 @@ import type {
 import type { TaskData } from "../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
-import { createDatabaseTaskBackend } from "./databaseTaskBackend";
+import { createMinskyTaskBackend } from "./minskyTaskBackend";
 import { log } from "../../utils/logger";
 // normalizeTaskId removed: strict qualified IDs expected upstream
 import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
@@ -47,8 +47,8 @@ export class TaskService {
         name: "json-file",
         workspacePath: options.workspacePath,
       }),
-      createDatabaseTaskBackend({
-        name: "db",
+      createMinskyTaskBackend({
+        name: "minsky",
         workspacePath: options.workspacePath,
       }),
     ];
@@ -248,9 +248,9 @@ export class TaskService {
         name: "json-file",
         workspacePath,
       });
-    } else if (effectiveBackend === "db") {
-      taskBackend = createDatabaseTaskBackend({
-        name: "db",
+    } else if (effectiveBackend === "minsky") {
+      taskBackend = createMinskyTaskBackend({
+        name: "minsky",
         workspacePath,
       });
     } else {

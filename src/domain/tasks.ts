@@ -39,45 +39,73 @@ import { createFormattedValidationError } from "../utils/zod-error-formatter";
 
 // Create a task service instance for command functions
 const getTaskService = () => {
+  console.log("DEBUG: getTaskService called");
+  console.log("DEBUG: Creating TaskService with workspacePath:", process.cwd());
   const workspacePath = process.cwd();
-  return new TaskService({ workspacePath });
+  console.log("DEBUG: About to create TaskService");
+  try {
+    const service = new TaskService({ workspacePath });
+    console.log("DEBUG: TaskService created successfully");
+    return service;
+  } catch (error) {
+    console.log("DEBUG: TaskService creation failed:", error);
+    throw error;
+  }
 };
 
 export async function listTasksFromParams(params: any) {
   const validParams = taskListParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   return await taskService.listTasks(validParams);
 }
 
 export async function getTaskFromParams(params: any) {
   const validParams = taskGetParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   return await taskService.getTask(validParams.taskId);
 }
 
 export async function getTaskStatusFromParams(params: any) {
   const validParams = taskStatusGetParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   return await taskService.getTaskStatus(validParams.taskId);
 }
 
 export async function setTaskStatusFromParams(params: any) {
   const validParams = taskStatusSetParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
 
 export async function createTaskFromParams(params: any) {
   const validParams = taskCreateParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   return await taskService.createTask(validParams.specPath);
 }
 
 export async function createTaskFromTitleAndSpec(params: any) {
   // Parse using the existing schema (which may still use "description")
   const validParams = taskCreateParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
   const title = (validParams as any).title || "";
@@ -87,14 +115,20 @@ export async function createTaskFromTitleAndSpec(params: any) {
 
 export async function deleteTaskFromParams(params: any) {
   const validParams = taskDeleteParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   const success = await taskService.deleteTask(validParams.taskId, validParams);
   return { success, taskId: validParams.taskId };
 }
 
 export async function getTaskSpecContentFromParams(params: any) {
   const validParams = taskSpecContentParamsSchema.parse(params);
-  const taskService = getTaskService();
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   return await taskService.getTaskSpecContent(validParams.taskId);
 }
 

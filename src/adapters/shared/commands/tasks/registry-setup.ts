@@ -34,6 +34,7 @@ export function createAllTaskCommands() {
     createTasksDeleteCommand,
   } = require("./crud-commands");
   const { createMigrateTasksCommand } = require("./migrate-command");
+  const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
   const { TasksSimilarCommand, TasksSearchCommand } = require("./similarity-commands");
   const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command");
 
@@ -49,5 +50,6 @@ export function createAllTaskCommands() {
     new TasksSearchCommand(),
     new TasksIndexEmbeddingsCommand(),
     createMigrateTasksCommand(),
+    createTasksMigrateBackendCommand(),
   ];
 }
