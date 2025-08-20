@@ -99,9 +99,10 @@ export function getLogMode(configOverride?: LoggerConfig): LogMode {
     return LogMode.HUMAN;
   }
 
-  // Auto-detect based on terminal environment
-  const isTTY = process.stdout.isTTY;
-  return isTTY ? LogMode.HUMAN : LogMode.STRUCTURED;
+  // Auto mode: default to HUMAN for CLI to prevent accidental structured JSON
+  // leaking into user-facing output when stdout isn't a TTY (e.g., piped).
+  // Structured mode should be explicitly enabled via configuration or env.
+  return LogMode.HUMAN;
 }
 
 /**

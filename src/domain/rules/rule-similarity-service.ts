@@ -26,5 +26,3 @@ export class RuleSimilarityService {
     return results;
   }
 }
-
-

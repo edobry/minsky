@@ -11,6 +11,7 @@ export interface PostgresVectorStorageConfig {
   dimensionColumn: string; // e.g., dimension
   lastIndexedAtColumn?: string; // e.g., last_indexed_at
   metadataColumn?: string; // e.g., metadata (JSONB)
+  contentHashColumn?: string; // e.g., content_hash (TEXT)
 }
 
 export class PostgresVectorStorage implements VectorStorage {
@@ -83,6 +84,13 @@ export class PostgresVectorStorage implements VectorStorage {
       values.push(_metadata ? JSON.stringify(_metadata) : JSON.stringify({}));
     }
 
+    // optional content hash TEXT
+    if (this.config.contentHashColumn) {
+      cols.push(this.config.contentHashColumn);
+      placeholders.push(`$${paramIndex++}`);
+      values.push(_metadata?.contentHash || null);
+    }
+
     // optional lastIndexedAt
     if (this.config.lastIndexedAtColumn) {
       cols.push(this.config.lastIndexedAtColumn);
@@ -100,6 +108,9 @@ export class PostgresVectorStorage implements VectorStorage {
     ];
     if (this.config.metadataColumn) {
       updateSets.push(`${this.config.metadataColumn} = EXCLUDED.${this.config.metadataColumn}`);
+    }
+    if (this.config.contentHashColumn) {
+      updateSets.push(`${this.config.contentHashColumn} = EXCLUDED.${this.config.contentHashColumn}`);
     }
     if (this.config.lastIndexedAtColumn) {
       updateSets.push(`${this.config.lastIndexedAtColumn} = NOW()`);
