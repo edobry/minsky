@@ -28,6 +28,83 @@ import {
 } from "../../../utils/paths";
 import { createSessionProvider } from "../../../domain/session";
 
+// Shared: compute Postgres migration status (reused by dry-run and execute paths)
+async function getPostgresMigrationsStatus(connectionString: string): Promise<{
+  schemaExists: boolean;
+  metaExists: boolean;
+  appliedCount: number;
+  latestHash?: string;
+  latestAt?: string;
+  fileCount: number;
+  pendingCount: number;
+  migrationsFolder: string;
+  maskedConn: string;
+}> {
+  const migrationsFolder = "./src/domain/storage/migrations/pg";
+  const { readdirSync } = await import("fs");
+
+  const maskedConn = connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@");
+
+  const postgres = (await import("postgres")).default;
+  const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 5 });
+
+  let schemaExists = false;
+  let metaExists = false;
+  let appliedCount = 0;
+  let latestHash: string | undefined;
+  let latestAt: string | undefined;
+  try {
+    const sch = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.schemata WHERE schema_name = 'drizzle'
+      ) as exists;
+    `;
+    schemaExists = Boolean(sch?.[0]?.exists);
+    const meta = await sql<{ exists: boolean }[]>`
+      SELECT EXISTS (
+        SELECT 1 FROM information_schema.tables WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+      ) as exists;
+    `;
+    metaExists = Boolean(meta?.[0]?.exists);
+    if (metaExists) {
+      const rows = await sql<{ hash: string | null; created_at: string | null }[]>`
+        SELECT hash, created_at::text FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1;
+      `;
+      latestHash = rows?.[0]?.hash || undefined;
+      latestAt = rows?.[0]?.created_at || undefined;
+      const cnt = await sql<{ count: string }[]>`
+        SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+      `;
+      appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+    }
+  } finally {
+    await sql.end();
+  }
+
+  let fileCount = 0;
+  try {
+    fileCount = readdirSync(migrationsFolder)
+      .filter((n) => n.endsWith(".sql"))
+      .sort((a, b) => a.localeCompare(b)).length;
+  } catch {
+    fileCount = 0;
+  }
+
+  const pendingCount = Math.max(fileCount - appliedCount, 0);
+
+  return {
+    schemaExists,
+    metaExists,
+    appliedCount,
+    latestHash,
+    latestAt,
+    fileCount,
+    pendingCount,
+    migrationsFolder,
+    maskedConn,
+  };
+}
+
 /**
  * Run migrations using drizzle-kit migrate command
  */
@@ -76,7 +153,7 @@ async function runMigrationsWithDrizzleKit(options: {
       return runSchemaMigrationsForConfiguredBackend({ dryRun: true });
     }
 
-    // Early exit for Postgres when there is nothing to apply
+    // Early exit for Postgres when there is nothing to apply (reused status helper)
     try {
       const rawConfig = await loadConfiguration();
       const conf = rawConfig.config;
@@ -86,45 +163,9 @@ async function runMigrationsWithDrizzleKit(options: {
         (process.env as any).MINSKY_POSTGRES_URL;
 
       if (connectionString) {
-        const { readdirSync } = await import("fs");
-        const postgres = (await import("postgres")).default;
-        const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 5 });
-        let appliedCount = 0;
-        let metaExists = false;
-        try {
-          const meta = await sql<{ exists: boolean }[]>`
-            SELECT EXISTS (
-              SELECT 1 FROM information_schema.tables WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
-            ) as exists;
-          `;
-          metaExists = Boolean(meta?.[0]?.exists);
-          if (metaExists) {
-            const cnt = await sql<{ count: string }[]>`
-              SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
-            `;
-            appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
-          } else {
-            appliedCount = 0;
-          }
-        } catch {
-          // ignore and fall through to normal migrate
-        } finally {
-          await sql.end();
-        }
-
-        const migrationsFolder = "./src/domain/storage/migrations/pg";
-        let fileCount = 0;
-        try {
-          fileCount = readdirSync(migrationsFolder)
-            .filter((n) => n.endsWith(".sql"))
-            .sort((a, b) => a.localeCompare(b)).length;
-        } catch {
-          fileCount = 0;
-        }
-
-        const pendingCount = Math.max(fileCount - appliedCount, 0);
-        if (pendingCount === 0) {
-          log.cli("✅ No pending migrations. Nothing to do.");
+        const status = await getPostgresMigrationsStatus(connectionString);
+        if (status.pendingCount === 0) {
+          log.cli("✅ No pending migrations.");
           return { message: "No pending migrations", printed: true };
         }
       }
@@ -671,12 +712,13 @@ async function runSchemaMigrationsForConfiguredBackend(
 
     if (dryRun) {
       // Build preview plan
-      const maskedConn = connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@");
-      const { readdirSync } = await import("fs");
       const { basename } = await import("path");
-      const migrationsFolder = "./src/domain/storage/migrations/pg";
+      const status = await getPostgresMigrationsStatus(connectionString);
+      const maskedConn = status.maskedConn;
+      const migrationsFolder = status.migrationsFolder;
       let fileNames: string[] = [];
       try {
+        const { readdirSync } = await import("fs");
         fileNames = readdirSync(migrationsFolder)
           .filter((n) => n.endsWith(".sql"))
           .sort((a, b) => a.localeCompare(b));
@@ -684,45 +726,8 @@ async function runSchemaMigrationsForConfiguredBackend(
         // ignore
       }
 
-      const postgres = (await import("postgres")).default;
-      const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 5 });
-      let schemaExists = false;
-      let metaExists = false;
-      let appliedCount = 0;
-      let latestHash: string | undefined;
-      let latestAt: string | undefined;
-      try {
-        const sch = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS (
-            SELECT 1 FROM information_schema.schemata WHERE schema_name = 'drizzle'
-          ) as exists;
-        `;
-        schemaExists = Boolean(sch?.[0]?.exists);
-        const meta = await sql<{ exists: boolean }[]>`
-          SELECT EXISTS (
-            SELECT 1 FROM information_schema.tables WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
-          ) as exists;
-        `;
-        metaExists = Boolean(meta?.[0]?.exists);
-        if (metaExists) {
-          const rows = await sql<{ hash: string | null; created_at: string | null }[]>`
-            SELECT hash, created_at::text FROM "drizzle"."__drizzle_migrations" ORDER BY created_at DESC LIMIT 1;
-          `;
-          latestHash = rows?.[0]?.hash || undefined;
-          latestAt = rows?.[0]?.created_at || undefined;
-          const cnt = await sql<{ count: string }[]>`
-            SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
-          `;
-          appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
-        }
-      } catch {
-        // best-effort only
-      } finally {
-        await sql.end();
-      }
-
-      const summary = `Schema migration (dry run) for postgres\nDatabase: ${maskedConn}\nMigrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ${appliedCount} applied, ${Math.max(
-        fileNames.length - appliedCount,
+      const summary = `Schema migration (dry run) for postgres\nDatabase: ${maskedConn}\nMigrations: ${migrationsFolder}\nPlan: ${fileNames.length} file(s), ${status.appliedCount} applied, ${Math.max(
+        fileNames.length - status.appliedCount,
         0
       )} pending`;
 
@@ -740,10 +745,10 @@ async function runSchemaMigrationsForConfiguredBackend(
         plan: {
           files: fileNames,
           fileCount: fileNames.length,
-          appliedCount,
-          pendingCount: Math.max(fileNames.length - appliedCount, 0),
-          latestHash,
-          latestAt,
+          appliedCount: status.appliedCount,
+          pendingCount: Math.max(fileNames.length - status.appliedCount, 0),
+          latestHash: status.latestHash,
+          latestAt: status.latestAt,
         },
       } as const;
 
@@ -753,7 +758,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       }
 
       {
-        const pendingCount = Math.max(fileNames.length - appliedCount, 0);
+        const pendingCount = Math.max(fileNames.length - status.appliedCount, 0);
 
         // Mark plan metadata
         (plan as any).nothingToDo = pendingCount === 0;
@@ -764,19 +769,19 @@ async function runSchemaMigrationsForConfiguredBackend(
         log.cli(`Migrations: ${migrationsFolder}`);
         log.cli("");
         log.cli(
-          `Status: schema=${schemaExists ? "present" : "missing"}, metaTable=${
-            metaExists ? "present" : "missing"
+          `Status: schema=${status.schemaExists ? "present" : "missing"}, metaTable=${
+            status.metaExists ? "present" : "missing"
           }`
         );
-        if (metaExists) {
+        if (status.metaExists) {
           log.cli(
-            `Meta: applied=${appliedCount}${latestHash ? `, latest=${latestHash}` : ""}${
-              latestAt ? `, last_at=${latestAt}` : ""
+            `Meta: applied=${status.appliedCount}${status.latestHash ? `, latest=${status.latestHash}` : ""}${
+              status.latestAt ? `, last_at=${status.latestAt}` : ""
             }`
           );
         }
         log.cli(
-          `Plan: ${fileNames.length} file(s), ${appliedCount} applied, ${pendingCount} pending`
+          `Plan: ${fileNames.length} file(s), ${status.appliedCount} applied, ${pendingCount} pending`
         );
         log.cli("");
         if (pendingCount > 0) {
