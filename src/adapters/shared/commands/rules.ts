@@ -337,6 +337,9 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         let indexed = 0;
         let skipped = 0;
         for (const rule of slice) {
+          if (!(params.json || ctx?.format === "json")) {
+            log.cli(`- ${rule.id}`);
+          }
           try {
             // Prefer full rule content; fallback to file; then to metadata
             let content = "";
