@@ -16,10 +16,9 @@ export const WorkspaceRulesComponent: ContextComponent = {
     const { ModularRulesService } = require("../../rules/rules-service-modular");
 
     try {
-      const rulesService = new ModularRulesService();
-      await rulesService.loadRules();
+      const rulesService = new ModularRulesService(context.workspacePath || process.cwd());
 
-      const allRules = rulesService.getAllRules();
+      const allRules = await rulesService.listRules();
 
       // Filter rules based on user prompt if provided
       let filteredRules = allRules;
