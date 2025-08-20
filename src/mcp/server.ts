@@ -157,6 +157,10 @@ export class MinskyMCPServer {
 
     // Set up request handlers
     this.setupRequestHandlers();
+
+    log.systemDebug(
+      "[MCP] Server instance created with transport type: " + this.options.transportType
+    );
   }
 
   /**
@@ -393,15 +397,18 @@ export class MinskyMCPServer {
    */
   async start(): Promise<void> {
     try {
+      log.systemDebug("[MCP] Starting server initialization");
       if (this.options.transportType === "stdio") {
+        log.systemDebug("[MCP] Connecting to stdio transport");
         await this.server.connect(this.transport);
-        log.status("Minsky MCP Server started with stdio transport");
+        log.cli("Minsky MCP Server started with stdio transport");
+        log.systemDebug("[MCP] Stdio transport connected successfully");
       } else {
         // For HTTP transport, we don't connect here since transports are created on-demand
         const httpConfig = this.options.httpConfig || {};
         const host = httpConfig.host || "localhost";
         const port = httpConfig.port || 3000;
-        log.status(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
+        log.cli(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
       }
 
       // Debug log of registered items
@@ -412,8 +419,11 @@ export class MinskyMCPServer {
         resourceCount: this.resources.size,
         promptCount: this.prompts.size,
       });
+
+      log.systemDebug("[MCP] Server start completed successfully");
     } catch (error) {
       log.error("Failed to start MCP server", { error: getErrorMessage(error) });
+      log.systemDebug(`[MCP] Server start failed: ${getErrorMessage(error)}`);
       throw error;
     }
   }

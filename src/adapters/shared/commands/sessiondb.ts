@@ -76,6 +76,62 @@ async function runMigrationsWithDrizzleKit(options: {
       return runSchemaMigrationsForConfiguredBackend({ dryRun: true });
     }
 
+    // Early exit for Postgres when there is nothing to apply
+    try {
+      const rawConfig = await loadConfiguration();
+      const conf = rawConfig.config;
+      const connectionString =
+        conf.sessiondb?.postgres?.connectionString ||
+        conf.sessiondb?.connectionString ||
+        (process.env as any).MINSKY_POSTGRES_URL;
+
+      if (connectionString) {
+        const { readdirSync } = await import("fs");
+        const postgres = (await import("postgres")).default;
+        const sql = postgres(connectionString, { prepare: false, onnotice: () => {}, max: 5 });
+        let appliedCount = 0;
+        let metaExists = false;
+        try {
+          const meta = await sql<{ exists: boolean }[]>`
+            SELECT EXISTS (
+              SELECT 1 FROM information_schema.tables WHERE table_schema = 'drizzle' AND table_name = '__drizzle_migrations'
+            ) as exists;
+          `;
+          metaExists = Boolean(meta?.[0]?.exists);
+          if (metaExists) {
+            const cnt = await sql<{ count: string }[]>`
+              SELECT COUNT(*)::text as count FROM "drizzle"."__drizzle_migrations";
+            `;
+            appliedCount = parseInt(cnt?.[0]?.count || "0", 10);
+          } else {
+            appliedCount = 0;
+          }
+        } catch {
+          // ignore and fall through to normal migrate
+        } finally {
+          await sql.end();
+        }
+
+        const migrationsFolder = "./src/domain/storage/migrations/pg";
+        let fileCount = 0;
+        try {
+          fileCount = readdirSync(migrationsFolder)
+            .filter((n) => n.endsWith(".sql"))
+            .sort((a, b) => a.localeCompare(b)).length;
+        } catch {
+          fileCount = 0;
+        }
+
+        const pendingCount = Math.max(fileCount - appliedCount, 0);
+        if (pendingCount === 0) {
+          log.cli("✅ No pending migrations. Nothing to do.");
+          return { message: "No pending migrations", printed: true };
+        }
+      }
+    } catch {
+      // If any issue occurs during pre-check, proceed with normal migrate
+    }
+
     log.cli("🚀 Executing migrations with drizzle-kit...");
 
     const migrateProcess = spawn("bunx", args, {

@@ -5,6 +5,9 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- `minsky sessiondb migrate --execute` now exits early for Postgres when there are no pending migrations, matching dry-run behavior (no-op with clear message).
+
+### Fixed
 
 - **Debug output appearing without --debug flag**: Removed unconditional debug logging from task-id-utils.ts that was appearing in all commands. Debug statements in utility functions have been eliminated to prevent unwanted output when debug mode is not enabled.
 
