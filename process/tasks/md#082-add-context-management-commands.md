@@ -17,10 +17,27 @@ Understanding context utilization is crucial for:
 2. Enable analysis of context efficiency and optimization opportunities
 3. Support debugging of context-related issues
 4. Help users understand how their context is constructed and utilized
+5. **NEW: Create modular context component system for targeted AI context generation**
 
 ## Requirements
 
-1. **Local Tokenization System**
+1. **Modular Context Component System** ✅ **COMPLETED**
+
+   - **Split-Architecture Context Components**: Components with `gatherInputs` (async, data collection) and `render` (pure, template-based rendering) methods
+   - **Component Registry**: Central system (`DefaultContextComponentRegistry`) for managing and resolving component dependencies  
+   - **Template System Integration**: Reusing `src/domain/rules/template-system.ts` for structured content generation
+   - **Shared Inputs**: Common data points (user prompt, workspace path, target model) accessible to all components
+   - **Comprehensive Component Coverage**: All major Cursor context sections replicated (13 components total)
+
+2. **Context Generation Commands** ✅ **COMPLETED**
+
+   - `minsky context generate` - Generate AI context using modular components (testbench functionality)
+   - `minsky context analyze` - Analyze context composition and provide token metrics
+   - Component selection via `--components` flag or intelligent defaults
+   - Multiple output formats (text, JSON) via `--format` flag
+   - User prompt customization via `--prompt` flag for component configuration
+
+3. **Local Tokenization System**
 
    - **Multi-Library Support**: Integrate multiple tokenization libraries for comprehensive model coverage
 
@@ -50,7 +67,7 @@ Understanding context utilization is crucial for:
      - **Model-specific tokenization** using appropriate local tokenizers
      - **Cross-model comparison** showing token differences between models
 
-3. **Context Visualization**
+4. **Context Visualization** 
 
    - `minsky context visualize` - Generate visual representation of context usage
      - Command-line based charts showing context distribution
@@ -69,9 +86,63 @@ Understanding context utilization is crucial for:
   - `tiktoken` package: JavaScript port of OpenAI's tiktoken library
   - Enhanced model metadata system with tokenizer information
 
+## Implementation Status
+
+### Context Component System - ✅ COMPLETED (13/13 components)
+
+**Components Implemented:**
+1. ✅ **Environment Component** - OS, shell, workspace path
+2. ✅ **Workspace Rules Component** - Project-specific behavioral rules  
+3. ✅ **System Instructions Component** - Core AI behavior guidelines
+4. ✅ **Communication Component** - Markdown formatting guidelines
+5. ✅ **Tool Calling Rules Component** - Tool usage best practices
+6. ✅ **Maximize Parallel Tool Calls Component** - Optimization guidelines
+7. ✅ **Maximize Context Understanding Component** - Exploration guidelines
+8. ✅ **Making Code Changes Component** - Implementation guidelines
+9. ✅ **Code Citation Format Component** - Citation requirements
+10. ✅ **Task Management Component** - Todo system guidelines
+11. ✅ **Tool Schemas Component** - Available tools and parameters
+12. ✅ **Project Context Component** - Git status and repository info
+13. ✅ **Session Context Component** - Current session state with task metadata
+
+**Architecture Benefits:**
+- **Split-Phase Design**: Async data gathering + pure rendering for testability
+- **Template System Integration**: Professional content generation infrastructure
+- **Component Registry**: Dependency resolution and modular composition
+- **Shared Inputs**: Efficient data sharing between components
+- **Live Data Integration**: Real-time git status, rules, session state vs static content
+
+### Critical Issues Identified
+
+**🚨 XML/JSON Format Configuration Bug**
+
+**Problem**: `ToolSchemasComponent` incorrectly uses `context.userPrompt?.includes("xml")` for format detection instead of proper template system logic.
+
+**Expected Behavior**: Should use `RuleGenerationConfig.interface` mapping:
+- `interface: "cli"` → JSON format (default, matches Cursor)  
+- `interface: "mcp"` → XML format (function_calls syntax)
+- `interface: "hybrid"` → Uses `preferMcp` setting
+
+**Root Cause**: Missing interface configuration in `ComponentInput` shared inputs and CLI option passing.
+
+**Required Fix**:
+1. Add `--interface` CLI option to `context generate` command
+2. Pass interface mode through `ComponentInput.interfaceConfig`  
+3. Use `CommandGeneratorService` with proper interface mode in `ToolSchemasComponent`
+4. Remove incorrect `userPrompt` parsing logic
+
+**Impact**: Format configurability non-functional, breaking the design requirement for XML/JSON output control.
+
 ## Implementation Steps
 
-1. [ ] **Provider API Research (Tokenizer Metadata)**
+1. [x] **Context Component Architecture Design**
+2. [x] **Split-Architecture Implementation** 
+3. [x] **Component Registry System**
+4. [x] **Template System Integration**
+5. [x] **All 13 Core Components Implementation**
+6. [x] **Context Generation Commands**
+7. [ ] **Fix XML/JSON Configuration System** - **URGENT PRIORITY**
+8. [ ] **Provider API Research (Tokenizer Metadata)**
 
    - [ ] Investigate OpenAI and Anthropic APIs for tokenizer metadata exposure
    - [ ] If APIs do not expose tokenizer info, research authoritative alternatives (official docs/specs) to derive model→tokenizer mappings
@@ -301,3 +372,21 @@ minsky context analyze --validate-tokenization --model gpt-4o
 Task 082 focuses on **analysis** ("What's in my context and how much does it cost?") while Task 182 focuses on **selection** ("What rules should I load for this task?"). Together they provide comprehensive context understanding and optimization capabilities.
 
 The enhanced tokenization features in Task 082 will also benefit Task 182 by enabling local token counting for rule selection optimization.
+
+## Key Implementation Insights & Corrections
+
+**Based on development experience and user feedback during implementation:**
+
+1. **Replication > Avoiding Duplication**: Initially attempted to avoid "duplicate" information already present in Cursor's context (e.g., environment section), but this was incorrect. **Perfect replication** of Cursor's structure is the goal, even if it means content overlap.
+
+2. **Template System Integration > Custom Implementations**: Successfully leveraged existing `src/domain/rules/template-system.ts` infrastructure instead of building custom content generation logic.
+
+3. **Session+Task Metadata > Separate Components**: Combined session and task information into `SessionContextComponent` rather than separate components, providing cohesive context about current work state.
+
+4. **JSON Format Precision > Generic Output**: Fixed tool schema format to match Cursor's exact JSON structure and header text, not generic schema formats.
+
+5. **Component Coverage > Minimal Implementation**: Implemented all 13 components to fully replicate Cursor's context sections rather than starting with minimal subset.
+
+6. **Shared Inputs Architecture > Complex Options**: Used simple `ComponentInput` interface with shared data rather than complex per-component option systems, enabling natural language configuration via `--prompt`.
+
+**Final Status**: Context component system successfully replicates Cursor's structure with 13 components, live data integration, and split-architecture design. **Critical fix needed**: XML/JSON format configuration must use proper template system logic instead of prompt parsing.

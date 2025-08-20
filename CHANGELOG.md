@@ -16,8 +16,12 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - feat(md#414): MAJOR test suite stabilization and GitHub API testing fix
-  - **Eliminated GitHub API calls during tests** - fixed "Unable to connect" errors from GitHubIssuesTaskBackend
+  - **Eliminated GitHub API calls during tests** - fixed "Unable to connect" errors from GitHubIssuesTaskBackend  
   - Implemented proper mock.module() for @octokit/rest and githubBackendConfig following DI patterns
+  - **Fixed AI integration test configuration drift bug** - removed redundant initializeConfiguration call in applyEditPattern that was causing provider mismatches
+  - **Implemented proper dependency injection for integration tests** - tests now load real config but inject it into SUT rather than relying on global state
+  - **Eliminated real filesystem operations in integration tests** - replaced real file reading with mock filesystem using createMockFilesystem()
+  - Reduced test failures from 44 to 7 (84% reduction) through systematic architectural fixes
   - Enhanced GitHub backend test coverage with comprehensive edge case validation
   - Reduced failing tests from 60+ to 14 (97.6% success rate) via STRICT QUALIFIED IDs ONLY policy
   - Eliminated ALL 50+ `normalizedTaskId` references → renamed to `validatedTaskId`

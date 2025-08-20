@@ -34,6 +34,7 @@ import {
 // Test configuration
 let testConfig: TestConfig;
 let mockFs: ReturnType<typeof createMockFilesystem>;
+let loadedConfig: any; // The actual config loaded from environment, to be injected into SUT
 
 // Mock fixture data (instead of reading from real files)
 const mockFixtures: Record<string, string> = {
@@ -221,11 +222,12 @@ export class UserService {
 
 beforeAll(async () => {
   try {
+    // Load the real config from environment (but don't set it globally)
     const factory = new CustomConfigFactory();
-    await initializeConfiguration(factory, { workingDirectory: process.cwd() });
+    const provider = await factory.createProvider({ workingDirectory: process.cwd() });
+    loadedConfig = provider.getConfig();
 
-    const config = getConfiguration();
-    const morph = config.ai?.providers?.morph as any;
+    const morph = loadedConfig.ai?.providers?.morph as any;
 
     const baseUrl = morph?.baseURL || morph?.baseUrl;
     const apiKey = morph?.apiKey;
@@ -245,7 +247,7 @@ beforeAll(async () => {
       console.log(`✅ Morph configured via config system: ${baseUrl}`);
     }
   } catch (error) {
-    console.error("Failed to initialize configuration:", error);
+    console.error("Failed to load configuration:", error);
     testConfig = { hasValidMorphConfig: false };
   }
 });
@@ -302,7 +304,8 @@ describe("Session Edit File Integration Tests", () => {
         const result = await applyEditPattern(
           originalContent,
           testCase.editPattern,
-          testCase.instruction
+          testCase.instruction,
+          { config: loadedConfig }
         );
 
         validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
@@ -328,7 +331,8 @@ describe("Session Edit File Integration Tests", () => {
         const result = await applyEditPattern(
           originalContent,
           testCase.editPattern,
-          testCase.instruction
+          testCase.instruction,
+          { config: loadedConfig }
         );
 
         validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
@@ -354,7 +358,8 @@ describe("Session Edit File Integration Tests", () => {
         const result = await applyEditPattern(
           originalContent,
           testCase.editPattern,
-          testCase.instruction
+          testCase.instruction,
+          { config: loadedConfig }
         );
 
         validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
@@ -380,7 +385,8 @@ describe("Session Edit File Integration Tests", () => {
         const result = await applyEditPattern(
           originalContent,
           testCase.editPattern,
-          testCase.instruction
+          testCase.instruction,
+          { config: loadedConfig }
         );
 
         validateEditResult(result, originalContent, testCase.editPattern, testCase.expected);
