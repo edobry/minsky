@@ -119,25 +119,14 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
       } catch {}
     }
 
-    // Normalize distances to [0,1] relevance (1 = closest) based on result window
-    const numericDistances = results.map((r) => (typeof r.score === "number" ? r.score : Number.POSITIVE_INFINITY));
-    const minD = numericDistances.length > 0 ? Math.min(...numericDistances) : 0;
-    const maxD = numericDistances.length > 0 ? Math.max(...numericDistances) : 1;
-    const denom = Math.max(1e-9, maxD - minD);
-
-    // Hydrate results to suggestions compatible with output
+    // Hydrate results to suggestions compatible with output (use raw distances like tasks)
     const byId = new Map(workspaceRules.map((r) => [r.id, r] as const));
     const suggestions = results
       .map((r, idx) => ({
         ruleId: r.id,
-        relevanceScore:
-          typeof r.score === "number" ? Math.max(0, Math.min(1, 1 - (r.score - minD) / denom)) : 0,
+        relevanceScore: 1, // placeholder for display; we mirror tasks by showing distances via --details
         reasoning: "Embedding similarity match",
-        confidenceLevel: (() => {
-          const s =
-            typeof r.score === "number" ? Math.max(0, Math.min(1, 1 - (r.score - minD) / denom)) : 0;
-          return s >= 0.7 ? "high" : s >= 0.4 ? "medium" : "low";
-        })(),
+        confidenceLevel: "high",
         ruleName: byId.get(r.id)?.name,
       }))
       .slice(0, limit);
