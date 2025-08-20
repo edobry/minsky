@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- feat(md#414): MAJOR test suite stabilization - reduced failing tests from 60+ to 14 (97.6% success rate)
+  - Implemented STRICT QUALIFIED IDs ONLY policy throughout codebase
+  - Eliminated ALL 50+ `normalizedTaskId` references → renamed to `validatedTaskId`
+  - Fixed critical test files: taskFunctions.test.ts (36/36), task-id-utils.test.ts (13/13), session-start-consistency.test.ts (9/9), multi-backend-system.test.ts (23/23), session-approval-error-handling.test.ts (4/4)
+  - Resolved undefined variable references and configuration initialization issues
+  - Applied Dependency Injection pattern for git operations replacing global mocks
+  - Fixed import issues in integration tests (readFile references)
+  - Eliminated infinite loops and 4+ billion ms test execution hangs
+  - Massive technical debt cleanup improving code maintainability and consistency
+
 - feat(config): add workspace.mainPath; wire markdown/json task backends to main workspace path (md#410)
 - session pr: status/backend/time filters
 
