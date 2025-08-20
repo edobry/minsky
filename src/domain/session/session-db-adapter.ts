@@ -175,7 +175,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     } else {
       log.debug("No matching session found", {
         taskId,
-        normalizedTaskId,
+        validatedTaskId,
       });
     }
 
