@@ -125,15 +125,7 @@ export async function sessionPrImpl(
   // Ensure new PRs provide a description before any workspace-specific checks
   if (!params.body && !params.bodyPath) {
     throw new ValidationError(
-<<<<<<< Updated upstream
-<<<<<<< Updated upstream
       "PR description is required for new pull request creation. Provide --body or --body-path."
-=======
-      'PR description is required for new pull request creation. Provide --body or --body-path.'
->>>>>>> Stashed changes
-=======
-      'PR description is required for new pull request creation. Provide --body or --body-path.'
->>>>>>> Stashed changes
     );
   }
 

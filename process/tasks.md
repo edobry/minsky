@@ -715,3 +715,5 @@
 - [ ] Extend embeddings infra: server-side filtering and index-optimized queries [md#449](process/tasks/md#449-extend-embeddings-infra-server-side-filtering-and-index-optimized-queries.md)
 
 - [ ] Explore embedding score normalization and distance metrics for similarity search (tasks & rules) [md#450](process/tasks/md#450-explore-embedding-score-normalization-and-distance-metrics-for-similarity-search-tasks-rules-.md)
+
+- [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
