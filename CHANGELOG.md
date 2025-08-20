@@ -239,6 +239,7 @@ All notable changes to this project will be documented in this file.
   - md#447: Extract generic similarity search service with pluggable backends and fallback chain
   - Fixed merge conflict in `process/tasks.md` and deduplicated conflicting md#444/md#446 entries
   - md#454: Investigate "seek human input" / "ask expert" tool, Agent Inbox pattern, and DB-backed queue with turn-taking semantics (spec-only)
+  - md#455: Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (spec-only)
 ## md#427: Enforce conventional-commit title validation on session pr edit
 
 - session pr edit now enforces conventional-commit title rules similar to session pr create

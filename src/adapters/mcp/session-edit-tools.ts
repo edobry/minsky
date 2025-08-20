@@ -315,7 +315,6 @@ export async function applyEditPattern(
   }
 
   // Create enhanced AI completion service with retry logic and circuit breaker
-  await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
   const defaultCompletionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);

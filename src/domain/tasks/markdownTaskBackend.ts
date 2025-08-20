@@ -27,7 +27,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData";
-import { TaskStatus, TASK_STATUS } from "./taskConstants";
+import { TaskStatus, TASK_STATUS, TASK_PARSING_UTILS } from "./taskConstants";
 
 import {
   parseTasksFromMarkdown,

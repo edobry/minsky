@@ -1,7 +1,4 @@
-// Use mock.module() to mock filesystem operations
-// Use mock.module() to mock filesystem operations
-// import { readFile } from "node:fs/promises";
-import { join } from "node:path";
+// Helper utilities for edit pattern testing with mock filesystem
 
 export interface EditTestCase {
   name: string;
@@ -15,11 +12,6 @@ export interface EditTestCase {
     noMarkers: boolean;
     notContains?: string[];
   };
-}
-
-export async function loadFixture(relPath: string): Promise<string> {
-  const fullPath = join(process.cwd(), "tests/fixtures", relPath);
-  return await readFile(fullPath, "utf-8");
 }
 
 export function validateEditResult(

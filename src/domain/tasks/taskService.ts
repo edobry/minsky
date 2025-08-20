@@ -6,6 +6,7 @@ import type { TaskBackend } from "../tasks";
 import type { TaskData } from "../../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
+import { createDatabaseTaskBackend } from "./databaseTaskBackend";
 import { log } from "../../utils/logger";
 // normalizeTaskId removed: strict qualified IDs expected upstream
 import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
@@ -86,6 +87,10 @@ export class TaskService {
         }),
         createJsonFileTaskBackend({
           name: "json-file",
+          workspacePath,
+        }),
+        createDatabaseTaskBackend({
+          name: "db",
           workspacePath,
         }),
       ];
@@ -202,6 +207,12 @@ export class TaskService {
    * @returns Promise resolving to an array of tasks
    */
   async listTasks(options?: TaskListOptions): Promise<TaskData[]> {
+    // Check if backend has a direct listTasks method (for database backends)
+    if (typeof this.currentBackend.listTasks === 'function') {
+      return await this.currentBackend.listTasks(options);
+    }
+
+    // Fallback to file-based backend pattern
     const result = await this.currentBackend.getTasksData();
     if (!result.success) {
       return []; // Return empty array on failure as expected by tests

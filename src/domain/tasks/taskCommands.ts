@@ -16,7 +16,7 @@ import {
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
 import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
-import { resolve } from "path";
+import { resolve, join } from "path";
 
 // Re-export task data types
 export type {} from "../../types/tasks/taskData";
@@ -477,8 +477,7 @@ export async function getTaskSpecContentFromParams(
     // Read the spec content with workspace-relative path handling
     let content: string;
     try {
-      const path = await import("path");
-      const fullSpecPath = specPath.startsWith("/") ? specPath : path.join(workspacePath, specPath);
+      const fullSpecPath = specPath.startsWith("/") ? specPath : join(workspacePath, specPath);
       content = (await readFile(fullSpecPath, "utf8")) as string;
     } catch (error) {
       throw new ResourceNotFoundError(
