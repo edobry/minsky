@@ -648,7 +648,7 @@
 
 - [-] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
 
-- [ ] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
+- [x] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
 
 - [+] Improve sessiondb migration command and plan PostgreSQL cutover [md#415](process/tasks/md#415-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
