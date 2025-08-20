@@ -64,6 +64,7 @@ type RulesIndexEmbeddingsParams = {
   limit?: number;
   json?: boolean;
   debug?: boolean;
+  force?: boolean;
 };
 
 const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
@@ -72,6 +73,12 @@ const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
       schema: z.number().int().positive().optional(),
       description: "Limit number of rules to index (for debugging)",
       required: false,
+    },
+    force: {
+      schema: z.boolean(),
+      description: "Force reindex even if content hash matches",
+      required: false,
+      defaultValue: false,
     },
   },
   {
@@ -346,8 +353,6 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             END IF;
           END$$;`
         );
-        await sql.end({ timeout: 1 });
-
         // Initialize embedding service and storage
         const embeddingService = await createEmbeddingServiceFromConfig();
         const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
@@ -375,6 +380,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const start = Date.now();
         let indexed = 0;
         let skipped = 0;
+        let skippedUnchanged = 0;
         for (const rule of slice) {
           try {
             // Prefer full rule content; fallback to file; then to metadata
@@ -408,13 +414,29 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
               continue;
             }
 
-            const vector = await embeddingService.generateEmbedding(contentLimited);
             const metadata: any = { name: rule.name, description: rule.description };
             let contentHash: string | undefined;
             try {
               const { createHash } = await import("crypto");
               contentHash = createHash("sha256").update(contentLimited).digest("hex");
             } catch {}
+            // Skip if content hash unchanged unless forced
+            if (!params.force && contentHash) {
+              try {
+                const existing = (await sql.unsafe(
+                  `SELECT content_hash FROM rules_embeddings WHERE rule_id = $1 LIMIT 1`,
+                  [rule.id]
+                )) as Array<{ content_hash?: string | null }>;
+                if (existing?.[0]?.content_hash && existing[0].content_hash === contentHash) {
+                  skippedUnchanged += 1;
+                  continue;
+                }
+              } catch {
+                // ignore hash lookup errors
+              }
+            }
+
+            const vector = await embeddingService.generateEmbedding(contentLimited);
             // Store metadata JSON and content hash in dedicated column for staleness detection
             await storage.store(rule.id, vector, { ...metadata, contentHash });
             indexed += 1;
@@ -430,13 +452,18 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             success: true,
             indexed,
             skipped,
+            skippedUnchanged,
             total: slice.length,
             ms: elapsed,
             dimension,
             model,
           };
         }
-        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped: ${skipped})`);
+        log.cli(
+          `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped}, unchanged: ${skippedUnchanged})`
+        );
+        // Close SQL connection used for table DDL and hash lookups
+        try { await sql.end({ timeout: 1 }); } catch {}
         return { success: true };
       } catch (error) {
         const message = getErrorMessage(error as any);
