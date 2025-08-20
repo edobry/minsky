@@ -27,8 +27,7 @@ export function registerDefaultComponents() {
   const { EnvironmentComponent } = require("./environment");
   registry.register(EnvironmentComponent);
 
-  const { TaskContextComponent } = require("./task-context");
-  registry.register(TaskContextComponent);
+  // TaskContextComponent removed - task metadata included in SessionContextComponent
 
   const { WorkspaceRulesComponent } = require("./workspace-rules");
   registry.register(WorkspaceRulesComponent);

@@ -149,9 +149,9 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
  * Get default components to include
  */
 function getDefaultComponents(): string[] {
-  // Match Cursor's comprehensive default context structure - EXACT ORDER
+  // REPLICATE Cursor's context structure exactly - include ALL sections
   return [
-    "environment", // OS, shell, workspace path
+    "environment", // OS, shell, workspace path (replicate Cursor's environment section)
     "workspace-rules", // Project-specific behavioral rules
     "system-instructions", // Core AI behavior guidelines
     "communication", // Communication formatting guidelines
@@ -163,8 +163,7 @@ function getDefaultComponents(): string[] {
     "task-management", // Todo system and task tracking
     "tool-schemas", // Available tools and parameters
     "project-context", // Git status and repository info
-    "session-context", // Current session state
-    "task-context", // Current task and user query
+    "session-context", // Current session state with task metadata
   ];
 }
 

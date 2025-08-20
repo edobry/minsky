@@ -36,14 +36,15 @@ export const EnvironmentComponent: ContextComponent = {
   render(inputs: ComponentInputs, context: ComponentInput): ComponentOutput {
     const envInputs = inputs as EnvironmentInputs;
 
-    // Using template literal approach (could be enhanced with full template system later)
+    // Replicate Cursor's environment section format exactly
     const content = `## Environment Setup
 
+\`\`\`
 OS Version: ${envInputs.osVersion}
 Shell: ${envInputs.shell}
 Workspace Path: ${envInputs.workspacePath}
-Node Version: ${envInputs.nodeVersion}
-Note: Context generated for AI collaboration in Minsky environment.`;
+Note: Prefer using absolute paths over relative paths as tool call args when possible.
+\`\`\``;
 
     return {
       content,

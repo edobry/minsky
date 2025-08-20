@@ -29,7 +29,7 @@ interface SessionContextInputs {
 export const SessionContextComponent: ContextComponent = {
   id: "session-context",
   name: "Session Context",
-  description: "Current Minsky session state and active workspace information",
+  description: "Current Minsky session state with task metadata and workspace information",
 
   // Phase 1: Async input gathering (reuses existing session utilities)
   async gatherInputs(context: ComponentInput): Promise<ComponentInputs> {
