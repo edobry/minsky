@@ -38,3 +38,44 @@ export async function createVectorStorageFromConfig(dimension: number): Promise<
       throw new Error(`Vector storage backend not supported: ${String(backend)}`);
   }
 }
+
+/**
+ * Create a VectorStorage configured for rules embeddings.
+ * Domain-specific convenience that keeps PostgresVectorStorage generic.
+ */
+export async function createRulesVectorStorageFromConfig(
+  dimension: number
+): Promise<VectorStorage> {
+  const config = await getConfiguration();
+  const backend = (config as any).vectorStorage?.backend || "postgres";
+
+  switch (backend) {
+    case "postgres": {
+      const vsConfig = (config as any).vectorStorage?.postgres || {};
+      const tableName = vsConfig.rulesTable || "rules_embeddings";
+      const conn =
+        vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
+      if (!conn) {
+        throw new Error("PostgreSQL connection string not configured for vectorStorage.postgres");
+      }
+      const storage = new PostgresVectorStorage(conn, dimension, {
+        tableName,
+        idColumn: "rule_id",
+        embeddingColumn: "embedding",
+        dimensionColumn: "dimension",
+        lastIndexedAtColumn: "last_indexed_at",
+        metadataColumn: "metadata",
+        contentHashColumn: "content_hash",
+      });
+      await storage.initialize();
+      return storage;
+    }
+
+    case "memory": {
+      return new MemoryVectorStorage(dimension);
+    }
+
+    default:
+      throw new Error(`Vector storage backend not supported: ${String(backend)}`);
+  }
+}

@@ -929,52 +929,41 @@ sharedCommandRegistry.registerCommand({
     // If no target backend provided, run schema migrations for current backend
     if (!to) {
       try {
-        // Auto-check and generate migrations if needed (PostgreSQL only)
+        // Auto-detect backend and run appropriate migration flow
         const { getConfiguration } = await import("../../../domain/configuration/index");
         const config = getConfiguration();
-        const backend = config.sessiondb?.backend;
+        const backend = (config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
+
+        const shouldApply = Boolean(execute);
 
         if (backend === "postgres") {
-          const migrationStatus = await checkAndGenerateMigrations();
-
-          // If there are no migrations to run, provide optimized output
-          if (migrationStatus?.nothingToDo) {
-            return {
-              message: "✅ Database schema is up to date",
-              printed: true,
-            };
+          // For postgres:
+          // - Preview: show DB-aware dry-run plan (applied vs files) regardless of drizzle check
+          // - Execute: always run drizzle-kit migrate to apply any pending files
+          if (!shouldApply) {
+            const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: true });
+            return result;
           }
 
-          // Use drizzle-kit delegation for better compatibility
-          const shouldApply = Boolean(execute);
-          const result = await runMigrationsWithDrizzleKit({
-            dryRun: !shouldApply,
-          });
-
+          const result = await runMigrationsWithDrizzleKit({ dryRun: false });
           return result;
-        } else {
-          // For SQLite, keep existing logic for now
-          const shouldApply = Boolean(execute);
-          const result = await runSchemaMigrationsForConfiguredBackend({
-            dryRun: !shouldApply,
-          });
         }
 
+        // SQLite: reuse existing helper (preview or apply)
+        const result = await runSchemaMigrationsForConfiguredBackend({ dryRun: !shouldApply });
+
         if (context.format === "human") {
-          // Prefer explicit message when provided (more informative summary)
           if (result && typeof result === "object" && (result as any).message) {
             return (result as any).message as string;
           }
-          // Fallback concise summaries
-          if (result.dryRun) {
-            return `Schema migration (dry run) for ${result.backend || "sqlite"}`;
+          if ((result as any).dryRun) {
+            return `Schema migration (dry run) for ${(result as any).backend || "sqlite"}`;
           }
-          return `Schema migration applied for ${result.backend || "sqlite"}`;
+          return `Schema migration applied for ${(result as any).backend || "sqlite"}`;
         }
 
         return result;
       } catch (error) {
-        // Re-throw as proper Error while preserving original message for handler parsing
         throw ensureError(error);
       }
     }

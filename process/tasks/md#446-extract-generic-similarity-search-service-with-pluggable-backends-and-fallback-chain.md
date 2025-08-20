@@ -1,31 +1,30 @@
-# Extract generic similarity search service with pluggable backends and fallback chain
+# Add cross-cutting reranking support to embeddings infra using Morph reranking API
 
 ## Context
 
 ## Summary
-Extract a domain-agnostic similarity search service that supports pluggable backends (embeddings+vector, AI completion, keyword) and a configurable fallback chain. This reduces reimplementation across tasks, rules, and future domains.
+Introduce a reranking layer (Morph reranking API) that operates across all embedding-based searches (tasks, rules, future domains). This is a cross-cutting enhancement applied after initial vector retrieval.
 
 ## Scope
-- Define `SimilaritySearchService` with a common request/response shape
-- Backends: embeddings+vector (primary), AI completion (secondary), keyword (tertiary)
-- Configurable fallback order and thresholds
-- Minimal adapters to plug domains (tasks, rules) into the generic service: id mapping, content extraction
-- Shared utilities for normalization, de-duplication, and scoring
+- Integrate Morph reranking API as an optional second-stage reranker
+- Pluggable into existing embeddings flows without changing storage
+- Config flags to enable/disable reranking per command/domain
+- Preserve existing scores; attach reranked order and reranker scores
 
 ## Phases
-- Phase 1: Define shared interfaces and response schema; implement embeddings backend
-- Phase 2: Implement keyword backend; add fallback chain
-- Phase 3: Add optional AI backend behind config only (no default use for rules)
+- Phase 1: Implement reranker client and wire into tasks similarity search
+- Phase 2: Wire into rules embeddings search (`context suggest-rules`)
+- Phase 3: Expose CLI flags (`--rerank`, `--rerank-top-k`) and document behavior
 
 ## Relationships
-- Builds on: md#253 embeddings infra (tasks) and new rules embeddings task
-- Enables: Reuse across domains without duplicating logic; consistent behavior
+- Builds on embeddings infra from md#253 and rules embeddings from md#445
+- Complements md#447 (generic similarity service) but is independently useful
 
 ## Acceptance Criteria
-- `SimilaritySearchService` with at least embeddings and keyword backends
-- Config switches to set fallback chain per domain
-- Demonstrated use from tasks similarity and rules suggestion with minimal glue
-- Documentation and examples
+- Reranking can be toggled on/off; defaults OFF
+- Works for both tasks and rules commands
+- Clear CLI output indicating when reranking is applied
+- Tests and docs included
 
 ## Requirements
 

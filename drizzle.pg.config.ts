@@ -47,6 +47,7 @@ export default {
   schema: [
     "./src/domain/storage/schemas/session-schema.ts",
     "./src/domain/storage/schemas/task-embeddings.ts",
+    "./src/domain/storage/schemas/rule-embeddings.ts",
   ],
   out: "./src/domain/storage/migrations/pg",
   dialect: "postgresql",

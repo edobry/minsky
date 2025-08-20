@@ -26,6 +26,7 @@ Extract a domain-agnostic similarity search service that supports pluggable back
 - Config switches to set fallback chain per domain
 - Demonstrated use from tasks similarity and rules suggestion with minimal glue
 - Documentation and examples
+ - Ensure tasks and rules embeddings commands share the SAME CLI progress/output logic (start, per-item line, final summary), avoiding divergence
 
 ## Requirements
 

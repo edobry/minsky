@@ -30,10 +30,10 @@ import {
 } from "../../../utils/option-descriptions";
 import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
 import { getConfiguration } from "../../../domain/configuration";
+import fs from "fs/promises";
 import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
 import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
-import postgres from "postgres";
 
 /**
  * Parameters for the rules list command
@@ -63,6 +63,7 @@ type RulesIndexEmbeddingsParams = {
   limit?: number;
   json?: boolean;
   debug?: boolean;
+  force?: boolean;
 };
 
 const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
@@ -71,6 +72,12 @@ const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
       schema: z.number().int().positive().optional(),
       description: "Limit number of rules to index (for debugging)",
       required: false,
+    },
+    force: {
+      schema: z.boolean(),
+      description: "Force reindex even if content hash matches",
+      required: false,
+      defaultValue: false,
     },
   },
   {
@@ -302,41 +309,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
         const dimension = getEmbeddingDimension(model, 1536);
 
-        const conn = (cfg as any).sessiondb?.postgres?.connectionString;
-        if (!conn) {
-          throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
-        }
-
-        // Ensure rules_embeddings table exists (extension, table, index)
-        const sql = postgres(conn, { prepare: false, onnotice: () => {} });
-        const vectorDim = String(dimension);
-        await sql.unsafe("CREATE EXTENSION IF NOT EXISTS vector");
-        await sql.unsafe(
-          `CREATE TABLE IF NOT EXISTS rules_embeddings (
-            rule_id TEXT PRIMARY KEY,
-            dimension INT NOT NULL,
-            embedding VECTOR(${vectorDim}),
-            last_indexed_at TIMESTAMPTZ,
-            created_at TIMESTAMPTZ DEFAULT NOW(),
-            updated_at TIMESTAMPTZ DEFAULT NOW()
-          )`
-        );
-        // Create HNSW index if not exists
-        await sql.unsafe(
-          `DO $$
-          BEGIN
-            IF NOT EXISTS (
-              SELECT 1 FROM pg_class c
-              JOIN pg_namespace n ON n.oid = c.relnamespace
-              WHERE c.relname = 'idx_rules_embeddings_hnsw' AND n.nspname = 'public'
-            ) THEN
-              EXECUTE 'CREATE INDEX idx_rules_embeddings_hnsw ON rules_embeddings USING hnsw (embedding vector_l2_ops)';
-            END IF;
-          END$$;`
-        );
-        await sql.end({ timeout: 1 });
-
-        // Initialize embedding service and storage
+        // Initialize embedding service and storage (schema managed by Drizzle migrations)
         const embeddingService = await createEmbeddingServiceFromConfig();
         const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
           tableName: "rules_embeddings",
@@ -344,6 +317,8 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           embeddingColumn: "embedding",
           dimensionColumn: "dimension",
           lastIndexedAtColumn: "last_indexed_at",
+          metadataColumn: "metadata",
+          contentHashColumn: "content_hash",
         });
 
         // Resolve workspace and list rules
@@ -360,24 +335,72 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
 
         const start = Date.now();
         let indexed = 0;
+        let skipped = 0;
         for (const rule of slice) {
-          const textParts: string[] = [];
-          if (rule.name) textParts.push(String(rule.name));
-          if (rule.description) textParts.push(String(rule.description));
-          if ((rule as any).tags && Array.isArray((rule as any).tags)) {
-            textParts.push((rule as any).tags.join(" "));
+          if (!(params.json || ctx?.format === "json")) {
+            log.cli(`- ${rule.id}`);
           }
-          const content = textParts.join("\n").trim();
-          const vector = await embeddingService.generateEmbedding(content);
-          await storage.store(rule.id, vector, { name: rule.name, description: rule.description });
-          indexed += 1;
+          try {
+            // Prefer full rule content; fallback to file; then to metadata
+            let content = "";
+            const rawFromRule = (rule as any).content;
+            if (typeof rawFromRule === "string" && rawFromRule.trim().length > 0) {
+              content = rawFromRule;
+            } else if (typeof (rule as any).path === "string") {
+              try {
+                const fileText = await fs.readFile(String((rule as any).path), "utf-8");
+                if (fileText && fileText.trim().length > 0) content = fileText;
+              } catch {
+                // ignore file read errors
+              }
+            }
+            if (!content) {
+              const textParts: string[] = [];
+              if (rule.name) textParts.push(String(rule.name));
+              if (rule.description) textParts.push(String(rule.description));
+              if ((rule as any).tags && Array.isArray((rule as any).tags)) {
+                textParts.push((rule as any).tags.join(" "));
+              }
+              // As a last resort include rule id
+              if (textParts.length === 0) textParts.push(String(rule.id));
+              content = textParts.join("\n\n");
+            }
+            // Limit content length to reasonable window
+            const contentLimited = content.slice(0, 4000).trim();
+            if (!contentLimited) {
+              skipped += 1;
+              continue;
+            }
+
+            const metadata: any = { name: rule.name, description: rule.description };
+            let contentHash: string | undefined;
+            try {
+              const { createHash } = await import("crypto");
+              contentHash = createHash("sha256").update(contentLimited).digest("hex");
+            } catch {}
+            const vector = await embeddingService.generateEmbedding(contentLimited);
+            // Store metadata JSON and content hash in dedicated column for staleness detection
+            await storage.store(rule.id, vector, { ...metadata, contentHash });
+            indexed += 1;
+          } catch (e) {
+            // Skip problematic rule and continue; surface count in JSON
+            skipped += 1;
+          }
         }
         const elapsed = Date.now() - start;
 
         if (params.json || ctx?.format === "json") {
-          return { success: true, indexed, total: slice.length, ms: elapsed, dimension, model };
+          return {
+            success: true,
+            indexed,
+            skipped,
+            total: slice.length,
+            ms: elapsed,
+            dimension,
+            model,
+          };
         }
-        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms`);
+        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`);
         return { success: true };
       } catch (error) {
         const message = getErrorMessage(error as any);

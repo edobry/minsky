@@ -14,7 +14,7 @@ import { exit } from "../../utils/process";
 import fs from "fs/promises";
 import { getEmbeddingDimension } from "../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../domain/ai/embedding-service-factory";
-import { PostgresVectorStorage } from "../../domain/storage/vector/postgres-vector-storage";
+import { createRulesVectorStorageFromConfig } from "../../domain/storage/vector/vector-storage-factory";
 import { RuleSimilarityService } from "../../domain/rules/rule-similarity-service";
 
 interface SuggestRulesOptions {
@@ -25,6 +25,7 @@ interface SuggestRulesOptions {
   limit?: number;
   threshold?: number;
   noEmbeddings?: boolean;
+  details?: boolean;
 }
 
 /**
@@ -40,6 +41,7 @@ export function createSuggestRulesCommand(): Command {
     .option("--limit <number>", "Maximum number of suggestions to return", "5")
     .option("--threshold <number>", "Maximum vector distance threshold (optional)")
     .option("--no-embeddings", "Disable embeddings search and use keyword fallback only", false)
+    .option("--details", "Show diagnostic details (top results, raw distances)", false)
     .option("--workspace-path <path>", "Workspace path for context")
     .addHelpText(
       "after",
@@ -101,32 +103,40 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
     const model = (config as any).embeddings?.model || "text-embedding-3-small";
     const dimension = getEmbeddingDimension(model, 1536);
     const embedding = await createEmbeddingServiceFromConfig();
-    const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
-      tableName: "rules_embeddings",
-      idColumn: "rule_id",
-      embeddingColumn: "embedding",
-      dimensionColumn: "dimension",
-      lastIndexedAtColumn: "last_indexed_at",
-    });
+    const storage = await createRulesVectorStorageFromConfig(dimension);
     const sim = new RuleSimilarityService(embedding, storage, {});
     const limit = parseInt(String(options.limit || 5), 10);
     const threshold = options.threshold !== undefined ? Number(options.threshold) : undefined;
     const results = await sim.searchByText(query, limit, threshold);
 
-    // Hydrate results to suggestions compatible with output
-    const byId = new Map(workspaceRules.map((r) => [r.id, r] as const));
-    const suggestions = results
-      .map((r, idx) => ({
-        ruleId: r.id,
-        relevanceScore: Math.max(0, 1 - r.score),
-        reasoning: "Embedding similarity match",
-        confidenceLevel: r.score < 0.3 ? "high" : r.score < 0.6 ? "medium" : "low",
-        ruleName: byId.get(r.id)?.name,
-      }))
-      .slice(0, limit);
+    // Human-readable: mirror tasks.search format (no extra analysis); show raw distance as Score
+    if (!options.json) {
+      const byId = new Map(workspaceRules.map((r) => [r.id, r] as const));
+      const top = results.slice(0, limit);
+      top.forEach((r, i) => {
+        const rule = byId.get(r.id);
+        const title = rule?.name || r.id;
+        console.log(`${i + 1}. ${title} [${r.id}]`);
+        if (rule?.path) {
+          console.log(`Spec: ${rule.path}`);
+        }
+        const score = typeof r.score === "number" ? r.score.toFixed(3) : String(r.score ?? "n/a");
+        console.log(`Score: ${score}`);
+        console.log("");
+      });
+      console.log(`${top.length} results found`);
+      return;
+    }
 
+    // JSON path: return structured results similar to prior response shape
     const response: RuleSuggestionResponse = {
-      suggestions,
+      suggestions: results.slice(0, limit).map((r) => ({
+        ruleId: r.id,
+        relevanceScore: 1,
+        reasoning: "Embedding similarity match",
+        confidenceLevel: "high",
+        ruleName: undefined,
+      })),
       queryAnalysis: {
         intent: `Embeddings search for: ${query}`,
         keywords: query
@@ -138,12 +148,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
       totalRulesAnalyzed: workspaceRules.length,
       processingTimeMs: Math.max(1, Date.now() - startTime),
     };
-    totalTime = response.processingTimeMs;
-    if (options.json) {
-      outputJsonResults(response);
-    } else {
-      outputHumanReadableResults(response, query, totalTime);
-    }
+    outputJsonResults(response);
     return;
   } else {
     // Fallback to existing AI-based suggestion service
