@@ -51,8 +51,6 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
     BLOCKED: string;
     CLOSED: string;
   };
-
-
 }
 
 /**
