@@ -717,3 +717,5 @@
 - [ ] Explore embedding score normalization and distance metrics for similarity search (tasks & rules) [md#450](process/tasks/md#450-explore-embedding-score-normalization-and-distance-metrics-for-similarity-search-tasks-rules-.md)
 
 - [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
+
+- [ ] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
