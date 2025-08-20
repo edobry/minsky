@@ -1,3 +1,4 @@
+/* eslint-disable custom/no-jest-patterns */
 /**
  * Config Set Command Tests
  *
@@ -42,14 +43,19 @@ describe("config set command", () => {
   describe("executeConfigSet function", () => {
     test("should set a simple configuration value", async () => {
       // Test scenario: Setting a basic configuration value
-      mockSetConfigValue = mock(() =>
-        Promise.resolve({
-          success: true,
-          filePath: "/home/user/.config/minsky/config.yaml",
-          previousValue: undefined,
-          newValue: "markdown",
-        })
-      );
+      const mockConfigResult = {
+        success: true,
+        filePath: "/home/user/.config/minsky/config.yaml",
+        previousValue: undefined,
+        newValue: "markdown",
+      };
+
+      const mockConfigWriter = {
+        setConfigValue: mock(() => Promise.resolve(mockConfigResult)),
+      };
+
+      mockCreateConfigWriter = mock(() => mockConfigWriter);
+      spyOn(configWriter, "createConfigWriter").mockImplementation(mockCreateConfigWriter);
 
       // Test the function directly
       await executeConfigSet("backend", "markdown", {});
@@ -59,13 +65,13 @@ describe("config set command", () => {
         format: "yaml",
         validate: true,
       });
-      expect(mockSetConfigValue).toHaveBeenCalledWith("backend", "markdown");
+      expect(mockConfigWriter.setConfigValue).toHaveBeenCalledWith("backend", "markdown");
       expect(mockConsoleLog).toHaveBeenCalledWith("✅ Configuration updated successfully");
     });
 
     test("should set a nested configuration value", async () => {
       // Test scenario: Setting nested configuration like ai.providers.openai.model
-      mockSetConfigValue = mock(() =>
+      mockSetConfigValue.mockImplementation(() =>
         Promise.resolve({
           success: true,
           filePath: "/home/user/.config/minsky/config.yaml",
@@ -85,7 +91,7 @@ describe("config set command", () => {
 
     test("should parse boolean values correctly", async () => {
       // Test scenario: Setting boolean configuration values
-      mockSetConfigValue = mock(() =>
+      mockSetConfigValue.mockImplementation(() =>
         Promise.resolve({
           success: true,
           filePath: "/home/user/.config/minsky/config.yaml",
@@ -101,7 +107,7 @@ describe("config set command", () => {
 
     test("should handle config writer failures gracefully", async () => {
       // Bug scenario: Config writer fails to set value
-      mockSetConfigValue = mock(() =>
+      mockSetConfigValue.mockImplementation(() =>
         Promise.resolve({
           success: false,
           filePath: "/home/user/.config/minsky/config.yaml",
@@ -119,7 +125,7 @@ describe("config set command", () => {
 
     test("should output JSON format when requested", async () => {
       // Test scenario: JSON output format
-      mockSetConfigValue = mock(() =>
+      mockSetConfigValue.mockImplementation(() =>
         Promise.resolve({
           success: true,
           filePath: "/home/user/.config/minsky/config.yaml",
@@ -145,7 +151,7 @@ describe("config set command", () => {
 
     test("should skip backup when noBackup option is set", async () => {
       // Test scenario: User explicitly disables backup
-      mockSetConfigValue = mock(() =>
+      mockSetConfigValue.mockImplementation(() =>
         Promise.resolve({
           success: true,
           filePath: "/home/user/.config/minsky/config.yaml",
@@ -165,7 +171,7 @@ describe("config set command", () => {
 
     test("should use JSON format when specified", async () => {
       // Test scenario: User specifies JSON format preference
-      mockSetConfigValue = mock(() =>
+      mockSetConfigValue.mockImplementation(() =>
         Promise.resolve({
           success: true,
           filePath: "/home/user/.config/minsky/config.json",
