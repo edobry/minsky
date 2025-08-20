@@ -61,7 +61,7 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 
 // Backward compatibility alias
 // Backward-compat export name used across code/tests; implements strict validation
-export const normalizeTaskIdForStorage = validateQualifiedTaskId;
+// Removed normalizeTaskIdForStorage alias - use validateQualifiedTaskId directly
 
 /**
  * Format task ID for display - supports both numeric and string formats

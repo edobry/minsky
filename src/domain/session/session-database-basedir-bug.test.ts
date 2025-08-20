@@ -122,7 +122,7 @@ describe("Session Database BaseDir Bug", () => {
     // This should fail with the exact posix_spawn error we're seeing
     await expect(
       approveSessionImpl(
-        { task: "335" },
+        { task: "md#335" },
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
@@ -180,7 +180,7 @@ describe("Session Database BaseDir Bug", () => {
 
     // This should succeed without posix_spawn errors
     const result = await approveSessionImpl(
-      { task: "335" },
+      { task: "md#335" },
       {
         sessionDB: mockSessionDB,
         gitService: mockGitService,

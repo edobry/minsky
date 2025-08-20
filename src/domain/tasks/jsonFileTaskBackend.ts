@@ -30,7 +30,7 @@ import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { getTaskSpecRelativePath } from "./taskIO";
-import { normalizeTaskIdForStorage } from "./task-id-utils";
+import { validateQualifiedTaskId } from "./task-id-utils";
 import { getNextTaskId } from "./taskFunctions";
 import { get as getConfig, has as hasConfig } from "../configuration";
 
@@ -415,7 +415,7 @@ ${description}
     let taskId: string;
     if (spec.id && spec.id.trim()) {
       // TASK 283: Normalize spec ID to plain storage format
-      taskId = normalizeTaskIdForStorage(spec.id) || spec.id;
+      taskId = validateQualifiedTaskId(spec.id) || spec.id;
     } else {
       // Get all existing tasks to determine the new task's ID
       const tasks = await this.getAllTasks();

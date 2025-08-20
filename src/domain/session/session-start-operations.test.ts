@@ -26,13 +26,23 @@ function createDeps(repoUrl: string): StartSessionDependencies {
   const workspaceUtils = {
     isSessionWorkspace: vi.fn(async () => false),
   } as any;
-  const resolveRepoPath = vi.fn(async () => repoUrl);
+  const resolveRepositoryAndBackend = vi.fn(
+    async (options?: { repoParam?: string; cwd?: string }) => {
+      const backendType =
+        repoUrl.startsWith("/") || repoUrl.startsWith("file://")
+          ? "local"
+          : repoUrl.includes("github.com")
+            ? "github"
+            : "remote";
+      return { repoUrl, backendType };
+    }
+  );
   return {
     sessionDB,
     gitService,
     taskService,
     workspaceUtils,
-    resolveRepoPath,
+    resolveRepositoryAndBackend,
   } as StartSessionDependencies;
 }
 

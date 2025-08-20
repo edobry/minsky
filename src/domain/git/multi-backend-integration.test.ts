@@ -1,18 +1,27 @@
-// Mock the git-exec module FIRST before any imports
+// Mock ALL git-related modules FIRST before any imports
 import { mockModule, createMock } from "../../utils/test-utils/mocking";
 
+// Mock the exec utility that conflict-detection uses
+mockModule("../../utils/exec", () => ({
+  execAsync: createMock(async () => ({ stdout: "0\t1", stderr: "" })),
+}));
+
+// Mock git-exec module
 mockModule("../../utils/git-exec", () => ({
   execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
   gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
   gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
 }));
 
-// Also try mocking with absolute path
-mockModule("/Users/edobry/Projects/minsky/src/utils/git-exec", () => ({
-  execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
-  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+// Mock child_process directly to catch any remaining shell commands
+mockModule("node:child_process", () => ({
+  exec: createMock((command: string, callback: any) => {
+    // Mock all git commands to return success
+    process.nextTick(() => callback(null, { stdout: "0\t1", stderr: "" }));
+  }),
 }));
+
+// No longer need to mock prepared-merge-commit-workflow since we use dependency injection
 
 import { describe, it, expect, mock } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
@@ -54,6 +63,9 @@ function createMockDependencies() {
     sessionDb: mockSessionDb,
     execInRepository: mockExecInRepository,
     getSessionWorkdir: mock((sessionName: string) => `/mock/sessions/${sessionName}`),
+    gitFetch: mock(async () => {}),
+    gitPush: mock(async () => {}),
+    execAsync: mock(async () => ({ stdout: "0\t1", stderr: "" })),
   };
 }
 
@@ -81,7 +93,6 @@ describe("Git Operations Multi-Backend Integration", () => {
             session: "task-md#123",
             taskId: "md#123", // Should extract qualified task ID
             taskBackend: "md", // Should add backend information
-            legacyTaskId: undefined, // No legacy ID for qualified format
           })
         );
       } finally {
@@ -105,13 +116,11 @@ describe("Git Operations Multi-Backend Integration", () => {
           deps
         );
 
-        // Should have migrated legacy format to qualified format
+        // Legacy format should create session with undefined taskId (no migration)
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
             session: "task123", // Original session name preserved
-            taskId: "md#123", // Should migrate to qualified format
-            taskBackend: "md", // Should default to markdown backend
-            legacyTaskId: "123", // Should preserve original task ID
+            taskId: undefined, // Legacy format → no valid task ID
           })
         );
       } finally {
@@ -137,9 +146,7 @@ describe("Git Operations Multi-Backend Integration", () => {
         expect(deps.sessionDb.addSession).toHaveBeenCalledWith(
           expect.objectContaining({
             session: "task#456",
-            taskId: "md#456", // Should migrate task# format
-            taskBackend: "md",
-            legacyTaskId: "456",
+            taskId: undefined, // Legacy task# format → no valid task ID
           })
         );
       } finally {

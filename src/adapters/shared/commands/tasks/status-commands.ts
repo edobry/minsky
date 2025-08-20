@@ -41,18 +41,18 @@ export class TasksStatusGetCommand extends BaseTaskCommand {
 
     // Validate and normalize task ID
     const taskId = this.validateRequired(params.taskId, "taskId");
-    const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
+    const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Get task status
     const status = await getTaskStatusFromParams({
       ...this.createTaskParams(params),
-      taskId: normalizedTaskId,
+      taskId: validatedTaskId,
     });
 
     this.debug("Task status retrieved successfully");
 
     return this.formatResult(
-      this.createSuccessResult(normalizedTaskId, `Task ${normalizedTaskId} status: ${status}`, {
+      this.createSuccessResult(validatedTaskId, `Task ${validatedTaskId} status: ${status}`, {
         status,
       }),
       params.json
@@ -74,13 +74,13 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
 
     // Validate and normalize task ID
     const taskId = this.validateRequired(params.taskId, "taskId");
-    const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
+    const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Verify the task exists before prompting for status and get current status
     this.debug("Getting previous status");
     const previousStatus = await getTaskStatusFromParams({
       ...this.createTaskParams(params),
-      taskId: normalizedTaskId,
+      taskId: validatedTaskId,
     });
     this.debug("Previous status retrieved successfully");
 
@@ -108,15 +108,15 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
     this.debug("Setting task status");
     const result = await setTaskStatusFromParams({
       ...this.createTaskParams(params),
-      taskId: normalizedTaskId,
+      taskId: validatedTaskId,
       status,
     });
 
-    const message = `Task ${normalizedTaskId} status changed from ${previousStatus} to ${status}`;
+    const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
     this.debug("Task status set successfully");
 
     return this.formatResult(
-      this.createSuccessResult(normalizedTaskId, message, {
+      this.createSuccessResult(validatedTaskId, message, {
         previousStatus,
         newStatus: status,
         changed: true,

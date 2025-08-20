@@ -26,6 +26,7 @@ import { type GitServiceInterface, preparePrFromParams } from "./git";
 import { createGitService } from "./git";
 import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
+import { resolveRepositoryAndBackend } from "./session/repository-backend-detection";
 import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
 import { createConfiguredTaskService } from "./tasks/taskService";
 import { taskIdToSessionName } from "./tasks/task-id";
@@ -183,7 +184,7 @@ export async function startSessionFromParams(
     gitService?: GitServiceInterface;
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
-    resolveRepoPath?: typeof resolveRepoPath;
+    resolveRepositoryAndBackend?: typeof resolveRepositoryAndBackend;
   }
 ): Promise<Session> {
   const deps = {
@@ -191,7 +192,8 @@ export async function startSessionFromParams(
     gitService: depsInput?.gitService || createGitService(),
     taskService: depsInput?.taskService || (await createConfiguredTaskService()),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
-    resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath,
+    resolveRepositoryAndBackend:
+      depsInput?.resolveRepositoryAndBackend || resolveRepositoryAndBackend,
   } as const;
 
   return startSessionImpl(params as unknown as any, deps as any);

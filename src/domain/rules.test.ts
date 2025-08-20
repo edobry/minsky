@@ -1,44 +1,18 @@
-import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { RuleService } from "./rules";
 import type { RuleFormat } from "./rules";
 import path from "path";
 import matter from "gray-matter";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 
-// Mock the fs modules to use our mock filesystem
-const mockFs = createMockFilesystem();
-
-mock.module("fs", () => ({
-  existsSync: mockFs.existsSync,
-  mkdirSync: mockFs.mkdirSync,
-  readFileSync: mockFs.readFileSync,
-  writeFileSync: mockFs.writeFileSync,
-  readdirSync: mockFs.readdirSync,
-  promises: {
-    mkdir: mockFs.mkdir,
-    writeFile: mockFs.writeFile,
-    readFile: mockFs.readFile,
-    readdir: mockFs.readdir,
-    rm: mockFs.rm,
-    access: mockFs.access,
-    mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
-  },
-}));
-
-mock.module("fs/promises", () => ({
-  mkdir: mockFs.mkdir,
-  writeFile: mockFs.writeFile,
-  readFile: mockFs.readFile,
-  readdir: mockFs.readdir,
-  rm: mockFs.rm,
-  mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
-}));
+// No global module mocks. Each test creates its own mock filesystem and injects it
 
 describe("RuleService", () => {
   let testDir: string;
   let cursorRulesDir: string;
   let genericRulesDir: string;
   let ruleService: RuleService;
+  let mockFs: ReturnType<typeof createMockFilesystem>;
 
   // Helper function to create a rule file in mock filesystem
   async function createTestRule(
@@ -58,24 +32,23 @@ describe("RuleService", () => {
   }
 
   beforeEach(async () => {
+    // New, isolated mock filesystem per test
+    mockFs = createMockFilesystem();
+
     // Use mock paths instead of real temporary directories
     testDir = "/mock/test/rules";
     cursorRulesDir = path.join(testDir, ".cursor", "rules");
     genericRulesDir = path.join(testDir, ".ai", "rules");
 
-    // Reset mock filesystem
-    mockFs.reset();
-
     // Ensure base directories exist in mock filesystem
     mockFs.ensureDirectorySync(cursorRulesDir);
     mockFs.ensureDirectorySync(genericRulesDir);
 
-    // Initialize service with test directory
-    ruleService = new RuleService(testDir);
-  });
-
-  afterEach(() => {
-    mock.restore();
+    // Initialize service with injected fs
+    ruleService = new RuleService(testDir, {
+      fsPromises: mockFs.fsPromises,
+      existsSyncFn: (p: string) => mockFs.existsSync(p),
+    });
   });
 
   describe("listRules", () => {

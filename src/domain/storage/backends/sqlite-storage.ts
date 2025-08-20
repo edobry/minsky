@@ -218,12 +218,12 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 
         if (options.taskId) {
           // Normalize taskId by removing # prefix if present
-          const normalizedTaskId = options.taskId.replace(/^#/, "");
+          const validatedTaskId = options.taskId.replace(/^#/, "");
           // BUGFIX: Use SQL to handle null values properly
-          // This finds sessions where taskId (without #) equals normalizedTaskId
+          // This finds sessions where taskId (without #) equals validatedTaskId
           // and excludes sessions with null taskId
           conditions.push(
-            sql`TRIM(${sessionsTable.taskId}, '#') = ${normalizedTaskId} AND ${sessionsTable.taskId} IS NOT NULL`
+            sql`TRIM(${sessionsTable.taskId}, '#') = ${validatedTaskId} AND ${sessionsTable.taskId} IS NOT NULL`
           );
         }
 

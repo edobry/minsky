@@ -19,11 +19,7 @@ import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../
 // Import additional types needed for interface implementation
 import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
 import { getTaskSpecRelativePath } from "./taskIO";
-import {
-  normalizeTaskIdForStorage,
-  formatTaskIdForDisplay,
-  getTaskIdNumber,
-} from "./task-id-utils";
+import { validateQualifiedTaskId, formatTaskIdForDisplay, getTaskIdNumber } from "./task-id-utils";
 
 /**
  * Configuration for GitHubIssuesTaskBackend

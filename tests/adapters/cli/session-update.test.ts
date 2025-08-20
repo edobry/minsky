@@ -99,6 +99,7 @@ describe("session update command", () => {
       {
         gitService: mockGitService,
         sessionDB: mockSessionDB,
+        getCurrentSession: async () => "test-session", // Mock current session detection
       }
     );
 
@@ -138,6 +139,7 @@ describe("session update command", () => {
       {
         gitService: mockGitService,
         sessionDB: mockSessionDB,
+        getCurrentSession: async () => "missing-session", // Mock current session detection
       }
     );
 
@@ -177,6 +179,7 @@ describe("session update command", () => {
       {
         gitService: mockGitService,
         sessionDB: mockSessionDB,
+        getCurrentSession: async () => "url-test-session", // Mock current session detection
       }
     );
 
@@ -215,6 +218,7 @@ describe("session update command", () => {
       {
         gitService: mockGitService,
         sessionDB: mockSessionDB,
+        getCurrentSession: async () => "force-session", // Mock current session detection
       }
     );
 
@@ -251,6 +255,7 @@ describe("session update command", () => {
       {
         gitService: mockGitService,
         sessionDB: mockSessionDB,
+        getCurrentSession: async () => "dry-run-session", // Mock current session detection
       }
     );
 

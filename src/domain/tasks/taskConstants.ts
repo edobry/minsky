@@ -103,7 +103,7 @@ export const TASK_REGEX_PATTERNS = {
    * Supports both numeric and alphanumeric task IDs
    */
   TASK_LINE: new RegExp(
-    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[([a-z-]*#?[A-Za-z0-9_]+)\\]\\(([^)]+)\\)`
+    `^- \\[(${generateCheckboxPattern()})\\] (.+?) \\[([a-z-]*#?[A-Za-z0-9_-]+)\\]\\(([^)]+)\\)`
   ),
 
   /**
@@ -146,8 +146,9 @@ export const TASK_PARSING_UTILS = {
       // Legacy format with # prefix (#123) - return as-is
       id = fullId;
     } else {
-      // Legacy format without # prefix (123) - add # prefix
-      id = `#${fullId}`;
+      // Local format without # prefix (update-test) - return as-is for consistency
+      // This ensures round-trip consistency: store "update-test" → retrieve "update-test"
+      id = fullId;
     }
 
     return {

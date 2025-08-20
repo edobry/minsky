@@ -5,12 +5,23 @@
  * backup functionality and validation.
  */
 
-import { readFileSync, writeFileSync, existsSync, mkdirSync, copyFileSync } from "fs";
+import * as nodeFs from "fs";
 import { join, dirname } from "path";
 import { parse, stringify } from "yaml";
 import { getUserConfigDir, userConfigFiles } from "./sources/user";
 import { ConfigSchema } from "./config-schemas";
 import { log } from "../../utils/logger";
+
+/**
+ * Synchronous filesystem interface used by ConfigWriter
+ */
+export interface SyncFs {
+  readFileSync: (path: string, encoding: string) => string;
+  writeFileSync: (path: string, data: string, encoding: string) => void;
+  existsSync: (path: string) => boolean;
+  mkdirSync: (path: string, options?: { recursive?: boolean }) => void;
+  copyFileSync: (src: string, dest: string) => void;
+}
 
 /**
  * Configuration writer options
@@ -24,6 +35,8 @@ export interface ConfigWriterOptions {
   createDir?: boolean;
   /** Whether to validate the configuration before writing */
   validate?: boolean;
+  /** Override the user config directory (for tests) */
+  configDir?: string;
 }
 
 /**
@@ -54,16 +67,20 @@ export interface ConfigBackupResult {
 export class ConfigWriter {
   private readonly options: Required<ConfigWriterOptions>;
   private readonly configDir: string;
+  private readonly fs: SyncFs;
 
-  constructor(options: ConfigWriterOptions = {}) {
+  constructor(options: ConfigWriterOptions = {}, deps?: { fs?: SyncFs }) {
     this.options = {
       createBackup: true,
       format: "yaml",
       createDir: true,
       validate: true,
+      configDir: options.configDir,
       ...options,
-    };
-    this.configDir = getUserConfigDir();
+    } as Required<ConfigWriterOptions>;
+
+    this.configDir = this.options.configDir || getUserConfigDir();
+    this.fs = deps?.fs || (nodeFs as unknown as SyncFs);
   }
 
   /**
@@ -82,9 +99,9 @@ export class ConfigWriter {
       // Load current configuration
       const currentConfig = this.loadConfigFile(configFile);
 
-      // Create backup if requested
+      // Create backup if requested (only if file exists)
       let backupPath: string | undefined;
-      if (this.options.createBackup) {
+      if (this.options.createBackup && this.fs.existsSync(configFile)) {
         const backupResult = this.createBackup(configFile);
         if (!backupResult.success) {
           return {
@@ -169,9 +186,9 @@ export class ConfigWriter {
         };
       }
 
-      // Create backup if requested
+      // Create backup if requested (only if file exists)
       let backupPath: string | undefined;
-      if (this.options.createBackup) {
+      if (this.options.createBackup && this.fs.existsSync(configFile)) {
         const backupResult = this.createBackup(configFile);
         if (!backupResult.success) {
           return {
@@ -232,7 +249,7 @@ export class ConfigWriter {
       const timestamp = new Date().toISOString().replace(/[:.]/g, "-");
       const backupPath = `${configFile}.backup.${timestamp}`;
 
-      copyFileSync(configFile, backupPath);
+      this.fs.copyFileSync(configFile, backupPath);
 
       return {
         success: true,
@@ -254,7 +271,7 @@ export class ConfigWriter {
    */
   private restoreFromBackup(configFile: string, backupPath: string): void {
     try {
-      copyFileSync(backupPath, configFile);
+      this.fs.copyFileSync(backupPath, configFile);
       log.debug(`Configuration restored from backup: ${backupPath}`);
     } catch (error) {
       log.error(`Failed to restore from backup: ${error}`);
@@ -265,8 +282,8 @@ export class ConfigWriter {
    * Ensure configuration directory exists
    */
   private ensureConfigDir(): void {
-    if (!existsSync(this.configDir)) {
-      mkdirSync(this.configDir, { recursive: true });
+    if (!this.fs.existsSync(this.configDir)) {
+      this.fs.mkdirSync(this.configDir, { recursive: true });
     }
   }
 
@@ -276,7 +293,7 @@ export class ConfigWriter {
   private findConfigFile(): string | null {
     for (const configFile of userConfigFiles) {
       const filePath = join(this.configDir, configFile);
-      if (existsSync(filePath)) {
+      if (this.fs.existsSync(filePath)) {
         return filePath;
       }
     }
@@ -309,12 +326,12 @@ export class ConfigWriter {
    * Load configuration from file
    */
   private loadConfigFile(filePath: string): any {
-    if (!existsSync(filePath)) {
+    if (!this.fs.existsSync(filePath)) {
       return {};
     }
 
     try {
-      const content = readFileSync(filePath, "utf8");
+      const content = this.fs.readFileSync(filePath, "utf8");
       const extension = filePath.split(".").pop()?.toLowerCase();
 
       switch (extension) {
@@ -354,7 +371,7 @@ ${stringify(config, { indent: 2 })}`;
         throw new Error(`Unsupported file format: ${extension}`);
     }
 
-    writeFileSync(filePath, content, "utf8");
+    this.fs.writeFileSync(filePath, content, "utf8");
   }
 
   /**
@@ -434,6 +451,9 @@ ${stringify(config, { indent: 2 })}`;
 /**
  * Create a configuration writer instance
  */
-export function createConfigWriter(options?: ConfigWriterOptions): ConfigWriter {
-  return new ConfigWriter(options);
+export function createConfigWriter(
+  options?: ConfigWriterOptions,
+  deps?: { fs?: SyncFs }
+): ConfigWriter {
+  return new ConfigWriter(options, deps);
 }
