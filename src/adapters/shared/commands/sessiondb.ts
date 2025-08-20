@@ -739,8 +739,8 @@ async function runSchemaMigrationsForConfiguredBackend(
         migrationsFolder,
         message: `${summary}\n\n(use --execute to apply)`,
         status: {
-          schema: schemaExists ? "present" : "missing",
-          metaTable: metaExists ? "present" : "missing",
+          schema: status.schemaExists ? "present" : "missing",
+          metaTable: status.metaExists ? "present" : "missing",
         },
         plan: {
           files: fileNames,
