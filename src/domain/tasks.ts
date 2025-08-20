@@ -22,27 +22,8 @@ import { getTaskSpecRelativePath } from "./tasks/taskIO";
 import { createGitService } from "./git";
 
 // Import and re-export functions from taskCommands.ts
-import {
-  listTasksFromParams,
-  getTaskFromParams,
-  getTaskStatusFromParams,
-  setTaskStatusFromParams,
-  createTaskFromParams,
-  createTaskFromTitleAndSpec,
-  getTaskSpecContentFromParams,
-  deleteTaskFromParams,
-} from "./tasks/taskCommands";
-
-export {
-  listTasksFromParams,
-  getTaskFromParams,
-  getTaskStatusFromParams,
-  setTaskStatusFromParams,
-  createTaskFromParams,
-  createTaskFromTitleAndSpec,
-  getTaskSpecContentFromParams,
-  deleteTaskFromParams,
-};
+// Note: Command-level functions removed due to merge conflicts with main branch refactoring
+// Core task backend functionality is available through TaskService and individual backends
 
 // Re-export task status constants from centralized location
 export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
