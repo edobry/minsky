@@ -2,24 +2,37 @@
  * Tests for GitHubIssuesTaskBackend
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
+
+// Mock Octokit to prevent real GitHub API calls
+mock.module("@octokit/rest", () => ({
+  Octokit: mock(() => ({
+    rest: {
+      issues: {
+        getLabel: mock(() => Promise.resolve()),
+        createLabel: mock(() => Promise.resolve()),
+      }
+    }
+  }))
+}));
+
+// Mock the GitHub backend config to prevent real API calls
+mock.module("./githubBackendConfig", () => ({
+  createGitHubLabels: mock(() => Promise.resolve())
+}));
 
 describe("GitHubIssuesTaskBackend", () => {
   let backend: GitHubIssuesTaskBackend;
 
   beforeEach(() => {
-    // Create backend instance for testing pure functions with mocked label creation
+    // Create backend instance for testing pure functions (API calls are mocked)
     backend = createGitHubIssuesTaskBackend({
       name: "github-issues",
       workspacePath: "/test/workspace",
       githubToken: "test-token",
       owner: "test-owner",
       repo: "test-repo",
-      // Mock the createLabels dependency to prevent real API calls
-      createLabels: async () => {
-        // No-op mock - prevents real GitHub API calls during tests
-      },
     }) as GitHubIssuesTaskBackend;
   });
 
@@ -43,10 +56,6 @@ describe("GitHubIssuesTaskBackend", () => {
           DONE: "custom:done",
           BLOCKED: "custom:blocked",
           CLOSED: "custom:closed",
-        },
-        // Mock the createLabels dependency to prevent real API calls
-        createLabels: async () => {
-          // No-op mock - prevents real GitHub API calls during tests
         },
       });
 
