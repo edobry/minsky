@@ -21,9 +21,11 @@ export const ToolSchemasComponent: ContextComponent = {
       // Convert to clean tool schemas format matching Cursor's structure
       const toolSchemas: Record<string, any> = {};
 
-      for (const [name, command] of allCommands.entries()) {
-        toolSchemas[name] = {
-          description: command.description || `${name}: Minsky CLI command`,
+      for (const [commandId, command] of allCommands.entries()) {
+        // Use the actual command ID, not the map index
+        const actualName = command.id || commandId || `command_${commandId}`;
+        toolSchemas[actualName] = {
+          description: command.description || `${actualName}: Minsky CLI command`,
           parameters: cleanParameterSchema(
             command.parameters || {
               type: "object",
@@ -37,7 +39,7 @@ export const ToolSchemasComponent: ContextComponent = {
       return {
         toolSchemas,
         totalTools: allCommands.size,
-        format: context.userPrompt?.includes("json") ? "json" : "xml", // Allow format selection via prompt
+        format: context.userPrompt?.includes("xml") ? "xml" : "json", // Default to JSON like Cursor, XML only if requested
       };
     } catch (error) {
       console.warn("Failed to load tool schemas:", error);
@@ -72,14 +74,18 @@ Available tools could not be determined.`;
     let content: string;
 
     if (format === "json") {
-      // Cursor's JSON format
-      content = `## Complete Tool Schemas
+      // Cursor's JSON format - exactly matching Cursor's structure
+      const toolsObj: Record<string, any> = {};
 
-Here are the complete tool definitions:
+      Object.entries(inputs.toolSchemas).forEach(([name, schema]: [string, any]) => {
+        toolsObj[name] = {
+          description: schema.description || "",
+          parameters: schema.parameters || { type: "object", properties: {}, required: [] },
+        };
+      });
 
-\`\`\`json
-${JSON.stringify(inputs.toolSchemas, null, 2)}
-\`\`\``;
+      content = `Here are the functions available in JSONSchema format:
+${JSON.stringify(toolsObj, null, 2)}`;
     } else {
       // XML format (default, more structured)
       content = `Here are the functions available in JSONSchema format:
