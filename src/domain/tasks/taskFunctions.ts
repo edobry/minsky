@@ -67,7 +67,7 @@ export function parseTasksFromMarkdown(content: string): TaskData[] {
       id: id,
       title,
       status,
-      description: spec.trim(),
+      description: description.trim(),
     });
   }
 
