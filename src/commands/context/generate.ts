@@ -17,6 +17,7 @@ interface GenerateOptions {
   template?: string;
   model?: string;
   prompt?: string;
+  interface?: "cli" | "mcp" | "hybrid";
 }
 
 interface GenerateRequest {
@@ -56,6 +57,11 @@ export function createGenerateCommand(): Command {
     .option("-t, --template <template>", "Use specific template for generation")
     .option("-m, --model <model>", "Target AI model for context generation", "gpt-4o")
     .option("-p, --prompt <prompt>", "User prompt to customize context generation")
+    .option(
+      "-i, --interface <interface>",
+      "Interface mode for tool schemas (cli|mcp|hybrid)",
+      "cli"
+    )
     .addHelpText(
       "after",
       `
@@ -67,6 +73,7 @@ Examples:
   minsky context generate --components environment,task-context --format json
   minsky context generate --template cursor-style --model claude-3-5-sonnet
   minsky context generate --prompt "focus on authentication and security rules"
+  minsky context generate --interface mcp  # Use XML format for tool schemas
 `
     )
     .action(async (options: GenerateOptions) => {
@@ -120,6 +127,11 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
         "Implementing context generate command and designing modular context components",
       userPrompt: options.prompt,
       targetModel: options.model || "gpt-4o",
+      interfaceConfig: {
+        interface: options.interface || "cli",
+        mcpEnabled: options.interface === "mcp" || options.interface === "hybrid",
+        preferMcp: options.interface === "mcp",
+      },
     },
   };
 
@@ -242,6 +254,8 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
       `Template: ${request.input.targetModel ? "model-specific" : "default"}`,
       "",
       `Target Model: ${request.input.targetModel}`,
+      "",
+      `Interface: ${request.input.interfaceConfig?.interface || "cli"}`,
       "",
       ...sections,
     ].join("\n\n");

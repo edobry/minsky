@@ -1,12 +1,12 @@
 import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
-import { CommandGeneratorService, getCommandRepresentation } from "../../rules/command-generator";
+import { CommandGeneratorService } from "../../rules/command-generator";
 import { CommandCategory } from "../../../adapters/shared/command-registry";
 
 /**
  * Tool Schemas Component
  *
- * Uses the proper template system to generate clean tool schemas exactly like Cursor's format.
- * Leverages CommandGeneratorService for professional parameter documentation.
+ * Uses the proper template system logic to determine JSON vs XML format based on interface configuration.
+ * Leverages CommandGeneratorService with proper interface mode for professional tool documentation.
  */
 export const ToolSchemasComponent: ContextComponent = {
   id: "tool-schemas",
@@ -15,11 +15,18 @@ export const ToolSchemasComponent: ContextComponent = {
 
   async gatherInputs(context: ComponentInput): Promise<ComponentInputs> {
     try {
-      // Use the proper command generator service
-      const commandGenerator = new CommandGeneratorService({
-        interface: context.userPrompt?.includes("xml") ? "mcp" : "cli", // JSON is default like Cursor
+      // Use the proper interface configuration from shared inputs (same logic as template system)
+      const interfaceConfig = context.interfaceConfig || {
+        interface: "cli" as const,
+        mcpEnabled: false,
         preferMcp: false,
-        mcpTransport: "stdio",
+      };
+
+      // Create command generator service with proper interface mode
+      const commandGenerator = new CommandGeneratorService({
+        interfaceMode: interfaceConfig.interface,
+        mcpEnabled: interfaceConfig.mcpEnabled,
+        preferMcp: interfaceConfig.preferMcp,
       });
 
       // Get all command categories and build comprehensive tool list
@@ -39,24 +46,39 @@ export const ToolSchemasComponent: ContextComponent = {
       for (const category of categories) {
         const commands = commandGenerator.getCommandsByCategory(category);
         for (const cmd of commands) {
-          const representation = getCommandRepresentation(cmd.id);
-          if (representation) {
+          // For JSON format (default), use clean tool schema format like Cursor
+          if (interfaceConfig.interface === "cli") {
             toolSchemas[cmd.id] = {
               description: cmd.description,
-              parameters:
-                representation.parameters.length > 0
-                  ? convertParametersToSchema(representation.parameters)
-                  : { type: "object", properties: {}, required: [] },
+              parameters: {
+                type: "object",
+                properties: {},
+                required: [],
+              },
             };
-            totalTools++;
+          } else {
+            // For MCP mode, include full command representation
+            toolSchemas[cmd.id] = {
+              description: cmd.description,
+              syntax: cmd.syntax,
+              parameters: {
+                type: "object",
+                properties: {},
+                required: [],
+              },
+            };
           }
+          totalTools++;
         }
       }
 
       return {
         toolSchemas,
         totalTools,
-        format: context.userPrompt?.includes("xml") ? "xml" : "json", // Default to JSON like Cursor
+        interfaceMode: interfaceConfig.interface,
+        shouldUseMcp:
+          interfaceConfig.interface === "mcp" ||
+          (interfaceConfig.interface === "hybrid" && interfaceConfig.preferMcp),
       };
     } catch (error) {
       console.warn("Failed to load tool schemas via template system:", error);
@@ -64,7 +86,8 @@ export const ToolSchemasComponent: ContextComponent = {
         toolSchemas: {},
         totalTools: 0,
         error: "Failed to load tool schemas",
-        format: "json",
+        interfaceMode: "cli",
+        shouldUseMcp: false,
       };
     }
   },
@@ -87,15 +110,10 @@ Available tools could not be determined.`;
       };
     }
 
-    const format = inputs.format || "json";
     let content: string;
 
-    if (format === "json") {
-      // Cursor's exact JSON format
-      content = `Here are the functions available in JSONSchema format:
-${JSON.stringify(inputs.toolSchemas, null, 2)}`;
-    } else {
-      // XML format (for compatibility)
+    if (inputs.shouldUseMcp) {
+      // MCP/XML format for hybrid/mcp interface mode
       content = `Here are the functions available in JSONSchema format:
 <functions>
 ${Object.entries(inputs.toolSchemas)
@@ -105,6 +123,10 @@ ${Object.entries(inputs.toolSchemas)
   )
   .join("\n")}
 </functions>`;
+    } else {
+      // JSON format (default, matches Cursor exactly)
+      content = `Here are the functions available in JSONSchema format:
+${JSON.stringify(inputs.toolSchemas, null, 2)}`;
     }
 
     return {
@@ -124,31 +146,6 @@ ${Object.entries(inputs.toolSchemas)
     return this.render(gatheredInputs, input);
   },
 };
-
-/**
- * Convert CommandParameter array to JSON schema format
- */
-function convertParametersToSchema(parameters: any[]): any {
-  const properties: Record<string, any> = {};
-  const required: string[] = [];
-
-  for (const param of parameters) {
-    properties[param.name] = {
-      description: param.description || `Parameter: ${param.name}`,
-      type: "string", // Simplified like Cursor's format
-    };
-
-    if (param.required) {
-      required.push(param.name);
-    }
-  }
-
-  return {
-    type: "object",
-    properties,
-    required,
-  };
-}
 
 export function createToolSchemasComponent(): ContextComponent {
   return ToolSchemasComponent;

@@ -3,13 +3,7 @@ export interface ComponentInput {
   workspacePath?: string;
   task?: { id: string; title: string; status: string; description: string };
   userQuery?: string;
-  userPrompt?: string;
   targetModel?: string;
-  interfaceConfig?: {
-    interface: "cli" | "mcp" | "hybrid";
-    mcpEnabled: boolean;
-    preferMcp: boolean;
-  };
   // ... other potential inputs
 }
 
@@ -19,8 +13,6 @@ export interface ComponentOutput {
     componentId: string;
     generatedAt: string;
     tokenCount?: number;
-    sections?: string[];
-    totalTools?: number;
   };
 }
 
