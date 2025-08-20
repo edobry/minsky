@@ -26,6 +26,7 @@ export {
 } from "./system-instructions";
 export { SessionContextComponent, createSessionContextComponent } from "./session-context";
 export { ToolSchemasComponent, createToolSchemasComponent } from "./tool-schemas";
+export { ErrorContextComponent, createErrorContextComponent } from "./error-context";
 
 // Registry management functions
 export function registerDefaultComponents(): void {
@@ -37,6 +38,7 @@ export function registerDefaultComponents(): void {
   const { SystemInstructionsComponent } = require("./system-instructions");
   const { SessionContextComponent } = require("./session-context");
   const { ToolSchemasComponent } = require("./tool-schemas");
+  const { ErrorContextComponent } = require("./error-context");
 
   const registry = getContextComponentRegistry();
   registry.register(EnvironmentComponent);
@@ -46,6 +48,7 @@ export function registerDefaultComponents(): void {
   registry.register(SystemInstructionsComponent);
   registry.register(SessionContextComponent);
   registry.register(ToolSchemasComponent);
+  registry.register(ErrorContextComponent);
 }
 
 export function getAvailableComponentIds(): string[] {
