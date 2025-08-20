@@ -608,7 +608,7 @@
 
 - [ ] Add config commands to MCP server [md#391](process/tasks/md#391-add-config-commands-to-mcp-server.md)
 
-- [ ] Systematic Global Module Mock Cleanup [md#392](process/tasks/md#392-systematic-global-module-mock-cleanup.md)
+- [+] Systematic Global Module Mock Cleanup [md#392](process/tasks/md#392-systematic-global-module-mock-cleanup.md)
 
 - [ ] Testable Design Pattern Expansion [md#394](process/tasks/md#394-testable-design-pattern-expansion.md)
 
@@ -730,6 +730,8 @@
 
 - [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
 
-- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-tool-agent-inbox-and-queue-design.md)
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
 
-- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-cli-pr-integration.md)
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
+
+- [ ] Investigate AI Integration Test Validation Logic [md#456](process/tasks/md#456-investigate-ai-integration-test-validation-logic.md)

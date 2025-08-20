@@ -60,7 +60,11 @@ export class PostgresVectorStorage implements VectorStorage {
   async store(id: string, vector: number[], _metadata?: Record<string, any>): Promise<void> {
     const vectorLiteral = `[${vector.join(",")}]`;
 
-    const cols: string[] = [this.config.idColumn, this.config.dimensionColumn, this.config.embeddingColumn];
+    const cols: string[] = [
+      this.config.idColumn,
+      this.config.dimensionColumn,
+      this.config.embeddingColumn,
+    ];
     const placeholders: string[] = [];
     const values: any[] = [];
     let paramIndex = 1;
@@ -110,7 +114,9 @@ export class PostgresVectorStorage implements VectorStorage {
       updateSets.push(`${this.config.metadataColumn} = EXCLUDED.${this.config.metadataColumn}`);
     }
     if (this.config.contentHashColumn) {
-      updateSets.push(`${this.config.contentHashColumn} = EXCLUDED.${this.config.contentHashColumn}`);
+      updateSets.push(
+        `${this.config.contentHashColumn} = EXCLUDED.${this.config.contentHashColumn}`
+      );
     }
     if (this.config.lastIndexedAtColumn) {
       updateSets.push(`${this.config.lastIndexedAtColumn} = NOW()`);

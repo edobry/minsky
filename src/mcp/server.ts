@@ -159,7 +159,7 @@ export class MinskyMCPServer {
     this.setupRequestHandlers();
 
     log.systemDebug(
-      "[MCP] Server instance created with transport type: " + this.options.transportType
+      `[MCP] Server instance created with transport type: ${this.options.transportType}`
     );
   }
 

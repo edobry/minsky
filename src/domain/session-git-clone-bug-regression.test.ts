@@ -172,7 +172,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     expect(result).toMatchObject({
       session: "task-md#160",
       taskId: "md#160",
-      branch: "task-md#160",
+      repoName: "local-minsky",
       repoUrl: "local/minsky",
     });
 

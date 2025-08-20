@@ -47,8 +47,8 @@ describe("ConfigWriter", () => {
   describe("setConfigValue", () => {
     test("should create config directory if it doesn't exist", async () => {
       // Bug scenario: Config directory doesn't exist yet
-      mockFs.existsSync.mockImplementation(() => false);
-      mockFs.readFileSync.mockImplementation(() => "{}");
+      mockFs.existsSync = mock(() => false);
+      mockFs.readFileSync = mock(() => "{}");
 
       await writer.setConfigValue("key", "value");
 
@@ -58,8 +58,8 @@ describe("ConfigWriter", () => {
 
     test("should create backup before modifying existing config", async () => {
       // Test scenario: Existing config file needs backup before modification
-      mockFs.existsSync.mockImplementation((path) => path === mockConfigFile || path === mockConfigDir);
-      mockFs.readFileSync.mockImplementation(() => "existing: value\n");
+      mockFs.existsSync = mock((path) => path === mockConfigFile || path === mockConfigDir);
+      mockFs.readFileSync = mock(() => "existing: value\n");
       // Pre-seed file to allow backup
       mockFs.writeFileSync(mockConfigFile, "existing: value\n");
 
@@ -106,7 +106,7 @@ describe("ConfigWriter", () => {
       // Bug scenario: Backup creation fails (permissions, disk space, etc.)
       // Seed the mock filesystem with the config file
       mockFs.writeFileSync(mockConfigFile, "{}");
-      mockFs.copyFileSync.mockImplementation(() => {
+      mockFs.copyFileSync = mock(() => {
         throw new Error("Permission denied");
       });
 
@@ -121,7 +121,7 @@ describe("ConfigWriter", () => {
       // Bug scenario: Writing to config file fails
       // Seed the mock filesystem with the config file
       mockFs.writeFileSync(mockConfigFile, "{}");
-      mockFs.writeFileSync.mockImplementation(() => {
+      mockFs.writeFileSync = mock(() => {
         throw new Error("Disk full");
       });
 
@@ -191,7 +191,8 @@ describe("ConfigWriter", () => {
       };
 
       // Seed the mock filesystem with existing config
-      const configContent = "ai:\n  providers:\n    openai:\n      model: gpt-4\n    anthropic:\n      model: claude-3\n";
+      const configContent =
+        "ai:\n  providers:\n    openai:\n      model: gpt-4\n    anthropic:\n      model: claude-3\n";
       mockFs.writeFileSync(mockConfigFile, configContent);
 
       const result = await writer.unsetConfigValue("ai.providers.openai.model");
@@ -202,7 +203,8 @@ describe("ConfigWriter", () => {
 
     test("should clean up empty parent objects after unsetting", async () => {
       // Test scenario: After unsetting a nested value, empty parent objects should be removed
-      const configContent = "ai:\n  providers:\n    openai:\n      model: gpt-4\nbackend: markdown\n";
+      const configContent =
+        "ai:\n  providers:\n    openai:\n      model: gpt-4\nbackend: markdown\n";
 
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, configContent);
@@ -219,7 +221,7 @@ describe("ConfigWriter", () => {
 
     test("should fail gracefully when no config file exists", async () => {
       // Bug scenario: Trying to unset from non-existent config file
-      mockFs.existsSync.mockImplementation(() => false);
+      mockFs.existsSync = mock(() => false);
 
       const result = await writer.unsetConfigValue("key");
 
@@ -229,10 +231,10 @@ describe("ConfigWriter", () => {
 
     test("should restore from backup if file write fails after unset", async () => {
       // Bug scenario: File write fails after successful unset operation
-      mockFs.existsSync.mockImplementation(() => true);
+      mockFs.existsSync = mock(() => true);
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, "key: value\n");
-      mockFs.writeFileSync.mockImplementation(() => {
+      mockFs.writeFileSync = mock(() => {
         throw new Error("Write failed");
       });
 
@@ -248,7 +250,7 @@ describe("ConfigWriter", () => {
   describe("error handling and edge cases", () => {
     test("should handle malformed YAML files", async () => {
       // Bug scenario: Existing config file has invalid YAML syntax
-      mockFs.existsSync.mockImplementation(() => true);
+      mockFs.existsSync = mock(() => true);
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, "invalid: yaml: content:\n  - badly\nformatted");
 
@@ -260,8 +262,8 @@ describe("ConfigWriter", () => {
 
     test("should handle permission errors on config directory creation", async () => {
       // Bug scenario: Cannot create config directory due to permissions
-      mockFs.existsSync.mockImplementation(() => false);
-      mockFs.mkdirSync.mockImplementation(() => {
+      mockFs.existsSync = mock(() => false);
+      mockFs.mkdirSync = mock(() => {
         throw new Error("EACCES: permission denied");
       });
 
@@ -275,7 +277,7 @@ describe("ConfigWriter", () => {
       // Edge case: Very deeply nested configuration paths
       const deepPath = "level1.level2.level3.level4.level5.key";
 
-      mockFs.existsSync.mockImplementation(() => true);
+      mockFs.existsSync = mock(() => true);
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, "{}");
 
@@ -290,7 +292,7 @@ describe("ConfigWriter", () => {
       const specialKey = "special.key-with_chars";
       const specialValue = "value with spaces & symbols!@#$%";
 
-      mockFs.existsSync.mockImplementation(() => true);
+      mockFs.existsSync = mock(() => true);
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, "{}");
 
@@ -304,7 +306,7 @@ describe("ConfigWriter", () => {
   describe("backup functionality", () => {
     test("should include timestamp in backup filename", async () => {
       // Test requirement: Backup files should have timestamps as specified in requirements
-      mockFs.existsSync.mockImplementation(() => true);
+      mockFs.existsSync = mock(() => true);
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, "{}");
 
@@ -322,7 +324,7 @@ describe("ConfigWriter", () => {
         validate: false, // Disable validation for this test
       });
 
-      mockFs.existsSync.mockImplementation(() => true);
+      mockFs.existsSync = mock(() => true);
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, "{}");
 

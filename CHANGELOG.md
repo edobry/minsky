@@ -16,7 +16,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - feat(md#414): MAJOR test suite stabilization and GitHub API testing fix
-  - **Eliminated GitHub API calls during tests** - fixed "Unable to connect" errors from GitHubIssuesTaskBackend  
+  - **Eliminated GitHub API calls during tests** - fixed "Unable to connect" errors from GitHubIssuesTaskBackend
   - Implemented proper mock.module() for @octokit/rest and githubBackendConfig following DI patterns
   - **Fixed AI integration test configuration drift bug** - removed redundant initializeConfiguration call in applyEditPattern that was causing provider mismatches
   - **Implemented proper dependency injection for integration tests** - tests now load real config but inject it into SUT rather than relying on global state

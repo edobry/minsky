@@ -595,7 +595,9 @@ export async function sessionPrGet(params: {
           }
         }
       } catch (error) {
-        log.debug(`Failed to fetch live PR data, falling back to cached: ${getErrorMessage(error)}`);
+        log.debug(
+          `Failed to fetch live PR data, falling back to cached: ${getErrorMessage(error)}`
+        );
       }
     }
 
@@ -609,7 +611,10 @@ export async function sessionPrGet(params: {
         sessionRecord.backendType === "github"
           ? finalPullRequest?.headBranch || currentBranch || sessionRecord.session
           : prState?.branchName || `pr/${sessionRecord.session}`,
-      status: livePrData?.state || finalPullRequest?.state || (prState?.commitHash ? "created" : "not_found"),
+      status:
+        livePrData?.state ||
+        finalPullRequest?.state ||
+        (prState?.commitHash ? "created" : "not_found"),
       url: livePrData?.html_url || finalPullRequest?.url,
       // Use live timestamps when available
       createdAt: livePrData?.created_at || finalPullRequest?.createdAt || prState?.createdAt,

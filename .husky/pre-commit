@@ -33,6 +33,29 @@ fi
 
 echo "✅ No variable naming issues found."
 
+echo "🧪 MANDATORY: Running full test suite..."
+
+# Run the full test suite - ANY failure blocks the commit
+echo "  → Executing all tests with timeout..."
+if ! bun test --timeout=30000 --bail; then
+  echo ""
+  echo "❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌"
+  echo ""
+  echo "🚫 One or more tests are failing. Fix ALL test failures before committing."
+  echo "💡 Run 'bun test' locally to see detailed failure information."
+  echo "🔧 Ensure your changes don't break existing functionality."
+  echo ""
+  echo "📋 Common fixes:"
+  echo "   • Update test expectations if behavior intentionally changed"
+  echo "   • Fix bugs in your code that break existing tests"
+  echo "   • Add missing mocks or dependencies"
+  echo "   • Check for import/export issues"
+  echo ""
+  exit 1
+fi
+
+echo "✅ All tests passing! Test suite validation completed."
+
 echo "🔍 Checking for test anti-patterns..."
 
 # NEW: Test Pattern Validation (Task #332 extension)

@@ -25,7 +25,10 @@ async function main() {
   const db = drizzle(sql);
 
   // Count tasks with backend="markdown"
-  const markdownTasks = await db.select().from(tasksTable).where(eq(tasksTable.backend, "markdown"));
+  const markdownTasks = await db
+    .select()
+    .from(tasksTable)
+    .where(eq(tasksTable.backend, "markdown"));
   console.log(`📝 Found ${markdownTasks.length} tasks with backend="markdown"`);
 
   if (markdownTasks.length === 0) {
@@ -41,7 +44,7 @@ async function main() {
     .update(tasksTable)
     .set({
       backend: "db" as any,
-      updatedAt: new Date()
+      updatedAt: new Date(),
     })
     .where(eq(tasksTable.backend, "markdown"));
 

@@ -27,7 +27,8 @@ export type MigrateBackendParams = z.infer<typeof migrateBackendParamsSchema>;
 export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendParams, any> {
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
-  readonly description = "Migrate tasks between different backends (markdown, db, github, json-file)";
+  readonly description =
+    "Migrate tasks between different backends (markdown, db, github, json-file)";
   readonly parameters = {
     from: {
       schema: z.enum(["markdown", "db", "github", "json-file"]).optional(),
@@ -77,7 +78,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     const workspacePath = context.workspacePath || process.cwd();
 
     // Auto-detect source backend if not provided
-    const sourceBackend = p.from || await this.detectCurrentBackend(workspacePath);
+    const sourceBackend = p.from || (await this.detectCurrentBackend(workspacePath));
     const targetBackend = p.to;
 
     if (sourceBackend === targetBackend) {
@@ -151,7 +152,8 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     errors: number;
     details: any[];
   }> {
-    const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } = options;
+    const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
+      options;
 
     // Create source and target task services
     const sourceService = new TaskService({ workspacePath, backend: sourceBackend });
@@ -162,7 +164,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
 
     // Apply filters
     if (filterStatus) {
-      tasks = tasks.filter(task => task.status?.toUpperCase() === filterStatus.toUpperCase());
+      tasks = tasks.filter((task) => task.status?.toUpperCase() === filterStatus.toUpperCase());
     }
     if (limit && limit > 0) {
       tasks = tasks.slice(0, limit);
@@ -207,11 +209,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
 
           // Create task in target backend
           const targetBackendInstance = targetService.getCurrentBackend();
-          await targetBackendInstance.createTaskFromTitleAndSpec(
-            fullTask.title,
-            specContent,
-            { force: true }
-          );
+          await targetBackendInstance.createTaskFromTitleAndSpec(fullTask.title, specContent, {
+            force: true,
+          });
 
           // Update the task ID and backend if needed
           if (newTaskId !== taskId) {
@@ -227,7 +227,6 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           sourceBackend,
           targetBackend,
         });
-
       } catch (error) {
         result.errors++;
         result.details.push({
@@ -251,7 +250,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     return prefixMap[backend] || backend;
   }
 
-  private displayResults(result: any, dryRun: boolean, sourceBackend: string, targetBackend: string): void {
+  private displayResults(
+    result: any,
+    dryRun: boolean,
+    sourceBackend: string,
+    targetBackend: string
+  ): void {
     log.cli("\n📊 MIGRATION RESULTS:");
     log.cli(`📝 Total: ${result.total}`);
     log.cli(`✅ Migrated: ${result.migrated}`);
