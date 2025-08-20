@@ -5,11 +5,17 @@
  * and provides clear error messages for the new approve-only workflow.
  */
 
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, beforeEach } from "bun:test";
 import { approveSessionPr } from "./session-approval-operations";
 import { ResourceNotFoundError } from "../../errors/index";
+import { initializeConfiguration, CustomConfigFactory } from "../../domain/configuration";
 
 describe("Session Approval Error Handling (Task #358 Updated)", () => {
+  beforeEach(async () => {
+    // Initialize configuration system for each test
+    await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
+  });
+
   test("should handle missing session for task", async () => {
     // Test Case 1: Task with no associated session (like task 3283)
     await expect(

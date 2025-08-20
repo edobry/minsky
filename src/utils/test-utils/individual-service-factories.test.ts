@@ -39,7 +39,7 @@ describe("Individual Service Mock Factories", () => {
           repoName: "test-repo",
           repoUrl: "https://github.com/test/repo",
           createdAt: "2023-01-01T00:00:00Z",
-          taskId: "123",
+          taskId: "md#123",
         },
       ];
 
@@ -47,7 +47,7 @@ describe("Individual Service Mock Factories", () => {
 
       expect(await mockProvider.listSessions()).toEqual(sessions);
       expect(await mockProvider.getSession("test-session")).toEqual(sessions[0]);
-      expect(await mockProvider.getSessionByTaskId("123")).toEqual(sessions[0]);
+      expect(await mockProvider.getSessionByTaskId("md#123")).toEqual(sessions[0]);
       expect(await mockProvider.getSession("nonexistent")).toBeNull();
     });
 

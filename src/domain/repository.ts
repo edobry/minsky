@@ -468,9 +468,9 @@ export async function resolveRepository(
   }
   // 3. Try to resolve from task ID
   else if (taskId) {
-    const normalizedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
+    const validatedTaskId = taskId.startsWith("#") ? taskId : `#${taskId}`;
     const sessionDb = new (await import("./session.js")).SessionDB();
-    const sessionRecord = await sessionDb.getSessionByTaskId(normalizedTaskId);
+    const sessionRecord = await sessionDb.getSessionByTaskId(validatedTaskId);
     if (!sessionRecord) {
       throw new ValidationError(`No session found for task: ${taskId}`);
     }

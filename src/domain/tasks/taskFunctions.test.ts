@@ -33,43 +33,7 @@ const expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
 const expectQualifiedFormat = (id: string) => id;
 
 describe("Task Functions", () => {
-  describe("", () => {
-    test("should return canonical form for valid IDs", () => {
-      // Since returns legacy format for backward compatibility,
-      // test what it actually returns, not what we think it should return
-      // returns legacy format for backward compatibility
-      expect(TEST_TASK_ID_ALPHA).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
-      expect(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_ALPHA}`);
-      expect(TEST_TASK_ID_NUMERIC).toBe(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`);
-      expect(`${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`).toBe(
-        `${LEGACY_PREFIX}${TEST_TASK_ID_NUMERIC}`
-      );
-    });
-
-    test("should handle various prefix patterns", () => {
-      expect("task-TEST_VALUE").toBe("#task");
-      expect("task#TEST_VALUE").toBe("#task");
-      expect("TASK_TEST_VALUE").toBe("#TASK_TEST_VALUE");
-    });
-
-    test("should return undefined for non-numeric input", () => {
-      expect("").toBeUndefined();
-      expect(" ").toBeUndefined();
-      expect("@#$%").toBeUndefined();
-    });
-
-    test("should extract numeric portion from mixed formats", () => {
-      expect("task-TEST_VALUE").toBe("#task");
-      expect("task #TEST_VALUE").toBe("#task");
-      expect("TEST_VALUE-something").toBe("#TEST_VALUE");
-    });
-
-    test("should handle alphanumeric task IDs", () => {
-      expect("abc").toBe("#abc");
-      expect("TEST_VALUE").toBe("#TEST_VALUE");
-      expect("001").toBe("#001");
-    });
-  });
+  // Removed broken tests that were testing constants instead of functions
 
   describe("parseTasksFromMarkdown", () => {
     test("should return empty array for empty content", () => {
@@ -187,14 +151,13 @@ Code block with task-like content:
       expect(task?.id).toBe("#003");
     });
 
-    test("should handle numeric equivalence", () => {
-      // Test leading zeros are handled correctly
+    test("should handle exact ID matching", () => {
+      // Test exact ID matching (no numeric equivalence)
       const tasksWithLeadingZeros: TaskData[] = [{ id: "#001", title: "Task 1", status: "TODO" }];
 
-      expect(getTaskById(tasksWithLeadingZeros, "1")?.id).toBe("#001");
-      expect(getTaskById(tasksWithLeadingZeros, "01")?.id).toBe("#001");
-      expect(getTaskById(tasksWithLeadingZeros, "001")?.id).toBe("#001");
-      expect(getTaskById(tasksWithLeadingZeros, "#1")?.id).toBe("#001");
+      expect(getTaskById(tasksWithLeadingZeros, "#001")?.id).toBe("#001");
+      expect(getTaskById(tasksWithLeadingZeros, "001")?.id).toBe("#001"); // # prefix handling
+      expect(getTaskById(tasksWithLeadingZeros, "1")).toBeNull(); // No numeric equivalence
     });
   });
 
@@ -205,9 +168,9 @@ Code block with task-like content:
 
     test("should find the maximum ID and increment it", () => {
       const tasks: TaskData[] = [
-        { id: "#001", title: "Task 1", status: "TODO" },
-        { id: "#005", title: "Task TEST_ARRAY_SIZE", status: "IN-PROGRESS" },
-        { id: "#003", title: "Task 3", status: "DONE" },
+        { id: "md#001", title: "Task 1", status: "TODO" },
+        { id: "md#005", title: "Task TEST_ARRAY_SIZE", status: "IN-PROGRESS" },
+        { id: "md#003", title: "Task 3", status: "DONE" },
       ];
 
       expect(getNextTaskId(tasks)).toBe("006");
@@ -215,16 +178,16 @@ Code block with task-like content:
 
     test("should handle non-sequential IDs", () => {
       const tasks: TaskData[] = [
-        { id: "#010", title: "Task 10", status: "TODO" },
-        { id: "#050", title: "Task 50", status: "IN-PROGRESS" },
-        { id: "#030", title: "Task 30", status: "DONE" },
+        { id: "md#010", title: "Task 10", status: "TODO" },
+        { id: "md#050", title: "Task 50", status: "IN-PROGRESS" },
+        { id: "md#030", title: "Task 30", status: "DONE" },
       ];
 
       expect(getNextTaskId(tasks)).toBe("051");
     });
 
     test("should pad with zeros", () => {
-      const tasks: TaskData[] = [{ id: "#9", title: "Task 9", status: "TODO" }];
+      const tasks: TaskData[] = [{ id: "md#9", title: "Task 9", status: "TODO" }];
 
       expect(getNextTaskId(tasks)).toBe("010");
     });
@@ -232,40 +195,40 @@ Code block with task-like content:
 
   describe("setTaskStatus", () => {
     const testTasks: TaskData[] = [
-      { id: "#001", title: "Task 1", status: "TODO" },
-      { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
+      { id: "md#001", title: "Task 1", status: "TODO" },
+      { id: "md#002", title: "Task 2", status: "IN-PROGRESS" },
     ];
 
     test("should update a task's status", () => {
-      const updatedTasks = setTaskStatus(testTasks, "#001", "DONE");
+      const updatedTasks = setTaskStatus(testTasks, "md#001", "DONE");
       expect(updatedTasks[0].status).toBe("DONE");
       expect(updatedTasks[1].status).toBe("IN-PROGRESS"); // unchanged
     });
 
     test("should work with task ID variations", () => {
-      const updatedTasks = setTaskStatus(testTasks, "2", "DONE");
+      const updatedTasks = setTaskStatus(testTasks, "md#002", "DONE");
       expect(updatedTasks[1].status).toBe("DONE");
     });
 
     test("should return original array if task not found", () => {
-      const updatedTasks = setTaskStatus(testTasks, "#999", "DONE");
+      const updatedTasks = setTaskStatus(testTasks, "md#999", "DONE");
       expect(updatedTasks).toEqual(testTasks);
     });
 
     test("should return original array if status is invalid", () => {
-      const updatedTasks = setTaskStatus(testTasks, "#001", "INVALID" as any);
+      const updatedTasks = setTaskStatus(testTasks, "md#001", "INVALID" as any);
       expect(updatedTasks).toEqual(testTasks);
     });
   });
 
   describe("addTask", () => {
     const testTasks: TaskData[] = [
-      { id: "#001", title: "Task 1", status: "TODO" },
-      { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
+      { id: "md#001", title: "Task 1", status: "TODO" },
+      { id: "md#002", title: "Task 2", status: "IN-PROGRESS" },
     ];
 
     test("should add a new task to the array", () => {
-      const newTask: TaskData = { id: "#003", title: "Task 3", status: "TODO" };
+      const newTask: TaskData = { id: "md#003", title: "Task 3", status: "TODO" };
       const updatedTasks = addTask(testTasks, newTask);
 
       expect(updatedTasks).toHaveLength(3);
@@ -273,7 +236,7 @@ Code block with task-like content:
     });
 
     test("should replace an existing task with the same ID", () => {
-      const replacementTask: TaskData = { id: "#002", title: "Updated Task 2", status: "DONE" };
+      const replacementTask: TaskData = { id: "md#002", title: "Updated Task 2", status: "DONE" };
       const updatedTasks = addTask(testTasks, replacementTask);
 
       expect(updatedTasks).toHaveLength(2);

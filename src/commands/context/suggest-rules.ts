@@ -139,7 +139,10 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
       })),
       queryAnalysis: {
         intent: `Embeddings search for: ${query}`,
-        keywords: query.toLowerCase().split(/\s+/).filter((w) => w.length > 2),
+        keywords: query
+          .toLowerCase()
+          .split(/\s+/)
+          .filter((w) => w.length > 2),
         suggestedCategories: [],
       },
       totalRulesAnalyzed: workspaceRules.length,
@@ -150,7 +153,9 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
   } else {
     // Fallback to existing AI-based suggestion service
     const { DefaultAICompletionService } = await import("../../domain/ai/completion-service");
-    const mockConfigService = { loadConfiguration: () => Promise.resolve({ resolved: config }) } as any;
+    const mockConfigService = {
+      loadConfiguration: () => Promise.resolve({ resolved: config }),
+    } as any;
     const aiService = new DefaultAICompletionService(mockConfigService);
     const suggestionService = new DefaultRuleSuggestionService(aiService, rulesService, {
       maxSuggestions: parseInt(String(options.limit || 5), 10),

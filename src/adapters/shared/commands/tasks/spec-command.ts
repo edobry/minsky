@@ -31,12 +31,12 @@ export class TasksSpecCommand extends BaseTaskCommand {
 
     // Validate and normalize task ID
     const taskId = this.validateRequired(params.taskId, "taskId");
-    const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
+    const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Get task specification
     const specResult = await getTaskSpecContentFromParams({
       ...this.createTaskParams(params),
-      taskId: normalizedTaskId,
+      taskId: validatedTaskId,
       section: params.section,
     });
 
@@ -45,7 +45,7 @@ export class TasksSpecCommand extends BaseTaskCommand {
     // For spec command, we typically want to return the content directly
     // unless JSON format is explicitly requested
     if (params.json) {
-      return this.createSuccessResult(normalizedTaskId, "Task specification retrieved", {
+      return this.createSuccessResult(validatedTaskId, "Task specification retrieved", {
         task: specResult.task,
         specPath: specResult.specPath,
         content: specResult.content,

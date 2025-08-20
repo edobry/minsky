@@ -181,6 +181,12 @@ export function createMockFilesystem(
 
       return contents;
     }),
+    access: createMock(async (path: unknown) => {
+      if (!files.has(path as string) && !directories.has(path as string)) {
+        throw new Error(`ENOENT: no such file or directory, access '${path}'`);
+      }
+      // If file/directory exists, access succeeds (returns void)
+    }),
 
     // Async methods (fs/promises)
     readFileAsync: createMock(async (path: unknown, encoding?: unknown) => {
@@ -302,13 +308,13 @@ export function createMockFilesystem(
     },
     // Expose shapes compatible with mock.module factories
     fs: {
+      copyFileSync: (src: unknown, dest: unknown) => mockFs.copyFileSync(src, dest),
       existsSync: (path: unknown) => mockFs.existsSync(path),
       readFileSync: (path: unknown, encoding?: unknown) => mockFs.readFileSync(path, encoding),
       writeFileSync: (path: unknown, data: unknown) => mockFs.writeFileSync(path, data),
       mkdirSync: (path: unknown, options?: unknown) => mockFs.mkdirSync(path, options),
       statSync: (path: unknown) => mockFs.statSync(path),
       readdirSync: (path: unknown) => mockFs.readdirSync(path),
-      copyFileSync: (src: unknown, dest: unknown) => mockFs.copyFileSync(src, dest),
     },
     fsPromises: {
       readFile: (path: unknown, encoding?: unknown) => mockFs.readFileAsync(path, encoding),

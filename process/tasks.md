@@ -648,7 +648,7 @@
 
 - [x] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
 
-- [ ] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
+- [x] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
 
 - [ ] Improve CLI Error Summarization with Structured Detection [md#415](process/tasks/md#415-improve-cli-error-summarization-with-structured-detection.md)
 
@@ -702,10 +702,30 @@
 
 - [ ] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
 
-- [+] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+- [x] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
 
 - [+] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
 
 - [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
 
 - [ ] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
+
+- [ ] Explore task templates for different backends [md#448](process/tasks/md#448-explore-task-templates-for-different-backends.md)
+
+- [ ] Extend embeddings infra: server-side filtering and index-optimized queries [md#449](process/tasks/md#449-extend-embeddings-infra-server-side-filtering-and-index-optimized-queries.md)
+
+- [ ] Explore embedding score normalization and distance metrics for similarity search (tasks & rules) [md#450](process/tasks/md#450-explore-embedding-score-normalization-and-distance-metrics-for-similarity-search-tasks-rules-.md)
+
+- [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
+
+- [ ] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
+
+- [+] Resolve merge conflicts for status-filtering PR in session workspace [md#453](process/tasks/md#453-resolve-merge-conflicts-for-status-filtering-pr-in-session-workspace.md)
+
+- [+] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
+
+- [ ] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+
+- [ ] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+
+- [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)

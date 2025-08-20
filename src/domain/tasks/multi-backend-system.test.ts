@@ -366,22 +366,22 @@ describe("Multi-Backend Task System", () => {
       expect(defaultBackend.getTask).toHaveBeenCalledWith("123");
     });
 
-    it("should maintain existing task ID formats in responses", async () => {
+    it("should convert all task IDs to qualified format in responses", async () => {
       const service = createMultiBackendTaskService();
       const backend = createMockBackend("Test", "test");
 
       service.registerBackend(backend);
       backend.listTasks = mock(() =>
         Promise.resolve([
-          { id: "123", title: "Legacy Task" }, // Unqualified
-          { id: "test:456", title: "New Task" }, // Qualified
+          { id: "123", title: "Legacy Task" }, // Unqualified (from backend)
+          { id: "456", title: "New Task" }, // Unqualified (from backend)
         ] as Task[])
       );
 
       const tasks = await service.listAllTasks();
       expect(tasks).toHaveLength(2);
-      expect(tasks[0]!.id).toBe("123"); // Unchanged
-      expect(tasks[1]!.id).toBe("test:456"); // Unchanged
+      expect(tasks[0]!.id).toBe("test#123"); // Qualified by service
+      expect(tasks[1]!.id).toBe("test#456"); // Qualified by service
     });
   });
 });

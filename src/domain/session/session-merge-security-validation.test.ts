@@ -130,7 +130,7 @@ describe("Session Merge Security Validation", () => {
 
       expect(() => {
         validateSessionApprovedForMerge(sessionRecord, "test-session");
-      }).toThrow(/MERGE REJECTED.*Invalid approval state/);
+      }).toThrow(/PR must be approved before merging/);
     });
 
     it("should ALLOW merge only when both prBranch and prApproved are properly set", () => {

@@ -43,32 +43,32 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   try {
     if (options.json) {
       // JSON output
-      log.cli(JSON.stringify(result, undefined, 2));
+      log.output(JSON.stringify(result, undefined, 2));
     } else if (options.formatter) {
       // Custom formatter
       options.formatter(result);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        log.cli(result);
+        log.output(result);
       } else if (typeof result === "object" && result !== null) {
         if (Array.isArray(result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
-              log.cli(item);
+              log.output(item);
             } else {
-              log.cli(JSON.stringify(item, undefined, 2));
+              log.output(JSON.stringify(item, undefined, 2));
             }
           });
         } else {
-          log.cli(JSON.stringify(result, undefined, 2));
+          log.output(JSON.stringify(result, undefined, 2));
         }
       } else {
-        log.cli(String(result));
+        log.output(String(result));
       }
     }
   } catch (error) {
-    log.cli(`Error formatting output: ${error}`);
+    log.output(`Error formatting output: ${error}`);
   }
 }
 /**

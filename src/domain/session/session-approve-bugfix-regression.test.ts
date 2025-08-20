@@ -124,7 +124,7 @@ describe("Session Approve - Bug Regression Tests", () => {
       // Assert: Verify approval operations were called
       expect(mockCreateRepositoryBackend).toHaveBeenCalled();
       expect(mockRepositoryBackend.approvePullRequest).toHaveBeenCalledWith(PR_BRANCH, undefined);
-      expect(result.sessionName).toBe(SESSION_NAME);
+      expect(result.session).toBe(SESSION_NAME);
       expect(result.prBranch).toBe(PR_BRANCH);
       expect(result.approvalInfo).toBeDefined();
     });
