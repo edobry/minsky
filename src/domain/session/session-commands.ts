@@ -137,7 +137,17 @@ export async function sessionCommit(params: {
 }): Promise<{
   success: boolean;
   commitHash: string;
+  shortHash?: string;
+  subject?: string;
+  branch?: string;
+  authorName?: string;
+  authorEmail?: string;
+  timestamp?: string;
   message: string;
+  filesChanged?: number;
+  insertions?: number;
+  deletions?: number;
+  files?: Array<{ path: string; status: string }>;
   pushed: boolean;
 }> {
   if (!params.session) {
@@ -149,7 +159,7 @@ export async function sessionCommit(params: {
     message: params.message,
   });
 
-  const { commitChangesFromParams, pushFromParams } = await import("../git");
+  const { commitChangesFromParams, pushFromParams, createGitService } = await import("../git");
 
   try {
     // Commit changes using session-scoped git command
@@ -166,10 +176,108 @@ export async function sessionCommit(params: {
       session: params.session, // Always use session context
     });
 
+    // Collect commit metadata and changed files
+    const gitService = createGitService();
+    const workdir = gitService.getSessionWorkdir(params.session);
+
+    // Branch name
+    let branch: string | undefined;
+    try {
+      branch = await gitService.getCurrentBranch(workdir);
+    } catch (err) {
+      log.debug("Failed to get branch name", { error: (err as any)?.message });
+    }
+
+    // Author, subject, timestamp, short hash
+    let shortHash: string | undefined;
+    let subject: string | undefined;
+    let authorName: string | undefined;
+    let authorEmail: string | undefined;
+    let timestamp: string | undefined;
+    try {
+      const pretty = await gitService.execInRepository(
+        workdir,
+        "git log -1 --pretty=format:%h|%s|%an|%ae|%aI"
+      );
+      const parts = pretty.trim().split("|");
+      if (parts.length >= 5) {
+        shortHash = parts[0];
+        subject = parts[1];
+        authorName = parts[2];
+        authorEmail = parts[3];
+        timestamp = parts[4];
+      }
+    } catch (err) {
+      log.debug("Failed to read commit metadata", { error: (err as any)?.message });
+    }
+
+    // Diffstat summary
+    let filesChanged: number | undefined;
+    let insertions: number | undefined;
+    let deletions: number | undefined;
+    try {
+      const shortstat = await gitService.execInRepository(
+        workdir,
+        "git show -1 --shortstat --pretty=format:"
+      );
+      const line = shortstat
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean)
+        .pop();
+      if (line) {
+        const match =
+          /(\d+)\s+files? changed(?:,\s+(\d+)\s+insertions?\(\+\))?(?:,\s+(\d+)\s+deletions?\(-\))?/.exec(
+            line
+          );
+        if (match) {
+          filesChanged = parseInt(match[1] || "0", 10);
+          insertions = parseInt(match[2] || "0", 10);
+          deletions = parseInt(match[3] || "0", 10);
+        }
+      }
+    } catch (err) {
+      log.debug("Failed to parse diffstat", { error: (err as any)?.message });
+    }
+
+    // Changed files list with status
+    let files: Array<{ path: string; status: string }> | undefined;
+    try {
+      const nameStatus = await gitService.execInRepository(
+        workdir,
+        "git show -1 -M -C --name-status --pretty=format:"
+      );
+      const lines = nameStatus
+        .split("\n")
+        .map((l) => l.trim())
+        .filter(Boolean);
+      files = lines.map((line) => {
+        const parts = line.split("\t");
+        const status = parts[0];
+        let path = parts[1] || "";
+        if (status.startsWith("R") || status.startsWith("C")) {
+          path = parts[2] || parts[1] || "";
+        }
+        return { status, path };
+      });
+    } catch (err) {
+      log.debug("Failed to list changed files", { error: (err as any)?.message });
+    }
+
     return {
       success: true,
       commitHash: commitResult.commitHash,
+      shortHash,
+      subject,
+      branch,
+      authorName,
+      authorEmail,
+      timestamp,
       message: commitResult.message,
+      filesChanged,
+      insertions,
+      deletions,
+      files,
       pushed: pushResult.pushed,
     };
   } catch (error) {

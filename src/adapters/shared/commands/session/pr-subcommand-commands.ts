@@ -378,7 +378,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       );
     } else {
       return new MinskyError(
-        `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
+        `❌ Failed to create session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify all files are committed\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
       );
     }
   }
@@ -564,6 +564,14 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
         `❌ Failed to edit session PR: ${errorMessage}\n\n💡 Troubleshooting:\n• Check that you're in a session workspace\n• Verify the session has an existing PR\n• Try running with --debug for more details\n• Check 'minsky session pr list' to see available sessions\n\nNeed help? Run the command with --debug for detailed error information.`
       );
     }
+  }
+
+  protected getAdditionalLogContext(params: any): Record<string, any> {
+    return {
+      title: params.title,
+      hasBody: !!params.body,
+      hasBodyPath: !!params.bodyPath,
+    };
   }
 }
 

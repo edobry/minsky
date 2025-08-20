@@ -1,6 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
-// Use mock.module() to mock filesystem operations
-// import { promises as fs } from "fs";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { join } from "path";
 
 // Simple handmade mocks
@@ -17,6 +15,37 @@ const popStashMock = async (_workdir: string) => {
   return { workdir: _workdir, stashed: false } as any;
 };
 
+// Mock the fs module to prevent actual file operations
+mock.module("fs", () => ({
+  promises: {
+    mkdir: mock(async () => {}),
+    writeFile: mock(async () => {}),
+    readFile: mock(async (path: string) => {
+      if (path.includes("temp-spec.md")) {
+        return ["# Task: Verify legacy backend commit", "", "## Context", "Some context"].join(
+          "\n"
+        );
+      }
+      return "# Tasks\n";
+    }),
+    unlink: mock(async () => {}),
+    access: mock(async () => {}), // Mock file exists check
+  },
+}));
+
+mock.module("fs/promises", () => ({
+  mkdir: mock(async () => {}),
+  writeFile: mock(async () => {}),
+  readFile: mock(async (path: string) => {
+    if (path.includes("temp-spec.md")) {
+      return ["# Task: Verify legacy backend commit", "", "## Context", "Some context"].join("\n");
+    }
+    return "# Tasks\n";
+  }),
+  unlink: mock(async () => {}),
+  access: mock(async () => {}), // Mock file exists check
+}));
+
 import { TaskService } from "../tasks";
 
 const sessionRoot = "/Users/edobry/.local/state/minsky/sessions/task-md#423";
@@ -27,8 +56,6 @@ describe("Legacy MarkdownTaskBackend in tasks.ts - createTask auto-commit", () =
   const tasksFile = join(tasksDir, "tasks.md");
 
   beforeEach(async () => {
-    await fs.mkdir(tasksDir, { recursive: true });
-    await fs.writeFile(tasksFile, "# Tasks\n", "utf-8");
     hasUncommitted = true;
     stashedFlag = false;
   });
@@ -46,11 +73,7 @@ describe("Legacy MarkdownTaskBackend in tasks.ts - createTask auto-commit", () =
     } as any;
 
     const specPath = join(testWorkspace, "temp-spec.md");
-    await fs.writeFile(
-      specPath,
-      ["# Task: Verify legacy backend commit", "", "## Context", "Some context"].join("\n"),
-      "utf-8"
-    );
+    // Mock content handled by mocked fs.readFile
 
     await service.createTask(specPath);
 

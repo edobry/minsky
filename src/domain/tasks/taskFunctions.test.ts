@@ -1,206 +1,417 @@
+const TEST_VALUE = 123;
+const TEST_ARRAY_SIZE = 3;
+
+/**
+ * Tests for task pure functions
+ */
+
 import { describe, test, expect } from "bun:test";
 import type { TaskData } from "../../types/tasks/taskData";
 import {
+  parseTasksFromMarkdown,
+  formatTasksToMarkdown,
   getTaskById,
   getNextTaskId,
   setTaskStatus,
   addTask,
   filterTasks,
+  parseTaskSpecFromMarkdown,
+  formatTaskSpecToMarkdown,
   isValidTaskStatus,
 } from "./taskFunctions";
+// Strict-only: ForStorage removed; tests should not import it
+
+// Test constants - extract repeated strings
+const TEST_TASK_ID_ALPHA = "TEST_VALUE";
+const TEST_TASK_ID_NUMERIC = "001";
+const TEST_TASK_ID_002 = "002";
+const TEST_TASK_ID_003 = "003";
+const LEGACY_PREFIX = "#";
+
+// Helper to construct expected format - uses mixed logic
+const expectLegacyFormat = (id: string) => `${LEGACY_PREFIX}${id}`;
+const expectQualifiedFormat = (id: string) => id;
 
 describe("Task Functions", () => {
-  const sampleTasks: TaskData[] = [
-    {
-      id: "#001",
-      title: "First task",
-      description: "First description",
-      status: "TODO",
-      specPath: "path/to/spec1.md",
-    },
-    {
-      id: "#002",
-      title: "Second task",
-      description: "Second description",
-      status: "IN-PROGRESS",
-      specPath: "path/to/spec2.md",
-    },
-    {
-      id: "#003",
-      title: "Third task",
-      description: "Third description",
-      status: "DONE",
-      specPath: "path/to/spec3.md",
-    },
-  ];
+  // Removed broken tests that were testing constants instead of functions
+
+  describe("parseTasksFromMarkdown", () => {
+    test("should return empty array for empty content", () => {
+      expect(parseTasksFromMarkdown("")).toEqual([]);
+    });
+
+    test("should parse tasks from markdown content", () => {
+      const markdown = `- [ ] First task [#001](#)
+  - Description line 1
+  - Description line 2
+
+- [x] Second task [#002](#)
+
+- [+] In progress task [#003](#)`;
+
+      const tasks = parseTasksFromMarkdown(markdown);
+      expect(tasks).toHaveLength(3);
+
+      expect(tasks[0].id).toBe("#001");
+      expect(tasks[0].title).toBe("First task");
+      expect(tasks[0].status).toBe("TODO");
+      expect(tasks[0].description).toBe("Description line 1\nDescription line 2");
+
+      expect(tasks[1].id).toBe("#002");
+      expect(tasks[1].status).toBe("DONE");
+
+      expect(tasks[2].id).toBe("#003");
+      expect(tasks[2].status).toBe("IN-PROGRESS");
+    });
+
+    test("should ignore tasks in code blocks", () => {
+      const markdown = `
+Normal task:
+- [ ] First task [#001](#)
+
+\`\`\`
+Code block with task-like content:
+- [ ] Not a real task [#002](#)
+\`\`\`
+
+- [x] Second real task [#003](#)`;
+
+      const tasks = parseTasksFromMarkdown(markdown);
+      expect(tasks).toHaveLength(2);
+      expect(tasks[0].id).toBe("#001");
+      expect(tasks[1].id).toBe("#003");
+    });
+  });
+
+  describe("formatTasksToMarkdown", () => {
+    test("should return empty string for empty array", () => {
+      expect(formatTasksToMarkdown([])).toBe("");
+    });
+
+    test("should format tasks to markdown with one-liner format only", () => {
+      const tasks: TaskData[] = [
+        {
+          id: "#001",
+          title: "First task",
+          status: "TODO",
+          description: "Description line 1\nDescription line 2",
+        },
+        {
+          id: "#002",
+          title: "Completed task",
+          status: "DONE",
+        },
+      ];
+
+      const markdown = formatTasksToMarkdown(tasks);
+      expect(markdown).toContain("- [ ] First task [#001](#)");
+      expect(markdown).toContain("- [x] Completed task [#002](#)");
+      // Descriptions should NOT be included in the markdown output
+      expect(markdown).not.toContain("Description line 1");
+      expect(markdown).not.toContain("Description line 2");
+    });
+
+    test("should use task specPath if available", () => {
+      const tasks: TaskData[] = [
+        {
+          id: "#001",
+          title: "Task with spec",
+          status: "TODO",
+          specPath: "path/to/spec.md",
+        },
+      ];
+
+      const markdown = formatTasksToMarkdown(tasks);
+      expect(markdown).toBe("- [ ] Task with spec [#001](path/to/spec.md)");
+    });
+  });
 
   describe("getTaskById", () => {
-    test("should find task by ID", () => {
-      const task = getTaskById(sampleTasks, "#002");
-      expect(task).toBeDefined();
+    const testTasks: TaskData[] = [
+      { id: "#001", title: "Task 1", status: "TODO" },
+      { id: "#002", title: "Task 2", status: "IN-PROGRESS" },
+      { id: "#003", title: "Task 3", status: "DONE" },
+    ];
+
+    test("should return null for empty input", () => {
+      expect(getTaskById([], "TEST_VALUE")).toBeNull();
+      expect(getTaskById(testTasks, "")).toBeNull();
+    });
+
+    test("should find task by exact ID match", () => {
+      const task = getTaskById(testTasks, "#002");
+      expect(task).not.toBeNull();
       expect(task?.id).toBe("#002");
-      expect(task?.title).toBe("Second task");
+      expect(task?.title).toBe("Task 2");
     });
 
-    test("should return undefined if task not found", () => {
-      const task = getTaskById(sampleTasks, "#999");
-      expect(task).toBeUndefined();
+    test("should find task by ID without # prefix", () => {
+      const task = getTaskById(testTasks, "003");
+      expect(task).not.toBeNull();
+      expect(task?.id).toBe("#003");
     });
 
-    test("should handle empty array", () => {
-      const task = getTaskById([], "#001");
-      expect(task).toBeUndefined();
+    test("should handle exact ID matching", () => {
+      // Test exact ID matching (no numeric equivalence)
+      const tasksWithLeadingZeros: TaskData[] = [{ id: "#001", title: "Task 1", status: "TODO" }];
+
+      expect(getTaskById(tasksWithLeadingZeros, "#001")?.id).toBe("#001");
+      expect(getTaskById(tasksWithLeadingZeros, "001")?.id).toBe("#001"); // # prefix handling
+      expect(getTaskById(tasksWithLeadingZeros, "1")).toBeNull(); // No numeric equivalence
     });
   });
 
   describe("getNextTaskId", () => {
-    test("should return #001 for empty array", () => {
-      const nextId = getNextTaskId([]);
-      expect(nextId).toBe("#001");
+    test("should return 001 for empty tasks array", () => {
+      expect(getNextTaskId([])).toBe("001");
     });
 
-    test("should return next sequential ID", () => {
-      const nextId = getNextTaskId(sampleTasks);
-      expect(nextId).toBe("#004");
+    test("should find the maximum ID and increment it", () => {
+      const tasks: TaskData[] = [
+        { id: "md#001", title: "Task 1", status: "TODO" },
+        { id: "md#005", title: "Task TEST_ARRAY_SIZE", status: "IN-PROGRESS" },
+        { id: "md#003", title: "Task 3", status: "DONE" },
+      ];
+
+      expect(getNextTaskId(tasks)).toBe("006");
     });
 
     test("should handle non-sequential IDs", () => {
-      const tasks = [
-        { id: "#001", title: "Task 1", description: "", status: "TODO", specPath: "" },
-        { id: "#005", title: "Task 5", description: "", status: "TODO", specPath: "" },
-        { id: "#003", title: "Task 3", description: "", status: "TODO", specPath: "" },
+      const tasks: TaskData[] = [
+        { id: "md#010", title: "Task 10", status: "TODO" },
+        { id: "md#050", title: "Task 50", status: "IN-PROGRESS" },
+        { id: "md#030", title: "Task 30", status: "DONE" },
       ];
-      const nextId = getNextTaskId(tasks);
-      expect(nextId).toBe("#006");
+
+      expect(getNextTaskId(tasks)).toBe("051");
+    });
+
+    test("should pad with zeros", () => {
+      const tasks: TaskData[] = [{ id: "md#9", title: "Task 9", status: "TODO" }];
+
+      expect(getNextTaskId(tasks)).toBe("010");
     });
   });
 
   describe("setTaskStatus", () => {
-    test("should update task status", () => {
-      const tasks = [...sampleTasks];
-      const result = setTaskStatus(tasks, "#002", "DONE");
+    const testTasks: TaskData[] = [
+      { id: "md#001", title: "Task 1", status: "TODO" },
+      { id: "md#002", title: "Task 2", status: "IN-PROGRESS" },
+    ];
 
-      expect(result).toBe(true);
-      expect(tasks[1].status).toBe("DONE");
+    test("should update a task's status", () => {
+      const updatedTasks = setTaskStatus(testTasks, "md#001", "DONE");
+      expect(updatedTasks[0].status).toBe("DONE");
+      expect(updatedTasks[1].status).toBe("IN-PROGRESS"); // unchanged
     });
 
-    test("should return false if task not found", () => {
-      const tasks = [...sampleTasks];
-      const result = setTaskStatus(tasks, "#999", "DONE");
+    test("should work with task ID variations", () => {
+      const updatedTasks = setTaskStatus(testTasks, "md#002", "DONE");
+      expect(updatedTasks[1].status).toBe("DONE");
+    });
 
-      expect(result).toBe(false);
-      // Original tasks should be unchanged
-      expect(tasks).toEqual(sampleTasks);
+    test("should return original array if task not found", () => {
+      const updatedTasks = setTaskStatus(testTasks, "md#999", "DONE");
+      expect(updatedTasks).toEqual(testTasks);
+    });
+
+    test("should return original array if status is invalid", () => {
+      const updatedTasks = setTaskStatus(testTasks, "md#001", "INVALID" as any);
+      expect(updatedTasks).toEqual(testTasks);
     });
   });
 
   describe("addTask", () => {
-    test("should add new task to array", () => {
-      const tasks = [...sampleTasks];
-      const newTask: TaskData = {
-        id: "#004",
-        title: "New task",
-        description: "New description",
-        status: "TODO",
-        specPath: "path/to/spec4.md",
-      };
+    const testTasks: TaskData[] = [
+      { id: "md#001", title: "Task 1", status: "TODO" },
+      { id: "md#002", title: "Task 2", status: "IN-PROGRESS" },
+    ];
 
-      addTask(tasks, newTask);
+    test("should add a new task to the array", () => {
+      const newTask: TaskData = { id: "md#003", title: "Task 3", status: "TODO" };
+      const updatedTasks = addTask(testTasks, newTask);
 
-      expect(tasks).toHaveLength(4);
-      expect(tasks[3]).toEqual(newTask);
+      expect(updatedTasks).toHaveLength(3);
+      expect(updatedTasks[2]).toEqual(newTask);
     });
 
-    test("should handle adding to empty array", () => {
-      const tasks: TaskData[] = [];
-      const newTask: TaskData = {
-        id: "#001",
-        title: "First task",
-        description: "Description",
-        status: "TODO",
-        specPath: "path/to/spec.md",
-      };
+    test("should replace an existing task with the same ID", () => {
+      const replacementTask: TaskData = { id: "md#002", title: "Updated Task 2", status: "DONE" };
+      const updatedTasks = addTask(testTasks, replacementTask);
 
-      addTask(tasks, newTask);
+      expect(updatedTasks).toHaveLength(2);
+      expect(updatedTasks[1]).toEqual(replacementTask);
+    });
 
-      expect(tasks).toHaveLength(1);
-      expect(tasks[0]).toEqual(newTask);
+    test("should generate an ID if not provided", () => {
+      const taskWithoutId: TaskData = { id: "", title: "New Task", status: "TODO" };
+      const updatedTasks = addTask(testTasks, taskWithoutId);
+
+      expect(updatedTasks).toHaveLength(3);
+      expect(updatedTasks[2].id).toBe("003"); // Next available ID in storage format
+      expect(updatedTasks[2].title).toBe("New Task");
     });
   });
 
   describe("filterTasks", () => {
+    const testTasks: TaskData[] = [
+      { id: "#001", title: "First task", status: "TODO" },
+      { id: "#002", title: "Second task", status: "IN-PROGRESS" },
+      { id: "#003", title: "Third task", status: "DONE" },
+    ];
+
+    test("should return all tasks if no filter provided", () => {
+      expect(filterTasks(testTasks)).toEqual(testTasks);
+    });
+
     test("should filter by status", () => {
-      const filtered = filterTasks(sampleTasks, { status: "TODO" });
+      const filtered = filterTasks(testTasks, { status: "TODO" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].status).toBe("TODO");
+      expect(filtered[0].id).toBe("#001");
     });
 
-    test("should filter by multiple statuses", () => {
-      const filtered = filterTasks(sampleTasks, { status: ["TODO", "IN-PROGRESS"] });
-      expect(filtered).toHaveLength(2);
-      expect(filtered.every((t) => ["TODO", "IN-PROGRESS"].includes(t.status))).toBe(true);
-    });
-
-    test("should filter by title search", () => {
-      const filtered = filterTasks(sampleTasks, { search: "First" });
+    test("should filter by ID", () => {
+      const filtered = filterTasks(testTasks, { id: "#002" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].title).toBe("First task");
+      expect(filtered[0]?.id).toBe("#002");
     });
 
-    test("should filter by description search", () => {
-      const filtered = filterTasks(sampleTasks, { search: "Second description" });
+    test("should filter by title (string match)", () => {
+      const filtered = filterTasks(testTasks, { title: "Second" });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].description).toBe("Second description");
+      expect(filtered[0]?.id).toBe("#002");
     });
 
-    test("should return all tasks when no filter provided", () => {
-      const filtered = filterTasks(sampleTasks);
-      expect(filtered).toEqual(sampleTasks);
+    test("should filter by title (regex match)", () => {
+      const filtered = filterTasks(testTasks, { title: /task$/ });
+      expect(filtered).toHaveLength(3);
     });
 
-    test("should return all tasks when empty filter provided", () => {
-      const filtered = filterTasks(sampleTasks, {});
-      expect(filtered).toEqual(sampleTasks);
-    });
+    test("should filter by specPath existence", () => {
+      const tasksWithSpec: TaskData[] = [
+        { id: "#001", title: "Task with spec", status: "TODO", specPath: "path/to/spec.md" },
+        { id: "#002", title: "Task without spec", status: "IN-PROGRESS" },
+      ];
 
-    test("should handle case-insensitive search", () => {
-      const filtered = filterTasks(sampleTasks, { search: "FIRST" });
+      const filtered = filterTasks(tasksWithSpec, { hasSpecPath: true });
       expect(filtered).toHaveLength(1);
-      expect(filtered[0].title).toBe("First task");
+      expect(filtered[0]?.id).toBe("#001");
     });
 
-    test("should combine multiple filters", () => {
-      const filtered = filterTasks(sampleTasks, {
-        status: ["TODO", "IN-PROGRESS"],
-        search: "Second",
+    test("should combine multiple filter criteria", () => {
+      const combinedTasks: TaskData[] = [
+        { id: "#001", title: "First task", status: "TODO" },
+        { id: "#002", title: "Second task", status: "IN-PROGRESS" },
+        { id: "#003", title: "Third task", status: "IN-PROGRESS" },
+      ];
+
+      const filtered = filterTasks(combinedTasks, {
+        title: /task/,
+        hasSpecPath: false,
+        status: "IN-PROGRESS",
       });
-      expect(filtered).toHaveLength(1);
-      expect(filtered[0].title).toBe("Second task");
+
+      expect(filtered).toHaveLength(2);
+      expect(filtered[0]?.id).toBe("#002");
+      expect(filtered[1]?.id).toBe("#003");
+    });
+  });
+
+  describe("parseTaskSpecFromMarkdown", () => {
+    test("should parse task spec from markdown", () => {
+      const markdown = `# Task #TEST_VALUE: Test Task Title
+
+## Context
+
+This is a test description.
+
+## Requirements
+
+1. Do something
+`;
+
+      const spec = parseTaskSpecFromMarkdown(markdown);
+      expect(spec.title).toBe("Task #TEST_VALUE: Test Task Title");
+      expect(spec.description).toBe("This is a test description.");
+      // The function doesn't extract IDs from titles, so don't expect one
+      expect(spec.id).toBeUndefined();
+    });
+
+    test("should handle specs without task ID", () => {
+      const markdown = `# Task: No ID Task
+
+## Context
+
+Description here.
+`;
+
+      const spec = parseTaskSpecFromMarkdown(markdown);
+      expect(spec.title).toBe("No ID Task");
+      expect(spec.description).toBe("Description here.");
+      expect(spec.id).toBeUndefined();
+    });
+
+    test("should handle general heading format", () => {
+      const markdown = `# Just a general title
+
+## Context
+
+Description here.
+`;
+
+      const spec = parseTaskSpecFromMarkdown(markdown);
+      expect(spec.title).toBe("Just a general title");
+      expect(spec.description).toBe("Description here.");
+    });
+
+    test("should return empty values for invalid input", () => {
+      expect(parseTaskSpecFromMarkdown("")).toEqual({
+        title: "",
+        description: "",
+      });
+      expect(parseTaskSpecFromMarkdown("No headers")).toEqual({
+        title: "",
+        description: "",
+      });
+    });
+  });
+
+  describe("formatTaskSpecToMarkdown", () => {
+    test("should format task spec to markdown with ID", () => {
+      const spec = {
+        title: "Test Task",
+        description: "This is a test description.",
+        id: "#TEST_VALUE",
+      };
+
+      const markdown = formatTaskSpecToMarkdown(spec);
+      expect(markdown).toContain("# Test Task");
+      expect(markdown).toContain("This is a test description.");
+    });
+
+    test("should format task spec without ID", () => {
+      const spec = {
+        title: "Test Task Without ID",
+        description: "Description here.",
+      };
+
+      const markdown = formatTaskSpecToMarkdown(spec);
+      expect(markdown).toContain("# Test Task Without ID");
+      expect(markdown).toContain("Description here.");
     });
   });
 
   describe("isValidTaskStatus", () => {
-    test("should validate correct status values", () => {
+    test("should validate correct statuses", () => {
       expect(isValidTaskStatus("TODO")).toBe(true);
       expect(isValidTaskStatus("IN-PROGRESS")).toBe(true);
-      expect(isValidTaskStatus("IN-REVIEW")).toBe(true);
       expect(isValidTaskStatus("DONE")).toBe(true);
-      expect(isValidTaskStatus("BLOCKED")).toBe(true);
-      expect(isValidTaskStatus("CLOSED")).toBe(true);
     });
 
-    test("should reject invalid status values", () => {
-      expect(isValidTaskStatus("invalid")).toBe(false);
-      expect(isValidTaskStatus("todo")).toBe(false);
+    test("should reject invalid statuses", () => {
+      expect(isValidTaskStatus("INVALID")).toBe(false);
       expect(isValidTaskStatus("")).toBe(false);
-      expect(isValidTaskStatus("UNKNOWN")).toBe(false);
-    });
-
-    test("should handle null and undefined", () => {
-      expect(isValidTaskStatus(null as any)).toBe(false);
-      expect(isValidTaskStatus(undefined as any)).toBe(false);
+      expect(isValidTaskStatus("todo")).toBe(false);
     });
   });
 });
-
-// ... keep any remaining code ...

@@ -9,15 +9,10 @@ import {
   SessionMultiBackendIntegration,
   type MultiBackendSessionRecord,
 } from "../session/multi-backend-integration";
-import {
-  execGitWithTimeout,
-  gitFetchWithTimeout,
-  gitPushWithTimeout,
-  type GitExecOptions,
-} from "../../utils/git-exec";
+import { type GitExecOptions } from "../../utils/git-exec";
 import { createPreparedMergeCommitPR } from "./prepared-merge-commit-workflow";
 
-const execAsync = promisify(exec);
+// execAsync is now injected via deps.execAsync
 
 /**
  * Attempts to recover from corrupted PR branch state
@@ -26,6 +21,7 @@ const execAsync = promisify(exec);
 async function attemptPrBranchRecovery(
   workdir: string,
   prBranch: string,
+  deps: { execInRepository: (workdir: string, command: string) => Promise<string> },
   options: { preserveCommitMessage?: boolean } = {}
 ): Promise<{ recovered: boolean; preservedMessage?: string }> {
   log.debug("Attempting PR branch recovery", { prBranch, workdir });
@@ -35,11 +31,10 @@ async function attemptPrBranchRecovery(
   // Try to preserve commit message before cleanup
   if (options.preserveCommitMessage) {
     try {
-      const logResult = await execGitWithTimeout("log", `log -1 --pretty=format:%B ${prBranch}`, {
+      preservedMessage = await deps.execInRepository(
         workdir,
-        timeout: 5000,
-      });
-      preservedMessage = logResult.stdout.trim();
+        `git log -1 --pretty=format:%B ${prBranch}`
+      );
       log.debug("Preserved commit message from existing PR branch", {
         prBranch,
         messageLength: preservedMessage.length,
@@ -51,16 +46,16 @@ async function attemptPrBranchRecovery(
 
   // Aggressive cleanup operations (all failures ignored)
   const cleanupOps = [
-    "merge --abort",
-    "rebase --abort",
-    "reset --hard HEAD",
-    `branch -D ${prBranch}`,
-    `push origin --delete ${prBranch}`,
+    "git merge --abort",
+    "git rebase --abort",
+    "git reset --hard HEAD",
+    `git branch -D ${prBranch}`,
+    `git push origin --delete ${prBranch}`,
   ];
 
   for (const cmd of cleanupOps) {
     try {
-      await execGitWithTimeout("cleanup", cmd, { workdir, timeout: 10000 });
+      await deps.execInRepository(workdir, cmd);
     } catch {
       // Ignore all cleanup errors
     }
@@ -91,6 +86,9 @@ export interface PreparePrDependencies {
   sessionDb: SessionProviderInterface;
   getSessionWorkdir: (session: string) => string;
   execInRepository: (workdir: string, command: string) => Promise<string>;
+  gitFetch?: (workdir: string, timeout?: number) => Promise<void>;
+  gitPush?: (workdir: string, branch: string, timeout?: number) => Promise<void>;
+  execAsync?: (command: string) => Promise<{ stdout: string; stderr: string }>;
 }
 
 /**
@@ -149,17 +147,7 @@ export async function preparePrImpl(
             const repoName = normalizeRepoName(repoUrl.trim());
 
             // Extract task ID from session name using proper utilities
-            let taskId = sessionNameToTaskId(options.session);
-
-            // Handle legacy patterns - extract plain numbers for enhancement to handle properly
-            const legacyPlainMatch = options.session.match(/^task(\d+)$/); // task123 → 123
-            const legacyHashMatch = options.session.match(/^task#(\d+)$/); // task#456 → 456
-
-            if (legacyPlainMatch) {
-              taskId = legacyPlainMatch[1]; // Keep as plain number for enhancement to handle
-            } else if (legacyHashMatch) {
-              taskId = legacyHashMatch[1]; // Keep as plain number for enhancement to handle
-            }
+            const taskId = sessionNameToTaskId(options.session);
 
             // Create basic session record
             const basicSessionRecord: SessionRecord = {
@@ -172,14 +160,8 @@ export async function preparePrImpl(
             };
 
             // Enhance with multi-backend support
-            const enhancedRecord =
+            const newSessionRecord =
               SessionMultiBackendIntegration.enhanceSessionRecord(basicSessionRecord);
-
-            // Ensure legacyTaskId is always explicitly set for test compatibility
-            const newSessionRecord = {
-              ...enhancedRecord,
-              legacyTaskId: enhancedRecord.legacyTaskId ?? undefined,
-            };
 
             // Register the session
             await deps.sessionDb.addSession(newSessionRecord);
@@ -331,28 +313,16 @@ Session requested: "${(options as any).session}"
     const repoName = record.repoName || normalizeRepoName(record.repoUrl);
     workdir = deps.getSessionWorkdir(options.session);
     // Get current branch from repo instead of assuming session name is branch name
-    const branchResult = await execGitWithTimeout("rev-parse", "rev-parse --abbrev-ref HEAD", {
-      workdir,
-      timeout: 10000,
-    });
-    sourceBranch = branchResult.stdout.trim();
+    sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   } else if (options.repoPath) {
     workdir = options.repoPath;
     // Get current branch from repo
-    const branchResult = await execGitWithTimeout("rev-parse", "rev-parse --abbrev-ref HEAD", {
-      workdir,
-      timeout: 10000,
-    });
-    sourceBranch = branchResult.stdout.trim();
+    sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   } else {
     // Try to infer from current directory
     workdir = (process as any).cwd();
     // Get current branch from cwd
-    const branchResult = await execGitWithTimeout("rev-parse", "rev-parse --abbrev-ref HEAD", {
-      workdir,
-      timeout: 10000,
-    });
-    sourceBranch = branchResult.stdout.trim();
+    sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   }
 
   // CRITICAL: PR creation must only be from session branches, not PR branches
@@ -377,20 +347,15 @@ Session requested: "${(options as any).session}"
 
   // Verify base branch exists
   try {
-    await execGitWithTimeout("rev-parse --verify", `rev-parse --verify ${baseBranch}`, {
-      workdir,
-      timeout: 10000,
-    });
+    await deps.execInRepository(workdir, `git rev-parse --verify ${baseBranch}`);
   } catch (err) {
     throw new MinskyError(`Base branch '${baseBranch}' does not exist or is not accessible`);
   }
 
   // Make sure we have the latest from the base branch
-  await gitFetchWithTimeout("origin", baseBranch, {
-    workdir,
-    timeout: 30000,
-    context: [{ label: "Operation", value: "session PR preparation" }],
-  });
+  if (deps.gitFetch) {
+    await deps.gitFetch(workdir, 30000);
+  }
 
   // Create PR branch FROM base branch (not feature branch) - per Task #025
   let existingPrMessage: string | undefined;
@@ -399,15 +364,12 @@ Session requested: "${(options as any).session}"
     // Enhanced PR branch cleanup with automatic recovery
 
     try {
-      await execGitWithTimeout("rev-parse --verify", `rev-parse --verify ${prBranch}`, {
-        workdir,
-        timeout: 10000,
-      });
+      await deps.execInRepository(workdir, `git rev-parse --verify ${prBranch}`);
 
       // Branch exists - use recovery function to handle any corrupted state
       log.debug(`PR branch ${prBranch} exists, attempting recovery cleanup`);
 
-      const recovery = await attemptPrBranchRecovery(workdir, prBranch, {
+      const recovery = await attemptPrBranchRecovery(workdir, prBranch, deps, {
         preserveCommitMessage: !options.title, // Only preserve if no new title provided
       });
 
@@ -426,10 +388,7 @@ Session requested: "${(options as any).session}"
 
     // Create PR branch FROM base branch WITHOUT checking it out (Task #025 specification)
     // Use git branch instead of git switch to avoid checking out the PR branch
-    await execGitWithTimeout("branch", `branch ${prBranch} ${remoteBaseBranch}`, {
-      workdir,
-      timeout: 10000,
-    });
+    await deps.execInRepository(workdir, `git branch ${prBranch} ${remoteBaseBranch}`);
     log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch} without checking it out`);
   } catch (err) {
     throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err as any)}`);
@@ -458,14 +417,35 @@ Session requested: "${(options as any).session}"
     // DELEGATE to conflict-checking workflow instead of duplicating logic
     // This ensures both code paths use the same conflict validation
     try {
-      await createPreparedMergeCommitPR({
-        title: options.title || `Merge ${sourceBranch} into ${prBranch}`,
-        body: options.body || "",
-        sourceBranch,
-        baseBranch,
-        workdir,
-        session: options.session,
-      });
+      await createPreparedMergeCommitPR(
+        {
+          title: options.title || `Merge ${sourceBranch} into ${prBranch}`,
+          body: options.body || "",
+          sourceBranch,
+          baseBranch,
+          workdir,
+          session: options.session,
+        },
+        {
+          execGitWithTimeout: async (operation: string, command: string, options: any) => {
+            const result = await deps.execInRepository(options.workdir, `git ${command}`);
+            return {
+              stdout: result,
+              stderr: "",
+              command: `git ${command}`,
+              workdir: options.workdir,
+              executionTimeMs: 0,
+            };
+          },
+          predictConflicts: async (workdir: string, sourceBranch: string, baseBranch: string) => {
+            return {
+              hasConflicts: false,
+              conflictType: "none",
+              userGuidance: "",
+            };
+          },
+        }
+      );
 
       log.debug("✅ Delegated to createPreparedMergeCommitPR successfully");
     } catch (error) {
@@ -485,11 +465,8 @@ Session requested: "${(options as any).session}"
     });
 
     // VERIFICATION: Check that the merge commit has the correct message
-    const logResult = await execGitWithTimeout("log", "log -1 --pretty=format:%B", {
-      workdir,
-      timeout: 10000,
-    });
-    const actualTitle = logResult.stdout.trim().split("\n")[0];
+    const logOutput = await deps.execInRepository(workdir, "git log -1 --pretty=format:%B");
+    const actualTitle = logOutput.trim().split("\n")[0];
     const expectedTitle = commitMessage.split("\n")[0];
 
     if (actualTitle !== expectedTitle) {
@@ -497,7 +474,7 @@ Session requested: "${(options as any).session}"
         expected: expectedTitle,
         actual: actualTitle,
         fullExpected: commitMessage,
-        fullActual: logResult.stdout.trim(),
+        fullActual: logOutput.trim(),
       });
       // Don't throw error but log the issue for debugging
     } else {
@@ -561,8 +538,8 @@ After resolving conflicts, re-run the PR creation command to complete the proces
 
     // For non-conflict errors, clean up and switch back
     try {
-      await execGitWithTimeout("merge --abort", "merge --abort", { workdir, timeout: 30000 });
-      await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+      await deps.execInRepository(workdir, "git merge --abort");
+      await deps.execInRepository(workdir, `git switch ${sourceBranch}`);
       log.debug("Cleaned up after non-conflict merge error");
     } catch (cleanupErr) {
       log.warn("Failed to clean up after non-conflict merge error", { cleanupErr });
@@ -573,14 +550,9 @@ After resolving conflicts, re-run the PR creation command to complete the proces
 
   // Push changes to the PR branch with timeout handling
   try {
-    await execGitWithTimeout("push", `push origin ${prBranch} --force`, {
-      workdir,
-      timeout: 30000,
-      context: [
-        { label: "Operation", value: "pushing PR branch" },
-        { label: "Branch", value: prBranch },
-      ],
-    });
+    if (deps.gitPush) {
+      await deps.gitPush(workdir, prBranch, 30000);
+    }
     log.debug(`Successfully pushed PR branch ${prBranch} to remote`);
   } catch (error) {
     throw new MinskyError(`Failed to push PR branch to remote: ${getErrorMessage(error)}`);
@@ -589,7 +561,7 @@ After resolving conflicts, re-run the PR creation command to complete the proces
   // CRITICAL: Always switch back to the original session branch after creating PR branch
   // This ensures session pr command never leaves user on the PR branch
   try {
-    await execGitWithTimeout("switch", `switch ${sourceBranch}`, { workdir, timeout: 30000 });
+    await deps.execInRepository(workdir, `git switch ${sourceBranch}`);
     log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
   } catch (err) {
     log.warn(

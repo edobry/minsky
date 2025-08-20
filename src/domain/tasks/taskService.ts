@@ -12,6 +12,19 @@ import type { TaskData } from "../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createDatabaseTaskBackend } from "./databaseTaskBackend";
+import { log } from "../../utils/logger";
+// normalizeTaskId removed: strict qualified IDs expected upstream
+import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
+import { getErrorMessage } from "../../errors/index";
+import { get } from "../configuration/index";
+import { validateQualifiedTaskId } from "./task-id-utils";
+import { getGitHubBackendConfig } from "./githubBackendConfig";
+import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
+import { detectRepositoryBackendType } from "../session/repository-backend-detection";
+import { validateTaskBackendCompatibility } from "./taskBackendCompatibility";
+import type { RepositoryBackend } from "../repository/index";
+import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
+import { filterTasksByStatus } from "./task-filters";
 
 export interface TaskServiceOptions {
   workspacePath: string;

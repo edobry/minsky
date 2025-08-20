@@ -13,7 +13,7 @@ import type {
   TaskListOptions,
   CreateTaskOptions,
 } from "../../domain/tasks";
-import { normalizeTaskIdForStorage } from "../../domain/tasks/task-id-utils";
+import { validateQualifiedTaskId } from "../../domain/tasks/task-id-utils";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
 
@@ -453,13 +453,13 @@ export function createMockSessionProvider(
       options.getSessionByTaskId ||
       ((taskId: string) => {
         // Use same normalization logic as real SessionDbAdapter for consistency
-        const normalizedTaskId = normalizeTaskIdForStorage(taskId);
-        if (!normalizedTaskId) return Promise.resolve(null);
+        const validatedTaskId = validateQualifiedTaskId(taskId);
+        if (!validatedTaskId) return Promise.resolve(null);
 
         const session = sessions.find((s) => {
           if (!s.taskId) return false;
-          const storedNormalized = normalizeTaskIdForStorage(s.taskId);
-          return storedNormalized === normalizedTaskId;
+          const storedNormalized = validateQualifiedTaskId(s.taskId);
+          return storedNormalized === validatedTaskId;
         });
         return Promise.resolve(session || null);
       }),

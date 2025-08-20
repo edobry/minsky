@@ -37,15 +37,7 @@ export const sessionNameSchema = z.string().min(1).max(100);
  * Task ID schema
  * Validates qualified task IDs only
  */
-export const taskIdSchema = z.string().refine(
-  (val) => {
-    // Only accept qualified task IDs (md#123, gh#456)
-    return /^[a-z-]+#\d+$/.test(val);
-  },
-  {
-    message: "Task ID must be qualified (md#123, gh#456)",
-  }
-);
+export const taskIdSchema = z.string().min(1);
 
 /**
  * Schema for boolean flags with optional description

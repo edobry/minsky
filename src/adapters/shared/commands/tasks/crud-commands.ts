@@ -110,14 +110,14 @@ export class TasksGetCommand extends BaseTaskCommand {
       // Validate and normalize task ID
       this.debug("Validating task ID");
       const taskId = this.validateRequired(params.taskId, "taskId");
-      const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
-      this.debug("Task ID validated and normalized", { taskId, normalizedTaskId });
+      const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
+      this.debug("Task ID validated and normalized", { taskId, validatedTaskId });
 
       // Get task details
       this.debug("About to call getTaskFromParams");
       const taskParams = {
         ...this.createTaskParams(params),
-        taskId: normalizedTaskId,
+        taskId: validatedTaskId,
       };
       this.debug("Created task params", { taskParams });
 
@@ -125,7 +125,7 @@ export class TasksGetCommand extends BaseTaskCommand {
       this.debug("Task retrieved successfully", { task: task?.id || "unknown" });
 
       const result = this.formatResult(
-        this.createSuccessResult(normalizedTaskId, `Task ${normalizedTaskId} retrieved`, {
+        this.createSuccessResult(validatedTaskId, `Task ${validatedTaskId} retrieved`, {
           task,
         }),
         params.json
@@ -212,30 +212,30 @@ export class TasksDeleteCommand extends BaseTaskCommand {
 
     // Validate and normalize task ID
     const taskId = this.validateRequired(params.taskId, "taskId");
-    const normalizedTaskId = this.validateAndNormalizeTaskId(taskId);
+    const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // If not forced, prompt for confirmation
     if (!params.force) {
-      await this.confirmDeletion(normalizedTaskId, params);
+      await this.confirmDeletion(validatedTaskId, params);
     }
 
     // Delete the task
     const result = await deleteTaskFromParams({
       ...this.createTaskParams(params),
-      taskId: normalizedTaskId,
+      taskId: validatedTaskId,
       force: params.force ?? false,
     });
 
     const message = result.success
-      ? `Task ${normalizedTaskId} deleted successfully`
-      : `Failed to delete task ${normalizedTaskId}`;
+      ? `Task ${validatedTaskId} deleted successfully`
+      : `Failed to delete task ${validatedTaskId}`;
 
     this.debug("Task deletion completed");
 
     return this.formatResult(
       {
         success: result.success,
-        taskId: normalizedTaskId,
+        taskId: validatedTaskId,
         task: result.task,
         message,
       },

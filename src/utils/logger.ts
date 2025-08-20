@@ -99,9 +99,10 @@ export function getLogMode(configOverride?: LoggerConfig): LogMode {
     return LogMode.HUMAN;
   }
 
-  // Auto-detect based on terminal environment
-  const isTTY = process.stdout.isTTY;
-  return isTTY ? LogMode.HUMAN : LogMode.STRUCTURED;
+  // Auto mode: default to HUMAN for CLI to prevent accidental structured JSON
+  // leaking into user-facing output when stdout isn't a TTY (e.g., piped).
+  // Structured mode should be explicitly enabled via configuration or env.
+  return LogMode.HUMAN;
 }
 
 /**
@@ -183,10 +184,10 @@ export function createLogger(configOverride?: LoggerConfig) {
     format: programLogFormat,
     transports: [
       new transports.Console({
-        // Route only non-normal levels to stderr; keep normal output (info) on stdout
+        // Route all levels to stderr for MCP compatibility (stdout reserved for JSON-RPC)
         stderrLevels: ["error", "warn", "debug", "http", "verbose", "silly"],
       }),
-    ], // Ensure only stderr
+    ], // Ensure only stderr for non-info levels
     exitOnError: false,
   });
 
@@ -310,6 +311,23 @@ export function createLogger(configOverride?: LoggerConfig) {
     systemDebug: (message: any) => {
       // Always log to programLogger (stderr) regardless of mode
       programLogger.debug(String(message));
+    },
+    // Context-aware output methods for command results vs log messages
+    output: (message: any) => {
+      // Check if we're in MCP mode via environment variable
+      const isMcpMode = process.env.MINSKY_MCP_MODE === "true";
+
+      if (isMcpMode) {
+        // In MCP mode, send all output to stderr to keep stdout clear for JSON-RPC
+        programLogger.warn(String(message));
+      } else {
+        // In normal CLI mode, send command output to stdout
+        programLogger.info(String(message));
+      }
+    },
+    // Always stderr for log messages (status, info, etc.)
+    status: (message: any) => {
+      programLogger.warn(String(message));
     },
     // Expose log mode information
     mode: currentLogMode,

@@ -246,5 +246,17 @@ export const sessionCommitCommandParams: CommandParameterMap = composeParams(
       required: false,
       defaultValue: false,
     },
+    oneline: {
+      schema: z.boolean(),
+      description: "Print a single-line summary",
+      required: false,
+      defaultValue: false,
+    },
+    noFiles: {
+      schema: z.boolean(),
+      description: "Hide the per-file list in output",
+      required: false,
+      defaultValue: false,
+    },
   }
 );

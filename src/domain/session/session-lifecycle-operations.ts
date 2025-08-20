@@ -117,11 +117,11 @@ export async function getSessionDirImpl(
 
   if (params.task && !params.name) {
     // Find session by task ID
-    const normalizedTaskId = TaskIdSchema.parse(params.task);
-    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+    const validatedTaskId = TaskIdSchema.parse(params.task);
+    const session = await deps.sessionDB.getSessionByTaskId(validatedTaskId);
 
     if (!session) {
-      throw new ResourceNotFoundError(`No session found for task ID "${normalizedTaskId}"`);
+      throw new ResourceNotFoundError(`No session found for task ID "${validatedTaskId}"`);
     }
 
     sessionName = session.session;

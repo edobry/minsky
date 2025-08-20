@@ -42,7 +42,7 @@ function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: st
 
   const backendMap: Record<string, string> = {
     md: "markdown",
-    gi: "github-issues", 
+    gi: "github-issues",
     db: "db",
     jf: "json-file",
   };
@@ -166,18 +166,14 @@ export class TasksImporterService {
                 version = task_specs.version + 1,
                 updated_at = NOW()`;
 
-            await sql.unsafe(upsertSpecSql, [
-              id,
-              specContent,
-              contentHash,
-            ]);
+            await sql.unsafe(upsertSpecSql, [id, specContent, contentHash]);
           }
         });
 
         // Determine if this was an insert or update by checking if task existed
         const checkExistsSql = `SELECT 1 FROM tasks WHERE id = $1 AND created_at = updated_at`;
         const isNewTask = await sql.unsafe(checkExistsSql, [id]);
-        
+
         if (Array.isArray(isNewTask) && isNewTask.length > 0) {
           result.inserted++;
           result.items.push({ id, backend, sourceTaskId, status, title, action: "insert" });
@@ -185,7 +181,6 @@ export class TasksImporterService {
           result.updated++;
           result.items.push({ id, backend, sourceTaskId, status, title, action: "update" });
         }
-
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         result.errors++;

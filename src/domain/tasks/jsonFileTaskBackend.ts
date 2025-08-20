@@ -11,7 +11,21 @@ import type {
   TaskMetadata,
 } from "./types";
 import type { TaskData } from "../../types/tasks/taskData";
-import { TASK_STATUS } from "./taskConstants";
+
+import { createJsonFileStorage } from "../storage/json-file-storage";
+import type { DatabaseStorage } from "../storage/database-storage";
+import { validateTaskState, type TaskState } from "../../schemas/storage";
+import type { TaskSpec } from "./taskIO";
+import { log } from "../../utils/logger";
+import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
+import { getErrorMessage } from "../../errors/index";
+import { TASK_STATUS, TaskStatus } from "./taskConstants";
+import { getTaskSpecRelativePath } from "./taskIO";
+import { validateQualifiedTaskId } from "./task-id-utils";
+import { getNextTaskId } from "./taskFunctions";
+import { get as getConfig, has as hasConfig } from "../configuration";
+
+// TaskState is now imported from schemas/storage
 
 /**
  * JsonFileTaskBackend implementation using simple JSON file storage
@@ -89,6 +103,85 @@ export class JsonFileTaskBackend implements TaskBackend {
       id: newId,
       title,
       specPath,
+      status: TASK_STATUS.TODO,
+      backend: this.name,
+    };
+
+    // Add to tasks list
+    const existingTasks = await this.getAllTasks();
+    await this.saveAllTasks([...existingTasks, newTask]);
+
+    return newTask;
+  }
+
+  /**
+   * Generate a task specification file content from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @returns The generated task specification content
+   */
+  private generateTaskSpecification(title: string, description: string): string {
+    return `# ${title}
+
+## Status
+
+BACKLOG
+
+## Priority
+
+MEDIUM
+
+## Description
+
+${description}
+
+## Requirements
+
+[To be filled in]
+
+## Success Criteria
+
+[To be defined]
+`;
+  }
+
+  /**
+   * Creates a new task from a markdown specification file
+   * Spec parser is provided as parameter to allow for dependency injection
+   */
+  async createTaskFromSpecFile(
+    specPath: string,
+    specParser: (content: string) => TaskSpec
+  ): Promise<TaskData> {
+    // Validate the input
+    if (!specPath || !specParser) {
+      throw new Error("Spec path and parser are required");
+    }
+
+    const specDataResult = await this.getTaskSpecData(specPath);
+    if (!specDataResult.success) {
+      throw new Error(`Failed to load spec file: ${specDataResult.error}`);
+    }
+    const spec = this.parseTaskSpec(specDataResult.content || "");
+
+    // Use the spec ID if available, otherwise generate a sequential ID
+    let taskId: string;
+    if (spec.id && spec.id.trim()) {
+      // TASK 283: Normalize spec ID to plain storage format
+      taskId = validateQualifiedTaskId(spec.id) || spec.id;
+    } else {
+      // Get all existing tasks to determine the new task's ID
+      const tasks = await this.getAllTasks();
+
+      // TASK 283: Generate plain ID format for storage using proper max ID logic
+      taskId = getNextTaskId(tasks); // Uses max existing ID + 1, returns plain format
+    }
+
+    // Create the new task data
+    const newTask: TaskData = {
+      id: taskId, // Store in plain format
+      title: spec.title,
+      description: spec.description,
       status: TASK_STATUS.TODO,
       backend: this.name,
     };

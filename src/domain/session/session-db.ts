@@ -125,8 +125,8 @@ export function getSessionFn(state: SessionDbState, sessionName: string): Sessio
  */
 export function getSessionByTaskIdFn(state: SessionDbState, taskId: string): SessionRecord | null {
   // Normalize taskId by removing # prefix if present
-  const normalizedTaskId = taskId.replace(/^#/, "");
-  return state.sessions.find((s) => s.taskId?.replace(/^#/, "") === normalizedTaskId) || null;
+  const validatedTaskId = taskId.replace(/^#/, "");
+  return state.sessions.find((s) => s.taskId?.replace(/^#/, "") === validatedTaskId) || null;
 }
 
 /**

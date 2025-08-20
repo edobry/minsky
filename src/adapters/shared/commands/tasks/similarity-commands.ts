@@ -200,7 +200,14 @@ export class TasksSearchCommand extends BaseTaskCommand {
     const searchResults = await service.searchByText(query, limit, threshold);
 
     // Enhance results with task details for better usability
-    const enhancedResults = await this.enhanceSearchResults(searchResults, (params as any).details);
+    let enhancedResults = await this.enhanceSearchResults(searchResults, (params as any).details);
+
+    // Apply status filtering using shared utility
+    const { filterTasksByStatus } = await import("../../../../domain/tasks/task-filters");
+    enhancedResults = filterTasksByStatus(enhancedResults, {
+      status: (params as any).status as string | undefined,
+      all: Boolean((params as any).all),
+    });
 
     return this.formatResult(
       {

@@ -144,7 +144,7 @@
 
 - [x] Disable Debug Logs Unless Debug Log Level is Explicitly Set [md#081](process/tasks/md#081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
 
-- [ ] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
+- [+] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
 
 - [x] Fix Bugs in Minsky Rules CLI Command [md#083](process/tasks/md#083-fix-bugs-in-minsky-rules-cli-command.md)
 
@@ -648,7 +648,7 @@
 
 - [x] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
 
-- [ ] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
+- [x] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
 
 - [ ] Improve CLI Error Summarization with Structured Detection [md#415](process/tasks/md#415-improve-cli-error-summarization-with-structured-detection.md)
 
@@ -682,20 +682,51 @@
 
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
-- [x] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
-
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
 
-- [+] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
+- [x] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
 
 - [+] RFC: Transitioning Minsky task system to backend-SoT with DB overlay; deprecate tasks.md; MCP tools for agent edits; GI sync path. [md#437](process/tasks/md#437-rfc-transitioning-minsky-task-system-to-backend-sot-with-db-overlay-deprecate-tasks-md-mcp-tools-for-agent-edits-gi-sync-path-.md)
 
 - [x] Improve task search output to include title, spec path, and other relevant information by default, with additional details behind a flag. Update both CLI and JSON output formats. [md#438](process/tasks/md#438-improve-task-search-output-to-include-title-spec-path-and-other-relevant-information-by-default-with-additional-details-behind-a-flag-update-both-cli-and-json-output-formats-.md)
 
-- [ ] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
+- [x] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
 
 - [ ] Define Phased Future Direction: Backend-SoT + DB Overlay, MCP‑First (Minimal Path) [md#440](process/tasks/md#440-define-phased-future-direction-backend-sot-db-overlay-mcp-first-minimal-path-.md)
 
-- [ ] Explore task templates for different backends [md#441](process/tasks/md#441-explore-task-templates-for-different-backends.md)
+- [ ] Implement MCP-Based Subagent System with Task Graph Integration [md#441](process/tasks/md#441-implement-mcp-based-subagent-system-with-task-graph-integration.md)
+
+- [ ] Implement Task Routing System for Automated Implementation Planning [md#442](process/tasks/md#442-implement-task-routing-system-for-automated-implementation-planning.md)
+
+- [ ] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
+
+- [x] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+
+- [+] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+
+- [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
+
+- [ ] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
+
+- [ ] Explore task templates for different backends [md#448](process/tasks/md#448-explore-task-templates-for-different-backends.md)
+
+- [ ] Extend embeddings infra: server-side filtering and index-optimized queries [md#449](process/tasks/md#449-extend-embeddings-infra-server-side-filtering-and-index-optimized-queries.md)
+
+- [ ] Explore embedding score normalization and distance metrics for similarity search (tasks & rules) [md#450](process/tasks/md#450-explore-embedding-score-normalization-and-distance-metrics-for-similarity-search-tasks-rules-.md)
+
+- [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
+
+- [ ] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
+
+- [+] Resolve merge conflicts for status-filtering PR in session workspace [md#453](process/tasks/md#453-resolve-merge-conflicts-for-status-filtering-pr-in-session-workspace.md)
+
+- [+] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
+
+- [ ] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+
+- [ ] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+
+- [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
+>>>>>>> origin/main

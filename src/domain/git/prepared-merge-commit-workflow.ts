@@ -35,6 +35,15 @@ export interface PreparedMergeCommitMergeOptions {
 
 export interface PreparedMergeCommitDependencies {
   execGitWithTimeout?: typeof execGitWithTimeout;
+  predictConflicts?: (
+    workdir: string,
+    sourceBranch: string,
+    baseBranch: string
+  ) => Promise<{
+    hasConflicts: boolean;
+    conflictType: string;
+    userGuidance: string;
+  }>;
 }
 
 /**
@@ -100,11 +109,9 @@ export async function createPreparedMergeCommitPR(
     // CRITICAL: Test merge compatibility BEFORE creating PR branch
     // This ensures we never switch to PR branch with potential conflicts
     try {
-      const conflictPrediction = await ConflictDetectionService.predictConflicts(
-        workdir,
-        sourceBranch,
-        baseBranch
-      );
+      const conflictPrediction = deps.predictConflicts
+        ? await deps.predictConflicts(workdir, sourceBranch, baseBranch)
+        : await ConflictDetectionService.predictConflicts(workdir, sourceBranch, baseBranch);
 
       if (conflictPrediction.hasConflicts) {
         throw new SessionConflictError(

@@ -15,6 +15,7 @@ import {
   createMockGitService,
   createMockTaskService,
 } from "../utils/test-utils/dependencies";
+import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 
 describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
@@ -24,7 +25,11 @@ describe("Session Auto-Task Creation", () => {
   let mockResolveRepoPath: (params: any) => Promise<string>;
   let createTaskSpy: any;
 
-  beforeEach(() => {
+  beforeEach(async () => {
+    // Initialize configuration to avoid initialization errors
+    const factory = new CustomConfigFactory();
+    await initializeConfiguration(factory, { workingDirectory: process.cwd() });
+
     // Create spy for tracking task creation
     createTaskSpy = createMock(() =>
       Promise.resolve({
@@ -119,7 +124,7 @@ describe("Session Auto-Task Creation", () => {
 
   test("should not auto-create task when task ID is provided", async () => {
     const params = {
-      task: "001",
+      task: "md#001",
       description: "Fix the authentication bug",
       quiet: false,
       noStatusUpdate: false,

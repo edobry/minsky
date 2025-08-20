@@ -16,7 +16,7 @@ const TEST_VALUE = 123;
 
 // Test constants to avoid magic strings
 const TEST_SESSION_NAME = "test-session";
-const TEST_TASK_ID = "265";
+const TEST_TASK_ID = "md#265";
 const TEST_REPO_NAME = "test-repo";
 const TEST_REPO_PATH = "/test/repo/path";
 const TEST_WORKDIR = "/test/workdir";
@@ -176,7 +176,7 @@ describe("Session Approve", () => {
           session: "current-session",
           repoName: TEST_REPO_NAME,
           repoUrl: TEST_REPO_PATH,
-          taskId: "456",
+          taskId: "md#456",
           prBranch: "pr/current-session",
           createdAt: new Date().toISOString(),
         },
@@ -193,7 +193,7 @@ describe("Session Approve", () => {
         getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
         getTask: () =>
           Promise.resolve({
-            id: "456",
+            id: "md#456",
             title: TEST_TASK_TITLE,
             status: TEST_TASK_STATUS,
             createdAt: new Date().toISOString(),
@@ -221,7 +221,7 @@ describe("Session Approve", () => {
     // Test session detection by repo path
     const result = await approveSessionFromParams({ repo: TEST_REPO_PATH }, testDeps);
     expect(result.sessionName).toBe("current-session");
-    expect(result.taskId).toBe("456");
+    expect(result.taskId).toBe("md#456");
   });
 
   test("throws error when session is not found", async () => {

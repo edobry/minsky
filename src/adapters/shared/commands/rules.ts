@@ -29,6 +29,11 @@ import {
   OVERWRITE_DESCRIPTION,
 } from "../../../utils/option-descriptions";
 import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
+import { getConfiguration } from "../../../domain/configuration";
+import fs from "fs/promises";
+import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
+import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
+import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
 
 /**
  * Parameters for the rules list command
@@ -44,6 +49,36 @@ const rulesListCommandParams: CommandParameterMap = composeParams(
   {
     format: RulesParameters.format,
     tag: RulesParameters.tag,
+  },
+  {
+    json: CommonParameters.json,
+    debug: CommonParameters.debug,
+  }
+);
+
+/**
+ * Parameters for the rules index-embeddings command
+ */
+type RulesIndexEmbeddingsParams = {
+  limit?: number;
+  json?: boolean;
+  debug?: boolean;
+  force?: boolean;
+};
+
+const rulesIndexEmbeddingsParams: CommandParameterMap = composeParams(
+  {
+    limit: {
+      schema: z.number().int().positive().optional(),
+      description: "Limit number of rules to index (for debugging)",
+      required: false,
+    },
+    force: {
+      schema: z.boolean(),
+      description: "Force reindex even if content hash matches",
+      required: false,
+      defaultValue: false,
+    },
   },
   {
     json: CommonParameters.json,
@@ -261,6 +296,126 @@ const rulesSearchCommandParams: CommandParameterMap = composeParams(
  */
 export function registerRulesCommands(registry?: typeof sharedCommandRegistry): void {
   const targetRegistry = registry || sharedCommandRegistry;
+  // Register rules index-embeddings command
+  targetRegistry.registerCommand({
+    id: "rules.index-embeddings",
+    category: CommandCategory.RULES,
+    name: "index-embeddings",
+    description: "Generate and store embeddings for rules (rules_embeddings)",
+    parameters: rulesIndexEmbeddingsParams,
+    execute: async (params: RulesIndexEmbeddingsParams, ctx?: CommandExecutionContext) => {
+      try {
+        const cfg = await getConfiguration();
+        const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+        const dimension = getEmbeddingDimension(model, 1536);
+
+        // Initialize embedding service and storage (schema managed by Drizzle migrations)
+        const embeddingService = await createEmbeddingServiceFromConfig();
+        const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
+          tableName: "rules_embeddings",
+          idColumn: "rule_id",
+          embeddingColumn: "embedding",
+          dimensionColumn: "dimension",
+          lastIndexedAtColumn: "last_indexed_at",
+          metadataColumn: "metadata",
+          contentHashColumn: "content_hash",
+        });
+
+        // Resolve workspace and list rules
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
+        const rules = await ruleService.listRules({});
+
+        const limit = params.limit && params.limit > 0 ? params.limit : undefined;
+        const slice = typeof limit === "number" ? rules.slice(0, limit) : rules;
+
+        if (!params.json && ctx?.format !== "json") {
+          log.cli(`Indexing embeddings for ${slice.length} rule(s)...`);
+        }
+
+        const start = Date.now();
+        let indexed = 0;
+        let skipped = 0;
+        for (const rule of slice) {
+          if (!(params.json || ctx?.format === "json")) {
+            log.cli(`- ${rule.id}`);
+          }
+          try {
+            // Prefer full rule content; fallback to file; then to metadata
+            let content = "";
+            const rawFromRule = (rule as any).content;
+            if (typeof rawFromRule === "string" && rawFromRule.trim().length > 0) {
+              content = rawFromRule;
+            } else if (typeof (rule as any).path === "string") {
+              try {
+                const fileText = await fs.readFile(String((rule as any).path), "utf-8");
+                if (fileText && fileText.trim().length > 0) content = fileText;
+              } catch {
+                // ignore file read errors
+              }
+            }
+            if (!content) {
+              const textParts: string[] = [];
+              if (rule.name) textParts.push(String(rule.name));
+              if (rule.description) textParts.push(String(rule.description));
+              if ((rule as any).tags && Array.isArray((rule as any).tags)) {
+                textParts.push((rule as any).tags.join(" "));
+              }
+              // As a last resort include rule id
+              if (textParts.length === 0) textParts.push(String(rule.id));
+              content = textParts.join("\n\n");
+            }
+            // Limit content length to reasonable window
+            const contentLimited = content.slice(0, 4000).trim();
+            if (!contentLimited) {
+              skipped += 1;
+              continue;
+            }
+
+            const metadata: any = { name: rule.name, description: rule.description };
+            let contentHash: string | undefined;
+            try {
+              const { createHash } = await import("crypto");
+              contentHash = createHash("sha256").update(contentLimited).digest("hex");
+            } catch {
+              // Ignore hash generation errors
+            }
+            const vector = await embeddingService.generateEmbedding(contentLimited);
+            // Store metadata JSON and content hash in dedicated column for staleness detection
+            await storage.store(rule.id, vector, { ...metadata, contentHash });
+            indexed += 1;
+          } catch (e) {
+            // Skip problematic rule and continue; surface count in JSON
+            skipped += 1;
+          }
+        }
+        const elapsed = Date.now() - start;
+
+        if (params.json || ctx?.format === "json") {
+          return {
+            success: true,
+            indexed,
+            skipped,
+            total: slice.length,
+            ms: elapsed,
+            dimension,
+            model,
+          };
+        }
+        log.cli(
+          `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`
+        );
+        return { success: true };
+      } catch (error) {
+        const message = getErrorMessage(error as any);
+        if (params.json || ctx?.format === "json") {
+          return { success: false, error: message };
+        }
+        log.cliError(`Failed to index rule embeddings: ${message}`);
+        throw error;
+      }
+    },
+  });
   // Register rules list command
   targetRegistry.registerCommand({
     id: "rules.list",

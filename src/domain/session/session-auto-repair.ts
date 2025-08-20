@@ -3,7 +3,7 @@ import { existsSync } from "fs";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "./types";
 import type { GitServiceInterface } from "../git";
-import { normalizeTaskIdForStorage } from "../tasks/task-id-utils";
+import { validateQualifiedTaskId } from "../tasks/task-id-utils";
 
 export interface SessionAutoRepairDependencies {
   sessionDB: SessionProviderInterface;
@@ -83,13 +83,13 @@ export function generatePossibleSessionNames(taskId: string): string[] {
   const names: string[] = [];
 
   // Normalize the task ID first
-  const normalized = normalizeTaskIdForStorage(taskId);
-  if (!normalized) {
+  const validated = validateQualifiedTaskId(taskId);
+  if (!validated) {
     return names;
   }
 
   // Extract just the numeric/ID part for legacy formats
-  const idPart = extractIdPart(normalized);
+  const idPart = extractIdPart(validated);
 
   if (idPart) {
     // Legacy format 1: task<id> (e.g., "task123")
@@ -194,7 +194,7 @@ async function reconstructSessionRecord(
       repoName,
       repoUrl,
       createdAt,
-      taskId: normalizeTaskIdForStorage(taskId),
+      taskId: validateQualifiedTaskId(taskId),
       branch,
     };
 
