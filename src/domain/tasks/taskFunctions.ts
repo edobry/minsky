@@ -270,37 +270,9 @@ export function filterTasks(tasks: TaskData[], filter?: TaskFilter): TaskData[] 
       return false;
     }
 
-    // Filter by ID
+    // Filter by ID - STRICT QUALIFIED IDs ONLY: exact string matching
     if (filter.id) {
-      // Handle special case: if filter.id is a simple number (like "2") and task.id is "#002"
-      if (/^\d+$/.test(filter.id)) {
-        // If filter is just digits, compare numeric values directly
-        const filterNum = parseInt(filter.id, 10);
-        const taskNum = parseInt(task.id.replace(/\D/g, ""), 10);
-
-        if (!isNaN(filterNum) && !isNaN(taskNum) && filterNum === taskNum) {
-          return true;
-        }
-      }
-
-      // Try normalized string comparison
-      const normalizedFilterId = normalizeTaskId(filter.id);
-      const normalizedTaskId = normalizeTaskId(task.id);
-
-      if (normalizedFilterId && normalizedTaskId) {
-        // Strip the "#" prefix for more flexible comparison
-        const filterIdNum = parseInt(normalizedFilterId.replace(/^#/, ""), 10);
-        const taskIdNum = parseInt(normalizedTaskId.replace(/^#/, ""), 10);
-
-        if (!isNaN(filterIdNum) && !isNaN(taskIdNum) && filterIdNum === taskIdNum) {
-          return true;
-        }
-
-        // Fallback to exact string comparison
-        return normalizedFilterId === normalizedTaskId;
-      }
-
-      return false;
+      return task.id === filter.id;
     }
 
     // Filter by title (string match)

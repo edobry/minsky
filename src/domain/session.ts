@@ -310,12 +310,12 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     if (taskId && !sessionName) {
-      // Normalize the task ID format using Zod validation
-      const normalizedTaskId = taskIdSchema.parse(taskId);
-      taskId = normalizedTaskId;
+      // Validate the task ID format using Zod validation
+      const validatedTaskId = taskIdSchema.parse(taskId);
+      taskId = validatedTaskId;
 
       // Verify the task exists
-      const taskObj = await deps.taskService.getTask(normalizedTaskId);
+      const taskObj = await deps.taskService.getTask(validatedTaskId);
       if (!taskObj) {
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
@@ -566,8 +566,8 @@ export async function getSessionDirFromParams(
 
   if (params.task && !params.name) {
     // Find session by task ID
-    const normalizedTaskId = taskIdSchema.parse(params.task);
-    const session = await deps.sessionDB.getSessionByTaskId(normalizedTaskId);
+    const validatedTaskId = taskIdSchema.parse(params.task);
+    const session = await deps.sessionDB.getSessionByTaskId(validatedTaskId);
 
     if (!session) {
       // Provide a more helpful error message showing possible sessions
@@ -577,7 +577,7 @@ export async function getSessionDirFromParams(
         .join(", ");
 
       throw new ResourceNotFoundError(
-        `No session found for task ID "${normalizedTaskId}"\n\n` +
+        `No session found for task ID "${validatedTaskId}"\n\n` +
           `💡 Available sessions: ${sessionNames}`
       );
     }

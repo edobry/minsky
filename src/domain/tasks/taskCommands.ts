@@ -126,14 +126,14 @@ export async function getTaskFromParams(
       throw new ValidationError("Task ID is required");
     }
 
-    const normalizedTaskId = normalizeTaskIdInput(taskIdInput);
-    log.debug("[getTaskFromParams] Using taskId", { taskId: normalizedTaskId });
+    const qualifiedTaskId = normalizeTaskIdInput(taskIdInput);
+    log.debug("[getTaskFromParams] Using taskId", { taskId: qualifiedTaskId });
 
-    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+    const paramsWithQualifiedId = { ...params, taskId: qualifiedTaskId };
 
     // Validate params with Zod schema
     log.debug("[getTaskFromParams] About to validate params with Zod");
-    const validParams = taskGetParamsSchema.parse(paramsWithNormalizedId);
+    const validParams = taskGetParamsSchema.parse(paramsWithQualifiedId);
     log.debug("[getTaskFromParams] Params validated", { validParams });
 
     // Resolve repository root and use it as workspace path (prefer injected main path)
@@ -195,11 +195,11 @@ export async function getTaskStatusFromParams(
 ): Promise<string> {
   try {
     // Normalize taskId before validation
-    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
-    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+    const qualifiedTaskId = normalizeTaskIdInput(params.taskId);
+    const paramsWithQualifiedId = { ...params, taskId: qualifiedTaskId };
 
     // Validate params with Zod schema
-    const validParams = taskStatusGetParamsSchema.parse(paramsWithNormalizedId);
+    const validParams = taskStatusGetParamsSchema.parse(paramsWithQualifiedId);
 
     // Resolve workspace path (prefer injected main path)
     const workspacePath =
@@ -257,11 +257,11 @@ export async function setTaskStatusFromParams(
 ): Promise<void> {
   try {
     // Normalize taskId before validation
-    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
-    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+    const qualifiedTaskId = normalizeTaskIdInput(params.taskId);
+    const paramsWithQualifiedId = { ...params, taskId: qualifiedTaskId };
 
     // Validate params with Zod schema
-    const validParams = taskStatusSetParamsSchema.parse(paramsWithNormalizedId);
+    const validParams = taskStatusSetParamsSchema.parse(paramsWithQualifiedId);
 
     // Resolve workspace path (prefer injected main path)
     const workspacePath =
@@ -548,11 +548,11 @@ export async function deleteTaskFromParams(
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {
     // Normalize taskId before validation
-    const normalizedTaskId = normalizeTaskIdInput(params.taskId);
-    const paramsWithNormalizedId = { ...params, taskId: normalizedTaskId };
+    const qualifiedTaskId = normalizeTaskIdInput(params.taskId);
+    const paramsWithQualifiedId = { ...params, taskId: qualifiedTaskId };
 
     // Validate params with Zod schema
-    const validParams = taskDeleteParamsSchema.parse(paramsWithNormalizedId);
+    const validParams = taskDeleteParamsSchema.parse(paramsWithQualifiedId);
 
     // Then get the workspace path using backend-aware resolution
     const workspacePath = await deps.resolveRepoPath({
