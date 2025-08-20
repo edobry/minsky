@@ -109,8 +109,7 @@ export async function createTaskFromTitleAndSpec(params: any) {
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
   const title = (validParams as any).title || "";
-  const backend = getTaskService().getCurrentBackend();
-  return await backend.createTaskFromTitleAndSpec(title, spec, validParams);
+  return await taskService.createTaskFromTitleAndSpec(title, spec, validParams);
 }
 
 export async function deleteTaskFromParams(params: any) {
