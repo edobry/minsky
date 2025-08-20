@@ -5,9 +5,7 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 
-// Create spy references to verify mock calls
-const mockGetLabel = mock(() => Promise.resolve());
-const mockCreateLabel = mock(() => Promise.resolve());
+// Mock implementations that we can control and verify
 const mockCreateGitHubLabels = mock(() => Promise.resolve());
 
 // Mock Octokit to prevent real GitHub API calls
@@ -15,8 +13,8 @@ mock.module("@octokit/rest", () => ({
   Octokit: mock(() => ({
     rest: {
       issues: {
-        getLabel: mockGetLabel,
-        createLabel: mockCreateLabel,
+        getLabel: mock(() => Promise.resolve()),
+        createLabel: mock(() => Promise.resolve()),
         list: mock(() => Promise.resolve({ data: [] })),
         get: mock(() => Promise.resolve({ data: {} })),
         create: mock(() => Promise.resolve({ data: {} })),
@@ -35,9 +33,7 @@ describe("GitHubIssuesTaskBackend", () => {
   let backend: GitHubIssuesTaskBackend;
 
   beforeEach(() => {
-    // Reset all mocks before each test
-    mockGetLabel.mockClear();
-    mockCreateLabel.mockClear();
+    // Reset mock state before each test
     mockCreateGitHubLabels.mockClear();
 
     // Create backend instance for testing pure functions (API calls are mocked)
@@ -76,37 +72,18 @@ describe("GitHubIssuesTaskBackend", () => {
       expect(customBackend).toBeDefined();
     });
 
-    test("should call createGitHubLabels during initialization", async () => {
+    test("should initialize with proper label creation behavior", async () => {
       // Give the async ensureLabelsExist call time to complete
       await new Promise((resolve) => setTimeout(resolve, 10));
 
-      // Verify that createGitHubLabels was called with correct parameters
+      // Verify that the mock was called (this confirms initialization triggers label creation)
+      expect(mockCreateGitHubLabels).toHaveBeenCalledTimes(1);
       expect(mockCreateGitHubLabels).toHaveBeenCalledWith(
         expect.any(Object), // octokit instance
         "test-owner",
         "test-repo",
         expect.any(Object) // status labels
       );
-    });
-
-    test("should handle label creation errors gracefully", async () => {
-      // Mock createGitHubLabels to throw an error
-      const mockCreateGitHubLabelsError = mock(() => Promise.reject(new Error("GitHub API error")));
-
-      // Create a new backend instance that will trigger the error
-      createGitHubIssuesTaskBackend({
-        name: "github-issues",
-        workspacePath: "/test/workspace",
-        githubToken: "test-token",
-        owner: "test-owner",
-        repo: "test-repo",
-      });
-
-      // Wait for async ensureLabelsExist to complete
-      await new Promise((resolve) => setTimeout(resolve, 10));
-
-      // Backend should still be created successfully despite label creation error
-      expect(true).toBe(true); // If we get here, the error was handled gracefully
     });
   });
 
