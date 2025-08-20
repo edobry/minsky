@@ -144,7 +144,7 @@
 
 - [x] Disable Debug Logs Unless Debug Log Level is Explicitly Set [md#081](process/tasks/md#081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
 
-- [ ] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
+- [+] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
 
 - [x] Fix Bugs in Minsky Rules CLI Command [md#083](process/tasks/md#083-fix-bugs-in-minsky-rules-cli-command.md)
 
@@ -576,7 +576,7 @@
 
 - [x] Implement Multi-Backend Task System Architecture [md#356](process/tasks/md#356-implement-multi-backend-task-system-architecture.md)
 
-- [ ] Integrate GitHub Issues Backend with Repository Backend Architecture [md#357](process/tasks/md#357-integrate-github-issues-backend-with-repository-backend-architecture.md)
+- [x] Integrate GitHub Issues Backend with Repository Backend Architecture [md#357](process/tasks/md#357-integrate-github-issues-backend-with-repository-backend-architecture.md)
 
 - [x] Restructure Session PR Command with Explicit Subcommands [md#359](process/tasks/md#359-restructure-session-pr-command-with-explicit-subcommands.md)
 
@@ -590,7 +590,7 @@
 
 - [x] Fix missing session.pr command in template system causing 5 template generation failures [md#364](process/tasks/md#364-fix-missing-session-pr-command-in-template-system-causing-5-template-generation-failures.md)
 
-- [ ] Fix Session Start with Qualified Task IDs [md#368](process/tasks/md#368-fix-session-start-with-qualified-task-ids.md)
+- [x] Fix Session Start with Qualified Task IDs [md#368](process/tasks/md#368-fix-session-start-with-qualified-task-ids.md)
 
 - [ ] Multi-Backend System Polish & Optimization [md#369](process/tasks/md#369-multi-backend-system-polish-optimization.md)
 
@@ -622,7 +622,7 @@
 
 - [x] Improve SessionDB migration command and plan PostgreSQL cutover [md#401](process/tasks/md#401-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
 
-- [ ] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
+- [x] Final test of the complete fix [md#402](process/tasks/md#402-final-test-of-the-complete-fix.md)
 
 - [ ] Implement Drizzle Kit migrations for PostgreSQL SessionDB [md#403](process/tasks/md#403-implement-drizzle-kit-migrations-for-postgresql-sessiondb.md)
 
@@ -634,31 +634,31 @@
 
 - [ ] Implement GitHub repository quality guardrails configuration [md#408](process/tasks/md#408-implement-github-repository-quality-guardrails-configuration.md)
 
-- [ ] Implement session pr open command for GitHub backend [md#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
+- [x] Implement session pr open command for GitHub backend [md#409](process/tasks/md#409-implement-session-pr-open-command-for-github-backend.md)
 
 - [x] Fix task status update to use main workspace and configure main workspace path [md#410](process/tasks/md#410-fix-task-status-update-to-use-main-workspace-and-configure-main-workspace-path.md)
 
 - [+] Continue Systematic ESLint-Guided Filesystem Violation Fixes [md#397](process/tasks/md#397-continue-systematic-eslint-guided-filesystem-violation-fixes.md)
 
-- [ ] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#435](process/tasks/md#435-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
+- [x] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#435](process/tasks/md#435-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
-- [ ] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
+- [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
-- [-] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
+- [x] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
 
 - [x] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
 
-- [+] Improve sessiondb migration command and plan PostgreSQL cutover [md#415](process/tasks/md#415-improve-sessiondb-migration-command-and-plan-postgresql-cutover.md)
+- [ ] Improve CLI Error Summarization with Structured Detection [md#415](process/tasks/md#415-improve-cli-error-summarization-with-structured-detection.md)
 
-- [+] CLI demo for session.edit_file tool [md#416](process/tasks/md#416-cli-demo-for-session-edit-file-tool.md)
+- [x] CLI demo for session.edit_file tool [md#416](process/tasks/md#416-cli-demo-for-session-edit-file-tool.md)
 
-- [ ] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
+- [x] Pass instruction through end-to-end for session.edit_file [md#417](process/tasks/md#417-pass-instruction-through-end-to-end-for-session-edit-file.md)
 
-- [+] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
+- [x] Add dry-run support to session.edit_file [md#418](process/tasks/md#418-add-dry-run-support-to-session-edit-file.md)
 
-- [+] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
+- [x] CLI ergonomics for session.edit_file [md#419](process/tasks/md#419-cli-ergonomics-for-session-edit-file.md)
 
 - [ ] AI Resilience module for error/backoff/circuit breaker (optional adoption) [md#420](process/tasks/md#420-ai-resilience-module-for-error-backoff-circuit-breaker-optional-adoption-.md)
 
@@ -666,7 +666,7 @@
 
 - [ ] Extract reusable result-handling utilities for list/get commands [md#422](process/tasks/md#422-extract-reusable-result-handling-utilities-for-list-get-commands.md)
 
-- [-] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
+- [x] Auto-commit and push for tasks_create (Minsky Tasks) [md#423](process/tasks/md#423-auto-commit-and-push-for-tasks-create-minsky-tasks-.md)
 
 - [x] Disable [DEBUG] logs for session start unless debug logging is enabled [md#425](process/tasks/md#425-disable-debug-logs-for-session-start-unless-debug-logging-is-enabled.md)
 
@@ -682,8 +682,50 @@
 
 - [+] Implement md#315 Phase 1: backfill normalized task_id and add unique constraint; prepare migration command scaffolding [md#428](process/tasks/md#428-implement-md-315-phase-1-backfill-normalized-task-id-and-add-unique-constraint-prepare-migration-command-scaffolding.md)
 
-- [+] Migrate Markdown Task Specs to Database [md#429](process/tasks/md#429-migrate-markdown-task-specs-to-database.md)
-
 - [ ] FS DI refactor: explicit injection across modules and test suite [md#430](process/tasks/md#430-fs-di-refactor-explicit-injection-across-modules-and-test-suite.md)
 
 - [ ] # Implement programmatic pending Drizzle migrations detection [md#431](process/tasks/md#431--implement-programmatic-pending-drizzle-migrations-detection.md)
+
+- [x] feat(session commit): show commit summary and changed files [md#436](process/tasks/md#436-feat-session-commit-show-commit-summary-and-changed-files.md)
+
+- [+] RFC: Transitioning Minsky task system to backend-SoT with DB overlay; deprecate tasks.md; MCP tools for agent edits; GI sync path. [md#437](process/tasks/md#437-rfc-transitioning-minsky-task-system-to-backend-sot-with-db-overlay-deprecate-tasks-md-mcp-tools-for-agent-edits-gi-sync-path-.md)
+
+- [x] Improve task search output to include title, spec path, and other relevant information by default, with additional details behind a flag. Update both CLI and JSON output formats. [md#438](process/tasks/md#438-improve-task-search-output-to-include-title-spec-path-and-other-relevant-information-by-default-with-additional-details-behind-a-flag-update-both-cli-and-json-output-formats-.md)
+
+- [+] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
+
+- [ ] Define Phased Future Direction: Backend-SoT + DB Overlay, MCP‑First (Minimal Path) [md#440](process/tasks/md#440-define-phased-future-direction-backend-sot-db-overlay-mcp-first-minimal-path-.md)
+
+- [ ] Implement MCP-Based Subagent System with Task Graph Integration [md#441](process/tasks/md#441-implement-mcp-based-subagent-system-with-task-graph-integration.md)
+
+- [ ] Implement Task Routing System for Automated Implementation Planning [md#442](process/tasks/md#442-implement-task-routing-system-for-automated-implementation-planning.md)
+
+- [ ] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
+
+- [x] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+
+- [+] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+
+- [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
+
+- [ ] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
+
+- [ ] Explore task templates for different backends [md#448](process/tasks/md#448-explore-task-templates-for-different-backends.md)
+
+- [ ] Extend embeddings infra: server-side filtering and index-optimized queries [md#449](process/tasks/md#449-extend-embeddings-infra-server-side-filtering-and-index-optimized-queries.md)
+
+- [ ] Explore embedding score normalization and distance metrics for similarity search (tasks & rules) [md#450](process/tasks/md#450-explore-embedding-score-normalization-and-distance-metrics-for-similarity-search-tasks-rules-.md)
+
+- [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
+
+- [ ] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
+
+- [+] Resolve merge conflicts for status-filtering PR in session workspace [md#453](process/tasks/md#453-resolve-merge-conflicts-for-status-filtering-pr-in-session-workspace.md)
+
+- [+] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
+
+- [ ] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+
+- [ ] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+
+- [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)

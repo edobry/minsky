@@ -451,6 +451,8 @@ export function createMCPCommand(): Command {
     )
     .action(async (options) => {
       try {
+        // Set MCP mode environment variable for proper output routing
+        process.env.MINSKY_MCP_MODE = "true";
         // Determine transport type from --http flag
         const transportType = options.http ? "http" : "stdio";
 
@@ -632,14 +634,14 @@ export function createMCPCommand(): Command {
           // Start the HTTP server
           const httpPort = parseInt(options.port, 10);
           app.listen(httpPort, options.host, () => {
-            log.cli("Minsky MCP Server started with HTTP transport");
-            log.cli(`Server listening on ${options.host}:${httpPort}`);
-            log.cli(`MCP endpoint: http://${options.host}:${httpPort}${options.endpoint}`);
-            log.cli(`Health check: http://${options.host}:${httpPort}/health`);
+            log.status("Minsky MCP Server started with HTTP transport");
+            log.status(`Server listening on ${options.host}:${httpPort}`);
+            log.status(`MCP endpoint: http://${options.host}:${httpPort}${options.endpoint}`);
+            log.status(`Health check: http://${options.host}:${httpPort}/health`);
             if (projectContext) {
-              log.cli(`Repository path: ${projectContext.repositoryPath}`);
+              log.status(`Repository path: ${projectContext.repositoryPath}`);
             }
-            log.cli("Ready to receive MCP requests via HTTP");
+            log.status("Ready to receive MCP requests via HTTP");
           });
 
           // Initialize the MCP server (without connecting transport since HTTP is on-demand)
@@ -650,19 +652,18 @@ export function createMCPCommand(): Command {
             // Only start the server directly if not using inspector
             await server.start();
 
-            log.cli("Minsky MCP Server started with stdio transport");
             if (projectContext) {
-              log.cli(`Repository path: ${projectContext.repositoryPath}`);
+              log.status(`Repository path: ${projectContext.repositoryPath}`);
             }
-            log.cli("Ready to receive MCP requests via stdin/stdout");
+            log.status("Ready to receive MCP requests via stdin/stdout");
           }
         }
 
-        log.cli("Press Ctrl+C to stop");
+        log.status("Press Ctrl+C to stop");
 
         // Handle termination signals gracefully when possible
         const cleanup = async () => {
-          log.cli("\nStopping Minsky MCP Server...");
+          log.status("\nStopping Minsky MCP Server...");
           try {
             await server.close();
           } catch (error) {

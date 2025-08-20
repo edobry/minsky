@@ -521,3 +521,44 @@ export const sessionRepairCommandParams = {
   },
   force: commonSessionParams.force,
 };
+
+/**
+ * Session edit-file command parameters
+ * CLI wrapper for session.edit_file MCP tool
+ */
+export const sessionEditFileCommandParams = {
+  session: {
+    schema: z.string(),
+    description: "Session name (auto-detected from workspace if not provided)",
+    required: false,
+  },
+  path: {
+    schema: z.string(),
+    description: "Path to the file within the session workspace",
+    required: true,
+  },
+  instruction: {
+    schema: z.string(),
+    description: "Optional high-level instruction guiding how to apply the edit",
+    required: false,
+  },
+  patternFile: {
+    schema: z.string(),
+    description: "Path to file containing edit pattern (alternative to stdin)",
+    required: false,
+  },
+  dryRun: {
+    schema: z.boolean(),
+    description: "Preview changes without writing to disk",
+    required: false,
+    defaultValue: false,
+  },
+  createDirs: {
+    schema: z.boolean(),
+    description: "Create parent directories if they don't exist",
+    required: false,
+    defaultValue: true,
+  },
+  json: commonSessionParams.json,
+  debug: commonSessionParams.debug,
+};

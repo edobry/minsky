@@ -18,6 +18,7 @@ import { detectRepositoryBackendType } from "../session/repository-backend-detec
 import { validateTaskBackendCompatibility } from "./taskBackendCompatibility";
 import type { RepositoryBackend } from "../repository/index";
 import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
+import { filterTasksByStatus } from "./task-filters";
 
 /**
  * Options for the TaskService
@@ -208,19 +209,8 @@ export class TaskService {
 
     const tasks = this.currentBackend.parseTasks(result.content);
 
-    // Apply status filter if provided (takes precedence over default filtering)
-    if (options?.status) {
-      return tasks.filter((task) => task.status === options.status);
-    }
-
-    // Apply default business rule: hide DONE and CLOSED tasks unless all=true
-    if (!options?.all) {
-      return tasks.filter(
-        (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
-      );
-    }
-
-    return tasks;
+    // Use shared filtering logic for consistency across commands
+    return filterTasksByStatus(tasks, { status: options?.status, all: options?.all });
   }
 
   /**

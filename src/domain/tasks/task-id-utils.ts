@@ -1,18 +1,20 @@
 /**
- * Task ID utilities: STRICT QUALIFIED IDs ONLY
+ * Task ID utilities: Multi-Backend String ID Support
  *
- * This module implements unified task ID handling where:
- * - INPUT: Only accepts qualified format (md#367, gh#123)
- * - STORAGE: Always qualified format (md#283, gh#367)
- * - DISPLAY: Always qualified format (md#283, gh#367)
- * - No normalization needed - input === storage === display
+ * This module implements flexible task ID handling where:
+ * - INPUT: Accepts any string format (update-test, 367, #367, md#367, gh#123)
+ * - STORAGE: Preserves original format for backend compatibility
+ * - DISPLAY: Format for user display (qualified when available)
+ * - ROUTING: Qualified IDs route to appropriate backends
  */
 
+// Logger import removed due to no usage after cleanup
+
 /**
- * Validate task ID (qualified format only)
+ * Normalize task ID for storage - supports legacy numeric formats
  *
- * @param taskId Task ID that must be qualified (md#367, gh#123, etc.)
- * @returns Same qualified task ID if valid, null if invalid
+ * @param taskId Task ID in any format (283, #283, md#283, update-test, etc.)
+ * @returns Qualified task ID for storage, or null if invalid
  */
 export function validateQualifiedTaskId(taskId: string): string | null {
   if (!taskId || typeof taskId !== "string") {
@@ -21,12 +23,39 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 
   const trimmed = taskId.trim();
 
-  // Only accept qualified IDs (md#367, gh#123) but NOT task# prefix
-  if (/^[a-z-]+#\d+$/.test(trimmed) && !trimmed.startsWith("task#")) {
+  // Already qualified format (md#367, gh#123, md#update-test)
+  if (/^[a-z-]+#.+$/.test(trimmed)) {
     return trimmed;
   }
 
-  // Reject all other formats
+  // Legacy display format (#283) -> convert to qualified
+  if (/^#\d+$/.test(trimmed)) {
+    const num = trimmed.replace(/^#/, "");
+    return `md#${num}`;
+  }
+
+  // Legacy numeric format (283) -> convert to qualified
+  if (/^\d+$/.test(trimmed)) {
+    return `md#${trimmed}`;
+  }
+
+  // Handle task# prefix format (task#283) -> convert to qualified
+  if (/^task#\d+$/i.test(trimmed)) {
+    const num = trimmed.replace(/^task#/i, "");
+    return `md#${num}`;
+  }
+  // Strip multiple # prefixes (##283) -> convert to qualified
+  if (/^#+\d+$/.test(trimmed)) {
+    const num = trimmed.replace(/^#+/, "");
+    return `md#${num}`;
+  }
+
+  // For string IDs that don't match numeric patterns, return as-is for multi-backend support
+  // This allows backend-specific string IDs like "update-test", "delete-test", etc.
+  if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+    return trimmed; // Return string IDs as-is for backend handling
+  }
+
   return null;
 }
 
@@ -35,31 +64,46 @@ export function validateQualifiedTaskId(taskId: string): string | null {
 // Removed normalizeTaskIdForStorage alias - use validateQualifiedTaskId directly
 
 /**
- * Format task ID for display (no-op since input === output)
+ * Format task ID for display - supports both numeric and string formats
  *
- * @param taskId Qualified task ID (e.g., "md#356", "gh#123")
- * @returns Same qualified task ID (no transformation needed)
+ * @param taskId Task ID in any format (283, #283, md#283, update-test, etc.)
+ * @returns Formatted task ID for display
  */
 export function formatTaskIdForDisplay(taskId: string): string {
   if (!taskId || typeof taskId !== "string") {
     return "";
   }
-  // Prefer qualified format when valid
-  const qualified = validateQualifiedTaskId(taskId);
-  if (qualified) return qualified;
 
-  // Gracefully handle legacy formats by converting to qualified markdown IDs for display
-  if (/^#\d+$/.test(taskId)) {
-    const num = taskId.replace(/^#/, "");
-    return `md#${String(num).padStart(3, "0")}`;
+  const trimmed = taskId.trim();
+
+  // Already qualified format (md#367, gh#123) - display as-is
+  if (/^[a-z-]+#.+$/.test(trimmed)) {
+    return trimmed;
   }
 
-  if (/^\d+$/.test(taskId)) {
-    return `md#${String(taskId).padStart(3, "0")}`;
+  // Legacy display format (#283) -> convert to qualified
+  if (/^#\d+$/.test(trimmed)) {
+    const num = trimmed.replace(/^#/, "");
+    return `md#${num}`;
+  }
+
+  // Legacy numeric format (283) -> convert to qualified
+  if (/^\d+$/.test(trimmed)) {
+    return `md#${trimmed}`;
+  }
+
+  // Handle task# prefix format (task#283) -> convert to qualified
+  if (/^task#\d+$/i.test(trimmed)) {
+    const num = trimmed.replace(/^task#/i, "");
+    return `md#${num}`;
+  }
+  // String IDs (update-test, delete-test) - return as-is for multi-backend support
+  if (/^[a-zA-Z0-9_-]+$/.test(trimmed)) {
+    return trimmed;
   }
 
   // Fallback: return the original string to avoid empty display output
-  return taskId;
+  return trimmed;
 }
 
 /**
@@ -69,7 +113,12 @@ export function formatTaskIdForDisplay(taskId: string): string {
  * @returns True if in qualified format, false otherwise
  */
 export function isQualifiedFormat(taskId: string): boolean {
-  return validateQualifiedTaskId(taskId) !== null;
+  if (!taskId || typeof taskId !== "string") {
+    return false;
+  }
+  const trimmed = taskId.trim();
+  // Only true qualified format (md#367, gh#123) counts as qualified
+  return /^[a-z-]+#.+$/.test(trimmed);
 }
 
 // Backward compatibility aliases
@@ -77,48 +126,78 @@ export const isStorageFormat = isQualifiedFormat;
 export const isDisplayFormat = isQualifiedFormat;
 
 /**
- * Validate task ID (no conversion needed since input === output)
+ * Convert task ID to target format
  *
- * @param taskId Task ID in qualified format only
- * @param targetFormat Target format (ignored - both return same qualified format)
- * @returns Same qualified task ID or null if invalid
+ * @param taskId Task ID in any format
+ * @param targetFormat Target format (storage or display)
+ * @returns Converted task ID or null if invalid
  */
 export function convertTaskIdFormat(
   taskId: string,
   targetFormat: "storage" | "display"
 ): string | null {
-  // No conversion needed - just validate
-  return validateQualifiedTaskId(taskId);
+  if (targetFormat === "storage") {
+    return validateQualifiedTaskId(taskId);
+  } else {
+    // For display format, first validate that it's a valid task ID
+    const validatedId = validateQualifiedTaskId(taskId);
+    if (validatedId === null) {
+      return null;
+    }
+    return formatTaskIdForDisplay(taskId);
+  }
 }
 
 /**
- * Validate task ID input (accepts only qualified format)
+ * Validate task ID input (accepts any valid format)
  *
  * @param userInput Task ID from user input
- * @returns True if valid qualified task ID
+ * @returns True if valid task ID in any format
  */
 export function isValidTaskIdInput(userInput: string): boolean {
   return validateQualifiedTaskId(userInput) !== null;
 }
 
 /**
- * Extract numeric value from qualified task ID
+ * Extract numeric value from task ID (any format)
  *
- * @param taskId Task ID in qualified format (md#123, gh#456, etc.)
- * @returns Numeric value or null if invalid
+ * @param taskId Task ID in any format (283, #283, md#123, etc.)
+ * @returns Numeric value or null if not numeric
  */
 export function getTaskIdNumber(taskId: string): number | null {
-  const validated = validateQualifiedTaskId(taskId);
-  if (!validated) {
+  if (!taskId || typeof taskId !== "string") {
     return null;
   }
+
+  const trimmed = taskId.trim();
 
   // Extract number from qualified format (md#123 -> 123)
-  const match = validated.match(/^[a-z-]+#(\d+)$/);
-  if (!match) {
-    return null;
+  const qualifiedMatch = trimmed.match(/^[a-z-]+#(\d+)$/);
+  if (qualifiedMatch) {
+    const num = parseInt(qualifiedMatch[1], 10);
+    return isNaN(num) ? null : num;
   }
 
-  const num = parseInt(match[1], 10);
-  return isNaN(num) ? null : num;
+  // Extract number from legacy format (#123 -> 123)
+  const legacyMatch = trimmed.match(/^#+(\d+)$/);
+  if (legacyMatch) {
+    const num = parseInt(legacyMatch[1], 10);
+    return isNaN(num) ? null : num;
+  }
+
+  // Extract number from task# format (task#123 -> 123)
+  const taskMatch = trimmed.match(/^task#(\d+)$/i);
+  if (taskMatch) {
+    const num = parseInt(taskMatch[1], 10);
+    return isNaN(num) ? null : num;
+  }
+
+  // Handle pure numeric format (123 -> 123)
+  if (/^\d+$/.test(trimmed)) {
+    const num = parseInt(trimmed, 10);
+    return isNaN(num) ? null : num;
+  }
+
+  // Non-numeric string IDs (update-test, delete-test) return null
+  return null;
 }

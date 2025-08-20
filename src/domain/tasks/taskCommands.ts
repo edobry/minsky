@@ -51,7 +51,7 @@ function normalizeTaskIdInput(input: unknown): string {
   const raw = Array.isArray(input) ? String(input[0] ?? "").trim() : String(input ?? "").trim();
   if (!raw) return raw;
   // Already qualified like md#123 or gh#456
-  if (/^[a-z]+#/.test(raw)) return raw;
+  if (/^[a-z-]+#\d+$/.test(raw)) return raw;
   // Accept forms like "#123" or "123" and normalize to md#123
   const numeric = raw.startsWith("#") ? raw.slice(1) : raw;
   return `md#${numeric}`;
@@ -74,10 +74,13 @@ export async function listTasksFromParams(
     // Validate params with Zod schema
     const validParams = taskListParamsSchema.parse(params);
 
-    // Prefer explicit main workspace resolver when provided (tests rely on this)
+    // Prefer injected main workspace path for tests; otherwise resolve from repo
     const workspacePath =
       (await deps?.resolveMainWorkspacePath?.()) ??
-      (await resolveRepoPath({ session: validParams.session, repo: validParams.repo }));
+      (await resolveRepoPath({
+        session: validParams.session,
+        repo: validParams.repo,
+      }));
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
@@ -90,7 +93,7 @@ export async function listTasksFromParams(
 
     // Get tasks with filters - delegate filtering to domain layer
     const tasks = await taskService.listTasks({
-      status: validParams.filter as string,
+      status: (validParams as any).status as string | undefined,
       all: validParams.all,
     });
 

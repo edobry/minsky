@@ -301,6 +301,52 @@ export function getSessionCustomizations(): {
             },
           },
         },
+        "session.edit-file": {
+          useFirstRequiredParamAsArgument: false,
+          parameters: {
+            session: {
+              alias: "s",
+              description: "Session name (auto-detected from workspace if not provided)",
+            },
+            path: {
+              description: "Path to the file within the session workspace",
+            },
+            instruction: {
+              alias: "i",
+              description: "Instructions describing the edit to make",
+            },
+            patternFile: {
+              alias: "f",
+              description: "Path to file containing edit pattern (alternative to stdin)",
+            },
+            dryRun: {
+              alias: "n",
+              description: "Preview changes without writing to disk",
+            },
+            createDirs: {
+              description: "Create parent directories if they don't exist",
+            },
+            json: {
+              description: "Output in JSON format",
+            },
+            debug: {
+              description: "Enable debug output",
+            },
+          },
+          outputFormatter: (result) => {
+            if (result.json) {
+              return JSON.stringify(result, null, 2);
+            }
+
+            if (result.type === "dry-run") {
+              return result.message;
+            } else if (result.type === "edit-applied") {
+              return result.message;
+            }
+
+            return "Edit completed successfully";
+          },
+        },
       },
     },
   };

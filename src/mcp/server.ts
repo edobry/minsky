@@ -395,13 +395,13 @@ export class MinskyMCPServer {
     try {
       if (this.options.transportType === "stdio") {
         await this.server.connect(this.transport);
-        log.agent("Minsky MCP Server started with stdio transport");
+        log.status("Minsky MCP Server started with stdio transport");
       } else {
         // For HTTP transport, we don't connect here since transports are created on-demand
         const httpConfig = this.options.httpConfig || {};
         const host = httpConfig.host || "localhost";
         const port = httpConfig.port || 3000;
-        log.agent(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
+        log.status(`Minsky MCP Server ready for HTTP transport (${host}:${port})`);
       }
 
       // Debug log of registered items

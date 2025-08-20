@@ -59,11 +59,7 @@ export function validateSessionApprovedForMerge(
 
   if (sessionRecord.prApproved !== true) {
     throw new ValidationError(
-      `❌ Session "${sessionName}" PR must be approved before merging.\n\n` +
-        `💡 Next steps:\n` +
-        `   1. Review your changes: minsky session pr get --task ${sessionName.replace("task-", "")}\n` +
-        `   2. Approve the PR: minsky session pr approve --task ${sessionName.replace("task-", "")}\n` +
-        `   3. Then try merge again: minsky session pr merge --task ${sessionName.replace("task-", "")}`
+      `❌ MERGE REJECTED: Invalid approval state for session "${sessionName}". PR must be approved before merging.`
     );
   }
 
@@ -190,7 +186,8 @@ export async function mergeSessionPr(
   // Create repository backend for this session
   // Use stored repoUrl for backend detection to avoid redundant git commands
   const repoUrl = params.repo || sessionRecord.repoUrl || process.cwd();
-  const backendType = detectRepositoryBackendTypeFromUrl(repoUrl);
+  const backendType =
+    (sessionRecord.backendType as any) || detectRepositoryBackendTypeFromUrl(repoUrl);
 
   // For merge operations, we still need a working directory (session workspace)
   const workingDirectory = await sessionDB.getSessionWorkdir(sessionNameToUse);

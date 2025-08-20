@@ -94,7 +94,7 @@ describe("Session PR Create Command - Task Parameter Bug Fix", () => {
         }),
       };
 
-      // Use spyOn to properly mock the dynamic imports
+      // Mock module imports used by the command implementation
       const sessionImportSpy = spyOn(
         await import("../../../../domain/session"),
         "createSessionProvider"

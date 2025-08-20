@@ -28,7 +28,8 @@ const mockPathResolver = new MockSessionPathResolver();
 // Enhanced applyEditPattern with comprehensive logging
 async function loggingApplyEditPattern(
   originalContent: string,
-  editPattern: string
+  editPattern: string,
+  instruction?: string
 ): Promise<string> {
   console.log(`\n${"=".repeat(80)}`);
   console.log("🔍 MORPH API REQUEST ANALYSIS");
@@ -42,6 +43,11 @@ async function loggingApplyEditPattern(
   console.log("\n📝 Edit Pattern:");
   console.log("   Length:", editPattern.length, "characters");
   console.log("   Content:", JSON.stringify(editPattern, null, 2));
+
+  if (instruction) {
+    console.log("\n🧭 Instruction:");
+    console.log("   ", instruction);
+  }
 
   console.log("\n🔍 PATTERN ANALYSIS:");
   const hasExistingCodeMarkers = editPattern.includes("// ... existing code ...");
@@ -129,6 +135,8 @@ Instructions:
 3. Return ONLY the final, complete code - no explanations or markdown
 4. Preserve all original code that isn't being replaced
 5. The result should contain both the original code and the new additions
+
+${instruction ? `6. Apply this additional guidance precisely: ${instruction}` : ""}
 
 Return the complete merged code:`;
 
@@ -292,7 +300,10 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
       properties: {
         sessionName: { type: "string", description: "Session identifier" },
         path: { type: "string", description: "Path to the file within the session workspace" },
-        instructions: { type: "string", description: "Instructions describing the edit to make" },
+        instructions: {
+          type: "string",
+          description: "Optional high-level instruction guiding how to apply the edit",
+        },
         content: {
           type: "string",
           description: "The edit content with '// ... existing code ...' markers",
@@ -303,7 +314,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           default: true,
         },
       },
-      required: ["sessionName", "path", "instructions", "content"],
+      required: ["sessionName", "path", "content"],
     },
     handler: async (args: any) => {
       try {
@@ -336,7 +347,11 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
 
         if (fileExists && args.content.includes("// ... existing code ...")) {
           // Use enhanced logging version of applyEditPattern
-          finalContent = await loggingApplyEditPattern(originalContent, args.content);
+          finalContent = await loggingApplyEditPattern(
+            originalContent,
+            args.content,
+            args.instructions
+          );
         } else {
           finalContent = args.content;
         }

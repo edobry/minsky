@@ -44,7 +44,8 @@ async function loadFixture(name: string): Promise<string> {
 // Enhanced applyEditPattern with comprehensive logging - recreated from session-edit-tools.ts
 async function loggingApplyEditPattern(
   originalContent: string,
-  editPattern: string
+  editPattern: string,
+  instruction?: string
 ): Promise<string> {
   console.log(`\n${"=".repeat(80)}`);
   console.log("🔍 MORPH API REQUEST ANALYSIS");
@@ -63,6 +64,10 @@ async function loggingApplyEditPattern(
   console.log("\n📝 Edit Pattern:");
   console.log("   Length:", editPattern.length, "characters");
   console.log("   Content:", JSON.stringify(editPattern, null, 2));
+  if (instruction) {
+    console.log("\n🧭 Instruction:");
+    console.log("   ", instruction);
+  }
 
   // Use utility for pattern analysis
   const patternAnalysis = analyzeEditPattern(editPattern);
@@ -143,7 +148,7 @@ async function loggingApplyEditPattern(
 
     // Create the correct Morph Fast Apply API format using utilities
     const morphRequest: MorphFastApplyRequest = {
-      instruction: "Add a multiply method to the Calculator class",
+      instruction: instruction || "Add a multiply method to the Calculator class",
       originalCode: originalContent,
       editPattern: editPattern,
     };
@@ -379,7 +384,7 @@ describe("session.edit_file Cursor Parity Integration", () => {
       // This test validates the core edit pattern following MorphLLM best practices
       // Use minimal pattern - only show what's being added, not existing code
       const editPattern = `// ... existing code ...
-  
+
   multiply(a: number, b: number): number {
     return a * b;
   }
@@ -388,7 +393,11 @@ describe("session.edit_file Cursor Parity Integration", () => {
       console.log("📝 Edit pattern (minimal):", JSON.stringify(editPattern));
 
       // Test the applyEditPattern function directly with comprehensive logging
-      const result = await loggingApplyEditPattern(originalContent, editPattern);
+      const result = await loggingApplyEditPattern(
+        originalContent,
+        editPattern,
+        "Place the new method after the existing add method"
+      );
 
       // Validate functional correctness of the edit
       expect(result).toBeDefined();
