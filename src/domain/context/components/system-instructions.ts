@@ -1,145 +1,82 @@
-import {
-  type ContextComponent,
-  type ComponentInput,
-  type ComponentOutput,
-  type ComponentInputs,
-} from "./types";
+import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 
-interface SystemInstructionsInputs {
-  userPrompt?: string;
-  targetModel: string;
-  taskContext?: {
-    id?: string;
-    title?: string;
-    status?: string;
-  };
-  customInstructions?: string[];
-}
-
+/**
+ * System Instructions Component
+ *
+ * Provides Cursor's core system instructions for AI assistants.
+ * This replicates the exact system instructions from Cursor's context.
+ */
 export const SystemInstructionsComponent: ContextComponent = {
   id: "system-instructions",
   name: "System Instructions",
   description: "Core AI behavior guidelines and interaction principles",
 
-  // Phase 1: Async input gathering
   async gatherInputs(context: ComponentInput): Promise<ComponentInputs> {
-    const userPrompt = context.userQuery;
-    const targetModel = context.targetModel || "gpt-4o";
-    const taskContext = context.task;
-
-    // Basic system instructions - these could come from templates or config
-    const customInstructions: string[] = [];
-
-    // Add context-specific instructions based on user prompt
-    if (userPrompt) {
-      if (userPrompt.toLowerCase().includes("test")) {
-        customInstructions.push("Focus on testing best practices and test coverage");
-      }
-      if (
-        userPrompt.toLowerCase().includes("error") ||
-        userPrompt.toLowerCase().includes("debug")
-      ) {
-        customInstructions.push("Prioritize error handling and debugging information");
-      }
-      if (userPrompt.toLowerCase().includes("security")) {
-        customInstructions.push("Apply security-first thinking to all recommendations");
-      }
-      if (userPrompt.toLowerCase().includes("performance")) {
-        customInstructions.push("Consider performance implications in all suggestions");
-      }
-    }
+    // System instructions are mostly static, but can adapt to user prompt
+    const userPrompt = context.userPrompt?.toLowerCase() || "";
 
     return {
+      baseInstructions:
+        "You are an AI coding assistant, powered by Claude Sonnet 4. You operate in Cursor.",
+      pairProgramming: "You are pair programming with a USER to solve their coding task.",
+      mainGoal:
+        "Your main goal is to follow the USER's instructions at each message, denoted by the <user_query> tag.",
       userPrompt,
-      targetModel,
-      taskContext,
-      customInstructions,
-    } as SystemInstructionsInputs;
+      contextualFocus: this.getContextualFocus(userPrompt),
+    };
   },
 
-  // Phase 2: Pure rendering using template-style approach
+  getContextualFocus(userPrompt: string): string {
+    if (userPrompt.includes("security") || userPrompt.includes("auth")) {
+      return "Pay special attention to security best practices and authentication flows.";
+    }
+    if (userPrompt.includes("test") || userPrompt.includes("testing")) {
+      return "Focus on testing strategies, test quality, and comprehensive coverage.";
+    }
+    if (userPrompt.includes("performance") || userPrompt.includes("optimization")) {
+      return "Prioritize performance optimization and efficient code patterns.";
+    }
+    if (userPrompt.includes("error") || userPrompt.includes("debug")) {
+      return "Focus on error handling, debugging strategies, and robust code.";
+    }
+    return "";
+  },
+
   render(inputs: ComponentInputs, context: ComponentInput): ComponentOutput {
-    const sysInputs = inputs as SystemInstructionsInputs;
+    let content = `You are an AI coding assistant, powered by Claude Sonnet 4. You operate in Cursor.
 
-    let content = `## System Instructions\n\n`;
+You are pair programming with a USER to solve their coding task. Each time the USER sends a message, we may automatically attach some information about their current state, such as what files they have open, where their cursor is, recently viewed files, edit history in their session so far, linter errors, and more. This information may or may not be relevant to the coding task, it is up for you to decide.
 
-    // Core AI interaction principles
-    content += `### Core Principles\n`;
-    content += `- **Accuracy**: Provide precise, technically correct information\n`;
-    content += `- **Clarity**: Use clear, unambiguous language and explanations\n`;
-    content += `- **Completeness**: Address all aspects of questions and requests\n`;
-    content += `- **Context Awareness**: Consider the specific project and environment\n`;
-    content += `- **Best Practices**: Recommend industry-standard approaches and patterns\n\n`;
+Your main goal is to follow the USER's instructions at each message, denoted by the <user_query> tag.`;
 
-    // Model-specific considerations
-    content += `### AI Model Context\n`;
-    content += `- Target Model: ${sysInputs.targetModel}\n`;
-    content += `- Interaction Mode: Technical assistance and code collaboration\n`;
-    content += `- Response Style: Direct, actionable, and comprehensive\n\n`;
-
-    // Task-specific context if available
-    if (sysInputs.taskContext?.id) {
-      content += `### Current Task Context\n`;
-      content += `- Task ID: ${sysInputs.taskContext.id}\n`;
-      if (sysInputs.taskContext.title) {
-        content += `- Task: ${sysInputs.taskContext.title}\n`;
-      }
-      if (sysInputs.taskContext.status) {
-        content += `- Status: ${sysInputs.taskContext.status}\n`;
-      }
-      content += `\n`;
+    // Add contextual focus if relevant
+    if (inputs.contextualFocus) {
+      content += `\n\n**Context Focus**: ${inputs.contextualFocus}`;
     }
 
-    // User-specific context adaptations
-    if (sysInputs.userPrompt) {
-      content += `### Session Focus\n`;
-      content += `- User Query: "${sysInputs.userPrompt}"\n`;
-      content += `- Context Adaptation: Tailored to user's specific needs and focus areas\n\n`;
-    }
+    content += `
 
-    // Custom instructions based on context analysis
-    if (sysInputs.customInstructions && sysInputs.customInstructions.length > 0) {
-      content += `### Context-Specific Guidelines\n`;
-      sysInputs.customInstructions.forEach((instruction) => {
-        content += `- ${instruction}\n`;
-      });
-      content += `\n`;
-    }
+Answer the user's request using the relevant tool(s), if they are available. Check that all the required parameters for each tool call are provided or can reasonably be inferred from context. IF there are no relevant tools or there are missing values for required parameters, ask the user to supply these values; otherwise proceed with the tool calls. If the user provides a specific value for a parameter (for example provided in quotes), make sure to use that value EXACTLY. DO NOT make up values for or ask about optional parameters. Carefully analyze descriptive terms in the request as they may indicate required parameter values that should be included even if not explicitly quoted.
 
-    // Code-specific guidelines
-    content += `### Code Collaboration Guidelines\n`;
-    content += `- **Code Quality**: Follow project conventions and best practices\n`;
-    content += `- **Testing**: Include appropriate test coverage for new code\n`;
-    content += `- **Documentation**: Provide clear comments and documentation\n`;
-    content += `- **Error Handling**: Implement robust error handling patterns\n`;
-    content += `- **Performance**: Consider efficiency and scalability implications\n`;
-    content += `- **Security**: Apply security-conscious development practices\n\n`;
-
-    // Response format guidelines
-    content += `### Response Format Guidelines\n`;
-    content += `- Use markdown formatting for structure and clarity\n`;
-    content += `- Provide code examples with appropriate language tags\n`;
-    content += `- Include reasoning and explanation for recommendations\n`;
-    content += `- Suggest multiple approaches when applicable\n`;
-    content += `- Reference relevant documentation and resources\n`;
+Do what has been asked; nothing more, nothing less.
+NEVER create files unless they're absolutely necessary for achieving your goal.
+ALWAYS prefer editing an existing file to creating a new one.
+NEVER proactively create documentation files (*.md) or README files. Only create documentation files if explicitly requested by the User.`;
 
     return {
       content,
       metadata: {
-        componentId: this.id,
-        generatedAt: new Date().toISOString(),
-        tokenCount: Math.floor(content.length / 4), // rough token estimate
+        componentId: "system-instructions",
+        tokenCount: content.length / 4, // Rough estimate
+        sections: ["system_instructions"],
+        contextualFocus: inputs.contextualFocus || null,
       },
     };
   },
 
   // Legacy method for backwards compatibility
   async generate(input: ComponentInput): Promise<ComponentOutput> {
-    const gatheredInputs = await this.gatherInputs(input);
-    return this.render(gatheredInputs, input);
+    const inputs = await this.gatherInputs(input);
+    return this.render(inputs, input);
   },
 };
-
-export function createSystemInstructionsComponent(): ContextComponent {
-  return SystemInstructionsComponent;
-}

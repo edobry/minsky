@@ -1,146 +1,203 @@
-import {
-  type ContextComponent,
-  type ComponentInput,
-  type ComponentOutput,
-  type ComponentInputs,
-} from "./types";
-// Reuse existing Minsky rule service
-import { ModularRulesService } from "../../rules/rules-service-modular";
-import { type Rule } from "../../rules/types";
+import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 
-interface WorkspaceRulesInputs {
-  rules: Rule[];
-  totalRules: number;
-  rulesByTag: Record<string, Rule[]>;
-  userPrompt?: string;
-}
-
+/**
+ * Workspace Rules Component
+ *
+ * Provides workspace-level rules in Cursor's exact format.
+ * This replicates how Cursor presents workspace rules to AI assistants.
+ */
 export const WorkspaceRulesComponent: ContextComponent = {
   id: "workspace-rules",
   name: "Workspace Rules",
   description: "Project-specific behavioral rules and guidelines",
 
-  // Phase 1: Async input gathering (reuses existing rule service)
   async gatherInputs(context: ComponentInput): Promise<ComponentInputs> {
-    const workspacePath = context.workspacePath || process.cwd();
-    const rulesService = new ModularRulesService(workspacePath);
+    // Get the rules service for dynamic rule discovery
+    const { ModularRulesService } = require("../../rules/rules-service-modular");
 
-    // Get all rules in workspace
-    const rules = await rulesService.listRules();
+    try {
+      const rulesService = new ModularRulesService();
+      await rulesService.loadRules();
 
-    // Filter out any undefined/null rules
-    const validRules = rules.filter((rule) => rule && rule.id);
+      const allRules = rulesService.getAllRules();
 
-    // Organize rules by tags for better structure
-    const rulesByTag: Record<string, Rule[]> = {};
-    validRules.forEach((rule) => {
-      if (rule.tags && Array.isArray(rule.tags)) {
-        rule.tags.forEach((tag) => {
-          if (!rulesByTag[tag]) {
-            rulesByTag[tag] = [];
-          }
-          rulesByTag[tag].push(rule);
+      // Filter rules based on user prompt if provided
+      let filteredRules = allRules;
+      if (context.userPrompt) {
+        const prompt = context.userPrompt.toLowerCase();
+        filteredRules = allRules.filter((rule) => {
+          if (!rule || !rule.name) return false;
+          return (
+            rule.name.toLowerCase().includes(prompt) ||
+            rule.description?.toLowerCase().includes(prompt) ||
+            rule.content?.toLowerCase().includes(prompt)
+          );
         });
       }
-    });
 
-    return {
-      rules: validRules,
-      totalRules: validRules.length,
-      rulesByTag,
-      userPrompt: context.userQuery,
-    } as WorkspaceRulesInputs;
+      return {
+        requestableRules: filteredRules,
+        totalRules: allRules.length,
+        filteredCount: filteredRules.length,
+        userPrompt: context.userPrompt,
+      };
+    } catch (error) {
+      console.warn("Failed to load workspace rules:", error);
+      return {
+        requestableRules: [],
+        totalRules: 0,
+        filteredCount: 0,
+        error: "Failed to load workspace rules",
+      };
+    }
   },
 
-  // Phase 2: Pure rendering with template-style approach
   render(inputs: ComponentInputs, context: ComponentInput): ComponentOutput {
-    const rulesInputs = inputs as WorkspaceRulesInputs;
+    if (inputs.error) {
+      const content = `## Workspace Rules
 
-    let content = `## Workspace Rules\n\n`;
+Error loading workspace rules: ${inputs.error}
 
-    if (rulesInputs.totalRules === 0) {
-      content += `No rules found in workspace. Consider adding some behavioral guidelines.\n`;
+Workspace-specific behavioral guidelines could not be determined.`;
+
       return {
         content,
-        metadata: { componentId: this.id, generatedAt: new Date().toISOString() },
+        metadata: {
+          componentId: "workspace-rules",
+          tokenCount: content.length / 4,
+          sections: ["workspace_rules"],
+        },
       };
     }
 
-    content += `Found ${rulesInputs.totalRules} rules in workspace.\n\n`;
+    // Build content exactly like Cursor's format
+    let content = `<rules>
+The rules section has a number of possible rules/memories/context that you should consider. In each subsection, we provide instructions about what information the subsection contains and how you should consider/follow the contents of the subsection.
 
-    // If user provided a query, filter relevant rules
-    if (rulesInputs.userPrompt) {
-      const relevantRules = rulesInputs.rules.filter((rule) => {
-        if (!rule || !rule.name) return false;
 
-        const prompt = rulesInputs.userPrompt!.toLowerCase();
-        return (
-          rule.name.toLowerCase().includes(prompt) ||
-          (rule.description && rule.description.toLowerCase().includes(prompt)) ||
-          (rule.tags && rule.tags.some((tag) => tag.toLowerCase().includes(prompt)))
-        );
-      });
+<agent_requestable_workspace_rules description="These are workspace-level rules that the agent should follow. They can request the full details of the rule with the fetch_rules tool.">`;
 
-      if (relevantRules.length > 0) {
-        content += `### Rules Relevant to "${rulesInputs.userPrompt}"\n\n`;
-        relevantRules.forEach((rule) => {
-          content += `**${rule.name}** (${rule.id})\n`;
-          if (rule.description) {
-            content += `- ${rule.description}\n`;
-          }
-          if (rule.tags && rule.tags.length > 0) {
-            content += `- Tags: ${rule.tags.join(", ")}\n`;
-          }
-          content += `\n`;
-        });
-        content += `\n`;
+    // Add requestable rules in Cursor's format
+    for (const rule of inputs.requestableRules) {
+      if (rule && rule.name) {
+        const description = rule.description || `Use this when working with ${rule.name}`;
+        content += `\n- ${rule.name}: ${description}`;
       }
     }
 
-    // Group rules by category/tags
-    const majorTags = Object.keys(rulesInputs.rulesByTag)
-      .filter((tag) => rulesInputs.rulesByTag[tag].length >= 2)
-      .sort((a, b) => rulesInputs.rulesByTag[b].length - rulesInputs.rulesByTag[a].length);
+    content += `
+</agent_requestable_workspace_rules>
+<always_applied_workspace_rules description="These are workspace-level rules that the agent must always follow.">
+- # Changelog Rule
 
-    if (majorTags.length > 0) {
-      content += `### Rules by Category\n\n`;
-      majorTags.slice(0, 5).forEach((tag) => {
-        // Limit to top 5 categories
-        const tagRules = rulesInputs.rulesByTag[tag];
-        content += `**${tag.toUpperCase()}** (${tagRules.length} rules)\n`;
-        tagRules.slice(0, 3).forEach((rule) => {
-          // Limit to 3 rules per category
-          if (rule && rule.name) {
-            content += `- ${rule.name}: ${rule.description || "No description"}\n`;
-          }
-        });
-        if (tagRules.length > 3) {
-          content += `- ... and ${tagRules.length - 3} more\n`;
-        }
-        content += `\n`;
-      });
-    }
+## Rule Name: changelog
 
-    // Add note about accessing full rule content
-    content += `### Usage\n\nTo view full rule content, use: \`minsky rules get <rule-id>\`\n`;
+## Description
+
+For any code change, **record it in the \`CHANGELOG.md\` file in the nearest ancestor directory that contains a \`CHANGELOG.md\`**.
+
+- If the file you changed is in a subdirectory with its own \`CHANGELOG.md\`, use that changelog.
+- If there is no \`CHANGELOG.md\` in the current or any parent directory, use the root \`CHANGELOG.md\`.
+- Never update more than one changelog for a single change. Always use the most specific (deepest) changelog file in the directory tree.
+
+
+
+## Additional Guidance
+- Only update the \`CHANGELOG.md\` at the end of an editing session, after testing whether the change worked.
+- If a change affects multiple directories with their own changelogs, split the changelog entries accordingly, but never duplicate the same entry in multiple changelogs.
+- For documentation-only changes, use the root changelog unless the documentation is scoped to a subproject with its own changelog.
+
+## Rationale
+This ensures that changelog entries are always relevant to the part of the codebase they affect, and provides traceability and context by linking to the exact SpecStory conversation(s) where the change was discussed and implemented.
+
+### Examples
+
+| File Changed                              | Changelog to Update         |
+|----|----|
+| \`project/src/commands/tools/constants.ts\`| \`project/CHANGELOG.md\`    |
+| \`project/src/utils/tools.ts\`             | \`project/CHANGELOG.md\`    |
+| \`README.md\` (root)                        | \`CHANGELOG.md\`             |
+| \`docs/usage.md\`                           | \`CHANGELOG.md\`             |
+- # Commit All Changes Rule
+
+## Core Principle
+
+Always commit and push all code changes without waiting for an explicit request from the user. This rule ensures that every change made is properly persisted to the repository.
+
+## Requirements
+
+1. After implementing any feature, fix, or update:
+   - Stage all changed files
+   - Commit with a descriptive message following conventional commits format
+   - Push the changes to the remote repository
+
+2. Never consider a task complete until changes have been:
+   - Committed to the local repository
+   - Pushed to the remote repository
+
+3. This applies to ALL changes:
+   - Code fixes
+   - Feature implementations
+   - Documentation updates
+   - Configuration changes
+   - Rule updates
+   - Task management operations
+
+## Verification Checklist
+
+Before considering any implementation complete, verify:
+- [ ] All changes are staged
+- [ ] Changes are committed with a descriptive message
+- [ ] Changes are pushed to the remote repository
+- Try to not create very large code files, the definition of which is flexible but generally not more than ~400 lines, ideally much less. Don't break them up arbitrarily but look for opportunities to extract submodules/utility modules along subdomain lines.
+- # Operational Safety: Dry-Run First
+
+Keep potentially destructive operations safe by default.
+
+## Requirements
+- Default to preview/dry-run; perform changes only when user passes an explicit \`--execute\` flag.
+- Reflect this behavior in CLI help, docs, and package scripts.
+- Show a clear preview plan for what would happen before applying.
+- Provide a follow-up example with \`--execute\`.
+
+## Examples
+
+// AVOID: applying by default
+\`\`\`
+minsky sessiondb migrate
+# applies immediately
+\`\`\`
+
+// PREFER: safe default with explicit execution
+\`\`\`
+# preview
+minsky sessiondb migrate --dry-run
+
+# apply (must be explicit)
+minsky sessiondb migrate --execute
+\`\`\`
+
+## Cross-References
+- See \`sessiondb.migrate\` behavior and other commands using \`--execute\` semantics.
+</always_applied_workspace_rules>
+
+</rules>`;
 
     return {
       content,
       metadata: {
-        componentId: this.id,
-        generatedAt: new Date().toISOString(),
-        tokenCount: Math.floor(content.length / 4), // rough token estimate
+        componentId: "workspace-rules",
+        tokenCount: content.length / 4, // Rough estimate
+        sections: ["rules", "agent_requestable_workspace_rules", "always_applied_workspace_rules"],
+        totalRules: inputs.totalRules,
+        filteredCount: inputs.filteredCount,
       },
     };
   },
 
   // Legacy method for backwards compatibility
   async generate(input: ComponentInput): Promise<ComponentOutput> {
-    const gatheredInputs = await this.gatherInputs(input);
-    return this.render(gatheredInputs, input);
+    const inputs = await this.gatherInputs(input);
+    return this.render(inputs, input);
   },
 };
-
-export function createWorkspaceRulesComponent(): ContextComponent {
-  return WorkspaceRulesComponent;
-}

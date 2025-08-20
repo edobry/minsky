@@ -5,8 +5,8 @@ import {
   registerDefaultComponents,
   getAvailableComponentIds,
   getComponentHelp,
-  getContextComponentRegistry,
 } from "../../domain/context/components/index";
+import { getContextComponentRegistry } from "../../domain/context/components/registry";
 
 const log = createLogger("context:generate");
 
@@ -118,6 +118,7 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
       userQuery:
         options.prompt ||
         "Implementing context generate command and designing modular context components",
+      userPrompt: options.prompt,
       targetModel: options.model || "gpt-4o",
     },
   };
@@ -148,7 +149,23 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
  * Get default components to include
  */
 function getDefaultComponents(): string[] {
-  return ["environment", "task-context"];
+  // Match Cursor's comprehensive default context structure - EXACT ORDER
+  return [
+    "environment", // OS, shell, workspace path
+    "workspace-rules", // Project-specific behavioral rules
+    "system-instructions", // Core AI behavior guidelines
+    "communication", // Communication formatting guidelines
+    "tool-calling-rules", // Tool calling rules and best practices
+    "maximize-parallel-tool-calls", // Parallel tool execution optimization
+    "maximize-context-understanding", // Context exploration guidelines
+    "making-code-changes", // Code change implementation guidelines
+    "code-citation-format", // Code citation format requirements
+    "task-management", // Todo system and task tracking
+    "tool-schemas", // Available tools and parameters
+    "project-context", // Git status and repository info
+    "session-context", // Current session state
+    "task-context", // Current task and user query
+  ];
 }
 
 /**
@@ -193,7 +210,7 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
       outputs.push({
         component_id: component.id,
         content: output.content,
-        generated_at: output.metadata.generatedAt,
+        generated_at: output.metadata?.generatedAt || new Date().toISOString(),
         token_count: tokenCount,
       });
 
