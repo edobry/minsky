@@ -453,13 +453,13 @@ export function createMockSessionProvider(
       options.getSessionByTaskId ||
       ((taskId: string) => {
         // Use same normalization logic as real SessionDbAdapter for consistency
-        const normalizedTaskId = validateQualifiedTaskId(taskId);
-        if (!normalizedTaskId) return Promise.resolve(null);
+        const validatedTaskId = validateQualifiedTaskId(taskId);
+        if (!validatedTaskId) return Promise.resolve(null);
 
         const session = sessions.find((s) => {
           if (!s.taskId) return false;
           const storedNormalized = validateQualifiedTaskId(s.taskId);
-          return storedNormalized === normalizedTaskId;
+          return storedNormalized === validatedTaskId;
         });
         return Promise.resolve(session || null);
       }),

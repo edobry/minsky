@@ -135,11 +135,11 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
-      const normalizedTaskId = TaskIdSchema.parse(taskId);
-      taskId = normalizedTaskId;
+      const validatedTaskId = TaskIdSchema.parse(taskId);
+      taskId = validatedTaskId;
 
       // Verify the task exists
-      const taskObj = await deps.taskService.getTask(normalizedTaskId);
+      const taskObj = await deps.taskService.getTask(validatedTaskId);
       if (!taskObj) {
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }

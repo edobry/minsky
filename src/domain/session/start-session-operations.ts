@@ -122,24 +122,24 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
 
     if (taskId && !sessionName) {
       // Normalize the task ID format using Zod validation
-      let normalizedTaskId: string;
+      let validatedTaskId: string;
       try {
-        normalizedTaskId = TaskIdSchema.parse(taskId);
+        validatedTaskId = TaskIdSchema.parse(taskId);
       } catch (validationError) {
         // Fallback: if Zod validation fails, try manual normalization
         const manualValidated = validateQualifiedTaskId(taskId);
         if (manualValidated) {
-          normalizedTaskId = manualValidated;
+          validatedTaskId = manualValidated;
         } else {
           throw new ValidationError(
             `Invalid task ID format: '${taskId}'. Please provide either a qualified task ID (md#123, gh#456) or legacy format (123, task#123, #123).`
           );
         }
       }
-      taskId = normalizedTaskId;
+      taskId = validatedTaskId;
 
       // Verify the task exists
-      const taskObj = await deps.taskService.getTask(normalizedTaskId);
+      const taskObj = await deps.taskService.getTask(validatedTaskId);
       if (!taskObj) {
         throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
       }
