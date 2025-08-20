@@ -1,4 +1,4 @@
-import { pgTable, text, integer, timestamp, index } from "drizzle-orm/pg-core";
+import { pgTable, text, integer, timestamp, index, jsonb } from "drizzle-orm/pg-core";
 import { vector } from "drizzle-orm/pg-core";
 
 // Drizzle schema for rules embeddings (vectors only)
@@ -9,7 +9,7 @@ export const rulesEmbeddingsTable = pgTable(
     ruleId: text("rule_id").primaryKey(),
     dimension: integer("dimension").notNull(),
     embedding: vector("embedding", { dimensions: 1536 }),
-    metadata: text("metadata").$type<any>().$defaultFn(() => undefined as any), // JSONB via migrations
+    metadata: jsonb("metadata"),
     contentHash: text("content_hash"),
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
@@ -22,5 +22,3 @@ export const rulesEmbeddingsTable = pgTable(
     ),
   ]
 );
-
-
