@@ -15,19 +15,36 @@ interface SetOptions {
 }
 
 /**
+ * Dependencies for executeConfigSet - used for dependency injection in tests
+ */
+export interface ConfigSetDependencies {
+  createConfigWriter: typeof createConfigWriter;
+  console: {
+    log: (message: string) => void;
+  };
+}
+
+/**
  * Execute the config set action - extracted for testability
  */
 export async function executeConfigSet(
   key: string,
   value: string,
-  options: SetOptions
+  options: SetOptions,
+  deps?: ConfigSetDependencies
 ): Promise<void> {
+  // Set up dependencies with defaults
+  const dependencies = {
+    createConfigWriter: deps?.createConfigWriter || createConfigWriter,
+    console: deps?.console || console,
+  };
+
   try {
     // Parse value - try to detect type
     const parsedValue = parseConfigValue(value);
 
     // Create config writer
-    const writer = createConfigWriter({
+    const writer = dependencies.createConfigWriter({
       createBackup: !options.noBackup,
       format: options.format === "json" ? "json" : "yaml",
       validate: true,
@@ -39,7 +56,7 @@ export async function executeConfigSet(
     if (!result.success) {
       const errorMessage = `Failed to set configuration: ${result.error}`;
       if (options.json) {
-        console.log(
+        dependencies.console.log(
           JSON.stringify(
             {
               success: false,
@@ -57,7 +74,7 @@ export async function executeConfigSet(
 
     // Output results
     if (options.json) {
-      console.log(
+      dependencies.console.log(
         JSON.stringify(
           {
             success: true,
@@ -72,21 +89,21 @@ export async function executeConfigSet(
         )
       );
     } else {
-      console.log(`✅ Configuration updated successfully`);
-      console.log(`   Key: ${key}`);
-      console.log(`   Previous value: ${formatValue(result.previousValue)}`);
-      console.log(`   New value: ${formatValue(result.newValue)}`);
-      console.log(`   File: ${result.filePath}`);
+      dependencies.console.log(`✅ Configuration updated successfully`);
+      dependencies.console.log(`   Key: ${key}`);
+      dependencies.console.log(`   Previous value: ${formatValue(result.previousValue)}`);
+      dependencies.console.log(`   New value: ${formatValue(result.newValue)}`);
+      dependencies.console.log(`   File: ${result.filePath}`);
 
       if (result.backupPath) {
-        console.log(`   Backup: ${result.backupPath}`);
+        dependencies.console.log(`   Backup: ${result.backupPath}`);
       }
     }
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
 
     if (options.json) {
-      console.log(
+      dependencies.console.log(
         JSON.stringify(
           {
             success: false,

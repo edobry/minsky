@@ -20,6 +20,7 @@ import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-i
 import {
   detectRepositoryBackendTypeFromUrl,
   resolveRepositoryAndBackend,
+  RepositoryBackendType,
 } from "./repository-backend-detection";
 import { taskIdToSessionName } from "../tasks/task-id";
 
@@ -28,7 +29,10 @@ export interface StartSessionDependencies {
   gitService: GitServiceInterface;
   taskService: TaskServiceInterface;
   workspaceUtils: WorkspaceUtilsInterface;
-  resolveRepoPath: (params: {}) => Promise<string>;
+  resolveRepositoryAndBackend: (options?: {
+    repoParam?: string;
+    cwd?: string;
+  }) => Promise<{ repoUrl: string; backendType: RepositoryBackendType }>;
 }
 
 /**
@@ -93,7 +97,10 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     }
 
     // Determine repo URL or path first using unified resolver (defaults to GitHub)
-    const resolved = await resolveRepositoryAndBackend({ repoParam: repo, cwd: process.cwd() });
+    const resolved = await deps.resolveRepositoryAndBackend({
+      repoParam: repo,
+      cwd: process.cwd(),
+    });
     const repoUrl = resolved.repoUrl;
     const backendType = resolved.backendType;
 
