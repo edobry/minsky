@@ -24,14 +24,7 @@ describe("config unset command", () => {
     });
 
     // Create mocks for ConfigWriter methods
-    mockUnsetConfigValue = mock(() =>
-      Promise.resolve({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: "test-value",
-        newValue: undefined,
-      })
-    );
+    mockUnsetConfigValue = mock();
 
     const mockConfigWriter = {
       unsetConfigValue: mockUnsetConfigValue,

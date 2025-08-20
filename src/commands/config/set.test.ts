@@ -24,14 +24,7 @@ describe("config set command", () => {
     });
 
     // Create mocks for ConfigWriter methods
-    mockSetConfigValue = mock(() =>
-      Promise.resolve({
-        success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
-        previousValue: undefined,
-        newValue: "test-value",
-      })
-    );
+    mockSetConfigValue = mock();
 
     const mockConfigWriter = {
       setConfigValue: mockSetConfigValue,

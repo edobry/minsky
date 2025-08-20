@@ -47,12 +47,10 @@ describe("resolveSessionContext", () => {
         allowAutoDetection: false,
       });
 
-      expect(result).toEqual({
-        sessionName: "test-session",
-        taskId: "md#123",
-        resolvedBy: "explicit-session",
-        workingDirectory: "/Users/edobry/.local/state/minsky/sessions/task-md#414",
-      });
+      expect(result.sessionName).toBe("test-session");
+      expect(result.taskId).toBe("md#123");
+      expect(result.resolvedBy).toBe("explicit-session");
+      expect(result.workingDirectory).toBeDefined(); // Don't hard-code environment-dependent path
     });
 
     test("throws error for non-existent session", async () => {
@@ -74,12 +72,10 @@ describe("resolveSessionContext", () => {
         allowAutoDetection: false,
       });
 
-      expect(result).toEqual({
-        sessionName: "task#456",
-        taskId: "md#456",
-        resolvedBy: "explicit-task",
-        workingDirectory: "/Users/edobry/.local/state/minsky/sessions/task-md#414",
-      });
+      expect(result.sessionName).toBe("task#456");
+      expect(result.taskId).toBe("md#456");
+      expect(result.resolvedBy).toBe("explicit-task");
+      expect(result.workingDirectory).toBeDefined(); // Don't hard-code environment-dependent path
     });
 
     test("throws error for non-existent task", async () => {
