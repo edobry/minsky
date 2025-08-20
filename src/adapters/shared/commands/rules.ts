@@ -340,7 +340,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
              ADD COLUMN IF NOT EXISTS created_at TIMESTAMPTZ DEFAULT NOW(),
              ADD COLUMN IF NOT EXISTS updated_at TIMESTAMPTZ DEFAULT NOW()`
         );
-        // Create HNSW index if not exists
+        // Create HNSW index if not exists (L2 ops by default to match tasks)
         await sql.unsafe(
           `DO $$
           BEGIN
