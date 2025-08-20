@@ -233,15 +233,12 @@ All notable changes to this project will be documented in this file.
   - Commit message format: `chore(task): create <id> <title>`; push attempted with warnings on failure
   - Exposed injectable `gitService` for testability; added unit tests to validate commit/push behavior and no-op when no changes
 
-<<<<<<< HEAD
-=======
 - tasks: Added three specs to advance embeddings-based context workflow
   - md#445: Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra
   - md#446: Add cross-cutting reranking support to embeddings infra using Morph reranking API
   - md#447: Extract generic similarity search service with pluggable backends and fallback chain
   - Fixed merge conflict in `process/tasks.md` and deduplicated conflicting md#444/md#446 entries
-
->>>>>>> origin/main
+  - md#454: Investigate "seek human input" / "ask expert" tool, Agent Inbox pattern, and DB-backed queue with turn-taking semantics (spec-only)
 ## md#427: Enforce conventional-commit title validation on session pr edit
 
 - session pr edit now enforces conventional-commit title rules similar to session pr create
