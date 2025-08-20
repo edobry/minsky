@@ -6,6 +6,7 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 - `minsky sessiondb migrate --execute` now exits early for Postgres when there are no pending migrations, matching dry-run behavior (no-op with clear message).
+ - Dry-run output for Postgres no longer suggests `--execute` when there are zero pending migrations.
 
 ### Fixed
 

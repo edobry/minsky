@@ -755,12 +755,8 @@ async function runSchemaMigrationsForConfiguredBackend(
       {
         const pendingCount = Math.max(fileNames.length - appliedCount, 0);
 
-        // Optimized output for no-migration case
-        if (pendingCount === 0 && fileNames.length === 0) {
-          log.cli("✅ Database schema is up to date (no migrations needed)");
-          log.cli("");
-          return { ...plan, nothingToDo: true };
-        }
+        // Mark plan metadata
+        (plan as any).nothingToDo = pendingCount === 0;
 
         log.cli("=== SessionDB Schema Migration (postgres) — DRY RUN ===");
         log.cli("");
@@ -783,7 +779,11 @@ async function runSchemaMigrationsForConfiguredBackend(
           `Plan: ${fileNames.length} file(s), ${appliedCount} applied, ${pendingCount} pending`
         );
         log.cli("");
-        log.cli("(use --execute to apply)");
+        if (pendingCount > 0) {
+          log.cli("(use --execute to apply)");
+        } else {
+          log.cli("✅ No pending migrations.");
+        }
         log.cli("");
       }
 
