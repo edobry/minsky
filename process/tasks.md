@@ -719,3 +719,5 @@
 - [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
 
 - [ ] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
+
+- [ ] Resolve merge conflicts for status-filtering PR in session workspace [md#453](process/tasks/md#453-resolve-merge-conflicts-for-status-filtering-pr-in-session-workspace.md)
