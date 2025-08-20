@@ -8,7 +8,7 @@
  * - ROUTING: Qualified IDs route to appropriate backends
  */
 
-import { log } from "../../utils/logger";
+// Logger import removed due to no usage after cleanup
 
 /**
  * Normalize task ID for storage - supports legacy numeric formats
