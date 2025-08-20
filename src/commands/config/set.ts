@@ -52,7 +52,7 @@ export async function executeConfigSet(
       } else {
         log.error(errorMessage);
       }
-      process.exit(1);
+      throw new Error(errorMessage);
     }
 
     // Output results
@@ -100,7 +100,7 @@ export async function executeConfigSet(
       log.error(`Failed to set configuration: ${message}`);
     }
 
-    process.exit(1);
+    throw error;
   }
 }
 
@@ -123,7 +123,13 @@ Examples:
   minsky config set logger.level debug
 `
     )
-    .action(executeConfigSet);
+    .action(async (key: string, value: string, options: SetOptions) => {
+      try {
+        await executeConfigSet(key, value, options);
+      } catch (error) {
+        process.exit(1);
+      }
+    });
 }
 
 /**

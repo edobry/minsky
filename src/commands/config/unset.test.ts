@@ -115,10 +115,8 @@ describe("config unset command", () => {
         await executeConfigUnset("key", {});
         expect(true).toBe(false); // Should not reach this line
       } catch (error) {
-        expect(error.message).toBe("process.exit() called");
+        expect(error.message).toContain("Failed to unset configuration:");
       }
-
-      expect(mockProcessExit).toHaveBeenCalledWith(1);
     });
 
     test("should output JSON format when requested", async () => {
@@ -194,10 +192,8 @@ describe("config unset command", () => {
         await executeConfigUnset("key", {});
         expect(true).toBe(false); // Should not reach this line
       } catch (error) {
-        expect(error.message).toBe("process.exit() called");
+        expect(error.message).toBe("Unexpected error");
       }
-
-      expect(mockProcessExit).toHaveBeenCalledWith(1);
     });
 
     test("should output error in JSON format when requested", async () => {
@@ -214,7 +210,7 @@ describe("config unset command", () => {
         await executeConfigUnset("key", { json: true });
         expect(true).toBe(false); // Should not reach this line
       } catch (error) {
-        expect(error.message).toBe("process.exit() called");
+        expect(error.message).toContain("Failed to unset configuration:");
       }
 
       const expectedOutput = {

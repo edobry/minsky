@@ -45,7 +45,7 @@ export async function executeConfigUnset(key: string, options: UnsetOptions): Pr
       } else {
         log.error(errorMessage);
       }
-      process.exit(1);
+      throw new Error(errorMessage);
     }
 
     // Output results
@@ -95,7 +95,7 @@ export async function executeConfigUnset(key: string, options: UnsetOptions): Pr
       log.error(`Failed to unset configuration: ${message}`);
     }
 
-    process.exit(1);
+    throw error;
   }
 }
 
@@ -116,7 +116,13 @@ Examples:
   minsky config unset logger.enableAgentLogs
 `
     )
-    .action(executeConfigUnset);
+    .action(async (key: string, options: UnsetOptions) => {
+      try {
+        await executeConfigUnset(key, options);
+      } catch (error) {
+        process.exit(1);
+      }
+    });
 }
 
 /**

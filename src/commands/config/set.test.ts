@@ -113,10 +113,8 @@ describe("config set command", () => {
         await executeConfigSet("key", "value", {});
         expect(true).toBe(false); // Should not reach this line
       } catch (error) {
-        expect(error.message).toBe("process.exit() called");
+        expect(error.message).toBe("Failed to set configuration: Permission denied");
       }
-
-      expect(mockProcessExit).toHaveBeenCalledWith(1);
     });
 
     test("should output JSON format when requested", async () => {
