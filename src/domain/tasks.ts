@@ -25,7 +25,7 @@ import { createGitService } from "./git";
 // Command-level wrapper functions for CLI integration
 // These wrap TaskService methods with parameter validation and formatting
 
-import { TaskService } from "./tasks/taskService";
+import { TaskService, createTaskServiceWithDatabase } from "./tasks/taskService";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
@@ -57,7 +57,13 @@ export async function listTasksFromParams(params: any) {
   const validParams = taskListParamsSchema.parse(params);
   const workspacePath = process.cwd();
   console.log("DEBUG: Backend requested:", validParams.backend);
-  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+
+  // Use async factory for minsky backend, synchronous constructor for others
+  const taskService =
+    validParams.backend === "minsky"
+      ? await createTaskServiceWithDatabase({ workspacePath, backend: validParams.backend })
+      : new TaskService({ workspacePath, backend: validParams.backend });
+
   console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   return await taskService.listTasks(validParams);
 }
