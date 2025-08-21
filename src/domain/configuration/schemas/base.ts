@@ -80,8 +80,10 @@ export const enumSchemas = {
   }),
 
   // Backend types
-  backendType: z.enum(["markdown", "json-file", "github-issues", "db"], {
-    errorMap: () => ({ message: "Backend must be one of: markdown, json-file, github-issues, db" }),
+  backendType: z.enum(["markdown", "json-file", "github-issues", "db", "minsky"], {
+    errorMap: () => ({
+      message: "Backend must be one of: markdown, json-file, github-issues, db, minsky",
+    }),
   }),
 
   // SessionDB backends

@@ -155,16 +155,15 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
 
-    // Create source and target task services using async factory for database backends
-    const sourceService =
-      sourceBackend === "minsky"
-        ? await createTaskServiceWithDatabase({ workspacePath, backend: sourceBackend })
-        : new TaskService({ workspacePath, backend: sourceBackend });
-
-    const targetService =
-      targetBackend === "minsky"
-        ? await createTaskServiceWithDatabase({ workspacePath, backend: targetBackend })
-        : new TaskService({ workspacePath, backend: targetBackend });
+    // Create source and target task services using unified async factory
+    const sourceService = await createTaskServiceWithDatabase({
+      workspacePath,
+      backend: sourceBackend,
+    });
+    const targetService = await createTaskServiceWithDatabase({
+      workspacePath,
+      backend: targetBackend,
+    });
 
     // Get all tasks from source backend
     let tasks = await sourceService.listTasks({ all: true }); // Get all tasks including DONE/CLOSED
@@ -215,8 +214,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           }
 
           // Create task in target backend
-          const targetBackendInstance = targetService.getCurrentBackend();
-          await targetBackendInstance.createTaskFromTitleAndSpec(fullTask.title, specContent, {
+          await targetService.createTaskFromTitleAndSpec(fullTask.title, specContent, {
             force: true,
           });
 

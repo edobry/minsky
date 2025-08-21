@@ -58,11 +58,11 @@ export async function listTasksFromParams(params: any) {
   const workspacePath = process.cwd();
   console.log("DEBUG: Backend requested:", validParams.backend);
 
-  // Use async factory for minsky backend, synchronous constructor for others
-  const taskService =
-    validParams.backend === "minsky"
-      ? await createTaskServiceWithDatabase({ workspacePath, backend: validParams.backend })
-      : new TaskService({ workspacePath, backend: validParams.backend });
+  // Use unified async factory for all backends
+  const taskService = await createTaskServiceWithDatabase({
+    workspacePath,
+    backend: validParams.backend,
+  });
 
   console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   return await taskService.listTasks(validParams);
@@ -110,7 +110,13 @@ export async function createTaskFromTitleAndSpec(params: any) {
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
   console.log("DEBUG: Backend requested:", validParams.backend);
-  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+
+  // Use unified async factory for all backends
+  const taskService = await createTaskServiceWithDatabase({
+    workspacePath,
+    backend: validParams.backend,
+  });
+
   console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
