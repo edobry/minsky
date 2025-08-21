@@ -8,13 +8,13 @@
  */
 
 import { describe, test, expect, beforeAll, beforeEach, mock } from "bun:test";
-import { applyEditPattern } from "../../src/adapters/mcp/session-edit-tools";
+import { applyEditPattern } from "../src/adapters/mcp/session-edit-tools";
 import {
   initializeConfiguration,
   CustomConfigFactory,
   getConfiguration,
-} from "../../src/domain/configuration/index.js";
-import { createMockFilesystem } from "../../src/utils/test-utils/filesystem/mock-filesystem";
+} from "../src/domain/configuration/index.js";
+import { createMockFilesystem } from "../src/utils/test-utils/filesystem/mock-filesystem";
 
 interface TestConfig {
   hasValidMorphConfig: boolean;

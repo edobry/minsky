@@ -13,8 +13,8 @@
  */
 
 import { describe, test, expect, beforeAll, afterAll, beforeEach } from "bun:test";
-import { createGitHubIssuesTaskBackend } from "../../src/domain/tasks/githubIssuesTaskBackend";
-import type { TaskBackend } from "../../src/domain/tasks/types";
+import { createGitHubIssuesTaskBackend } from "../src/domain/tasks/githubIssuesTaskBackend";
+import type { TaskBackend } from "../src/domain/tasks/types";
 import { Octokit } from "@octokit/rest";
 
 // Define TaskStatus type locally since it might not be exported

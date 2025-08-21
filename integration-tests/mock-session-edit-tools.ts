@@ -1,4 +1,4 @@
-import type { CommandMapper } from "../../src/mcp/command-mapper.js";
+import type { CommandMapper } from "../src/mcp/command-mapper.js";
 import { dirname } from "path";
 import {
   mockFiles,

@@ -1,12 +1,12 @@
 import { describe, test, expect, beforeAll, beforeEach, mock } from "bun:test";
-import { createMockFilesystem } from "../../src/utils/test-utils/filesystem/mock-filesystem";
+import { createMockFilesystem } from "../src/utils/test-utils/filesystem/mock-filesystem";
 
 // Configuration system imports
 import {
   initializeConfiguration,
   getConfiguration,
   CustomConfigFactory,
-} from "../../src/domain/configuration/index.js";
+} from "../src/domain/configuration/index.js";
 
 // Mock file system for testing
 export const mockFiles = new Map<string, string>();
