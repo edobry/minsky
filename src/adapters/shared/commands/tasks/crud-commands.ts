@@ -162,13 +162,13 @@ export class TasksCreateCommand extends BaseTaskCommand {
 
     // Validate that either description or specPath is provided
     if (!params.description && !params.specPath) {
-      throw new ValidationError("Either --description or --description-path must be provided");
+      throw new ValidationError("Either --description or --spec-path must be provided");
     }
 
     // Both description and specPath provided is an error
     if (params.description && params.specPath) {
       throw new ValidationError(
-        "Cannot provide both --description and --description-path - use one or the other"
+        "Cannot provide both --description and --spec-path - use one or the other"
       );
     }
 
