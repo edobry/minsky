@@ -9,6 +9,11 @@ All notable changes to this project will be documented in this file.
  - Dry-run output for Postgres no longer suggests `--execute` when there are zero pending migrations.
  - Unified Postgres migrate messaging via a shared status helper so dry-run and execute paths use the same "✅ No pending migrations." text.
 
+- tasks: Deduplicated and normalized `process/tasks.md` entries
+  - Removed conflicting duplicate entries for `md#452`; kept single `[+]` entry
+  - Resolved status conflicts for `md#445` and `md#444`; kept single `[x]` entries
+  - Removed duplicate `md#446` entry; kept single `[ ]` entry
+
 ### Fixed
 
 - **Debug output appearing without --debug flag**: Removed unconditional debug logging from task-id-utils.ts that was appearing in all commands. Debug statements in utility functions have been eliminated to prevent unwanted output when debug mode is not enabled.
