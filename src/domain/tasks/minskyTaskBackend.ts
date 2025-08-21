@@ -2,7 +2,7 @@ import { eq, not, and } from "drizzle-orm";
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { getConfiguration } from "../configuration";
+// Remove configuration import - dependencies should be injected
 import {
   tasksTable,
   taskSpecsTable,
@@ -20,35 +20,21 @@ import type {
 } from "./types";
 import * as crypto from "crypto";
 
+export interface MinskyTaskBackendConfig extends TaskBackendConfig {
+  db: PostgresJsDatabase;
+}
+
 export class MinskyTaskBackend implements TaskBackend {
   name = "minsky";
   private readonly db: PostgresJsDatabase;
   private readonly workspacePath: string;
 
-  constructor(config: TaskBackendConfig) {
+  constructor(config: MinskyTaskBackendConfig) {
     this.workspacePath = config.workspacePath;
-    this.db = this.createDbConnection();
+    this.db = config.db; // Database connection injected as dependency
   }
 
-  private createDbConnection(): PostgresJsDatabase {
-    // For now, use a synchronous configuration approach
-    // In a real implementation, this would need to be async
-    try {
-      const runtimeConfig = getConfiguration();
-      const connectionString = runtimeConfig?.sessiondb?.postgres?.connectionString;
-
-      if (!connectionString) {
-        throw new Error(
-          "PostgreSQL connection string not configured (sessiondb.postgres.connectionString)"
-        );
-      }
-
-      const sql = postgres(connectionString, { prepare: false, onnotice: () => {} });
-      return drizzle(sql);
-    } catch (error) {
-      throw new Error(`Failed to connect to database: ${error}`);
-    }
-  }
+  // Database connection is now injected - no need for createDbConnection method
 
   // ---- User-Facing Operations ----
 
@@ -233,7 +219,7 @@ export class MinskyTaskBackend implements TaskBackend {
   }
 }
 
-// Factory function
-export function createMinskyTaskBackend(config: TaskBackendConfig): MinskyTaskBackend {
+// Factory function - now requires database connection
+export function createMinskyTaskBackend(config: MinskyTaskBackendConfig): MinskyTaskBackend {
   return new MinskyTaskBackend(config);
 }

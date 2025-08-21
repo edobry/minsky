@@ -11,7 +11,8 @@ import type {
 import type { TaskData } from "../types/tasks/taskData";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
-import { createMinskyTaskBackend } from "./minskyTaskBackend";
+import { createMinskyTaskBackend, type MinskyTaskBackendConfig } from "./minskyTaskBackend";
+import { createDatabaseConnection } from "../database/connection-manager";
 import { log } from "../../utils/logger";
 // normalizeTaskId removed: strict qualified IDs expected upstream
 import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
@@ -36,9 +37,9 @@ export class TaskService {
   private currentBackend!: TaskBackend;
   private readonly workspacePath: string;
 
-  constructor(options: TaskServiceOptions) {
+  constructor(options: TaskServiceOptions & { backends?: TaskBackend[] }) {
     this.workspacePath = options.workspacePath;
-    this.backends = [
+    this.backends = options.backends || [
       createMarkdownTaskBackend({
         name: "markdown",
         workspacePath: options.workspacePath,
@@ -47,10 +48,7 @@ export class TaskService {
         name: "json-file",
         workspacePath: options.workspacePath,
       }),
-      createMinskyTaskBackend({
-        name: "minsky",
-        workspacePath: options.workspacePath,
-      }),
+      // Minsky backend will be added by factory function with proper DB connection
     ];
 
     // Set current backend
@@ -278,6 +276,46 @@ export function createTaskService(options: TaskServiceOptions): TaskService {
 
 export function createConfiguredTaskService(workspacePath: string, backend?: string): TaskService {
   return new TaskService({ workspacePath, backend });
+}
+
+/**
+ * Creates a TaskService with proper dependency injection
+ * Handles database connection creation for Minsky backend
+ */
+export async function createTaskServiceWithDatabase(
+  options: TaskServiceOptions
+): Promise<TaskService> {
+  const backends: TaskBackend[] = [
+    createMarkdownTaskBackend({
+      name: "markdown",
+      workspacePath: options.workspacePath,
+    }),
+    createJsonFileTaskBackend({
+      name: "json-file",
+      workspacePath: options.workspacePath,
+    }),
+  ];
+
+  // Always try to add Minsky backend with database connection
+  try {
+    const db = await createDatabaseConnection();
+    backends.push(
+      createMinskyTaskBackend({
+        name: "minsky",
+        workspacePath: options.workspacePath,
+        db,
+      })
+    );
+    log.debug("Minsky backend added successfully");
+  } catch (error) {
+    log.warn(`Failed to create Minsky backend: ${error}. Minsky backend will not be available.`);
+    // If user specifically requested minsky backend but it failed, throw error
+    if (options.backend === "minsky") {
+      throw new Error(`Cannot create Minsky backend: ${error}`);
+    }
+  }
+
+  return new TaskService({ ...options, backends });
 }
 
 // ---- Type Exports ----
