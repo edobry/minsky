@@ -80,8 +80,6 @@
 
 - [x] Implement Session-Scoped MCP Server for Workspace Isolation [md#049](process/tasks/md#049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 
-
-
 - [x] Add Git Commands to MCP Server [md#051](process/tasks/md#051-add-git-commands-to-mcp-server.md)
 
 - [x] Add Remaining Task Management Commands to MCP [md#052](process/tasks/md#052-add-remaining-task-management-commands-to-mcp.md)
@@ -498,8 +496,6 @@
 
 - [x] Implement Custom Type-Safe Configuration System [md#295](process/tasks/md#295-implement-custom-type-safe-configuration-system.md)
 
-
-
 - [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [md#302](process/tasks/md#302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
 
 - [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [md#303](process/tasks/md#303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
@@ -644,8 +640,6 @@
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
-
-
 - [x] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
 
 - [x] Fix post-merge test regressions after md#397 merge [md#414](process/tasks/md#414-fix-post-merge-test-regressions-after-md-397-merge.md)
@@ -718,19 +712,20 @@
 
 - [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
 
-
 - [+] Resolve merge conflicts for status-filtering PR in session workspace [md#453](process/tasks/md#453-resolve-merge-conflicts-for-status-filtering-pr-in-session-workspace.md)
 
 - [+] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
-
-
-
-
-
-
 
 - [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
 
 - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
 - [ ] Investigate AI Integration Test Validation Logic [md#456](process/tasks/md#456-investigate-ai-integration-test-validation-logic.md)
+
+<<<<<<< Updated upstream
+- [ ] Rethink test organization for consistency and principled structure [md#457](process/tasks/md#457-rethink-test-organization-for-consistency-and-principled-structure.md)
+=======
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
+
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
+>>>>>>> Stashed changes
