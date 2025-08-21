@@ -20,8 +20,6 @@ interface GenerateOptions {
   prompt?: string;
   interface?: "cli" | "mcp" | "hybrid";
   analyze?: boolean;
-  compareModels?: string;
-  showBreakdown?: boolean;
 }
 
 interface GenerateRequest {
@@ -67,8 +65,6 @@ export function createGenerateCommand(): Command {
       "cli"
     )
     .option("--analyze", "Analyze the generated context for token usage and optimization", false)
-    .option("--compare-models <models>", "Comma-separated list of models to compare token usage")
-    .option("--show-breakdown", "Show detailed token breakdown by component", false)
     .addHelpText(
       "after",
       `
@@ -82,8 +78,7 @@ Examples:
   minsky context generate --prompt "focus on authentication and security rules"
   minsky context generate --interface mcp  # Use XML format for tool schemas
   minsky context generate --analyze  # Generate context with token analysis
-  minsky context generate --analyze --show-breakdown  # Show detailed token breakdown
-  minsky context generate --compare-models gpt-4,claude-3-5-sonnet  # Compare across models
+  minsky context generate --model claude-3.5-sonnet --analyze  # Analyze with specific model
 `
     )
     .action(async (options: GenerateOptions) => {
@@ -323,34 +318,7 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
   // Sort by token usage (largest first)
   componentAnalysis.sort((a, b) => b.tokens - a.tokens);
 
-  // Cross-model comparison if requested
-  let modelComparison = null;
-  if (options.compareModels) {
-    const models = options.compareModels.split(",").map((m) => m.trim());
-    modelComparison = [];
-
-    for (const model of models) {
-      try {
-        const tokens = await tokenizationService.countTokens(result.content, model);
-        const difference = result.metadata.totalTokens ? tokens - result.metadata.totalTokens : 0;
-        const diffPercentage = result.metadata.totalTokens
-          ? (difference / result.metadata.totalTokens) * 100
-          : 0;
-
-        modelComparison.push({
-          model,
-          tokens,
-          difference,
-          differencePercentage: diffPercentage.toFixed(1),
-        });
-      } catch (error) {
-        modelComparison.push({
-          model,
-          error: `Failed to tokenize: ${error}`,
-        });
-      }
-    }
-  }
+  // Model comparison removed - use single model specified in options
 
   // Generate optimization suggestions
   const optimizations = generateContextOptimizations(
@@ -369,7 +337,6 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
       contextWindowUtilization: ((result.metadata.totalTokens || 0) / 128000) * 100, // Assuming 128k context window
     },
     componentBreakdown: componentAnalysis,
-    modelComparison,
     optimizations,
   };
 }
@@ -437,8 +404,8 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
   );
   console.log(`Largest Component: ${analysis.summary.largestComponent}`);
 
-  // Component breakdown
-  if (options.showBreakdown && analysis.componentBreakdown.length > 0) {
+  // Component breakdown - always show when analyzing
+  if (analysis.componentBreakdown.length > 0) {
     console.log("\n📊 Component Breakdown");
     console.log("━".repeat(50));
 
@@ -449,22 +416,7 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
     }
   }
 
-  // Model comparison
-  if (analysis.modelComparison && analysis.modelComparison.length > 0) {
-    console.log("\n🔄 Model Comparison");
-    console.log("━".repeat(50));
-
-    for (const comparison of analysis.modelComparison) {
-      if (comparison.error) {
-        console.log(`${comparison.model.padEnd(20)} ❌ ${comparison.error}`);
-      } else {
-        const sign = comparison.difference >= 0 ? "+" : "";
-        console.log(
-          `${comparison.model.padEnd(20)} ${comparison.tokens.toLocaleString().padStart(8)} tokens (${sign}${comparison.differencePercentage}%)`
-        );
-      }
-    }
-  }
+  // Model comparison removed
 
   // Optimization suggestions
   if (analysis.optimizations && analysis.optimizations.length > 0) {
