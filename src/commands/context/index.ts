@@ -7,6 +7,9 @@
 
 import { Command } from "commander";
 import { createSuggestRulesCommand } from "./suggest-rules";
+import { createAnalyzeCommand } from "./analyze";
+import { createGenerateCommand } from "./generate";
+import { createVisualizeCommand } from "./visualize";
 
 /**
  * Create the main context command
@@ -19,15 +22,16 @@ export function createContextCommand(): Command {
       `
 Context Management:
   suggest-rules    Get AI-powered rule suggestions for your current task
-
-Future Commands (Task 082):
   analyze         Analyze current context composition and token usage
+  generate        Generate AI context using modular components
   visualize       Generate visual representation of context usage
 
 Examples:
   minsky context suggest-rules "I need to fix a bug"
-  minsky context suggest-rules "refactor code organization" --json
-  minsky context suggest-rules "add tests" --max-suggestions 3
+  minsky context analyze --model gpt-4o --include-optimizations
+  minsky context analyze --compare-models gpt-4,claude-3-5-sonnet
+  minsky context generate --format json --components environment,rules
+  minsky context visualize --chart-type pie --show-details
 
 The context command helps you understand and optimize the information
 available to AI assistants for better collaboration.
@@ -37,9 +41,14 @@ available to AI assistants for better collaboration.
   // Add subcommands
   contextCmd.addCommand(createSuggestRulesCommand());
 
-  // Future: Add analyze and visualize commands from Task 082
-  // contextCmd.addCommand(createAnalyzeCommand());
-  // contextCmd.addCommand(createVisualizeCommand());
+  // Add context analysis commands
+  try {
+    contextCmd.addCommand(createAnalyzeCommand());
+    contextCmd.addCommand(createGenerateCommand());
+    contextCmd.addCommand(createVisualizeCommand());
+  } catch (error) {
+    console.error("Failed to load context commands:", error);
+  }
 
   return contextCmd;
 }
