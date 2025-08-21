@@ -1,6 +1,4 @@
-import { describe, it, expect, beforeEach } from "bun:test";
-// Use mock.module() to mock filesystem operations
-// import { promises as fs } from "fs";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { join } from "path";
 
 // Simple counters to verify flow
@@ -27,6 +25,27 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 
 const sessionRoot = "/Users/edobry/.local/state/minsky/sessions/task-md#423";
 
+// Mock the fs module to prevent actual file operations
+mock.module("fs", () => ({
+  promises: {
+    mkdir: mock(async () => {}),
+    writeFile: mock(async () => {}),
+    readFile: mock(async () => "# Tasks\n"),
+    unlink: mock(async () => {}),
+    readdir: mock(async () => []),
+    access: mock(async () => {}),
+  },
+}));
+
+mock.module("fs/promises", () => ({
+  mkdir: mock(async () => {}),
+  writeFile: mock(async () => {}),
+  readFile: mock(async () => "# Tasks\n"),
+  unlink: mock(async () => {}),
+  readdir: mock(async () => []),
+  access: mock(async () => {}),
+}));
+
 describe("MarkdownTaskBackend - createTask auto-commit", () => {
   const testWorkspace = join(sessionRoot, "tmp", "md-backend-commit-test");
   const tasksDir = join(testWorkspace, "process");
@@ -37,10 +56,6 @@ describe("MarkdownTaskBackend - createTask auto-commit", () => {
     stashCount = 0;
     popCount = 0;
     hasUncommitted = true;
-
-    await fs.mkdir(tasksDir, { recursive: true });
-    // Minimal tasks.md to start
-    await fs.writeFile(tasksFile, "# Tasks\n", "utf-8");
   });
 
   it("commits and pushes after creating a task from object (title/description)", async () => {

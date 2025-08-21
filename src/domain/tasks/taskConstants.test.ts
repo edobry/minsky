@@ -79,15 +79,30 @@ describe("Task Constants and Utilities", () => {
       const testCases = [
         {
           line: `- [ ] Test task [#${TEST_VALUE}](path/to/spec.md)`,
-          expected: { checkbox: " ", title: "Test task", id: `#${TEST_VALUE}` },
+          expected: {
+            checkbox: " ",
+            title: "Test task",
+            id: `#${TEST_VALUE}`,
+            specPath: "path/to/spec.md",
+          },
         },
         {
           line: "- [x] Completed task [#456](path/to/spec.md)",
-          expected: { checkbox: "x", title: "Completed task", id: "#456" },
+          expected: {
+            checkbox: "x",
+            title: "Completed task",
+            id: "#456",
+            specPath: "path/to/spec.md",
+          },
         },
         {
           line: "- [~] Blocked task [#789](path/to/spec.md)",
-          expected: { checkbox: "~", title: "Blocked task", id: "#789" },
+          expected: {
+            checkbox: "~",
+            title: "Blocked task",
+            id: "#789",
+            specPath: "path/to/spec.md",
+          },
         },
       ];
 

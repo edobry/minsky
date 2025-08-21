@@ -459,20 +459,18 @@ export async function sessionPrGet(params: {
         });
 
         if (pulls.length > 0) {
-          // Found a PR! Repair the session record
+          // Found a PR! Repair the session record with essential workflow state only
           const githubPr = pulls[0]; // Take the first (most recent)
           const repairedPrData = {
             number: githubPr.number,
             url: githubPr.html_url,
-            title: githubPr.title,
             state: githubPr.state,
             createdAt: githubPr.created_at,
-            updatedAt: githubPr.updated_at,
             mergedAt: githubPr.merged_at || undefined,
             headBranch: githubPr.head?.ref,
             baseBranch: githubPr.base?.ref,
-            body: githubPr.body || undefined,
             lastSynced: new Date().toISOString(),
+            // REMOVED: title, body, updatedAt - fetched live from GitHub API
           };
 
           // Update session record with discovered PR data (normalized to PullRequestInfo shape)
@@ -526,15 +524,14 @@ export async function sessionPrGet(params: {
 
           const enriched = {
             ...(finalPullRequest as any),
-            title: prDetails.title || (finalPullRequest as any).title,
             url: prDetails.html_url || (finalPullRequest as any).url,
             state: (prDetails.state as any) || (finalPullRequest as any).state,
             createdAt: prDetails.created_at,
-            updatedAt: prDetails.updated_at,
             mergedAt: prDetails.merged_at || (finalPullRequest as any).mergedAt,
             headBranch: prDetails.head?.ref || (finalPullRequest as any).headBranch,
             baseBranch: prDetails.base?.ref || (finalPullRequest as any).baseBranch,
             lastSynced: new Date().toISOString(),
+            // REMOVED: title, body, updatedAt - fetched live from GitHub API
           };
 
           await sessionDB.updateSession(resolvedContext.sessionName, {
@@ -571,31 +568,56 @@ export async function sessionPrGet(params: {
       }
     }
 
-    // Build PR information from available data (either original or repaired)
+    // For GitHub backend, fetch live PR data from GitHub API
+    let livePrData: any = null;
+    if (sessionRecord.backendType === "github" && finalPullRequest?.number) {
+      try {
+        const { getConfiguration } = require("../../configuration/index");
+        const { Octokit } = require("@octokit/rest");
+
+        const config = getConfiguration();
+        const githubToken = config.github.token;
+        if (githubToken) {
+          const octokit = new Octokit({ auth: githubToken });
+
+          // Extract owner/repo from session record
+          const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
+          const githubInfo = extractGitHubInfoFromUrl(sessionRecord.repoUrl);
+          if (githubInfo) {
+            const { owner, repo } = githubInfo;
+            const { data: livePr } = await octokit.rest.pulls.get({
+              owner,
+              repo,
+              pull_number: finalPullRequest.number,
+            });
+            livePrData = livePr;
+            log.debug(`Fetched live PR data for #${finalPullRequest.number}`);
+          }
+        }
+      } catch (error) {
+        log.debug(`Failed to fetch live PR data, falling back to cached: ${getErrorMessage(error)}`);
+      }
+    }
+
+    // Build PR information using live data when available, fallback to cached
     const pullRequest = {
       number: finalPullRequest?.number,
-      title: finalPullRequest?.title || `PR for ${sessionRecord.session}`,
+      title: livePrData?.title || finalPullRequest?.title || `PR for ${sessionRecord.session}`,
       sessionName: sessionRecord.session,
       taskId: sessionRecord.taskId,
       branch:
         sessionRecord.backendType === "github"
           ? finalPullRequest?.headBranch || currentBranch || sessionRecord.session
           : prState?.branchName || `pr/${sessionRecord.session}`,
-      status: finalPullRequest?.state || (prState?.commitHash ? "created" : "not_found"),
-      url: finalPullRequest?.url,
-      // Support both camelCase and snake_case to handle legacy records
-      createdAt:
-        (finalPullRequest as any)?.createdAt ||
-        (finalPullRequest as any)?.created_at ||
-        prState?.createdAt,
-      updatedAt:
-        (finalPullRequest as any)?.updatedAt ||
-        (finalPullRequest as any)?.updated_at ||
-        prState?.lastChecked,
-      description: finalPullRequest?.body,
-      author: finalPullRequest?.github?.author,
-      filesChanged: finalPullRequest?.filesChanged,
-      commits: finalPullRequest?.commits,
+      status: livePrData?.state || finalPullRequest?.state || (prState?.commitHash ? "created" : "not_found"),
+      url: livePrData?.html_url || finalPullRequest?.url,
+      // Use live timestamps when available
+      createdAt: livePrData?.created_at || finalPullRequest?.createdAt || prState?.createdAt,
+      updatedAt: livePrData?.updated_at || finalPullRequest?.updatedAt || prState?.lastChecked,
+      description: livePrData?.body || finalPullRequest?.body,
+      author: livePrData?.user?.login || finalPullRequest?.github?.author,
+      filesChanged: finalPullRequest?.filesChanged, // Keep from cache for performance
+      commits: finalPullRequest?.commits, // Keep from cache for performance
       backendType: (sessionRecord.backendType as any) || undefined,
     };
 

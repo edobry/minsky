@@ -650,7 +650,6 @@ export function createMCPCommand(): Command {
             // Only start the server directly if not using inspector
             await server.start();
 
-            log.cli("Minsky MCP Server started with stdio transport");
             if (projectContext) {
               log.cli(`Repository path: ${projectContext.repositoryPath}`);
             }

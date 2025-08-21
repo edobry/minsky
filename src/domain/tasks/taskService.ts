@@ -11,13 +11,14 @@ import { log } from "../../utils/logger";
 import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
 import { get } from "../configuration/index";
-import { normalizeTaskIdForStorage } from "./task-id-utils";
+import { validateQualifiedTaskId } from "./task-id-utils";
 import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 import { detectRepositoryBackendType } from "../session/repository-backend-detection";
 import { validateTaskBackendCompatibility } from "./taskBackendCompatibility";
 import type { RepositoryBackend } from "../repository/index";
 import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
+import { filterTasksByStatus } from "./task-filters";
 
 /**
  * Options for the TaskService
@@ -149,22 +150,10 @@ export class TaskService {
    * @returns Promise resolving to the task or null if not found
    */
   async getTask(id: string): Promise<TaskData | null> {
+    // TaskService only accepts qualified IDs
+    // Backend routing will handle conversion to local IDs for backend operations
     const tasks = await this.getAllTasks();
-    // Strict: exact match first
-    const exact = tasks.find((task) => task.id === id);
-    if (exact) return exact;
-
-    // Strict qualified handling: support mapping md#NNN → #NNN (storage in tasks.md)
-    const qualifiedMatch = id.match(/^[a-z-]+#(\d+)$/);
-    if (qualifiedMatch) {
-      const num = qualifiedMatch[1];
-      const hashForm = `#${num}`;
-      const alt = tasks.find((task) => task.id === hashForm);
-      if (alt) return alt;
-    }
-
-    // No legacy/plain fallback
-    return null;
+    return tasks.find((task) => task.id === id) || null;
   }
 
   /**
@@ -178,7 +167,7 @@ export class TaskService {
 
     // Use proper task ID normalization from systematic architecture
     // This handles the transition period where storage might be in either format
-    const storageId = normalizeTaskIdForStorage(id);
+    const storageId = validateQualifiedTaskId(id);
     if (!storageId) {
       throw new Error(`Invalid task ID format: ${id}`);
     }
@@ -220,19 +209,8 @@ export class TaskService {
 
     const tasks = this.currentBackend.parseTasks(result.content);
 
-    // Apply status filter if provided (takes precedence over default filtering)
-    if (options?.status) {
-      return tasks.filter((task) => task.status === options.status);
-    }
-
-    // Apply default business rule: hide DONE and CLOSED tasks unless all=true
-    if (!options?.all) {
-      return tasks.filter(
-        (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED
-      );
-    }
-
-    return tasks;
+    // Use shared filtering logic for consistency across commands
+    return filterTasksByStatus(tasks, { status: options?.status, all: options?.all });
   }
 
   /**

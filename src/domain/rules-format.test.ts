@@ -1,41 +1,21 @@
-import { describe, expect, test, beforeEach, afterEach, mock } from "bun:test";
+import { describe, expect, test, beforeEach } from "bun:test";
 import { RuleService } from "./rules";
 import * as path from "path";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 
-// Mock the fs modules to use our mock filesystem
-const mockFs = createMockFilesystem();
-
-// Use mock filesystem directly - no real fs imports needed
-
-mock.module("fs", () => ({
-  mkdirSync: mockFs.mkdirSync,
-  writeFileSync: mockFs.writeFileSync,
-  existsSync: mockFs.existsSync,
-  readFileSync: mockFs.readFileSync,
-  readdirSync: mockFs.readdirSync,
-  promises: {
-    mkdir: mockFs.mkdir,
-    writeFile: mockFs.writeFile,
-    readFile: mockFs.readFile,
-    readdir: mockFs.readdir,
-    rm: mockFs.rm,
-    access: mockFs.access,
-    mkdtemp: () => Promise.resolve("/mock/tmp/test-12345"),
-  },
-}));
+// No global module mocks. Each test creates its own mock filesystem and injects it
 
 describe("RuleService Format Compatibility", () => {
   let testDir: string;
   let cursorRulesDir: string;
   let genericRulesDir: string;
   let ruleService: RuleService;
+  let mockFs: ReturnType<typeof createMockFilesystem>;
 
   // Setup before each test
   beforeEach(() => {
-    // Create a unique temporary directory for each test run
-    // Reset mock filesystem and use mock paths
-    mockFs.reset();
+    // Create a unique mock filesystem per test
+    mockFs = createMockFilesystem();
     testDir = "/mock/test/rules-format";
     cursorRulesDir = path.join(testDir, ".cursor", "rules");
     genericRulesDir = path.join(testDir, ".ai", "rules");
@@ -103,15 +83,14 @@ This rule exists in both cursor and generic formats.
       "utf8"
     );
 
-    // Initialize rule service
-    ruleService = new RuleService(testDir);
+    // Initialize rule service with injected fs
+    ruleService = new RuleService(testDir, {
+      fsPromises: mockFs.fsPromises,
+      existsSyncFn: (p: string) => mockFs.existsSync(p),
+    });
   });
 
-  afterEach(() => {
-    mock.restore();
-  });
-
-  // Cleanup handled automatically by createCleanTempDir
+  // Cleanup handled by fresh mockFs per test
 
   test("should get a rule in its original format when requested", async () => {
     const cursorRule = await ruleService.getRule("cursor-only-rule", { format: "cursor" });

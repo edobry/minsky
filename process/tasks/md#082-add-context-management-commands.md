@@ -1,4 +1,4 @@
-# Add Context Management Commands for Environment-Agnostic AI Collaboration
+# Add Context Analysis and Visualization Commands
 
 ## Context
 
@@ -17,511 +17,376 @@ Understanding context utilization is crucial for:
 2. Enable analysis of context efficiency and optimization opportunities
 3. Support debugging of context-related issues
 4. Help users understand how their context is constructed and utilized
-5. **NEW**: Create modular context component system for targeted AI context generation
-6. **CRITICAL**: Replicate Cursor's full context structure and content for AI collaboration
-
-## ✅ IMPLEMENTATION COMPLETED SUCCESSFULLY
-
-### **OBJECTIVE ASSESSMENT: Cursor Context Replication Achieved**
-
-**Primary Goal**: Replicate Cursor's full context structure and content
-**Final Reality**: Successfully built modular system that replicates Cursor's context structure
-
-### **Key Implementation Insights & Corrections**
-
-1. **❌ FAILURE #1: Inadequate Default Components**
-
-1. **✅ REPLICATION INSIGHT: "Replication vs. Duplication"**
-
-   - **Initial Error**: Thought goal was to avoid duplicating Cursor's content
-   - **Correction**: Goal is to REPLICATE Cursor's context structure exactly
-   - **Learning**: AI context consistency requires duplication, not avoidance
-   - **Result**: Environment component properly replicates Cursor's environment section
-
-2. **✅ TEMPLATE SYSTEM INTEGRATION**
-
-   - **Initial Error**: Built custom tool schema generation 
-   - **Correction**: Use existing `CommandGeneratorService` and `getParameterDocumentation()`
-   - **Learning**: Leverage proven infrastructure instead of reinventing
-   - **Result**: Professional tool schemas using established template system
-
-3. **✅ SESSION/TASK CONTEXT SIMPLIFICATION**
-
-   - **Initial Approach**: Separate session and task components
-   - **Correction**: Include task metadata in session context (every session has associated task)
-   - **Learning**: Domain constraints can simplify architecture
-   - **Result**: Cleaner integration with task metadata in session context
-
-4. **✅ FORMAT PRECISION**
-
-   - **Initial Error**: XML format with numeric tool names ("0", "1", "2")
-   - **Correction**: JSON format by default with proper command IDs matching Cursor
-   - **Learning**: Format details critical for exact replication
-   - **Result**: Tool schemas match Cursor's exact JSON structure
-
-5. **✅ COMPREHENSIVE COMPONENT COVERAGE**
-
-   - **Achievement**: Successfully implemented all 13 core components
-   - **Coverage**: Environment, Rules, Instructions, Tools, Communication, Task Management, etc.
-   - **Structure**: Matches Cursor's section order and naming conventions
-   - **Content**: Equivalent detail level with 896 lines (improved efficiency)
-
-6. **✅ MODULAR ARCHITECTURE SUCCESS**
-   - **Achievement**: Split-phase component system (gatherInputs + render)
-   - **Benefit**: Testable pure functions with mockable input gathering
-   - **Integration**: Proper use of existing Minsky infrastructure
-   - **Extensibility**: Registry system supporting custom components
-
-### **Final Implementation Status**
-
-- **✅ Architecture**: Modular, testable, maintainable component system
-- **✅ Content Fidelity**: Successfully replicates Cursor's comprehensive context
-- **✅ Format Matching**: JSON tool schemas and proper component structure  
-- **✅ Integration**: Uses existing template system and command infrastructure
-- **✅ Session Awareness**: Current session detection with task metadata
-- **✅ Documentation**: Comprehensive README and ADR-005 documenting decisions
+5. **NEW: Create modular context component system for targeted AI context generation**
 
 ## Requirements
 
-1. **Split-Architecture Context Component System** ✅ COMPLETED
+1. **Modular Context Component System** ✅ **COMPLETED**
 
-   - **Split Architecture**: ✅ Async input gathering + pure rendering functions
-   - **Component Architecture**: ✅ Pure function-based components that generate specific context sections
-   - **Registry System**: ✅ Central component registration with dependency resolution capabilities
-   - **Type Safety**: ✅ Full TypeScript interfaces for components, inputs, and outputs
-   - **Template Integration**: ✅ Ability to leverage existing template system for structured content
-   - **Test Support**: ✅ Built-in test functions for each component (pure render functions easily testable)
-   - **Flexible Input**: ✅ Rich context input system supporting environment, task, session, and project data
-   - **Progressive Optimization**: ✅ Foundation for shared input extraction when patterns emerge
-   - **Code Reuse**: ✅ Components leverage existing Minsky services (`ModularRulesService`, `GitService`, `SessionProvider`)
+   - **Split-Architecture Context Components**: Components with `gatherInputs` (async, data collection) and `render` (pure, template-based rendering) methods
+   - **Component Registry**: Central system (`DefaultContextComponentRegistry`) for managing and resolving component dependencies  
+   - **Template System Integration**: Reusing `src/domain/rules/template-system.ts` for structured content generation
+   - **Shared Inputs**: Common data points (user prompt, workspace path, target model) accessible to all components
+   - **Comprehensive Component Coverage**: All major Cursor context sections replicated (13 components total)
 
-2. **Context Generation Commands** ✅ COMPLETED
+2. **Context Generation Commands** ✅ **COMPLETED**
 
-   - `minsky context generate` - ✅ Generate context using modular components for testing and development
-     - **JSON and text output formats** ✅ with separate component sections
-     - **Component selection** ✅ via command-line options
-     - **User prompt customization** ✅ for context adaptation (`--prompt` parameter)
-     - **Model targeting** ✅ for appropriate tokenization
-     - **Template support** ✅ for consistent formatting
-     - **Error handling** ✅ with detailed error reporting and graceful degradation
+   - `minsky context generate` - Generate AI context using modular components (testbench functionality)
+   - `minsky context analyze` - Analyze context composition and provide token metrics
+   - Component selection via `--components` flag or intelligent defaults
+   - Multiple output formats (text, JSON) via `--format` flag
+   - User prompt customization via `--prompt` flag for component configuration
 
-3. **Local Tokenization System** ⚠️ PARTIALLY IMPLEMENTED
+3. **Local Tokenization System**
 
-   - **Multi-Library Support**: ✅ Integrated tokenization libraries
+   - **Multi-Library Support**: Integrate multiple tokenization libraries for comprehensive model coverage
 
-     - [`gpt-tokenizer`](https://github.com/niieani/gpt-tokenizer): Fastest JavaScript BPE tokenizer for OpenAI models
+     - [`gpt-tokenizer`](https://github.com/niieani/gpt-tokenizer): Fastest JavaScript BPE tokenizer for OpenAI models (GPT-4o, o1, o3, GPT-4, etc.)
      - [`tiktoken`](https://github.com/dqbd/tiktoken): JavaScript port of OpenAI's tiktoken library
-     - **Abstraction layer**: ✅ `LocalTokenizer` interface with registry system
+     - Extensible architecture to add more tokenization libraries as needed
 
-   - **Model-Specific Tokenizer Detection**: ⚠️ NEEDS SIMPLIFICATION
-     - **Current**: Complex priority scoring system (over-engineered)
-     - **Needed**: Simple decision tree based on model ID patterns
+   - **Model-Specific Tokenizer Detection**: Automatically determine appropriate tokenizer for each model
+
      - Query provider APIs for tokenizer information during model metadata fetching
      - Extend AI provider configuration to specify custom tokenizer mappings
+     - Fallback logic when tokenizer information is unavailable
 
-4. **Context Analysis**
+   - **Tokenizer Selection Logic**: Intelligent tokenizer library selection per model
+     - Priority-based selection (e.g., gpt-tokenizer for OpenAI models, tiktoken for fallback)
+     - Configuration overrides for custom tokenizer preferences
+     - Performance-optimized caching of tokenizer instances
 
-   - `minsky context analyze` - ✅ BASIC IMPLEMENTATION COMPLETED
-     - **Local token prediction** ✅ using appropriate tokenizers
-     - Show total token usage and breakdown by category
+2. **Context Analysis**
+
+   - `minsky context analyze` - Analyze current context composition and provide metrics
+     - Show total token usage and breakdown by category (rules, code, open files, etc.)
+     - **Local token prediction** without requiring API calls
+     - Identify potential optimization opportunities
      - Display context window utilization percentage
-     - **Model-specific tokenization** ✅ with local libraries
-     - **Cross-model comparison** capabilities
+     - Show which elements consume the most tokens
+     - **Model-specific tokenization** using appropriate local tokenizers
+     - **Cross-model comparison** showing token differences between models
 
-5. **Context Visualization** - PENDING
+4. **Context Visualization** 
 
    - `minsky context visualize` - Generate visual representation of context usage
      - Command-line based charts showing context distribution
      - Token usage breakdown with visual indicators
+     - Optional structured output formats (JSON, CSV) for further analysis
+     - Interactive display showing which elements are included/excluded
      - **Tokenizer-specific breakdowns** showing differences between tokenization methods
-
-## Implementation Status
-
-### ✅ COMPLETED (Phase 1 & 2A - Split Architecture + Advanced Components)
-
-1. **Split-Architecture Context Component System**
-
-   - ✅ **Split Architecture**: Async `gatherInputs()` + pure `render()` functions
-   - ✅ Component interfaces and types (`ComponentInput`, `ComponentOutput`, `ContextComponent`)
-   - ✅ Registry system with dependency resolution (`DefaultContextComponentRegistry`)
-   - ✅ **8 Working Components**: All demonstrate different implementation patterns
-   - ✅ **Backwards Compatibility**: Legacy `generate()` method preserved
-   - ✅ **Error Handling**: Graceful error handling with detailed reporting
-   - ✅ Test infrastructure and component validation
-
-2. **Context Generation Command**
-
-   - ✅ `minsky context generate` command with full CLI interface
-   - ✅ JSON output with separate component sections (array format)
-   - ✅ Component selection and user prompt customization (`--prompt` parameter)
-   - ✅ Template system integration hooks
-   - ✅ **Error Recovery**: Components fail gracefully, show detailed error messages
-
-3. **Tokenization Infrastructure**
-
-   - ✅ Multi-library integration (`gpt-tokenizer`, `tiktoken`)
-   - ✅ Tokenizer abstraction layer and registry
-   - ✅ Basic model-specific tokenizer selection
-   - ✅ Extended `AIModel` interface with tokenizer metadata
-
-4. **Basic Context Analysis**
-   - ✅ `minsky context analyze` command working
-   - ✅ Local tokenization without API calls
-   - ✅ Context categorization and token counting
-   - ✅ Context window utilization calculations
-
-### 🔄 IN PROGRESS
-
-1. **Tokenizer Selection Simplification**
-   - Replace complex priority scoring with simple decision tree
-   - Implement: `if (modelId.startsWith('gpt-')) return 'gpt-tokenizer'`
-
-### 📋 REMAINING WORK (Phase 2B - Component Implementation)
-
-1. **Additional Context Components** (4 remaining out of 12 total)
-
-   - ✅ `EnvironmentComponent` - **COMPLETED**: System environment and workspace info
-   - ✅ `TaskContextComponent` - **COMPLETED**: Current task and user query
-   - ✅ `WorkspaceRulesComponent` - **COMPLETED**: Leverages existing `ModularRulesService`
-   - ✅ `ProjectContextComponent` - **COMPLETED**: Git status and repository state via `GitService`
-   - ✅ `SystemInstructionsComponent` - **COMPLETED**: AI behavior guidelines with context adaptation
-   - ✅ `SessionContextComponent` - **COMPLETED**: Session state and workspace isolation via `SessionProvider`
-   - ✅ `ToolSchemasComponent` - **COMPLETED**: Dynamic tool discovery with hybrid implementation
-   - ✅ `ErrorContextComponent` - **COMPLETED**: Live TypeScript diagnostics and error analysis
-   - `FileContentComponent` - **BESPOKE**: Dynamic file reading with relevance
-   - `DependencyContextComponent` - **BESPOKE**: Package.json analysis
-   - `TestContextComponent` - **BESPOKE**: Test framework state
-   - `ConversationHistoryComponent` - **HYBRID**: Dynamic history + formatting
-
-2. **Enhanced Testing**
-
-   - **Unit Tests**: Create tests for pure render functions (easily testable now!)
-   - **Component Integration Tests**: Test async input gathering
-   - **Error Scenario Testing**: Validate graceful error handling
-
-3. **Context Visualization**
-
-   - `minsky context visualize` command implementation
-   - CLI-based charts and visual indicators
-   - Interactive context exploration features
-
-4. **Enhanced Analysis Features**
-   - Cross-model token comparison
-   - Context optimization suggestions
-   - Performance metrics and caching
-
-## ✅ MAJOR MILESTONE: 8 Context Components Working (67% Complete!)
-
-### **Completed Components with Implementation Patterns:**
-
-1. **🌍 EnvironmentComponent** - **Bespoke Pattern**
-
-   - System environment (OS, shell, Node version)
-   - Workspace path information
-
-2. **📋 TaskContextComponent** - **Bespoke Pattern**
-
-   - Current task details and status
-   - User query context and adaptation
-
-3. **📚 WorkspaceRulesComponent** - **Code Reuse Pattern**
-
-   - Leverages existing `ModularRulesService`
-   - Rule filtering based on user prompts
-   - Rule categorization and organization
-
-4. **🏗️ ProjectContextComponent** - **Code Reuse Pattern**
-
-   - Git status via existing `GitService`
-   - Branch information and change summaries
-   - Repository state and file modifications
-
-5. **🎯 SystemInstructionsComponent** - **Template-Based Pattern**
-
-   - AI behavior guidelines and principles
-   - Context-specific adaptations (security, testing, performance)
-   - Dynamic instruction generation based on user prompts
-
-6. **🔄 SessionContextComponent** - **Code Reuse Pattern**
-
-   - Session state via existing `SessionProvider`
-   - Task integration and workspace isolation
-   - Session metadata and workflow context
-
-7. **🔧 ToolSchemasComponent** - **Hybrid Pattern** ✅ NEW!
-
-   - Dynamic tool discovery via `sharedCommandRegistry`
-   - Live detection of 67 tools across 9 categories
-   - Smart filtering (e.g., "session" → 42 relevant tools)
-   - Parameter schemas with types, requirements, defaults
-
-8. **🚨 ErrorContextComponent** - **Bespoke Pattern** ✅ NEW!
-   - Live TypeScript diagnostics via `ts.getPreEmitDiagnostics`
-   - Error categorization: undefined-variable, type-mismatch, import-error
-   - Critical error detection and prioritization
-   - Development recommendations and context-aware guidance
-
-### **All Implementation Patterns Successfully Validated:**
-
-- ✅ **Bespoke Pattern**: Environment, TaskContext, ErrorContext (dynamic data collection)
-- ✅ **Code Reuse Pattern**: WorkspaceRules, ProjectContext, SessionContext (leverage existing services)
-- ✅ **Template-Based Pattern**: SystemInstructions (structured content with adaptation)
-- ✅ **Hybrid Pattern**: ToolSchemas (dynamic discovery + template formatting)
-
-### **Proven Architecture Benefits:**
-
-- ✅ **Split Architecture**: All 8 components follow async input gathering + pure rendering
-- ✅ **Implementation Flexibility**: All four patterns working perfectly
-- ✅ **Context Adaptation**: Components adapt to user prompts ("security", "testing", "session", "type")
-- ✅ **Error Resilience**: Components handle missing data gracefully
-- ✅ **Service Integration**: Seamless integration with existing Minsky infrastructure
-- ✅ **Live Data Integration**: Real-time tool discovery and error analysis
-
-## Code Reuse Opportunities Identified
-
-### **Existing Minsky Code Successfully Leveraged**
-
-1. ✅ **Rule Management**: `ModularRulesService` for workspace rules discovery (WorkspaceRulesComponent)
-2. ✅ **Git Status**: `GitService.getStatus()` and `getCurrentBranch()` for project context (ProjectContextComponent)
-3. ✅ **Session Management**: `SessionProvider` and session utilities for session context (SessionContextComponent)
-4. ✅ **Command Discovery**: `sharedCommandRegistry` for tool schemas (ToolSchemasComponent)
-5. ✅ **TypeScript Analysis**: `ts.getPreEmitDiagnostics` for error detection (ErrorContextComponent)
-6. **Template System**: Existing rule template infrastructure for structured components (SystemInstructionsComponent)
-
-### **Component Implementation Strategy Validation**
-
-- ✅ **Bespoke Functions**: Environment, TaskContext, ErrorContext (dynamic data) - **WORKING**
-- ✅ **Template-Based**: SystemInstructions (structured content with adaptation) - **WORKING**
-- ✅ **Code Reuse**: WorkspaceRules, ProjectContext, SessionContext (leverage existing services) - **WORKING**
-- ✅ **Hybrid**: ToolSchemas (dynamic discovery + template formatting) - **WORKING**
 
 ## Dependencies
 
-- **Task 160**: ✅ AI completion backend (COMPLETED - provides model metadata)
-- **Task 182**: ✅ AI-Powered Rule Suggestion (COMPLETED - foundation ready for integration)
-- **Task 390**: ✅ AI telemetry/verbose output (AVAILABLE for tokenization error reporting)
-- **Package Dependencies**: ✅ `gpt-tokenizer` and `tiktoken` installed
+- **Task 160**: AI completion backend (required - provides model metadata and enhanced tokenization capabilities)
+- **Task 182**: AI-Powered Rule Suggestion (complementary - provides rule selection while this task provides analysis)
+- **Task 390**: AI telemetry/verbose output (surface tokenization failures/discrepancies without blocking)
+- **New Dependencies**:
+  - `gpt-tokenizer` package: Fast JavaScript BPE tokenizer for OpenAI models
+  - `tiktoken` package: JavaScript port of OpenAI's tiktoken library
+  - Enhanced model metadata system with tokenizer information
 
-## Split Architecture Implementation Details
+## Implementation Status
 
-### **Architectural Decision: Split Components for Maximum Testability**
+### Context Component System - ✅ COMPLETED (13/13 components)
 
-✅ **IMPLEMENTED AND PROVEN**: Each component now has:
+**Components Implemented:**
+1. ✅ **Environment Component** - OS, shell, workspace path
+2. ✅ **Workspace Rules Component** - Project-specific behavioral rules  
+3. ✅ **System Instructions Component** - Core AI behavior guidelines
+4. ✅ **Communication Component** - Markdown formatting guidelines
+5. ✅ **Tool Calling Rules Component** - Tool usage best practices
+6. ✅ **Maximize Parallel Tool Calls Component** - Optimization guidelines
+7. ✅ **Maximize Context Understanding Component** - Exploration guidelines
+8. ✅ **Making Code Changes Component** - Implementation guidelines
+9. ✅ **Code Citation Format Component** - Citation requirements
+10. ✅ **Task Management Component** - Todo system guidelines
+11. ✅ **Tool Schemas Component** - Available tools and parameters
+12. ✅ **Project Context Component** - Git status and repository info
+13. ✅ **Session Context Component** - Current session state with task metadata
 
-```typescript
-interface ContextComponent {
-  // Phase 1: Async input gathering (component-specific, can be optimized later)
-  gatherInputs: (context: ComponentInput) => Promise<ComponentInputs>;
+**Architecture Benefits:**
+- **Split-Phase Design**: Async data gathering + pure rendering for testability
+- **Template System Integration**: Professional content generation infrastructure
+- **Component Registry**: Dependency resolution and modular composition
+- **Shared Inputs**: Efficient data sharing between components
+- **Live Data Integration**: Real-time git status, rules, session state vs static content
 
-  // Phase 2: Pure rendering using template system and gathered inputs
-  render: (inputs: ComponentInputs, context: ComponentInput) => ComponentOutput;
+### Critical Issues Identified
 
-  // Legacy method for backwards compatibility
-  generate?: (input: ComponentInput) => Promise<ComponentOutput>;
-}
-```
+**🚨 XML/JSON Format Configuration Bug**
 
-### **Benefits Achieved and Proven**
+**Problem**: `ToolSchemasComponent` incorrectly uses `context.userPrompt?.includes("xml")` for format detection instead of proper template system logic.
 
-1. ✅ **Easy Testing**: Pure render functions can be tested with mock inputs
-2. ✅ **Progressive Optimization**: Shared input patterns identified (user prompt, workspace path)
-3. ✅ **Maximum Flexibility**: Each component gathers exactly what it needs
-4. ✅ **Code Reuse**: Components successfully leverage existing Minsky services
-5. ✅ **Backwards Compatibility**: Legacy `generate()` method works perfectly
-6. ✅ **Error Resilience**: Components handle failures gracefully with detailed reporting
-7. ✅ **Live Integration**: Real-time data gathering (tools, errors) working seamlessly
+**Expected Behavior**: Should use `RuleGenerationConfig.interface` mapping:
+- `interface: "cli"` → JSON format (default, matches Cursor)  
+- `interface: "mcp"` → XML format (function_calls syntax)
+- `interface: "hybrid"` → Uses `preferMcp` setting
 
-### **Validated Shared Input Optimization Potential**
+**Root Cause**: Missing interface configuration in `ComponentInput` shared inputs and CLI option passing.
 
-Identified **proven shared input patterns** for future optimization:
+**Required Fix**:
+1. Add `--interface` CLI option to `context generate` command
+2. Pass interface mode through `ComponentInput.interfaceConfig`  
+3. Use `CommandGeneratorService` with proper interface mode in `ToolSchemasComponent`
+4. Remove incorrect `userPrompt` parsing logic
 
-- ✅ **User Prompt**: Successfully used by TaskContext, WorkspaceRules, SystemInstructions, ToolSchemas, ErrorContext
-- ✅ **Workspace Path**: Used by all components that need file system access
-- ✅ **Target Model**: Used for tokenization across components
+**Impact**: Format configurability non-functional, breaking the design requirement for XML/JSON output control.
 
-**Optimization ready**: Extract shared input gathering when remaining components show more patterns.
+## Implementation Steps
 
-## Context Component Analysis from Cursor
+1. [x] **Context Component Architecture Design**
+2. [x] **Split-Architecture Implementation** 
+3. [x] **Component Registry System**
+4. [x] **Template System Integration**
+5. [x] **All 13 Core Components Implementation**
+6. [x] **Context Generation Commands**
+7. [ ] **Fix XML/JSON Configuration System** - **URGENT PRIORITY**
+8. [ ] **Provider API Research (Tokenizer Metadata)**
 
-Based on analysis of Cursor's actual AI context construction, we identified these modular components:
+   - [ ] Investigate OpenAI and Anthropic APIs for tokenizer metadata exposure
+   - [ ] If APIs do not expose tokenizer info, research authoritative alternatives (official docs/specs) to derive model→tokenizer mappings
+   - [ ] Define precedence order for sources (API > config > documented defaults)
+   - [ ] Document findings and gaps for future provider coverage (Google, Morph, etc.)
 
-### **Core Context Components - Progress Status**
+2. [ ] **Tokenization Infrastructure Setup**
 
-1. ✅ **Environment Component** - System environment and workspace info (COMPLETED)
-2. ✅ **Task Context Component** - Current task and user query (COMPLETED)
-3. ✅ **Workspace Rules Component** - Project-specific behavioral rules (COMPLETED)
-4. ✅ **System Instructions Component** - Core AI behavior guidelines (COMPLETED)
-5. ✅ **Project Context Component** - Current project state and structure (COMPLETED)
-6. ✅ **Session Context Component** - Current user session state (COMPLETED)
-7. ✅ **Tool Schemas Component** - Available tools and parameters (COMPLETED)
-8. ✅ **Error Context Component** - Current errors and diagnostics (COMPLETED)
-9. **File Content Component** - Relevant file contents (PENDING)
-10. **Dependency Context Component** - Project dependencies (PENDING)
-11. **Test Context Component** - Testing framework state (PENDING)
-12. **Conversation History Component** - Previous interactions (PENDING)
+   - [ ] Install and integrate tokenization libraries (`gpt-tokenizer`, `tiktoken`)
+   - [ ] Design tokenizer abstraction layer with unified interface
+   - [ ] Create tokenizer registry and selection logic
+   - [ ] Implement tokenizer caching
 
-## Architecture Insights
+3. [ ] **Enhanced Model Metadata System**
 
-### **Split Architecture Validation** ✅ PROVEN
+   - [ ] Extend AI provider model fetchers to query tokenizer information from APIs
+   - [ ] Add tokenizer fields to `AIModel` interface and `CachedProviderModel`
+   - [ ] Update model fetchers (OpenAI, Anthropic, Google, Morph) with tokenizer detection
+   - [ ] Implement fallback tokenizer mapping for models without API tokenizer data
+   - [ ] Validate tokenizer mappings during offline cache hydration (reuse model cache cadence)
 
-✅ **CONFIRMED WITH 8 WORKING COMPONENTS**: Split architecture provides excellent benefits:
+4. [ ] **AI Provider Configuration Extensions**
 
-- **Input gathering** successfully optimized for component-specific needs
-- **Render functions** are pure and easily testable
-- **Component-specific logic** avoids over-engineering while enabling code reuse
-- **Live data integration** works seamlessly (tool discovery, error analysis)
-- **Excellent foundation** demonstrated for remaining components
+   - [ ] Extend AI provider config schema to support custom tokenizer mappings
+   - [ ] Add configuration options for tokenizer library preferences (per-model overrides; global provider-agnostic settings not required)
+   - [ ] Implement tokenizer override mechanisms in provider configs
+   - [ ] Create validation for tokenizer configuration entries
 
-### **Shared Input Analysis** ✅ VALIDATED
+5. [ ] **Core Context Analysis Engine**
 
-**User prompt** is a proven shared input optimization opportunity:
+   - [ ] Implement context discovery logic (identify current rules, open files, etc.)
+   - [ ] Create local tokenization service using integrated libraries
+   - [ ] Build model-specific token counting with appropriate tokenizers
+   - [ ] Create context categorization system (rules, code, conversation, etc.)
+   - [ ] Implement cross-model token comparison algorithms
+   - [ ] Build analysis algorithms for context breakdown and optimization suggestions
 
-- ✅ Used by TaskContext for context display
-- ✅ Used by WorkspaceRules for rule filtering
-- ✅ Used by SystemInstructions for context-specific adaptations
-- ✅ Used by ToolSchemas for tool filtering
-- ✅ Used by ErrorContext for error filtering
-- Future components will likely use it for customization
+6. [ ] **Command Implementation**
 
-### **Implementation Pattern Success** ✅ ALL PATTERNS VALIDATED
+   - [ ] Implement `context analyze` command with local tokenization
+   - [ ] Add model selection and tokenizer specification options
+   - [ ] Implement `context visualize` command with tokenizer-specific breakdowns
+   - [ ] Add support for different output formats (human-readable, JSON, CSV)
+   - [ ] Implement interactive features for exploring context composition
+   - [ ] Add tokenizer comparison and debugging features
 
-All four implementation patterns are now proven and working:
+7. [ ] **Testing and Validation**
 
-- **Bespoke**: Dynamic data collection (Environment, TaskContext, ErrorContext)
-- **Code Reuse**: Leverage existing services (WorkspaceRules, ProjectContext, SessionContext)
-- **Template-Based**: Structured content generation (SystemInstructions)
-- **Hybrid**: Dynamic discovery + formatting (ToolSchemas)
+   - [ ] Create unit tests for tokenization infrastructure
+   - [ ] Test tokenizer behavior against reference implementations
+   - [ ] Test with various context sizes and compositions across models
+   - [ ] Validate token counting behavior across different tokenizers (no requirement to match provider-reported tokens)
+   - [ ] Integration tests with enhanced model metadata system
 
-### **ComponentOutput Design** ✅ WORKING
-
-- Currently text-only (appropriate for AI context)
-- Could be simplified from object to string return
-- Metadata useful for debugging but not core functionality
+8. [ ] **Documentation and Examples**
+   - [ ] Add command documentation with tokenization examples
+   - [ ] Create guides for interpreting context analysis results
+   - [ ] Document tokenizer configuration and customization
+   - [ ] Document best practices for context optimization
+   - [ ] Add troubleshooting guide for tokenization issues
 
 ## Verification
 
-### ✅ Completed Verification
+- [ ] **Tokenization Infrastructure**
 
-- [x] **Split Architecture**: Async input gathering + pure rendering working with 8 components
-- [x] **Modular Component System**: Registry, types, and 8 working components
-- [x] **Context Generation**: CLI command generating context with component selection
-- [x] **JSON Output**: Separate array elements for each component section
-- [x] **Local Tokenization**: Basic libraries integrated and functional
-- [x] **User Customization**: Prompt parameter for context adaptation (proven with multiple components)
-- [x] **Error Handling**: Graceful degradation with detailed error reporting
-- [x] **Code Reuse**: Multiple components leverage existing Minsky services
-- [x] **Backwards Compatibility**: Legacy methods preserved and working
-- [x] **All Implementation Patterns**: Bespoke, template-based, code reuse, and hybrid patterns all validated
-- [x] **Live Data Integration**: Tool discovery and error analysis working in real-time
+  - [ ] Multiple tokenization libraries integrate successfully (`gpt-tokenizer`, `tiktoken`)
+  - [ ] Tokenizer selection logic works correctly for supported models (prefer `gpt-tokenizer` for OpenAI; fallback to `tiktoken`), with per-model overrides
+  - [ ] Telemetry reports tokenization failures or unavailability without blocking execution
+  - [ ] Configuration overrides work for custom per-model tokenizer mappings
 
-### 📋 Remaining Verification
+- [ ] **Enhanced Model Metadata**
 
-- [ ] **Simplified Tokenizer Selection**: Decision tree implementation
-- [ ] **Remaining Components**: 4 additional components implemented
-- [ ] **Unit Tests**: Tests for pure render functions
-- [ ] **Context Visualization**: CLI-based visual representation
-- [ ] **Cross-Model Analysis**: Token comparison across different models
+  - [ ] Model fetchers detect and store tokenizer information from APIs (OpenAI/Anthropic first)
+  - [ ] Fallback tokenizer mappings work when API data is unavailable
+  - [ ] Tokenizer mappings validated during offline cache hydration
+
+- [ ] **Context Analysis**
+  - [ ] Context analysis accurately identifies and categorizes all context elements
+  - [ ] Local token counting functions across different model types and tokenizers
+  - [ ] Context visualization provides clear, actionable insights
+  - [ ] Commands work correctly in both main and session workspaces
+  - [ ] Output formats (human-readable, JSON, CSV) work correctly
+  - [ ] Context optimization suggestions are relevant and helpful
 
 ## Technical Considerations
 
-### **Tokenizer Selection Simplification**
+- **Local Tokenization Architecture**: Design flexible tokenizer abstraction that supports multiple libraries
 
-Replace complex priority scoring with simple decision tree:
+  - Unified interface for different tokenization implementations
+  - Performance-optimized tokenizer instance caching
+  - Memory-efficient handling of large text inputs
+  - Error handling for unsupported models or tokenization failures
+
+- **Tokenizer Selection Strategy**: Implement intelligent tokenizer detection and selection
+
+  - Priority-based selection (prefer `gpt-tokenizer` for OpenAI models due to performance)
+  - Model-specific mappings with fallback logic
+  - Configuration override capabilities for custom use cases
+  - Validation to ensure selected tokenizer matches model requirements
+
+- **Provider API Integration**: Extend model fetching to include tokenizer metadata (OpenAI, Anthropic first)
+
+  - Query provider APIs for official tokenizer information when available
+  - Store tokenizer specifications in cached model data
+  - Handle API limitations or missing tokenizer data gracefully
+  - Update model cache when tokenizer information becomes available
+
+- **Configuration System Extensions**: Enhance AI provider configuration for tokenization
+
+  - Schema extensions for tokenizer mappings and preferences
+  - Validation of tokenizer configuration entries
+  - Environment variable support for tokenizer library selection
+  - Backward compatibility with existing configurations
+
+- **Performance Optimization**: Deferred. Performance work is out of scope for now.
+
+- **Accuracy and Validation**: Practical correctness and observability
+
+  - No requirement to match provider API token counts
+  - Emit telemetry when tokenization fails; continue execution
+  - Document known limitations or edge cases and recommended overrides
+
+- **CLI Visualization**: Research effective CLI-based visualization techniques for context distribution and token usage
+- **Context Discovery**: Implement robust logic to identify all relevant context elements (rules, files, conversation, etc.)
+- **Extensibility**: Design the analysis framework to accommodate new tokenization libraries and analysis methods
+- **Output Formats**: Support both human-readable displays and structured output for programmatic use
+
+## Use Cases
+
+This enhanced task enables scenarios like:
+
+- **Local Cost Prediction**: "How many tokens will this context consume before sending to the API?"
+- **Tokenizer Debugging**: "Is my local token count consistent for my content?"
+- **Cost Analysis**: "Which elements are consuming the most tokens in my context?"
+- **Context Debugging**: "Why isn't my rule being applied? Is it even loaded?"
+- **Optimization**: "How can I reduce context size while maintaining effectiveness?"
+- **Understanding**: "What exactly is being sent to the AI assistant?"
+
+Deferred to Task #162 (Eval Framework):
+
+- Cross-model analysis and tokenization comparison
+- Token mismatch evaluation strategies and scoring
+
+## Architecture Design
+
+### Tokenization Infrastructure
+
+**Tokenizer Abstraction Layer**:
 
 ```typescript
-function selectTokenizer(modelId: string): string {
-  if (modelId.startsWith("gpt-") || modelId.startsWith("o1-") || modelId.startsWith("o3-")) {
-    return "gpt-tokenizer";
-  }
-  if (modelId.startsWith("claude-")) {
-    return "tiktoken"; // or claude-specific when available
-  }
-  return "tiktoken"; // fallback
+interface LocalTokenizer {
+  id: string;
+  name: string;
+  supportedModels: string[];
+  encode(text: string, model?: string): number[];
+  decode(tokens: number[], model?: string): string;
+  countTokens(text: string, model?: string): number;
 }
 ```
 
-### **Component Implementation Patterns** ✅ ALL VALIDATED
+**Tokenizer Registry**:
 
-- ✅ **Bespoke**: Environment, TaskContext, ErrorContext (dynamic data) - **WORKING**
-- ✅ **Template-Based**: SystemInstructions (structured static content) - **WORKING**
-- ✅ **Code Reuse**: WorkspaceRules, ProjectContext, SessionContext (existing services) - **WORKING**
-- ✅ **Hybrid**: ToolSchemas (dynamic discovery + template formatting) - **WORKING**
+```typescript
+interface TokenizerRegistry {
+  register(tokenizer: LocalTokenizer): void;
+  getForModel(modelId: string): LocalTokenizer | null;
+  listAvailable(): LocalTokenizer[];
+  setPreference(modelId: string, tokenizerId: string): void;
+}
+```
 
-### **Testing Strategy** ✅ ENABLED
+### Enhanced Model Metadata
 
-✅ **Enabled by Split Architecture**:
+**Extended AIModel Interface**:
 
-- **Pure render functions**: Easy to test with mock inputs
-- **Input gathering**: Can be tested separately with integration tests
-- **Error scenarios**: Test components failing gracefully
+```typescript
+interface AIModel {
+  // ... existing fields ...
+  tokenizer?: {
+    id: string; // e.g., "cl100k_base", "o200k_base"
+    type: string; // e.g., "bpe", "sentencepiece"
+    source: "api" | "config" | "fallback";
+    library?: string; // preferred library: "gpt-tokenizer" | "tiktoken"
+  };
+}
+```
 
-## Use Cases Enabled
+**Provider Configuration Extensions**:
 
-### ✅ Currently Working (Validated with 8 Components)
+```yaml
+ai:
+  providers:
+    openai:
+      # ... existing config ...
+      tokenization:
+        defaultLibrary: "gpt-tokenizer" # preferred library
+        modelOverrides:
+          "gpt-4o":
+            tokenizer: "o200k_base"
+            library: "gpt-tokenizer"
+          "gpt-3.5-turbo":
+            tokenizer: "cl100k_base"
+            library: "tiktoken"
+        fallbackTokenizer: "cl100k_base"
+```
 
-- **Local Token Prediction**: "How many tokens will this context consume?"
-- **Component Testing**: "Does my environment component generate correct output?"
-- **Context Customization**: "Generate context focused on testing and error handling"
-- **Format Flexibility**: "Give me context as JSON for programmatic use"
-- **Code Reuse**: "Leverage existing workspace rules for context generation"
-- **Session Awareness**: "Show me context appropriate for my current session"
-- **Project Integration**: "Include current git status and project state"
-- **Tool Discovery**: "What tools are available for session management?"
-- **Error Analysis**: "What TypeScript errors need attention in my workspace?"
+### Command Interface Design
 
-### 📋 Planned
-
-- **Cost Analysis**: "Which elements consume the most tokens?"
-- **Context Debugging**: "Why isn't my rule being applied?"
-- **Optimization**: "How can I reduce context size?"
-- **Cross-Model Analysis**: "How do token counts differ between GPT-4 and Claude?"
-- **Visual Analysis**: "Show me a breakdown of my context composition"
-
-## Example Usage
+**Enhanced Commands**:
 
 ```bash
-# Generate context with specific components and user customization
-minsky context generate --prompt "focus on testing and error handling" --components workspace-rules,task-context,system-instructions,error-context --format json
-
-# Generate comprehensive context with all working components
-minsky context generate --components environment,task-context,workspace-rules,project-context,system-instructions,session-context,tool-schemas,error-context --format text
-
-# Filter tools for session management
-minsky context generate --prompt "session" --components tool-schemas --format json
-
-# Analyze TypeScript errors
-minsky context generate --prompt "type" --components error-context --format text
-
-# Analyze token usage
+# Basic context analysis with local tokenization
 minsky context analyze --model gpt-4o
 
-# Test component rendering (ready for implementation)
-bun test src/domain/context/components/
+# Cross-model comparison
+minsky context analyze --compare-models gpt-4o,claude-3-5-sonnet
+
+# Tokenizer-specific analysis
+minsky context analyze --tokenizer gpt-tokenizer --model gpt-4o
+
+# Debug tokenization accuracy
+minsky context analyze --validate-tokenization --model gpt-4o
 ```
 
 ## Relationship with Task 182
 
-Task 082 focuses on **analysis** ("What's in my context and how much does it cost?") while Task 182 focuses on **selection** ("What rules should I load for this task?").
+Task 082 focuses on **analysis** ("What's in my context and how much does it cost?") while Task 182 focuses on **selection** ("What rules should I load for this task?"). Together they provide comprehensive context understanding and optimization capabilities.
 
-The modular context component system provides the foundation for both:
+The enhanced tokenization features in Task 082 will also benefit Task 182 by enabling local token counting for rule selection optimization.
 
-- **Task 082**: Context analysis and visualization
-- **Task 182**: Rule suggestion and intelligent context construction
-- **Future Integration**: Task-aware context generation in Minsky workflow
+## Key Implementation Insights & Corrections
 
-## Next Steps
+**Based on development experience and user feedback during implementation:**
 
-1. **Implement Remaining Components**: 4 components using validated split architecture patterns
+1. **Replication > Avoiding Duplication**: Initially attempted to avoid "duplicate" information already present in Cursor's context (e.g., environment section), but this was incorrect. **Perfect replication** of Cursor's structure is the goal, even if it means content overlap.
 
-   - Next: `FileContentComponent` (bespoke - dynamic file reading)
-   - Then: `DependencyContextComponent` (bespoke - package.json analysis)
-   - Then: `TestContextComponent` (bespoke - test framework state)
-   - Finally: `ConversationHistoryComponent` (hybrid - dynamic history + formatting)
+2. **Template System Integration > Custom Implementations**: Successfully leveraged existing `src/domain/rules/template-system.ts` infrastructure instead of building custom content generation logic.
 
-2. **Create Unit Tests**: Test pure render functions with mock inputs (foundation ready)
+3. **Session+Task Metadata > Separate Components**: Combined session and task information into `SessionContextComponent` rather than separate components, providing cohesive context about current work state.
 
-3. **Optimize Shared Inputs**: Extract common patterns (user prompt, workspace path extensively used)
+4. **JSON Format Precision > Generic Output**: Fixed tool schema format to match Cursor's exact JSON structure and header text, not generic schema formats.
 
-4. **Simplify Tokenizer Selection**: Replace priority system with decision tree
+5. **Component Coverage > Minimal Implementation**: Implemented all 13 components to fully replicate Cursor's context sections rather than starting with minimal subset.
 
-5. **Add Context Visualization**: CLI-based charts and visual indicators
+6. **Shared Inputs Architecture > Complex Options**: Used simple `ComponentInput` interface with shared data rather than complex per-component option systems, enabling natural language configuration via `--prompt`.
+
+**Final Status**: Context component system successfully replicates Cursor's structure with 13 components, live data integration, and split-architecture design. **Critical fix needed**: XML/JSON format configuration must use proper template system logic instead of prompt parsing.

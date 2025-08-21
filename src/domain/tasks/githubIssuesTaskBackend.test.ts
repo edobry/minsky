@@ -2,14 +2,41 @@
  * Tests for GitHubIssuesTaskBackend
  */
 
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
+
+// Mock implementations that we can control and verify
+const mockCreateGitHubLabels = mock(() => Promise.resolve());
+
+// Mock Octokit to prevent real GitHub API calls
+mock.module("@octokit/rest", () => ({
+  Octokit: mock(() => ({
+    rest: {
+      issues: {
+        getLabel: mock(() => Promise.resolve()),
+        createLabel: mock(() => Promise.resolve()),
+        list: mock(() => Promise.resolve({ data: [] })),
+        get: mock(() => Promise.resolve({ data: {} })),
+        create: mock(() => Promise.resolve({ data: {} })),
+        update: mock(() => Promise.resolve({ data: {} })),
+      },
+    },
+  })),
+}));
+
+// Mock the GitHub backend config to prevent real API calls
+mock.module("./githubBackendConfig", () => ({
+  createGitHubLabels: mockCreateGitHubLabels,
+}));
 
 describe("GitHubIssuesTaskBackend", () => {
   let backend: GitHubIssuesTaskBackend;
 
   beforeEach(() => {
-    // Create backend instance for testing pure functions
+    // Reset mock state before each test
+    mockCreateGitHubLabels.mockClear();
+
+    // Create backend instance for testing pure functions (API calls are mocked)
     backend = createGitHubIssuesTaskBackend({
       name: "github-issues",
       workspacePath: "/test/workspace",
@@ -44,6 +71,20 @@ describe("GitHubIssuesTaskBackend", () => {
 
       expect(customBackend).toBeDefined();
     });
+
+    test("should initialize with proper label creation behavior", async () => {
+      // Give the async ensureLabelsExist call time to complete
+      await new Promise((resolve) => setTimeout(resolve, 10));
+
+      // Verify that the mock was called (this confirms initialization triggers label creation)
+      expect(mockCreateGitHubLabels).toHaveBeenCalledTimes(1);
+      expect(mockCreateGitHubLabels).toHaveBeenCalledWith(
+        expect.any(Object), // octokit instance
+        "test-owner",
+        "test-repo",
+        expect.any(Object) // status labels
+      );
+    });
   });
 
   describe("parseTasks", () => {
@@ -75,6 +116,46 @@ describe("GitHubIssuesTaskBackend", () => {
     test("should handle invalid JSON gracefully", () => {
       const tasks = backend.parseTasks("invalid json");
       expect(tasks).toEqual([]);
+    });
+
+    test("should handle empty GitHub response", () => {
+      const tasks = backend.parseTasks("[]");
+      expect(tasks).toEqual([]);
+    });
+
+    test("should map GitHub issue states correctly", () => {
+      const issuesJson = JSON.stringify([
+        {
+          id: 1,
+          number: 1,
+          title: "Open Issue",
+          body: "",
+          state: "open",
+          labels: [{ name: "minsky:todo", color: "d73a4a" }],
+          assignees: [],
+          html_url: "https://github.com/test/repo/issues/1",
+          created_at: "2023-01-01T00:00:00Z",
+          updated_at: "2023-01-01T00:00:00Z",
+        },
+        {
+          id: 2,
+          number: 2,
+          title: "Closed Issue",
+          body: "",
+          state: "closed",
+          labels: [{ name: "minsky:done", color: "28a745" }],
+          assignees: [],
+          html_url: "https://github.com/test/repo/issues/2",
+          created_at: "2023-01-01T00:00:00Z",
+          updated_at: "2023-01-01T00:00:00Z",
+        },
+      ]);
+
+      const tasks = backend.parseTasks(issuesJson);
+
+      expect(tasks).toHaveLength(2);
+      expect(tasks[0]?.status).toBe("TODO");
+      expect(tasks[1]?.status).toBe("DONE");
     });
   });
 

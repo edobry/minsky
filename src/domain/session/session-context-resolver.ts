@@ -106,8 +106,8 @@ export async function resolveSessionContext(
   if (task) {
     log.debug("Resolving session from task ID", { task });
 
-    const normalizedTaskId = taskIdSchema.parse(task);
-    const sessionRecord = await sessionProvider!.getSessionByTaskId(normalizedTaskId);
+    const validatedTaskId = taskIdSchema.parse(task);
+    const sessionRecord = await sessionProvider!.getSessionByTaskId(validatedTaskId);
 
     if (!sessionRecord) {
       // Provide a more helpful error message with available sessions
@@ -117,10 +117,10 @@ export async function resolveSessionContext(
         .join(", ");
 
       throw new ResourceNotFoundError(
-        `No session found for task ID "${normalizedTaskId}"\n\n` +
+        `No session found for task ID "${validatedTaskId}"\n\n` +
           `💡 Available sessions: ${sessionNames}`,
         "task",
-        normalizedTaskId
+        validatedTaskId
       );
     }
 
