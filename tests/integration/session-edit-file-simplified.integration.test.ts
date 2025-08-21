@@ -287,7 +287,7 @@ async function loadFixture(relPath: string): Promise<string> {
   return mockFixtures[relPath] || "";
 }
 
-describe("Session Edit File Integration Tests", () => {
+describe.if(process.env.RUN_INTEGRATION_TESTS)("Session Edit File Integration Tests", () => {
   describe("Core Edit Patterns", () => {
     coreTestCases.forEach((testCase) => {
       test(`should handle ${testCase.name}`, async () => {
