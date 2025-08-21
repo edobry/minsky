@@ -8,7 +8,6 @@
 
 import { Command } from "commander";
 import { createSuggestRulesCommand } from "./suggest-rules";
-import { createAnalyzeCommand } from "./analyze";
 import { createGenerateCommand } from "./generate";
 
 /**
@@ -22,17 +21,13 @@ export function createContextCommand(): Command {
       `
 Context Management:
   suggest-rules    Get AI-powered rule suggestions for your current task
-  analyze         Analyze current context composition and token usage
-  generate        Generate generic AI context for testing and development
-
-Future Commands (Task 082):
-  visualize       Generate visual representation of context usage
+  generate         Generate AI context using modular components with optional analysis
 
 Examples:
   minsky context suggest-rules "I need to fix a bug"
-  minsky context analyze --model gpt-4o --include-optimizations
-  minsky context analyze --compare-models gpt-4,claude-3-5-sonnet
   minsky context generate --format json --components environment,rules
+  minsky context generate --analyze --show-breakdown  # Generate with analysis
+  minsky context generate --compare-models gpt-4,claude-3-5-sonnet  # Cross-model comparison
   minsky context generate --output /tmp/test-context.txt
 
 The context command helps you understand and optimize the information
@@ -42,7 +37,6 @@ available to AI assistants for better collaboration.
 
   // Add subcommands
   contextCmd.addCommand(createSuggestRulesCommand());
-  contextCmd.addCommand(createAnalyzeCommand());
   contextCmd.addCommand(createGenerateCommand());
 
   // Future: Add visualize command from Task 082

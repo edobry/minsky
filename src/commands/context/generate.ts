@@ -7,6 +7,7 @@ import {
   getComponentHelp,
 } from "../../domain/context/components/index";
 import { getContextComponentRegistry } from "../../domain/context/components/registry";
+import { DefaultTokenizationService } from "../../domain/ai/tokenization/index";
 
 const log = createLogger("context:generate");
 
@@ -18,6 +19,9 @@ interface GenerateOptions {
   model?: string;
   prompt?: string;
   interface?: "cli" | "mcp" | "hybrid";
+  analyze?: boolean;
+  compareModels?: string;
+  showBreakdown?: boolean;
 }
 
 interface GenerateRequest {
@@ -62,6 +66,9 @@ export function createGenerateCommand(): Command {
       "Interface mode for tool schemas (cli|mcp|hybrid)",
       "cli"
     )
+    .option("--analyze", "Analyze the generated context for token usage and optimization", false)
+    .option("--compare-models <models>", "Comma-separated list of models to compare token usage")
+    .option("--show-breakdown", "Show detailed token breakdown by component", false)
     .addHelpText(
       "after",
       `
@@ -70,10 +77,13 @@ ${helpText}
 
 Examples:
   minsky context generate
-  minsky context generate --components environment,task-context --format json
+  minsky context generate --components environment,rules,tool-schemas --format json
   minsky context generate --template cursor-style --model claude-3-5-sonnet
   minsky context generate --prompt "focus on authentication and security rules"
   minsky context generate --interface mcp  # Use XML format for tool schemas
+  minsky context generate --analyze  # Generate context with token analysis
+  minsky context generate --analyze --show-breakdown  # Show detailed token breakdown
+  minsky context generate --compare-models gpt-4,claude-3-5-sonnet  # Compare across models
 `
     )
     .action(async (options: GenerateOptions) => {
@@ -138,15 +148,27 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   // Generate context
   const result = await generateContext(request);
 
+  // Perform analysis if requested
+  let analysisResult = null;
+  if (options.analyze || options.compareModels || options.showBreakdown) {
+    analysisResult = await analyzeGeneratedContext(result, options);
+  }
+
   // Output result
   if (options.format === "json") {
     const jsonOutput = {
       sections: result.components,
       metadata: result.metadata,
+      ...(analysisResult && { analysis: analysisResult }),
     };
     console.log(JSON.stringify(jsonOutput, null, 2));
   } else {
     console.log(result.content);
+
+    // Display analysis in human-readable format
+    if (analysisResult) {
+      displayAnalysisResults(analysisResult, options);
+    }
   }
 
   log.info("Context generation completed", {
@@ -273,4 +295,188 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
       errors,
     },
   };
+}
+
+/**
+ * Analyze the generated context for token usage and optimization opportunities
+ */
+async function analyzeGeneratedContext(result: GenerateResult, options: GenerateOptions) {
+  const tokenizationService = new DefaultTokenizationService();
+  const targetModel = options.model || "gpt-4o";
+
+  // Analyze each component's token usage
+  const componentAnalysis = [];
+  for (const component of result.components) {
+    const tokens = await tokenizationService.countTokens(component.content, targetModel);
+    const percentage = result.metadata.totalTokens
+      ? (tokens / result.metadata.totalTokens) * 100
+      : 0;
+
+    componentAnalysis.push({
+      component: component.component_id,
+      tokens,
+      percentage: percentage.toFixed(1),
+      content_length: component.content.length,
+    });
+  }
+
+  // Sort by token usage (largest first)
+  componentAnalysis.sort((a, b) => b.tokens - a.tokens);
+
+  // Cross-model comparison if requested
+  let modelComparison = null;
+  if (options.compareModels) {
+    const models = options.compareModels.split(",").map((m) => m.trim());
+    modelComparison = [];
+
+    for (const model of models) {
+      try {
+        const tokens = await tokenizationService.countTokens(result.content, model);
+        const difference = result.metadata.totalTokens ? tokens - result.metadata.totalTokens : 0;
+        const diffPercentage = result.metadata.totalTokens
+          ? (difference / result.metadata.totalTokens) * 100
+          : 0;
+
+        modelComparison.push({
+          model,
+          tokens,
+          difference,
+          differencePercentage: diffPercentage.toFixed(1),
+        });
+      } catch (error) {
+        modelComparison.push({
+          model,
+          error: `Failed to tokenize: ${error}`,
+        });
+      }
+    }
+  }
+
+  // Generate optimization suggestions
+  const optimizations = generateContextOptimizations(
+    componentAnalysis,
+    result.metadata.totalTokens || 0
+  );
+
+  return {
+    summary: {
+      totalTokens: result.metadata.totalTokens || 0,
+      totalComponents: result.components.length,
+      averageTokensPerComponent: componentAnalysis.length
+        ? Math.round((result.metadata.totalTokens || 0) / componentAnalysis.length)
+        : 0,
+      largestComponent: componentAnalysis[0]?.component || "none",
+      contextWindowUtilization: ((result.metadata.totalTokens || 0) / 128000) * 100, // Assuming 128k context window
+    },
+    componentBreakdown: componentAnalysis,
+    modelComparison,
+    optimizations,
+  };
+}
+
+/**
+ * Generate optimization suggestions based on component analysis
+ */
+function generateContextOptimizations(componentAnalysis: any[], totalTokens: number) {
+  const optimizations = [];
+
+  for (const component of componentAnalysis) {
+    // Suggest optimizing very large components
+    if (component.tokens > 10000) {
+      optimizations.push({
+        type: "reduce",
+        component: component.component,
+        currentTokens: component.tokens,
+        suggestion: `Component "${component.component}" is very large (${component.tokens} tokens, ${component.percentage}% of context). Consider reducing its scope or splitting it.`,
+        confidence: "high",
+        potentialSavings: Math.floor(component.tokens * 0.3),
+      });
+    }
+
+    // Suggest reviewing components that are >20% of context
+    if (parseFloat(component.percentage) > 20) {
+      optimizations.push({
+        type: "review",
+        component: component.component,
+        currentTokens: component.tokens,
+        suggestion: `Component "${component.component}" consumes ${component.percentage}% of your context. Verify this is necessary for your use case.`,
+        confidence: "medium",
+        potentialSavings: component.tokens,
+      });
+    }
+  }
+
+  // Context window utilization warning
+  const utilization = (totalTokens / 128000) * 100;
+  if (utilization > 80) {
+    optimizations.push({
+      type: "restructure",
+      component: "overall",
+      currentTokens: totalTokens,
+      suggestion: `High context utilization (${utilization.toFixed(1)}%). Consider using fewer components or reducing component scope.`,
+      confidence: "high",
+      potentialSavings: Math.floor(totalTokens * 0.2),
+    });
+  }
+
+  return optimizations.slice(0, 5); // Limit to top 5 suggestions
+}
+
+/**
+ * Display analysis results in human-readable format
+ */
+function displayAnalysisResults(analysis: any, options: GenerateOptions) {
+  console.log("\n🔍 Context Analysis");
+  console.log("━".repeat(50));
+
+  // Summary
+  console.log(`Total Tokens: ${analysis.summary.totalTokens.toLocaleString()}`);
+  console.log(`Total Components: ${analysis.summary.totalComponents}`);
+  console.log(
+    `Context Window Utilization: ${analysis.summary.contextWindowUtilization.toFixed(1)}%`
+  );
+  console.log(`Largest Component: ${analysis.summary.largestComponent}`);
+
+  // Component breakdown
+  if (options.showBreakdown && analysis.componentBreakdown.length > 0) {
+    console.log("\n📊 Component Breakdown");
+    console.log("━".repeat(50));
+
+    for (const component of analysis.componentBreakdown) {
+      console.log(
+        `${component.component.padEnd(20)} ${component.tokens.toLocaleString().padStart(8)} tokens (${component.percentage}%)`
+      );
+    }
+  }
+
+  // Model comparison
+  if (analysis.modelComparison && analysis.modelComparison.length > 0) {
+    console.log("\n🔄 Model Comparison");
+    console.log("━".repeat(50));
+
+    for (const comparison of analysis.modelComparison) {
+      if (comparison.error) {
+        console.log(`${comparison.model.padEnd(20)} ❌ ${comparison.error}`);
+      } else {
+        const sign = comparison.difference >= 0 ? "+" : "";
+        console.log(
+          `${comparison.model.padEnd(20)} ${comparison.tokens.toLocaleString().padStart(8)} tokens (${sign}${comparison.differencePercentage}%)`
+        );
+      }
+    }
+  }
+
+  // Optimization suggestions
+  if (analysis.optimizations && analysis.optimizations.length > 0) {
+    console.log("\n💡 Optimization Suggestions");
+    console.log("━".repeat(50));
+
+    for (const opt of analysis.optimizations) {
+      const icon = opt.type === "reduce" ? "🔽" : opt.type === "review" ? "👀" : "⚠️";
+      console.log(`${icon} ${opt.component}`);
+      console.log(`   ${opt.suggestion}`);
+      console.log(`   Potential savings: ${opt.potentialSavings.toLocaleString()} tokens`);
+      console.log("");
+    }
+  }
 }
