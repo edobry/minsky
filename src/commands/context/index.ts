@@ -7,9 +7,6 @@
 
 import { Command } from "commander";
 import { createSuggestRulesCommand } from "./suggest-rules";
-import { createAnalyzeCommand } from "./analyze";
-import { createGenerateCommand } from "./generate";
-import { createVisualizeCommand } from "./visualize";
 
 /**
  * Create the main context command
@@ -41,14 +38,8 @@ available to AI assistants for better collaboration.
   // Add subcommands
   contextCmd.addCommand(createSuggestRulesCommand());
 
-  // Add context analysis commands
-  try {
-    contextCmd.addCommand(createAnalyzeCommand());
-    contextCmd.addCommand(createGenerateCommand());
-    contextCmd.addCommand(createVisualizeCommand());
-  } catch (error) {
-    console.error("Failed to load context commands:", error);
-  }
+  // Add available context commands
+  // Note: analyze/generate/visualize are temporarily unavailable; only register existing commands
 
   return contextCmd;
 }

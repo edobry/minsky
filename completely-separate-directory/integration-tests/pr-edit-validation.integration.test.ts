@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
-import { SessionPrEditCommand } from "../src/adapters/shared/commands/session/pr-subcommand-commands";
-import type { CommandExecutionContext } from "../src/schemas/command-registry";
+import { SessionPrEditCommand } from "../../src/adapters/shared/commands/session/pr-subcommand-commands";
+import type { CommandExecutionContext } from "../../src/schemas/command-registry";
 
 /**
  * Integration-like unit tests for session pr edit title validation

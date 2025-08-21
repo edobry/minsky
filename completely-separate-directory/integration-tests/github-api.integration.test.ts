@@ -15,7 +15,7 @@
 
 import { describe, test, expect, beforeAll, afterAll } from "bun:test";
 import { Octokit } from "@octokit/rest";
-import { getGitHubBackendConfig } from "../src/domain/tasks/githubBackendConfig";
+import { getGitHubBackendConfig } from "../../src/domain/tasks/githubBackendConfig";
 
 // Integration test configuration
 const INTEGRATION_CONFIG = {

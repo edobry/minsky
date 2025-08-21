@@ -5,6 +5,13 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+
+- fix(context): remove missing analyze/generate/visualize imports to prevent CLI crash on context load
+  - Resolved error: "Cannot find module './analyze' from 'src/commands/context/index.ts'" when running commands like `minsky tasks list`
+  - Unregistered unavailable subcommands in `src/commands/context/index.ts` so core CLI operations no longer import missing modules
+  - Verified `minsky tasks list --json` works; all tests pass
+
+### Fixed
 - `minsky sessiondb migrate --execute` now exits early for Postgres when there are no pending migrations, matching dry-run behavior (no-op with clear message).
  - Dry-run output for Postgres no longer suggests `--execute` when there are zero pending migrations.
  - Unified Postgres migrate messaging via a shared status helper so dry-run and execute paths use the same "✅ No pending migrations." text.
