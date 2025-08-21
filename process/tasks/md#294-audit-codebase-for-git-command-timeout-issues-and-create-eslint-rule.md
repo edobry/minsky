@@ -1,5 +1,7 @@
 # Audit codebase for concurrency issues and create comprehensive prevention rules
 
+Canonical note: Consolidates duplicate `md#301` (now CLOSED duplicate).
+
 ## Status
 
 ✅ **COMPLETE** - All phases successful, deliverables implemented, 17+ critical vulnerabilities fixed

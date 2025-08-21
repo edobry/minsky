@@ -1,5 +1,7 @@
 # Fix Remaining Test Failures in Minsky
 
+Canonical note: Consolidates duplicate `md#050` (now CLOSED duplicate).
+
 ## Summary
 
 Task #044 made significant progress in fixing test failures, but there are still 10 test failures primarily related to session command tests. This task aims to resolve the remaining test failures to ensure the test suite passes completely.

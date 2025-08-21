@@ -16,6 +16,7 @@ All notable changes to this project will be documented in this file.
   - Removed duplicate DONE entries for `md#412` and `md#301` (kept canonical `md#399` and `md#294` respectively); annotated duplicate specs as CLOSED duplicates
   - Removed duplicate DONE entry for `md#050` (kept `md#044`) and marked `md#050` spec as CLOSED duplicate
   - Confirmed `md#318` is CLOSED duplicate of `md#320` and annotated spec accordingly
+  - Added canonical cross-links in `md#399`, `md#294`, `md#044`, and `md#320` noting their consolidated duplicates
 
 ### Fixed
 
