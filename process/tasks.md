@@ -80,7 +80,7 @@
 
 - [x] Implement Session-Scoped MCP Server for Workspace Isolation [md#049](process/tasks/md#049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 
- 
+
 
 - [x] Add Git Commands to MCP Server [md#051](process/tasks/md#051-add-git-commands-to-mcp-server.md)
 
@@ -498,7 +498,7 @@
 
 - [x] Implement Custom Type-Safe Configuration System [md#295](process/tasks/md#295-implement-custom-type-safe-configuration-system.md)
 
- 
+
 
 - [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [md#302](process/tasks/md#302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
 
@@ -644,7 +644,7 @@
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
- 
+
 
 - [x] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
 
