@@ -58,10 +58,27 @@ export async function listTasksFromParams(params: any) {
   const workspacePath = process.cwd();
   console.log("DEBUG: Backend requested:", validParams.backend);
 
+  // Read backend from configuration if not provided via command line
+  let backend = validParams.backend;
+  if (!backend) {
+    try {
+      const { ConfigurationLoader } = await import("./configuration/loader");
+      const configLoader = new ConfigurationLoader();
+      const configResult = await configLoader.load();
+
+      if (configResult.success && configResult.data.tasks?.backend) {
+        backend = configResult.data.tasks.backend;
+        console.log("DEBUG: Backend from configuration:", backend);
+      }
+    } catch (error) {
+      console.log("DEBUG: Failed to load configuration:", error);
+    }
+  }
+
   // Use unified async factory for all backends
   const taskService = await createTaskServiceWithDatabase({
     workspacePath,
-    backend: validParams.backend,
+    backend,
   });
 
   console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
