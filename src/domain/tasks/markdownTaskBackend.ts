@@ -582,7 +582,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
-    const id = this.generateTaskId(title);
+    const id = await this.generateTaskId(title);
     const specPath = this.buildSpecPath(id, title);
     // Write the spec content directly instead of generating a template
     const specContent = spec;
@@ -690,6 +690,28 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   // ---- Internal Methods ----
+
+  private async getTasksData(): Promise<TaskReadOperationResult> {
+    return await readTasksFile(this.tasksFilePath);
+  }
+
+  private async generateTaskId(_title: string): Promise<string> {
+    // Get existing tasks to determine next ID
+    const existingTasksResult = await this.getTasksData();
+    let existingTasks: TaskData[] = [];
+    if (existingTasksResult.success && existingTasksResult.content) {
+      existingTasks = this.parseTasks(existingTasksResult.content);
+    }
+
+    // Find max existing ID number
+    const maxId = existingTasks.reduce((max, task) => {
+      const id = getTaskIdNumber(task.id);
+      return id !== null && id > max ? id : max;
+    }, 0);
+
+    // Generate qualified backend ID (e.g., "md#285")
+    return `md#${maxId + 1}`;
+  }
 
   private async parseTasks(): Promise<Task[]> {
     try {
