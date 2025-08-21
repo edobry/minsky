@@ -1,11 +1,5 @@
 # Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification
 
-## Context
+Status: CLOSED (Duplicate of md#399)
 
-Comprehensive integration tests for session.edit_file MCP tool that test various code-editing scenarios with sample code files, include different types of edits with expected outcomes, use the real Morph API for edit pattern application, and are specifically invoked. This task includes enhanced AI completion service with better error handling, circuit breaker management, and comprehensive TypeScript test coverage.
-
-## Requirements
-
-## Solution
-
-## Notes
+This spec is a duplicate of `md#399` which contains the authoritative scope and detailed requirements for the session.edit_file integration test suite. Consolidate any future updates under `md#399`.

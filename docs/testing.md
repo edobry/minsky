@@ -113,12 +113,12 @@ This indicates integration tests are running in the pre-commit hook. This should
 ## Adding New Tests
 
 ### Unit Test
-- Place in `src/**/*.test.ts` 
+- Place in `src/**/*.test.ts`
 - Use dependency injection for all external dependencies
 - Mock all APIs, filesystem, database operations
 - Should run in <100ms typically
 
-### Integration Test  
+### Integration Test
 - Place in `tests/integration/**/*.integration.test.ts`
 - Can use real APIs with proper error handling
 - Must handle API failures gracefully (skip if credentials missing)

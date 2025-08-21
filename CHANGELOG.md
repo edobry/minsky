@@ -13,6 +13,9 @@ All notable changes to this project will be documented in this file.
   - Removed conflicting duplicate entries for `md#452`; kept single `[+]` entry
   - Resolved status conflicts for `md#445` and `md#444`; kept single `[x]` entries
   - Removed duplicate `md#446` entry; kept single `[ ]` entry
+  - Removed duplicate DONE entries for `md#412` and `md#301` (kept canonical `md#399` and `md#294` respectively); annotated duplicate specs as CLOSED duplicates
+  - Removed duplicate DONE entry for `md#050` (kept `md#044`) and marked `md#050` spec as CLOSED duplicate
+  - Confirmed `md#318` is CLOSED duplicate of `md#320` and annotated spec accordingly
 
 ### Fixed
 

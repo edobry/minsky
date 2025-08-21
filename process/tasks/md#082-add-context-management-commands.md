@@ -24,7 +24,7 @@ Understanding context utilization is crucial for:
 1. **Modular Context Component System** ✅ **COMPLETED**
 
    - **Split-Architecture Context Components**: Components with `gatherInputs` (async, data collection) and `render` (pure, template-based rendering) methods
-   - **Component Registry**: Central system (`DefaultContextComponentRegistry`) for managing and resolving component dependencies  
+   - **Component Registry**: Central system (`DefaultContextComponentRegistry`) for managing and resolving component dependencies
    - **Template System Integration**: Reusing `src/domain/rules/template-system.ts` for structured content generation
    - **Shared Inputs**: Common data points (user prompt, workspace path, target model) accessible to all components
    - **Comprehensive Component Coverage**: All major Cursor context sections replicated (13 components total)
@@ -67,7 +67,7 @@ Understanding context utilization is crucial for:
      - **Model-specific tokenization** using appropriate local tokenizers
      - **Cross-model comparison** showing token differences between models
 
-4. **Context Visualization** 
+4. **Context Visualization**
 
    - `minsky context visualize` - Generate visual representation of context usage
      - Command-line based charts showing context distribution
@@ -92,7 +92,7 @@ Understanding context utilization is crucial for:
 
 **Components Implemented:**
 1. ✅ **Environment Component** - OS, shell, workspace path
-2. ✅ **Workspace Rules Component** - Project-specific behavioral rules  
+2. ✅ **Workspace Rules Component** - Project-specific behavioral rules
 3. ✅ **System Instructions Component** - Core AI behavior guidelines
 4. ✅ **Communication Component** - Markdown formatting guidelines
 5. ✅ **Tool Calling Rules Component** - Tool usage best practices
@@ -119,7 +119,7 @@ Understanding context utilization is crucial for:
 **Problem**: `ToolSchemasComponent` incorrectly uses `context.userPrompt?.includes("xml")` for format detection instead of proper template system logic.
 
 **Expected Behavior**: Should use `RuleGenerationConfig.interface` mapping:
-- `interface: "cli"` → JSON format (default, matches Cursor)  
+- `interface: "cli"` → JSON format (default, matches Cursor)
 - `interface: "mcp"` → XML format (function_calls syntax)
 - `interface: "hybrid"` → Uses `preferMcp` setting
 
@@ -127,13 +127,13 @@ Understanding context utilization is crucial for:
 
 **Required Fix**:
 1. Add `--interface` CLI option to `context generate` command
-2. Pass interface mode through `ComponentInput.interfaceConfig`  
+2. Pass interface mode through `ComponentInput.interfaceConfig`
 3. Use `CommandGeneratorService` with proper interface mode in `ToolSchemasComponent`
 4. Remove incorrect `userPrompt` parsing logic
 
 **Impact**: Format configurability non-functional, breaking the design requirement for XML/JSON output control.
 
-**✅ RESOLUTION COMPLETED**: 
+**✅ RESOLUTION COMPLETED**:
 1. ✅ Added `--interface <cli|mcp|hybrid>` CLI option to `context generate` command
 2. ✅ Extended `ComponentInput` with `interfaceConfig` shared inputs
 3. ✅ Updated `ToolSchemasComponent` to use `CommandGeneratorService` with proper interface mode
@@ -143,7 +143,7 @@ Understanding context utilization is crucial for:
 ## Implementation Steps
 
 1. [x] **Context Component Architecture Design**
-2. [x] **Split-Architecture Implementation** 
+2. [x] **Split-Architecture Implementation**
 3. [x] **Component Registry System**
 4. [x] **Template System Integration**
 5. [x] **All 13 Core Components Implementation**
