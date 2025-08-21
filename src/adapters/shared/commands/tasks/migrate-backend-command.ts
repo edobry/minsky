@@ -235,6 +235,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           targetBackend,
         });
       } catch (error) {
+        console.error(`Migration error for task ${task.id}:`, error);
         result.errors++;
         result.details.push({
           id: task.id,

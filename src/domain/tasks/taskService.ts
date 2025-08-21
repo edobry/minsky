@@ -193,11 +193,31 @@ export class TaskService {
         // For markdown backend, construct the spec file path
         const { getTaskSpecFilePath } = await import("./taskIO");
         const specPath = getTaskSpecFilePath(id, task.title, this.workspacePath);
+
         try {
           const content = await fs.readFile(specPath, "utf-8");
           return { content, specPath, task };
         } catch (error) {
-          throw new Error(`Failed to read spec file for task ${id} at ${specPath}: ${error}`);
+          // If the generated path doesn't work, try to find the actual file with glob pattern
+          const { join } = await import("path");
+          const { glob } = await import("glob");
+          const tasksDir = join(this.workspacePath, "process", "tasks");
+          const pattern = `${id}-*.md`;
+
+          try {
+            const matches = await glob(pattern, { cwd: tasksDir });
+            if (matches.length > 0) {
+              const actualPath = join(tasksDir, matches[0]);
+              const content = await fs.readFile(actualPath, "utf-8");
+              return { content, specPath: actualPath, task };
+            }
+          } catch (globError) {
+            // Fall through to original error
+          }
+
+          throw new Error(
+            `Failed to read spec file for task ${id}. Tried: ${specPath} and pattern ${pattern} in ${tasksDir}: ${error}`
+          );
         }
       } else if (this.currentBackend.getTaskMetadata) {
         // For database backend, get spec content from metadata
@@ -307,22 +327,24 @@ export async function createTaskServiceWithDatabase(
     }),
   ];
 
-  // Always try to add Minsky backend with database connection
-  try {
-    const db = await createDatabaseConnection();
-    backends.push(
-      createMinskyTaskBackend({
-        name: "minsky",
-        workspacePath: options.workspacePath,
-        db,
-      })
-    );
-    log.debug("Minsky backend added successfully");
-  } catch (error) {
-    log.warn(`Failed to create Minsky backend: ${error}. Minsky backend will not be available.`);
-    // If user specifically requested minsky backend but it failed, throw error
-    if (options.backend === "minsky") {
-      throw new Error(`Cannot create Minsky backend: ${error}`);
+  // Only try to add Minsky backend if needed
+  if (options.backend === "minsky" || !options.backend) {
+    try {
+      const db = await createDatabaseConnection();
+      backends.push(
+        createMinskyTaskBackend({
+          name: "minsky",
+          workspacePath: options.workspacePath,
+          db,
+        })
+      );
+      log.debug("Minsky backend added successfully");
+    } catch (error) {
+      log.warn(`Failed to create Minsky backend: ${error}. Minsky backend will not be available.`);
+      // If user specifically requested minsky backend but it failed, throw error
+      if (options.backend === "minsky") {
+        throw new Error(`Cannot create Minsky backend: ${error}`);
+      }
     }
   }
 

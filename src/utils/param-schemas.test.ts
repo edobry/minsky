@@ -80,13 +80,13 @@ describe("Parameter Schemas", () => {
           expect(hasDescription(innerType)).toBe(true);
 
           if (hasDescription(innerType)) {
-            expect(innerType.spec.length).toBeGreaterThan(0);
+            expect(innerType.description.length).toBeGreaterThan(0);
           }
         } else {
           expect(hasDescription(schema)).toBe(true);
 
           if (hasDescription(schema)) {
-            expect(schema.spec.length).toBeGreaterThan(0);
+            expect(schema.description.length).toBeGreaterThan(0);
           }
         }
       }

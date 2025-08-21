@@ -123,14 +123,24 @@ export class MinskyTaskBackend implements TaskBackend {
       });
 
     // Save spec content to task_specs table
-    await this.db.insert(taskSpecsTable).values({
-      taskId: id,
-      content: spec, // Use the spec content directly
-      contentHash: this.generateContentHash(spec),
-      version: 1,
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    await this.db
+      .insert(taskSpecsTable)
+      .values({
+        taskId: id,
+        content: spec, // Use the spec content directly
+        contentHash: this.generateContentHash(spec),
+        version: 1,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: taskSpecsTable.taskId,
+        set: {
+          content: spec,
+          contentHash: this.generateContentHash(spec),
+          updatedAt: new Date(),
+        },
+      });
 
     return task;
   }
