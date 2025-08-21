@@ -371,7 +371,7 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     } else if (result === null || result === undefined) {
       log.cli("No result");
     } else {
-      process.stdout.write(String(result) + "\n");
+      process.stdout.write(`${String(result)}\n`);
     }
   }
 

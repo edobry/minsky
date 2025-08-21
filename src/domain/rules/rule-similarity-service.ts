@@ -20,8 +20,7 @@ export class RuleSimilarityService {
    */
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const vector = await this.embeddingService.generateEmbedding(query);
-    const effThreshold =
-      threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
+    const effThreshold = threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
     const results = await this.vectorStorage.search(vector, limit, effThreshold);
     return results;
   }

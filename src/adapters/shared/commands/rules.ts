@@ -377,7 +377,9 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             try {
               const { createHash } = await import("crypto");
               contentHash = createHash("sha256").update(contentLimited).digest("hex");
-            } catch {}
+            } catch {
+              // Ignore hash generation errors - continue without content hash
+            }
             const vector = await embeddingService.generateEmbedding(contentLimited);
             // Store metadata JSON and content hash in dedicated column for staleness detection
             await storage.store(rule.id, vector, { ...metadata, contentHash });
@@ -400,7 +402,9 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             model,
           };
         }
-        log.cli(`✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`);
+        log.cli(
+          `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`
+        );
         return { success: true };
       } catch (error) {
         const message = getErrorMessage(error as any);

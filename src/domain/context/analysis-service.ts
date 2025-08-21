@@ -322,40 +322,213 @@ export class ContextAnalysisService {
     }>
   ): Promise<ContextAnalysisResult["optimizations"]> {
     const optimizations = [];
+    const totalTokens = tokenizedElements.reduce((sum, el) => sum + el.tokenCount, 0);
 
     // Sort by token count to identify largest elements
     const sortedElements = [...tokenizedElements].sort((a, b) => b.tokenCount - a.tokenCount);
 
+    // Calculate thresholds based on context size
+    const largeFileThreshold = Math.max(1000, totalTokens * 0.05); // 5% of context or 1000 tokens
+    const largeRuleThreshold = Math.max(500, totalTokens * 0.03); // 3% of context or 500 tokens
+
     for (const { element, tokenCount, percentage } of sortedElements) {
-      // Suggest removing very large elements with low importance
-      if (tokenCount > 1000 && element.type === "file") {
+      // 1. Large file removal suggestions
+      if (tokenCount > largeFileThreshold && element.type === "file") {
+        const confidence = this.calculateRemovalConfidence(element, percentage);
         optimizations.push({
           type: "remove" as const,
           elementId: element.id,
           elementName: element.name,
           currentTokens: tokenCount,
           potentialSavings: tokenCount,
-          description: `Large file consuming ${tokenCount} tokens (${percentage.toFixed(1)}% of context)`,
-          confidence: percentage > 20 ? ("high" as const) : ("medium" as const),
+          description: this.generateFileRemovalDescription(element, tokenCount, percentage),
+          confidence,
         });
       }
 
-      // Suggest optimizing very long rule files
-      if (tokenCount > 500 && element.type === "rule") {
+      // 2. Rule optimization suggestions
+      if (tokenCount > largeRuleThreshold && element.type === "rule") {
         optimizations.push({
           type: "optimize" as const,
           elementId: element.id,
           elementName: element.name,
           currentTokens: tokenCount,
           potentialSavings: Math.floor(tokenCount * 0.3), // Estimate 30% reduction
-          description: `Large rule file could potentially be simplified or split`,
+          description: `Large rule file could be simplified, split into smaller rules, or use more concise language`,
+          confidence: "medium" as const,
+        });
+      }
+
+      // 3. Test file suggestions
+      if (element.name.includes(".test.") || element.name.includes(".spec.")) {
+        if (tokenCount > 2000) {
+          optimizations.push({
+            type: "optimize" as const,
+            elementId: element.id,
+            elementName: element.name,
+            currentTokens: tokenCount,
+            potentialSavings: Math.floor(tokenCount * 0.7), // Tests usually not needed in context
+            description: `Test file consuming ${tokenCount} tokens - consider excluding test files from context`,
+            confidence: "high" as const,
+          });
+        }
+      }
+
+      // 4. Configuration file suggestions
+      if (this.isConfigFile(element.name) && tokenCount > 300) {
+        optimizations.push({
+          type: "optimize" as const,
+          elementId: element.id,
+          elementName: element.name,
+          currentTokens: tokenCount,
+          potentialSavings: Math.floor(tokenCount * 0.8),
+          description: `Configuration file consuming ${tokenCount} tokens - consider excluding config files unless actively editing`,
           confidence: "medium" as const,
         });
       }
     }
 
-    // Limit to top 5 suggestions
-    return optimizations.slice(0, 5);
+    // 5. Context window utilization suggestions
+    const utilizationPercentage = (totalTokens / 128000) * 100; // Assuming 128k context window
+    if (utilizationPercentage > 80) {
+      optimizations.push({
+        type: "restructure" as const,
+        elementId: "context-window",
+        elementName: "Overall Context",
+        currentTokens: totalTokens,
+        potentialSavings: Math.floor(totalTokens * 0.2),
+        description: `High context utilization (${utilizationPercentage.toFixed(1)}%) - consider using selective inclusion or context chunking`,
+        confidence: "high" as const,
+      });
+    }
+
+    // 6. Duplicate content detection
+    const duplicates = this.findDuplicateContent(tokenizedElements);
+    for (const duplicate of duplicates) {
+      optimizations.push({
+        type: "deduplicate" as const,
+        elementId: duplicate.elementId,
+        elementName: duplicate.elementName,
+        currentTokens: duplicate.tokenCount,
+        potentialSavings: duplicate.savings,
+        description: `Similar content found in multiple files - consider consolidating or referencing`,
+        confidence: "medium" as const,
+      });
+    }
+
+    // Sort by potential savings and limit to top 8 suggestions
+    return optimizations.sort((a, b) => b.potentialSavings - a.potentialSavings).slice(0, 8);
+  }
+
+  private calculateRemovalConfidence(
+    element: ContextElement,
+    percentage: number
+  ): "high" | "medium" | "low" {
+    // High confidence for removing test files, build files, etc.
+    if (
+      element.name.includes(".test.") ||
+      element.name.includes(".spec.") ||
+      element.name.includes("node_modules") ||
+      element.name.includes(".build")
+    ) {
+      return "high";
+    }
+
+    // High confidence if consuming >15% of context
+    if (percentage > 15) {
+      return "high";
+    }
+
+    // Medium confidence for large files
+    if (percentage > 8) {
+      return "medium";
+    }
+
+    return "low";
+  }
+
+  private generateFileRemovalDescription(
+    element: ContextElement,
+    tokenCount: number,
+    percentage: number
+  ): string {
+    const baseDesc = `Large file consuming ${tokenCount} tokens (${percentage.toFixed(1)}% of context)`;
+
+    if (element.name.includes(".test.") || element.name.includes(".spec.")) {
+      return `${baseDesc} - Test file can usually be excluded from context`;
+    }
+
+    if (element.name.includes("package.json") || element.name.includes("tsconfig")) {
+      return `${baseDesc} - Configuration file rarely needed in AI context`;
+    }
+
+    if (element.name.includes(".d.ts")) {
+      return `${baseDesc} - Type definition file can often be excluded`;
+    }
+
+    return baseDesc;
+  }
+
+  private isConfigFile(fileName: string): boolean {
+    const configPatterns = [
+      "package.json",
+      "tsconfig",
+      "eslint",
+      "prettier",
+      ".env",
+      "webpack",
+      "rollup",
+      "vite",
+      "babel",
+      "jest",
+      "vitest",
+      ".gitignore",
+      ".dockerignore",
+      "Dockerfile",
+      "docker-compose",
+    ];
+
+    return configPatterns.some((pattern) => fileName.includes(pattern));
+  }
+
+  private findDuplicateContent(
+    tokenizedElements: Array<{ element: ContextElement; tokenCount: number }>
+  ): Array<{
+    elementId: string;
+    elementName: string;
+    tokenCount: number;
+    savings: number;
+  }> {
+    // Simple implementation - could be enhanced with actual content similarity analysis
+    const duplicates = [];
+    const nameGroups = new Map<string, Array<{ element: ContextElement; tokenCount: number }>>();
+
+    // Group by similar names (basic heuristic)
+    for (const item of tokenizedElements) {
+      const baseName = item.element.name.replace(/\.(ts|js|tsx|jsx)$/, "").toLowerCase();
+      if (!nameGroups.has(baseName)) {
+        nameGroups.set(baseName, []);
+      }
+      nameGroups.get(baseName)!.push(item);
+    }
+
+    // Find groups with multiple files
+    for (const [baseName, group] of nameGroups) {
+      if (group.length > 1) {
+        // Suggest removing smaller duplicates
+        const sorted = group.sort((a, b) => b.tokenCount - a.tokenCount);
+        for (let i = 1; i < sorted.length && i < 3; i++) {
+          duplicates.push({
+            elementId: sorted[i].element.id,
+            elementName: sorted[i].element.name,
+            tokenCount: sorted[i].tokenCount,
+            savings: sorted[i].tokenCount,
+          });
+        }
+      }
+    }
+
+    return duplicates.slice(0, 3); // Limit to avoid spam
   }
 
   /**

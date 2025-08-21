@@ -217,7 +217,7 @@ export class UserService {
     this.users.push(user);
     return user;
   }
-}`
+}`,
 };
 
 beforeAll(async () => {
