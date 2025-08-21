@@ -188,8 +188,19 @@ export class TaskService {
         throw new Error(`Failed to read spec file for task ${id}: ${error}`);
       }
     } else {
-      // For database backend, get spec content from metadata
-      if (this.currentBackend.getTaskMetadata) {
+      // Handle different backends without specPath
+      if (this.currentBackend.name === "markdown") {
+        // For markdown backend, construct the spec file path
+        const { getTaskSpecFilePath } = await import("./taskIO");
+        const specPath = getTaskSpecFilePath(id, task.title, this.workspacePath);
+        try {
+          const content = await fs.readFile(specPath, "utf-8");
+          return { content, specPath, task };
+        } catch (error) {
+          throw new Error(`Failed to read spec file for task ${id} at ${specPath}: ${error}`);
+        }
+      } else if (this.currentBackend.getTaskMetadata) {
+        // For database backend, get spec content from metadata
         const metadata = await this.currentBackend.getTaskMetadata(id);
         return {
           content: metadata?.spec || "",
