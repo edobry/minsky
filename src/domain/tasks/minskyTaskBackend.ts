@@ -91,7 +91,7 @@ export class MinskyTaskBackend implements TaskBackend {
     spec: string,
     options?: CreateTaskOptions
   ): Promise<Task> {
-    const id = this.generateTaskId(title);
+    const id = options?.id || (await this.generateTaskId(title));
     const task: Task = {
       id,
       title,
@@ -99,17 +99,28 @@ export class MinskyTaskBackend implements TaskBackend {
       backend: this.name,
     };
 
-    // Save task metadata to tasks table
-    await this.db.insert(tasksTable).values({
-      id,
-      sourceTaskId: id.split("#")[1], // Extract the numeric part
-      backend: "minsky" as const,
-      status: "TODO" as const,
-      title,
-      contentHash: this.generateContentHash(title + spec),
-      createdAt: new Date(),
-      updatedAt: new Date(),
-    });
+    // Save task metadata to tasks table (handle conflicts)
+    await this.db
+      .insert(tasksTable)
+      .values({
+        id,
+        sourceTaskId: id.split("#")[1], // Extract the numeric part
+        backend: "minsky" as const,
+        status: (options?.status || "TODO") as any,
+        title,
+        contentHash: this.generateContentHash(title + spec),
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      })
+      .onConflictDoUpdate({
+        target: tasksTable.id,
+        set: {
+          status: (options?.status || "TODO") as any,
+          title: title,
+          contentHash: this.generateContentHash(title + spec),
+          updatedAt: new Date(),
+        },
+      });
 
     // Save spec content to task_specs table
     await this.db.insert(taskSpecsTable).values({
@@ -207,11 +218,24 @@ export class MinskyTaskBackend implements TaskBackend {
     };
   }
 
-  private generateTaskId(title: string): string {
-    // Generate a simple incrementing ID - in production you'd want something more robust
-    const timestamp = Date.now();
-    const random = Math.floor(Math.random() * 1000);
-    return `mt#${timestamp}-${random}`;
+  private async generateTaskId(title: string): Promise<string> {
+    // Get all existing tasks to find the highest ID number
+    const existingTasks = await this.db.select({ id: tasksTable.id }).from(tasksTable);
+
+    // Find the max ID number from existing Minsky tasks
+    const maxId = existingTasks.reduce((max, task) => {
+      if (task.id.startsWith("mt#")) {
+        const numPart = task.id.replace("mt#", "");
+        const num = parseInt(numPart, 10);
+        if (!isNaN(num) && num > max) {
+          return num;
+        }
+      }
+      return max;
+    }, 0);
+
+    // Generate next sequential ID
+    return `mt#${maxId + 1}`;
   }
 
   private generateContentHash(content: string): string {

@@ -213,9 +213,11 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
             }
           }
 
-          // Create task in target backend
+          // Create task in target backend with transformed ID and status
           await targetService.createTaskFromTitleAndSpec(fullTask.title, specContent, {
             force: true,
+            id: newTaskId,
+            status: fullTask.status,
           });
 
           // Update the task ID and backend if needed

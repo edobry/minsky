@@ -83,6 +83,8 @@ export interface TaskListOptions {
 export interface CreateTaskOptions {
   force?: boolean;
   spec?: string; // This is the spec content for creation
+  id?: string; // Specific ID to use instead of generating one
+  status?: string; // Specific status to use instead of defaulting to TODO
 }
 
 /**
