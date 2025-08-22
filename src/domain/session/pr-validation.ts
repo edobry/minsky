@@ -56,7 +56,17 @@ export function isDuplicateContent(content1: string, content2: string): boolean 
   if (!content1 || !content2) return false;
 
   // Normalize both strings for comparison
-  const normalize = (str: string) => str.trim().toLowerCase().replace(/\s+/g, " ");
+  const normalize = (str: string) => {
+    return str
+      .trim()
+      .toLowerCase()
+      // Remove markdown header prefixes (# ## ### etc.)
+      .replace(/^#+\s*/, "")
+      // Normalize task ID formats: md#123 -> #123, task-md-123 -> #123
+      .replace(/(?:task-)?md[#-](\d+)/g, "#$1")
+      // Normalize whitespace
+      .replace(/\s+/g, " ");
+  };
 
   return normalize(content1) === normalize(content2);
 }
