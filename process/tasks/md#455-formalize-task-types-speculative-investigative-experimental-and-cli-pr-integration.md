@@ -1,12 +1,15 @@
 # Formalize Task Types (Speculative/Investigative/Experimental) and Explore CLI/PR Integration
 
 ## Status
+
 TODO
 
 ## Priority
+
 MEDIUM
 
 ## Category
+
 RESEARCH / ARCHITECTURE
 
 ## Context

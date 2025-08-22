@@ -729,3 +729,13 @@
 - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
 - [ ] Add Missing Test Cases [md#458](process/tasks/md#458-add-missing-test-cases.md)
+
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
+
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
+
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
+
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
+
+- [ ] Create Test Architecture Documentation [md#459](process/tasks/md#459-create-test-architecture-documentation.md)
