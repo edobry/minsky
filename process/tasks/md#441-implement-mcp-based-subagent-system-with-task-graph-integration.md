@@ -1,12 +1,15 @@
 # Implement MCP-Based Subagent System with Task Graph Integration
 
 ## Status
+
 TODO
 
 ## Priority
+
 HIGH
 
 ## Category
+
 ARCHITECTURE
 
 ## Context
@@ -14,6 +17,7 @@ ARCHITECTURE
 We are transitioning from operating within existing agent loops (Cursor, Claude Code) to progressively controlling the agent workflow ourselves. Building on insights from **Task #349** (analyzing agent OODA loop patterns through chat history), we will implement a **subagent system** where specialized agents operate as MCP tools callable by the root agent.
 
 This nested agent architecture enables:
+
 - **Progressive control assumption** without breaking existing workflows
 - **Task-based state management** using our subtask/session infrastructure
 - **Context isolation** with customized tool manifests per subagent
@@ -61,17 +65,20 @@ This nested agent architecture enables:
 ### Phase 1: MCP Tool Foundation
 
 #### Objectives
+
 Establish the basic MCP tool interface that enables root agents to invoke subagents.
 
 #### Deliverables
 
 1. **Subagent MCP Tool Registration**
+
    - Define MCP tool schema for subagent invocation
    - Implement parameter structure supporting task ID, agent type, objective, and context
    - Create result format including task status, summary, and execution metadata
    - Register tool with MCP server infrastructure
 
 2. **Basic Parameter Validation**
+
    - Validate required fields (agent type, objective)
    - Ensure task/session references are valid when provided
    - Check configuration constraints (iteration limits, tool lists)
@@ -86,11 +93,13 @@ Establish the basic MCP tool interface that enables root agents to invoke subage
 ### Phase 2: Agent Loop Implementation
 
 #### Objectives
+
 Implement the core agent execution loop based on OODA patterns discovered in Task #349.
 
 #### Deliverables
 
 1. **OODA Loop Framework**
+
    - Implement Observe phase for gathering current state and context
    - Create Orient phase for analyzing situation and identifying patterns
    - Build Decide phase for selecting appropriate actions
@@ -98,6 +107,7 @@ Implement the core agent execution loop based on OODA patterns discovered in Tas
    - Add iteration control and completion detection
 
 2. **Strategy Pattern Support**
+
    - Define interface for different OODA strategy implementations
    - Create default strategy based on Task #349 common patterns
    - Support strategy selection through configuration
@@ -112,17 +122,20 @@ Implement the core agent execution loop based on OODA patterns discovered in Tas
 ### Phase 3: Task System Integration
 
 #### Objectives
+
 Fully integrate subagents with the existing task and subtask infrastructure.
 
 #### Deliverables
 
 1. **Task Creation and Linking**
+
    - Create new tasks when task ID not provided
    - Link to existing tasks when specified
    - Support parent-child relationships for subtask creation
    - Maintain task metadata including agent type and session references
 
 2. **Status Synchronization**
+
    - Update task status based on subagent execution
    - Map agent outcomes to task status values
    - Handle partial completion scenarios
@@ -137,17 +150,20 @@ Fully integrate subagents with the existing task and subtask infrastructure.
 ### Phase 4: Session Management
 
 #### Objectives
+
 Integrate session system for workspace isolation and state persistence.
 
 #### Deliverables
 
 1. **Session Creation and Reuse**
+
    - Create new sessions for isolated execution
    - Reuse existing sessions when appropriate
    - Link sessions to tasks for tracking
    - Handle session cleanup and lifecycle
 
 2. **Workspace Operations**
+
    - Execute subagent operations in session workspace
    - Manage file operations within session context
    - Handle workspace state preservation
@@ -162,17 +178,20 @@ Integrate session system for workspace isolation and state persistence.
 ### Phase 5: Tool and Context Management
 
 #### Objectives
+
 Implement intelligent tool selection and context customization per subagent.
 
 #### Deliverables
 
 1. **Tool Manifest Generation**
+
    - Integrate with Task #256 context-aware tool management
    - Generate customized tool lists based on agent type and task
    - Apply tool whitelist/blacklist from configuration
    - Optimize tool selection for context efficiency
 
 2. **Rule Selection Integration**
+
    - Leverage Task #202 rule suggestion system
    - Select relevant rules based on agent type and objective
    - Apply rule constraints from configuration
@@ -187,17 +206,20 @@ Implement intelligent tool selection and context customization per subagent.
 ### Phase 6: Conversation History
 
 #### Objectives
+
 Implement conversation tracking for execution visibility and analysis.
 
 #### Deliverables
 
 1. **Conversation Database Schema**
+
    - Design schema for storing agent conversations
    - Support iteration-level detail tracking
    - Enable efficient querying and retrieval
    - Plan for conversation replay capabilities
 
 2. **Execution Recording**
+
    - Capture OODA loop iterations
    - Record tool calls and responses
    - Track decision reasoning and outcomes
@@ -212,17 +234,20 @@ Implement conversation tracking for execution visibility and analysis.
 ### Phase 7: Advanced Agent Strategies
 
 #### Objectives
+
 Implement sophisticated agent behaviors based on Task #349 analysis.
 
 #### Deliverables
 
 1. **Multiple OODA Variants**
+
    - Implement planning-heavy strategy for complex tasks
    - Create rapid-iteration strategy for simple tasks
    - Build debugging-focused strategy with deep analysis
    - Develop review-oriented strategy for validation
 
 2. **Adaptive Strategy Selection**
+
    - Analyze task characteristics for strategy selection
    - Support dynamic strategy switching
    - Learn from execution outcomes
@@ -237,23 +262,27 @@ Implement sophisticated agent behaviors based on Task #349 analysis.
 ### Phase 8: Specialized Subagents
 
 #### Objectives
+
 Create domain-specific subagents for common development workflows.
 
 #### Deliverables
 
 1. **Code Review Subagent**
+
    - Specialized for analyzing code changes
    - Focus on quality, security, and best practices
    - Generate actionable feedback
    - Support different review depths
 
 2. **Debugging Subagent**
+
    - Optimized for investigating issues
    - Systematic error analysis approach
    - Integration with debugging tools
    - Root cause identification
 
 3. **Test Generation Subagent**
+
    - Focused on creating comprehensive tests
    - Support multiple testing frameworks
    - Coverage analysis integration
@@ -268,17 +297,20 @@ Create domain-specific subagents for common development workflows.
 ### Phase 9: Workflow Orchestration
 
 #### Objectives
+
 Enable complex multi-subagent workflows through task graphs.
 
 #### Deliverables
 
 1. **Task Graph Execution**
+
    - Support sequential subtask execution
    - Enable parallel subtask processing
    - Handle dependency resolution
    - Manage execution ordering
 
 2. **Workflow Definition**
+
    - Define workflow templates
    - Support custom workflow creation
    - Enable workflow parameterization
@@ -293,17 +325,20 @@ Enable complex multi-subagent workflows through task graphs.
 ### Phase 10: Monitoring and Analytics
 
 #### Objectives
+
 Provide comprehensive visibility into subagent system behavior.
 
 #### Deliverables
 
 1. **Execution Metrics**
+
    - Track subagent invocation frequency
    - Measure execution duration and token usage
    - Monitor success/failure rates
    - Analyze strategy effectiveness
 
 2. **Performance Analysis**
+
    - Identify performance bottlenecks
    - Track resource utilization
    - Measure context efficiency
@@ -318,6 +353,7 @@ Provide comprehensive visibility into subagent system behavior.
 ## Success Criteria
 
 ### Core Functionality
+
 - Subagents successfully callable as MCP tools from root agents
 - Agent loops execute based on OODA patterns from Task #349
 - Full integration with task/subtask system
@@ -325,6 +361,7 @@ Provide comprehensive visibility into subagent system behavior.
 - Conversation history properly tracked
 
 ### Integration Requirements
+
 - Seamless operation within existing agent systems (Cursor, Claude Code)
 - Task status correctly synchronized with execution state
 - Tool selection appropriately customized per subagent
@@ -332,6 +369,7 @@ Provide comprehensive visibility into subagent system behavior.
 - Session lifecycle properly managed
 
 ### Quality Metrics
+
 - Comprehensive execution tracing available
 - Error handling robust and informative
 - Performance within acceptable bounds
@@ -341,6 +379,7 @@ Provide comprehensive visibility into subagent system behavior.
 ## Dependencies
 
 ### Required Tasks
+
 - **Task #349**: Agent OODA loop analysis (provides execution patterns)
 - **Task #237**: Hierarchical task system (provides task infrastructure)
 - **Task #238**: Basic subtask support (provides parent-child relationships)
@@ -349,6 +388,7 @@ Provide comprehensive visibility into subagent system behavior.
 - **Task #082**: Context management (provides context optimization)
 
 ### Infrastructure Requirements
+
 - MCP server infrastructure for tool registration
 - Task backend system for state persistence
 - Session management for workspace isolation
@@ -358,12 +398,14 @@ Provide comprehensive visibility into subagent system behavior.
 ## Risk Considerations
 
 ### Technical Risks
+
 1. **Complexity of nested agent loops** requiring careful state management
 2. **Performance impact** of multiple AI inference calls
 3. **Context size limitations** affecting subagent capabilities
 4. **Synchronization challenges** between root and subagents
 
 ### Mitigation Strategies
+
 1. **Incremental implementation** allowing validation at each phase
 2. **Comprehensive testing** of agent loop behaviors
 3. **Performance monitoring** from early phases
@@ -372,6 +414,7 @@ Provide comprehensive visibility into subagent system behavior.
 ## Future Enhancements
 
 ### Potential Extensions
+
 1. **Multi-model subagents** using different AI models for different tasks
 2. **Collaborative subagents** that can invoke each other
 3. **Learning subagents** that improve from execution history
@@ -379,17 +422,20 @@ Provide comprehensive visibility into subagent system behavior.
 5. **Visual workflow designer** for complex task graphs
 
 ### Long-term Vision
+
 Evolution toward a fully autonomous development assistant that can handle complex multi-step workflows while maintaining human oversight and control. The subagent system provides the foundation for this transition while preserving compatibility with existing tools and workflows.
 
 ## Implementation Notes
 
 ### Design Considerations
+
 - Each phase should produce working functionality that can be tested independently
 - Phases can be implemented in parallel where dependencies allow
 - Early phases focus on establishing patterns that later phases will build upon
 - Integration points should be clearly defined to enable parallel development
 
 ### Testing Strategy
+
 - Unit tests for each component within phases
 - Integration tests across phase boundaries
 - End-to-end tests simulating root agent interactions
@@ -399,6 +445,7 @@ Evolution toward a fully autonomous development assistant that can handle comple
 ## Related Tasks
 
 This task creates the foundation for progressive agent control and enables:
+
 - Advanced workflow orchestration through task graphs
 - Specialized development workflows with domain-specific agents
 - Gradual transition from passive to active agent control

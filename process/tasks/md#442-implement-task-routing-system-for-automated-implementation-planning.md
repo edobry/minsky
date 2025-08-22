@@ -1,12 +1,15 @@
 # Implement Task Routing System for Automated Implementation Planning
 
 ## Status
+
 TODO
 
 ## Priority
+
 HIGH
 
 ## Category
+
 PLANNING
 
 ## Context
@@ -37,6 +40,7 @@ We need an automated **"route to this task"** system that can analyze the task d
 ### 1. Task Dependency Graph Construction
 
 **Graph Building**:
+
 - Parse task specifications for dependency references
 - Build directed acyclic graph (DAG) of task relationships
 - Identify different dependency types (blocking, optional, enhancing)
@@ -44,6 +48,7 @@ We need an automated **"route to this task"** system that can analyze the task d
 - Support for complex dependency patterns (OR dependencies, conditional dependencies)
 
 **Dependency Types**:
+
 - **Blocking Dependencies**: Must be completed before target task
 - **Optional Dependencies**: Helpful but not required
 - **Enhancing Dependencies**: Improve implementation but can be deferred
@@ -53,12 +58,14 @@ We need an automated **"route to this task"** system that can analyze the task d
 ### 2. Current State Assessment
 
 **Completion Status Analysis**:
+
 - Identify all completed, in-progress, and pending tasks
 - Assess partial completion states and work-in-progress
 - Evaluate available infrastructure and capabilities
 - Consider team skills and resource availability
 
 **Readiness Evaluation**:
+
 - Determine which tasks are immediately actionable
 - Identify tasks blocked by dependencies
 - Calculate readiness scores based on dependency completion
@@ -67,12 +74,14 @@ We need an automated **"route to this task"** system that can analyze the task d
 ### 3. Pathfinding and Routing Algorithm
 
 **Core Algorithm**:
+
 - Implement modified Dijkstra's algorithm for task graphs
 - Weight edges based on effort, value, and strategic priority
 - Support for multi-objective optimization (time vs. value vs. risk)
 - Handle parallel execution paths and resource constraints
 
 **Routing Strategies**:
+
 - **Shortest Path**: Minimum total effort to reach target
 - **Highest Value First**: Prioritize tasks with immediate user benefit
 - **Risk Minimization**: Prefer well-understood, low-risk tasks
@@ -82,6 +91,7 @@ We need an automated **"route to this task"** system that can analyze the task d
 ### 4. Implementation Plan Generation
 
 **Plan Structure**:
+
 - Phase-based organization with clear milestones
 - Parallel execution tracks where possible
 - Effort estimates and resource requirements
@@ -89,6 +99,7 @@ We need an automated **"route to this task"** system that can analyze the task d
 - Value delivery timeline and user benefits
 
 **Output Formats**:
+
 - Human-readable implementation plans
 - Gantt chart data for project management tools
 - JSON/YAML for programmatic consumption
@@ -97,12 +108,14 @@ We need an automated **"route to this task"** system that can analyze the task d
 ### 5. Dynamic Re-routing
 
 **Adaptive Planning**:
+
 - Update routes as tasks are completed or priorities change
 - Recalculate optimal paths when new dependencies are discovered
 - Handle blocked tasks by finding alternative routes
 - Support for emergency re-prioritization
 
 **Progress Integration**:
+
 - Monitor task completion status automatically
 - Adjust remaining effort estimates based on progress
 - Identify when routes need recalculation
@@ -113,17 +126,20 @@ We need an automated **"route to this task"** system that can analyze the task d
 ### Phase 1: Dependency Graph Foundation
 
 #### Objectives
+
 Build the core infrastructure for analyzing and representing task dependencies.
 
 #### Deliverables
 
 1. **Dependency Parser**
+
    - Parse task specifications for dependency references
    - Support multiple reference formats (task IDs, titles, patterns)
    - Extract different dependency relationship types
    - Handle malformed or ambiguous dependency declarations
 
 2. **Graph Data Structure**
+
    - Implement directed acyclic graph for task relationships
    - Support weighted edges with multiple criteria
    - Efficient storage and query operations
@@ -138,17 +154,20 @@ Build the core infrastructure for analyzing and representing task dependencies.
 ### Phase 2: Basic Pathfinding Implementation
 
 #### Objectives
+
 Implement core routing algorithm with simple optimization criteria.
 
 #### Deliverables
 
 1. **Pathfinding Engine**
+
    - Modified Dijkstra's algorithm for task graphs
    - Basic weight calculation (effort + dependency depth)
    - Shortest path calculation to target tasks
    - Multiple path discovery for alternative routes
 
 2. **Route Validation**
+
    - Verify route feasibility given current state
    - Check for missing dependencies or circular references
    - Validate resource requirements and constraints
@@ -163,17 +182,20 @@ Implement core routing algorithm with simple optimization criteria.
 ### Phase 3: Advanced Routing Strategies
 
 #### Objectives
+
 Implement sophisticated routing strategies that optimize for multiple criteria.
 
 #### Deliverables
 
 1. **Multi-Objective Optimization**
+
    - Value-weighted routing (immediate user benefit vs. long-term infrastructure)
    - Risk-adjusted pathfinding (prefer known-effort tasks)
    - Parallel execution path optimization
    - Custom weight configuration for different scenarios
 
 2. **Strategic Route Planning**
+
    - Phase-based planning with clear value delivery milestones
    - Infrastructure-first vs. value-first routing strategies
    - Resource-constrained planning (team size, skill requirements)
@@ -188,17 +210,20 @@ Implement sophisticated routing strategies that optimize for multiple criteria.
 ### Phase 4: Parallelization and Resource Planning
 
 #### Objectives
+
 Enable complex parallel execution planning with resource considerations.
 
 #### Deliverables
 
 1. **Parallel Execution Planning**
+
    - Identify tasks that can be worked on simultaneously
    - Resource conflict detection and resolution
    - Load balancing across available team members
    - Critical path identification for timeline optimization
 
 2. **Resource Management**
+
    - Skill requirement matching for task assignment
    - Capacity planning and workload distribution
    - Bottleneck identification and mitigation strategies
@@ -213,17 +238,20 @@ Enable complex parallel execution planning with resource considerations.
 ### Phase 5: Interactive Planning Interface
 
 #### Objectives
+
 Provide rich interactive tools for exploring and refining implementation routes.
 
 #### Deliverables
 
 1. **Command Line Interface**
+
    - `minsky tasks route <target-task>` - generate route to target
    - `minsky tasks route --compare <task1> <task2>` - compare routes
    - `minsky tasks route --strategy <strategy>` - use specific routing strategy
    - `minsky tasks route --parallel` - optimize for parallel execution
 
 2. **Interactive Route Explorer**
+
    - Visual dependency graph navigation
    - What-if analysis for completing tasks out of order
    - Interactive weight adjustment and re-routing
@@ -238,17 +266,20 @@ Provide rich interactive tools for exploring and refining implementation routes.
 ### Phase 6: Advanced Analytics and Learning
 
 #### Objectives
+
 Add intelligence and learning capabilities to improve routing over time.
 
 #### Deliverables
 
 1. **Route Performance Analysis**
+
    - Track actual vs. estimated effort for completed routes
    - Identify patterns in route success and failure
    - Learn from historical execution data
    - Improve effort estimation accuracy over time
 
 2. **Predictive Routing**
+
    - Machine learning models for effort estimation
    - Risk prediction based on task characteristics
    - Optimal strategy selection based on project context
@@ -265,18 +296,21 @@ Add intelligence and learning capabilities to improve routing over time.
 ### Core Components
 
 1. **Task Graph Engine**
+
    - Dependency relationship modeling and storage
    - Graph traversal and analysis algorithms
    - Efficient querying and update operations
    - Cycle detection and graph validation
 
 2. **Routing Algorithm Framework**
+
    - Pluggable pathfinding algorithms
    - Multi-criteria optimization support
    - Parallel execution path calculation
    - Route caching and memoization
 
 3. **Planning Orchestrator**
+
    - Route generation and validation
    - Plan formatting and output generation
    - Progress tracking and route updates
@@ -294,7 +328,7 @@ Add intelligence and learning capabilities to improve routing over time.
 interface TaskDependency {
   sourceTaskId: string;
   targetTaskId: string;
-  type: 'blocking' | 'optional' | 'enhancing' | 'parallel';
+  type: "blocking" | "optional" | "enhancing" | "parallel";
   weight: number;
   description?: string;
 }
@@ -339,6 +373,7 @@ interface RoutingStrategy {
 ## Use Cases
 
 ### 1. Strategic Feature Planning
+
 ```bash
 # Generate route to implement major feature
 minsky tasks route --target "md#441" --strategy value-first
@@ -364,6 +399,7 @@ minsky tasks route --target "md#441" --strategy value-first
 ```
 
 ### 2. Dependency Analysis
+
 ```bash
 # Compare different routes to same target
 minsky tasks route --target "md#441" --compare-strategies
@@ -376,6 +412,7 @@ minsky tasks route --target "md#441" --strategy shortest-path
 ```
 
 ### 3. Team Planning
+
 ```bash
 # Generate route optimized for 2-person team
 minsky tasks route --target "md#441" --team-size 2 --parallel
@@ -388,6 +425,7 @@ minsky tasks route --target "md#441" --deadline "2024-03-01"
 ```
 
 ### 4. Progress Monitoring
+
 ```bash
 # Update route based on current progress
 minsky tasks route --target "md#441" --update
@@ -402,6 +440,7 @@ minsky tasks route --target "md#441" --critical-path
 ## Success Criteria
 
 ### Core Functionality
+
 - Generate accurate dependency graphs from task specifications
 - Calculate optimal routes to target tasks using configurable strategies
 - Identify parallel execution opportunities and resource constraints
@@ -409,12 +448,14 @@ minsky tasks route --target "md#441" --critical-path
 - Update routes dynamically as tasks are completed
 
 ### Quality Requirements
+
 - Route generation completes in under 5 seconds for graphs up to 1000 tasks
 - Plans are accurate to within 25% of actual effort for well-defined tasks
 - Parallel execution recommendations reduce overall timeline by 20-40%
 - User satisfaction with plan clarity and actionability
 
 ### Integration Requirements
+
 - Seamless integration with existing task management workflows
 - Support for all current task backend systems
 - Compatible with session and project management processes
@@ -423,16 +464,19 @@ minsky tasks route --target "md#441" --critical-path
 ## Dependencies
 
 ### Required Tasks
+
 - **Task #237**: Hierarchical task system (provides dependency infrastructure)
 - **Task #238**: Basic subtask support (provides task relationships)
 - **Task #235**: Metadata architecture (provides dependency storage)
 
 ### Recommended Tasks
+
 - **Task #253**: Task similarity search (for related task discovery)
 - **Task #082**: Context analysis (for effort estimation improvements)
 - **Task #202**: Rule suggestions (for strategy optimization)
 
 ### Infrastructure Requirements
+
 - Task backend system with dependency support
 - Database for storing dependency relationships and route cache
 - Graph processing capabilities for large task sets
@@ -441,6 +485,7 @@ minsky tasks route --target "md#441" --critical-path
 ## Future Enhancements
 
 ### Advanced Features
+
 1. **Machine Learning Integration**: Learn optimal routes from historical data
 2. **Team Performance Modeling**: Personalize routes based on team capabilities
 3. **External Integration**: Connect with project management tools and calendars
@@ -448,6 +493,7 @@ minsky tasks route --target "md#441" --critical-path
 5. **Collaborative Planning**: Multi-user route planning and consensus building
 
 ### Strategic Applications
+
 - **Release Planning**: Generate routes for complex feature releases
 - **Technical Debt Management**: Optimize paths for infrastructure improvements
 - **Onboarding Planning**: Create learning paths for new team members

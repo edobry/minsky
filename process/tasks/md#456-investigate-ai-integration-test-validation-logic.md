@@ -15,6 +15,7 @@ The original validation failures were:
 3. **"multiple markers in large file"** - Failed because AI result didn't preserve original content header
 
 The quick fix made validation extremely lenient:
+
 - `containsOriginal` check reduced to just ensuring result length > 10 characters
 - `containsNew` checks made non-fatal (just warnings)
 - `shouldGrow` check reduced to just ensuring result length > 20 characters
@@ -50,17 +51,20 @@ The quick fix made validation extremely lenient:
 ### Phase 2: Determine Root Cause
 
 **If AI output is broken:**
+
 - Fix AI service configuration
 - Fix prompt formatting
 - Fix dependency injection issues
 
 **If AI output is reasonable but different:**
+
 - Adjust validation logic to be more semantic and less literal
 - Create appropriate validation rules for different edit types
 
 ### Phase 3: Implement Proper Solution
 
 Based on findings, either:
+
 - Fix the underlying AI service issues and restore original validation
 - Create smarter validation logic that checks for semantic correctness
 - Hybrid approach with different validation levels for different test scenarios

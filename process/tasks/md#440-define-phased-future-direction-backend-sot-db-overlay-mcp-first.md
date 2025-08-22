@@ -6,6 +6,7 @@ Priority: HIGH
 ## Summary
 
 Codify a simple, phased plan for the Minsky task system that:
+
 - Treats external backends as the system of truth (SoT) per field in the future.
 - Uses Postgres as a materialized overlay for advanced capabilities.
 - Deprecates `process/tasks.md` as an input (export‑only artifacts if needed).
@@ -21,9 +22,9 @@ This task focuses on the minimal path now and explicitly defers complex pieces a
 
 ## Goals (This Task)
 
-1) Record the minimal target architecture and phased rollout at a high level (operator/developer‑facing plan).
-2) Align near‑term work with the minimal DB‑only path and MCP‑first editing.
-3) Keep advanced design items out of the critical path (clearly phased follow‑ups).
+1. Record the minimal target architecture and phased rollout at a high level (operator/developer‑facing plan).
+2. Align near‑term work with the minimal DB‑only path and MCP‑first editing.
+3. Keep advanced design items out of the critical path (clearly phased follow‑ups).
 
 ## Non‑Goals
 
@@ -49,6 +50,7 @@ This task focuses on the minimal path now and explicitly defers complex pieces a
   - Config flag `tasks.strictDbMode` (or equivalent) to error if in‑tree backends are used.
 
 Acceptance (Phase 1):
+
 - All task read/write go to DB for `db` backend.
 - MCP spec get/set works with optimistic concurrency and dry‑run.
 - Manual export writes stable, readable files with a do‑not‑edit header.

@@ -18,19 +18,23 @@ Currently our task similarity search uses simple title + full spec content for e
 ## Proposed Experiments
 
 ### Experiment 1: Content Structure Variations
+
 Test different embedding content formats:
+
 - A: Title + Full Spec (current)
-- B: Title + Summary + Full Spec  
+- B: Title + Summary + Full Spec
 - C: Title + Key Terms + Full Spec
 - D: Title + Summary + Key Terms + Full Spec
 - E: Summary Only (for comparison)
 
 ### Experiment 2: Length Analysis
+
 - Measure embedding quality vs content length
 - Test truncation strategies (first N chars, summary-only, etc.)
 - Analyze token usage and cost implications
 
 ### Experiment 3: Search Quality Metrics
+
 - Create test dataset of tasks with known similarity relationships
 - Measure precision/recall for different content strategies
 - Test with various query types (keyword, natural language, task descriptions)
@@ -52,7 +56,7 @@ Test different embedding content formats:
 ## Timeline
 
 - Phase 1: Experiment framework and baseline measurements (1-2 days)
-- Phase 2: Content strategy experiments and data collection (2-3 days)  
+- Phase 2: Content strategy experiments and data collection (2-3 days)
 - Phase 3: Analysis and recommendations (1 day)
 
 ## Dependencies
@@ -64,7 +68,6 @@ Test different embedding content formats:
 ## Notes
 
 This research will inform both the current task similarity system and the future generic similarity service (md#447). The findings should be applicable across domains (tasks, rules, etc.).
-
 
 ## Requirements
 

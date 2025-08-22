@@ -15,6 +15,7 @@ Minsky has separate test suites to ensure fast, reliable development while maint
 - **Coverage**: Core business logic, utilities, mocked integrations
 
 **Examples**:
+
 ```bash
 bun test                    # Run all unit tests
 bun run test:unit          # Same as above
@@ -33,11 +34,13 @@ bun run test:coverage      # With coverage reporting
 - **Coverage**: End-to-end workflows, real API interactions
 
 **Examples**:
+
 ```bash
 bun run test:integration   # Run all integration tests
 ```
 
 **⚠️ Prerequisites for Integration Tests**:
+
 - **GitHub API**: Set `GITHUB_TOKEN` environment variable
 - **Morph AI**: Configure with `minsky config set ai.providers.morph.apiKey your-key`
 - **Network**: Internet connectivity required
@@ -67,14 +70,15 @@ mock.module("fs", () => mockFs);
 
 ### Real vs Mock APIs
 
-| Test Type | Filesystem | GitHub API | AI APIs | Database |
-|-----------|------------|------------|---------|----------|
-| Unit      | Mock       | Mock       | Mock    | Mock     |
-| Integration | Mock     | **Real**   | **Real** | Mock    |
+| Test Type   | Filesystem | GitHub API | AI APIs  | Database |
+| ----------- | ---------- | ---------- | -------- | -------- |
+| Unit        | Mock       | Mock       | Mock     | Mock     |
+| Integration | Mock       | **Real**   | **Real** | Mock     |
 
 ### Pre-commit Hook Behavior
 
 The pre-commit hook **only runs unit tests** to ensure:
+
 - ✅ Fast feedback (15-20 seconds vs minutes)
 - ✅ No API rate limiting or network issues blocking commits
 - ✅ No external service dependencies for development
@@ -98,27 +102,32 @@ bun test path/to/specific.test.ts  # Single test file
 ## Troubleshooting
 
 ### "Integration tests failing"
+
 1. Check API credentials (GitHub token, Morph config)
 2. Verify network connectivity
 3. Check API rate limits
 
 ### "Unit tests slow"
+
 1. Ensure you're running `bun test` (not `bun run test:all`)
 2. Check for accidental real API calls in unit tests
 3. Verify proper dependency injection usage
 
 ### "Pre-commit hook taking too long"
+
 This indicates integration tests are running in the pre-commit hook. This should never happen - report as a bug.
 
 ## Adding New Tests
 
 ### Unit Test
+
 - Place in `src/**/*.test.ts`
 - Use dependency injection for all external dependencies
 - Mock all APIs, filesystem, database operations
 - Should run in <100ms typically
 
 ### Integration Test
+
 - Place in `tests/integration/**/*.integration.test.ts`
 - Can use real APIs with proper error handling
 - Must handle API failures gracefully (skip if credentials missing)

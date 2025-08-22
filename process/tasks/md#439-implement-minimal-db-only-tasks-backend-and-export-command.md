@@ -34,6 +34,7 @@
 
 ### 🚨 **CRITICAL ISSUES REMAINING**
 
+<<<<<<< HEAD
 **The task is NOT complete** - there are significant compilation errors directly related to our interface consolidation work:
 
 #### Missing Exports (50+ errors)
@@ -54,6 +55,29 @@
 - `../storage/db` module not found for `DatabaseTaskBackend`
 - Missing types: `TaskData`, `TaskBackend`, `TaskServiceOptions`, etc.
 - Import path mismatches from interface reorganization
+=======
+- Schema/config
+
+  - Ensure `task_backend` enum includes `db`.
+  - Allow tasks with `backend = db` to be created/read/updated.
+
+- Backend/Adapter
+
+  - Register new `db` task backend implementation.
+  - All reads/writes for `db` backend go to/from DB only.
+  - Remove any fallback reads of `process/tasks.md`.
+
+- Migration/Import
+
+  - Update existing `tasks migrate`/import path so that it can write records as `backend = db` (option, or default when strict mode is enabled).
+  - Preserve idempotency and verification.
+
+- Export (manual, not automatic)
+
+  - `minsky tasks export --format markdown --out docs/tasks/` (or similar) to write per-task files.
+  - Each file contains a prominent header: “GENERATED – DO NOT EDIT. Source of truth is the database.”
+  - Stable formatting to minimize diffs; never read these files back.
+>>>>>>> origin/main
 
 #### Backend Implementation Issues (15+ errors)
 - Missing required interface methods in backend implementations
@@ -62,11 +86,19 @@
 
 ### Next Steps Required
 
+<<<<<<< HEAD
 1. **Fix Missing Exports**: Add proper exports for all factory functions and types
 2. **Resolve Interface Compatibility**: Align `TaskService` with `TaskServiceInterface`
 3. **Fix Backend Implementations**: Complete missing methods and fix type issues  
 4. **Resolve Import Dependencies**: Fix missing module imports and paths
 5. **Test Database Backend**: Verify the new db backend actually works end-to-end
+=======
+- MCP
+
+  - `tasks.spec.get(id)`
+  - `tasks.spec.set(id, content[, ifMatchContentHash])` with dry-run and optimistic concurrency.
+  - `tasks.meta.get/set` for DB-owned fields (optional in this task if already present; otherwise stub).
+>>>>>>> origin/main
 
 ### Estimated Work Remaining
 

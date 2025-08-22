@@ -11,7 +11,7 @@
     "format": "prettier --write \"**/*.{ts,js,json,md}\"",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\"",
     "format:all": "bun run format && bun run lint:fix",
-        "test": "bun test --timeout=15000",
+    "test": "bun test --timeout=15000",
     "test:unit": "bun test --timeout=15000",
     "test:integration": "RUN_INTEGRATION_TESTS=1 bun test --timeout=30000",
     "test:all": "bun test --timeout=30000",
