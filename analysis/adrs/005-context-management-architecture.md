@@ -113,8 +113,52 @@ Value-add beyond Cursor:
 - Template System: `src/domain/rules/template-system.ts`
 - Command Generator: `src/domain/rules/command-generator.ts`
 
+## Provider API Integration (Extension)
+
+### Decision: Enhanced Model-Tokenizer Mapping
+**Date**: 2025-01-29  
+**Status**: IMPLEMENTED  
+
+#### Context
+The context module required accurate token counting and analysis for different AI models. Without model-specific tokenization, context analysis would use incorrect tokenizers for different providers (e.g., using GPT tokenizer for Claude models).
+
+#### Decision: Extend AIModel Interface with TokenizerInfo
+We extended the existing `AIModel` interface to include provider-specific tokenizer metadata:
+
+```typescript
+export interface AIModel {
+  // ... existing fields
+  tokenizer?: TokenizerInfo;  // NEW: Provider-specific metadata
+}
+
+export interface TokenizerInfo {
+  encoding: string;           // Model-specific encoding
+  library: string;            // Tokenization library to use
+  source: string;             // How mapping was determined
+  config?: Record<string, any>; // Optional config
+}
+```
+
+#### Implementation Approach
+1. **Model Fetcher Enhancement**: Updated OpenAI and Anthropic fetchers to include tokenizer metadata
+2. **Pattern-Based Detection**: Implemented automatic model family recognition
+3. **Integration with Existing Infrastructure**: Leveraged existing `DefaultTokenizerRegistry` and `DefaultTokenizationService`
+4. **No Breaking Changes**: Additive enhancement that maintains backward compatibility
+
+#### Benefits Achieved
+- **Accurate Context Analysis**: Model-specific token counting (GPT-4o vs Claude vs Gemini)
+- **Intelligent Model Selection**: Automatic tokenizer selection per target model
+- **Provider Agnostic**: Works across OpenAI, Anthropic, Google, and custom providers
+- **Performance Optimized**: Cached tokenizer instances with fallback strategies
+
+#### Integration Points
+- Context generation now uses appropriate tokenizer per target model
+- `minsky ai models list` shows tokenizer metadata for all cached models
+- Context analysis provides accurate token counts for multi-model scenarios
+
 ## Future Evolution
 - Performance optimization for shared input gathering
 - Caching layer for expensive operations
 - Plugin system for custom components
+- Advanced tokenizer configuration for custom models
 - Token counting and context size optimization

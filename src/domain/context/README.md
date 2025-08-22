@@ -207,6 +207,59 @@ Context can be optimized for specific AI models while maintaining core structure
 4. **Validation**: Schema validation for generated context
 5. **Metrics**: Token counting and context size optimization
 
+## Provider API Integration
+
+### Model-Tokenizer Mapping
+The context module now includes comprehensive **Provider API Integration** for accurate model-specific tokenization:
+
+#### **Enhanced AI Model Interface**
+```typescript
+export interface AIModel {
+  // ... existing fields
+  tokenizer?: TokenizerInfo;  // NEW: Provider-specific tokenizer metadata
+}
+
+export interface TokenizerInfo {
+  encoding: string;           // e.g., "o200k_base", "cl100k_base", "claude-3"
+  library: "gpt-tokenizer" | "tiktoken" | "anthropic" | "google" | "custom";
+  source: "api" | "fallback" | "config";
+  config?: Record<string, any>;
+}
+```
+
+#### **Model Fetcher Enhancements**
+- **OpenAI Fetcher**: Precise mapping for GPT-4o (`o200k_base`) vs GPT-4 (`cl100k_base`) vs legacy models (`p50k_base`)
+- **Anthropic Fetcher**: Claude model detection with fallback tokenization
+- **Pattern-Based Detection**: Automatic model family recognition
+
+#### **Tokenization Integration**
+The context module leverages the existing comprehensive tokenization infrastructure:
+
+- **DefaultTokenizerRegistry**: Model-aware tokenizer selection
+- **DefaultTokenizationService**: High-performance token counting with caching
+- **Multiple Libraries**: Support for `gpt-tokenizer`, `tiktoken`, `anthropic`, and `google` tokenizers
+
+#### **Context Analysis Benefits**
+With Provider API Integration, context analysis now provides:
+
+- **Accurate Token Counts**: Model-specific tokenization (GPT-4o vs Claude vs Gemini)
+- **Intelligent Model Selection**: Automatic appropriate tokenizer per target model
+- **Performance Optimization**: Cached tokenizer instances and pattern-based detection
+
+#### **Inspection Commands**
+You can now inspect tokenizer information using:
+
+```bash
+# View all models with tokenizer metadata
+minsky ai models list --provider openai --format json
+
+# Refresh model cache to include latest tokenizer mappings
+minsky ai models refresh --provider openai
+
+# Generate context with model-aware analysis
+minsky context generate --analyze --target-model gpt-4o
+```
+
 ## Dependencies
 
 - **Template System**: `src/domain/rules/template-system.ts`
@@ -214,6 +267,8 @@ Context can be optimized for specific AI models while maintaining core structure
 - **Session Management**: `src/domain/session/`
 - **Git Operations**: `src/domain/git/`
 - **Rules Management**: `src/domain/rules/`
+- **AI Model Management**: `src/domain/ai/model-cache/`
+- **Tokenization Services**: `src/domain/ai/tokenization/`
 
 ## CLI Usage
 

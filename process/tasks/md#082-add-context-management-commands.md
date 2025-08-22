@@ -133,6 +133,35 @@ Understanding context utilization is crucial for:
 
 **Impact**: Format configurability non-functional, breaking the design requirement for XML/JSON output control.
 
+### Provider API Integration - ✅ COMPLETED
+
+**Tokenizer Enhancement Implemented:**
+
+1. ✅ **Enhanced AIModel Interface** - Added `TokenizerInfo` field to model metadata
+2. ✅ **OpenAI Model Fetcher** - Precise tokenizer mapping (o200k_base vs cl100k_base vs p50k_base)
+3. ✅ **Anthropic Model Fetcher** - Claude model detection with fallback strategies
+4. ✅ **Pattern-Based Detection** - Automatic model family recognition and tokenizer assignment
+5. ✅ **Integration with Existing Infrastructure** - Leverages `DefaultTokenizerRegistry` and `DefaultTokenizationService`
+6. ✅ **Model Cache Integration** - Tokenizer metadata stored and retrievable via `minsky ai models list`
+
+**Provider Mappings Implemented:**
+- **GPT-4o/O1 models**: `o200k_base` encoding with `gpt-tokenizer` library
+- **GPT-4/GPT-3.5 models**: `cl100k_base` encoding with `gpt-tokenizer` library  
+- **Legacy/Embedding models**: `p50k_base` encoding with `tiktoken` library
+- **Claude models**: `claude-3` encoding pattern with fallback to `cl100k_base`
+- **Gemini models**: `gemini` encoding pattern support
+
+**Key Features:**
+- **Source Tracking**: Distinguishes between API-derived vs fallback vs config tokenizer mappings
+- **No Breaking Changes**: Additive enhancement maintaining backward compatibility
+- **Performance Optimized**: Cached tokenizer instances with intelligent fallback strategies
+- **Inspection Commands**: Full tokenizer metadata accessible via `minsky ai models list --format json`
+
+**Context Analysis Benefits:**
+- **Model-Specific Token Counting**: Accurate tokenization per target model (GPT-4o ≠ Claude ≠ Gemini)
+- **Intelligent Tokenizer Selection**: Automatic appropriate tokenizer per model family
+- **Provider Agnostic Architecture**: Works across OpenAI, Anthropic, Google, and custom providers
+
 ## Implementation Steps
 
 1. [x] **Context Component Architecture Design**
