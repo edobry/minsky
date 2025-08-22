@@ -66,8 +66,8 @@ export async function listTasksFromParams(params: any) {
       const configLoader = new ConfigurationLoader();
       const configResult = await configLoader.load();
 
-      if (configResult.success && configResult.data.tasks?.backend) {
-        backend = configResult.data.tasks.backend;
+      if (configResult.config.tasks?.backend) {
+        backend = configResult.config.tasks.backend;
         console.log("DEBUG: Backend from configuration:", backend);
       }
     } catch (error) {
