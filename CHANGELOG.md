@@ -17,6 +17,18 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- tasks: `minsky tasks list` prints results reliably (primitive formatter fix)
+- tasks: silenced stray debug lines; only show with `--debug`
+- tasks: `tasks spec` supports `mt#` IDs (backend-aware spec resolution)
+- tasks: `tasks list --json` returns only the tasks array (no wrapper)
+- tasks: spec parser returns correct title/description; legacy "# Task: X" normalized
+- tasks: implemented minimal MultiBackendTaskService with qualified ID output; updated tests
+
+- CLI runtime errors when running commands like `minsky tasks list`:
+  - Fixed duplicate `catch` block in `src/adapters/shared/commands/rules.ts` that caused "Unexpected catch" syntax error
+  - Repaired broken `outputResult` implementation and debug check in `src/adapters/cli/utils/index.ts`
+  - Verified command runs cleanly; added robust fallback printing in formatter
+
 - **CRITICAL**: Fixed TaskService test hanging issues causing infinite loops (billions of milliseconds execution time)
 
   - Variable naming protocol violation: Fixed constructor parameter mismatch (`customBackends` → `backends`)

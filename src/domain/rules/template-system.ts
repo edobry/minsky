@@ -101,7 +101,7 @@ function createTemplateHelpers(
     config.interface === "mcp" || (config.interface === "hybrid" && config.preferMcp);
 
   return {
-    command: (commandId: string, spec?: string) => {
+    command: (commandId: string, description?: string) => {
       const syntax = commandGenerator.getCommandSyntax(commandId);
       if (!syntax) {
         throw new Error(`Command not found: ${commandId}`);

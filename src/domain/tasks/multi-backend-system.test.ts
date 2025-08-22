@@ -10,7 +10,7 @@ import type {
   TaskCollision,
   MultiBackendTaskService,
 } from "./multi-backend-service";
-import { createMockBackend } from "./mock-backend-factory";
+import { createMockBackend, createMultiBackendTaskServiceWithMocks, mockTaskSpecs } from "./mock-backend-factory";
 import { createMultiBackendTaskService } from "./multi-backend-service";
 
 describe("Multi-Backend Task System", () => {
@@ -45,30 +45,42 @@ describe("Multi-Backend Task System", () => {
     });
   });
 
-  describe("Multi-Backend TaskService - TODO: implement createMultiBackendTaskService", () => {
+  describe("Multi-Backend TaskService", () => {
     describe("Backend Registration", () => {
-      it("TODO: should register multiple backends", () => {
-        // TODO: Implement createMultiBackendTaskService for multi-backend support
-        expect(() => createMultiBackendTaskService()).toThrow("TODO: Multi-backend service not yet implemented");
+      it("should register multiple backends", () => {
+        const { service, mdBackend, ghBackend, jsonBackend } = createMultiBackendTaskServiceWithMocks();
+        const backends = service.listBackends();
+        expect(backends.length).toBe(3);
+        expect(backends.map((b) => (b as any).prefix)).toEqual(["md", "gh", "json"]);
       });
     });
 
     describe("Task Operations", () => {
-      it("TODO: should support task creation across backends", () => {
-        // TODO: Implement createMultiBackendTaskService for multi-backend support
-        expect(() => createMultiBackendTaskService()).toThrow("TODO: Multi-backend service not yet implemented");
+      it("should support task creation across backends", async () => {
+        const { service } = createMultiBackendTaskServiceWithMocks();
+        const spec = mockTaskSpecs.simple();
+        const created = await service.createTask({ ...spec, id: "md#new" } as any, "md");
+        expect(created.id.startsWith("md#")).toBe(true);
+        expect(created.title).toBe(spec.title);
       });
 
-      it("TODO: should support task listing from all backends", () => {
-        // TODO: Implement createMultiBackendTaskService for multi-backend support
-        expect(() => createMultiBackendTaskService()).toThrow("TODO: Multi-backend service not yet implemented");
+      it("should support task listing from all backends", async () => {
+        const { service } = createMultiBackendTaskServiceWithMocks();
+        const all = await service.listAllTasks();
+        expect(all.length).toBe(6);
+        const ids = all.map((t) => t.id);
+        expect(ids).toContain("md#1");
+        expect(ids).toContain("gh#1");
+        expect(ids).toContain("json#1");
       });
     });
 
     describe("ID Management", () => {
-      it("TODO: should convert all task IDs to qualified format", () => {
-        // TODO: Implement createMultiBackendTaskService for multi-backend support
-        expect(() => createMultiBackendTaskService()).toThrow("TODO: Multi-backend service not yet implemented");
+      it("should convert all task IDs to qualified format", async () => {
+        const { service } = createMultiBackendTaskServiceWithMocks();
+        const all = await service.listAllTasks();
+        expect(all.every((t) => /.+#.+/.test(t.id))).toBe(true);
       });
-    });  });
+    });
+  });
 });

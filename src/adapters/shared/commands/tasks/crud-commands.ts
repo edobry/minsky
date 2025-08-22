@@ -80,6 +80,11 @@ export class TasksListCommand extends BaseTaskCommand {
     });
 
     this.debug(`Found ${tasks.length} tasks`);
+    const wantJson = params.json || ctx.format === "json";
+    if (wantJson) {
+      // For JSON output, return tasks array only
+      return tasks;
+    }
 
     return this.formatResult(
       {
@@ -88,7 +93,7 @@ export class TasksListCommand extends BaseTaskCommand {
         tasks,
         message: `Found ${tasks.length} tasks`,
       },
-      params.json || ctx.format === "json"
+      false
     );
   }
 }

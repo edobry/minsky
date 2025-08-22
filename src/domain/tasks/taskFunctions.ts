@@ -312,32 +312,10 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
     return { title: "", description: "" };
   }
 
-  // Support multiple title formats for backward compatibility:
-  // 1. Old format with task number: "# Task #XXX: Title"
-  // 2. Old format without number: "# Task: Title"
-  // 3. New clean format: "# Title"
-  const titleWithIdMatch = titleLine.match(/^# Task #(\d+): (.+)$/);
-  const titleWithoutIdMatch = titleLine.match(/^# Task: (.+)$/);
-  const cleanTitleMatch = titleLine.match(/^# (.+)$/);
-
-  let title = "";
-  let id: string | undefined;
-
-  if (titleWithIdMatch && titleWithIdMatch[2]) {
-    // Old format: "# Task #XXX: Title"
-    title = titleWithIdMatch[2];
-    id = `#${titleWithIdMatch[1]}`;
-  } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
-    // Old format: "# Task: Title"
-    title = titleWithoutIdMatch[1];
-  } else if (cleanTitleMatch && cleanTitleMatch[1]) {
-    // New clean format: "# Title"
-    title = cleanTitleMatch[1];
-    // Skip if this looks like an old task format to avoid false positives
-    if (!title.startsWith("Task ")) {
-      // This is likely the new clean format
-    }
-  }
+  // Title is the text after the leading "# ", normalize legacy "Task: X" to just "X"
+  const rawTitle = titleLine.replace(/^#\s+/, "");
+  const noIdLegacyMatch = rawTitle.match(/^Task:\s*(.+)$/);
+  const title = noIdLegacyMatch ? noIdLegacyMatch[1] : rawTitle;
 
   // Extract description from the Context section
   const contextIndex = lines.findIndex((line) => line.trim() === "## Context");
@@ -353,8 +331,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
 
   return {
     title,
-    description: spec.trim(),
-    id,
+    description: description.trim(),
   };
 }
 

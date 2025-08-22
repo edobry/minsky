@@ -97,13 +97,20 @@ export class TaskService {
     };
   }
 
-  async createTask(title: string, options?: CreateTaskOptions): Promise<TaskData> {
-    // This method creates a task with basic info
-    const spec =
-      options?.spec ||
-      `# ${title}\n\n## Context\n\n(Context to be added)\n\n## Requirements\n\n(Requirements to be added)\n\n## Implementation\n\n(Implementation to be added)`;
-
-    const task = await this.currentBackend.createTaskFromTitleAndSpec(title, spec, options);
+  async createTask(specPath: string, options?: CreateTaskOptions): Promise<TaskData> {
+    // Legacy createTask expects a path to a spec file for markdown backend.
+    const backendAny = this.currentBackend as any;
+    let task: any;
+    if (typeof backendAny.createTaskFromTitleAndSpec === "function") {
+      const content = await fs.readFile(specPath, "utf-8");
+      const titleMatch = content.match(/^#\s+(.+)$/m);
+      const title = titleMatch ? titleMatch[1].trim() : "New Task";
+      task = await backendAny.createTaskFromTitleAndSpec(title, content, options);
+    } else if (typeof backendAny.createTask === "function") {
+      task = await backendAny.createTask(specPath, options);
+    } else {
+      throw new Error("Current backend does not support task creation");
+    }
 
     return {
       id: task.id,
@@ -307,6 +314,35 @@ export function createTaskService(options: TaskServiceOptions): TaskService {
 
 export function createConfiguredTaskService(options: { workspacePath: string, backend?: string }): TaskService {
   return new TaskService(options);
+}
+
+// ---- Utility functions used by tests (GitHub URL parsing) ----
+export function extractGitHubInfoFromRepoUrl(url: string): { owner: string; repo: string } | null {
+  try {
+    // SSH: git@github.com:owner/repo.git
+    const sshMatch = url.match(/^git@github.com:([^/]+)\/(.+?)(\.git)?$/);
+    if (sshMatch) {
+      return { owner: sshMatch[1], repo: sshMatch[2] };
+    }
+    // HTTPS: https://github.com/owner/repo(.git)?
+    const httpsMatch = url.match(/^https?:\/\/github.com\/([^/]+)\/(.+?)(\.git)?$/);
+    if (httpsMatch) {
+      return { owner: httpsMatch[1], repo: httpsMatch[2] };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function parseGitHubRepoString(input: string): { owner: string; repo: string } | null {
+  const trimmed = (input || "").trim();
+  if (!trimmed) return null;
+  const parts = trimmed.split("/").filter(Boolean);
+  if (parts.length !== 2) return null;
+  const [owner, repo] = parts;
+  if (!owner || !repo) return null;
+  return { owner, repo };
 }
 
 /**

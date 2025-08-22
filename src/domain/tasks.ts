@@ -26,6 +26,7 @@ import { createGitService } from "./git";
 // These wrap TaskService methods with parameter validation and formatting
 
 import { TaskService, createTaskServiceWithDatabase } from "./tasks/taskService";
+export { TaskService } from "./tasks/taskService";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
@@ -56,7 +57,7 @@ const getTaskService = () => {
 export async function listTasksFromParams(params: any) {
   const validParams = taskListParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
+  log.debug("tasks.list params", { backend: validParams.backend });
 
   // Read backend from configuration if not provided via command line
   let backend = validParams.backend;
@@ -68,10 +69,10 @@ export async function listTasksFromParams(params: any) {
 
       if (configResult.config.tasks?.backend) {
         backend = configResult.config.tasks.backend;
-        console.log("DEBUG: Backend from configuration:", backend);
+        log.debug("tasks.list backend from configuration", { backend });
       }
     } catch (error) {
-      console.log("DEBUG: Failed to load configuration:", error);
+      log.debug("tasks.list failed to load configuration", { error });
     }
   }
 
@@ -81,14 +82,14 @@ export async function listTasksFromParams(params: any) {
     backend,
   });
 
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.list created TaskService", { backend: taskService.currentBackend?.name });
   return await taskService.listTasks(validParams);
 }
 
 export async function getTaskFromParams(params: any) {
   const validParams = taskGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
+  log.debug("tasks.get params", { backend: validParams.backend });
 
   // Read backend from configuration if not provided via command line
   let backend = validParams.backend;
@@ -100,10 +101,10 @@ export async function getTaskFromParams(params: any) {
 
       if (configResult.config.tasks?.backend) {
         backend = configResult.config.tasks.backend;
-        console.log("DEBUG: Backend from configuration:", backend);
+        log.debug("tasks.get backend from configuration", { backend });
       }
     } catch (error) {
-      console.log("DEBUG: Failed to load configuration:", error);
+      log.debug("tasks.get failed to load configuration", { error });
     }
   }
 
@@ -113,25 +114,25 @@ export async function getTaskFromParams(params: any) {
     backend,
   });
 
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.get created TaskService", { backend: taskService.currentBackend?.name });
   return await taskService.getTask(validParams.taskId);
 }
 
 export async function getTaskStatusFromParams(params: any) {
   const validParams = taskStatusGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
+  log.debug("tasks.status.get params", { backend: validParams.backend });
   const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.status.get created TaskService", { backend: taskService.currentBackend?.name });
   return await taskService.getTaskStatus(validParams.taskId);
 }
 
 export async function setTaskStatusFromParams(params: any) {
   const validParams = taskStatusSetParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
+  log.debug("tasks.status.set params", { backend: validParams.backend });
   const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.status.set created TaskService", { backend: taskService.currentBackend?.name });
   await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
@@ -139,9 +140,9 @@ export async function setTaskStatusFromParams(params: any) {
 export async function createTaskFromParams(params: any) {
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
+  log.debug("tasks.create params", { backend: validParams.backend });
   const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.create created TaskService", { backend: taskService.currentBackend?.name });
   return await taskService.createTask(validParams.specPath);
 }
 
@@ -149,7 +150,7 @@ export async function createTaskFromTitleAndSpec(params: any) {
   // Parse using the existing schema (which may still use "description")
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
+  log.debug("tasks.createTitleSpec params", { backend: validParams.backend });
 
   // Use unified async factory for all backends
   const taskService = await createTaskServiceWithDatabase({
@@ -157,7 +158,7 @@ export async function createTaskFromTitleAndSpec(params: any) {
     backend: validParams.backend,
   });
 
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.createTitleSpec created TaskService", { backend: taskService.currentBackend?.name });
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
   const title = (validParams as any).title || "";
@@ -167,9 +168,9 @@ export async function createTaskFromTitleAndSpec(params: any) {
 export async function deleteTaskFromParams(params: any) {
   const validParams = taskDeleteParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
+  log.debug("tasks.delete params", { backend: validParams.backend });
   const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.delete created TaskService", { backend: taskService.currentBackend?.name });
   const success = await taskService.deleteTask(validParams.taskId, validParams);
   return { success, taskId: validParams.taskId };
 }
@@ -177,9 +178,26 @@ export async function deleteTaskFromParams(params: any) {
 export async function getTaskSpecContentFromParams(params: any) {
   const validParams = taskSpecContentParamsSchema.parse(params);
   const workspacePath = process.cwd();
-  console.log("DEBUG: Backend requested:", validParams.backend);
-  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  log.debug("tasks.spec params", { backend: validParams.backend });
+
+  // Determine backend (prefer CLI param, else config), and use unified factory
+  let backend = validParams.backend;
+  if (!backend) {
+    try {
+      const { ConfigurationLoader } = await import("./configuration/loader");
+      const configLoader = new ConfigurationLoader();
+      const configResult = await configLoader.load();
+      if (configResult.config.tasks?.backend) {
+        backend = configResult.config.tasks.backend;
+        log.debug("tasks.spec backend from configuration", { backend });
+      }
+    } catch (error) {
+      log.debug("tasks.spec failed to load configuration", { error });
+    }
+  }
+
+  const taskService = await createTaskServiceWithDatabase({ workspacePath, backend });
+  log.debug("tasks.spec created TaskService", { backend: taskService.currentBackend?.name });
   return await taskService.getTaskSpecContent(validParams.taskId);
 }
 
