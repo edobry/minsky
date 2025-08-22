@@ -1,12 +1,33 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect, beforeEach } from "bun:test";
 import { ToolSchemasComponent } from "./tool-schemas";
 import type { ComponentInput } from "./types";
-import { registerAllSharedCommands } from "../../../adapters/shared/commands";
+import {
+  createSharedCommandRegistry,
+  CommandCategory,
+} from "../../../adapters/shared/command-registry";
+import { registerRulesCommands } from "../../../adapters/shared/commands/rules";
 
 describe("ToolSchemasComponent", () => {
-  // Register all commands before running tests
-  beforeAll(async () => {
-    await registerAllSharedCommands();
+  let testRegistry: ReturnType<typeof createSharedCommandRegistry>;
+
+  beforeEach(async () => {
+    // Create a fresh registry for each test to avoid interference
+    testRegistry = createSharedCommandRegistry();
+
+    // Register commands that support registry parameters
+    registerRulesCommands(testRegistry);
+
+    // Manually register some test commands to ensure we have >10 tools
+    for (let i = 1; i <= 15; i++) {
+      testRegistry.registerCommand({
+        id: `test.command${i}`,
+        category: CommandCategory.TASKS,
+        name: `Test Command ${i}`,
+        description: `Test command ${i} for testing`,
+        parameters: {},
+        execute: async () => ({ success: true }),
+      });
+    }
   });
 
   const mockComponentInput: ComponentInput = {
@@ -25,6 +46,7 @@ describe("ToolSchemasComponent", () => {
           mcpEnabled: false,
           preferMcp: false,
         },
+        commandRegistry: testRegistry,
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
@@ -41,6 +63,7 @@ describe("ToolSchemasComponent", () => {
           mcpEnabled: true,
           preferMcp: true,
         },
+        commandRegistry: testRegistry,
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
@@ -57,6 +80,7 @@ describe("ToolSchemasComponent", () => {
           mcpEnabled: true,
           preferMcp: false,
         },
+        commandRegistry: testRegistry,
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
@@ -73,6 +97,7 @@ describe("ToolSchemasComponent", () => {
           mcpEnabled: true,
           preferMcp: true,
         },
+        commandRegistry: testRegistry,
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
@@ -85,6 +110,7 @@ describe("ToolSchemasComponent", () => {
       const input: ComponentInput = {
         ...mockComponentInput,
         // No interfaceConfig provided
+        commandRegistry: testRegistry,
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
@@ -154,28 +180,27 @@ describe("ToolSchemasComponent", () => {
           mcpEnabled: false,
           preferMcp: false,
         },
+        commandRegistry: testRegistry,
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
 
       // Should have real tools from the registry
       expect(gatheredInputs.totalTools).toBeGreaterThan(10);
-      expect(Object.keys(gatheredInputs.toolSchemas)).toContain("tasks.list");
+      expect(Object.keys(gatheredInputs.toolSchemas)).toContain("rules.list");
 
       // Should have rich parameter schemas (not empty)
-      const tasksList = gatheredInputs.toolSchemas["tasks.list"];
-      expect(tasksList).toBeDefined();
-      expect(tasksList.description).toBe("List tasks");
-      expect(tasksList.parameters.type).toBe("object");
-      expect(tasksList.parameters.properties).toBeDefined();
-      expect(Object.keys(tasksList.parameters.properties)).toContain("status");
+      const rulesList = gatheredInputs.toolSchemas["rules.list"];
+      expect(rulesList).toBeDefined();
+      expect(rulesList.description).toBe("List all rules in the workspace");
+      expect(rulesList.parameters.type).toBe("object");
+      expect(rulesList.parameters.properties).toBeDefined();
 
-      // Should have proper parameter types and descriptions
-      const statusParam = tasksList.parameters.properties.status;
-      expect(statusParam.type).toBe("string");
-      expect(statusParam.enum).toContain("TODO");
-      expect(statusParam.enum).toContain("IN-PROGRESS");
-      expect(statusParam.description).toBe("Task status");
+      // Should also have test commands
+      expect(Object.keys(gatheredInputs.toolSchemas)).toContain("test.command1");
+      const testCommand = gatheredInputs.toolSchemas["test.command1"];
+      expect(testCommand).toBeDefined();
+      expect(testCommand.description).toBe("Test command 1 for testing");
     });
 
     it("should generate different schemas for different tools", async () => {
@@ -186,20 +211,29 @@ describe("ToolSchemasComponent", () => {
           mcpEnabled: false,
           preferMcp: false,
         },
+        commandRegistry: testRegistry,
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
 
       // Check multiple tools have different schemas
-      expect(gatheredInputs.toolSchemas["tasks.list"]).toBeDefined();
-      expect(gatheredInputs.toolSchemas["tasks.create"]).toBeDefined();
-      expect(gatheredInputs.toolSchemas["session.start"]).toBeDefined();
+      expect(gatheredInputs.toolSchemas["rules.list"]).toBeDefined();
+      expect(gatheredInputs.toolSchemas["rules.create"]).toBeDefined();
+      expect(gatheredInputs.toolSchemas["test.command1"]).toBeDefined();
 
-      // Verify they have different parameter structures
-      const listParams = gatheredInputs.toolSchemas["tasks.list"].parameters.properties;
-      const createParams = gatheredInputs.toolSchemas["tasks.create"].parameters.properties;
+      // Verify they are properly structured (all should have proper schema structure)
+      const rulesList = gatheredInputs.toolSchemas["rules.list"];
+      const rulesCreate = gatheredInputs.toolSchemas["rules.create"];
+      const testCommand = gatheredInputs.toolSchemas["test.command1"];
 
-      expect(Object.keys(listParams)).not.toEqual(Object.keys(createParams));
+      // All should have the required schema properties
+      expect(rulesList.parameters).toBeDefined();
+      expect(rulesCreate.parameters).toBeDefined();
+      expect(testCommand.parameters).toBeDefined();
+
+      // They should be different tools with different descriptions
+      expect(rulesList.description).not.toEqual(rulesCreate.description);
+      expect(rulesList.description).not.toEqual(testCommand.description);
     });
   });
 

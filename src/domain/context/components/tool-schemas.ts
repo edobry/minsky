@@ -97,12 +97,8 @@ export const ToolSchemasComponent: ContextComponent = {
         preferMcp: false,
       };
 
-      // Create command generator service with proper interface mode
-      const commandGenerator = new CommandGeneratorService({
-        interfaceMode: interfaceConfig.interface,
-        mcpEnabled: interfaceConfig.mcpEnabled,
-        preferMcp: interfaceConfig.preferMcp,
-      });
+      // Use custom registry if provided (for testing), otherwise use shared registry
+      const registry = context.commandRegistry || sharedCommandRegistry;
 
       // Get all command categories and build comprehensive tool list
       const toolSchemas: Record<string, any> = {};
@@ -115,11 +111,12 @@ export const ToolSchemasComponent: ContextComponent = {
         CommandCategory.CONFIG,
         CommandCategory.DEBUG,
         CommandCategory.INIT,
+        CommandCategory.AI,
       ];
 
       let totalTools = 0;
       for (const category of categories) {
-        const commands = commandGenerator.getCommandsByCategory(category);
+        const commands = registry.getCommandsByCategory(category);
         for (const cmd of commands) {
           // Extract actual parameter schemas from the shared command registry
           const { properties, required } = extractParameterSchemas(cmd.id);

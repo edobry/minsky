@@ -10,6 +10,8 @@ export interface ComponentInput {
     mcpEnabled: boolean;
     preferMcp: boolean;
   };
+  // Optional command registry for testing isolation
+  commandRegistry?: any;
   // ... other potential inputs
 }
 
