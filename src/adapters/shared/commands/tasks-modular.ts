@@ -39,6 +39,9 @@ export class ModularTasksCommandManager {
       log.debug("[ModularTasksCommandManager] Requiring migrate-command");
       const { createMigrateTasksCommand } = require("./tasks/migrate-command");
 
+      log.debug("[ModularTasksCommandManager] Requiring migrate-backend-command");
+      const { createTasksMigrateBackendCommand } = require("./tasks/migrate-backend-command");
+
       // Similarity + embeddings indexing commands
       log.debug("[ModularTasksCommandManager] Requiring similarity and index-embeddings commands");
       const { TasksSimilarCommand, TasksSearchCommand } = require("./tasks/similarity-commands");
@@ -54,6 +57,7 @@ export class ModularTasksCommandManager {
       const statusGetCommand = createTasksStatusGetCommand();
       const statusSetCommand = createTasksStatusSetCommand();
       const migrateCommand = createMigrateTasksCommand();
+      const migrateBackendCommand = createTasksMigrateBackendCommand();
 
       const similarCommand = new TasksSimilarCommand();
       const searchCommand = new TasksSearchCommand();
@@ -152,6 +156,19 @@ export class ModularTasksCommandManager {
         parameters: migrateCommand.parameters,
         execute: async (params: any, context: any) => {
           return await migrateCommand.execute(params, context);
+        },
+      });
+
+      // Register migrate-backend command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.migrate-backend",
+        category: CommandCategory.TASKS,
+        name: "migrate-backend",
+        description:
+          "Migrate tasks between different backends (markdown, minsky, github, json-file)",
+        parameters: migrateBackendCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await migrateBackendCommand.execute(params, context);
         },
       });
 

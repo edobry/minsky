@@ -141,8 +141,8 @@ export abstract class BaseTaskCommand {
         let output = `${displayId}: ${task.title}\n`;
         output += `Status: ${task.status}\n`;
 
-        if (task.description && task.description.trim()) {
-          output += `Description: ${task.description.trim()}\n`;
+        if (task.description && task.spec.trim()) {
+          output += `Description: ${task.spec.trim()}\n`;
         }
 
         if (task.specPath) {

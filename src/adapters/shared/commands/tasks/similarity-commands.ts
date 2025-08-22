@@ -34,7 +34,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
       title?: string;
       status?: string;
       specPath?: string;
-      description?: string;
+      spec?: string;
     }>
   > {
     const enhanced = [];
@@ -122,7 +122,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
       title?: string;
       status?: string;
       specPath?: string;
-      description?: string;
+      spec?: string;
     }>
   > {
     const enhanced = [];
@@ -240,12 +240,20 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
+  const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
 
-  return new TaskSimilarityService(embedding, storage, findTaskById, searchTasks, {
-    vectorLimit: 10,
-    model,
-    dimension,
-  });
+  return new TaskSimilarityService(
+    embedding,
+    storage,
+    findTaskById,
+    searchTasks,
+    getTaskSpecContent,
+    {
+      vectorLimit: 10,
+      model,
+      dimension,
+    }
+  );
 }
 
 // Helper on BaseTaskCommand to create service

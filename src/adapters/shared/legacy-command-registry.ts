@@ -47,7 +47,7 @@ export interface CommandParameterDefinition<T extends z.ZodTypeAny = z.ZodTypeAn
   /** Parameter schema used for validation */
   schema: T;
   /** Human-readable description */
-  description?: string;
+  spec?: string;
   /** Whether the parameter is required */
   required: boolean;
   /** Default value for the parameter */

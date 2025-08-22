@@ -7,7 +7,7 @@
 import { join } from "path";
 import { existsSync } from "fs";
 import { MarkdownTaskBackend } from "./markdownTaskBackend";
-import type { TaskBackend } from "./taskBackend";
+import type { TaskBackend } from "./types";
 import type { MarkdownConfig, WorkspaceResolutionResult } from "./backend-config";
 import type { TaskBackendConfig } from "../../types/tasks/taskData";
 import { log } from "../../utils/logger";

@@ -353,7 +353,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
 
   return {
     title,
-    description: description.trim(),
+    description: spec.trim(),
     id,
   };
 }

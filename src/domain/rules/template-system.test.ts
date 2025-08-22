@@ -151,7 +151,7 @@ describe("Template System", () => {
         config: DEFAULT_CLI_CONFIG,
         commandGenerator: mockCommandGenerator,
         helpers: {
-          command: (commandId: string, description?: string) => {
+          command: (commandId: string, spec?: string) => {
             const syntax = mockCommandGenerator.getCommandSyntax(commandId);
             if (!syntax) {
               throw new Error(`Command not found: ${commandId}`);
@@ -238,7 +238,7 @@ describe("Template System", () => {
         config: DEFAULT_CLI_CONFIG,
         commandGenerator: mockCommandGenerator,
         helpers: {
-          command: (commandId: string, description?: string) => {
+          command: (commandId: string, spec?: string) => {
             const syntax = mockCommandGenerator.getCommandSyntax(commandId);
             if (!syntax) {
               throw new Error(`Command not found: ${commandId}`);

@@ -10,6 +10,7 @@ import { join } from "path";
 import { log } from "../utils/logger";
 // normalizeTaskId removed
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
+import type { TaskBackend } from "./tasks/types";
 // normalizeTaskId removed
 export { createConfiguredTaskService } from "./tasks/taskService"; // Re-export createConfiguredTaskService from new location
 import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
@@ -21,27 +22,166 @@ import { getTaskSpecRelativePath } from "./tasks/taskIO";
 import { createGitService } from "./git";
 
 // Import and re-export functions from taskCommands.ts
-import {
-  listTasksFromParams,
-  getTaskFromParams,
-  getTaskStatusFromParams,
-  setTaskStatusFromParams,
-  createTaskFromParams,
-  createTaskFromTitleAndDescription,
-  getTaskSpecContentFromParams,
-  deleteTaskFromParams,
-} from "./tasks/taskCommands";
+// Command-level wrapper functions for CLI integration
+// These wrap TaskService methods with parameter validation and formatting
 
-export {
-  listTasksFromParams,
-  getTaskFromParams,
-  getTaskStatusFromParams,
-  setTaskStatusFromParams,
-  createTaskFromParams,
-  createTaskFromTitleAndDescription,
-  getTaskSpecContentFromParams,
-  deleteTaskFromParams,
+import { TaskService, createTaskServiceWithDatabase } from "./tasks/taskService";
+import {
+  taskListParamsSchema,
+  taskGetParamsSchema,
+  taskCreateParamsSchema,
+  taskDeleteParamsSchema,
+  taskStatusSetParamsSchema,
+  taskStatusGetParamsSchema,
+  taskSpecContentParamsSchema,
+} from "../schemas/tasks";
+import { createFormattedValidationError } from "../utils/zod-error-formatter";
+
+// Create a task service instance for command functions
+const getTaskService = () => {
+  console.log("DEBUG: getTaskService called");
+  console.log("DEBUG: Creating TaskService with workspacePath:", process.cwd());
+  const workspacePath = process.cwd();
+  console.log("DEBUG: About to create TaskService");
+  try {
+    const service = new TaskService({ workspacePath });
+    console.log("DEBUG: TaskService created successfully");
+    return service;
+  } catch (error) {
+    console.log("DEBUG: TaskService creation failed:", error);
+    throw error;
+  }
 };
+
+export async function listTasksFromParams(params: any) {
+  const validParams = taskListParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+
+  // Read backend from configuration if not provided via command line
+  let backend = validParams.backend;
+  if (!backend) {
+    try {
+      const { ConfigurationLoader } = await import("./configuration/loader");
+      const configLoader = new ConfigurationLoader();
+      const configResult = await configLoader.load();
+
+      if (configResult.config.tasks?.backend) {
+        backend = configResult.config.tasks.backend;
+        console.log("DEBUG: Backend from configuration:", backend);
+      }
+    } catch (error) {
+      console.log("DEBUG: Failed to load configuration:", error);
+    }
+  }
+
+  // Use unified async factory for all backends
+  const taskService = await createTaskServiceWithDatabase({
+    workspacePath,
+    backend,
+  });
+
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  return await taskService.listTasks(validParams);
+}
+
+export async function getTaskFromParams(params: any) {
+  const validParams = taskGetParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+
+  // Read backend from configuration if not provided via command line
+  let backend = validParams.backend;
+  if (!backend) {
+    try {
+      const { ConfigurationLoader } = await import("./configuration/loader");
+      const configLoader = new ConfigurationLoader();
+      const configResult = await configLoader.load();
+
+      if (configResult.config.tasks?.backend) {
+        backend = configResult.config.tasks.backend;
+        console.log("DEBUG: Backend from configuration:", backend);
+      }
+    } catch (error) {
+      console.log("DEBUG: Failed to load configuration:", error);
+    }
+  }
+
+  // Use unified async factory for all backends
+  const taskService = await createTaskServiceWithDatabase({
+    workspacePath,
+    backend,
+  });
+
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  return await taskService.getTask(validParams.taskId);
+}
+
+export async function getTaskStatusFromParams(params: any) {
+  const validParams = taskStatusGetParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  return await taskService.getTaskStatus(validParams.taskId);
+}
+
+export async function setTaskStatusFromParams(params: any) {
+  const validParams = taskStatusSetParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  await taskService.setTaskStatus(validParams.taskId, validParams.status);
+  return { success: true, taskId: validParams.taskId, status: validParams.status };
+}
+
+export async function createTaskFromParams(params: any) {
+  const validParams = taskCreateParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  return await taskService.createTask(validParams.specPath);
+}
+
+export async function createTaskFromTitleAndSpec(params: any) {
+  // Parse using the existing schema (which may still use "description")
+  const validParams = taskCreateParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+
+  // Use unified async factory for all backends
+  const taskService = await createTaskServiceWithDatabase({
+    workspacePath,
+    backend: validParams.backend,
+  });
+
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  // Use spec field, fallback to description for compatibility
+  const spec = (validParams as any).spec || (validParams as any).description || "";
+  const title = (validParams as any).title || "";
+  return await taskService.createTaskFromTitleAndSpec(title, spec, validParams);
+}
+
+export async function deleteTaskFromParams(params: any) {
+  const validParams = taskDeleteParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  const success = await taskService.deleteTask(validParams.taskId, validParams);
+  return { success, taskId: validParams.taskId };
+}
+
+export async function getTaskSpecContentFromParams(params: any) {
+  const validParams = taskSpecContentParamsSchema.parse(params);
+  const workspacePath = process.cwd();
+  console.log("DEBUG: Backend requested:", validParams.backend);
+  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
+  console.log("DEBUG: TaskService created with backend:", taskService.currentBackend?.name);
+  return await taskService.getTaskSpecContent(validParams.taskId);
+}
 
 // Re-export task status constants from centralized location
 export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
@@ -85,9 +225,9 @@ export interface TaskServiceInterface {
   /**
    * Create a task from title and description
    */
-  createTaskFromTitleAndDescription(
+  createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ): Promise<Task>;
 
@@ -105,7 +245,7 @@ export interface TaskServiceInterface {
 export interface Task {
   id: string;
   title: string;
-  description?: string;
+  spec?: string;
   status: string;
   specPath?: string; // Path to the task specification document
   worklog?: Array<{ timestamp: string; message: string }>; // Work log entries
@@ -118,22 +258,7 @@ export interface Task {
   };
 }
 
-export interface TaskBackend {
-  name: string;
-  listTasks(options?: TaskListOptions): Promise<Task[]>;
-  getTask(id: string): Promise<Task | null>;
-  getTaskStatus(id: string): Promise<string | undefined>;
-  setTaskStatus(id: string, status: string): Promise<void>;
-  getWorkspacePath(): string;
-  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-  createTaskFromTitleAndDescription(
-    title: string,
-    description: string,
-    options?: CreateTaskOptions
-  ): Promise<Task>;
-  setTaskMetadata?(id: string, metadata: any): Promise<void>;
-  deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
-}
+// TaskBackend interface moved to src/domain/tasks/types.ts to consolidate interfaces
 
 export interface TaskListOptions {
   status?: string;
@@ -456,7 +581,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (line.trim().startsWith("## ")) break;
         if (line.trim()) description += `${line.trim()}\n`;
       }
-      if (!description.trim()) {
+      if (!spec.trim()) {
         throw new Error("Invalid spec file: Empty Context section");
       }
 
@@ -534,7 +659,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const task: Task = {
         id: taskId,
         title,
-        description: description.trim(),
+        description: spec.trim(),
         status: TASK_STATUS.TODO,
         specPath: newSpecPath,
       };
@@ -587,68 +712,47 @@ export class MarkdownTaskBackend implements TaskBackend {
    * @param options Options for creating the task
    * @returns Promise resolving to the created task
    */
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
-    options: CreateTaskOptions = {}
-  ): Promise<Task> {
-    // Generate a task specification file content
-    const taskSpecContent = this.generateTaskSpecification(title, description);
+    spec: string,
+    options?: CreateTaskOptions
+  ): Promise<TaskData> {
+    const taskSpecContent = spec; // Use the spec content directly
 
-    // Create a temporary file path for the spec
     const fs = await import("fs/promises");
     const path = await import("path");
     const os = await import("os");
 
-    const tempDir = os.tmpdir();
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
+    // Generate task ID and spec path
+    const taskId = this.generateTaskId(title);
+    const specPath = this.buildSpecPath(taskId, title);
 
+    // Create directories if needed
+    const specDir = path.dirname(specPath);
     try {
-      // Write the spec content to the temporary file
-      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
-
-      // Use the existing createTask method
-      const task = await this.createTask(tempSpecPath, options);
-
-      // Clean up the temporary file
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (error) {
-        // Ignore cleanup errors
-      }
-
-      return task;
+      await fs.mkdir(specDir, { recursive: true });
     } catch (error) {
-      // Clean up the temporary file on error
-      try {
-        await fs.unlink(tempSpecPath);
-      } catch (cleanupError) {
-        // Ignore cleanup errors
-      }
-      throw error;
+      // Directory might already exist, ignore
     }
-  }
 
-  /**
-   * Generate a task specification file content from title and description
-   * @param title Title of the task
-   * @param description Description of the task
-   * @returns The generated task specification content
-   */
-  private generateTaskSpecification(title: string, description: string): string {
-    return `# ${title}
+    // Write spec file with the provided content
+    await fs.writeFile(specPath, taskSpecContent, "utf-8");
 
-## Context
+    // Create task data
+    const taskData: TaskData = {
+      id: taskId,
+      title,
+      status: "TODO",
+      specPath,
+      backend: this.name,
+    };
 
-${description}
+    // Add to tasks list
+    const tasks = await this.getAllTasks();
+    const updatedTasks = [...tasks, taskData];
+    await this.saveAllTasks(updatedTasks);
 
-## Requirements
-
-## Solution
-
-## Notes
-`;
+    return taskData;
   }
 
   /**
@@ -804,9 +908,9 @@ export class GitHubTaskBackend implements TaskBackend {
     throw new Error("Method not implemented");
   }
 
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description: string,
+    spec: string,
     _options: CreateTaskOptions = {}
   ): Promise<Task> {
     // Implementation needed
@@ -816,89 +920,5 @@ export class GitHubTaskBackend implements TaskBackend {
   async deleteTask(_id: string, _options: DeleteTaskOptions = {}): Promise<boolean> {
     // Implementation needed
     throw new Error("Method not implemented");
-  }
-}
-
-export interface TaskServiceOptions {
-  workspacePath?: string;
-  backend?: string;
-}
-
-export class TaskService {
-  private backends: TaskBackend[] = [];
-  private currentBackend: TaskBackend;
-
-  constructor(options: TaskServiceOptions = {}) {
-    const { workspacePath = (process as any).cwd(), backend = "markdown" } = options;
-
-    // Initialize backends
-    this.backends = [
-      new MarkdownTaskBackend(workspacePath),
-      new GitHubTaskBackend(workspacePath),
-      createJsonFileTaskBackend({ name: "json-file", workspacePath }),
-    ];
-
-    // Set current backend
-    const selectedBackend = this.backends.find((b) => b.name === backend);
-    if (!selectedBackend) {
-      throw new Error(
-        `Backend '${backend}' not found. Available backends: ${this.backends.map((b) => b.name).join(", ")}`
-      );
-    }
-    this.currentBackend = selectedBackend;
-  }
-
-  async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    return this.currentBackend.listTasks(options);
-  }
-
-  async getTask(id: string): Promise<Task | null> {
-    return this.currentBackend.getTask(id);
-  }
-
-  async getTaskStatus(id: string): Promise<string | undefined> {
-    return this.currentBackend.getTaskStatus(id);
-  }
-
-  async setTaskStatus(id: string, status: string): Promise<void> {
-    return this.currentBackend.setTaskStatus(id, status);
-  }
-
-  getWorkspacePath(): string {
-    return this.currentBackend.getWorkspacePath();
-  }
-
-  async createTask(specPath: string, options: CreateTaskOptions = {}): Promise<Task> {
-    return this.currentBackend.createTask(specPath, options);
-  }
-
-  async createTaskFromTitleAndDescription(
-    title: string,
-    description: string,
-    options: CreateTaskOptions = {}
-  ): Promise<Task> {
-    return this.currentBackend.createTaskFromTitleAndDescription(title, description, options);
-  }
-
-  /**
-   * Get the backend for a specific task
-   * @param id Task ID
-   * @returns The appropriate task backend for the task, or null if not found
-   */
-  async getBackendForTask(id: string): Promise<TaskBackend | null> {
-    // Strict: use ID as-is (qualified expected)
-    // Try to find the task in each backend
-    for (const backend of this.backends) {
-      const task = await backend.getTask(id);
-      if (task) {
-        return backend;
-      }
-    }
-
-    return null;
-  }
-
-  async deleteTask(id: string, options: DeleteTaskOptions = {}): Promise<boolean> {
-    return this.currentBackend.deleteTask(id, options);
   }
 }

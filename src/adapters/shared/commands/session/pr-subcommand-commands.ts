@@ -305,7 +305,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       // If session has PR state, a PR already exists
       if (sessionRecord && sessionRecord.prState && sessionRecord.prBranch) {
         throw new ValidationError(
-          `A pull request already exists for session '${sessionName}' (branch: ${sessionRecord.prBranch}).\nTo update the existing PR, use:\n  minsky session pr edit --title "new title" --body "new body"\n  minsky session pr edit --body-path path/to/description.md`
+          `A pull request already exists for session '${sessionName}' (branch: ${sessionRecord.prBranch}).\nTo update the existing PR, use:\n  minsky session pr edit --title "new title" --body "new body"\n  minsky session pr edit --body-path path/to/spec.md`
         );
       }
     } catch (error) {

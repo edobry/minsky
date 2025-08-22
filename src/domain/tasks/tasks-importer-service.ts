@@ -32,17 +32,27 @@ export interface ImportResult {
   items: ImportResultItem[];
 }
 
-function mapBackendPrefixToEnum(prefix: string): string | null {
-  // Map task ID backend prefixes to DB enum values
-  if (prefix === "md") return "markdown";
-  if (prefix === "gh") return "github-issues";
-  if (prefix === "json") return "json-file";
-  return null;
-}
+function deriveBackendAndSource(id: string): { backend: string; sourceTaskId: string } {
+  const parts = id.split("#");
+  if (parts.length !== 2) {
+    throw new Error(`Invalid qualified task ID: ${id}`);
+  }
+  const prefix = parts[0];
+  const sourceTaskId = parts[1];
 
-function deriveBackendAndSource(id: string): { backend: string | null; sourceTaskId: string } {
-  const [backendPrefix, local] = id.split("#");
-  return { backend: mapBackendPrefixToEnum(backendPrefix), sourceTaskId: local || id };
+  const backendMap: Record<string, string> = {
+    md: "markdown",
+    gi: "github-issues",
+    db: "db",
+    jf: "json-file",
+  };
+
+  const backend = backendMap[prefix];
+  if (!backend) {
+    throw new Error(`Unknown task ID prefix: ${prefix}`);
+  }
+
+  return { backend, sourceTaskId };
 }
 
 export class TasksImporterService {
@@ -121,60 +131,56 @@ export class TasksImporterService {
         continue;
       }
 
-      // Try UPDATE first (avoids NOT NULL constraints on INSERT for legacy columns)
-      const updateSql = `UPDATE tasks
-        SET backend = $2::task_backend,
-            source_task_id = $3,
-            status = $4::task_status,
-            title = $5,
-            spec = $6,
-            content_hash = $7,
-            updated_at = NOW()
-        WHERE id = $1`;
-
-      const updateRes = await sql.unsafe(updateSql, [
-        id,
-        backend,
-        sourceTaskId,
-        status || null,
-        title || null,
-        specContent || null,
-        contentHash || null,
-      ]);
-
-      const updatedCount = Array.isArray(updateRes) ? ((updateRes as any).count ?? 0) : 0;
-
-      if (updatedCount && Number(updatedCount) > 0) {
-        result.updated++;
-        result.items.push({ id, backend, sourceTaskId, status, title, action: "update" });
-        continue;
-      }
-
-      // Fallback: attempt INSERT (may fail if legacy NOT NULL columns remain)
       try {
-        const insertSql = `INSERT INTO tasks (id, backend, source_task_id, status, title, spec, content_hash, created_at, updated_at)
-          VALUES ($1, $2::task_backend, $3, $4::task_status, $5, $6, $7, NOW(), NOW())
-          ON CONFLICT (id) DO UPDATE SET
-            backend = EXCLUDED.backend,
-            source_task_id = EXCLUDED.source_task_id,
-            status = EXCLUDED.status,
-            title = EXCLUDED.title,
-            spec = EXCLUDED.spec,
-            content_hash = EXCLUDED.content_hash,
-            updated_at = NOW()`;
+        // Use the new 3-table schema approach
+        await sql.begin(async (sql) => {
+          // 1. Insert/update task metadata in tasks table (NO spec column)
+          const upsertTaskSql = `
+            INSERT INTO tasks (id, backend, source_task_id, status, title, content_hash, created_at, updated_at)
+            VALUES ($1, $2::task_backend, $3, $4::task_status, $5, $6, NOW(), NOW())
+            ON CONFLICT (id) DO UPDATE SET
+              backend = EXCLUDED.backend,
+              source_task_id = EXCLUDED.source_task_id,
+              status = EXCLUDED.status,
+              title = EXCLUDED.title,
+              content_hash = EXCLUDED.content_hash,
+              updated_at = NOW()`;
 
-        await sql.unsafe(insertSql, [
-          id,
-          backend,
-          sourceTaskId,
-          status || null,
-          title || null,
-          specContent || null,
-          contentHash || null,
-        ]);
+          await sql.unsafe(upsertTaskSql, [
+            id,
+            backend,
+            sourceTaskId,
+            status || null,
+            title || null,
+            contentHash || null,
+          ]);
 
-        result.inserted++;
-        result.items.push({ id, backend, sourceTaskId, status, title, action: "insert" });
+          // 2. Insert/update spec content in task_specs table
+          if (specContent) {
+            const upsertSpecSql = `
+              INSERT INTO task_specs (task_id, content, content_hash, version, created_at, updated_at)
+              VALUES ($1, $2, $3, 1, NOW(), NOW())
+              ON CONFLICT (task_id) DO UPDATE SET
+                content = EXCLUDED.content,
+                content_hash = EXCLUDED.content_hash,
+                version = task_specs.version + 1,
+                updated_at = NOW()`;
+
+            await sql.unsafe(upsertSpecSql, [id, specContent, contentHash]);
+          }
+        });
+
+        // Determine if this was an insert or update by checking if task existed
+        const checkExistsSql = `SELECT 1 FROM tasks WHERE id = $1 AND created_at = updated_at`;
+        const isNewTask = await sql.unsafe(checkExistsSql, [id]);
+
+        if (Array.isArray(isNewTask) && isNewTask.length > 0) {
+          result.inserted++;
+          result.items.push({ id, backend, sourceTaskId, status, title, action: "insert" });
+        } else {
+          result.updated++;
+          result.items.push({ id, backend, sourceTaskId, status, title, action: "update" });
+        }
       } catch (e) {
         const message = e instanceof Error ? e.message : String(e);
         result.errors++;

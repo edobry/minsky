@@ -39,7 +39,7 @@ export interface TemplateHelpers {
    * @param commandId Shared command ID
    * @param description Optional description for documentation
    */
-  command: (commandId: string, description?: string) => string;
+  command: (commandId: string, spec?: string) => string;
 
   /**
    * Wraps content in a code block with specified language
@@ -101,7 +101,7 @@ function createTemplateHelpers(
     config.interface === "mcp" || (config.interface === "hybrid" && config.preferMcp);
 
   return {
-    command: (commandId: string, description?: string) => {
+    command: (commandId: string, spec?: string) => {
       const syntax = commandGenerator.getCommandSyntax(commandId);
       if (!syntax) {
         throw new Error(`Command not found: ${commandId}`);

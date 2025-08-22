@@ -375,7 +375,7 @@ export async function sessionPrGet(params: {
     url?: string;
     createdAt?: string;
     updatedAt?: string;
-    description?: string;
+    spec?: string;
     author?: string;
     filesChanged?: string[];
     commits?: Array<{

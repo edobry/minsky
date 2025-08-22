@@ -192,7 +192,7 @@ const rulesGenerateCommandParams: CommandParameterMap = {
 type RulesCreateParams = {
   id: string;
   content: string;
-  description?: string;
+  spec?: string;
   name?: string;
   globs?: string;
   tags?: string;
@@ -231,7 +231,7 @@ const rulesCreateCommandParams: CommandParameterMap = composeParams(
 type RulesUpdateParams = {
   id: string;
   content?: string;
-  description?: string;
+  spec?: string;
   name?: string;
   globs?: string;
   tags?: string;
@@ -377,6 +377,8 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             try {
               const { createHash } = await import("crypto");
               contentHash = createHash("sha256").update(contentLimited).digest("hex");
+            } catch {
+              // Ignore hash generation errors
             } catch (error) {
               // Ignore hash generation errors - continue without content hash
             }

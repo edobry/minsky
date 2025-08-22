@@ -17,13 +17,16 @@ export class TaskSimilarityService {
     private readonly vectorStorage: VectorStorage,
     private readonly findTaskById: (id: string) => Promise<Task | null>,
     private readonly searchTasks: (query: { text?: string }) => Promise<Task[]>,
+    private readonly getTaskSpecContent: (
+      id: string
+    ) => Promise<{ content: string; specPath: string; task: any }>,
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const task = await this.findTaskById(taskId);
     if (!task) return [];
-    const content = this.extractTaskContent(task);
+    const content = await this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
     const effectiveThreshold =
       threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
@@ -45,46 +48,49 @@ export class TaskSimilarityService {
 
     const effectiveThreshold =
       threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
+    return this.vectorStorage.search(vector, limit, effectiveThreshold);
+  }
 
-    // Debug: ANN search params
-    try {
-      log.debug("[tasks.search] Running ANN search", {
-        limit,
-        threshold: effectiveThreshold,
-      });
-    } catch {
-      // ignore debug logging errors
+  async searchSimilarTasks(
+    searchTerms: string[],
+    excludeTaskIds: string[] = [],
+    limit = 10,
+    threshold?: number
+  ): Promise<SearchResult[]> {
+    if (searchTerms.length === 0) return [];
+
+    // Create a natural language query from the search terms
+    const query = this.constructSearchQuery(searchTerms);
+    const results = await this.searchByText(query, limit * 2, threshold); // Get more to filter
+
+    // Filter out excluded task IDs
+    return results.filter((result) => !excludeTaskIds.includes(result.id)).slice(0, limit);
+  }
+
+  /**
+   * Construct natural search query from terms
+   * This logic will move to the generic similarity service in md#447
+   */
+  private constructSearchQuery(terms: string[]): string {
+    // Create a natural language query that works well with embeddings
+    const uniqueTerms = Array.from(new Set(terms.map((t) => t.toLowerCase())));
+
+    if (uniqueTerms.length === 1) {
+      return uniqueTerms[0];
     }
 
-    let results = await this.vectorStorage.search(vector, limit, effectiveThreshold);
-
-    // Deduplicate legacy vs qualified IDs, prefer qualified (e.g., md#123 over #123)
-    const seen = new Set<string>();
-    results = results.filter((r) => {
-      const normalized =
-        r.id.startsWith("md#") || r.id.includes("#") ? r.id.replace(/^#/, "md#") : r.id;
-      if (seen.has(normalized)) return false;
-      seen.add(normalized);
-      return true;
-    });
-
-    // Debug: ANN results (ids and scores)
-    try {
-      log.debug("[tasks.search] ANN results", {
-        count: results.length,
-        top: results.slice(0, 5),
-      });
-    } catch {
-      // ignore debug logging errors
-    }
-
-    return results;
+    // For multiple terms, create a coherent query
+    return `Find tasks related to: ${uniqueTerms.join(", ")}`;
   }
 
   async indexTask(taskId: string): Promise<void> {
     const task = await this.findTaskById(taskId);
-    if (!task) return;
-    const content = this.extractTaskContent(task);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    // Get the full task content (title + spec content)
+    const content = await this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
 
     const contentHash = createHash("sha256").update(content).digest("hex");
@@ -99,12 +105,33 @@ export class TaskSimilarityService {
     await this.vectorStorage.store(taskId, vector, metadata);
   }
 
-  private extractTaskContent(task: Task): string {
+  /**
+   * Extract content for embedding generation
+   * Simple approach: title + full spec content (as requested)
+   * This prepares for the generic similarity service in md#447
+   */
+  private async extractTaskContent(task: Task): Promise<string> {
     const parts: string[] = [];
-    if (task.title) parts.push(task.title);
-    if ((task as any).description) parts.push((task as any).description);
-    if ((task as any).metadata?.originalRequirements)
-      parts.push((task as any).metadata.originalRequirements);
+
+    // Always include the task title
+    if (task.title) {
+      parts.push(task.title);
+    }
+
+    try {
+      // Get the full spec content for embedding
+      const specData = await this.getTaskSpecContent(task.id);
+      if (specData.content) {
+        parts.push(specData.content);
+      }
+    } catch (error) {
+      // If we can't get spec content, fall back to basic task info
+      log.debug(`Failed to get spec content for task ${task.id}:`, error);
+      if ((task as any).description) {
+        parts.push((task as any).description);
+      }
+    }
+
     return parts.join("\n\n");
   }
 }

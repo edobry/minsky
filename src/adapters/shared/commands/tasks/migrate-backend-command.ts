@@ -9,11 +9,11 @@ import { z } from "zod";
 import type { CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand } from "./base-task-command";
 import { log } from "../../../../utils/logger";
-import { TaskService } from "../../../../domain/tasks/taskService";
+import { TaskService, createTaskServiceWithDatabase } from "../../../../domain/tasks/taskService";
 
 const migrateBackendParamsSchema = z.object({
-  from: z.enum(["markdown", "db", "github", "json-file"]).optional(),
-  to: z.enum(["markdown", "db", "github", "json-file"]),
+  from: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
+  to: z.enum(["markdown", "minsky", "github", "json-file"]),
   execute: z.boolean().optional().default(false),
   limit: z.number().int().positive().optional(),
   filterStatus: z.string().optional(),
@@ -28,15 +28,15 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
   readonly description =
-    "Migrate tasks between different backends (markdown, db, github, json-file)";
+    "Migrate tasks between different backends (markdown, minsky, github, json-file)";
   readonly parameters = {
     from: {
-      schema: z.enum(["markdown", "db", "github", "json-file"]).optional(),
+      schema: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
       description: "Source backend (auto-detect if not provided)",
       required: false,
     },
     to: {
-      schema: z.enum(["markdown", "db", "github", "json-file"]),
+      schema: z.enum(["markdown", "minsky", "github", "json-file"]),
       description: "Target backend",
       required: true,
     },
@@ -155,9 +155,15 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
 
-    // Create source and target task services
-    const sourceService = new TaskService({ workspacePath, backend: sourceBackend });
-    const targetService = new TaskService({ workspacePath, backend: targetBackend });
+    // Create source and target task services using unified async factory
+    const sourceService = await createTaskServiceWithDatabase({
+      workspacePath,
+      backend: sourceBackend,
+    });
+    const targetService = await createTaskServiceWithDatabase({
+      workspacePath,
+      backend: targetBackend,
+    });
 
     // Get all tasks from source backend
     let tasks = await sourceService.listTasks({ all: true }); // Get all tasks including DONE/CLOSED
@@ -207,10 +213,11 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
             }
           }
 
-          // Create task in target backend
-          const targetBackendInstance = targetService.getCurrentBackend();
-          await targetBackendInstance.createTaskFromTitleAndSpec(fullTask.title, specContent, {
+          // Create task in target backend with transformed ID and status
+          await targetService.createTaskFromTitleAndSpec(fullTask.title, specContent, {
             force: true,
+            id: newTaskId,
+            status: fullTask.status,
           });
 
           // Update the task ID and backend if needed
@@ -228,6 +235,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           targetBackend,
         });
       } catch (error) {
+        console.error(`Migration error for task ${task.id}:`, error);
         result.errors++;
         result.details.push({
           id: task.id,
@@ -243,7 +251,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   private getBackendPrefix(backend: string): string {
     const prefixMap: Record<string, string> = {
       markdown: "md",
-      db: "db",
+      minsky: "mt",
       github: "gh",
       "json-file": "json",
     };

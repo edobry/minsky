@@ -43,32 +43,16 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   try {
     if (options.json) {
       // JSON output
-      process.stdout.write(`${JSON.stringify(result, undefined, 2)}\n`);
     } else if (options.formatter) {
       // Custom formatter
       options.formatter(result);
     } else {
       // Default output based on result type
       if (typeof result === "string") {
-        process.stdout.write(`${result}\n`);
       } else if (typeof result === "object" && result !== null) {
         if (Array.isArray(result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
-              process.stdout.write(`${item}\n`);
-            } else {
-              process.stdout.write(`${JSON.stringify(item, undefined, 2)}\n`);
-            }
-          });
-        } else {
-          process.stdout.write(`${JSON.stringify(result, undefined, 2)}\n`);
-        }
-      } else {
-        process.stdout.write(`${String(result)}\n`);
-      }
-    }
-  } catch (error) {
-    process.stdout.write(`Error formatting output: ${error}\n`);
   }
 }
 /**

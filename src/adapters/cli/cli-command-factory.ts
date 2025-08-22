@@ -221,7 +221,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           description: {
             description: "Description text for the task",
           },
-          descriptionPath: {
+          specPath: {
             description: "Path to file containing task description",
           },
         },

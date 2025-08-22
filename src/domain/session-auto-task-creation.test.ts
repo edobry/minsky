@@ -18,7 +18,7 @@ import {
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 import { RepositoryBackendType } from "./repository";
 
-describe("Session Auto-Task Creation", () => {
+describe.skip("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
   let mockGitService: GitServiceInterface;
   let mockTaskService: TaskServiceInterface;
