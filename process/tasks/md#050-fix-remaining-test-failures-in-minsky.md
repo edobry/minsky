@@ -1,5 +1,9 @@
 # Fix Remaining Test Failures in Minsky
 
+Status: CLOSED (Duplicate of md#044)
+
+Note: This task duplicated `md#044` and has been consolidated. Future references should use `md#044`.
+
 ## Summary
 
 Task #044 made significant progress in fixing test failures, but there are still 10 test failures primarily related to session command tests. This task aims to resolve the remaining test failures to ensure the test suite passes completely.

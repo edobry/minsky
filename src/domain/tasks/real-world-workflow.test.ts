@@ -67,7 +67,7 @@ describe("Real-World Workflow Testing", () => {
   }));
   const testBaseDir = "/mock/test-workspace";
   const testProcessDir = "/mock/test-workspace/process";
-  const testJsonPath = "/mock/test-workspace/process/tasks.json";
+  const testJsonPath = "/mock/test-workspace/process/tasks/tasks.json";
 
   beforeEach(() => {
     // Reset all mocks
@@ -118,7 +118,7 @@ describe("Real-World Workflow Testing", () => {
       }) as JsonFileTaskBackend;
 
       // 2. Verify the backend knows its storage location
-      expect(jsonBackend.getStorageLocation()).toBe(testJsonPath);
+      expect((jsonBackend as any).tasksFilePath).toBe(testJsonPath);
 
       // 3. Create some test task data
       const testTasks: TaskData[] = [
@@ -138,16 +138,16 @@ describe("Real-World Workflow Testing", () => {
 
       // 4. Store tasks using the backend
       for (const task of testTasks) {
-        await jsonBackend.createTaskData(task);
+        await jsonBackend.createTaskFromTitleAndSpec(task.title, task.description || "");
       }
 
       // 5. Verify tasks are stored
       const allTasks = await jsonBackend.getAllTasks();
       expect(allTasks).toHaveLength(2);
-      expect(allTasks.map((t) => t.id)).toEqual(["#001", "#002"]);
+      expect(allTasks.map((t) => t.id)).toEqual(["json-file#1", "json-file#2"]);
 
       // 6. Test retrieval by ID
-      const task1 = await jsonBackend.getTaskById("#001");
+      const task1 = await jsonBackend.getTask("json-file#1");
       expect(task1).toBeDefined();
       expect(task1?.title).toBe("Test Task 1");
 
@@ -164,7 +164,7 @@ describe("Real-World Workflow Testing", () => {
       }) as JsonFileTaskBackend;
 
       // 2. Get the default storage location
-      const storageLocation = jsonBackend.getStorageLocation();
+      const storageLocation = (jsonBackend as any).tasksFilePath;
 
       // 3. Should be in process/tasks.json by default
       expect(storageLocation).toContain("process");
@@ -180,7 +180,7 @@ describe("Real-World Workflow Testing", () => {
       await jsonBackend.createTaskData(testTask);
 
       // 5. Verify task was stored
-      const retrieved = await jsonBackend.getTaskById("#default-001");
+      const retrieved = await jsonBackend.getTask("json-file#1");
       expect(retrieved).toEqual(testTask);
     });
   });
@@ -296,7 +296,7 @@ describe("Real-World Workflow Testing", () => {
       await jsonBackend.createTaskData(testTask);
 
       // 4. Verify task was created despite missing directory
-      const retrieved = await jsonBackend.getTaskById("#error-001");
+      const retrieved = await jsonBackend.getTask("json-file#1");
       expect(retrieved).toEqual(testTask);
     });
   });

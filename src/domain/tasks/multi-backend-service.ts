@@ -37,3 +37,9 @@ export interface TaskExportData {
 }
 
 // ... rest of existing code ...
+
+
+// Stub implementation for tests - TODO: implement multi-backend service
+export function createMultiBackendTaskService() {
+  throw new Error("TODO: Multi-backend service not yet implemented - see task #439");
+}

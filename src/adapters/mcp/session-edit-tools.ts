@@ -247,7 +247,10 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
 export async function applyEditPattern(
   originalContent: string,
   editContent: string,
-  instruction?: string
+  instruction?: string,
+  dependencies?: {
+    config?: any;
+  }
 ): Promise<string> {
   // Import required dependencies with enhanced error handling
   const { EnhancedAICompletionService } = await import(
@@ -266,8 +269,8 @@ export async function applyEditPattern(
     "../../domain/configuration"
   );
 
-  // Get AI configuration
-  const config = getConfiguration();
+  // Get AI configuration (use injected config or fallback to global)
+  const config = dependencies?.config || getConfiguration();
   const aiConfig = config.ai;
 
   if (!aiConfig?.providers) {
@@ -315,7 +318,6 @@ export async function applyEditPattern(
   }
 
   // Create enhanced AI completion service with retry logic and circuit breaker
-  await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
   const defaultCompletionService = new DefaultAICompletionService({
     loadConfiguration: () => Promise.resolve({ resolved: config }),
   } as any);

@@ -1,8 +1,5 @@
-import { describe, test, expect, beforeAll, beforeEach } from "bun:test";
-// Use mock.module() to mock filesystem operations
-// Use mock.module() to mock filesystem operations
-// import { readFile } from "fs/promises";
-import { join } from "path";
+import { describe, test, expect, beforeAll, beforeEach, mock } from "bun:test";
+import { createMockFilesystem } from "../../src/utils/test-utils/filesystem/mock-filesystem";
 
 // Configuration system imports
 import {
@@ -305,126 +302,129 @@ async function loggingApplyEditPattern(
   }
 }
 
-describe("session.edit_file Cursor Parity Integration", () => {
-  beforeAll(async () => {
-    console.log("🔧 Initializing configuration system for integration tests...");
+describe.if(process.env.RUN_INTEGRATION_TESTS)(
+  "session.edit_file Cursor Parity Integration",
+  () => {
+    beforeAll(async () => {
+      console.log("🔧 Initializing configuration system for integration tests...");
 
-    // Initialize the configuration system
-    const factory = new CustomConfigFactory();
-    await initializeConfiguration(factory, {
-      workingDirectory: process.cwd(),
-    });
+      // Initialize the configuration system
+      const factory = new CustomConfigFactory();
+      await initializeConfiguration(factory, {
+        workingDirectory: process.cwd(),
+      });
 
-    const config = getConfiguration();
-
-    // Check Morph configuration
-    const morphConfig = config.ai?.providers?.morph;
-
-    // Apply default baseURL if not set (handling baseUrl vs baseURL inconsistency)
-    const baseURL = morphConfig?.baseURL || morphConfig?.baseUrl || "https://api.morphllm.com/v1";
-
-    const hasValidMorphConfig = !!(morphConfig?.enabled && morphConfig?.apiKey && baseURL);
-
-    if (hasValidMorphConfig) {
-      console.log("✅ Morph provider configured successfully");
-      console.log("   API Key:", `${morphConfig.apiKey.substring(0, 20)}...`);
-      console.log("   Base URL:", baseURL);
-      console.log("   Model:", morphConfig.model);
-    } else {
-      console.log("⚠️  Morph configuration incomplete - integration tests will be skipped");
-      console.log("   Enabled:", morphConfig?.enabled);
-      console.log("   API Key:", morphConfig?.apiKey ? "present" : "missing");
-      console.log("   Base URL (baseURL):", morphConfig?.baseURL ? "present" : "missing");
-      console.log("   Base URL (baseUrl):", morphConfig?.baseUrl ? "present" : "missing");
-      console.log("   Applied default baseURL:", baseURL);
-    }
-
-    testConfig = { hasValidMorphConfig, baseURL };
-  });
-
-  beforeEach(() => {
-    resetMockFiles();
-  });
-
-  describe("Configuration Validation", () => {
-    test("should have valid Morph configuration", () => {
-      if (!testConfig.hasValidMorphConfig) {
-        console.log("⏭️  Skipping test - Morph provider not configured");
-        return;
-      }
-
-      expect(testConfig.hasValidMorphConfig).toBe(true);
-      expect(testConfig.baseURL).toBeDefined();
-    });
-
-    test("should create AI completion service successfully", () => {
-      if (!testConfig.hasValidMorphConfig) {
-        console.log("⏭️  Skipping test - Morph provider not configured");
-        return;
-      }
-
-      // This test just validates that we can get the configuration
       const config = getConfiguration();
-      expect(config).toBeDefined();
-      expect(config.ai?.providers?.morph).toBeDefined();
-    });
-  });
 
-  describe("Core Edit Pattern Application", () => {
-    test("should handle simple function addition with existing code markers", async () => {
-      if (!testConfig.hasValidMorphConfig) {
-        console.log("⏭️  Skipping test - Morph provider not configured");
-        return;
+      // Check Morph configuration
+      const morphConfig = config.ai?.providers?.morph;
+
+      // Apply default baseURL if not set (handling baseUrl vs baseURL inconsistency)
+      const baseURL = morphConfig?.baseURL || morphConfig?.baseUrl || "https://api.morphllm.com/v1";
+
+      const hasValidMorphConfig = !!(morphConfig?.enabled && morphConfig?.apiKey && baseURL);
+
+      if (hasValidMorphConfig) {
+        console.log("✅ Morph provider configured successfully");
+        console.log("   API Key:", `${morphConfig.apiKey.substring(0, 20)}...`);
+        console.log("   Base URL:", baseURL);
+        console.log("   Model:", morphConfig.model);
+      } else {
+        console.log("⚠️  Morph configuration incomplete - integration tests will be skipped");
+        console.log("   Enabled:", morphConfig?.enabled);
+        console.log("   API Key:", morphConfig?.apiKey ? "present" : "missing");
+        console.log("   Base URL (baseURL):", morphConfig?.baseURL ? "present" : "missing");
+        console.log("   Base URL (baseUrl):", morphConfig?.baseUrl ? "present" : "missing");
+        console.log("   Applied default baseURL:", baseURL);
       }
 
-      // Load the original file content
-      const originalContent = await loadFixture("typescript/simple-class.ts");
-      console.log("📋 Original content:", JSON.stringify(originalContent));
+      testConfig = { hasValidMorphConfig, baseURL };
+    });
 
-      // This test validates the core edit pattern following MorphLLM best practices
-      // Use minimal pattern - only show what's being added, not existing code
-      const editPattern = `// ... existing code ...
+    beforeEach(() => {
+      resetMockFiles();
+    });
+
+    describe("Configuration Validation", () => {
+      test("should have valid Morph configuration", () => {
+        if (!testConfig.hasValidMorphConfig) {
+          console.log("⏭️  Skipping test - Morph provider not configured");
+          return;
+        }
+
+        expect(testConfig.hasValidMorphConfig).toBe(true);
+        expect(testConfig.baseURL).toBeDefined();
+      });
+
+      test("should create AI completion service successfully", () => {
+        if (!testConfig.hasValidMorphConfig) {
+          console.log("⏭️  Skipping test - Morph provider not configured");
+          return;
+        }
+
+        // This test just validates that we can get the configuration
+        const config = getConfiguration();
+        expect(config).toBeDefined();
+        expect(config.ai?.providers?.morph).toBeDefined();
+      });
+    });
+
+    describe("Core Edit Pattern Application", () => {
+      test("should handle simple function addition with existing code markers", async () => {
+        if (!testConfig.hasValidMorphConfig) {
+          console.log("⏭️  Skipping test - Morph provider not configured");
+          return;
+        }
+
+        // Load the original file content
+        const originalContent = await loadFixture("typescript/simple-class.ts");
+        console.log("📋 Original content:", JSON.stringify(originalContent));
+
+        // This test validates the core edit pattern following MorphLLM best practices
+        // Use minimal pattern - only show what's being added, not existing code
+        const editPattern = `// ... existing code ...
 
   multiply(a: number, b: number): number {
     return a * b;
   }
 }`;
 
-      console.log("📝 Edit pattern (minimal):", JSON.stringify(editPattern));
+        console.log("📝 Edit pattern (minimal):", JSON.stringify(editPattern));
 
-      // Test the applyEditPattern function directly with comprehensive logging
-      const result = await loggingApplyEditPattern(
-        originalContent,
-        editPattern,
-        "Place the new method after the existing add method"
-      );
+        // Test the applyEditPattern function directly with comprehensive logging
+        const result = await loggingApplyEditPattern(
+          originalContent,
+          editPattern,
+          "Place the new method after the existing add method"
+        );
 
-      // Validate functional correctness of the edit
-      expect(result).toBeDefined();
-      expect(typeof result).toBe("string");
-      expect(result.length).toBeGreaterThan(0);
+        // Validate functional correctness of the edit
+        expect(result).toBeDefined();
+        expect(typeof result).toBe("string");
+        expect(result.length).toBeGreaterThan(0);
 
-      // Verify the edit worked: both original and new methods should be present
-      expect(result).toContain("add(a: number, b: number): number");
-      expect(result).toContain("multiply(a: number, b: number): number");
-      expect(result).toContain("return a + b"); // Original implementation
-      expect(result).toContain("return a * b"); // New implementation
+        // Verify the edit worked: both original and new methods should be present
+        expect(result).toContain("add(a: number, b: number): number");
+        expect(result).toContain("multiply(a: number, b: number): number");
+        expect(result).toContain("return a + b"); // Original implementation
+        expect(result).toContain("return a * b"); // New implementation
 
-      // Verify class structure is preserved
-      expect(result).toContain("export class Calculator");
-      expect(result).toContain("class Calculator {");
+        // Verify class structure is preserved
+        expect(result).toContain("export class Calculator");
+        expect(result).toContain("class Calculator {");
 
-      // Verify markers are properly processed (should be removed in final output)
-      expect(result).not.toContain("// ... existing code ...");
+        // Verify markers are properly processed (should be removed in final output)
+        expect(result).not.toContain("// ... existing code ...");
 
-      // Verify the result is longer than the original (original + new content)
-      expect(result.length).toBeGreaterThan(originalContent.length);
+        // Verify the result is longer than the original (original + new content)
+        expect(result.length).toBeGreaterThan(originalContent.length);
 
-      // Verify the result is well-formed TypeScript (basic syntax check)
-      expect(result).toMatch(/export class Calculator \{[\s\S]*\}/);
-      expect(result.split("{").length).toBe(result.split("}").length); // Balanced braces
+        // Verify the result is well-formed TypeScript (basic syntax check)
+        expect(result).toMatch(/export class Calculator \{[\s\S]*\}/);
+        expect(result.split("{").length).toBe(result.split("}").length); // Balanced braces
 
-      console.log(`✅ Edit pattern test completed successfully`);
+        console.log(`✅ Edit pattern test completed successfully`);
+      });
     });
-  });
-});
+  }
+);

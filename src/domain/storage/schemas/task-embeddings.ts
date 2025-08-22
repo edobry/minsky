@@ -16,7 +16,7 @@ export const taskStatusEnum = pgEnum("task_status", [
 const BACKEND_VALUES = enumSchemas.backendType.options as [string, ...string[]];
 export const taskBackendEnum = pgEnum("task_backend", BACKEND_VALUES);
 
-// Drizzle schema for tasks (metadata only)
+// Drizzle schema for tasks (metadata only - no spec content)
 export const tasksTable = pgTable(
   "tasks",
   {
@@ -33,14 +33,11 @@ export const tasksTable = pgTable(
   () => []
 );
 
-// Drizzle schema for task specs (content only)
-// Separate from `tasks` metadata for 3-table design
+// Drizzle schema for task specifications (content only)
 export const taskSpecsTable = pgTable(
   "task_specs",
   {
-    taskId: text("task_id")
-      .primaryKey()
-      .references(() => tasksTable.id, { onDelete: "cascade" }),
+    taskId: text("task_id").primaryKey(),
     content: text("content").notNull(),
     contentHash: text("content_hash"),
     version: integer("version").default(1),
@@ -55,12 +52,11 @@ export const taskSpecsTable = pgTable(
 export const tasksEmbeddingsTable = pgTable(
   "tasks_embeddings",
   {
-    taskId: text("task_id")
-      .primaryKey()
-      .references(() => tasksTable.id, { onDelete: "cascade" }),
+    taskId: text("task_id").primaryKey(),
     vector: vector("vector", { dimensions: 1536 }),
-    contentHash: text("content_hash"), // track when embeddings need regeneration
-    indexedAt: timestamp("indexed_at", { withTimezone: true }).defaultNow(),
+    metadata: text("metadata"), // JSON metadata as text
+    contentHash: text("content_hash"),
+    indexedAt: timestamp("indexed_at", { withTimezone: true }),
   },
   (table) => [
     index("idx_tasks_embeddings_hnsw").using(

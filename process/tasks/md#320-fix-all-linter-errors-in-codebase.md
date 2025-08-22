@@ -1,5 +1,7 @@
 # Fix all linter errors in codebase
 
+Canonical note: Consolidates duplicate `md#318` (now CLOSED duplicate).
+
 ## Context
 
 Fix 10 errors related to Jest patterns that should use Bun patterns and 40 warnings about excessive 'as unknown' assertions throughout the codebase.

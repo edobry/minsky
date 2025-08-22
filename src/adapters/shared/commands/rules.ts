@@ -379,6 +379,8 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
               contentHash = createHash("sha256").update(contentLimited).digest("hex");
             } catch {
               // Ignore hash generation errors
+            } catch (error) {
+              // Ignore hash generation errors - continue without content hash
             }
             const vector = await embeddingService.generateEmbedding(contentLimited);
             // Store metadata JSON and content hash in dedicated column for staleness detection

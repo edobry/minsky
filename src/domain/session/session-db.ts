@@ -35,31 +35,27 @@ export interface PullRequestGitHubInfo {
  * Added to support pr list/get subcommands
  */
 export interface PullRequestInfo {
-  // Core PR Information
+  // Core PR Information (minimal workflow state only)
   number: number;
   url: string;
-  title: string;
   state: "open" | "closed" | "merged" | "draft";
 
-  // Timestamps
+  // Timestamps (essential for workflow automation)
   createdAt: string; // ISO timestamp
-  updatedAt: string; // ISO timestamp
   mergedAt?: string; // ISO timestamp when merged
 
   // GitHub-specific information
   github?: PullRequestGitHubInfo;
 
-  // Content information (for pr get command)
-  body?: string; // PR description
-  commits?: PullRequestCommit[];
-  filesChanged?: string[]; // List of file paths
-
-  // Branch information
+  // Branch information (essential for git operations)
   headBranch: string; // Source branch (e.g., "pr/task359")
   baseBranch: string; // Target branch (e.g., "main")
 
   // Metadata
   lastSynced: string; // When this info was last updated from GitHub API
+
+  // REMOVED: title, body, updatedAt, commits, filesChanged
+  // These are now fetched live from GitHub API to avoid cache synchronization issues
 }
 
 /**

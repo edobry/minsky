@@ -33,6 +33,29 @@ fi
 
 echo "✅ No variable naming issues found."
 
+echo "🧪 MANDATORY: Running unit test suite..."
+
+# Run the unit test suite (excluding integration tests) - ANY failure blocks the commit
+echo "  → Executing unit tests with timeout (excluding integration tests)..."
+if ! bun run test --bail; then
+  echo ""
+  echo "❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌"
+  echo ""
+  echo "🚫 One or more tests are failing. Fix ALL test failures before committing."
+  echo "💡 Run 'bun run test' locally to see detailed failure information."
+  echo "🔧 Ensure your changes don't break existing functionality."
+  echo ""
+  echo "📋 Common fixes:"
+  echo "   • Update test expectations if behavior intentionally changed"
+  echo "   • Fix bugs in your code that break existing tests"
+  echo "   • Add missing mocks or dependencies"
+  echo "   • Check for import/export issues"
+  echo ""
+  exit 1
+fi
+
+echo "✅ All tests passing! Test suite validation completed."
+
 echo "🔍 Checking for test anti-patterns..."
 
 # NEW: Test Pattern Validation (Task #332 extension)
@@ -49,7 +72,7 @@ if [ -n "$STAGED_TEST_FILES" ]; then
   fi
 fi
 
-# Check for unreliable factory mock patterns  
+# Check for unreliable factory mock patterns
 echo "  → Checking for unreliable factory mock patterns..."
 if [ -n "$STAGED_TEST_FILES" ]; then
   if echo "$STAGED_TEST_FILES" | xargs grep -l "createMockTaskService" 2>/dev/null | xargs grep -n "createMockTaskService.*async" 2>/dev/null | grep -q .; then
@@ -68,7 +91,7 @@ if [ -n "$STAGED_TEST_FILES" ]; then
     echo "⚠️  CLI execution detected in test files!"
     echo "💡 Tests should call domain functions directly, not CLI interfaces."
     echo "$STAGED_TEST_FILES" | xargs grep -n "execAsync.*cli\.ts\|spawn.*cli\.ts" 2>/dev/null | head -3 || true
-    echo "   (Showing first 3 matches - there may be more)" 
+    echo "   (Showing first 3 matches - there may be more)"
     echo "   Continuing commit with WARNING..."
   fi
 fi

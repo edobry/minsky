@@ -95,7 +95,7 @@ export class JsonFileTaskBackend implements TaskBackend {
     // Create spec file
     const specPath = this.getTaskSpecPath(newId, title);
     // Write the spec content directly instead of generating a template
-    await fs.mkdir(path.dirname(specPath), { recursive: true });
+    await fs.mkdir(dirname(specPath), { recursive: true });
     await fs.writeFile(specPath, spec);
 
     // Create task data
@@ -288,7 +288,7 @@ ${description}
   private async saveAllTasks(tasks: Task[]): Promise<void> {
     try {
       // Ensure directory exists
-      await fs.mkdir(path.dirname(this.tasksFilePath), { recursive: true });
+      await fs.mkdir(dirname(this.tasksFilePath), { recursive: true });
 
       // Write tasks to file
       await fs.writeFile(this.tasksFilePath, JSON.stringify(tasks, null, 2));

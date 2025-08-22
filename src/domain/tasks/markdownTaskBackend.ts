@@ -27,7 +27,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData";
-import { TaskStatus, TASK_STATUS, TASK_PARSING_UTILS, TASK_STATUS_CHECKBOX } from "./taskConstants";
+import { TaskStatus, TASK_STATUS, TASK_PARSING_UTILS } from "./taskConstants";
 
 import {
   parseTasksFromMarkdown,
@@ -58,29 +58,66 @@ import { readdir } from "fs/promises";
  */
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
+  prefix = "md"; // Backend prefix for qualified IDs
   private readonly workspacePath: string;
-  private readonly filePath: string;
+  private readonly tasksFilePath: string;
+  private readonly tasksDirectory: string;
+  // Allow tests to override this via (backend as any).gitService
+  private gitService: GitServiceInterface;
 
   constructor(config: TaskBackendConfig) {
     this.workspacePath = config.workspacePath;
-    this.filePath = join(this.workspacePath, "process", "tasks.md");
+    this.tasksFilePath = getTasksFilePath(this.workspacePath);
+    this.tasksDirectory = join(this.workspacePath, "process", "tasks");
+    // Allow tests to inject a git service via config (ignored in prod)
+    this.gitService = (config as any).gitService || createGitService();
   }
 
-  // ---- User-Facing Operations ----
+  // ---- Capability Discovery ----
+
+  getCapabilities(): BackendCapabilities {
+    return {
+      // Core operations - markdown backend supports basic CRUD
+      supportsTaskCreation: true,
+      supportsTaskUpdate: true,
+      supportsTaskDeletion: true,
+
+      // Essential metadata support
+      supportsStatus: true, // Stored in tasks.md with checkboxes
+
+      // Structural metadata - not yet implemented but possible
+      supportsSubtasks: false, // TODO: Future enhancement for Task #238
+      supportsDependencies: false, // TODO: Future enhancement for Task #239
+
+      // Provenance metadata - not yet implemented
+      supportsOriginalRequirements: false, // TODO: Could store in frontmatter
+      supportsAiEnhancementTracking: false, // TODO: Could store in frontmatter
+
+      // Query capabilities - limited in markdown format
+      supportsMetadataQuery: false, // Would require parsing all files
+      supportsFullTextSearch: true, // Can grep through markdown files
+
+      // Update mechanism
+      supportsTransactions: false, // File-based, no transaction support
+      supportsRealTimeSync: false, // Manual file operations
+    };
+  }
+
+  // ---- Required TaskBackend Interface Methods ----
 
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
-    const tasks = await this.parseTasks();
-
-    // Apply filters
-    let filtered = tasks;
-    if (options?.status && options.status !== "all") {
-      filtered = filtered.filter((task) => task.status === options.status);
-    }
-    if (options?.backend) {
-      filtered = filtered.filter((task) => task.backend === options.backend);
+    const result = await this.getTasksData();
+    if (!result.success || !result.content) {
+      return [];
     }
 
-    return filtered;
+    const tasks = this.parseTasks(result.content);
+
+    if (options?.status) {
+      return tasks.filter((task) => task.status === options?.status);
+    }
+
+    return tasks;
   }
 
   async getTask(id: string): Promise<Task | null> {
@@ -148,11 +185,106 @@ export class MarkdownTaskBackend implements TaskBackend {
     log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
 
     if (taskIndex === -1) {
-      throw new Error(`Task ${id} not found`);
+      throw new Error(`Task with id ${id} not found`);
     }
 
-    tasks[taskIndex].status = status;
-    await this.saveTasks(tasks);
+    // Add type guard to ensure task exists
+    const task = tasks[taskIndex];
+    if (!task) {
+      throw new Error(`Task with id ${id} not found`);
+    }
+
+    // Store previous status for commit message
+    const previousStatus = task.status;
+
+    // Set up git operations for stash/commit/push flow
+    const gitService = this.gitService;
+    let hasStashedChanges = false;
+
+    try {
+      // Check for uncommitted changes and stash them
+      const workdir = this.getWorkspacePath();
+      const hasUncommittedChanges = await gitService.hasUncommittedChanges(workdir);
+      if (hasUncommittedChanges) {
+        log.cli("📦 Stashing uncommitted changes...");
+        log.debug("Stashing uncommitted changes for task status update", { workdir });
+
+        const stashResult = await gitService.stashChanges(workdir);
+        hasStashedChanges = stashResult.stashed;
+
+        if (hasStashedChanges) {
+          log.cli("✅ Changes stashed successfully");
+        }
+        log.debug("Changes stashed", { stashed: hasStashedChanges });
+      }
+    } catch (statusError) {
+      log.debug("Could not check/stash git status before task status update", {
+        error: statusError,
+      });
+    }
+
+    try {
+      // Convert string status to TaskStatus type
+      task.status = status as TaskStatus;
+
+      const updatedContent = this.formatTasks(tasks);
+
+      const saveResult = await this.saveTasksData(updatedContent);
+      if (!saveResult.success) {
+        throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
+      }
+
+      // Commit and push the changes
+      try {
+        const workdir = this.getWorkspacePath();
+
+        // Check if there are changes to commit
+        const hasChangesToCommit = await gitService.hasUncommittedChanges(workdir);
+        if (hasChangesToCommit) {
+          log.cli("💾 Committing task status change...");
+
+          // Stage all changes
+          await gitService.execInRepository(workdir, "git add -A");
+
+          // Commit with conventional commit message
+          const commitMessage = `chore(${id}): update task status ${previousStatus} → ${status}`;
+          await gitService.execInRepository(workdir, `git commit -m "${commitMessage}"`);
+
+          log.cli("📤 Pushing changes...");
+
+          // Push changes
+          await gitService.execInRepository(workdir, "git push");
+
+          log.cli("✅ Changes committed and pushed successfully");
+          log.debug("Task status change committed and pushed", { taskId: id, status });
+        }
+      } catch (commitError) {
+        log.warn("Failed to commit task status change", {
+          taskId: id,
+          error: commitError,
+        });
+        log.cli(`⚠️ Warning: Failed to commit changes: ${commitError}`);
+      }
+    } finally {
+      // Restore stashed changes if we stashed them
+      if (hasStashedChanges) {
+        try {
+          log.cli("📂 Restoring stashed changes...");
+          log.debug("Restoring stashed changes after task status update");
+
+          const workdir = this.getWorkspacePath();
+          await gitService.popStash(workdir);
+
+          log.cli("✅ Stashed changes restored successfully");
+          log.debug("Stashed changes restored");
+        } catch (popError) {
+          log.warn("Failed to restore stashed changes", {
+            error: popError,
+          });
+          log.cli(`⚠️ Warning: Failed to restore stashed changes: ${popError}`);
+        }
+      }
+    }
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
@@ -577,267 +709,245 @@ export class MarkdownTaskBackend implements TaskBackend {
    * @param options Options for creating the task
    * @returns Promise resolving to the created task
    */
-  async createTaskFromTitleAndSpec(
+  async createTaskFromTitleAndDescription(
     title: string,
-    spec: string,
-    options?: CreateTaskOptions
+    description: string,
+    options: CreateTaskOptions = {}
   ): Promise<Task> {
-    const id = await this.generateTaskId(title);
-    const specPath = this.buildSpecPath(id, title);
-    // Write the spec content directly instead of generating a template
-    const specContent = spec;
+    // Generate a task specification file content
+    const taskSpecContent = this.generateTaskSpecification(title, description);
 
-    // Create directory if it doesn't exist
-    const specDir = dirname(specPath);
-    if (!(await this.fileExists(specDir))) {
-      await mkdir(specDir, { recursive: true });
-    }
+    // Create a temporary file path for the spec
+    const fs = await import("fs/promises");
+    const path = await import("path");
 
-    // Write spec file
-    await writeFile(specPath, specContent, "utf-8");
+    // Use workspace temp directory instead of OS temp for mock compatibility
+    const tempDir = path.join(this.workspacePath, ".tmp");
+    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
 
-    // Create task object
-    const task: Task = {
-      id,
-      title,
-      status: "TODO",
-      specPath,
-    };
-
-    // Update tasks list
-    await this.updateTasksFile([task]);
-
-    return task;
-  }
-
-  async deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean> {
-    const tasks = await this.parseTasks();
-    const taskIndex = tasks.findIndex((task) => task.id === id);
-
-    if (taskIndex === -1) {
-      return false;
-    }
-
-    const task = tasks[taskIndex];
-    tasks.splice(taskIndex, 1);
-
-    // Delete spec file if it exists
-    if (task.specPath && (await this.fileExists(task.specPath))) {
-      await fs.unlink(task.specPath);
-    }
-
-    await this.saveTasks(tasks);
-    return true;
-  }
-
-  getWorkspacePath(): string {
-    return this.workspacePath;
-  }
-
-  getCapabilities(): BackendCapabilities {
-    return {
-      canCreate: true,
-      canUpdate: true,
-      canDelete: true,
-      canList: true,
-      supportsMetadata: false,
-      supportsSearch: false,
-    };
-  }
-
-  // ---- Optional Metadata Methods ----
-
-  async getTaskMetadata(id: string): Promise<TaskMetadata | null> {
-    const task = await this.getTask(id);
-    if (!task || !task.specPath) {
-      return null;
+    // Ensure temp directory exists
+    try {
+      await fs.mkdir(tempDir, { recursive: true });
+    } catch (error) {
+      // Directory already exists, continue
     }
 
     try {
-      const content = await fs.readFile(task.specPath, "utf-8");
-      return {
-        id: task.id,
-        title: task.title,
-        spec: content,
-        status: task.status,
-        backend: task.backend,
-        createdAt: undefined, // Not available in markdown format
-        updatedAt: undefined,
-      };
-    } catch {
-      return null;
-    }
-  }
+      // Write the spec content to the temporary file
+      await fs.writeFile(tempSpecPath, taskSpecContent, "utf-8");
 
-  async setTaskMetadata(id: string, metadata: TaskMetadata): Promise<void> {
-    // Update task entry
-    const tasks = await this.parseTasks();
-    const taskIndex = tasks.findIndex((task) => task.id === id);
+      // Use the existing createTask method
+      const task = await this.createTask(tempSpecPath, options);
 
-    if (taskIndex === -1) {
-      throw new Error(`Task ${id} not found`);
-    }
-
-    tasks[taskIndex].title = metadata.title;
-    tasks[taskIndex].status = metadata.status;
-
-    // Update spec file
-    if (metadata.spec && tasks[taskIndex].specPath) {
-      await fs.writeFile(tasks[taskIndex].specPath, metadata.spec);
-    }
-
-    await this.saveTasks(tasks);
-  }
-
-  // ---- Internal Methods ----
-
-  private async getTasksData(): Promise<TaskReadOperationResult> {
-    return await readTasksFile(this.tasksFilePath);
-  }
-
-  private async generateTaskId(_title: string): Promise<string> {
-    // Get existing tasks to determine next ID
-    const existingTasksResult = await this.getTasksData();
-    let existingTasks: TaskData[] = [];
-    if (existingTasksResult.success && existingTasksResult.content) {
-      existingTasks = this.parseTasks(existingTasksResult.content);
-    }
-
-    // Find max existing ID number
-    const maxId = existingTasks.reduce((max, task) => {
-      const id = getTaskIdNumber(task.id);
-      return id !== null && id > max ? id : max;
-    }, 0);
-
-    // Generate qualified backend ID (e.g., "md#285")
-    return `md#${maxId + 1}`;
-  }
-
-  private async parseTasks(): Promise<Task[]> {
-    try {
-      const content = String(await fs.readFile(this.filePath, "utf-8"));
-      const lines = content.toString().split("\n");
-      const tasks: Task[] = [];
-      let inCodeBlock = false;
-
-      for (let i = 0; i < lines.length; i++) {
-        const line = lines[i] ?? "";
-        if (line.trim().startsWith("```")) {
-          inCodeBlock = !inCodeBlock;
-          continue;
-        }
-        if (inCodeBlock) continue;
-
-        const parsed = TASK_PARSING_UTILS.parseTaskLine(line);
-        if (!parsed) continue;
-
-        const { checkbox, title, id } = parsed;
-        if (!title || !id || !/^(#\d+|[a-z-]+#\d+)$/.test(id)) continue;
-
-        const status = Object.keys(TASK_STATUS_CHECKBOX).find(
-          (key) => TASK_STATUS_CHECKBOX[key] === checkbox
-        );
-        if (!status) continue;
-
-        const specPath = await this.validateSpecPath(id, title);
-
-        // Collect description from indented lines
-        let description: string | undefined = undefined;
-        const descriptionLines: string[] = [];
-
-        for (let j = i + 1; j < lines.length; j++) {
-          const nextLine = lines[j] ?? "";
-          if (nextLine.trim() === "") {
-            if (descriptionLines.length > 0) break;
-            continue;
-          }
-          if (!nextLine.startsWith("  ") && !nextLine.startsWith("\t")) break;
-
-          const content = nextLine.replace(/^[\s\t]+/, "");
-          if (content.trim()) {
-            descriptionLines.push(content);
-          }
-        }
-
-        if (descriptionLines.length > 0) {
-          description = descriptionLines.join(" ").trim();
-        }
-
-        tasks.push({
-          id,
-          title,
-          description: description || "",
-          status,
-          specPath,
-          backend: "markdown",
-        });
+      // Clean up the temporary file
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (error) {
+        // Ignore cleanup errors
       }
 
-      return tasks;
+      return task;
     } catch (error) {
-      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
-        return [];
+      // Clean up the temporary file on error
+      try {
+        await fs.unlink(tempSpecPath);
+      } catch (cleanupError) {
+        // Ignore cleanup errors
       }
       throw error;
     }
   }
 
-  private async saveTasks(tasks: Task[]): Promise<void> {
-    const content = this.formatTasks(tasks);
-    await fs.writeFile(this.filePath, content);
+  /**
+   * Generate a task specification file content from title and description
+   * @param title Title of the task
+   * @param description Description of the task
+   * @returns The generated task specification content
+   */
+  private generateTaskSpecification(title: string, description: string): string {
+    return `# ${title}
+
+## Context
+
+${description}
+
+## Requirements
+
+## Solution
+
+## Notes
+`;
   }
 
-  private formatTasks(tasks: Task[]): string {
-    if (tasks.length === 0) {
-      return "# Tasks\n\n(No tasks yet)\n";
-    }
+  async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
+    try {
+      // Get all tasks first
+      const tasksResult = await this.getTasksData();
+      if (!tasksResult.success || !tasksResult.content) {
+        return false;
+      }
 
-    const lines = ["# Tasks", ""];
+      // Parse tasks and find the one to delete using existing utility
+      const tasks = this.parseTasks(tasksResult.content);
+      const taskToDelete = getTaskById(tasks, id);
 
-    for (const task of tasks) {
-      const checkbox = TASK_STATUS_CHECKBOX[task.status] || "☐";
-      lines.push(`${checkbox} ${task.title} ${task.id}`);
+      if (!taskToDelete) {
+        log.debug(`Task ${id} not found for deletion`);
+        return false;
+      }
 
-      if (task.description) {
-        const descLines = task.spec.split("\n");
-        for (const descLine of descLines) {
-          if (descLine.trim()) {
-            lines.push(`  ${descLine.trim()}`);
+      // Remove the task from the array
+      const updatedTasks = tasks.filter((task) => task.id !== taskToDelete.id);
+
+      // Save the updated tasks
+      const updatedContent = this.formatTasks(updatedTasks);
+      const saveResult = await this.saveTasksData(updatedContent);
+
+      if (!saveResult.success) {
+        log.error(`Failed to save tasks after deleting ${id}:`, {
+          error: saveResult.error?.message || "Unknown error",
+          filePath: this.tasksFilePath,
+        });
+        return false;
+      }
+
+      // Try to delete the spec file if it exists
+      if (taskToDelete.specPath) {
+        try {
+          const fullSpecPath = taskToDelete.specPath.startsWith("/")
+            ? taskToDelete.specPath
+            : join(this.workspacePath, taskToDelete.specPath);
+
+          if (await this.fileExists(fullSpecPath)) {
+            const { unlink } = await import("fs/promises");
+            await unlink(fullSpecPath);
+            log.debug(`Deleted spec file: ${fullSpecPath}`);
           }
+        } catch (error) {
+          // Log but don't fail the operation if spec file deletion fails
+          log.debug(`Could not delete spec file for task ${id}: ${getErrorMessage(error as any)}`);
         }
       }
-      lines.push("");
-    }
 
-    return lines.join("\n");
-  }
-
-  private async validateSpecPath(taskId: string, title: string): Promise<string | undefined> {
-    const specPath = this.getTaskSpecPath(taskId, title);
-    if (await this.fileExists(specPath)) {
-      return specPath;
-    }
-    return undefined;
-  }
-
-  private getTaskSpecPath(taskId: string, title: string): string {
-    const cleanId = taskId.replace(/^(md)?#/, "");
-    const slug = title
-      .toLowerCase()
-      .replace(/[^a-z0-9\s-]/g, "")
-      .replace(/\s+/g, "-")
-      .substring(0, 50);
-
-    return join(this.workspacePath, "process", "tasks", `${cleanId}-${slug}.md`);
-  }
-
-  private async fileExists(filePath: string): Promise<boolean> {
-    try {
-      await fs.access(filePath);
       return true;
-    } catch {
+    } catch (error) {
+      log.error(`Failed to delete task ${id}:`, {
+        error: getErrorMessage(error as any),
+      });
       return false;
     }
+  }
+
+  // ---- Data Retrieval ----
+
+  async getTasksData(): Promise<TaskReadOperationResult> {
+    return readTasksFile(this.tasksFilePath);
+  }
+
+  async getTaskSpecData(specPath: string): Promise<TaskReadOperationResult> {
+    // Ensure specPath is a string
+    const pathStr = String(specPath || "");
+    const fullPath = pathStr.startsWith("/") ? pathStr : join(this.workspacePath, pathStr);
+    return readTaskSpecFile(fullPath);
+  }
+
+  // ---- Pure Operations ----
+
+  parseTasks(content: string): TaskData[] {
+    const tasks = parseTasksFromMarkdown(content);
+
+    // Process tasks to ensure they have spec paths if available
+    // This is done synchronously to match the interface
+    for (const task of tasks) {
+      if (!task.specPath) {
+        // Use the context-aware spec path function
+        task.specPath = getTaskSpecRelativePath(task.id, task.title, this.workspacePath);
+      }
+    }
+
+    return tasks;
+  }
+
+  formatTasks(tasks: TaskData[]): string {
+    return formatTasksToMarkdown(tasks);
+  }
+
+  parseTaskSpec(content: string): TaskSpecData {
+    // First use matter to extract frontmatter
+    const { data, content: markdownContent } = matter(content);
+
+    // Then parse the markdown content
+    const spec = parseTaskSpecFromMarkdown(markdownContent);
+
+    // Combine with any metadata from frontmatter
+    return {
+      ...spec,
+      metadata: data || {},
+    };
+  }
+
+  formatTaskSpec(spec: TaskSpecData): string {
+    // First format the markdown content
+    const markdownContent = formatTaskSpecToMarkdown(spec);
+
+    // Then add any metadata as frontmatter
+    if (spec.metadata && Object.keys(spec.metadata).length > 0) {
+      return matter.stringify(markdownContent, spec.metadata);
+    }
+
+    return markdownContent;
+  }
+
+  // ---- Side Effects ----
+
+  async saveTasksData(content: string): Promise<TaskWriteOperationResult> {
+    return writeTasksFile(this.tasksFilePath, content);
+  }
+
+  async saveTaskSpecData(specPath: string, content: string): Promise<TaskWriteOperationResult> {
+    const fullPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
+    return writeTaskSpecFile(fullPath, content);
+  }
+
+  // ---- Helper Methods ----
+
+  getWorkspacePath(): string {
+    return this.workspacePath;
+  }
+
+  getTaskSpecPath(taskId: string, title: string): string {
+    return getTaskSpecRelativePath(taskId, title, this.workspacePath);
+  }
+
+  async fileExists(path: string): Promise<boolean> {
+    return checkFileExists(path);
+  }
+
+  // ---- Additional Helper Methods ----
+
+  /**
+   * Find task specification files for a given task ID
+   * @param taskId Task ID (without # prefix)
+   * @returns Promise resolving to array of matching file names
+   */
+  async findTaskSpecFiles(taskId: string): Promise<string[]> {
+    try {
+      const files = await readdir(this.tasksDirectory);
+      return files.filter((file) => file.startsWith(`${taskId}-`));
+    } catch (error) {
+      log.error(`Failed to find task spec file for task #${taskId}`, {
+        error: getErrorMessage(error as any),
+      });
+      return [];
+    }
+  }
+
+  /**
+   * Get backend capabilities
+   */
+  isInTreeBackend(): boolean {
+    return true;
   }
 }
 

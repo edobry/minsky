@@ -371,7 +371,6 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     } else if (result === null || result === undefined) {
       log.cli("No result");
     } else {
-      log.cli(String(result));
     }
   }
 

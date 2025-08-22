@@ -80,8 +80,6 @@
 
 - [x] Implement Session-Scoped MCP Server for Workspace Isolation [md#049](process/tasks/md#049-implement-session-scoped-mcp-server-for-workspace-isolation.md)
 
-- [x] Fix Remaining Test Failures in Minsky [md#050](process/tasks/md#050-fix-remaining-test-failures-in-minsky.md)
-
 - [x] Add Git Commands to MCP Server [md#051](process/tasks/md#051-add-git-commands-to-mcp-server.md)
 
 - [x] Add Remaining Task Management Commands to MCP [md#052](process/tasks/md#052-add-remaining-task-management-commands-to-mcp.md)
@@ -498,8 +496,6 @@
 
 - [x] Implement Custom Type-Safe Configuration System [md#295](process/tasks/md#295-implement-custom-type-safe-configuration-system.md)
 
-- [x] Audit codebase for git command timeout issues and create ESLint rule [md#301](process/tasks/md#301-audit-codebase-for-git-command-timeout-issues-and-create-eslint-rule.md)
-
 - [ ] Explore Exposing Rules and Documentation as MCP Resources with Template Integration [md#302](process/tasks/md#302-explore-exposing-rules-and-documentation-as-mcp-resources-with-template-integration.md)
 
 - [x] Improve Task Operations Workflow with Auto-Commit for Markdown Backend [md#303](process/tasks/md#303-improve-task-operations-workflow-with-auto-commit-for-markdown-backend.md)
@@ -608,7 +604,7 @@
 
 - [ ] Add config commands to MCP server [md#391](process/tasks/md#391-add-config-commands-to-mcp-server.md)
 
-- [ ] Systematic Global Module Mock Cleanup [md#392](process/tasks/md#392-systematic-global-module-mock-cleanup.md)
+- [+] Systematic Global Module Mock Cleanup [md#392](process/tasks/md#392-systematic-global-module-mock-cleanup.md)
 
 - [ ] Testable Design Pattern Expansion [md#394](process/tasks/md#394-testable-design-pattern-expansion.md)
 
@@ -643,8 +639,6 @@
 - [x] Fix session start to auto-detect GitHub remote when default_repo_backend is github [md#435](process/tasks/md#435-fix-session-start-to-auto-detect-github-remote-when-default-repo-backend-is-github.md)
 
 - [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#399](process/tasks/md#399-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
-
-- [x] Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification [md#412](process/tasks/md#412-create-comprehensive-integration-tests-for-session-edit-file-mcp-tool-with-cursor-edit-file-parity-verification.md)
 
 - [x] Implement conventional commit title generation for session pr create command [md#413](process/tasks/md#413-implement-conventional-commit-title-generation-for-session-pr-create-command.md)
 
@@ -692,7 +686,7 @@
 
 - [x] Improve task search output to include title, spec path, and other relevant information by default, with additional details behind a flag. Update both CLI and JSON output formats. [md#438](process/tasks/md#438-improve-task-search-output-to-include-title-spec-path-and-other-relevant-information-by-default-with-additional-details-behind-a-flag-update-both-cli-and-json-output-formats-.md)
 
-- [x] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
+- [+] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
 
 - [ ] Define Phased Future Direction: Backend-SoT + DB Overlay, MCP‑First (Minimal Path) [md#440](process/tasks/md#440-define-phased-future-direction-backend-sot-db-overlay-mcp-first-minimal-path-.md)
 
@@ -704,7 +698,7 @@
 
 - [x] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
 
-- [+] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+- [x] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
 
 - [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
 
@@ -718,17 +712,20 @@
 
 - [ ] Explore embedding content optimization strategies for similarity search [md#451](process/tasks/md#451-explore-embedding-content-optimization-strategies-for-similarity-search.md)
 
-- [ ] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
-
-- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#454](process/tasks/md#454-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
-
 - [+] Resolve merge conflicts for status-filtering PR in session workspace [md#453](process/tasks/md#453-resolve-merge-conflicts-for-status-filtering-pr-in-session-workspace.md)
 
 - [+] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
 
-- [ ] Implement embedding-based rule suggestion (replace AI-based) reusing tasks embeddings infra [md#445](process/tasks/md#445-implement-embedding-based-rule-suggestion-replace-ai-based-reusing-tasks-embeddings-infra.md)
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
 
-- [ ] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
-- [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
->>>>>>> origin/main
+- [ ] Investigate AI Integration Test Validation Logic [md#456](process/tasks/md#456-investigate-ai-integration-test-validation-logic.md)
+
+<<<<<<< Updated upstream
+- [ ] Rethink test organization for consistency and principled structure [md#457](process/tasks/md#457-rethink-test-organization-for-consistency-and-principled-structure.md)
+=======
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
+
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
+>>>>>>> Stashed changes

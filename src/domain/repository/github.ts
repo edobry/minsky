@@ -632,20 +632,18 @@ Repository: https://github.com/${this.owner}/${this.repo}
         try {
           const sessionRecord = await this.sessionDB.getSession(session);
           if (sessionRecord) {
-            // Update the session record with PR info (GitHub backend doesn't use prBranch)
+            // Update the session record with essential PR workflow state only
+            // title, body, updatedAt are fetched live from GitHub API to avoid cache sync issues
             const updatedSession = {
               ...sessionRecord,
               pullRequest: {
                 number: pr.number,
                 url: pr.html_url,
-                title: pr.title || `PR #${pr.number}`,
                 state: pr.draft ? "draft" : (pr.state as any) || "open",
                 createdAt: pr.created_at,
-                updatedAt: pr.updated_at,
                 mergedAt: pr.merged_at || undefined,
                 headBranch: pr.head.ref,
                 baseBranch: pr.base.ref,
-                body: pr.body || undefined,
                 github: {
                   id: pr.id,
                   nodeId: pr.node_id,
