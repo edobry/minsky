@@ -213,13 +213,13 @@ class SyntaxParsingErrorsFixer {
         replacement: 'components.scheme = "file";',
         category: "escaped-quotes",
       },
-      // {
-      //   name: "ESCAPED_QUOTES_REPLACE",
-      //   description: "Fix escaped quotes in replace function",
-      //   pattern: /\.replace\(\/\^file:\\/\\/\/,\s*['"]\s*\)/g,
-      //   replacement: '.replace(/^file:\\/\\//, "")',
-      //   category: "escaped-quotes"
-      // },
+      {
+        name: "ESCAPED_QUOTES_REPLACE",
+        description: "Fix escaped quotes in replace function",
+        pattern: /\.replace\(\/\^file:\\\//g,
+        replacement: ".replace(/^file:\\/\\/",
+        category: "escaped-quotes",
+      },
       {
         name: "ESCAPED_QUOTES_COMMENT",
         description: "Fix escaped quotes in comments",
