@@ -1,6 +1,81 @@
 import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 import { CommandGeneratorService } from "../../rules/command-generator";
-import { CommandCategory } from "../../../adapters/shared/command-registry";
+import { CommandCategory, sharedCommandRegistry } from "../../../adapters/shared/command-registry";
+import { z } from "zod";
+
+/**
+ * Convert a Zod schema to JSON Schema format like Cursor uses
+ */
+function zodToJsonSchema(zodSchema: z.ZodTypeAny): any {
+  if (zodSchema instanceof z.ZodString) {
+    return { type: "string" };
+  } else if (zodSchema instanceof z.ZodNumber) {
+    return { type: "number" };
+  } else if (zodSchema instanceof z.ZodBoolean) {
+    return { type: "boolean" };
+  } else if (zodSchema instanceof z.ZodArray) {
+    return {
+      type: "array",
+      items: zodToJsonSchema(zodSchema._def.type),
+    };
+  } else if (zodSchema instanceof z.ZodEnum) {
+    return {
+      type: "string",
+      enum: zodSchema._def.values,
+    };
+  } else if (zodSchema instanceof z.ZodUnion) {
+    const types = zodSchema._def.options.map((option: z.ZodTypeAny) => zodToJsonSchema(option));
+    // If it's a simple union of types, just use the first type for simplicity
+    return types[0] || { type: "string" };
+  } else if (zodSchema instanceof z.ZodOptional) {
+    return zodToJsonSchema(zodSchema._def.innerType);
+  } else if (zodSchema instanceof z.ZodDefault) {
+    return zodToJsonSchema(zodSchema._def.innerType);
+  } else {
+    // Default to string for unknown types
+    return { type: "string" };
+  }
+}
+
+/**
+ * Extract JSON Schema properties and required fields from command parameters
+ */
+function extractParameterSchemas(commandId: string): {
+  properties: Record<string, any>;
+  required: string[];
+} {
+  const command = sharedCommandRegistry.getCommand(commandId);
+  if (!command || !command.parameters) {
+    return { properties: {}, required: [] };
+  }
+
+  const properties: Record<string, any> = {};
+  const required: string[] = [];
+
+  for (const [paramName, paramDef] of Object.entries(command.parameters)) {
+    // Convert Zod schema to JSON Schema
+    const jsonSchema = zodToJsonSchema(paramDef.schema);
+
+    // Add description if available
+    if (paramDef.description) {
+      jsonSchema.description = paramDef.description;
+    }
+
+    // Add default value if available
+    if (paramDef.defaultValue !== undefined) {
+      jsonSchema.default = paramDef.defaultValue;
+    }
+
+    properties[paramName] = jsonSchema;
+
+    // Add to required if marked as required
+    if (paramDef.required) {
+      required.push(paramName);
+    }
+  }
+
+  return { properties, required };
+}
 
 /**
  * Tool Schemas Component
@@ -46,14 +121,17 @@ export const ToolSchemasComponent: ContextComponent = {
       for (const category of categories) {
         const commands = commandGenerator.getCommandsByCategory(category);
         for (const cmd of commands) {
+          // Extract actual parameter schemas from the shared command registry
+          const { properties, required } = extractParameterSchemas(cmd.id);
+
           // For JSON format (default), use clean tool schema format like Cursor
           if (interfaceConfig.interface === "cli") {
             toolSchemas[cmd.id] = {
               description: cmd.description,
               parameters: {
                 type: "object",
-                properties: {},
-                required: [],
+                properties,
+                required,
               },
             };
           } else {
@@ -63,8 +141,8 @@ export const ToolSchemasComponent: ContextComponent = {
               syntax: cmd.syntax,
               parameters: {
                 type: "object",
-                properties: {},
-                required: [],
+                properties,
+                required,
               },
             };
           }
