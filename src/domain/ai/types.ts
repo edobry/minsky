@@ -118,6 +118,19 @@ export interface AIModel {
     input: number;
     output: number;
   };
+  tokenizer?: TokenizerInfo;
+}
+
+// Tokenizer information for models
+export interface TokenizerInfo {
+  // The tokenizer encoding name (e.g., "cl100k_base", "o200k_base", "claude-3")
+  encoding: string;
+  // The tokenization library to use ("gpt-tokenizer", "tiktoken", "anthropic")
+  library: "gpt-tokenizer" | "tiktoken" | "anthropic" | "google" | "custom";
+  // Optional model-specific tokenizer configuration
+  config?: Record<string, any>;
+  // Whether this tokenizer mapping was detected from API or is a fallback
+  source: "api" | "fallback" | "config";
 }
 
 // Configuration service types

@@ -200,7 +200,7 @@ Understanding context utilization is crucial for:
 
 - [ ] Implement cross-model token comparison algorithms
 - [ ] Build analysis algorithms for context breakdown and optimization suggestions
-- [ ] Implement `context visualize` command with tokenizer-specific breakdowns
+- [x] ~~Implement `context visualize` command~~ → **Moved to Task #456** (needs architecture redesign)
 - [ ] Add support for CSV output format
 - [ ] Implement interactive features for exploring context composition
 - [ ] Add tokenizer comparison and debugging features

@@ -101,30 +101,33 @@ These patterns were discovered through systematic test fixing and achieved 100% 
 
 ### 🆕 **Recently Discovered Critical Patterns (December 2024)**
 
-*These patterns were discovered during recent test stabilization work that fixed infinite loop test hangs and achieved 1,425 passing tests.*
+_These patterns were discovered during recent test stabilization work that fixed infinite loop test hangs and achieved 1,425 passing tests._
 
 #### **Pattern: Variable Naming Protocol Enforcement** ⚠️ **CRITICAL**
 
-**Problem**: Constructor parameter naming mismatches cause infinite loops (99.999%+ performance impact)  
-**Discovery**: Task #458 - TaskService tests running for 4+ billion milliseconds  
+**Problem**: Constructor parameter naming mismatches cause infinite loops (99.999%+ performance impact)
+**Discovery**: Task #458 - TaskService tests running for 4+ billion milliseconds
 **Success Rate**: 100% when variable naming is consistent
 
 ```typescript
 // ❌ CRITICAL BUG: Parameter/usage mismatch causing infinite loops
 class TaskService {
-  constructor(backends: TaskBackend[], workspacePath: string) { /* ... */ }
+  constructor(backends: TaskBackend[], workspacePath: string) {
+    /* ... */
+  }
 }
 
 // In tests - CAUSES INFINITE LOOPS:
-const taskService = new TaskService(customBackends, workspacePath);  // ❌ WRONG parameter name
+const taskService = new TaskService(customBackends, workspacePath); // ❌ WRONG parameter name
 //                                  ^^^^^^^^^^^^^ 'customBackends' instead of 'backends'
 
 // ✅ CORRECT: Consistent parameter naming
-const taskService = new TaskService(backends, workspacePath);  // ✅ Matches constructor
+const taskService = new TaskService(backends, workspacePath); // ✅ Matches constructor
 //                                  ^^^^^^^^ Correct parameter name
 ```
 
 **Performance Evidence**:
+
 - JsonFileTaskBackend: 4,319,673,451ms → 241ms (99.999% improvement)
 - SessionPathResolver: 4,319,805,914ms → 143ms (99.999% improvement)
 
@@ -132,8 +135,8 @@ const taskService = new TaskService(backends, workspacePath);  // ✅ Matches co
 
 #### **Pattern: Temp Directory Elimination** 🎯
 
-**Problem**: Real temp directory operations cause test failures and skips  
-**Discovery**: SessionPathResolver tests failing due to `createRobustTempDir()` issues  
+**Problem**: Real temp directory operations cause test failures and skips
+**Discovery**: SessionPathResolver tests failing due to `createRobustTempDir()` issues
 **Success Rate**: 100% test enablement when using mock paths
 
 ```typescript
@@ -160,8 +163,8 @@ beforeEach(() => {
 
 #### **Pattern: Security Test Enablement** 🛡️
 
-**Problem**: Critical security tests disabled with `.skip()` provide zero protection  
-**Discovery**: PR branch validation tests were skipped despite working logic  
+**Problem**: Critical security tests disabled with `.skip()` provide zero protection
+**Discovery**: PR branch validation tests were skipped despite working logic
 **Success Rate**: 100% when security validation is enabled
 
 ```typescript
@@ -183,8 +186,8 @@ it("should reject PR creation when current branch is a PR branch", async () => {
 
 #### **Pattern: Constructor Interface Alignment** 🔧
 
-**Problem**: Mock interfaces don't match current service APIs causing test failures  
-**Discovery**: TaskService mock missing required `getCapabilities` and `createTaskFromTitleAndSpec` methods  
+**Problem**: Mock interfaces don't match current service APIs causing test failures
+**Discovery**: TaskService mock missing required `getCapabilities` and `createTaskFromTitleAndSpec` methods
 **Success Rate**: 100% when mocks implement full current interface
 
 ```typescript
@@ -201,11 +204,12 @@ const createMockBackend = (): TaskBackend => ({
   listTasks: mock(),
   getTaskStatus: mock(),
   setTaskStatus: mock(),
-  createTaskFromTitleAndSpec: mock(),  // Required by current API
-  getCapabilities: mock(() => ({        // Required by current API
+  createTaskFromTitleAndSpec: mock(), // Required by current API
+  getCapabilities: mock(() => ({
+    // Required by current API
     canCreateTasks: true,
     canUpdateStatus: true,
-    supportsQualifiedIds: true
+    supportsQualifiedIds: true,
   })),
 });
 ```
@@ -214,31 +218,35 @@ const createMockBackend = (): TaskBackend => ({
 
 #### **Pattern: Strategic Test Skip Classification** 📋
 
-**Discovery**: Not all skipped tests represent problems - some are intentionally educational  
+**Discovery**: Not all skipped tests represent problems - some are intentionally educational
 **Success**: Clear classification prevents wasted effort on intentional skips
 
 **Educational/Demonstration Skips** (Should remain skipped):
+
 ```typescript
 // ❌ Anti-pattern demonstration tests (src/eslint-rules/no-real-fs-in-tests.test.js)
 describe.skip("filesystem operations test", () => {
   it("should detect filesystem operations", () => {
     // Intentionally demonstrates bad patterns for ESLint rule testing
-    mkdirSync(testDir);  // This SHOULD fail - it's an example of what NOT to do
+    mkdirSync(testDir); // This SHOULD fail - it's an example of what NOT to do
   });
 });
 ```
 
 **Integration Test Skips** (Should be conditional):
+
 ```typescript
 // ✅ Conditional integration tests
 describe.if(process.env.RUN_INTEGRATION_TESTS)(
-  "session pr edit - conventional commit title validation", () => {
+  "session pr edit - conventional commit title validation",
+  () => {
     // These run only when explicitly requested
   }
 );
 ```
 
 **Problematic Skips** (Should be fixed immediately):
+
 ```typescript
 // ❌ MUST FIX: Broken functionality skipped
 it.skip("critical security validation", () => {
