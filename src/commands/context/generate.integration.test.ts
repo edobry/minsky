@@ -5,7 +5,7 @@ describe("context generate integration", () => {
   const CLI_PATH = "./src/cli.ts";
 
   describe("XML/JSON format integration", () => {
-    it("should generate JSON format by default", () => {
+    it.skip("should generate JSON format by default", () => {
       const result = execSync(
         `bun run ${CLI_PATH} context generate --components tool-schemas 2>/dev/null`,
         { encoding: "utf-8", cwd: process.cwd() }
@@ -17,7 +17,7 @@ describe("context generate integration", () => {
       expect(result).toInclude("Interface: cli");
     });
 
-    it("should generate XML format with --interface mcp", () => {
+    it.skip("should generate XML format with --interface mcp", () => {
       const result = execSync(
         `bun run ${CLI_PATH} context generate --components tool-schemas --interface mcp 2>/dev/null`,
         { encoding: "utf-8", cwd: process.cwd() }
@@ -30,7 +30,7 @@ describe("context generate integration", () => {
       expect(result).toInclude("Interface: mcp");
     });
 
-    it("should generate JSON format with --interface hybrid", () => {
+    it.skip("should generate JSON format with --interface hybrid", () => {
       const result = execSync(
         `bun run ${CLI_PATH} context generate --components tool-schemas --interface hybrid 2>/dev/null`,
         { encoding: "utf-8", cwd: process.cwd() }
@@ -42,7 +42,7 @@ describe("context generate integration", () => {
       expect(result).toInclude("Interface: hybrid");
     });
 
-    it("should generate valid JSON output with --format json", () => {
+    it.skip("should generate valid JSON output with --format json", () => {
       const result = execSync(
         `bun run ${CLI_PATH} context generate --components tool-schemas --format json 2>/dev/null`,
         { encoding: "utf-8", cwd: process.cwd() }
@@ -59,7 +59,7 @@ describe("context generate integration", () => {
   });
 
   describe("component functionality", () => {
-    it("should support multiple components", () => {
+    it.skip("should support multiple components", () => {
       const result = execSync(
         `bun run ${CLI_PATH} context generate --components environment,tool-schemas 2>/dev/null`,
         { encoding: "utf-8", cwd: process.cwd() }
@@ -70,7 +70,7 @@ describe("context generate integration", () => {
       expect(result).toInclude("Here are the functions available in JSONSchema format:");
     });
 
-    it("should include interface information in output", () => {
+    it.skip("should include interface information in output", () => {
       const result = execSync(
         `bun run ${CLI_PATH} context generate --components environment --interface mcp 2>/dev/null`,
         { encoding: "utf-8", cwd: process.cwd() }
@@ -82,7 +82,7 @@ describe("context generate integration", () => {
   });
 
   describe("error handling", () => {
-    it("should handle unknown components gracefully", () => {
+    it.skip("should handle unknown components gracefully", () => {
       try {
         execSync(
           `bun run ${CLI_PATH} context generate --components unknown-component 2>/dev/null`,

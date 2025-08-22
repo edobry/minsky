@@ -1,12 +1,15 @@
 # Investigate "Seek Human Input" / "Ask Expert" Tool and Agent Inbox Pattern; Queue and Turn-Taking Design
 
 ## Status
+
 TODO
 
 ## Priority
+
 HIGH
 
 ## Category
+
 RESEARCH / ARCHITECTURE
 
 ## Context
@@ -44,16 +47,19 @@ Research/documentation only. No implementation or migrations in this task.
 ## Research Questions
 
 - Concept model
+
   - What are the core entities of a human input request? (request, requester agent, target audience/expert, context links, status, ownership/assignee)
   - How do we represent turn-taking/"whose turn" semantics explicitly? e.g., a field indicating the current expected responder: `human | agent | subagent`.
   - How do we attach requests to existing contexts: task (`md#NNN`), session, PR, or a conversation thread (`md#327`)?
 
 - Queue and lifecycle
+
   - Minimal viable lifecycle: `OPEN → CLAIMED → RESPONDED → CLOSED` (with optional `CANCELLED`/`EXPIRED`).
   - Ownership: how do humans "claim" items to avoid duplicate effort? Do we need `assignee`, `claimed_at`, `respond_by` deadlines, and `priority`?
   - Auditability: what metadata is required to reconstruct decision trails (timestamps, actor identities, message references)?
 
 - CLI UX (initial)
+
   - Listing and filtering: `minsky inbox list --status open,claimed --task md#123 --json`.
   - Inspect an item: `minsky inbox get <id> [--json]`.
   - Claim/release: `minsky inbox claim <id>` / `minsky inbox release <id>`.
@@ -62,11 +68,13 @@ Research/documentation only. No implementation or migrations in this task.
   - Note: These are specification targets only, to be validated against our command organization and dry-run first policies.
 
 - Conversation history and turn-taking
+
   - Can we reuse `md#327` message/thread model as the canonical store for conversation artifacts, with the queue holding pointers?
   - How do we model expected next actor (turn owner) at the thread level vs. per-item level?
   - How does this integrate with `md#441` conversation database and execution recording for subagents?
 
 - Ecosystem patterns and libraries
+
   - Agent Inbox (LangGraph) suitability for human triage and responses; how their linking of graph runs to inbox is modeled.
   - LangChain abstractions vs. DIY: criteria (complexity, lock-in, visibility, portability, local-first).
   - Vercel AI SDK feasibility for a lightweight inbox/dashboard or queue consumer.
@@ -101,6 +109,7 @@ human_help_requests (
 ```
 
 Notes:
+
 - Prefer linking to a canonical `threadId` if we adopt `md#327` messaging as the single source of truth for conversation history; queue row serves as a surfaced action item.
 - `turn_owner` conveys immediate expectation on who should act next.
 
@@ -138,4 +147,3 @@ Notes:
 
 - No code, migrations, or CLI implementation in this task.
 - No UI implementation; future work may add an inbox UI reusing the same data model.
-

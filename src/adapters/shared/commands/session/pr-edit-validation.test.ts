@@ -1,10 +1,10 @@
 import { describe, it, expect } from "bun:test";
-import { SessionPrEditCommand } from "../../../src/adapters/shared/commands/session/pr-subcommand-commands";
-import type { CommandExecutionContext } from "../../../src/schemas/command-registry";
+import { SessionPrEditCommand } from "./pr-subcommand-commands";
+import type { CommandExecutionContext } from "../../../../schemas/command-registry";
 
 /**
- * Integration-like unit tests for session pr edit title validation
- * These run without real repo/network using command-level logic
+ * Unit tests for session pr edit title validation
+ * Tests command validation logic without external dependencies
  */
 
 describe("session pr edit - conventional commit title validation", () => {

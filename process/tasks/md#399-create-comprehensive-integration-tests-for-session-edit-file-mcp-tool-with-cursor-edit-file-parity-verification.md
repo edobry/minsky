@@ -1,5 +1,7 @@
 # Create comprehensive integration tests for session.edit_file MCP tool with Cursor edit_file parity verification
 
+Canonical note: Consolidates duplicate `md#412` (now CLOSED duplicate).
+
 ## Context
 
 ✅ **COMPLETED (TS scope)** - Create comprehensive integration tests that verify `session.edit_file` works identically to Cursor's built-in `edit_file` tool, using real Morph API calls and diverse code editing scenarios. 22 TypeScript cases implemented and passing with 100% success rate via Morph Fast Apply.

@@ -3,6 +3,7 @@
 ## Context
 
 Different task backends may benefit from different task specification templates. For example:
+
 - GitHub Issues backend could use GitHub issue templates
 - Database backend could have structured templates for different task types
 - Markdown backend could have project-specific templates

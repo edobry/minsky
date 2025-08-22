@@ -290,4 +290,3 @@ minsky tasks similar 250 --include-closed --threshold=0.5
    - Add batch processing and error handling
 
 2. **PostgreSQL + pgvector Storage:**
-

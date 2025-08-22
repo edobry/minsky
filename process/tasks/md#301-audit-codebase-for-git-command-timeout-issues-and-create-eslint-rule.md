@@ -1,5 +1,9 @@
 # Audit codebase for git command timeout issues and create ESLint rule
 
+Status: CLOSED (Duplicate of md#294)
+
+Note: This spec duplicates the completed audit and remediation tracked under `md#294`. Refer to `md#294` for authoritative findings, rule implementations, and fixes.
+
 ## Status
 
 BACKLOG

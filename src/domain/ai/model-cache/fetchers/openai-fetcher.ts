@@ -6,7 +6,7 @@
  */
 
 import { ModelFetcher, CachedProviderModel, ModelFetchConfig, ModelFetchError } from "../types";
-import { AICapability } from "../../types";
+import { AICapability, TokenizerInfo } from "../../types";
 import { log } from "../../../../utils/logger";
 
 /**
@@ -174,6 +174,7 @@ export class OpenAIModelFetcher implements ModelFetcher {
   private async convertToCachedModel(apiModel: OpenAIModelResponse): Promise<CachedProviderModel> {
     const capabilities = this.getStaticCapabilities(apiModel.id);
     const modelInfo = this.getModelInfo(apiModel.id);
+    const tokenizer = this.getTokenizerInfo(apiModel.id);
 
     return {
       id: apiModel.id,
@@ -184,6 +185,7 @@ export class OpenAIModelFetcher implements ModelFetcher {
       contextWindow: modelInfo.contextWindow,
       maxOutputTokens: modelInfo.maxOutputTokens,
       costPer1kTokens: modelInfo.costPer1kTokens,
+      tokenizer,
       fetchedAt: new Date(),
       status: this.getModelStatus(apiModel),
       providerMetadata: {
@@ -383,5 +385,54 @@ export class OpenAIModelFetcher implements ModelFetcher {
 
     // All models returned by the API are generally available
     return "available";
+  }
+
+  /**
+   * Get tokenizer information for OpenAI models
+   */
+  private getTokenizerInfo(modelId: string): TokenizerInfo {
+    // GPT-4o and O1 models use o200k_base encoding
+    if (modelId.startsWith("gpt-4o") || modelId.startsWith("o1-")) {
+      return {
+        encoding: "o200k_base",
+        library: "gpt-tokenizer",
+        source: "fallback", // Could be "api" if we fetch from OpenAI API in the future
+      };
+    }
+
+    // GPT-4 and GPT-3.5 models use cl100k_base encoding
+    if (
+      modelId.startsWith("gpt-4") ||
+      modelId.startsWith("gpt-3.5") ||
+      modelId.startsWith("chatgpt")
+    ) {
+      return {
+        encoding: "cl100k_base",
+        library: "gpt-tokenizer",
+        source: "fallback",
+      };
+    }
+
+    // Legacy models use p50k_base encoding
+    if (
+      modelId.startsWith("text-") ||
+      modelId.startsWith("davinci") ||
+      modelId.startsWith("curie") ||
+      modelId.startsWith("babbage") ||
+      modelId.startsWith("ada")
+    ) {
+      return {
+        encoding: "p50k_base",
+        library: "tiktoken",
+        source: "fallback",
+      };
+    }
+
+    // Default fallback for unknown OpenAI models
+    return {
+      encoding: "cl100k_base",
+      library: "gpt-tokenizer",
+      source: "fallback",
+    };
   }
 }

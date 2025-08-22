@@ -1,5 +1,7 @@
 # Fix all linter errors
 
+Status: CLOSED (Duplicate of md#320)
+
 ## Context
 
 Auto-created task for session: Fix all linter errors
