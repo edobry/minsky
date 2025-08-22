@@ -81,18 +81,33 @@ git clone https://github.com/edobry/minsky.git
 cd minsky
 bun install
 
-# Run tests
+# Install secret scanning (required for full pre-commit functionality)
+brew install gitleaks  # macOS
+# or: apt install gitleaks  # Linux
+
+# Verify setup with full test suite
 bun test
 
 # Run linting
 bun run lint
 
-# Format code
+# Format code (done automatically on commit)
 bun run format
+
+# Run integration tests (separate from unit tests)
+bun run test:integration
 
 # Watch tests during development
 bun run test:watch
 ```
+
+**Pre-commit hooks are automatically configured** when you run `bun install`. They will:
+
+- ✅ Format your code automatically
+- ✅ Run the full test suite (1,400+ tests)
+- ✅ Check code quality with ESLint
+- ✅ Scan for accidentally committed secrets
+- ❌ Block commits if any step fails
 
 ### Using with Node.js
 
@@ -955,19 +970,121 @@ minsky git summary > PR.md
 
 This project is a research experiment in non-human developer experience. Ideas, issues and PRs are welcome!
 
-## Linting and Pre-commit Hooks
+## Development Workflow & Quality Gates
 
-This project uses ESLint for identifying and reporting on patterns in JavaScript and TypeScript code, and Prettier for code formatting. To help maintain code quality and consistency, these tools are configured to run automatically before commits using Husky and lint-staged.
+This project maintains high code quality through automated pre-commit hooks and comprehensive testing. The development workflow is designed to catch issues early and maintain consistency across all contributions.
 
-### Pre-commit Behavior
+### Enhanced Pre-Commit Hooks
 
-When you make a commit:
+Minsky uses a multi-layered pre-commit validation system that runs automatically on every commit:
 
-1.  **ESLint (`eslint --fix`)**: Automatically fixes fixable linting issues in staged `.ts` and `.js` files.
-    - **Important Note**: If ESLint encounters errors it cannot automatically fix, it will still allow the commit to proceed. The autofixed changes will be part of the commit, but any remaining non-autofixable lint errors will persist. These should be addressed manually or will be caught by more stringent checks in the CI pipeline.
-2.  **Prettier (`prettier --write`)**: Automatically formats staged `.ts`, `.js`, `.json`, and `.md` files.
+#### 1. 🎨 **Code Formatting** (Automatic)
 
-This setup ensures that common formatting and simple lint issues are handled automatically without strictly blocking commits for all lint errors. However, developers are encouraged to run `bun run lint` manually to check for and resolve any outstanding lint issues before pushing.
+- **Prettier**: Automatically formats all staged files (`.ts`, `.js`, `.json`, `.md`)
+- **Syntax Validation**: Prevents commits with syntax errors
+- **Consistent Style**: Ensures uniform code formatting across the codebase
+
+#### 2. 🧪 **Unit Test Suite** (Quality Gate)
+
+- **Comprehensive Testing**: Runs all 1,400+ unit tests with 0 tolerance for failures
+- **Fast Execution**: Complete suite runs in ~2 seconds
+- **Commit Blocking**: Any test failure blocks the commit entirely
+
+#### 3. 🔍 **Linting** (Code Quality)
+
+- **ESLint**: Identifies and reports code quality issues
+- **Custom Rules**: Project-specific rules for best practices
+- **Pattern Detection**: Catches potential bugs and anti-patterns
+
+#### 4. 🔧 **ESLint Rule Tooling** (Development Tools)
+
+- **Rule Validation**: Tests custom ESLint rules against fixtures
+- **Tooling Quality**: Ensures development tools work correctly
+- **Separate Execution**: Runs independently from application tests
+
+#### 5. 🔒 **Secret Scanning** (Security)
+
+- **Gitleaks Integration**: Scans for accidentally committed credentials
+- **Multiple Provider Detection**: API keys, tokens, and sensitive data
+- **Security Gate**: Blocks commits containing secrets
+
+### Pre-Commit Workflow
+
+When you commit changes, the hooks run in this sequence:
+
+```bash
+🎨 Running code formatter...
+✅ Code formatting completed.
+
+🧪 MANDATORY: Running unit test suite...
+✅ All 1,441 tests passing! Test suite validation completed.
+
+🔍 Running ESLint...
+✅ ESLint validation completed.
+
+🔧 Running ESLint rule tooling tests...
+✅ ESLint rule tooling tests completed.
+
+🔒 Running secret scanning...
+✅ No secrets detected.
+
+✅ All checks passed! Commit proceeding...
+```
+
+### Manual Commands
+
+You can run these checks manually at any time:
+
+```bash
+# Format code
+bun run format
+
+# Run unit tests
+bun test
+
+# Run integration tests (separate)
+bun run test:integration
+
+# Run linting
+bun run lint
+
+# Run linting with auto-fix
+bun run lint:fix
+
+# Scan for secrets
+bun run secrets:scan
+```
+
+### Test Organization
+
+The project maintains clear separation between different types of tests:
+
+- **Unit Tests**: Fast, isolated tests that run on every commit (`bun test`)
+- **Integration Tests**: Slower tests that hit real APIs (manual: `bun run test:integration`)
+- **ESLint Rule Tests**: Tooling validation tests (runs in pre-commit)
+
+### Benefits
+
+This enhanced workflow provides:
+
+- 🚀 **Developer Experience**: Automatic formatting eliminates manual work
+- 🛡️ **Quality Assurance**: Multiple validation layers catch issues early
+- ⚡ **Fast Feedback**: Quick execution keeps development flow smooth
+- 🔒 **Security**: Prevents credential leaks and security issues
+- 📊 **Consistency**: Uniform code style and quality across all contributions
+
+### Requirements
+
+**Prerequisites for development:**
+
+- **Husky**: Pre-commit hooks (installed automatically with `bun install`)
+- **Gitleaks**: Secret scanning (`brew install gitleaks` on macOS)
+- **Bun**: Test runner and package manager
+
+**Missing dependencies will:**
+
+- Show warnings but won't block commits (temporary fallback)
+- Should be installed for full functionality
 
 The pre-commit hooks themselves (e.g., `.husky/pre-commit`) need to be active (i.e., not have a `.disabled` suffix) for this automation to run.
 

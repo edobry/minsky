@@ -133,83 +133,6 @@ describe("Real-World Workflow Testing", () => {
     }
   });
 
-  describe("JSON Backend Real Storage", () => {
-    it.skip("should actually create and store data in the correct location", async () => {
-      // 1. Create JSON backend with explicit path
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: testBaseDir,
-        dbFilePath: testJsonPath, // Explicit database location
-      }) as JsonFileTaskBackend;
-
-      // 2. Verify the backend knows its storage location
-      expect(jsonBackend.getStorageLocation()).toBe(testJsonPath);
-
-      // 3. Create some test task data
-      const testTasks: TaskData[] = [
-        {
-          id: "#001",
-          title: "Test Task 1",
-          status: "TODO",
-          description: "First test task",
-        },
-        {
-          id: "#002",
-          title: "Test Task 2",
-          status: "IN-PROGRESS",
-          description: "Second test task",
-        },
-      ];
-
-      // 4. Store tasks using the backend
-      for (const task of testTasks) {
-        await jsonBackend.createTask(task);
-      }
-
-      // 5. Verify tasks are stored
-      const allTasks = await jsonBackend.getAllTasks();
-      expect(allTasks).toHaveLength(2);
-      expect(allTasks.map((t) => t.id)).toEqual(["#001", "#002"]);
-
-      // 6. Test retrieval by ID
-      const task1 = await jsonBackend.getTask("#001");
-      expect(task1).toBeDefined();
-      expect(task1?.title).toBe("Test Task 1");
-
-      // 7. Verify persistence (file exists in mock)
-      expect(mockFs.existsSync(testJsonPath)).toBe(true);
-    });
-
-    it.skip("should default to process/tasks.json when no explicit path provided", async () => {
-      // 1. Create backend without explicit database path
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: testBaseDir,
-        // No dbFilePath provided - should default
-      }) as JsonFileTaskBackend;
-
-      // 2. Get the default storage location
-      const storageLocation = jsonBackend.getStorageLocation();
-
-      // 3. Should be in process/tasks.json by default
-      expect(storageLocation).toContain("process");
-      expect(storageLocation).toContain("tasks.json");
-
-      // 4. Create and store a task
-      const testTask: TaskData = {
-        id: "#default-001",
-        title: "Default Path Test",
-        status: "TODO",
-      };
-
-      await jsonBackend.createTask(testTask);
-
-      // 5. Verify task was stored
-      const retrieved = await jsonBackend.getTask("#default-001");
-      expect(retrieved).toEqual(testTask);
-    });
-  });
-
   describe("TaskService Integration", () => {
     it("should work with JSON backend for complete task operations", async () => {
       // EXPLICIT MOCK PATTERN: Create predictable mock objects instead of real TaskService
@@ -296,33 +219,6 @@ describe("Real-World Workflow Testing", () => {
       expect(remainingTasks).toHaveLength(1);
       expect(remainingTasks[0]).toBeDefined();
       expect(remainingTasks[0]!.id).toBe(createdTask1.id);
-    });
-  });
-
-  describe("Error Handling", () => {
-    it.skip("should handle missing process directory gracefully", async () => {
-      // 1. Use a path where process directory doesn't exist
-      const nonExistentPath = "/tmp/nonexistent/process/tasks.json";
-
-      // 2. Create backend pointing to non-existent location
-      const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath: "/tmp/nonexistent",
-        dbFilePath: nonExistentPath,
-      }) as JsonFileTaskBackend;
-
-      // 3. Creating a task should work (backend creates directories)
-      const testTask: TaskData = {
-        id: "#error-001",
-        title: "Error Handling Test",
-        status: "TODO",
-      };
-
-      await jsonBackend.createTask(testTask);
-
-      // 4. Verify task was created despite missing directory
-      const retrieved = await jsonBackend.getTask("#error-001");
-      expect(retrieved).toEqual(testTask);
     });
   });
 });

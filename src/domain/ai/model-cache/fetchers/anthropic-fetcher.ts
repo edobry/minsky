@@ -192,6 +192,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.015, output: 0.075 },
+        tokenizer: this.getTokenizerInfo("claude-3-opus-20240229"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -209,6 +210,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.003, output: 0.015 },
+        tokenizer: this.getTokenizerInfo("claude-3-sonnet-20240229"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -226,6 +228,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.00025, output: 0.00125 },
+        tokenizer: this.getTokenizerInfo("claude-3-haiku-20240307"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -243,6 +246,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.008, output: 0.024 },
+        tokenizer: this.getTokenizerInfo("claude-2.1"),
         fetchedAt,
         status: "deprecated",
         providerMetadata: {

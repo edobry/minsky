@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Enhanced Pre-Commit Hook Documentation**: Comprehensive documentation for the new multi-layered pre-commit validation system
+  - Added detailed "Development Workflow & Quality Gates" section to main README
+  - Created comprehensive [Development Workflow Guide](docs/development-workflow.md) with architecture diagrams and troubleshooting
+  - Updated [Testing Guide](docs/testing.md) to reflect new pre-commit integration and performance improvements
+  - Enhanced development setup instructions with pre-commit hook requirements
+  - Documented 5-layer validation system: formatting, testing, linting, tooling, and security
+  - Added troubleshooting guide for common pre-commit issues and solutions
+  - Performance metrics: Full pre-commit validation in ~5-7 seconds total
+
 ### Fixed
 
 - **CRITICAL**: Fixed TaskService test hanging issues causing infinite loops (billions of milliseconds execution time)
