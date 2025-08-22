@@ -1,8 +1,18 @@
-import { describe, it, expect } from "bun:test";
+import { describe, it, expect, beforeAll } from "bun:test";
 import { ToolSchemasComponent } from "./tool-schemas";
 import type { ComponentInput } from "./types";
+import { registerTasksCommands } from "../../../adapters/shared/commands/tasks";
+import { registerSessionCommands } from "../../../adapters/shared/commands/session";
+import { registerConfigCommands } from "../../../adapters/shared/commands/config";
 
 describe("ToolSchemasComponent", () => {
+  // Register commands before running tests
+  beforeAll(async () => {
+    registerTasksCommands();
+    await registerSessionCommands();
+    registerConfigCommands();
+  });
+
   const mockComponentInput: ComponentInput = {
     environment: { os: "darwin", shell: "/bin/zsh" },
     workspacePath: "/test/workspace",
@@ -136,6 +146,64 @@ describe("ToolSchemasComponent", () => {
       expect(result.metadata.sections).toEqual(["functions"]);
       expect(result.metadata.totalTools).toBe(1);
       expect(result.metadata.tokenCount).toBeGreaterThan(0);
+    });
+  });
+
+  describe("parameter schema generation", () => {
+    it("should generate rich parameter schemas from shared command registry", async () => {
+      const input: ComponentInput = {
+        ...mockComponentInput,
+        interfaceConfig: {
+          interface: "cli",
+          mcpEnabled: false,
+          preferMcp: false,
+        },
+      };
+
+      const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
+
+      // Should have real tools from the registry
+      expect(gatheredInputs.totalTools).toBeGreaterThan(10);
+      expect(Object.keys(gatheredInputs.toolSchemas)).toContain("tasks.list");
+
+      // Should have rich parameter schemas (not empty)
+      const tasksList = gatheredInputs.toolSchemas["tasks.list"];
+      expect(tasksList).toBeDefined();
+      expect(tasksList.description).toBe("List tasks");
+      expect(tasksList.parameters.type).toBe("object");
+      expect(tasksList.parameters.properties).toBeDefined();
+      expect(Object.keys(tasksList.parameters.properties)).toContain("status");
+
+      // Should have proper parameter types and descriptions
+      const statusParam = tasksList.parameters.properties.status;
+      expect(statusParam.type).toBe("string");
+      expect(statusParam.enum).toContain("TODO");
+      expect(statusParam.enum).toContain("IN-PROGRESS");
+      expect(statusParam.description).toBe("Task status");
+    });
+
+    it("should generate different schemas for different tools", async () => {
+      const input: ComponentInput = {
+        ...mockComponentInput,
+        interfaceConfig: {
+          interface: "cli",
+          mcpEnabled: false,
+          preferMcp: false,
+        },
+      };
+
+      const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
+
+      // Check multiple tools have different schemas
+      expect(gatheredInputs.toolSchemas["tasks.list"]).toBeDefined();
+      expect(gatheredInputs.toolSchemas["tasks.create"]).toBeDefined();
+      expect(gatheredInputs.toolSchemas["session.start"]).toBeDefined();
+
+      // Verify they have different parameter structures
+      const listParams = gatheredInputs.toolSchemas["tasks.list"].parameters.properties;
+      const createParams = gatheredInputs.toolSchemas["tasks.create"].parameters.properties;
+
+      expect(Object.keys(listParams)).not.toEqual(Object.keys(createParams));
     });
   });
 
