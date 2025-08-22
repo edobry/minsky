@@ -1,16 +1,12 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 import { ToolSchemasComponent } from "./tool-schemas";
 import type { ComponentInput } from "./types";
-import { registerTasksCommands } from "../../../adapters/shared/commands/tasks";
-import { registerSessionCommands } from "../../../adapters/shared/commands/session";
-import { registerConfigCommands } from "../../../adapters/shared/commands/config";
+import { registerAllSharedCommands } from "../../../adapters/shared/commands";
 
 describe("ToolSchemasComponent", () => {
-  // Register commands before running tests
+  // Register all commands before running tests
   beforeAll(async () => {
-    registerTasksCommands();
-    await registerSessionCommands();
-    registerConfigCommands();
+    await registerAllSharedCommands();
   });
 
   const mockComponentInput: ComponentInput = {
@@ -150,7 +146,7 @@ describe("ToolSchemasComponent", () => {
   });
 
   describe("parameter schema generation", () => {
-    it.skip("should generate rich parameter schemas from shared command registry", async () => {
+    it("should generate rich parameter schemas from shared command registry", async () => {
       const input: ComponentInput = {
         ...mockComponentInput,
         interfaceConfig: {
@@ -182,7 +178,7 @@ describe("ToolSchemasComponent", () => {
       expect(statusParam.description).toBe("Task status");
     });
 
-    it.skip("should generate different schemas for different tools", async () => {
+    it("should generate different schemas for different tools", async () => {
       const input: ComponentInput = {
         ...mockComponentInput,
         interfaceConfig: {
