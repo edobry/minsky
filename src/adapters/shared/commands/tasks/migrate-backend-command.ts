@@ -196,22 +196,36 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           continue;
         }
 
+        // Generate target ID for checking if task already exists
+        let newTaskId = taskId;
+        if (updateIds) {
+          const targetPrefix = this.getBackendPrefix(targetBackend);
+          const sourcePrefix = this.getBackendPrefix(sourceBackend);
+
+          if (taskId.startsWith(`${sourcePrefix}#`)) {
+            const numericPart = taskId.replace(`${sourcePrefix}#`, "");
+            newTaskId = `${targetPrefix}#${numericPart}`;
+          }
+        }
+
+        // Check if task already exists in target backend
+        const existingTask = await targetService.getTask(newTaskId).catch(() => null);
+        if (existingTask) {
+          result.skipped++;
+          result.details.push({
+            id: taskId,
+            status: "skipped",
+            reason: "already_exists",
+            targetId: newTaskId,
+          });
+          continue;
+        }
+
         // Get task spec content
         const specData = await sourceService.getTaskSpecContent(taskId);
         const specContent = specData?.content || "";
 
         if (!dryRun) {
-          // Generate new ID for target backend if requested
-          let newTaskId = taskId;
-          if (updateIds) {
-            const targetPrefix = this.getBackendPrefix(targetBackend);
-            const sourcePrefix = this.getBackendPrefix(sourceBackend);
-
-            if (taskId.startsWith(`${sourcePrefix}#`)) {
-              const numericPart = taskId.replace(`${sourcePrefix}#`, "");
-              newTaskId = `${targetPrefix}#${numericPart}`;
-            }
-          }
 
           // Create task in target backend with transformed ID and status
           await targetService.createTaskFromTitleAndSpec(fullTask.title, specContent, {
@@ -219,6 +233,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
             id: newTaskId,
             status: fullTask.status,
           });
+
+          // Remove task from source backend after successful migration
+          await sourceService.deleteTask(taskId);
 
           // Update the task ID and backend if needed
           if (newTaskId !== taskId) {
