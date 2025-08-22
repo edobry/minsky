@@ -142,7 +142,7 @@
 
 - [x] Disable Debug Logs Unless Debug Log Level is Explicitly Set [md#081](process/tasks/md#081-disable-debug-logs-unless-debug-log-level-is-explicitly-set.md)
 
-- [+] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
+- [-] Add Context Management Commands for Environment-Agnostic AI Collaboration [md#082](process/tasks/md#082-add-context-management-commands-for-environment-agnostic-ai-collaboration.md)
 
 - [x] Fix Bugs in Minsky Rules CLI Command [md#083](process/tasks/md#083-fix-bugs-in-minsky-rules-cli-command.md)
 
@@ -741,4 +741,3 @@
 - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
 - [ ] Create Test Architecture Documentation [md#459](process/tasks/md#459-create-test-architecture-documentation.md)
->>>>>>> origin/main
