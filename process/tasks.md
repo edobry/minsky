@@ -735,3 +735,5 @@
 - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
 - [ ] Context Visualization Redesign [md#456](process/tasks/md#456-context-visualization-redesign.md)
+
+- [ ] Provider API Integration for Model-Tokenizer Mapping [md#457](process/tasks/md#457-provider-api-integration-for-model-tokenizer-mapping.md)
