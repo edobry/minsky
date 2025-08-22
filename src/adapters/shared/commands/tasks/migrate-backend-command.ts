@@ -240,9 +240,9 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         // Create user-friendly error message
         const errorMessage = this.createUserFriendlyErrorMessage(task.id, error);
 
-        // Only log detailed errors in verbose mode, otherwise show concise info
-        if (process.env.NODE_ENV === "development" || process.env.MINSKY_VERBOSE === "true") {
-          console.error(`❌ ${task.id}: ${errorMessage}`, error);
+        // In verbose mode, show more context but never raw stack traces
+        if (process.env.MINSKY_VERBOSE === "true") {
+          console.error(`❌ ${task.id}: ${errorMessage}`);
         }
 
         result.details.push({
