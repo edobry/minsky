@@ -19,16 +19,15 @@ export function createContextCommand(): Command {
       `
 Context Management:
   suggest-rules    Get AI-powered rule suggestions for your current task
-  analyze         Analyze current context composition and token usage
   generate        Generate AI context using modular components
-  visualize       Generate visual representation of context usage
+
+  Note: Context analysis is integrated into 'generate --analyze'
+        Context visualization is temporarily disabled (see follow-up task)
 
 Examples:
   minsky context suggest-rules "I need to fix a bug"
-  minsky context analyze --model gpt-4o --include-optimizations
-  minsky context analyze --compare-models gpt-4,claude-3-5-sonnet
   minsky context generate --format json --components environment,rules
-  minsky context visualize --chart-type pie --show-details
+  minsky context generate --analyze --model gpt-4o
 
 The context command helps you understand and optimize the information
 available to AI assistants for better collaboration.

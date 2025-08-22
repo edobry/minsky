@@ -1,3 +1,14 @@
+// TODO: Context visualization needs to be rewritten to use the new architecture
+// This file uses the old ContextAnalysisService/ContextDiscoveryService which were removed
+// during the redesign. See follow-up task for proper implementation.
+//
+// The new approach should:
+// 1. Use the context component system (src/domain/context/components/)
+// 2. Analyze generated context output (not workspace files)
+// 3. Integrate with `context generate --analyze --visualize` flags
+// 4. Work with the new tokenization and analysis approach
+
+/*
 import { Command } from "commander";
 import { logger } from "../../utils/logger.js";
 import { ContextAnalysisService } from "../../domain/context/analysis-service.js";
@@ -99,7 +110,16 @@ and token usage to help understand and optimize AI context effectiveness.
 
   return command;
 }
+*/
 
+// Placeholder export to prevent import errors
+export function createVisualizeCommand(): never {
+  throw new Error(
+    "Context visualization is temporarily disabled. See TODO comments for implementation plan."
+  );
+}
+
+/*
 function generateVisualizationData(analysisResult: any, options: any) {
   const { chartType, maxWidth } = options;
 
@@ -306,3 +326,4 @@ async function displayTokenizerComparison(analysisService: any, options: any) {
   console.log("Tokenizer comparison feature coming soon...");
   console.log("This will compare gpt-tokenizer vs tiktoken for the same content.");
 }
+*/

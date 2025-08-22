@@ -45,6 +45,11 @@ This directory contains comprehensive documentation for the Minsky development w
 
 ## Architecture & Development
 
+### Development Workflow
+
+- [**Development Workflow & Quality Gates**](./development-workflow.md) - **NEW**: Comprehensive guide to pre-commit hooks, testing, and quality gates
+- [**Testing Best Practices**](./TESTING_BEST_PRACTICES.md) - Testing guidelines and patterns
+
 ### Design Patterns
 
 - [**Interface-Agnostic Commands**](./architecture/interface-agnostic-commands.md) - Command architecture patterns

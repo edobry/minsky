@@ -9,10 +9,11 @@ Minsky has separate test suites to ensure fast, reliable development while maint
 **Command**: `bun test` or `bun run test`
 
 - **Purpose**: Tests that run in isolation with mocked dependencies
-- **Speed**: Fast (~15-20 seconds for full suite)
+- **Speed**: Fast (~2 seconds for full suite)
 - **Dependencies**: No external APIs, no real filesystem operations
-- **CI/Pre-commit**: Always runs on every commit
+- **CI/Pre-commit**: Always runs on every commit (mandatory quality gate)
 - **Coverage**: Core business logic, utilities, mocked integrations
+- **Test Count**: 1,400+ tests with 0% failure tolerance
 
 **Examples**:
 
@@ -75,14 +76,47 @@ mock.module("fs", () => mockFs);
 | Unit        | Mock       | Mock       | Mock     | Mock     |
 | Integration | Mock       | **Real**   | **Real** | Mock     |
 
-### Pre-commit Hook Behavior
+### Pre-commit Hook Integration
 
-The pre-commit hook **only runs unit tests** to ensure:
+The enhanced pre-commit hook system includes multiple validation layers:
 
-- ✅ Fast feedback (15-20 seconds vs minutes)
+#### 1. **Code Formatting** (Automatic)
+
+- Prettier automatically formats all staged files
+- Prevents commits with syntax errors
+- Ensures consistent code style
+
+#### 2. **Unit Test Suite** (Quality Gate)
+
+- Runs all 1,400+ unit tests with zero failure tolerance
+- Fast execution (~2 seconds) designed for pre-commit use
+- **Blocks commits entirely** if any test fails
+
+#### 3. **Code Quality** (ESLint)
+
+- Enforces coding standards and best practices
+- Runs custom rules for project-specific patterns
+- Identifies potential bugs and anti-patterns
+
+#### 4. **Tooling Validation**
+
+- Tests custom ESLint rules against fixtures
+- Ensures development tools work correctly
+- Separate from application tests
+
+#### 5. **Secret Scanning**
+
+- Scans for accidentally committed credentials
+- Prevents security vulnerabilities
+- Blocks commits containing sensitive data
+
+**Benefits**:
+
+- ✅ Fast feedback (~5-7 seconds total)
 - ✅ No API rate limiting or network issues blocking commits
 - ✅ No external service dependencies for development
-- ✅ Reliable CI/CD pipeline
+- ✅ Comprehensive quality validation
+- ✅ Security protection
 
 ## Common Commands
 
@@ -115,7 +149,38 @@ bun test path/to/specific.test.ts  # Single test file
 
 ### "Pre-commit hook taking too long"
 
-This indicates integration tests are running in the pre-commit hook. This should never happen - report as a bug.
+**Normal execution time**: ~5-7 seconds total
+
+If taking longer:
+
+1. Check if integration tests are accidentally running (should never happen)
+2. Verify test performance hasn't degraded
+3. Report as a bug if consistently over 10 seconds
+
+### "Pre-commit hook failing"
+
+**Code formatting failures**:
+
+- Fix syntax errors in staged files
+- Run `bun run format` manually to identify issues
+
+**Test failures**:
+
+- Run `bun test --verbose` to see detailed failure information
+- Fix failing tests before committing
+- All 1,400+ tests must pass - zero tolerance for failures
+
+**Linting failures**:
+
+- Run `bun run lint` to see specific issues
+- Use `bun run lint:fix` for auto-fixable problems
+- Manually address remaining code quality issues
+
+**Secret scanning failures**:
+
+- Remove accidentally committed credentials
+- Use placeholder values in documentation: `sk-proj-xxx...xxxxx`
+- Never commit real API keys or sensitive data
 
 ## Adding New Tests
 

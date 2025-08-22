@@ -6,7 +6,7 @@
  */
 
 import { ModelFetcher, CachedProviderModel, ModelFetchConfig, ModelFetchError } from "../types";
-import { AICapability } from "../../types";
+import { AICapability, TokenizerInfo } from "../../types";
 import { log } from "../../../../utils/logger";
 
 /**
@@ -156,6 +156,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 8192,
         costPer1kTokens: { input: 0.003, output: 0.015 },
+        tokenizer: this.getTokenizerInfo("claude-3-5-sonnet-20241022"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -173,6 +174,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 8192,
         costPer1kTokens: { input: 0.0008, output: 0.004 },
+        tokenizer: this.getTokenizerInfo("claude-3-5-haiku-20241022"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -190,6 +192,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.015, output: 0.075 },
+        tokenizer: this.getTokenizerInfo("claude-3-opus-20240229"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -207,6 +210,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.003, output: 0.015 },
+        tokenizer: this.getTokenizerInfo("claude-3-sonnet-20240229"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -224,6 +228,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.00025, output: 0.00125 },
+        tokenizer: this.getTokenizerInfo("claude-3-haiku-20240307"),
         fetchedAt,
         status: "available",
         providerMetadata: {
@@ -241,6 +246,7 @@ export class AnthropicModelFetcher implements ModelFetcher {
         contextWindow: 200000,
         maxOutputTokens: 4096,
         costPer1kTokens: { input: 0.008, output: 0.024 },
+        tokenizer: this.getTokenizerInfo("claude-2.1"),
         fetchedAt,
         status: "deprecated",
         providerMetadata: {
@@ -402,6 +408,26 @@ export class AnthropicModelFetcher implements ModelFetcher {
       ],
       contextWindow: 200000,
       maxOutputTokens: 8192,
+    };
+  }
+
+  /**
+   * Get tokenizer information for Claude models
+   */
+  private getTokenizerInfo(modelId: string): TokenizerInfo {
+    // All Claude models use the same tokenizer approach
+    // For now, we fallback to tiktoken since we don't have direct Claude tokenizer
+    return {
+      encoding: "cl100k_base", // Fallback encoding until we have proper Claude tokenizer
+      library: "tiktoken", // Will be "anthropic" when proper tokenizer is available
+      source: "fallback",
+      config: {
+        modelFamily: modelId.includes("claude-3-5")
+          ? "claude-3-5"
+          : modelId.includes("claude-3")
+            ? "claude-3"
+            : "claude-2",
+      },
     };
   }
 }
