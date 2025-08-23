@@ -58,24 +58,27 @@ export class DefaultConfigValidator implements ConfigValidator {
 
   /**
    * Validate backend configuration
+   * 
+   * @deprecated Root backend property is deprecated, now validates tasks.backend instead
    */
   validateBackend(): ValidationResult {
     const errors: ValidationError[] = [];
     const warnings: ValidationWarning[] = [];
 
     try {
-      const backend = get("backend") as string;
+      // Use modern tasks.backend instead of deprecated root backend
+      const backend = get("tasks.backend") as string;
       const validBackends = Object.values(TaskBackend);
 
-      if (!validBackends.includes(backend as TaskBackend)) {
+      if (backend && !validBackends.includes(backend as TaskBackend)) {
         errors.push({
-          field: "backend",
-          message: `Invalid backend: ${backend}. Valid options: ${validBackends.join(", ")}`,
-          code: "INVALID_BACKEND",
+          field: "tasks.backend",
+          message: `Invalid tasks backend: ${backend}. Valid options: ${validBackends.join(", ")}`,
+          code: "INVALID_TASKS_BACKEND",
         });
       }
 
-      // Validate backend-specific configuration
+      // Validate backend-specific configuration (using tasks.backend instead of deprecated root backend)
       if (backend === TaskBackend.GITHUB_ISSUES) {
         const backendConfig = get("backendConfig") as any;
         const githubConfig = backendConfig?.["github-issues"];
@@ -83,7 +86,7 @@ export class DefaultConfigValidator implements ConfigValidator {
         if (!githubConfig?.owner) {
           errors.push({
             field: "backendConfig.github-issues.owner",
-            message: "GitHub owner is required for github-issues backend",
+            message: "GitHub owner is required for github-issues tasks backend",
             code: "MISSING_GITHUB_OWNER",
           });
         }
@@ -91,16 +94,16 @@ export class DefaultConfigValidator implements ConfigValidator {
         if (!githubConfig?.repo) {
           errors.push({
             field: "backendConfig.github-issues.repo",
-            message: "GitHub repository is required for github-issues backend",
+            message: "GitHub repository is required for github-issues tasks backend",
             code: "MISSING_GITHUB_REPO",
           });
         }
       }
     } catch (error) {
       errors.push({
-        field: "backend",
-        message: `Error validating backend configuration: ${(error as any).message}`,
-        code: "BACKEND_VALIDATION_ERROR",
+        field: "tasks.backend",
+        message: `Error validating tasks backend configuration: ${(error as any).message}`,
+        code: "TASKS_BACKEND_VALIDATION_ERROR",
       });
     }
 

@@ -17,5 +17,3 @@ describe("DB wiring for minsky backend", () => {
     expect(String(threw?.message || threw)).toMatch(/PostgreSQL|database/i);
   });
 });
-
-
