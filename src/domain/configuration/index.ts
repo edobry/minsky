@@ -120,6 +120,14 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       if (!this.configResult || !this.configResult.sources) {
         throw new Error(`Invalid configuration result: ${JSON.stringify(this.configResult)}`);
       }
+
+      // Apply overrides if provided
+      if (this.options.overrideSource) {
+        this.configResult.config = this.deepMerge(
+          this.configResult.config,
+          this.options.overrideSource
+        );
+      }
     } catch (error) {
       console.error("Configuration loading failed:", error);
       throw error;
@@ -213,6 +221,48 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     return path.split(".").reduce((current, key) => {
       return current?.[key];
     }, obj);
+  }
+
+  /**
+   * Deep merge two configuration objects
+   */
+  private deepMerge(target: any, source: any): any {
+    if (source === null || source === undefined) {
+      return target;
+    }
+
+    if (target === null || target === undefined) {
+      return source;
+    }
+
+    // For arrays, replace entirely (no concatenation)
+    if (Array.isArray(source)) {
+      return [...source];
+    }
+
+    // For primitive values, override
+    if (typeof source !== "object") {
+      return source;
+    }
+
+    // For objects, merge recursively
+    const result = { ...target };
+
+    for (const key in source) {
+      if (Object.prototype.hasOwnProperty.call(source, key)) {
+        if (
+          typeof source[key] === "object" &&
+          !Array.isArray(source[key]) &&
+          source[key] !== null
+        ) {
+          result[key] = this.deepMerge(result[key], source[key]);
+        } else {
+          result[key] = source[key];
+        }
+      }
+    }
+
+    return result;
   }
 }
 

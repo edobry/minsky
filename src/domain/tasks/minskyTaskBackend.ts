@@ -18,7 +18,7 @@ import type {
   BackendCapabilities,
   TaskMetadata,
 } from "./types";
-import * as crypto from "crypto";
+
 
 export interface MinskyTaskBackendConfig extends TaskBackendConfig {
   db: PostgresJsDatabase;
@@ -108,7 +108,6 @@ export class MinskyTaskBackend implements TaskBackend {
         backend: "minsky" as const,
         status: (options?.status || "TODO") as any,
         title,
-        contentHash: this.generateContentHash(title + spec),
         createdAt: new Date(),
         updatedAt: new Date(),
       })
@@ -118,7 +117,6 @@ export class MinskyTaskBackend implements TaskBackend {
           backend: "minsky" as const,
           status: (options?.status || "TODO") as any,
           title: title,
-          contentHash: this.generateContentHash(title + spec),
           updatedAt: new Date(),
         },
       });
@@ -129,7 +127,6 @@ export class MinskyTaskBackend implements TaskBackend {
       .values({
         taskId: id,
         content: spec, // Use the spec content directly
-        contentHash: this.generateContentHash(spec),
         version: 1,
         createdAt: new Date(),
         updatedAt: new Date(),
@@ -138,7 +135,6 @@ export class MinskyTaskBackend implements TaskBackend {
         target: taskSpecsTable.taskId,
         set: {
           content: spec,
-          contentHash: this.generateContentHash(spec),
           updatedAt: new Date(),
         },
       });
@@ -211,7 +207,6 @@ export class MinskyTaskBackend implements TaskBackend {
         .update(taskSpecsTable)
         .set({
           content: metadata.spec,
-          contentHash: this.generateContentHash(metadata.spec),
           updatedAt: new Date(),
         })
         .where(eq(taskSpecsTable.taskId, id));
@@ -249,9 +244,7 @@ export class MinskyTaskBackend implements TaskBackend {
     return `mt#${maxId + 1}`;
   }
 
-  private generateContentHash(content: string): string {
-    return crypto.createHash("sha256").update(content).digest("hex");
-  }
+
 }
 
 // Factory function - now requires database connection

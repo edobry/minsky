@@ -122,7 +122,6 @@ export class TasksImporterService {
         // spec may not exist; proceed with empty content
       }
 
-      const contentHash = await this.computeSha256(specContent || "");
       const status = String(t.status || "");
       const title = String(t.title || "");
 
@@ -136,14 +135,13 @@ export class TasksImporterService {
         await sql.begin(async (sql) => {
           // 1. Insert/update task metadata in tasks table (NO spec column)
           const upsertTaskSql = `
-            INSERT INTO tasks (id, backend, source_task_id, status, title, content_hash, created_at, updated_at)
-            VALUES ($1, $2::task_backend, $3, $4::task_status, $5, $6, NOW(), NOW())
+            INSERT INTO tasks (id, backend, source_task_id, status, title, created_at, updated_at)
+            VALUES ($1, $2::task_backend, $3, $4::task_status, $5, NOW(), NOW())
             ON CONFLICT (id) DO UPDATE SET
               backend = EXCLUDED.backend,
               source_task_id = EXCLUDED.source_task_id,
               status = EXCLUDED.status,
               title = EXCLUDED.title,
-              content_hash = EXCLUDED.content_hash,
               updated_at = NOW()`;
 
           await sql.unsafe(upsertTaskSql, [
@@ -152,21 +150,19 @@ export class TasksImporterService {
             sourceTaskId,
             status || null,
             title || null,
-            contentHash || null,
           ]);
 
           // 2. Insert/update spec content in task_specs table
           if (specContent) {
             const upsertSpecSql = `
-              INSERT INTO task_specs (task_id, content, content_hash, version, created_at, updated_at)
-              VALUES ($1, $2, $3, 1, NOW(), NOW())
+              INSERT INTO task_specs (task_id, content, version, created_at, updated_at)
+              VALUES ($1, $2, 1, NOW(), NOW())
               ON CONFLICT (task_id) DO UPDATE SET
                 content = EXCLUDED.content,
-                content_hash = EXCLUDED.content_hash,
                 version = task_specs.version + 1,
                 updated_at = NOW()`;
 
-            await sql.unsafe(upsertSpecSql, [id, specContent, contentHash]);
+            await sql.unsafe(upsertSpecSql, [id, specContent]);
           }
         });
 
@@ -205,8 +201,5 @@ export class TasksImporterService {
     return result;
   }
 
-  private async computeSha256(content: string): Promise<string> {
-    const crypto = await import("crypto");
-    return crypto.createHash("sha256").update(content).digest("hex");
-  }
+
 }
