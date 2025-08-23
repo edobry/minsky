@@ -72,7 +72,7 @@ export const BackendConfigSchema = z.record(z.string(), z.any());
 
 // Main configuration schema
 export const ConfigSchema = z.object({
-  backend: BackendTypeSchema.default("markdown"),
+  backend: BackendTypeSchema.optional(), // Removed default - deprecated property
   backendConfig: BackendConfigSchema.default({}),
   detectionRules: z.array(DetectionRuleSchema).default([]),
   sessiondb: SessionDbConfigSchema,

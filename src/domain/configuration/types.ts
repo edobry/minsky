@@ -191,7 +191,7 @@ export interface BackendDetector {
 
 // Default configuration values
 export const _DEFAULT_CONFIG: Partial<ResolvedConfig> = {
-  backend: "json-file",
+  // backend: removed default - deprecated property
   backendConfig: {},
   detectionRules: [
     { condition: "tasks_md_exists", backend: "markdown" },

@@ -67,8 +67,8 @@ export function createConfigListCommand(): Command {
         const config = provider.getConfig();
         const metadata = provider.getMetadata();
 
-        // Show ALL configuration properties dynamically instead of hardcoding subset
-        const resolved = config;
+        // Show ALL configuration properties except deprecated ones
+        const { backend: _deprecatedBackend, ...resolved } = config;
 
         // Apply credential masking unless explicitly requested to show secrets
         const maskedConfig = maskCredentials(resolved, options.showSecrets || false);

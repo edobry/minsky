@@ -15,8 +15,8 @@ import type { PartialConfiguration } from "../schemas";
  * when no other configuration source provides a value.
  */
 export const defaultConfiguration: PartialConfiguration = {
-  // Backend configuration
-  backend: "markdown",
+  // Backend configuration (deprecated - only include if explicitly set)
+  // backend: removed default value since this property is deprecated
 
   backendConfig: {
     "github-issues": undefined,

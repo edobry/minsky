@@ -154,7 +154,7 @@ export function formatResolvedConfiguration(resolved: any): string {
   let output = "📋 CURRENT CONFIGURATION\n";
 
   // Task Storage
-  // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility  
+  // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
   const taskBackend = resolved.tasks?.backend || resolved.backend || "markdown";
   output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}`;
   if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
