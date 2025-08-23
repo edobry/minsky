@@ -43,20 +43,22 @@ describe("Migration Backend Validation Bug Fix", () => {
     });
 
     it("should call validateMigration after migration is complete", async () => {
-            // Mock the validateMigration method to verify it gets called
+      // Mock the validateMigration method to verify it gets called
       const validateSpy = createMock(() => Promise.resolve({ passed: [], failed: [] }));
       const originalValidate = (command as any).validateMigration;
       (command as any).validateMigration = validateSpy;
-      
+
       // Mock the migrateTasksBetweenBackends method to avoid database calls
       const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = createMock(() => Promise.resolve({
-        total: 0,
-        migrated: 0,
-        skipped: 0,
-        errors: 0,
-        details: [], // No migrated tasks, so validation should still be called but with empty list
-      }));
+      (command as any).migrateTasksBetweenBackends = createMock(() =>
+        Promise.resolve({
+          total: 0,
+          migrated: 0,
+          skipped: 0,
+          errors: 0,
+          details: [], // No migrated tasks, so validation should still be called but with empty list
+        })
+      );
 
       try {
         await command.execute(
@@ -72,6 +74,220 @@ describe("Migration Backend Validation Bug Fix", () => {
         expect(validateSpy).toHaveBeenCalled();
       } finally {
         // Restore original methods
+        (command as any).validateMigration = originalValidate;
+        (command as any).migrateTasksBetweenBackends = originalMigrate;
+      }
+    });
+
+    it("should fail migration when validation detects missing tasks in target backend", async () => {
+      // Mock migration to report successful migrations
+      const originalMigrate = (command as any).migrateTasksBetweenBackends;
+      (command as any).migrateTasksBetweenBackends = createMock(() =>
+        Promise.resolve({
+          total: 2,
+          migrated: 2,
+          skipped: 0,
+          errors: 0,
+          details: [
+            { id: "md#100", status: "migrated" },
+            { id: "md#101", status: "migrated" },
+          ],
+        })
+      );
+
+      // Mock validation to return failures
+      const originalValidate = (command as any).validateMigration;
+      (command as any).validateMigration = createMock(() =>
+        Promise.resolve({
+          passed: [],
+          failed: [
+            {
+              taskId: "md#100",
+              targetTaskId: "mt#100",
+              reason: "TASK_NOT_FOUND_IN_TARGET",
+              details: "Task mt#100 was reported as migrated but does not exist in minsky backend",
+            },
+            {
+              taskId: "md#101",
+              targetTaskId: "mt#101",
+              reason: "TASK_NOT_FOUND_IN_TARGET",
+              details: "Task mt#101 was reported as migrated but does not exist in minsky backend",
+            },
+          ],
+        })
+      );
+
+      try {
+        let result;
+        let threwError = false;
+
+        try {
+          result = await command.execute(
+            {
+              from: "markdown",
+              to: "minsky",
+              execute: true,
+            },
+            mockContext
+          );
+        } catch (error) {
+          threwError = true;
+          // The command should throw an error when validation fails
+          expect(error.message).toContain("Post-migration validation failed");
+          expect(error.message).toContain("2 tasks failed validation");
+        }
+
+        // Should either throw error or return failure result
+        expect(threwError || (result && !result.success)).toBe(true);
+      } finally {
+        (command as any).validateMigration = originalValidate;
+        (command as any).migrateTasksBetweenBackends = originalMigrate;
+      }
+    });
+
+    it("should fail migration when validation detects content mismatches", async () => {
+      // Mock migration to report successful migrations
+      const originalMigrate = (command as any).migrateTasksBetweenBackends;
+      (command as any).migrateTasksBetweenBackends = createMock(() =>
+        Promise.resolve({
+          total: 2,
+          migrated: 2,
+          skipped: 0,
+          errors: 0,
+          details: [
+            { id: "md#200", status: "migrated" },
+            { id: "md#201", status: "migrated" },
+          ],
+        })
+      );
+
+      // Mock validation to return mixed results
+      const originalValidate = (command as any).validateMigration;
+      (command as any).validateMigration = createMock(() =>
+        Promise.resolve({
+          passed: [{ taskId: "md#200", targetTaskId: "mt#200", status: "VALIDATED" }],
+          failed: [
+            {
+              taskId: "md#201",
+              targetTaskId: "mt#201",
+              reason: "TITLE_MISMATCH",
+              details: 'Title mismatch: source="Original Title" vs target="Different Title"',
+            },
+          ],
+        })
+      );
+
+      try {
+        let result;
+        let threwError = false;
+
+        try {
+          result = await command.execute(
+            {
+              from: "markdown",
+              to: "minsky",
+              execute: true,
+            },
+            mockContext
+          );
+        } catch (error) {
+          threwError = true;
+          // The command should throw an error when validation fails
+          expect(error.message).toContain("Post-migration validation failed");
+          expect(error.message).toContain("1 tasks failed validation");
+        }
+
+        // Should either throw error or return failure result
+        expect(threwError || (result && !result.success)).toBe(true);
+      } finally {
+        (command as any).validateMigration = originalValidate;
+        (command as any).migrateTasksBetweenBackends = originalMigrate;
+      }
+    });
+
+    it("should succeed when all migrated tasks pass validation", async () => {
+      // Mock migration to report successful migrations
+      const originalMigrate = (command as any).migrateTasksBetweenBackends;
+      (command as any).migrateTasksBetweenBackends = createMock(() =>
+        Promise.resolve({
+          total: 2,
+          migrated: 2,
+          skipped: 0,
+          errors: 0,
+          details: [
+            { id: "md#300", status: "migrated" },
+            { id: "md#301", status: "migrated" },
+          ],
+        })
+      );
+
+      // Mock validation to return all passed
+      const originalValidate = (command as any).validateMigration;
+      (command as any).validateMigration = createMock(() =>
+        Promise.resolve({
+          passed: [
+            { taskId: "md#300", targetTaskId: "mt#300", status: "VALIDATED" },
+            { taskId: "md#301", targetTaskId: "mt#301", status: "VALIDATED" },
+          ],
+          failed: [],
+        })
+      );
+
+      try {
+        const result = await command.execute(
+          {
+            from: "markdown",
+            to: "minsky",
+            execute: true,
+            json: true, // Use JSON format to get flat result structure
+          },
+          mockContext
+        );
+
+        // Should succeed when all validations pass
+        expect(result.success).toBe(true);
+        // In JSON format, data is under taskId due to BaseTaskCommand
+        expect(result.taskId.migrated).toBe(2);
+        expect(result.taskId.validation.passed).toHaveLength(2);
+        expect(result.taskId.validation.failed).toHaveLength(0);
+      } finally {
+        (command as any).validateMigration = originalValidate;
+        (command as any).migrateTasksBetweenBackends = originalMigrate;
+      }
+    });
+
+    it("should skip validation in dry-run mode", async () => {
+      // Mock migration for dry run
+      const originalMigrate = (command as any).migrateTasksBetweenBackends;
+      (command as any).migrateTasksBetweenBackends = createMock(() =>
+        Promise.resolve({
+          total: 1,
+          migrated: 0,
+          skipped: 0,
+          errors: 0,
+          details: [],
+        })
+      );
+
+      // Mock validation (should not be called in dry run)
+      const validateSpy = createMock(() => Promise.resolve({ passed: [], failed: [] }));
+      const originalValidate = (command as any).validateMigration;
+      (command as any).validateMigration = validateSpy;
+
+      try {
+        const result = await command.execute(
+          {
+            from: "markdown",
+            to: "minsky",
+            execute: false, // dry run
+          },
+          mockContext
+        );
+
+        // Should succeed and NOT call validation in dry run
+        expect(result.success).toBe(true);
+        expect(validateSpy).not.toHaveBeenCalled();
+      } finally {
         (command as any).validateMigration = originalValidate;
         (command as any).migrateTasksBetweenBackends = originalMigrate;
       }
