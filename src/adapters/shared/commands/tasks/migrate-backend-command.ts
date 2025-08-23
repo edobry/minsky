@@ -145,7 +145,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       }
 
       if (!p.quiet) {
-        log.cli(`✅ Validation passed: ${validationResult.passed.length} tasks verified`);
+        const migratedCount = result.details.filter(d => d.status === "migrated").length;
+        if (migratedCount === 0) {
+          log.cli("✅ Validation complete: No new migrations to verify");
+        } else {
+          log.cli(`✅ Validation passed: ${validationResult.passed.length} of ${migratedCount} migrated tasks verified`);
+        }
       }
     }
 
