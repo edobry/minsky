@@ -24,11 +24,9 @@ export const defaultConfiguration: PartialConfiguration = {
     "json-file": {},
   },
 
-  detectionRules: [
-    { condition: "tasks_md_exists", backend: "markdown" },
-    { condition: "json_file_exists", backend: "json-file" },
-    { condition: "always", backend: "markdown" },
-  ],
+  // Detection rules removed - these were setting the deprecated root backend property
+  // Backend detection is now handled by BackendDetectionService which properly sets tasks.backend
+  detectionRules: [],
 
   // Session database configuration
   sessiondb: {

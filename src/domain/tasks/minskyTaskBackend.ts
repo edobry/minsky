@@ -19,7 +19,6 @@ import type {
   TaskMetadata,
 } from "./types";
 
-
 export interface MinskyTaskBackendConfig extends TaskBackendConfig {
   db: PostgresJsDatabase;
 }
@@ -243,8 +242,6 @@ export class MinskyTaskBackend implements TaskBackend {
     // Generate next sequential ID
     return `mt#${maxId + 1}`;
   }
-
-
 }
 
 // Factory function - now requires database connection

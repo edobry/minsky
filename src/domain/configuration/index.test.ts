@@ -248,7 +248,7 @@ describe("Custom Configuration System", () => {
       // Test global access
       const config = getConfiguration();
       expect(config).toBeDefined();
-      
+
       // Test that modern properties work correctly
       expect(has("tasks.backend")).toBe(true);
       expect(get("tasks.backend")).toBeDefined();

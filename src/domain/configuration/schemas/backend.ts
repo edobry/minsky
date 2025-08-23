@@ -64,12 +64,12 @@ export const detectionRuleSchema = z
 
 /**
  * Array of detection rules (evaluated in order)
+ * 
+ * @deprecated Detection rules that set the root backend property are deprecated.
+ * Backend detection is now handled by BackendDetectionService which properly
+ * sets tasks.backend instead of the deprecated root backend property.
  */
-export const detectionRulesSchema = z.array(detectionRuleSchema).default([
-  { condition: "tasks_md_exists", backend: "markdown" },
-  { condition: "json_file_exists", backend: "json-file" },
-  { condition: "always", backend: "markdown" },
-]);
+export const detectionRulesSchema = z.array(detectionRuleSchema).default([]);
 
 /**
  * Complete backend configuration combining all backend-related settings

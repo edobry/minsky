@@ -39,6 +39,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- tasks: DB backend wiring for CLI/domain commands
+  - list/get/status/spec/delete now default to DB-aware factory
+  - Prevents "Backend not found: minsky" when DB is configured
+  - Added test `taskCommands.db-wiring.test.ts` per test-driven-bugfix
 - tasks search: Fix undefined workspace path causing ERR_INVALID_ARG_TYPE (paths[0])
   - Pass `workspacePath: process.cwd()` when creating task service in `tasks search`/`similar`
   - Eliminates CLI crash: "The \"paths[0]\" property must be of type string, got undefined"
