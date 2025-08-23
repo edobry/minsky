@@ -1,4 +1,6 @@
 version: 1
 
-# Task Backend Configuration - Markdown backend for local task management
-backend: "markdown"
+# Task Backend Configuration - Use tasks.backend instead of deprecated root backend property
+# backend: removed - deprecated property, use tasks.backend instead
+tasks:
+  backend: "minsky"  # Modern task backend configuration

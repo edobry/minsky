@@ -20,7 +20,11 @@ function mockFetchOnce(status: number, statusText: string, body: any) {
 
 describe("OpenAIEmbeddingService error formatting", () => {
   it("formats 400 errors with provider code/message details when JSON provided", async () => {
-    const svc = new OpenAIEmbeddingService("test-key", "https://api.example.test/v1", "text-embedding-3-small");
+    const svc = new OpenAIEmbeddingService(
+      "test-key",
+      "https://api.example.test/v1",
+      "text-embedding-3-small"
+    );
     mockFetchOnce(400, "Bad Request", {
       error: {
         type: "invalid_request_error",

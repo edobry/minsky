@@ -73,7 +73,11 @@ export function handleCliError(error: any): never {
     }
 
     // Default: Only the first line to avoid verbose stacks in CLI output
-    return (msg.split("\n")[0] || msg).slice(0, 200);
+    const firstLine = (msg.split("\n")[0] || msg);
+    // Do not aggressively truncate embedding/provider errors; they contain actionable token counts
+    const isEmbeddingError = /Embedding request failed|context length|tokens/i.test(firstLine);
+    const limit = isEmbeddingError ? 2000 : 300;
+    return firstLine.slice(0, limit);
   };
 
   // Format error message based on type
