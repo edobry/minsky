@@ -73,7 +73,7 @@ export function handleCliError(error: any): never {
     }
 
     // Default: Only the first line to avoid verbose stacks in CLI output
-    const firstLine = (msg.split("\n")[0] || msg);
+    const firstLine = msg.split("\n")[0] || msg;
     // Do not aggressively truncate embedding/provider errors; they contain actionable token counts
     const isEmbeddingError = /Embedding request failed|context length|tokens/i.test(firstLine);
     const limit = isEmbeddingError ? 2000 : 300;
