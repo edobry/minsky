@@ -226,16 +226,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         const specContent = specData?.content || "";
 
         if (!dryRun) {
-
           // Create task in target backend with transformed ID and status
           await targetService.createTaskFromTitleAndSpec(fullTask.title, specContent, {
             force: true,
             id: newTaskId,
             status: fullTask.status,
           });
-
-          // Remove task from source backend after successful migration
-          await sourceService.deleteTask(taskId);
 
           // Update the task ID and backend if needed
           if (newTaskId !== taskId) {
