@@ -60,8 +60,21 @@ export class OpenAIEmbeddingService implements EmbeddingService {
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Embedding request failed: ${res.status} ${res.statusText} ${text}`.trim());
+      // Try to parse a helpful JSON error first
+      let extra: string = "";
+      try {
+        const asJson: any = await res.json();
+        const err = asJson?.error || asJson;
+        const parts: string[] = [];
+        if (err?.code) parts.push(`code=${String(err.code)}`);
+        if (err?.type) parts.push(`type=${String(err.type)}`);
+        if (err?.message) parts.push(`message=${String(err.message)}`);
+        extra = parts.length > 0 ? ` - ${parts.join(", ")}` : ` ${JSON.stringify(asJson)}`;
+      } catch {
+        const text = await res.text().catch(() => "");
+        extra = text ? ` ${text}` : "";
+      }
+      throw new Error(`Embedding request failed: ${res.status} ${res.statusText}${extra}`.trim());
     }
     return (await res.json()) as OpenAIEmbeddingResponse;
   }

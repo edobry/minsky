@@ -92,8 +92,8 @@ export const taskDeletionParams = {
  * Index embeddings parameters
  */
 export const tasksIndexEmbeddingsParams: CommandParameterMap = {
-  // Optional single-task target
-  taskId: TaskParameters.taskIdOptional,
+  // Optional single-task target (CLI should use --task, not --task-id)
+  task: CommonParameters.task,
   limit: {
     schema: z.number().int().positive().default(10),
     description: "Max number of tasks to index (to avoid heavy costs)",

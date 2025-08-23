@@ -22,9 +22,8 @@ export async function createVectorStorageFromConfig(dimension: number): Promise<
       const storage = new PostgresVectorStorage(conn, dimension, {
         tableName: "tasks_embeddings",
         idColumn: "task_id",
-        embeddingColumn: "embedding",
-        dimensionColumn: "dimension",
-        lastIndexedAtColumn: "last_indexed_at",
+        embeddingColumn: "vector",
+        lastIndexedAtColumn: "indexed_at",
       });
       await storage.initialize();
       return storage;
@@ -61,9 +60,8 @@ export async function createRulesVectorStorageFromConfig(
       const storage = new PostgresVectorStorage(conn, dimension, {
         tableName,
         idColumn: "rule_id",
-        embeddingColumn: "embedding",
-        dimensionColumn: "dimension",
-        lastIndexedAtColumn: "last_indexed_at",
+        embeddingColumn: "vector",
+        lastIndexedAtColumn: "indexed_at",
         metadataColumn: "metadata",
         contentHashColumn: "content_hash",
       });

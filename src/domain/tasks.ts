@@ -70,6 +70,12 @@ export async function listTasksFromParams(params: any) {
       if (configResult.config.tasks?.backend) {
         backend = configResult.config.tasks.backend;
         log.debug("tasks.list backend from configuration", { backend });
+      } else if (configResult.config.backend) {
+        // Fallback to deprecated root backend property for backward compatibility
+        backend = configResult.config.backend;
+        log.warn("Using deprecated root 'backend' property. Please use 'tasks.backend' instead.", {
+          backend,
+        });
       }
     } catch (error) {
       log.debug("tasks.list failed to load configuration", { error });
@@ -102,6 +108,12 @@ export async function getTaskFromParams(params: any) {
       if (configResult.config.tasks?.backend) {
         backend = configResult.config.tasks.backend;
         log.debug("tasks.get backend from configuration", { backend });
+      } else if (configResult.config.backend) {
+        // Fallback to deprecated root backend property for backward compatibility
+        backend = configResult.config.backend;
+        log.warn("Using deprecated root 'backend' property. Please use 'tasks.backend' instead.", {
+          backend,
+        });
       }
     } catch (error) {
       log.debug("tasks.get failed to load configuration", { error });
@@ -192,6 +204,12 @@ export async function getTaskSpecContentFromParams(params: any) {
       if (configResult.config.tasks?.backend) {
         backend = configResult.config.tasks.backend;
         log.debug("tasks.spec backend from configuration", { backend });
+      } else if (configResult.config.backend) {
+        // Fallback to deprecated root backend property for backward compatibility
+        backend = configResult.config.backend;
+        log.warn("Using deprecated root 'backend' property. Please use 'tasks.backend' instead.", {
+          backend,
+        });
       }
     } catch (error) {
       log.debug("tasks.spec failed to load configuration", { error });

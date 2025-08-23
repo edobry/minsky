@@ -20,7 +20,11 @@ import {
 const mockLoadConfiguration = mock(() =>
   Promise.resolve({
     config: {
-      backend: "markdown",
+      // backend: deprecated property, no longer has default value
+      tasks: {
+        backend: "markdown", // Modern tasks backend configuration
+        strictIds: false,
+      },
       sessiondb: {
         backend: "sqlite",
         path: ".minsky/sessions.db",
@@ -181,17 +185,19 @@ describe("Custom Configuration System", () => {
     test("should implement getConfig() method", () => {
       const config = provider.getConfig();
       expect(config).toBeDefined();
-      expect(config.backend).toBeDefined();
+      expect(config.tasks.backend).toBeDefined(); // Use tasks.backend instead of deprecated backend
       expect(config.sessiondb).toBeDefined();
     });
 
     test("should implement get() method with path access", () => {
-      expect(provider.get("backend")).toBeDefined();
+      // backend property is deprecated and may not exist, test tasks.backend instead
+      expect(provider.get("tasks.backend")).toBeDefined();
       expect(provider.get("sessiondb.backend")).toBeDefined();
     });
 
     test("should implement has() method for path checking", () => {
-      expect(provider.has("backend")).toBe(true);
+      // backend property is deprecated and may not exist, test tasks.backend instead
+      expect(provider.has("tasks.backend")).toBe(true);
       expect(provider.has("sessiondb.backend")).toBe(true);
       expect(provider.has("nonexistent.path")).toBe(false);
     });
@@ -217,8 +223,8 @@ describe("Custom Configuration System", () => {
     test("should provide consistent configuration structure", () => {
       const config = provider.getConfig();
 
-      // Check required fields exist
-      expect(config.backend).toBeDefined();
+      // Check required fields exist (backend is deprecated, use tasks.backend)
+      expect(config.tasks.backend).toBeDefined();
       expect(config.sessiondb).toBeDefined();
       expect(config.github).toBeDefined();
       expect(config.ai).toBeDefined();
@@ -226,11 +232,11 @@ describe("Custom Configuration System", () => {
 
     test("should handle configuration overrides consistently", async () => {
       const provider = await testFactory.createProvider({
-        overrides: { backend: "json-file" },
+        overrides: { tasks: { backend: "json-file" } }, // Use modern property structure
       });
 
       const config = provider.getConfig();
-      expect(config.backend).toBe("json-file");
+      expect(config.tasks.backend).toBe("json-file"); // Use modern tasks.backend instead of deprecated backend
     });
   });
 
@@ -242,18 +248,20 @@ describe("Custom Configuration System", () => {
       // Test global access
       const config = getConfiguration();
       expect(config).toBeDefined();
-      expect(get("backend")).toBeDefined();
-      expect(has("backend")).toBe(true);
+
+      // Test that modern properties work correctly
+      expect(has("tasks.backend")).toBe(true);
+      expect(get("tasks.backend")).toBeDefined();
     });
 
     test("should support configuration overrides", async () => {
       const factory = new TestConfigFactory(); // Use TestConfigFactory instead of CustomConfigFactory
       await initializeConfiguration(factory, {
-        overrides: { backend: "json-file" },
+        overrides: { tasks: { backend: "json-file" } }, // Use modern property structure
       });
 
       const config = getConfiguration();
-      expect(config.backend).toBe("json-file");
+      expect(config.tasks.backend).toBe("json-file"); // Use modern tasks.backend instead of deprecated backend
     });
   });
 
@@ -275,7 +283,7 @@ describe("Custom Configuration System", () => {
       const startTime = Date.now();
 
       for (let i = 0; i < iterations; i++) {
-        provider.get("backend");
+        provider.get("tasks.backend"); // Use tasks.backend instead of deprecated backend
         provider.get("sessiondb.backend");
         provider.has("github.token");
       }
@@ -317,12 +325,12 @@ describe("Custom Configuration System", () => {
     test("should create provider with custom options", async () => {
       const factory = new CustomConfigFactory();
       const provider = await factory.createProvider({
-        overrides: { backend: "markdown" },
+        overrides: { tasks: { strictIds: true } }, // Test that overrides work
         enableCache: false,
       });
 
       const config = provider.getConfig();
-      expect(config.backend).toBe("markdown"); // Test expects override to be applied, not ignored
+      expect(config.tasks.strictIds).toBe(true); // Test that overrides are properly applied
     });
   });
 });

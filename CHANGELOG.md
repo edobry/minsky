@@ -6,7 +6,29 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Post-Migration Validation**: Migration command now performs comprehensive post-migration validation by default
+
+  - Automatically verifies that all reported "migrated" tasks actually exist and match in the target backend
+  - Validates task existence, title, status, and content consistency between source and target
+  - Provides detailed failure reporting with specific error reasons (TASK_NOT_FOUND_IN_TARGET, TITLE_MISMATCH, etc.)
+  - Fails entire migration if validation finds discrepancies, ensuring data integrity
+  - Groups and displays validation errors by type with actionable examples
+  - Skips validation in dry-run mode to preserve preview-only behavior
+  - Test-driven implementation with comprehensive test coverage for all validation scenarios
+
 - **Enhanced Pre-Commit Hook Documentation**: Comprehensive documentation for the new multi-layered pre-commit validation system
+
+### Changed
+
+- **BREAKING: Removed unused content_hash columns from tasks and task_specs tables**
+  - Generated migration 0011 to drop content_hash columns from tasks and task_specs tables
+  - Updated MinskyTaskBackend to not use content_hash fields in database operations
+  - Updated TasksImporterService to not use content_hash fields in SQL queries
+  - Removed unused generateContentHash method and crypto import
+  - Only embeddings tables (tasks_embeddings, rules_embeddings) retain content_hash for staleness detection
+  - Simplifies schema by removing unused fields that were never actually used for their intended purpose
+  - Reduces storage overhead and eliminates migration validation inconsistencies
+  - The embeddings system remains self-contained for staleness detection functionality
   - Added detailed "Development Workflow & Quality Gates" section to main README
   - Created comprehensive [Development Workflow Guide](docs/development-workflow.md) with architecture diagrams and troubleshooting
   - Updated [Testing Guide](docs/testing.md) to reflect new pre-commit integration and performance improvements
@@ -17,6 +39,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- tasks: DB backend wiring for CLI/domain commands
+  - list/get/status/spec/delete now default to DB-aware factory
+  - Prevents "Backend not found: minsky" when DB is configured
+  - Added test `taskCommands.db-wiring.test.ts` per test-driven-bugfix
+- embeddings: improved OpenAI 400 error formatting
+  - Parse JSON error payload and show code/type/message
+  - Example: `Embedding request failed: 400 Bad Request - code=..., type=..., message=...`
 - tasks search: Fix undefined workspace path causing ERR_INVALID_ARG_TYPE (paths[0])
   - Pass `workspacePath: process.cwd()` when creating task service in `tasks search`/`similar`
   - Eliminates CLI crash: "The \"paths[0]\" property must be of type string, got undefined"

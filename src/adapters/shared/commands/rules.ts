@@ -314,9 +314,8 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
           tableName: "rules_embeddings",
           idColumn: "rule_id",
-          embeddingColumn: "embedding",
-          dimensionColumn: "dimension",
-          lastIndexedAtColumn: "last_indexed_at",
+          embeddingColumn: "vector",
+          lastIndexedAtColumn: "indexed_at",
           metadataColumn: "metadata",
           contentHashColumn: "content_hash",
         });

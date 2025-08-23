@@ -9,10 +9,8 @@ import { z } from "zod";
 
 // Import all domain schemas
 import {
-  backendSchema,
   backendConfigSchema,
   detectionRulesSchema,
-  type Backend,
   type BackendConfig,
   type DetectionRules,
 } from "./backend";
@@ -38,8 +36,7 @@ import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
  */
 export const configurationSchema = z
   .object({
-    // Backend configuration
-    backend: backendSchema,
+    // Note: Deprecated root 'backend' property removed - use tasks.backend instead
     backendConfig: backendConfigSchema,
     detectionRules: detectionRulesSchema,
 
@@ -203,7 +200,7 @@ export const configurationValidation = {
     const errors: string[] = [];
 
     // Check GitHub Issues backend has GitHub configuration
-    if (config.backend === "github-issues") {
+    if (config.tasks?.backend === "github-issues") {
       if (
         !config.backendConfig["github-issues"]?.owner ||
         !config.backendConfig["github-issues"]?.repo

@@ -6,7 +6,7 @@ import { listTasksFromParams, getTaskFromParams } from "../../../../domain/tasks
 
 interface TasksIndexEmbeddingsParams extends BaseTaskParams {
   limit?: number;
-  taskId?: string;
+  task?: string;
 }
 
 export class TasksIndexEmbeddingsCommand extends BaseTaskCommand {
@@ -19,9 +19,9 @@ export class TasksIndexEmbeddingsCommand extends BaseTaskCommand {
     const service = await createTaskSimilarityService();
 
     // If a specific task is provided, index just that one
-    if ((params as any).taskId) {
+    if ((params as any).task) {
       const task = await getTaskFromParams({
-        taskId: (params as any).taskId,
+        taskId: (params as any).task,
         backend: params.backend,
         repo: params.repo,
         workspace: params.workspace,

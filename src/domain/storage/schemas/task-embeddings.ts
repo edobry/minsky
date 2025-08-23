@@ -25,7 +25,6 @@ export const tasksTable = pgTable(
     backend: taskBackendEnum("backend"),
     status: taskStatusEnum("status"),
     title: text("title"),
-    contentHash: text("content_hash"),
     lastIndexedAt: timestamp("last_indexed_at", { withTimezone: true }),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
@@ -39,7 +38,6 @@ export const taskSpecsTable = pgTable(
   {
     taskId: text("task_id").primaryKey(),
     content: text("content").notNull(),
-    contentHash: text("content_hash"),
     version: integer("version").default(1),
     createdAt: timestamp("created_at", { withTimezone: true }).defaultNow(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow(),
