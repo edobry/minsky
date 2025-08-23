@@ -232,11 +232,11 @@ describe("Custom Configuration System", () => {
 
     test("should handle configuration overrides consistently", async () => {
       const provider = await testFactory.createProvider({
-        overrides: { backend: "json-file" },
+        overrides: { tasks: { backend: "json-file" } }, // Use modern property structure
       });
 
       const config = provider.getConfig();
-      expect(config.backend).toBe("json-file");
+      expect(config.tasks.backend).toBe("json-file"); // Use modern tasks.backend instead of deprecated backend
     });
   });
 
@@ -248,10 +248,8 @@ describe("Custom Configuration System", () => {
       // Test global access
       const config = getConfiguration();
       expect(config).toBeDefined();
-      // backend property might exist from auto-detection (process/tasks.md triggers detection rules)
-      // The key thing is that our modern property works correctly
-      expect(has("backend")).toBeTruthy(); // May exist from detection system
-      // Test a property that should exist
+      
+      // Test that modern properties work correctly
       expect(has("tasks.backend")).toBe(true);
       expect(get("tasks.backend")).toBeDefined();
     });
@@ -259,11 +257,11 @@ describe("Custom Configuration System", () => {
     test("should support configuration overrides", async () => {
       const factory = new TestConfigFactory(); // Use TestConfigFactory instead of CustomConfigFactory
       await initializeConfiguration(factory, {
-        overrides: { backend: "json-file" },
+        overrides: { tasks: { backend: "json-file" } }, // Use modern property structure
       });
 
       const config = getConfiguration();
-      expect(config.backend).toBe("json-file");
+      expect(config.tasks.backend).toBe("json-file"); // Use modern tasks.backend instead of deprecated backend
     });
   });
 
