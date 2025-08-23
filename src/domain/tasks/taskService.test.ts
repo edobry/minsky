@@ -48,7 +48,13 @@ function createMockBackend(): TaskBackend {
     }),
     deleteTask: mock(() => Promise.resolve(true)),
     createTaskFromTitleAndSpec: mock((title: string, spec: string) => {
-      const newTask = { id: "md#003", title, status: "TODO", specPath: "process/tasks/003-test-task.md", backend: "mock" } as any;
+      const newTask = {
+        id: "md#003",
+        title,
+        status: "TODO",
+        specPath: "process/tasks/003-test-task.md",
+        backend: "mock",
+      } as any;
       currentTasks.push(newTask);
       return Promise.resolve(newTask);
     }),

@@ -278,5 +278,6 @@ export function outputResult<T>(
   } else if (options.formatter) {
     options.formatter(result);
   } else {
-    log.cli(String(result));  }
+    log.cli(String(result));
+  }
 }

@@ -217,7 +217,7 @@ class SyntaxParsingErrorsFixer {
         name: "ESCAPED_QUOTES_REPLACE",
         description: "Fix escaped quotes in replace function",
         pattern: /\.replace\(\/\^file:\\\//g,
-        replacement: '.replace(/^file:\\/\\//',
+        replacement: ".replace(/^file:\\/\\//",
         category: "escaped-quotes",
       },
       {

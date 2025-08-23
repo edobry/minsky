@@ -96,11 +96,11 @@ describe("PR Validation Utilities", () => {
       const title = "feat(md#123): Some feature";
       const headers = [
         "# feat(#123): Some feature",
-        "## feat(#123): Some feature", 
-        "### feat(#123): Some feature"
+        "## feat(#123): Some feature",
+        "### feat(#123): Some feature",
       ];
 
-      headers.forEach(header => {
+      headers.forEach((header) => {
         expect(isDuplicateContent(title, header)).toBe(true);
       });
     });

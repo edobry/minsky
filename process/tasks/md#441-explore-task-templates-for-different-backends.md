@@ -7,8 +7,9 @@
 ## Context
 
 Different task backends may benefit from different task specification templates. For example:
+
 - GitHub Issues backend could use GitHub issue templates
-- Database backend could have structured templates for different task types  
+- Database backend could have structured templates for different task types
 - Markdown backend could have project-specific templates
 
 ## Requirements
@@ -21,7 +22,7 @@ Different task backends may benefit from different task specification templates.
 
 ## Implementation
 
-- Analyze GitHub's issue template system (.github/ISSUE_TEMPLATE/)  
+- Analyze GitHub's issue template system (.github/ISSUE_TEMPLATE/)
 - Design TaskTemplate interface and TemplateProvider system
 - Consider configuration for default templates per backend
 - Prototype template integration with createTaskFromTitleAndSpec
@@ -30,7 +31,6 @@ Different task backends may benefit from different task specification templates.
 ## Notes
 
 This should be a separate feature that enhances the current direct spec content approach without breaking it.
-
 
 ## Requirements
 

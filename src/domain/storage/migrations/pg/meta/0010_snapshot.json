@@ -127,12 +127,8 @@
           "name": "task_specs_task_id_tasks_id_fk",
           "tableFrom": "task_specs",
           "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -196,12 +192,8 @@
           "name": "tasks_embeddings_task_id_tasks_id_fk",
           "tableFrom": "tasks_embeddings",
           "tableTo": "tasks",
-          "columnsFrom": [
-            "task_id"
-          ],
-          "columnsTo": [
-            "id"
-          ],
+          "columnsFrom": ["task_id"],
+          "columnsTo": ["id"],
           "onDelete": "cascade",
           "onUpdate": "no action"
         }
@@ -368,25 +360,12 @@
     "public.task_backend": {
       "name": "task_backend",
       "schema": "public",
-      "values": [
-        "markdown",
-        "json-file",
-        "github-issues",
-        "db",
-        "minsky"
-      ]
+      "values": ["markdown", "json-file", "github-issues", "db", "minsky"]
     },
     "public.task_status": {
       "name": "task_status",
       "schema": "public",
-      "values": [
-        "TODO",
-        "IN-PROGRESS",
-        "IN-REVIEW",
-        "DONE",
-        "BLOCKED",
-        "CLOSED"
-      ]
+      "values": ["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]
     }
   },
   "schemas": {},

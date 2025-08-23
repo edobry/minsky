@@ -312,7 +312,10 @@ export function createTaskService(options: TaskServiceOptions): TaskService {
   return new TaskService(options);
 }
 
-export function createConfiguredTaskService(options: { workspacePath: string, backend?: string }): TaskService {
+export function createConfiguredTaskService(options: {
+  workspacePath: string;
+  backend?: string;
+}): TaskService {
   return new TaskService(options);
 }
 

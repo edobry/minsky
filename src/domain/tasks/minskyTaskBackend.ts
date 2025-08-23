@@ -115,6 +115,7 @@ export class MinskyTaskBackend implements TaskBackend {
       .onConflictDoUpdate({
         target: tasksTable.id,
         set: {
+          backend: "minsky" as const,
           status: (options?.status || "TODO") as any,
           title: title,
           contentHash: this.generateContentHash(title + spec),

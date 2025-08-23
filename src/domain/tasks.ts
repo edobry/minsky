@@ -158,7 +158,9 @@ export async function createTaskFromTitleAndSpec(params: any) {
     backend: validParams.backend,
   });
 
-  log.debug("tasks.createTitleSpec created TaskService", { backend: taskService.currentBackend?.name });
+  log.debug("tasks.createTitleSpec created TaskService", {
+    backend: taskService.currentBackend?.name,
+  });
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
   const title = (validParams as any).title || "";

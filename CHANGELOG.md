@@ -20,9 +20,8 @@ All notable changes to this project will be documented in this file.
 - tasks: `minsky tasks list` prints results reliably (primitive formatter fix)
 - tasks: silenced stray debug lines; only show with `--debug`
 - tasks: `tasks spec` supports `mt#` IDs (backend-aware spec resolution)
-- tasks: `tasks list --json` returns only the tasks array (no wrapper)
-- tasks: spec parser returns correct title/description; legacy "# Task: X" normalized
-- tasks: implemented minimal MultiBackendTaskService with qualified ID output; updated tests
+
+- **CLI stdout/stderr routing**: Normal command output, including `--json`, now goes to stdout. Only warnings/errors go to stderr. This fixes `minsky tasks list --json 2>/dev/null` producing empty output. Updated `src/utils/logger.ts` to remove `info` from `stderrLevels` so programmatic JSON is emitted on stdout.
 
 - CLI runtime errors when running commands like `minsky tasks list`:
 
@@ -335,16 +334,3 @@ All notable changes to this project will be documented in this file.
 
 - tasks search: Added `--status` and `--all` options to filter results by task status, matching `tasks list` semantics. By default, DONE and CLOSED tasks are hidden unless `--all` is provided. Applies to CLI and MCP adapters.
 - tasks: Centralized status filtering in `src/domain/tasks/task-filters.ts`; both `TaskService.listTasks` and `tasks search` use the same utility to ensure consistent behavior.
-## [Unreleased]
-
-### Fixed
-- Migration error messages now show user-friendly output instead of technical stack traces
-- PR title duplication validation now properly detects markdown headers and different task ID formats
-- Session workspace operations now properly handle absolute paths
-
-### Changed  
-- Migration command groups errors by type (already migrated, missing files, etc.)
-- Verbose mode available with MINSKY_VERBOSE=true for detailed error information
-- Successfully migrated 307 tasks from markdown to minsky backend during verification
-
-
