@@ -58,7 +58,7 @@ export class DefaultConfigValidator implements ConfigValidator {
 
   /**
    * Validate backend configuration
-   * 
+   *
    * @deprecated Root backend property is deprecated, now validates tasks.backend instead
    */
   validateBackend(): ValidationResult {
