@@ -29,6 +29,16 @@ export interface TokenizerService {
   countTokens(text: string, modelId: string, provider?: string): Promise<TokenCount>;
 
   /**
+   * Tokenize text for a model/provider
+   */
+  tokenize(text: string, modelId: string, provider?: string): Promise<number[]>;
+
+  /**
+   * Detokenize ids back to text for a model/provider
+   */
+  detokenize(tokenIds: number[], modelId: string, provider?: string): Promise<string>;
+
+  /**
    * Get fallback tokenizer for a provider when model-specific info is unavailable
    */
   getFallbackTokenizer(provider: string): TokenizerInfo;
@@ -90,6 +100,28 @@ export class DefaultTokenizerService implements TokenizerService {
       library: tokenizerInfo.library,
       encoding: tokenizerInfo.encoding,
     };
+  }
+
+  async tokenize(text: string, modelId: string, provider?: string): Promise<number[]> {
+    const tokenizerInfo = await this.getTokenizerInfo(modelId, provider);
+    if (!tokenizerInfo) {
+      throw new Error(`No tokenizer found for model: ${modelId}`);
+    }
+    const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
+    return tokenizer.encode(text);
+  }
+
+  async detokenize(tokenIds: number[], modelId: string, provider?: string): Promise<string> {
+    const tokenizerInfo = await this.getTokenizerInfo(modelId, provider);
+    if (!tokenizerInfo) {
+      throw new Error(`No tokenizer found for model: ${modelId}`);
+    }
+    const tokenizer = await this.getTokenizerInstance(tokenizerInfo);
+    if (typeof tokenizer.decode === "function") {
+      return tokenizer.decode(tokenIds);
+    }
+    // Fallback: join by spaces (rough) if decoder not available
+    return tokenIds.join(" ");
   }
 
   /**
@@ -216,10 +248,18 @@ export class DefaultTokenizerService implements TokenizerService {
   private async createGptTokenizer(encoding: string): Promise<any> {
     try {
       const { GPTTokens } = await import("gpt-tokenizer");
-      return new GPTTokens({
+      const instance = new GPTTokens({
         model: encoding === "o200k_base" ? "gpt-4o" : "gpt-4",
         training: false,
       });
+      // Ensure decode API exists in a consistent shape
+      if (
+        typeof (instance as any).decode !== "function" &&
+        typeof (instance as any).decodeTokens === "function"
+      ) {
+        (instance as any).decode = (tokens: number[]) => (instance as any).decodeTokens(tokens);
+      }
+      return instance;
     } catch (error) {
       throw new Error(`Failed to load gpt-tokenizer: ${error}`);
     }

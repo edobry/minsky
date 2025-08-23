@@ -93,11 +93,15 @@ export async function listTasksFromParams(
     });
 
     // Get tasks with filters - delegate filtering to domain layer
-    const tasks = await taskService.listTasks({
+    let tasks = await taskService.listTasks({
       status: (validParams as any).status as string | undefined,
       all: validParams.all,
     });
-
+    // Apply limit client-side if provided
+    const limit = (validParams as any).limit as number | undefined;
+    if (typeof limit === "number" && limit > 0) {
+      tasks = tasks.slice(0, limit);
+    }
     return tasks;
   } catch (error) {
     log.error("Error listing tasks:", getErrorMessage(error));

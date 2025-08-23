@@ -24,6 +24,7 @@ export async function createVectorStorageFromConfig(dimension: number): Promise<
         idColumn: "task_id",
         embeddingColumn: "vector",
         lastIndexedAtColumn: "indexed_at",
+        contentHashColumn: "content_hash",
       });
       await storage.initialize();
       return storage;

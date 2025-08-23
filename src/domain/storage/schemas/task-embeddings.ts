@@ -53,7 +53,7 @@ export const tasksEmbeddingsTable = pgTable(
     taskId: text("task_id").primaryKey(),
     vector: vector("vector", { dimensions: 1536 }),
     metadata: text("metadata"), // JSON metadata as text
-    contentHash: text("content_hash"),
+    contentHash: text("content_hash").notNull(),
     indexedAt: timestamp("indexed_at", { withTimezone: true }),
   },
   (table) => [

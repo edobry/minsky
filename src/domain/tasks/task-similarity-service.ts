@@ -83,17 +83,94 @@ export class TaskSimilarityService {
     return `Find tasks related to: ${uniqueTerms.join(", ")}`;
   }
 
-  async indexTask(taskId: string): Promise<void> {
+  async indexTask(taskId: string): Promise<boolean> {
     const task = await this.findTaskById(taskId);
     if (!task) {
       throw new Error(`Task not found: ${taskId}`);
     }
 
     // Get the full task content (title + spec content)
-    const content = await this.extractTaskContent(task);
-    const vector = await this.embeddingService.generateEmbedding(content);
-
+    let content = await this.extractTaskContent(task);
     const contentHash = createHash("sha256").update(content).digest("hex");
+
+    // Skip if up-to-date
+    try {
+      if (typeof (this.vectorStorage as any).getMetadata === "function") {
+        const meta = await (this.vectorStorage as any).getMetadata(taskId);
+        const storedHash = meta?.content_hash || meta?.contentHash;
+        const storedModel = meta?.model;
+        const currentModel = this.config.model;
+        if (
+          storedHash &&
+          storedHash === contentHash &&
+          (!storedModel || storedModel === currentModel)
+        ) {
+          try {
+            log.debug(`[index] skip up-to-date ${taskId}`);
+          } catch {
+            void 0; // ignore debug logging errors
+          }
+          return false;
+        }
+      }
+    } catch {
+      // ignore metadata read errors
+    }
+    // Apply model-aware token cap if configured
+    try {
+      const { getConfiguration } = await import("../configuration");
+      const cfg: any = await getConfiguration();
+      const model = this.config.model || cfg?.embeddings?.model || "text-embedding-3-small";
+      const provider = cfg?.embeddings?.provider || cfg?.ai?.defaultProvider || "openai";
+      const caps = (cfg?.embeddings?.models && cfg.embeddings.models[model]) || {};
+      // Built-in defaults by model pattern; can be overridden by config
+      const defaultMaxByModel: Record<string, number> = {
+        "text-embedding-3-small": 8192,
+        "text-embedding-3-large": 8192,
+      };
+      const maxTokens: number | undefined =
+        typeof caps.maxTokens === "number"
+          ? caps.maxTokens
+          : defaultMaxByModel[model] || (model.includes("embedding") ? 8192 : undefined);
+      const buffer: number = typeof caps.buffer === "number" ? caps.buffer : 192;
+      if (typeof maxTokens === "number" && maxTokens > 0) {
+        const effective = Math.max(1, maxTokens - buffer);
+        const { defaultTokenizerService } = await import("../ai/tokenizer-service");
+        const tokens = await defaultTokenizerService.tokenize(content, model, provider);
+        if (tokens.length > effective) {
+          const trimmed = tokens.slice(0, effective);
+          content = await defaultTokenizerService.detokenize(trimmed, model, provider);
+        }
+      }
+    } catch {
+      // If tokenization or config fails, apply a conservative char-based trim fallback
+      try {
+        const { getConfiguration } = await import("../configuration");
+        const cfg: any = await getConfiguration();
+        const model = this.config.model || cfg?.embeddings?.model || "text-embedding-3-small";
+        const caps = (cfg?.embeddings?.models && cfg.embeddings.models[model]) || {};
+        const defaultMaxByModel: Record<string, number> = {
+          "text-embedding-3-small": 8192,
+          "text-embedding-3-large": 8192,
+        };
+        const maxTokens: number | undefined =
+          typeof caps.maxTokens === "number"
+            ? caps.maxTokens
+            : defaultMaxByModel[model] || (model.includes("embedding") ? 8192 : undefined);
+        const buffer: number = typeof caps.buffer === "number" ? caps.buffer : 192;
+        if (typeof maxTokens === "number" && maxTokens > 0) {
+          const effective = Math.max(1, maxTokens - buffer);
+          // Heuristic: ~4 chars per token
+          const maxChars = effective * 4;
+          if (content.length > maxChars) {
+            content = content.slice(0, maxChars);
+          }
+        }
+      } catch {
+        // ignore and keep original content
+      }
+    }
+    const vector = await this.embeddingService.generateEmbedding(content);
     const metadata: Record<string, any> = {
       taskId,
       model: this.config.model,
@@ -103,6 +180,7 @@ export class TaskSimilarityService {
     };
 
     await this.vectorStorage.store(taskId, vector, metadata);
+    return true;
   }
 
   /**
