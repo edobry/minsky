@@ -11,6 +11,10 @@ import { TaskBackend } from "../backend-detection";
 
 /**
  * Main backend configuration - which backend to use for tasks
+ * 
+ * @deprecated Use `tasks.backend` instead. This property is kept for backward 
+ * compatibility with MINSKY_BACKEND environment variable but will be removed
+ * in a future version.
  */
 export const backendSchema = enumSchemas.backendType.default("markdown");
 

@@ -38,7 +38,7 @@ import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
  */
 export const configurationSchema = z
   .object({
-    // Backend configuration
+    // Backend configuration (DEPRECATED - use tasks.backend instead)
     backend: backendSchema,
     backendConfig: backendConfigSchema,
     detectionRules: detectionRulesSchema,
@@ -203,7 +203,7 @@ export const configurationValidation = {
     const errors: string[] = [];
 
     // Check GitHub Issues backend has GitHub configuration
-    if (config.backend === "github-issues") {
+    if (config.tasks?.backend === "github-issues") {
       if (
         !config.backendConfig["github-issues"]?.owner ||
         !config.backendConfig["github-issues"]?.repo

@@ -181,7 +181,7 @@ export class ConfigurationValidator {
     }
 
     // Check if organization and repository are both specified when needed
-    if (config.backend === "github-issues") {
+    if (config.tasks?.backend === "github-issues") {
       const backendConfig = config.backendConfig["github-issues"];
       if (!backendConfig?.owner || !backendConfig?.repo) {
         issues.push({

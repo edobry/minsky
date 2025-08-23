@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Post-Migration Validation**: Migration command now performs comprehensive post-migration validation by default
+
   - Automatically verifies that all reported "migrated" tasks actually exist and match in the target backend
   - Validates task existence, title, status, and content consistency between source and target
   - Provides detailed failure reporting with specific error reasons (TASK_NOT_FOUND_IN_TARGET, TITLE_MISMATCH, etc.)
