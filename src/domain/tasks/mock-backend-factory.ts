@@ -115,7 +115,7 @@ export function createMockBackend(name: string, prefix: string): TaskBackend {
 
 // Factory function that creates a MultiBackendTaskService with mocks
 export function createMockMultiBackendTaskService(): MultiBackendTaskService {
-  return createMultiBackendTaskService();
+  return createMultiBackendTaskService({ workspacePath: "/test/workspace" });
 }
 
 // Helper function to create a service with pre-registered mock backends
@@ -125,7 +125,7 @@ export function createMultiBackendTaskServiceWithMocks(): {
   ghBackend: TaskBackend;
   jsonBackend: TaskBackend;
 } {
-  const service = createMultiBackendTaskService();
+  const service = createMultiBackendTaskService({ workspacePath: "/test/workspace" });
   const mdBackend = createMockBackend("Markdown", "md");
   const ghBackend = createMockBackend("GitHub Issues", "gh");
   const jsonBackend = createMockBackend("JSON File", "json");

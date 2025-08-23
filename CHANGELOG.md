@@ -21,6 +21,7 @@ All notable changes to this project will be documented in this file.
   - Pass `workspacePath: process.cwd()` when creating task service in `tasks search`/`similar`
   - Eliminates CLI crash: "The \"paths[0]\" property must be of type string, got undefined"
 - embeddings: Align Postgres vector storage with latest schema
+
   - Update table columns to use `vector` and `indexed_at` (was `embedding`/`last_indexed_at`)
   - Resolves error: `Database error (42703): column "embedding" does not exist`
 

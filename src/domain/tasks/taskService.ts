@@ -9,9 +9,14 @@ import type {
   TaskMetadata,
 } from "./types";
 import type { TaskData } from "../types/tasks/taskData";
+import type { TaskServiceInterface } from "../tasks";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createMinskyTaskBackend, type MinskyTaskBackendConfig } from "./minskyTaskBackend";
+import {
+  createMultiBackendTaskService,
+  type MultiBackendTaskService,
+} from "./multi-backend-service";
 import { createDatabaseConnection } from "../database/connection-manager";
 import { log } from "../../utils/logger";
 // normalizeTaskId removed: strict qualified IDs expected upstream
@@ -315,8 +320,34 @@ export function createTaskService(options: TaskServiceOptions): TaskService {
 export function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
-}): TaskService {
-  return new TaskService(options);
+}): TaskServiceInterface {
+  // Create multi-backend service - this is now the default!
+  const service = createMultiBackendTaskService({ workspacePath: options.workspacePath });
+
+  // Register all available backends with their prefixes
+  try {
+    const markdownBackend = createMarkdownTaskBackend({
+      name: "markdown",
+      workspacePath: options.workspacePath,
+    });
+    // Add prefix property for multi-backend routing
+    (markdownBackend as any).prefix = "md";
+    service.registerBackend(markdownBackend);
+
+    const jsonBackend = createJsonFileTaskBackend({
+      name: "json-file",
+      workspacePath: options.workspacePath,
+    });
+    (jsonBackend as any).prefix = "json";
+    service.registerBackend(jsonBackend);
+
+    // Add other backends as available...
+    // Database backend would be added here if configured
+  } catch (error) {
+    log.warn("Failed to register some backends", { error: getErrorMessage(error as any) });
+  }
+
+  return service;
 }
 
 // ---- Utility functions used by tests (GitHub URL parsing) ----

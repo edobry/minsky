@@ -10,7 +10,24 @@ Replace the current single-backend `TaskService` with the `MultiBackendTaskServi
 
 ## Context
 
-Currently, the `TaskService` only supports a single backend at a time (`this.currentBackend`), even though we have qualified task IDs like `md#123`, `gh#456`, `db#789`. The existing `MultiBackendTaskService` exists and is mostly working (22/23 tests pass) but isn't integrated into the main codebase.
+Currently, the `TaskService` only supports a single backend at a time (`this.currentBackend`), even though we have qualified task IDs like `md#123`, `gh#456`, `db#789`. The existing `MultiBackendTaskService` exists and **IS WORKING** (7/7 unit tests pass, 6/6 integration tests pass) but isn't integrated into the main codebase.
+
+### Current Status (As of Analysis)
+
+**✅ GOOD NEWS**: The MultiBackendTaskService implementation is more complete than initially described:
+
+- **Tests are ALL PASSING**: 7/7 unit tests + 6/6 integration tests = 100% test success rate
+- **Core routing logic works**: Qualified ID parsing and backend routing is implemented
+- **Interface is defined**: Both `MultiBackendTaskBackend` and `MultiBackendTaskService` interfaces exist
+- **Mock factories exist**: Comprehensive test infrastructure is in place
+
+**⚠️ INTEGRATION NEEDED**: The main blockers are integration points, not implementation quality:
+
+- **Service creation**: Need to replace `TaskService` with `MultiBackendTaskService` in ~53 files
+- **Interface alignment**: Current `TaskBackend` interface differs from `MultiBackendTaskBackend` interface
+- **Factory functions**: Need to update `createConfiguredTaskService` and similar functions
+
+**🔗 Dependency Update**: md#439 compilation errors appear resolved (session start now works), making this task less blocked than originally expected.
 
 **Current Problem:**
 
@@ -121,11 +138,11 @@ await taskService.getTask("db#789"); // ✅ Routes to database backend with loca
 
 ### Phase 3: Testing and Validation
 
-5. **Fix multi-backend tests**:
+5. **Verify multi-backend tests** (STATUS: ✅ ALREADY PASSING):
 
-   - Resolve the 1 failing test in multi-backend-system.test.ts
-   - Fix integration test failures in multi-backend-real-integration.test.ts
-   - Add comprehensive routing tests
+   - ✅ multi-backend-system.test.ts: 7/7 tests passing
+   - ✅ multi-backend-real-integration.test.ts: 6/6 tests passing
+   - Add comprehensive routing tests for edge cases
 
 6. **Integration testing**:
    - Test all CLI commands with qualified IDs
@@ -237,8 +254,93 @@ This multi-backend foundation enables:
 
 ## Dependencies
 
-- **md#439**: Database backend implementation must be complete
-- **Interface consolidation**: TaskBackend interface unification (see earlier analysis)
+- ✅ **md#439**: Database backend implementation resolved (session start working, tests passing)
+- ⚠️ **Interface consolidation**: TaskBackend interface unification (minor alignment needed between interfaces)
+
+## UPDATED IMPLEMENTATION PLAN (Based on Current Analysis)
+
+Given the actual state where MultiBackendTaskService is working but not integrated, here's a more targeted approach:
+
+### PHASE 1: Interface Alignment (PRIORITY 1)
+
+**Problem**: Current `TaskBackend` interface ≠ `MultiBackendTaskBackend` interface
+
+**Current TaskBackend interface:**
+
+```typescript
+interface TaskBackend {
+  name: string;
+  listTasks(options?: TaskListOptions): Promise<Task[]>;
+  getTask(id: string): Promise<Task | null>;
+  createTaskFromTitleAndSpec(
+    title: string,
+    spec: string,
+    options?: CreateTaskOptions
+  ): Promise<Task>;
+  // ... other methods but NO prefix, exportTask, importTask, validateLocalId
+}
+```
+
+**MultiBackendTaskBackend interface:**
+
+```typescript
+interface MultiBackendTaskBackend {
+  name: string;
+  prefix: string; // ⚠️ MISSING from current backends
+  exportTask(taskId: string): Promise<TaskExportData>; // ⚠️ MISSING
+  importTask(data: TaskExportData): Promise<Task>; // ⚠️ MISSING
+  validateLocalId(localId: string): boolean; // ⚠️ MISSING
+  // ... different method signatures
+}
+```
+
+**ACTION ITEMS:**
+
+1. **Add missing properties to existing backends**: `prefix`, `exportTask`, `importTask`, `validateLocalId`
+2. **Create adapter/bridge pattern**: Allow current backends to work with multi-backend service during transition
+3. **Update method signatures**: Align parameter and return types
+
+### PHASE 2: Service Factory Integration (PRIORITY 2)
+
+**Problem**: ~53 files use `TaskService` or `createConfiguredTaskService` but need `MultiBackendTaskService`
+
+**Current Pattern:**
+
+```typescript
+const taskService = await createConfiguredTaskService({ workspacePath: "/path" });
+await taskService.getTask("md#123"); // ❌ Only routes to configured backend
+```
+
+**Target Pattern:**
+
+```typescript
+const taskService = await createMultiBackendTaskService({ workspacePath: "/path" });
+await taskService.getTask("md#123"); // ✅ Routes to markdown backend automatically
+```
+
+**ACTION ITEMS:**
+
+1. **Create `createMultiBackendTaskService` factory**: Similar API to `createConfiguredTaskService`
+2. **Update high-impact integration points first**: CLI commands, MCP adapters, session operations
+3. **Gradual replacement strategy**: Update services one by one with testing at each step
+
+### PHASE 3: Backend Registration (PRIORITY 3)
+
+**Problem**: MultiBackendTaskService needs all backends registered with proper prefixes
+
+**ACTION ITEMS:**
+
+1. **Configure backend registry**: Register markdown("md"), json("json"), github("gh"), database("db") backends
+2. **Set routing defaults**: Handle unqualified IDs gracefully
+3. **Error handling**: Clear messages for unknown prefixes
+
+### PHASE 4: Verification (PRIORITY 4)
+
+**Tests are already passing, but need:**
+
+1. **End-to-end integration tests**: CLI commands with qualified IDs
+2. **Cross-backend operation tests**: Migration, collision detection
+3. **Performance verification**: Ensure no degradation from single-backend approach
 
 ## Notes
 

@@ -100,7 +100,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     });
 
     // Initialize service with real backend
-    service = new MultiBackendTaskServiceImpl();
+    service = new MultiBackendTaskServiceImpl({ workspacePath: mockTempDir });
     service.registerBackend(markdownBackend);
   });
 
