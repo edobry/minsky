@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Post-Migration Validation**: Migration command now performs comprehensive post-migration validation by default
+  - Automatically verifies that all reported "migrated" tasks actually exist and match in the target backend
+  - Validates task existence, title, status, and content consistency between source and target
+  - Provides detailed failure reporting with specific error reasons (TASK_NOT_FOUND_IN_TARGET, TITLE_MISMATCH, etc.)
+  - Fails entire migration if validation finds discrepancies, ensuring data integrity
+  - Groups and displays validation errors by type with actionable examples
+  - Skips validation in dry-run mode to preserve preview-only behavior
+  - Test-driven implementation with comprehensive test coverage for all validation scenarios
+
 - **Enhanced Pre-Commit Hook Documentation**: Comprehensive documentation for the new multi-layered pre-commit validation system
   - Added detailed "Development Workflow & Quality Gates" section to main README
   - Created comprehensive [Development Workflow Guide](docs/development-workflow.md) with architecture diagrams and troubleshooting

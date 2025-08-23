@@ -6,7 +6,6 @@
 
 import { Command } from "commander";
 import { createConfigListCommand } from "./list";
-import { createConfigShowCommand } from "./show";
 import { createConfigSetCommand } from "./set";
 import { createConfigUnsetCommand } from "./unset";
 import { createConfigValidateCommand } from "./validate";
@@ -33,9 +32,9 @@ Examples:
 `
     );
 
-  // Add subcommands
+  // Add subcommands  
   configCmd.addCommand(createConfigListCommand());
-  configCmd.addCommand(createConfigShowCommand());
+  // config.show is handled by command registration pattern in src/adapters/shared/commands/config.ts
   configCmd.addCommand(createConfigSetCommand());
   configCmd.addCommand(createConfigUnsetCommand());
   configCmd.addCommand(createConfigValidateCommand());
