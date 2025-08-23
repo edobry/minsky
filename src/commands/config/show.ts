@@ -28,13 +28,9 @@ export function createConfigShowCommand(): Command {
         const credentialResolver = new DefaultCredentialResolver();
         const credentials = await gatherCredentialInfo(credentialResolver, config);
 
+        // Show ALL configuration properties dynamically instead of hardcoding subset
         const resolved = {
-          backend: config.backend,
-          backendConfig: config.backendConfig,
-          sessiondb: config.sessiondb,
-          ai: config.ai,
-          github: config.github,
-          logger: config.logger,
+          ...config, // Include all configuration properties
           credentials,
         };
 
@@ -92,7 +88,7 @@ async function displayComprehensiveConfiguration(resolved: any) {
   // Task Storage Backend
   await displayTaskStorageConfig(resolved);
 
-  // Session Storage
+  // Session Storage (controlled by root "backend" property - confusing naming!)
   await displaySessionStorageConfig(resolved);
 
   // Authentication
@@ -113,9 +109,10 @@ async function displayComprehensiveConfiguration(resolved: any) {
 
 async function displayTaskStorageConfig(resolved: any) {
   await Bun.write(Bun.stdout, "📁 TASK STORAGE\n");
-  await Bun.write(Bun.stdout, `   Backend: ${getBackendDisplayName(resolved.backend)}\n`);
+  const taskBackend = resolved.tasks?.backend || resolved.backend;
+  await Bun.write(Bun.stdout, `   Backend: ${getBackendDisplayName(taskBackend)}\n`);
 
-  if (resolved.backend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
+  if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
     const github = resolved.backendConfig["github-issues"];
     await Bun.write(Bun.stdout, `   Repository: ${github.owner}/${github.repo}\n`);
   }
@@ -124,14 +121,26 @@ async function displayTaskStorageConfig(resolved: any) {
 
 async function displaySessionStorageConfig(resolved: any) {
   await Bun.write(Bun.stdout, "💾 SESSION STORAGE\n");
-  if (resolved.sessiondb) {
-    const sessionBackend = resolved.sessiondb.backend || "sqlite";
-    await Bun.write(Bun.stdout, `   Backend: ${getSessionBackendDisplayName(sessionBackend)}\n`);
 
-    if (sessionBackend === "sqlite" && resolved.sessiondb.dbPath) {
-      await Bun.write(Bun.stdout, `   Database Path: ${resolved.sessiondb.dbPath}\n`);
-    } else if (sessionBackend === "postgres" && resolved.sessiondb.connectionString) {
+  // Note: The root "backend" property controls session storage, NOT task storage!
+  // This is confusing naming that should be clarified
+  await Bun.write(
+    Bun.stdout,
+    `   Storage Backend: ${getSessionBackendDisplayName(resolved.backend || "json")}\n`
+  );
+
+  if (resolved.sessiondb) {
+    const sessionBackend = resolved.sessiondb.backend || resolved.backend || "sqlite";
+
+    if (sessionBackend === "sqlite" && resolved.sessiondb.sqlite?.path) {
+      await Bun.write(Bun.stdout, `   SQLite Path: ${resolved.sessiondb.sqlite.path}\n`);
+    } else if (sessionBackend === "postgres" && resolved.sessiondb.postgres?.connectionString) {
       await Bun.write(Bun.stdout, `   Connection: ${"*".repeat(20)} (configured)\n`);
+    } else if (sessionBackend === "json") {
+      await Bun.write(
+        Bun.stdout,
+        `   JSON File Storage: ${resolved.sessiondb.json?.filePath || "default location"}\n`
+      );
     }
   }
   await Bun.write(Bun.stdout, "\n");
@@ -279,6 +288,8 @@ function getBackendDisplayName(backend: string): string {
       return "JSON files";
     case TaskBackend.GITHUB_ISSUES:
       return "GitHub Issues";
+    case "minsky":
+      return "Minsky database";
     default:
       return backend;
   }
