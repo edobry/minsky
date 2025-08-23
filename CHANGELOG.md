@@ -17,6 +17,18 @@ All notable changes to this project will be documented in this file.
   - Test-driven implementation with comprehensive test coverage for all validation scenarios
 
 - **Enhanced Pre-Commit Hook Documentation**: Comprehensive documentation for the new multi-layered pre-commit validation system
+
+### Changed
+
+- **BREAKING: Removed unused content_hash columns from tasks and task_specs tables**
+  - Generated migration 0011 to drop content_hash columns from tasks and task_specs tables
+  - Updated MinskyTaskBackend to not use content_hash fields in database operations
+  - Updated TasksImporterService to not use content_hash fields in SQL queries
+  - Removed unused generateContentHash method and crypto import
+  - Only embeddings tables (tasks_embeddings, rules_embeddings) retain content_hash for staleness detection
+  - Simplifies schema by removing unused fields that were never actually used for their intended purpose
+  - Reduces storage overhead and eliminates migration validation inconsistencies
+  - The embeddings system remains self-contained for staleness detection functionality
   - Added detailed "Development Workflow & Quality Gates" section to main README
   - Created comprehensive [Development Workflow Guide](docs/development-workflow.md) with architecture diagrams and troubleshooting
   - Updated [Testing Guide](docs/testing.md) to reflect new pre-commit integration and performance improvements
