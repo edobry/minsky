@@ -17,6 +17,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- tasks search: Fix undefined workspace path causing ERR_INVALID_ARG_TYPE (paths[0])
+  - Pass `workspacePath: process.cwd()` when creating task service in `tasks search`/`similar`
+  - Eliminates CLI crash: "The \"paths[0]\" property must be of type string, got undefined"
+- embeddings: Align Postgres vector storage with latest schema
+  - Update table columns to use `vector` and `indexed_at` (was `embedding`/`last_indexed_at`)
+  - Resolves error: `Database error (42703): column "embedding" does not exist`
+
 - tasks: `minsky tasks list` prints results reliably (primitive formatter fix)
 - tasks: silenced stray debug lines; only show with `--debug`
 - tasks: `tasks spec` supports `mt#` IDs (backend-aware spec resolution)

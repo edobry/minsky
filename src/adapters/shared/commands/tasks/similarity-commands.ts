@@ -44,6 +44,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
         // Get full task details
         const tasksModule = await import("../../../../domain/tasks");
         const taskService = await (tasksModule as any).createConfiguredTaskService({
+          workspacePath: process.cwd(),
           backend: "markdown",
         });
         const task = await taskService.getTask(result.id);
@@ -132,6 +133,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
         // Get full task details
         const tasksModule = await import("../../../../domain/tasks");
         const taskService = await (tasksModule as any).createConfiguredTaskService({
+          workspacePath: process.cwd(),
           backend: "markdown",
         });
         const task = await taskService.getTask(result.id);
@@ -236,6 +238,7 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const tasksModule = await import("../../../../domain/tasks");
   const taskService = await (tasksModule as any).createConfiguredTaskService({
+    workspacePath: process.cwd(),
     backend: "markdown",
   });
   const findTaskById = async (id: string) => taskService.getTask(id);

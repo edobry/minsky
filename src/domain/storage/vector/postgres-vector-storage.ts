@@ -46,9 +46,9 @@ export class PostgresVectorStorage implements VectorStorage {
     return PostgresVectorStorage.fromSessionDbConfig(dimension, {
       tableName: "tasks_embeddings",
       idColumn: "task_id",
-      embeddingColumn: "embedding",
+      embeddingColumn: "vector",
       dimensionColumn: "dimension",
-      lastIndexedAtColumn: "last_indexed_at",
+      lastIndexedAtColumn: "indexed_at",
     });
   }
 
