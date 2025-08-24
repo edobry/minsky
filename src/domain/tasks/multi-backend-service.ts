@@ -104,8 +104,6 @@ export class MultiBackendTaskServiceImpl implements MultiBackendTaskService {
     return { ...task, id: `${prefix}#${id}` };
   }
 
-
-
   async getTask(taskId: string): Promise<Task | null> {
     const backend = this.getBackendByPrefix(this.parsePrefixFromId(taskId));
     if (backend) {

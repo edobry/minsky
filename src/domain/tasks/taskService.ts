@@ -317,10 +317,10 @@ export function createTaskService(options: TaskServiceOptions): TaskService {
   return new TaskService(options);
 }
 
-export function createConfiguredTaskService(options: {
+export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
-}): TaskServiceInterface {
+}): Promise<TaskServiceInterface> {
   // Create multi-backend service - this is now the default!
   const service = createMultiBackendTaskService({ workspacePath: options.workspacePath });
 
@@ -341,8 +341,29 @@ export function createConfiguredTaskService(options: {
     (jsonBackend as any).prefix = "json";
     service.registerBackend(jsonBackend);
 
-    // Add other backends as available...
-    // Database backend would be added here if configured
+    // Add minsky backend (mt# prefix) - requires database connection
+    try {
+      // Direct database connection bypassing config system
+      const { drizzle } = await import("drizzle-orm/postgres-js");
+      const postgres = (await import("postgres")).default;
+      
+      const sql = postgres("postgresql://postgres.prncxnvwabtrqrwvrvki:9o1hHdmKmsfCbltp@aws-0-us-east-2.pooler.supabase.com:6543/postgres", {
+        prepare: false,
+        onnotice: () => {},
+      });
+      const db = drizzle(sql);
+      
+      const minskyBackend = createMinskyTaskBackend({
+        name: "minsky",
+        workspacePath: "/Users/edobry/Projects/minsky", // Use absolute path to main workspace
+        db,
+      });
+      (minskyBackend as any).prefix = "mt";
+      service.registerBackend(minskyBackend);
+      log.debug("Minsky backend registered successfully");
+    } catch (error) {
+      log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
+    }
   } catch (error) {
     log.warn("Failed to register some backends", { error: getErrorMessage(error as any) });
   }
