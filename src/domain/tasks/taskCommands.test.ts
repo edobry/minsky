@@ -85,7 +85,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskStatusFromParams(params, mockDeps);
@@ -127,7 +127,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskStatusFromParams(params, mockDeps);
@@ -164,7 +164,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskStatusFromParams(params, mockDeps);
@@ -201,7 +201,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskStatusFromParams(params, mockDeps);
@@ -232,7 +232,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       await expect(getTaskStatusFromParams(params, mockDeps)).rejects.toThrow(
@@ -275,7 +275,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskStatusFromParams(params, mockDeps);
@@ -318,7 +318,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskStatusFromParams(params, mockDeps);
@@ -369,7 +369,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskFromParams(params, mockDeps);
@@ -405,7 +405,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       await expect(getTaskFromParams(params, mockDeps)).rejects.toThrow("Task md#999 not found");
@@ -452,7 +452,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskFromParams(params, mockDeps);
@@ -501,7 +501,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => options.repo || testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await getTaskFromParams(params, mockDeps);
@@ -541,7 +541,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await listTasksFromParams(params, mockDeps);
@@ -584,7 +584,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await listTasksFromParams(params, mockDeps);
@@ -629,7 +629,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       const result = await listTasksFromParams(params, mockDeps);
@@ -684,7 +684,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService as any,
+        createConfiguredTaskService: async (options: any) => mockTaskService as any,
       };
 
       await setTaskStatusFromParams(params as any, mockDeps);
@@ -721,7 +721,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService,
+        createConfiguredTaskService: async (options: any) => mockTaskService,
       };
 
       await expect(setTaskStatusFromParams(params, mockDeps)).rejects.toThrow(
@@ -775,7 +775,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => mockTaskService as any,
+        createConfiguredTaskService: async (options: any) => mockTaskService as any,
       };
 
       await setTaskStatusFromParams(params as any, mockDeps);
@@ -794,7 +794,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         // ✅ FIXED: Use explicit mock instead of unreliable async factory
-        createTaskService: async (options: any) => ({
+        createConfiguredTaskService: async (options: any) => ({
           getTask: mock(() => Promise.resolve(null)),
           listTasks: mock(() => Promise.resolve([])),
           getTaskStatus: mock(() => Promise.resolve(undefined)),
@@ -822,7 +822,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
         // ✅ FIXED: Use explicit mock instead of unreliable async factory
-        createTaskService: async (options: any) => ({
+        createConfiguredTaskService: async (options: any) => ({
           getTask: mock(() => Promise.resolve(null)),
           listTasks: mock(() => Promise.resolve([])),
           getTaskStatus: mock(() => Promise.resolve(undefined)),
@@ -882,7 +882,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
       const mockDeps = {
         resolveRepoPath: async (options: any) => testWorkspacePath,
         resolveTaskWorkspacePath: async (options?: any) => testWorkspacePath,
-        createTaskService: async (options: any) => {
+        createConfiguredTaskService: async (options: any) => {
           expect(options.backend).toBe("json-file");
           return mockTaskService;
         },

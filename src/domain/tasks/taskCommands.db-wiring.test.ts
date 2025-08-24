@@ -7,7 +7,7 @@ describe("DB wiring for minsky backend", () => {
     // and can connect to the configured Supabase database
     let threw: any = null;
     let result: any = null;
-    
+
     try {
       result = await listTasksFromParams({ backend: "minsky", json: true } as any);
     } catch (err) {

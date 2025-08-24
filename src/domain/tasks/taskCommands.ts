@@ -6,11 +6,7 @@ import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
-import {
-  createConfiguredTaskService,
-  TaskService,
-  TaskServiceOptions,
-} from "./taskService";
+import { createConfiguredTaskService as createConfiguredTaskServiceImpl, TaskService, TaskServiceOptions, TaskServiceInterface } from "./taskService";
 
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
@@ -65,7 +61,7 @@ function normalizeTaskIdInput(input: unknown): string {
 export async function listTasksFromParams(
   params: TaskListParams,
   deps?: {
-    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<any[]> {
@@ -83,7 +79,7 @@ export async function listTasksFromParams(
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
-      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -112,7 +108,7 @@ export async function listTasksFromParams(
 export async function getTaskFromParams(
   params: TaskGetParams,
   deps?: {
-    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<any> {
@@ -147,7 +143,7 @@ export async function getTaskFromParams(
     // Create task service using dependency injection or default implementation
     log.debug("[getTaskFromParams] About to create task service");
     const createTaskService =
-      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -191,7 +187,7 @@ export async function getTaskStatusFromParams(
   params: TaskStatusGetParams,
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
-    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<string> {
@@ -213,7 +209,7 @@ export async function getTaskStatusFromParams(
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
-      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -253,7 +249,7 @@ export async function setTaskStatusFromParams(
   params: TaskStatusSetParams,
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
-    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<void> {
@@ -275,7 +271,7 @@ export async function setTaskStatusFromParams(
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
-      deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -324,10 +320,10 @@ export async function createTaskFromParams(
   params: TaskCreateParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    createTaskService: (options: TaskServiceOptions) => TaskService;
+    createConfiguredTaskService: (options: TaskServiceOptions) => TaskServiceInterface;
   } = {
     resolveRepoPath,
-    createTaskService: (options) => createTaskServiceImpl(options),
+    createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
   }
 ): Promise<any> {
   try {
@@ -347,7 +343,7 @@ export async function createTaskFromParams(
     });
 
     // Create task service
-    const taskService = deps.createTaskService({
+    const taskService = deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
     });
@@ -384,7 +380,7 @@ export async function createTaskFromTitleAndDescription(
   params: TaskCreateFromTitleAndDescriptionParams,
   deps?: {
     resolveRepoPath?: typeof resolveRepoPath;
-    createTaskService?: (options: TaskServiceOptions) => Promise<TaskService>;
+    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
     resolveMainWorkspacePath?: () => Promise<string>;
   }
 ): Promise<any> {
@@ -401,7 +397,7 @@ export async function createTaskFromTitleAndDescription(
 
   // Create task service
   const createTaskService =
-    deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
+    deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskService(options));
   const taskService = await createTaskService({
     workspacePath,
     backend: validParams.backend || "markdown",
@@ -426,10 +422,10 @@ export async function getTaskSpecContentFromParams(
   params: TaskSpecContentParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    createTaskService: (options: TaskServiceOptions) => TaskService;
+    createConfiguredTaskService: (options: TaskServiceOptions) => TaskServiceInterface;
   } = {
     resolveRepoPath,
-    createTaskService: (options) => createTaskServiceImpl(options),
+    createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
   }
 ): Promise<{ task: any; specPath: string; content: string; section?: string }> {
   try {
@@ -455,7 +451,7 @@ export async function getTaskSpecContentFromParams(
     });
 
     // Create task service
-    const taskService = deps.createTaskService({
+    const taskService = deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
     });
@@ -541,10 +537,10 @@ export async function deleteTaskFromParams(
   params: TaskDeleteParams,
   deps: {
     resolveRepoPath: typeof resolveRepoPath;
-    createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
+    createConfiguredTaskService: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
   } = {
     resolveRepoPath,
-    createTaskService: async (options) => await createConfiguredTaskService(options),
+    createConfiguredTaskService: async (options) => await createConfiguredTaskServiceImpl(options),
   }
 ): Promise<{ success: boolean; taskId: string; task?: any }> {
   try {
@@ -562,7 +558,7 @@ export async function deleteTaskFromParams(
     });
 
     // Create task service
-    const taskService = await deps.createTaskService({
+    const taskService = await deps.createConfiguredTaskService({
       workspacePath,
       backend: validParams.backend,
     });

@@ -269,12 +269,9 @@ export class TaskService {
     }
     return await this.currentBackend.getTaskMetadata(id);
   }
-
 }
 
 // ---- Factory Functions ----
-
-
 
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
@@ -361,8 +358,6 @@ export function parseGitHubRepoString(input: string): { owner: string; repo: str
   if (!owner || !repo) return null;
   return { owner, repo };
 }
-
-
 
 // ---- Type Exports ----
 

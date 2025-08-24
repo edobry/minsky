@@ -10,7 +10,7 @@ import { resolveMainWorkspacePath } from "../../workspace";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
 // normalizeTaskId removed: strict qualified IDs expected upstream
 import { createTaskIdParsingErrorMessage } from "../../../errors/enhanced-error-templates";
-import { createConfiguredTaskService, TaskService, TaskServiceOptions } from "../taskService";
+import { createConfiguredTaskService, TaskService, TaskServiceOptions, TaskServiceInterface } from "../taskService";
 
 /**
  * Common dependencies for task operations
@@ -18,7 +18,7 @@ import { createConfiguredTaskService, TaskService, TaskServiceOptions } from "..
 export interface TaskOperationDependencies {
   resolveRepoPath: typeof resolveRepoPath;
   resolveMainWorkspacePath: typeof resolveMainWorkspacePath;
-  createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
+  createConfiguredTaskService: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
 }
 
 /**
@@ -27,7 +27,7 @@ export interface TaskOperationDependencies {
 export const defaultTaskOperationDependencies: TaskOperationDependencies = {
   resolveRepoPath,
   resolveMainWorkspacePath,
-  createTaskService: async (options) => await createConfiguredTaskService(options),
+  createConfiguredTaskService: async (options) => await createConfiguredTaskService(options),
 };
 
 /**
@@ -105,8 +105,8 @@ export abstract class BaseTaskOperation<TParams, TResult> {
   protected async createTaskService(
     params: BaseTaskOperationParams,
     workspacePath: string
-  ): Promise<TaskService> {
-    return await this.deps.createTaskService({
+  ): Promise<TaskServiceInterface> {
+    return await this.deps.createConfiguredTaskService({
       workspacePath,
       backend: params.backend || "markdown", // Use markdown as default to avoid config lookup
     });
@@ -115,7 +115,7 @@ export abstract class BaseTaskOperation<TParams, TResult> {
   /**
    * Get a task and verify it exists
    */
-  protected async getTaskAndVerifyExists(taskService: TaskService, taskId: string): Promise<any> {
+  protected async getTaskAndVerifyExists(taskService: TaskServiceInterface, taskId: string): Promise<any> {
     const task = await taskService.getTask(taskId);
 
     if (!task) {
@@ -130,7 +130,7 @@ export abstract class BaseTaskOperation<TParams, TResult> {
    */
   protected async setupWorkspaceAndService(
     params: BaseTaskOperationParams
-  ): Promise<{ workspacePath: string; taskService: TaskService }> {
+  ): Promise<{ workspacePath: string; taskService: TaskServiceInterface }> {
     // First get the repo path (needed for workspace resolution)
     const repoPath = await this.deps.resolveRepoPath({
       session: params.session,

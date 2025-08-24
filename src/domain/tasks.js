@@ -13,5 +13,5 @@ export {
 
   // Re-export from taskService.js
   TaskService,
-  createTaskService,
+  createConfiguredTaskService,
 } from "./tasks/index";

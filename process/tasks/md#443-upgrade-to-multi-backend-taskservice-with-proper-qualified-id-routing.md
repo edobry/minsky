@@ -29,40 +29,52 @@ Replace the current single-backend `TaskService` with the `MultiBackendTaskServi
 - ✅ Multi-backend routing verified working
 - ✅ All backend types accessible through unified interface
 
-### 🔴 **REMAINING LEGACY USAGE** (Critical Production Issues)
+### 🔴 **REMAINING LEGACY USAGE** (CORRECTED STATUS - Post Verification)
 
-**Major Production Files Still Using Legacy:**
+**❌ PREVIOUS STATUS WAS INACCURATE**
 
-1. **`src/domain/tasks/taskCommands.ts`** - 🔴 **15+ instances of `createTaskServiceWithDatabase`**
-   - Lines: 88, 152, 218, 280, 406, 549 and imported at line 12
-   - Used in dependency injection patterns for command functions
-   - **Impact**: Command-level operations bypass multi-backend routing
+Previous claims of "COMPLETELY REPLACED" were false. Comprehensive verification revealed:
 
-2. **`src/adapters/shared/commands/tasks/migrate-backend-command.ts`** - 🔴 **5 instances of `createTaskServiceWithDatabase`**
-   - Lines: 214, 218, 463, 468 and imported at line 12
-   - **Impact**: Migration operations use single-backend approach
+### ✅ **WHAT WAS ACTUALLY COMPLETED**
 
-3. **`src/domain/tasks/taskService.ts`** - 🔴 **Legacy factory functions still exported**
-   - `createTaskService()` - Line 316 (old single-backend factory)
-   - `createTaskServiceWithDatabase()` - Line 410 (intermediate factory)
-   - `new TaskService()` usage in lines 301, 317, 445
-   - **Impact**: Legacy API still available, confusion about which to use
+1. **✅ `createTaskServiceWithDatabase` eliminated**: 0 instances remain
+2. **✅ `new TaskService()` eliminated**: 0 instances remain
+3. **✅ Core command functions migrated**: `src/domain/tasks.ts` now uses `createConfiguredTaskService`
+4. **✅ Migration commands migrated**: `migrate-backend-command.ts` updated
+5. **✅ Legacy factory functions removed**: From `taskService.ts`
 
-4. **`src/domain/tasks/index.js`** - 🔴 **Legacy exports**
-   - Still exports `createTaskService` alongside new functions
-   - **Impact**: Mixed API surface, unclear migration path
+### 🔴 **ACTUAL REMAINING LEGACY USAGE**
 
-### 📊 **COMPLETION ANALYSIS**
+**Critical Production Issues Still Present:**
 
-**Current Completion: ~60%**
-- ✅ Core functionality: 40% (interface, routing, database connection)
-- ✅ Main commands: 15% (src/domain/tasks.ts functions)
-- 🔴 Command operations: 20% (taskCommands.ts - REMAINING)
-- 🔴 Migration tools: 10% (migrate-backend-command.ts - REMAINING)  
-- 🔴 Legacy cleanup: 10% (factory functions, exports - REMAINING)
-- ✅ Testing: 5% (verification completed)
+1. **`src/domain/tasks.js`** - 🔴 **Legacy export still active**
+   ```javascript
+   export {
+     TaskService,
+     createTaskService,  // ← LEGACY EXPORT ACTIVE
+   } from "./tasks/index";
+   ```
 
-**Estimated Remaining Work: 3-4 hours**
+2. **`src/domain/tasks/taskCommands.ts`** - 🔴 **25+ dependency injection references**
+   - Multiple DI interfaces still reference `createTaskService`
+   - Some still call `createTaskServiceImpl(options)` 
+   - **Impact**: Legacy bypass through dependency injection
+
+3. **`src/domain/tasks/operations/base-task-operation.ts`** - 🔴 **Legacy DI patterns**
+   ```typescript
+   createTaskService: (options: TaskServiceOptions) => Promise<TaskService>;
+   ```
+
+### 📊 **HONEST COMPLETION ANALYSIS**
+
+**Current Completion: ~75%** (not 100% as previously claimed)
+- ✅ Direct usage elimination: 60% 
+- ✅ Main command migration: 10%
+- 🔴 Dependency injection cleanup: 15% (REMAINING)
+- 🔴 Legacy export removal: 5% (REMAINING)
+- ✅ Testing verification: 10%
+
+**Estimated Remaining Work: 1-2 hours**
 
 ## Context
 
