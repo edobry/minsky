@@ -24,6 +24,8 @@ All notable changes to this project will be documented in this file.
   - Accurate context window utilization based on model-specific limits (Claude: 200k, GPT-4o: 128k, etc.)
   - Includes generation timestamp and performance metrics
   - Better optimization suggestions with model-aware calculations
+  - Eliminated redundant suggestions by implementing smart prioritization logic
+  - New optimization categories: dominating components (🔽), review recommendations (👀), and optimization opportunities (⚡)
 
 - **Post-Migration Validation**: Migration command now performs comprehensive post-migration validation by default
 
