@@ -68,7 +68,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath: task.specPath,
+      specPath: (task as any).specPath,
       backend: task.backend,
     }));
   }
@@ -79,7 +79,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath: task.specPath,
+      specPath: (task as any).specPath,
       backend: task.backend,
     }));
   }
@@ -92,7 +92,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath: task.specPath,
+      specPath: (task as any).specPath,
       backend: task.backend,
     };
   }
@@ -116,7 +116,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath: task.specPath,
+      specPath: (task as any).specPath,
       backend: task.backend,
     };
   }
@@ -132,7 +132,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath: task.specPath,
+      specPath: (task as any).specPath,
       backend: task.backend,
     };
   }

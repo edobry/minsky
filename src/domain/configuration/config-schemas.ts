@@ -61,8 +61,6 @@ export const LoggerConfigSchema = z.object({
   enableAgentLogs: z.boolean().default(false),
 });
 
-
-
 // Backend configuration schema
 export const BackendConfigSchema = z.record(z.string(), z.any());
 

@@ -248,6 +248,8 @@ All notable changes to this project will be documented in this file.
 
 - **Session Start GitHub Auto-Detect (md#435)**: Domain `startSessionImpl` now honors `repository.default_repo_backend=github` by auto-detecting the GitHub remote when `--repo` is not provided, persisting `backendType` accordingly. The CLI adapter is thin and delegates entirely to the domain implementation.
 
+- **Session Repair Backend Defaulting**: `session repair --backend-sync` now uses the configured `repository.default_repo_backend` to set `backendType` when it's missing, instead of leaving it undefined. If a recorded type exists, we still prefer the detected actual type; when missing, we default to config (e.g., `github`).
+
 ### Added
 
 - **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
@@ -371,3 +373,5 @@ All notable changes to this project will be documented in this file.
 
 - tasks search: Added `--status` and `--all` options to filter results by task status, matching `tasks list` semantics. By default, DONE and CLOSED tasks are hidden unless `--all` is provided. Applies to CLI and MCP adapters.
 - tasks: Centralized status filtering in `src/domain/tasks/task-filters.ts`; both `TaskService.listTasks` and `tasks search` use the same utility to ensure consistent behavior.
+
+- similarity(core): Extract generic `SimilaritySearchService` with pluggable backends (embeddings → ai → lexical, fallback only on unavailability). Introduced shared types (`src/domain/similarity/types.ts`), core orchestrator (`similarity-search-service.ts`), and backends (`backends/embeddings-backend.ts`, `backends/lexical-backend.ts`, AI backend scaffold). Wired `TaskSimilarityService` to delegate to the core via resolvers. No behavior change in CLI output; prepares for future md#446 reranking without config changes.

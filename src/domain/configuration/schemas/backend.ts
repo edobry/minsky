@@ -52,8 +52,6 @@ export const backendConfigSchema = z
   .strict()
   .default({});
 
-
-
 /**
  * Complete backend configuration combining all backend-related settings
  */

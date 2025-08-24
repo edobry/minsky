@@ -8,12 +8,7 @@
 import { z } from "zod";
 
 // Import all domain schemas
-import {
-  backendSchema,
-  backendConfigSchema,
-  type Backend,
-  type BackendConfig,
-} from "./backend";
+import { backendSchema, backendConfigSchema, type Backend, type BackendConfig } from "./backend";
 
 import { sessionDbConfigSchema, type SessionDbConfig } from "./sessiondb";
 

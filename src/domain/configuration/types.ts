@@ -95,8 +95,6 @@ export interface GlobalUserConfig {
 
 // Core Configuration Types
 
-
-
 export interface ResolvedConfig {
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfig;

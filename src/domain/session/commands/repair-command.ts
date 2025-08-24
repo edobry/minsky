@@ -14,6 +14,7 @@ import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createGitService } from "../../git";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
 import { type GitServiceInterface } from "../../git";
+import { getConfiguration } from "../../configuration/index";
 
 export interface SessionRepairParameters {
   name?: string;
@@ -362,16 +363,23 @@ async function repairBackendSync(
   sessionRecord: any,
   sessionDB: SessionProviderInterface
 ): Promise<RepairAction> {
-  const correctBackendType = issue.details.actualType;
+  // Prefer configured default when recorded type is missing; otherwise use detected actual type
+  const config = getConfiguration();
+  const defaultBackend = (config.repository?.default_repo_backend as string) || "github";
+
+  const recordedType = (issue.details as any)?.recordedType as string | undefined;
+  const actualType = (issue.details as any)?.actualType as string | undefined;
+
+  const newBackendType = recordedType ? actualType || recordedType : defaultBackend;
 
   await sessionDB.updateSession(sessionRecord.session, {
     ...sessionRecord,
-    backendType: correctBackendType,
+    backendType: newBackendType,
   });
 
   return {
     type: "backend-sync",
-    description: `Updated backend type: '${issue.details.recordedType}' → '${correctBackendType}'`,
+    description: `Updated backend type: '${recordedType ?? "undefined"}' → '${newBackendType}'`,
     applied: true,
   };
 }

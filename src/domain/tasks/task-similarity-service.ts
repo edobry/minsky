@@ -3,6 +3,7 @@ import { log } from "../../utils/logger";
 import type { EmbeddingService } from "../ai/embeddings/types";
 import type { VectorStorage, SearchResult } from "../storage/vector/types";
 import { createHash } from "crypto";
+import { createTaskSimilarityCore } from "../similarity/create-task-similarity-core";
 
 export interface TaskSimilarityServiceConfig {
   similarityThreshold?: number;
@@ -24,31 +25,27 @@ export class TaskSimilarityService {
   ) {}
 
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
+    // Delegate to generic core; embeddings backend will be first if available
+    const core = await createTaskSimilarityCore({
+      getById: this.findTaskById,
+      listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
+      getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
+    });
     const task = await this.findTaskById(taskId);
     if (!task) return [];
     const content = await this.extractTaskContent(task);
-    const vector = await this.embeddingService.generateEmbedding(content);
-    const effectiveThreshold =
-      threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
-    return this.vectorStorage.search(vector, limit, effectiveThreshold);
+    const items = await core.search({ queryText: content, limit });
+    return items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata }));
   }
 
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
-    const vector = await this.embeddingService.generateEmbedding(query);
-    // Debug: embedding stats (length only)
-    try {
-      log.debug("[tasks.search] Embedding generated", {
-        length: Array.isArray(vector) ? vector.length : undefined,
-        model: this.config.model,
-        dimension: this.config.dimension,
-      });
-    } catch {
-      // ignore debug logging errors
-    }
-
-    const effectiveThreshold =
-      threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
-    return this.vectorStorage.search(vector, limit, effectiveThreshold);
+    const core = await createTaskSimilarityCore({
+      getById: this.findTaskById,
+      listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
+      getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
+    });
+    const items = await core.search({ queryText: query, limit });
+    return items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata }));
   }
 
   async searchSimilarTasks(

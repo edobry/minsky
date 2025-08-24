@@ -24,8 +24,6 @@ export const defaultConfiguration: PartialConfiguration = {
     "json-file": {},
   },
 
-
-
   // Session database configuration
   sessiondb: {
     backend: "sqlite",
