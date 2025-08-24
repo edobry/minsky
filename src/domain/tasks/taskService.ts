@@ -68,10 +68,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath:
-        this.currentBackend.name === "markdown" || this.currentBackend.name === "json-file"
-          ? (task as any).specPath
-          : undefined,
+      specPath: (task as any).specPath,
       backend: task.backend,
     }));
   }
@@ -82,10 +79,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath:
-        this.currentBackend.name === "markdown" || this.currentBackend.name === "json-file"
-          ? (task as any).specPath
-          : undefined,
+      specPath: (task as any).specPath,
       backend: task.backend,
     }));
   }
@@ -98,10 +92,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath:
-        this.currentBackend.name === "markdown" || this.currentBackend.name === "json-file"
-          ? (task as any).specPath
-          : undefined,
+      specPath: (task as any).specPath,
       backend: task.backend,
     };
   }
@@ -125,10 +116,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath:
-        this.currentBackend.name === "markdown" || this.currentBackend.name === "json-file"
-          ? (task as any).specPath
-          : undefined,
+      specPath: (task as any).specPath,
       backend: task.backend,
     };
   }
@@ -144,10 +132,7 @@ export class TaskService {
       id: task.id,
       title: task.title,
       status: task.status,
-      specPath:
-        this.currentBackend.name === "markdown" || this.currentBackend.name === "json-file"
-          ? (task as any).specPath
-          : undefined,
+      specPath: (task as any).specPath,
       backend: task.backend,
     };
   }

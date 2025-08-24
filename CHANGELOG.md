@@ -12,7 +12,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Context Analysis Only Mode**: Added `--analyze-only` flag to `minsky context generate` command to show only token analysis without full context content
-  
+
   - Supports both text and JSON output formats
   - Maintains backward compatibility with existing `--analyze` flag
   - Provides cleaner output when only analysis metrics are needed

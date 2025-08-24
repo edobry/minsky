@@ -408,8 +408,9 @@ export async function createTestProvider(
   const factory = new CustomConfigFactory();
   return factory.createProvider({
     overrides,
-    skipValidation: false,
-    enableCache: false,
+    // Speed up test provider for performance-sensitive tests
+    skipValidation: true,
+    enableCache: true,
   });
 }
 
