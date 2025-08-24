@@ -22,7 +22,7 @@ describe("context generate command", () => {
     it("should include all expected options", () => {
       const optionFlags = command.options.map((opt: any) => opt.flags);
 
-      expect(optionFlags).toContainEqual(expect.stringContaining("--format"));
+      expect(optionFlags).toContainEqual(expect.stringContaining("--json"));
       expect(optionFlags).toContainEqual(expect.stringContaining("--components"));
       expect(optionFlags).toContainEqual(expect.stringContaining("--output"));
       expect(optionFlags).toContainEqual(expect.stringContaining("--template"));

@@ -327,11 +327,13 @@ export function createTaskService(options: TaskServiceOptions): TaskService {
   return new TaskService(options);
 }
 
-export function createConfiguredTaskService(options: {
-  workspacePath: string;
+export function createConfiguredTaskService(options?: {
+  workspacePath?: string;
   backend?: string;
 }): TaskService {
-  return new TaskService(options);
+  const workspacePath = options?.workspacePath || process.cwd();
+  const backend = options?.backend;
+  return new TaskService({ workspacePath, backend });
 }
 
 // ---- Utility functions used by tests (GitHub URL parsing) ----
