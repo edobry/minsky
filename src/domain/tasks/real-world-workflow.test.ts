@@ -5,7 +5,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
-import { TaskService } from "./taskService";
+import { TaskServiceInterface } from "./taskService";
 import type { TaskData } from "../../types/tasks/taskData";
 import type { JsonFileTaskBackend } from "./jsonFileTaskBackend";
 

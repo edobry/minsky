@@ -12,6 +12,6 @@ export {
   normalizeTaskId,
 
   // Re-export from taskService.js
-  TaskService,
-  createTaskService,
+  createConfiguredTaskService,
+  TaskServiceInterface,
 } from "./tasks/index";

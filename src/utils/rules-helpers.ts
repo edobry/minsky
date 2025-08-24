@@ -4,29 +4,24 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
  * Shared utility functions for rules operations
  */
 
-import { existsSync } from "fs";
-import { promises as fs } from "fs";
-
 /**
  * Helper to read content from a file if the path exists
  */
 export async function readContentFromFileIfExists(contentPath: string): Promise<string> {
   try {
-    // Check if the path exists first
-    if (existsSync(contentPath)) {
-      // If the path exists, check if it's a file
-      const stats = await fs.stat(contentPath);
-      if (stats.isFile()) {
-        // If it's a file, read its contents
-        const content = String(await fs.readFile(contentPath, "utf-8"));
-        return content.toString();
-      } else {
-        // If it exists but is not a file (e.g., directory), throw an error
-        throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);
-      }
+    // Use dynamic import to avoid module loading issues
+    const { stat, readFile } = await import("fs/promises");
+    
+    // Try to check if it's a file and read its contents
+    const stats = await stat(contentPath);
+    if (stats.isFile()) {
+      // If it's a file, read its contents
+      const content = String(await readFile(contentPath, "utf-8"));
+      return content.toString();
+    } else {
+      // If it exists but is not a file (e.g., directory), throw an error
+      throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);
     }
-    // If path doesn't exist, return the original string as content
-    return contentPath;
   } catch (error) {
     // Handle missing files by returning the original path as content
     if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {

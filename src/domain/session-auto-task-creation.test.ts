@@ -18,7 +18,7 @@ import {
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
 import { RepositoryBackendType } from "./repository";
 
-describe.skip("Session Auto-Task Creation", () => {
+describe("Session Auto-Task Creation", () => {
   let mockSessionDB: SessionProviderInterface;
   let mockGitService: GitServiceInterface;
   let mockTaskService: TaskServiceInterface;
@@ -74,7 +74,7 @@ describe.skip("Session Auto-Task Creation", () => {
 
     // Mock task service using centralized factory with proper task creation mock
     mockTaskService = createMockTaskService({
-      createTaskFromTitleAndDescription: createTaskSpy,
+      createTaskFromTitleAndSpec: createTaskSpy,
       setTaskStatus: () => Promise.resolve(void 0),
       listTasks: () => Promise.resolve([]),
       getTaskStatus: () => Promise.resolve("TODO"),

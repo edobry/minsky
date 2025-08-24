@@ -27,7 +27,7 @@ import { createGitService } from "./git";
 import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
 import { resolveRepositoryAndBackend } from "./session/repository-backend-detection";
-import { TaskService, TASK_STATUS, type TaskServiceInterface } from "./tasks";
+import { TASK_STATUS, type TaskServiceInterface } from "./tasks";
 import { createConfiguredTaskService } from "./tasks/taskService";
 import { taskIdToSessionName } from "./tasks/task-id";
 

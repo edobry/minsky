@@ -1,7 +1,7 @@
 import { join } from "node:path";
 import { normalizeRepoName } from "../repo-utils";
 import { createSessionProvider } from "../../session";
-import { TaskService, TASK_STATUS } from "../tasks";
+import { TASK_STATUS, TaskServiceInterface } from "../tasks";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
 import {

@@ -9,7 +9,10 @@ import { z } from "zod";
 import type { CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand } from "./base-task-command";
 import { log } from "../../../../utils/logger";
-import { TaskService, createTaskServiceWithDatabase } from "../../../../domain/tasks/taskService";
+import {
+  createConfiguredTaskService,
+  TaskServiceInterface,
+} from "../../../../domain/tasks/taskService";
 
 const migrateBackendParamsSchema = z.object({
   from: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
@@ -211,11 +214,11 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       options;
 
     // Create source and target task services using unified async factory
-    const sourceService = await createTaskServiceWithDatabase({
+    const sourceService = await createConfiguredTaskService({
       workspacePath,
       backend: sourceBackend,
     });
-    const targetService = await createTaskServiceWithDatabase({
+    const targetService = await createConfiguredTaskService({
       workspacePath,
       backend: targetBackend,
     });
@@ -460,12 +463,12 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       return { passed: [], failed: [] };
     }
 
-    const sourceService = await createTaskServiceWithDatabase({
+    const sourceService = await createConfiguredTaskService({
       backend: sourceBackend,
       workspacePath,
     });
 
-    const targetService = await createTaskServiceWithDatabase({
+    const targetService = await createConfiguredTaskService({
       backend: targetBackend,
       workspacePath,
     });

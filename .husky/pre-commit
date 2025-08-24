@@ -9,7 +9,7 @@ if command -v gitleaks >/dev/null 2>&1; then
     if ! gitleaks protect --staged --source . --config .gitleaks.toml --verbose; then
         echo "❌ 🚨 SECRETS DETECTED BY GITLEAKS! Commit blocked for security."
         echo "📋 Review the findings above and sanitize any real credentials."
-        echo "💡 Database URLs: Use placeholder values like 'postgresql://user:pass@localhost/db'"
+        echo "💡 Database URLs: Use placeholder values (avoid real credentials)"
         echo "💡 API Keys: Use placeholder values like 'sk-proj-xxx...xxxxx'"
         echo "💡 Real credentials detected in: PostgreSQL, MySQL, MongoDB, Redis URLs, or API keys"
         exit 1

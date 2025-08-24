@@ -86,18 +86,18 @@ const mockTaskService = {
 
 const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
 const mockResolveWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = createMock(() => Promise.resolve(mockTaskService as any));
+const mockCreateTaskService = createMock((options: any) => Promise.resolve(mockTaskService as any));
 
 // Type assertion for mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveWorkspacePath: mockResolveWorkspacePath,
-  createTaskService: mockCreateTaskService,
+  createConfiguredTaskService: mockCreateTaskService,
   resolveMainWorkspacePath: createMock(() => Promise.resolve("/test/workspace/path")),
   resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path")),
 } as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
-describe.skip("interface-agnostic task functions", () => {
+describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRITE", () => {
   // No beforeEach needed - setupTestMocks() handles automatic cleanup after each test
 
   describe("listTasksFromParams", () => {

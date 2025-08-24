@@ -12,6 +12,7 @@ import { log } from "../utils/logger";
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 import type { TaskBackend } from "./tasks/types";
 // normalizeTaskId removed
+import { createConfiguredTaskService } from "./tasks/taskService";
 export { createConfiguredTaskService } from "./tasks/taskService"; // Re-export createConfiguredTaskService from new location
 import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
 const matter = require("gray-matter");
@@ -25,8 +26,7 @@ import { createGitService } from "./git";
 // Command-level wrapper functions for CLI integration
 // These wrap TaskService methods with parameter validation and formatting
 
-import { TaskService, createTaskServiceWithDatabase } from "./tasks/taskService";
-export { TaskService } from "./tasks/taskService";
+import { TaskServiceInterface } from "./tasks/taskService";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
@@ -37,22 +37,6 @@ import {
   taskSpecContentParamsSchema,
 } from "../schemas/tasks";
 import { createFormattedValidationError } from "../utils/zod-error-formatter";
-
-// Create a task service instance for command functions
-const getTaskService = () => {
-  console.log("DEBUG: getTaskService called");
-  console.log("DEBUG: Creating TaskService with workspacePath:", process.cwd());
-  const workspacePath = process.cwd();
-  console.log("DEBUG: About to create TaskService");
-  try {
-    const service = new TaskService({ workspacePath });
-    console.log("DEBUG: TaskService created successfully");
-    return service;
-  } catch (error) {
-    console.log("DEBUG: TaskService creation failed:", error);
-    throw error;
-  }
-};
 
 export async function listTasksFromParams(params: any) {
   const validParams = taskListParamsSchema.parse(params);
@@ -83,12 +67,14 @@ export async function listTasksFromParams(params: any) {
   }
 
   // Use unified async factory for all backends
-  const taskService = await createTaskServiceWithDatabase({
+  const taskService = await createConfiguredTaskService({
     workspacePath,
     backend,
   });
 
-  log.debug("tasks.list created TaskService", { backend: taskService.currentBackend?.name });
+  log.debug("tasks.list created TaskService", {
+    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+  });
   return await taskService.listTasks(validParams);
 }
 
@@ -121,12 +107,14 @@ export async function getTaskFromParams(params: any) {
   }
 
   // Use unified async factory for all backends
-  const taskService = await createTaskServiceWithDatabase({
+  const taskService = await createConfiguredTaskService({
     workspacePath,
     backend,
   });
 
-  log.debug("tasks.get created TaskService", { backend: taskService.currentBackend?.name });
+  log.debug("tasks.get created TaskService", {
+    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+  });
   return await taskService.getTask(validParams.taskId);
 }
 
@@ -134,8 +122,14 @@ export async function getTaskStatusFromParams(params: any) {
   const validParams = taskStatusGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.get params", { backend: validParams.backend });
-  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.status.get created TaskService", { backend: taskService.currentBackend?.name });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.status.get created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   return await taskService.getTaskStatus(validParams.taskId);
 }
 
@@ -143,8 +137,14 @@ export async function setTaskStatusFromParams(params: any) {
   const validParams = taskStatusSetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.set params", { backend: validParams.backend });
-  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.status.set created TaskService", { backend: taskService.currentBackend?.name });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.status.set created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
@@ -153,8 +153,14 @@ export async function createTaskFromParams(params: any) {
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.create params", { backend: validParams.backend });
-  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.create created TaskService", { backend: taskService.currentBackend?.name });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.create created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   return await taskService.createTask(validParams.specPath);
 }
 
@@ -165,13 +171,14 @@ export async function createTaskFromTitleAndSpec(params: any) {
   log.debug("tasks.createTitleSpec params", { backend: validParams.backend });
 
   // Use unified async factory for all backends
-  const taskService = await createTaskServiceWithDatabase({
+  const taskService = await createConfiguredTaskService({
     workspacePath,
     backend: validParams.backend,
   });
 
   log.debug("tasks.createTitleSpec created TaskService", {
-    backend: taskService.currentBackend?.name,
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
@@ -183,8 +190,14 @@ export async function deleteTaskFromParams(params: any) {
   const validParams = taskDeleteParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.delete params", { backend: validParams.backend });
-  const taskService = new TaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.delete created TaskService", { backend: taskService.currentBackend?.name });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.delete created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   const success = await taskService.deleteTask(validParams.taskId, validParams);
   return { success, taskId: validParams.taskId };
 }
@@ -216,69 +229,16 @@ export async function getTaskSpecContentFromParams(params: any) {
     }
   }
 
-  const taskService = await createTaskServiceWithDatabase({ workspacePath, backend });
-  log.debug("tasks.spec created TaskService", { backend: taskService.currentBackend?.name });
+  const taskService = await createConfiguredTaskService({ workspacePath, backend });
+  log.debug("tasks.spec created TaskService", {
+    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+  });
   return await taskService.getTaskSpecContent(validParams.taskId);
 }
 
 // Re-export task status constants from centralized location
 export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
 export type { TaskStatus } from "./tasks/taskConstants";
-
-/**
- * Interface for task service operations
- * This defines the contract for task-related functionality
- */
-export interface TaskServiceInterface {
-  /**
-   * Get all tasks with optional filtering
-   */
-  listTasks(options?: TaskListOptions): Promise<Task[]>;
-
-  /**
-   * Get a task by ID
-   */
-  getTask(id: string): Promise<Task | null>;
-
-  /**
-   * Get the status of a task
-   */
-  getTaskStatus(id: string): Promise<string | undefined>;
-
-  /**
-   * Set the status of a task
-   */
-  setTaskStatus(id: string, status: string): Promise<void>;
-
-  /**
-   * Get the workspace path for the current backend
-   */
-  getWorkspacePath(): string;
-
-  /**
-   * Create a task with the given specification path
-   */
-  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-
-  /**
-   * Create a task from title and description
-   */
-  createTaskFromTitleAndSpec(
-    title: string,
-    spec: string,
-    options?: CreateTaskOptions
-  ): Promise<Task>;
-
-  /**
-   * Delete a task
-   */
-  deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
-
-  /**
-   * Get the backend type for a specific task
-   */
-  getBackendForTask(taskId: string): Promise<string>;
-}
 
 export interface Task {
   id: string;

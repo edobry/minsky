@@ -1,12 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
-import { MultiBackendTaskServiceImpl } from "./multi-backend-service";
+import { TaskServiceImpl } from "./multi-backend-service";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { TASK_STATUS } from "./taskConstants";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
-describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
-  let service: MultiBackendTaskServiceImpl;
+describe("TaskService with Real MarkdownTaskBackend", () => {
+  let service: TaskServiceImpl;
   let markdownBackend: any;
   let mockFs: ReturnType<typeof createMockFilesystem>;
   let tasksFileContent: string;
@@ -100,7 +100,7 @@ describe("MultiBackendTaskService with Real MarkdownTaskBackend", () => {
     });
 
     // Initialize service with real backend
-    service = new MultiBackendTaskServiceImpl();
+    service = new TaskServiceImpl({ workspacePath: mockTempDir });
     service.registerBackend(markdownBackend);
   });
 
