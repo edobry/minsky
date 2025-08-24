@@ -437,43 +437,55 @@ function generateContextOptimizations(componentAnalysis: any[], totalTokens: num
   const optimizations = [];
 
   for (const component of componentAnalysis) {
-    // Suggest optimizing very large components
-    if (component.tokens > 10000) {
+    const percentage = parseFloat(component.percentage);
+    const tokens = component.tokens;
+
+    // Prioritize suggestions to avoid redundancy
+    if (tokens > 10000 && percentage > 50) {
+      // Very large component that dominates context
       optimizations.push({
         type: "reduce",
         component: component.component,
-        currentTokens: component.tokens,
-        suggestion: `Component "${component.component}" is very large (${component.tokens} tokens, ${component.percentage}% of context). Consider reducing its scope or splitting it.`,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" dominates your context (${tokens.toLocaleString()} tokens, ${component.percentage}%). Consider reducing its scope, splitting it into smaller components, or using only essential parts.`,
         confidence: "high",
-        potentialSavings: Math.floor(component.tokens * 0.3),
+        potentialSavings: Math.floor(tokens * 0.4),
       });
-    }
-
-    // Suggest reviewing components that are >20% of context
-    if (parseFloat(component.percentage) > 20) {
+    } else if (tokens > 10000) {
+      // Large component but not dominating
+      optimizations.push({
+        type: "reduce",
+        component: component.component,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" is very large (${tokens.toLocaleString()} tokens). Consider reducing its scope or splitting it into smaller components.`,
+        confidence: "high",
+        potentialSavings: Math.floor(tokens * 0.3),
+      });
+    } else if (percentage > 30) {
+      // Smaller but high-percentage component
       optimizations.push({
         type: "review",
         component: component.component,
-        currentTokens: component.tokens,
-        suggestion: `Component "${component.component}" consumes ${component.percentage}% of your context. Verify this is necessary for your use case.`,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" consumes ${component.percentage}% of your context. Consider if all this content is necessary for your use case.`,
         confidence: "medium",
-        potentialSavings: component.tokens,
+        potentialSavings: Math.floor(tokens * 0.2),
+      });
+    } else if (percentage > 20 && tokens > 5000) {
+      // Medium-sized component that could be optimized
+      optimizations.push({
+        type: "optimize",
+        component: component.component,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" could be optimized (${tokens.toLocaleString()} tokens, ${component.percentage}%). Review if all content is essential.`,
+        confidence: "medium",
+        potentialSavings: Math.floor(tokens * 0.15),
       });
     }
   }
 
-  // Context window utilization warning
-  const utilization = (totalTokens / 128000) * 100;
-  if (utilization > 80) {
-    optimizations.push({
-      type: "restructure",
-      component: "overall",
-      currentTokens: totalTokens,
-      suggestion: `High context utilization (${utilization.toFixed(1)}%). Consider using fewer components or reducing component scope.`,
-      confidence: "high",
-      potentialSavings: Math.floor(totalTokens * 0.2),
-    });
-  }
+  // No overall context window warning needed here since we show utilization in metadata
+  // Individual component suggestions are more actionable
 
   return optimizations.slice(0, 5); // Limit to top 5 suggestions
 }
@@ -525,7 +537,9 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
     console.log("━".repeat(50));
 
     for (const opt of analysis.optimizations) {
-      const icon = opt.type === "reduce" ? "🔽" : opt.type === "review" ? "👀" : "⚠️";
+      const icon = opt.type === "reduce" ? "🔽" : 
+                   opt.type === "review" ? "👀" : 
+                   opt.type === "optimize" ? "⚡" : "⚠️";
       console.log(`${icon} ${opt.component}`);
       console.log(`   ${opt.suggestion}`);
       console.log(`   Potential savings: ${opt.potentialSavings.toLocaleString()} tokens`);
