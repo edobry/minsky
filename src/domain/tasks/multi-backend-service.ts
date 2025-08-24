@@ -270,8 +270,6 @@ export class TaskServiceImpl implements TaskService {
 }
 
 // Production-ready factory function
-export function createTaskService(options: {
-  workspacePath: string;
-}): TaskService {
+export function createTaskService(options: { workspacePath: string }): TaskService {
   return new TaskServiceImpl(options);
 }

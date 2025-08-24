@@ -13,10 +13,7 @@ import type { TaskServiceInterface } from "../tasks";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createMinskyTaskBackend, type MinskyTaskBackendConfig } from "./minskyTaskBackend";
-import {
-  createTaskService,
-  type TaskService,
-} from "./multi-backend-service";
+import { createTaskService, type TaskService } from "./multi-backend-service";
 import { createDatabaseConnection } from "../database/connection-manager";
 import { log } from "../../utils/logger";
 // normalizeTaskId removed: strict qualified IDs expected upstream

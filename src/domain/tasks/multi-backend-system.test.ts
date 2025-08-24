@@ -52,8 +52,7 @@ describe("Multi-Backend Task System", () => {
   describe("Multi-Backend TaskService", () => {
     describe("Backend Registration", () => {
       it("should register multiple backends", () => {
-        const { service, mdBackend, ghBackend, jsonBackend } =
-          createTaskServiceWithMocks();
+        const { service, mdBackend, ghBackend, jsonBackend } = createTaskServiceWithMocks();
         const backends = service.listBackends();
         expect(backends.length).toBe(3);
         expect(backends.map((b) => (b as any).prefix)).toEqual(["md", "gh", "json"]);
