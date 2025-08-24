@@ -178,14 +178,14 @@ export function createLogger(configOverride?: LoggerConfig) {
     );
   }
 
-  // Program logger: plain text to stderr
+  // Program logger: plain text; normal info goes to stdout, warnings/errors to stderr
   const programLogger = winston.createLogger({
     level: logLevel,
     format: programLogFormat,
     transports: [
       new transports.Console({
-        // Route all levels to stderr for MCP compatibility (stdout reserved for JSON-RPC)
-        stderrLevels: ["error", "warn", "info", "debug", "http", "verbose", "silly"],
+        // Send only non-normal levels to stderr; keep info on stdout
+        stderrLevels: ["error", "warn", "debug", "http", "verbose", "silly"],
       }),
     ], // Ensure only stderr for non-info levels
     exitOnError: false,

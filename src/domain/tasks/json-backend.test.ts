@@ -76,8 +76,8 @@ describe("Enhanced JSON Backend", () => {
       },
     };
 
-    // Fix: Use createTaskFromTitleAndDescription instead of createTask with object
-    const createdTask = await backend.createTaskFromTitleAndDescription(
+    // Fix: Use createTaskFromTitleAndSpec instead of createTask with object
+    const createdTask = await backend.createTaskFromTitleAndSpec(
       testTask.title,
       testTask.description,
       {

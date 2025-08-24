@@ -93,7 +93,7 @@ export const TaskCreateParametersSchema = z
   .object({
     title: TaskTitleSchema,
     description: TaskDescriptionSchema,
-    descriptionPath: TaskDescriptionPathSchema,
+    specPath: TaskDescriptionPathSchema,
     priority: TaskPrioritySchema,
     tags: TaskTagsSchema,
     assignee: TaskAssigneeSchema,
@@ -110,7 +110,7 @@ export const TaskUpdateParametersSchema = z
     taskId: TaskIdSchema,
     title: TaskTitleSchema.optional(),
     description: TaskDescriptionSchema,
-    descriptionPath: TaskDescriptionPathSchema,
+    specPath: TaskDescriptionPathSchema,
     priority: TaskPrioritySchema.optional(),
     status: TaskStatusSchema.optional(),
     tags: TaskTagsSchema,
@@ -187,7 +187,7 @@ export const MultiBackendTaskCreateParametersSchema = z
   .object({
     title: TaskTitleSchema,
     description: TaskDescriptionSchema,
-    descriptionPath: TaskDescriptionPathSchema,
+    specPath: TaskDescriptionPathSchema,
     priority: TaskPrioritySchema,
     tags: TaskTagsSchema,
     assignee: TaskAssigneeSchema,
@@ -205,7 +205,7 @@ export const MultiBackendTaskUpdateParametersSchema = z
     taskId: NormalizedTaskIdSchema, // Auto-migrates legacy IDs
     title: TaskTitleSchema.optional(),
     description: TaskDescriptionSchema,
-    descriptionPath: TaskDescriptionPathSchema,
+    specPath: TaskDescriptionPathSchema,
     priority: TaskPrioritySchema.optional(),
     status: TaskStatusSchema.optional(),
     tags: TaskTagsSchema,

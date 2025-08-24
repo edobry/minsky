@@ -30,7 +30,7 @@ interface CleanupItem {
   path: string;
   type: "file" | "directory";
   created: number; // timestamp
-  description?: string;
+  spec?: string;
 }
 
 /**
@@ -67,7 +67,7 @@ export class TestCleanupManager {
   /**
    * Register a temporary file or directory for cleanup
    */
-  registerForCleanup(itemPath: string, type: "file" | "directory", description?: string): void {
+  registerForCleanup(itemPath: string, type: "file" | "directory", spec?: string): void {
     this.cleanupItems.push({
       path: itemPath,
       type,
@@ -248,7 +248,7 @@ export class TestCleanupManager {
 /**
  * Enhanced temporary directory creation with automatic cleanup registration
  */
-export function createCleanTempDir(prefix = "test-", description?: string): string {
+export function createCleanTempDir(prefix = "test-", spec?: string): string {
   const tempDir = fs.mkdtempSync(path.join(require("os").tmpdir(), prefix));
 
   // Register for automatic cleanup
@@ -265,7 +265,7 @@ export function createCleanTempFile(
   prefix = "test-",
   suffix = ".tmp",
   content = "",
-  description?: string
+  spec?: string
 ): string {
   const tempDir = require("os").tmpdir();
   const tempFile = path.join(

@@ -175,7 +175,7 @@ describe("Individual Service Mock Factories", () => {
         status: "TODO",
       });
 
-      const taskFromTitle = await mockService.createTaskFromTitleAndDescription(
+      const taskFromTitle = await mockService.createTaskFromTitleAndSpec(
         "Custom Title",
         "Custom Description"
       );

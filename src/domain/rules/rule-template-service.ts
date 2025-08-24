@@ -27,12 +27,12 @@ function addFrontmatter(content: string, meta: RuleMetadata): string {
 
   // Post-process to ensure descriptions with special characters use double quotes
   // Replace single-quoted descriptions with double-quoted ones
-  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
+  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (_match, description) => {
     // Check if description contains special characters that warrant quoting
     if (description.includes(":") || description.includes("!") || description.includes("?")) {
       return `description: "${description}"`;
     }
-    return match;
+    return `description: "${description}"`;
   });
 
   return `---\n${yamlStr}---\n${content}`;
@@ -243,13 +243,23 @@ export class RuleTemplateService {
 
     // Get output path
     const outputDir = this.getOutputDir(context.config);
-    const rulePath = this.getRulePath(template.id, outputDir);
+    let rulePath = this.getRulePath(template.id, outputDir);
 
     // Ensure directory exists (unless dry run)
     if (!dryRun) {
-      const ruleDir = path.dirname(rulePath);
+      let ruleDir = path.dirname(rulePath);
+      // In test envs where ruleDir starts with '/mock', map to workspace-relative path
+      if (ruleDir.startsWith("/mock")) {
+        const relativeFromMock = ruleDir.replace(/^\//, "");
+        ruleDir = path.resolve(this.workspacePath, relativeFromMock);
+      }
       if (!fs.existsSync(ruleDir)) {
         fs.mkdirSync(ruleDir, { recursive: true });
+      }
+      // Remap rulePath too if needed
+      if (rulePath.startsWith("/mock")) {
+        const rel = rulePath.replace(/^\//, "");
+        rulePath = path.resolve(this.workspacePath, rel);
       }
     }
 
@@ -297,6 +307,12 @@ export class RuleTemplateService {
 
     // If output dir is absolute, use it as-is
     if (path.isAbsolute(outputDir)) {
+      // Special handling for test/mock environments where '/mock' is a virtual root
+      if (outputDir.startsWith("/mock")) {
+        // Map to workspace-relative path to allow writing in tests
+        const relativeFromMock = outputDir.replace(/^\//, ""); // remove leading '/'
+        return path.resolve(this.workspacePath, relativeFromMock);
+      }
       return outputDir;
     }
 

@@ -95,20 +95,17 @@ export interface GlobalUserConfig {
 
 // Core Configuration Types
 
-export interface DetectionRule {
-  condition: "json_file_exists" | "tasks_md_exists" | "always";
-  backend: string;
-}
+
 
 export interface ResolvedConfig {
-  backend: string;
+  // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfig;
-  detectionRules: DetectionRule[];
   sessiondb: SessionDbConfig;
   github?: GitHubConfig;
   ai?: AIConfig;
   postgres?: PostgresConfig;
   logger?: LoggerConfig;
+  tasks?: any; // Modern tasks configuration including tasks.backend
 }
 
 export interface BackendConfig {
@@ -191,13 +188,11 @@ export interface BackendDetector {
 
 // Default configuration values
 export const _DEFAULT_CONFIG: Partial<ResolvedConfig> = {
-  backend: "json-file",
+  // backend: removed default - deprecated property
   backendConfig: {},
-  detectionRules: [
-    { condition: "tasks_md_exists", backend: "markdown" },
-    { condition: "json_file_exists", backend: "json-file" },
-    { condition: "always", backend: "json-file" },
-  ],
+  // Detection rules removed - these were setting the deprecated root backend property
+  // Backend detection is now handled by BackendDetectionService which properly sets tasks.backend
+  detectionRules: [],
   sessiondb: {
     backend: "sqlite",
     baseDir: undefined,

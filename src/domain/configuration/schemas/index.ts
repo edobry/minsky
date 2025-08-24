@@ -11,10 +11,8 @@ import { z } from "zod";
 import {
   backendSchema,
   backendConfigSchema,
-  detectionRulesSchema,
   type Backend,
   type BackendConfig,
-  type DetectionRules,
 } from "./backend";
 
 import { sessionDbConfigSchema, type SessionDbConfig } from "./sessiondb";
@@ -38,10 +36,8 @@ import { workspaceConfigSchema, type WorkspaceConfig } from "./workspace";
  */
 export const configurationSchema = z
   .object({
-    // Backend configuration
-    backend: backendSchema,
+    // Note: Deprecated root 'backend' property removed - use tasks.backend instead
     backendConfig: backendConfigSchema,
-    detectionRules: detectionRulesSchema,
 
     // Session database configuration
     sessiondb: sessionDbConfigSchema,
@@ -203,7 +199,7 @@ export const configurationValidation = {
     const errors: string[] = [];
 
     // Check GitHub Issues backend has GitHub configuration
-    if (config.backend === "github-issues") {
+    if (config.tasks?.backend === "github-issues") {
       if (
         !config.backendConfig["github-issues"]?.owner ||
         !config.backendConfig["github-issues"]?.repo
@@ -246,7 +242,6 @@ export const configurationValidation = {
 export type {
   Backend,
   BackendConfig,
-  DetectionRules,
   SessionDbConfig,
   GitHubConfig,
   AIConfig,
@@ -260,7 +255,6 @@ export type {
 export {
   backendSchema,
   backendConfigSchema,
-  detectionRulesSchema,
   sessionDbConfigSchema,
   githubConfigSchema,
   aiConfigSchema,

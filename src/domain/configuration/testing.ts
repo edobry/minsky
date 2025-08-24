@@ -17,9 +17,25 @@ export class TestConfigurationBuilder {
 
   /**
    * Set backend configuration
+   * @deprecated Use tasksBackend() instead to set tasks.backend
    */
   backend(type: "markdown" | "github-issues" | "json-file"): this {
-    this.config.backend = type;
+    // Set tasks.backend instead of deprecated root backend
+    if (!this.config.tasks) {
+      this.config.tasks = {};
+    }
+    this.config.tasks.backend = type;
+    return this;
+  }
+
+  /**
+   * Set tasks backend configuration (modern approach)
+   */
+  tasksBackend(type: "markdown" | "github-issues" | "json-file" | "minsky"): this {
+    if (!this.config.tasks) {
+      this.config.tasks = {};
+    }
+    this.config.tasks.backend = type;
     return this;
   }
 

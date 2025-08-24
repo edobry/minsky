@@ -169,7 +169,7 @@ describe("Centralized Service Mock Factories", () => {
       expect(typeof mockTaskService.setTaskStatus).toBe("function");
       expect(typeof mockTaskService.getWorkspacePath).toBe("function");
       expect(typeof mockTaskService.createTask).toBe("function");
-      expect(typeof mockTaskService.createTaskFromTitleAndDescription).toBe("function");
+      expect(typeof mockTaskService.createTaskFromTitleAndSpec).toBe("function");
       expect(typeof mockTaskService.deleteTask).toBe("function");
       expect(typeof mockTaskService.getBackendForTask).toBe("function");
     });
@@ -195,7 +195,7 @@ describe("Centralized Service Mock Factories", () => {
       expect(createdTask.title).toBe("Test Task");
       expect(createdTask.status).toBe("TODO");
 
-      const createdTaskFromTitle = await mockTaskService.createTaskFromTitleAndDescription(
+      const createdTaskFromTitle = await mockTaskService.createTaskFromTitleAndSpec(
         "Test Title",
         "Test Description"
       );

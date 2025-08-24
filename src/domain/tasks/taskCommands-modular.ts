@@ -74,9 +74,9 @@ export class ModularTaskCommandsManager {
   /**
    * Create task from title and description
    */
-  async createTaskFromTitleAndDescription(
+  async createTaskFromTitleAndSpec(
     title: string,
-    description?: string,
+    spec?: string,
     options: Partial<TaskCreateFromTitleAndDescriptionParams> = {}
   ): Promise<any> {
     const params: TaskCreateFromTitleAndDescriptionParams = {
@@ -84,7 +84,7 @@ export class ModularTaskCommandsManager {
       description,
       ...options,
     };
-    return await this.operations.createTaskFromTitleAndDescription.execute(params);
+    return await this.operations.createTaskFromTitleAndSpec.execute(params);
   }
 
   /**
@@ -207,14 +207,14 @@ export async function createTaskFromParams(
 /**
  * Create task from title and description (backward compatibility)
  */
-export async function createTaskFromTitleAndDescription(
+export async function createTaskFromTitleAndSpec(
   title: string,
-  description?: string,
+  spec?: string,
   options: Partial<TaskCreateFromTitleAndDescriptionParams> = {},
   deps?: TaskOperationDependencies
 ): Promise<any> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
-  return await manager.createTaskFromTitleAndDescription(title, description, options);
+  return await manager.createTaskFromTitleAndSpec(title, description, options);
 }
 
 /**

@@ -1,0 +1,1 @@
+ALTER TABLE "tasks_embeddings" ALTER COLUMN "content_hash" SET NOT NULL;

@@ -82,6 +82,36 @@ describe("PR Validation Utilities", () => {
       expect(isDuplicateContent(content1, content2)).toBe(false);
     });
 
+    // BUG REPRODUCTION: Issue from PR #108 - title duplication not detected
+    // Generated title: "feat(md#439): Implement minsky backend with database storage"
+    // Body first line: "# feat(#439): Implement minsky backend with database storage"
+    test("should detect title duplication with markdown header and different task ID formats", () => {
+      const generatedTitle = "feat(md#439): Implement minsky backend with database storage";
+      const bodyFirstLine = "# feat(#439): Implement minsky backend with database storage";
+
+      expect(isDuplicateContent(generatedTitle, bodyFirstLine)).toBe(true);
+    });
+
+    test("should detect duplication with multiple markdown header levels", () => {
+      const title = "feat(md#123): Some feature";
+      const headers = [
+        "# feat(#123): Some feature",
+        "## feat(#123): Some feature",
+        "### feat(#123): Some feature",
+      ];
+
+      headers.forEach((header) => {
+        expect(isDuplicateContent(title, header)).toBe(true);
+      });
+    });
+
+    test("should detect duplication with task-md- format", () => {
+      const title1 = "feat(task-md-456): Another feature";
+      const title2 = "feat(#456): Another feature";
+
+      expect(isDuplicateContent(title1, title2)).toBe(true);
+    });
+
     test("should handle empty strings", () => {
       expect(isDuplicateContent("", "")).toBe(false);
       expect(isDuplicateContent("content", "")).toBe(false);
@@ -132,6 +162,31 @@ describe("PR Validation Utilities", () => {
       expect(result.title).toBe(title);
       expect(result.body).toBe(body);
       expect(result.warnings).toEqual([]);
+    });
+
+    // INTEGRATION TEST: Reproduce the exact PR #108 scenario
+    test("should catch and fix the exact scenario from PR #108", () => {
+      const title = "feat(md#439): Implement minsky backend with database storage";
+      const body = `# feat(#439): Implement minsky backend with database storage
+
+## Summary
+
+This PR implements the complete minsky backend with database storage functionality.
+
+## Changes
+
+### Added
+
+- **MinskyTaskBackend implementation** with full database integration`;
+
+      const result = preparePrContent(title, body);
+
+      // Should detect the duplication and sanitize it
+      expect(result.title).toBe(title);
+      expect(result.body).not.toContain("# feat(#439): Implement minsky backend");
+      expect(result.body).toContain("## Summary"); // Rest of content preserved
+      expect(result.warnings).toHaveLength(1); // Should warn about duplication
+      expect(result.warnings[0]).toContain("Removed duplicate title content");
     });
 
     test("should sanitize content with duplication and provide warnings", () => {

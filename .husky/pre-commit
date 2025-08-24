@@ -98,6 +98,14 @@ fi
 
 echo "✅ Test pattern validation completed."
 
+# Run code formatting (fixes many linting issues automatically)
+echo "🎨 Running code formatter..."
+if ! bun run format; then
+  echo "❌ Code formatting failed! Please check for syntax errors."
+  exit 1
+fi
+echo "✅ Code formatting completed."
+
 # Run linting (suppress warnings to reduce noise, only show errors)
 echo "🔍 Running ESLint..."
 if ! npm run lint -- --quiet; then

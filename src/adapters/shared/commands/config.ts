@@ -106,13 +106,8 @@ const configListRegistration = {
       const config = provider.getConfig();
       const metadata = provider.getMetadata();
 
-      const resolved = {
-        backend: config.backend,
-        backendConfig: config.backendConfig,
-        sessiondb: config.sessiondb,
-        ai: config.ai,
-        github: config.github,
-      };
+      // Show ALL configuration properties except deprecated ones
+      const { backend: _deprecatedBackend, ...resolved } = config;
 
       // Apply credential masking unless explicitly requested to show secrets
       const maskedConfig = maskCredentials(resolved, params.showSecrets || false);
@@ -163,13 +158,9 @@ const configShowRegistration = {
       const credentialResolver = new DefaultCredentialResolver();
       const credentials = await gatherCredentialInfo(credentialResolver, config);
 
+      // Show ALL configuration properties dynamically instead of hardcoding subset
       const resolved = {
-        backend: config.backend,
-        backendConfig: config.backendConfig,
-        sessiondb: config.sessiondb,
-        ai: config.ai,
-        github: config.github,
-        logger: config.logger,
+        ...config, // Include all configuration properties
         credentials,
       };
 

@@ -19,7 +19,7 @@ export interface ParameterMappingOptions {
   /** Parameter alias (shorthand) */
   alias?: string;
   /** Override the parameter description */
-  description?: string;
+  spec?: string;
   /** Override the default value */
   defaultValue?: any;
   /** Whether to hide this parameter from help */

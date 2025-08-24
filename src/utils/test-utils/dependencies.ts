@@ -585,9 +585,9 @@ export interface MockTaskServiceOptions {
   createTask?: (specPath: string, options?: CreateTaskOptions) => Promise<Task>;
   deleteTask?: (taskId: string) => Promise<boolean>;
   getWorkspacePath?: () => string;
-  createTaskFromTitleAndDescription?: (
+  createTaskFromTitleAndSpec?: (
     title: string,
-    description: string,
+    spec: string,
     options?: CreateTaskOptions
   ) => Promise<Task>;
   getBackendForTask?: (taskId: string) => Promise<string>;
@@ -625,9 +625,9 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
 
     getBackendForTask: options.getBackendForTask || (() => Promise.resolve("markdown")),
 
-    createTaskFromTitleAndDescription:
-      options.createTaskFromTitleAndDescription ||
-      ((title: string, description: string, options?: CreateTaskOptions) =>
+    createTaskFromTitleAndSpec:
+      options.createTaskFromTitleAndSpec ||
+      ((title: string, spec: string, options?: CreateTaskOptions) =>
         Promise.resolve({
           id: "#test-from-title",
           title: "Test Task",

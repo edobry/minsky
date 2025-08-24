@@ -67,11 +67,11 @@ export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, any
     let description = params.description;
 
     // If description path is provided, read from file
-    if (params.descriptionPath) {
+    if (params.specPath) {
       try {
-        description = await readFile(params.descriptionPath, "utf-8");
+        description = await readFile(params.specPath, "utf-8");
       } catch (error) {
-        throw new Error(`Failed to read description from file: ${params.descriptionPath}`);
+        throw new Error(`Failed to read description from file: ${params.specPath}`);
       }
     }
 

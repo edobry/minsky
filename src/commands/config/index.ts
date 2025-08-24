@@ -6,7 +6,6 @@
 
 import { Command } from "commander";
 import { createConfigListCommand } from "./list";
-import { createConfigShowCommand } from "./show";
 import { createConfigSetCommand } from "./set";
 import { createConfigUnsetCommand } from "./unset";
 import { createConfigValidateCommand } from "./validate";
@@ -25,7 +24,7 @@ Examples:
   minsky config unset <key>                     Remove a configuration value
   minsky config validate                        Validate configuration
   minsky config doctor                          Diagnose configuration issues
-  
+
   minsky config list --json                     Output in JSON format
   minsky config set backend markdown            Set backend type
   minsky config set ai.providers.openai.model gpt-4  Set AI model
@@ -35,7 +34,7 @@ Examples:
 
   // Add subcommands
   configCmd.addCommand(createConfigListCommand());
-  configCmd.addCommand(createConfigShowCommand());
+  // config.show is handled by command registration pattern in src/adapters/shared/commands/config.ts
   configCmd.addCommand(createConfigSetCommand());
   configCmd.addCommand(createConfigUnsetCommand());
   configCmd.addCommand(createConfigValidateCommand());

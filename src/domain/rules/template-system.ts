@@ -39,7 +39,7 @@ export interface TemplateHelpers {
    * @param commandId Shared command ID
    * @param description Optional description for documentation
    */
-  command: (commandId: string, description?: string) => string;
+  command: (commandId: string, spec?: string) => string;
 
   /**
    * Wraps content in a code block with specified language

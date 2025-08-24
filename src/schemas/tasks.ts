@@ -108,8 +108,9 @@ export type TaskStatusSetParams = z.infer<typeof taskStatusSetParamsSchema>;
 export const taskCreateParamsSchema = z
   .object({
     title: z.string().min(1).describe("Title for the task"),
-    description: z.string().optional().describe("Description text for the task"),
-    descriptionPath: z.string().optional().describe("Path to file containing task description"),
+    spec: z.string().optional().describe("Spec text for the task"),
+    description: z.string().optional().describe("Description text for the task (alias for spec)"),
+    specPath: z.string().optional().describe("Path to file containing task spec"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
@@ -119,11 +120,11 @@ export const taskCreateParamsSchema = z
   .merge(commonCommandOptionsSchema)
   .refine(
     (data) => {
-      // Either description or descriptionPath must be provided
-      return data.description || data.descriptionPath;
+      // Either spec/description or specPath must be provided
+      return data.spec || data.description || data.specPath;
     },
     {
-      message: "Either --description or --description-path must be provided",
+      message: "Either --description or --spec-path must be provided",
     }
   );
 
@@ -145,8 +146,8 @@ export type TaskCreateFromTitleAndDescriptionParams = z.infer<
 export const taskCreateFromTitleAndDescriptionParamsSchema = z
   .object({
     title: z.string().min(1).describe("Title for the task (required)"),
-    description: z.string().optional().describe("Description text for the task"),
-    descriptionPath: z.string().optional().describe("Path to file containing task description"),
+    spec: z.string().optional().describe("Spec text for the task"),
+    specPath: z.string().optional().describe("Path to file containing task spec"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
@@ -160,7 +161,7 @@ export const taskCreateFromTitleAndDescriptionParamsSchema = z
       ),
   })
   .merge(commonCommandOptionsSchema)
-  .refine((data) => data.description || data.descriptionPath, {
+  .refine((data) => data.spec || data.specPath, {
     message: "Either 'description' or 'descriptionPath' must be provided",
     path: ["description"],
   });

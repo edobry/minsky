@@ -13,8 +13,7 @@ import type { PartialConfiguration } from "../schemas";
  * configuration object paths.
  */
 export const environmentMappings = {
-  // Backend configuration
-  MINSKY_BACKEND: "backend",
+  // Note: MINSKY_BACKEND removed - deprecated property, use tasks.backend config instead
 
   // Workspace configuration (NEW)
   MINSKY_WORKSPACE_MAIN_PATH: "workspace.mainPath",
@@ -112,7 +111,6 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "ai.providers.mistral.enabled": "boolean",
 
   // JSON (arrays and objects)
-  detectionRules: "json",
   "ai.providers.openai.models": "json",
   "ai.providers.anthropic.models": "json",
   "ai.providers.google.models": "json",

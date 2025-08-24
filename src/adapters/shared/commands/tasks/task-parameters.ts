@@ -47,7 +47,7 @@ export const taskCreationParams = {
   title: TaskParameters.title,
   description: TaskParameters.description,
   force: CommonParameters.force,
-  descriptionPath: {
+  specPath: {
     schema: z.string(),
     description: "Path to file containing task description",
     required: false,
@@ -92,8 +92,18 @@ export const taskDeletionParams = {
  * Index embeddings parameters
  */
 export const tasksIndexEmbeddingsParams: CommandParameterMap = {
-  // Optional single-task target
-  taskId: TaskParameters.taskIdOptional,
+  // Optional single-task target (CLI should use --task, not --task-id)
+  task: CommonParameters.task,
+  reindex: {
+    schema: z.boolean().default(false),
+    description: "Force re-embedding even if up-to-date",
+    required: false,
+  },
+  concurrency: {
+    schema: z.number().int().positive().default(4),
+    description: "Number of tasks to index in parallel",
+    required: false,
+  },
   limit: {
     schema: z.number().int().positive().default(10),
     description: "Max number of tasks to index (to avoid heavy costs)",

@@ -17,13 +17,16 @@ export class TaskSimilarityService {
     private readonly vectorStorage: VectorStorage,
     private readonly findTaskById: (id: string) => Promise<Task | null>,
     private readonly searchTasks: (query: { text?: string }) => Promise<Task[]>,
+    private readonly getTaskSpecContent: (
+      id: string
+    ) => Promise<{ content: string; specPath: string; task: any }>,
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     const task = await this.findTaskById(taskId);
     if (!task) return [];
-    const content = this.extractTaskContent(task);
+    const content = await this.extractTaskContent(task);
     const vector = await this.embeddingService.generateEmbedding(content);
     const effectiveThreshold =
       threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
@@ -45,49 +48,129 @@ export class TaskSimilarityService {
 
     const effectiveThreshold =
       threshold ?? this.config.similarityThreshold ?? Number.POSITIVE_INFINITY;
-
-    // Debug: ANN search params
-    try {
-      log.debug("[tasks.search] Running ANN search", {
-        limit,
-        threshold: effectiveThreshold,
-      });
-    } catch {
-      // ignore debug logging errors
-    }
-
-    let results = await this.vectorStorage.search(vector, limit, effectiveThreshold);
-
-    // Deduplicate legacy vs qualified IDs, prefer qualified (e.g., md#123 over #123)
-    const seen = new Set<string>();
-    results = results.filter((r) => {
-      const normalized =
-        r.id.startsWith("md#") || r.id.includes("#") ? r.id.replace(/^#/, "md#") : r.id;
-      if (seen.has(normalized)) return false;
-      seen.add(normalized);
-      return true;
-    });
-
-    // Debug: ANN results (ids and scores)
-    try {
-      log.debug("[tasks.search] ANN results", {
-        count: results.length,
-        top: results.slice(0, 5),
-      });
-    } catch {
-      // ignore debug logging errors
-    }
-
-    return results;
+    return this.vectorStorage.search(vector, limit, effectiveThreshold);
   }
 
-  async indexTask(taskId: string): Promise<void> {
-    const task = await this.findTaskById(taskId);
-    if (!task) return;
-    const content = this.extractTaskContent(task);
-    const vector = await this.embeddingService.generateEmbedding(content);
+  async searchSimilarTasks(
+    searchTerms: string[],
+    excludeTaskIds: string[] = [],
+    limit = 10,
+    threshold?: number
+  ): Promise<SearchResult[]> {
+    if (searchTerms.length === 0) return [];
 
+    // Create a natural language query from the search terms
+    const query = this.constructSearchQuery(searchTerms);
+    const results = await this.searchByText(query, limit * 2, threshold); // Get more to filter
+
+    // Filter out excluded task IDs
+    return results.filter((result) => !excludeTaskIds.includes(result.id)).slice(0, limit);
+  }
+
+  /**
+   * Construct natural search query from terms
+   * This logic will move to the generic similarity service in md#447
+   */
+  private constructSearchQuery(terms: string[]): string {
+    // Create a natural language query that works well with embeddings
+    const uniqueTerms = Array.from(new Set(terms.map((t) => t.toLowerCase())));
+
+    if (uniqueTerms.length === 1) {
+      return uniqueTerms[0];
+    }
+
+    // For multiple terms, create a coherent query
+    return `Find tasks related to: ${uniqueTerms.join(", ")}`;
+  }
+
+  async indexTask(taskId: string): Promise<boolean> {
+    const task = await this.findTaskById(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    // Get the full task content (title + spec content)
+    let content = await this.extractTaskContent(task);
     const contentHash = createHash("sha256").update(content).digest("hex");
+
+    // Skip if up-to-date
+    try {
+      if (typeof (this.vectorStorage as any).getMetadata === "function") {
+        const meta = await (this.vectorStorage as any).getMetadata(taskId);
+        const storedHash = meta?.content_hash || meta?.contentHash;
+        const storedModel = meta?.model;
+        const currentModel = this.config.model;
+        if (
+          storedHash &&
+          storedHash === contentHash &&
+          (!storedModel || storedModel === currentModel)
+        ) {
+          try {
+            log.debug(`[index] skip up-to-date ${taskId}`);
+          } catch {
+            void 0; // ignore debug logging errors
+          }
+          return false;
+        }
+      }
+    } catch {
+      // ignore metadata read errors
+    }
+    // Apply model-aware token cap if configured
+    try {
+      const { getConfiguration } = await import("../configuration");
+      const cfg: any = await getConfiguration();
+      const model = this.config.model || cfg?.embeddings?.model || "text-embedding-3-small";
+      const provider = cfg?.embeddings?.provider || cfg?.ai?.defaultProvider || "openai";
+      const caps = (cfg?.embeddings?.models && cfg.embeddings.models[model]) || {};
+      // Built-in defaults by model pattern; can be overridden by config
+      const defaultMaxByModel: Record<string, number> = {
+        "text-embedding-3-small": 8192,
+        "text-embedding-3-large": 8192,
+      };
+      const maxTokens: number | undefined =
+        typeof caps.maxTokens === "number"
+          ? caps.maxTokens
+          : defaultMaxByModel[model] || (model.includes("embedding") ? 8192 : undefined);
+      const buffer: number = typeof caps.buffer === "number" ? caps.buffer : 192;
+      if (typeof maxTokens === "number" && maxTokens > 0) {
+        const effective = Math.max(1, maxTokens - buffer);
+        const { defaultTokenizerService } = await import("../ai/tokenizer-service");
+        const tokens = await defaultTokenizerService.tokenize(content, model, provider);
+        if (tokens.length > effective) {
+          const trimmed = tokens.slice(0, effective);
+          content = await defaultTokenizerService.detokenize(trimmed, model, provider);
+        }
+      }
+    } catch {
+      // If tokenization or config fails, apply a conservative char-based trim fallback
+      try {
+        const { getConfiguration } = await import("../configuration");
+        const cfg: any = await getConfiguration();
+        const model = this.config.model || cfg?.embeddings?.model || "text-embedding-3-small";
+        const caps = (cfg?.embeddings?.models && cfg.embeddings.models[model]) || {};
+        const defaultMaxByModel: Record<string, number> = {
+          "text-embedding-3-small": 8192,
+          "text-embedding-3-large": 8192,
+        };
+        const maxTokens: number | undefined =
+          typeof caps.maxTokens === "number"
+            ? caps.maxTokens
+            : defaultMaxByModel[model] || (model.includes("embedding") ? 8192 : undefined);
+        const buffer: number = typeof caps.buffer === "number" ? caps.buffer : 192;
+        if (typeof maxTokens === "number" && maxTokens > 0) {
+          const effective = Math.max(1, maxTokens - buffer);
+          // Heuristic: ~4 chars per token
+          const maxChars = effective * 4;
+          if (content.length > maxChars) {
+            content = content.slice(0, maxChars);
+          }
+        }
+      } catch {
+        // ignore and keep original content
+      }
+    }
+    const vector = await this.embeddingService.generateEmbedding(content);
     const metadata: Record<string, any> = {
       taskId,
       model: this.config.model,
@@ -97,14 +180,36 @@ export class TaskSimilarityService {
     };
 
     await this.vectorStorage.store(taskId, vector, metadata);
+    return true;
   }
 
-  private extractTaskContent(task: Task): string {
+  /**
+   * Extract content for embedding generation
+   * Simple approach: title + full spec content (as requested)
+   * This prepares for the generic similarity service in md#447
+   */
+  private async extractTaskContent(task: Task): Promise<string> {
     const parts: string[] = [];
-    if (task.title) parts.push(task.title);
-    if ((task as any).description) parts.push((task as any).description);
-    if ((task as any).metadata?.originalRequirements)
-      parts.push((task as any).metadata.originalRequirements);
+
+    // Always include the task title
+    if (task.title) {
+      parts.push(task.title);
+    }
+
+    try {
+      // Get the full spec content for embedding
+      const specData = await this.getTaskSpecContent(task.id);
+      if (specData.content) {
+        parts.push(specData.content);
+      }
+    } catch (error) {
+      // If we can't get spec content, fall back to basic task info
+      log.debug(`Failed to get spec content for task ${task.id}:`, error);
+      if ((task as any).description) {
+        parts.push((task as any).description);
+      }
+    }
+
     return parts.join("\n\n");
   }
 }

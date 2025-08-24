@@ -42,33 +42,36 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
   }
   try {
     if (options.json) {
-      // JSON output
-      process.stdout.write(`${JSON.stringify(result, undefined, 2)}\n`);
+      const json = JSON.stringify(result, null, 2);
+      log.cli(json);
     } else if (options.formatter) {
-      // Custom formatter
       options.formatter(result);
     } else {
-      // Default output based on result type
       if (typeof result === "string") {
-        process.stdout.write(`${result}\n`);
+        log.cli(result);
       } else if (typeof result === "object" && result !== null) {
         if (Array.isArray(result)) {
           result.forEach((item) => {
             if (typeof item === "string") {
-              process.stdout.write(`${item}\n`);
+              log.cli(item);
             } else {
-              process.stdout.write(`${JSON.stringify(item, undefined, 2)}\n`);
+              log.cli(JSON.stringify(item, null, 2));
             }
           });
         } else {
-          process.stdout.write(`${JSON.stringify(result, undefined, 2)}\n`);
+          log.cli(JSON.stringify(result, null, 2));
         }
       } else {
-        process.stdout.write(`${String(result)}\n`);
+        log.cli(String(result));
       }
     }
-  } catch (error) {
-    process.stdout.write(`Error formatting output: ${error}\n`);
+  } catch (e) {
+    try {
+      // eslint-disable-next-line no-console
+      console.log(options.json ? JSON.stringify(result, null, 2) : String(result));
+    } catch {
+      // ignore fallback errors
+    }
   }
 }
 /**
@@ -76,7 +79,7 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
  */
 export function handleCliError(error: any, options: { debug?: boolean } = {}): void {
   const err = ensureError(error as any);
-  if ((options as any)!.debug) {
+  if (options.debug) {
     // Detailed error in debug mode
     log.cliError("Command execution failed");
     log.cliError(String(err as any));

@@ -11,8 +11,14 @@ import { TaskBackend } from "../backend-detection";
 
 /**
  * Main backend configuration - which backend to use for tasks
+ *
+ * @deprecated Use `tasks.backend` instead. This property is kept for backward
+ * compatibility with MINSKY_BACKEND environment variable but will be removed
+ * in a future version.
+ *
+ * Note: No default value since this is deprecated - only shows if explicitly set.
  */
-export const backendSchema = enumSchemas.backendType.default("markdown");
+export const backendSchema = enumSchemas.backendType.optional();
 
 /**
  * GitHub Issues backend-specific configuration
@@ -46,24 +52,7 @@ export const backendConfigSchema = z
   .strict()
   .default({});
 
-/**
- * Detection rule for automatic backend selection
- */
-export const detectionRuleSchema = z
-  .object({
-    condition: enumSchemas.detectionCondition,
-    backend: baseSchemas.nonEmptyString,
-  })
-  .strict();
 
-/**
- * Array of detection rules (evaluated in order)
- */
-export const detectionRulesSchema = z.array(detectionRuleSchema).default([
-  { condition: "tasks_md_exists", backend: "markdown" },
-  { condition: "json_file_exists", backend: "json-file" },
-  { condition: "always", backend: "markdown" },
-]);
 
 /**
  * Complete backend configuration combining all backend-related settings
@@ -75,9 +64,6 @@ export const backendFullConfigSchema = z
 
     // Backend-specific configurations
     backendConfig: backendConfigSchema,
-
-    // Automatic detection rules
-    detectionRules: detectionRulesSchema,
   })
   .strict();
 

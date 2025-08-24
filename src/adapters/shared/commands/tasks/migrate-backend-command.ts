@@ -9,11 +9,11 @@ import { z } from "zod";
 import type { CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand } from "./base-task-command";
 import { log } from "../../../../utils/logger";
-import { TaskService } from "../../../../domain/tasks/taskService";
+import { TaskService, createTaskServiceWithDatabase } from "../../../../domain/tasks/taskService";
 
 const migrateBackendParamsSchema = z.object({
-  from: z.enum(["markdown", "db", "github", "json-file"]).optional(),
-  to: z.enum(["markdown", "db", "github", "json-file"]),
+  from: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
+  to: z.enum(["markdown", "minsky", "github", "json-file"]),
   execute: z.boolean().optional().default(false),
   limit: z.number().int().positive().optional(),
   filterStatus: z.string().optional(),
@@ -28,15 +28,15 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
   readonly description =
-    "Migrate tasks between different backends (markdown, db, github, json-file)";
+    "Migrate tasks between different backends (markdown, minsky, github, json-file)";
   readonly parameters = {
     from: {
-      schema: z.enum(["markdown", "db", "github", "json-file"]).optional(),
+      schema: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
       description: "Source backend (auto-detect if not provided)",
       required: false,
     },
     to: {
-      schema: z.enum(["markdown", "db", "github", "json-file"]),
+      schema: z.enum(["markdown", "minsky", "github", "json-file"]),
       description: "Target backend",
       required: true,
     },
@@ -106,8 +106,61 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
       updateIds: p.updateIds,
     });
 
+    // Perform post-migration validation if not dry run
+    let validationResult;
+    if (!dryRun) {
+      if (!p.quiet) {
+        log.cli("\n🔍 Validating migration...");
+      }
+
+      validationResult = await this.validateMigration({
+        sourceBackend,
+        targetBackend,
+        workspacePath,
+        migratedTasks: result.details.filter((d: any) => d.status === "migrated"),
+        updateIds: p.updateIds,
+      });
+
+      if (validationResult.failed.length > 0) {
+        const errorMessage = `Post-migration validation failed: ${validationResult.failed.length} tasks failed validation`;
+
+        if (p.json || context.format === "json") {
+          return {
+            success: false,
+            error: errorMessage,
+            validationErrors: validationResult.failed,
+            summary: {
+              total: result.total,
+              migrated: result.migrated,
+              skipped: result.skipped,
+              errors: result.errors,
+              validated: validationResult.passed.length,
+              validationFailed: validationResult.failed.length,
+            },
+          };
+        }
+
+        this.displayValidationResults(validationResult);
+        throw new Error(errorMessage);
+      }
+
+      if (!p.quiet) {
+        const migratedCount = result.details.filter((d) => d.status === "migrated").length;
+        if (migratedCount === 0) {
+          log.cli("✅ Validation complete: No new migrations to verify");
+        } else {
+          log.cli(
+            `✅ Validation passed: ${validationResult.passed.length} of ${migratedCount} migrated tasks verified`
+          );
+        }
+      }
+    }
+
     if (p.json || context.format === "json") {
-      return this.createSuccessResult(result);
+      return this.createSuccessResult({
+        ...result,
+        validation: validationResult,
+      });
     }
 
     this.displayResults(result, dryRun, sourceBackend, targetBackend);
@@ -119,6 +172,8 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         migrated: result.migrated,
         skipped: result.skipped,
         errors: result.errors,
+        validated: validationResult?.passed.length || 0,
+        validationFailed: validationResult?.failed.length || 0,
       },
     });
   }
@@ -155,9 +210,15 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     const { sourceBackend, targetBackend, workspacePath, dryRun, limit, filterStatus, updateIds } =
       options;
 
-    // Create source and target task services
-    const sourceService = new TaskService({ workspacePath, backend: sourceBackend });
-    const targetService = new TaskService({ workspacePath, backend: targetBackend });
+    // Create source and target task services using unified async factory
+    const sourceService = await createTaskServiceWithDatabase({
+      workspacePath,
+      backend: sourceBackend,
+    });
+    const targetService = await createTaskServiceWithDatabase({
+      workspacePath,
+      backend: targetBackend,
+    });
 
     // Get all tasks from source backend
     let tasks = await sourceService.listTasks({ all: true }); // Get all tasks including DONE/CLOSED
@@ -190,27 +251,41 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           continue;
         }
 
+        // Generate target ID for checking if task already exists
+        let newTaskId = taskId;
+        if (updateIds) {
+          const targetPrefix = this.getBackendPrefix(targetBackend);
+          const sourcePrefix = this.getBackendPrefix(sourceBackend);
+
+          if (taskId.startsWith(`${sourcePrefix}#`)) {
+            const numericPart = taskId.replace(`${sourcePrefix}#`, "");
+            newTaskId = `${targetPrefix}#${numericPart}`;
+          }
+        }
+
+        // Check if task already exists in target backend
+        const existingTask = await targetService.getTask(newTaskId).catch(() => null);
+        if (existingTask) {
+          result.skipped++;
+          result.details.push({
+            id: taskId,
+            status: "skipped",
+            reason: "already_exists",
+            targetId: newTaskId,
+          });
+          continue;
+        }
+
         // Get task spec content
         const specData = await sourceService.getTaskSpecContent(taskId);
         const specContent = specData?.content || "";
 
         if (!dryRun) {
-          // Generate new ID for target backend if requested
-          let newTaskId = taskId;
-          if (updateIds) {
-            const targetPrefix = this.getBackendPrefix(targetBackend);
-            const sourcePrefix = this.getBackendPrefix(sourceBackend);
-
-            if (taskId.startsWith(`${sourcePrefix}#`)) {
-              const numericPart = taskId.replace(`${sourcePrefix}#`, "");
-              newTaskId = `${targetPrefix}#${numericPart}`;
-            }
-          }
-
-          // Create task in target backend
-          const targetBackendInstance = targetService.getCurrentBackend();
-          await targetBackendInstance.createTaskFromTitleAndSpec(fullTask.title, specContent, {
+          // Create task in target backend with transformed ID and status
+          await targetService.createTaskFromTitleAndSpec(fullTask.title, specContent, {
             force: true,
+            id: newTaskId,
+            status: fullTask.status,
           });
 
           // Update the task ID and backend if needed
@@ -229,10 +304,19 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
         });
       } catch (error) {
         result.errors++;
+
+        // Create user-friendly error message
+        const errorMessage = this.createUserFriendlyErrorMessage(task.id, error);
+
+        // In verbose mode, show more context but never raw stack traces
+        if (process.env.MINSKY_VERBOSE === "true") {
+          console.error(`❌ ${task.id}: ${errorMessage}`);
+        }
+
         result.details.push({
           id: task.id,
           status: "error",
-          error: String(error),
+          error: errorMessage,
         });
       }
     }
@@ -243,11 +327,48 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   private getBackendPrefix(backend: string): string {
     const prefixMap: Record<string, string> = {
       markdown: "md",
-      db: "db",
+      minsky: "mt",
       github: "gh",
       "json-file": "json",
     };
     return prefixMap[backend] || backend;
+  }
+
+  private createUserFriendlyErrorMessage(taskId: string, error: unknown): string {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+
+    // Detect common error patterns and provide helpful messages
+    if (errorMessage.includes("ENOENT") && errorMessage.includes("no such file or directory")) {
+      // Extract filename from error for better context
+      const fileMatch = errorMessage.match(/open '([^']+)'/);
+      const fileName = fileMatch ? fileMatch[1] : "spec file";
+      return `Spec file not found: ${fileName}. Task may already be migrated or file was moved.`;
+    }
+
+    if (errorMessage.includes("ELOOP") && errorMessage.includes("too many symbolic links")) {
+      return `Broken symbolic links in spec file. Please check file system links.`;
+    }
+
+    if (errorMessage.includes("Failed to read spec file")) {
+      return `Cannot read task specification file. File may be missing or have incorrect permissions.`;
+    }
+
+    if (errorMessage.includes("Task not found in source")) {
+      return `Task exists in database but not accessible from source backend.`;
+    }
+
+    if (errorMessage.includes("already exists") || errorMessage.includes("duplicate")) {
+      return `Task already exists in target backend. Consider using --force or check for duplicates.`;
+    }
+
+    // Default: Clean up technical error message for user consumption
+    const cleanError = errorMessage
+      .replace(/^Error:\s*/i, "")
+      .replace(/\s+at\s+.*$/gm, "") // Remove stack trace lines
+      .split("\n")[0] // Take only first line
+      .slice(0, 100); // Limit length
+
+    return cleanError || "Unknown migration error occurred.";
   }
 
   private displayResults(
@@ -262,10 +383,229 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
     if (result.skipped > 0) log.cli(`⏭️  Skipped: ${result.skipped}`);
     if (result.errors > 0) log.cli(`❌ Errors: ${result.errors}`);
 
+    // Show user-friendly error summary if there are errors
+    if (result.errors > 0) {
+      log.cli("\n⚠️  Migration Issues:");
+
+      // Group errors by type for better presentation
+      const errorGroups = this.groupErrorsByType(result.details);
+
+      for (const [errorType, tasks] of Object.entries(errorGroups)) {
+        if (tasks.length > 0) {
+          log.cli(`   • ${errorType}: ${tasks.length} task${tasks.length > 1 ? "s" : ""}`);
+
+          // Show a few examples if there are many
+          const examples = tasks.slice(0, 3);
+          examples.forEach((task) => {
+            log.cli(`     - ${task.id}`);
+          });
+
+          if (tasks.length > 3) {
+            log.cli(`     ... and ${tasks.length - 3} more`);
+          }
+        }
+      }
+
+      log.cli(`\n💡 Most errors are likely tasks already migrated to the target backend.`);
+      log.cli(`   Set MINSKY_VERBOSE=true for detailed error information.`);
+    }
+
     if (dryRun) {
       log.cli(`\n💡 Run with --execute to migrate from ${sourceBackend} to ${targetBackend}.`);
     } else {
       log.cli(`\n🎉 Successfully migrated tasks from ${sourceBackend} to ${targetBackend}!`);
+    }
+  }
+
+  private groupErrorsByType(details: any[]): Record<string, any[]> {
+    const groups: Record<string, any[]> = {
+      "Missing spec files": [],
+      "Already migrated": [],
+      "File system issues": [],
+      "Other errors": [],
+    };
+
+    details
+      .filter((d) => d.status === "error")
+      .forEach((detail) => {
+        const error = detail.error || "";
+
+        if (error.includes("Spec file not found") || error.includes("may already be migrated")) {
+          groups["Already migrated"].push(detail);
+        } else if (error.includes("spec file") || error.includes("not found")) {
+          groups["Missing spec files"].push(detail);
+        } else if (error.includes("symbolic links") || error.includes("permissions")) {
+          groups["File system issues"].push(detail);
+        } else {
+          groups["Other errors"].push(detail);
+        }
+      });
+
+    return groups;
+  }
+
+  /**
+   * Validates that migrated tasks actually exist and match in the target backend
+   */
+  private async validateMigration(params: {
+    sourceBackend: string;
+    targetBackend: string;
+    workspacePath: string;
+    migratedTasks: any[];
+    updateIds: boolean;
+  }): Promise<{ passed: any[]; failed: any[] }> {
+    const { sourceBackend, targetBackend, workspacePath, migratedTasks, updateIds } = params;
+
+    if (migratedTasks.length === 0) {
+      return { passed: [], failed: [] };
+    }
+
+    const sourceService = await createTaskServiceWithDatabase({
+      backend: sourceBackend,
+      workspacePath,
+    });
+
+    const targetService = await createTaskServiceWithDatabase({
+      backend: targetBackend,
+      workspacePath,
+    });
+
+    const passed: any[] = [];
+    const failed: any[] = [];
+
+    for (const migratedTask of migratedTasks) {
+      try {
+        // Determine expected target task ID
+        let targetTaskId = migratedTask.id;
+        if (updateIds) {
+          const targetPrefix = this.getBackendPrefix(targetBackend);
+          const sourcePrefix = this.getBackendPrefix(sourceBackend);
+
+          if (migratedTask.id.startsWith(`${sourcePrefix}#`)) {
+            const numericPart = migratedTask.id.replace(`${sourcePrefix}#`, "");
+            targetTaskId = `${targetPrefix}#${numericPart}`;
+          }
+        }
+
+        // 1. Verify task exists in target backend
+        const targetTask = await targetService.getTask(targetTaskId).catch(() => null);
+        if (!targetTask) {
+          failed.push({
+            taskId: migratedTask.id,
+            targetTaskId,
+            reason: "TASK_NOT_FOUND_IN_TARGET",
+            details: `Task ${targetTaskId} was reported as migrated but does not exist in ${targetBackend} backend`,
+          });
+          continue;
+        }
+
+        // 2. Get source task for comparison
+        const sourceTask = await sourceService.getTask(migratedTask.id).catch(() => null);
+        if (!sourceTask) {
+          // This shouldn't happen since we just migrated it, but check anyway
+          failed.push({
+            taskId: migratedTask.id,
+            targetTaskId,
+            reason: "SOURCE_TASK_MISSING",
+            details: `Source task ${migratedTask.id} no longer exists in ${sourceBackend} backend`,
+          });
+          continue;
+        }
+
+        // 3. Verify critical fields match
+        if (sourceTask.title !== targetTask.title) {
+          failed.push({
+            taskId: migratedTask.id,
+            targetTaskId,
+            reason: "TITLE_MISMATCH",
+            details: `Title mismatch: source="${sourceTask.title}" vs target="${targetTask.title}"`,
+          });
+          continue;
+        }
+
+        if (sourceTask.status !== targetTask.status) {
+          failed.push({
+            taskId: migratedTask.id,
+            targetTaskId,
+            reason: "STATUS_MISMATCH",
+            details: `Status mismatch: source="${sourceTask.status}" vs target="${targetTask.status}"`,
+          });
+          continue;
+        }
+
+        // 4. Verify spec content matches (if both backends support it)
+        try {
+          const sourceSpec = await sourceService.getTaskSpecContent(migratedTask.id);
+          const targetSpec = await targetService.getTaskSpecContent(targetTaskId);
+
+          if (sourceSpec?.content !== targetSpec?.content) {
+            failed.push({
+              taskId: migratedTask.id,
+              targetTaskId,
+              reason: "CONTENT_MISMATCH",
+              details: `Spec content differs between source and target`,
+            });
+            continue;
+          }
+        } catch (error) {
+          // If one backend doesn't support spec content, skip this check
+          // This is expected for some backend combinations
+        }
+
+        // All validations passed
+        passed.push({
+          taskId: migratedTask.id,
+          targetTaskId,
+          status: "VALIDATED",
+        });
+      } catch (error) {
+        failed.push({
+          taskId: migratedTask.id,
+          targetTaskId: migratedTask.id,
+          reason: "VALIDATION_ERROR",
+          details: `Validation failed with error: ${error}`,
+        });
+      }
+    }
+
+    return { passed, failed };
+  }
+
+  /**
+   * Display detailed validation results to the user
+   */
+  private displayValidationResults(validationResult: { passed: any[]; failed: any[] }): void {
+    log.cli("\n❌ MIGRATION VALIDATION FAILED:");
+    log.cli(`✅ Validated: ${validationResult.passed.length}`);
+    log.cli(`❌ Failed: ${validationResult.failed.length}`);
+
+    if (validationResult.failed.length > 0) {
+      log.cli("\n🔍 Validation Failures:");
+
+      // Group failures by reason
+      const failureGroups: Record<string, any[]> = {};
+      validationResult.failed.forEach((failure) => {
+        if (!failureGroups[failure.reason]) {
+          failureGroups[failure.reason] = [];
+        }
+        failureGroups[failure.reason].push(failure);
+      });
+
+      for (const [reason, failures] of Object.entries(failureGroups)) {
+        log.cli(`\n   • ${reason}: ${failures.length} task${failures.length > 1 ? "s" : ""}`);
+
+        failures.slice(0, 5).forEach((failure) => {
+          log.cli(`     - ${failure.taskId} → ${failure.targetTaskId}`);
+          log.cli(`       ${failure.details}`);
+        });
+
+        if (failures.length > 5) {
+          log.cli(`     ... and ${failures.length - 5} more`);
+        }
+      }
+
+      log.cli("\n💡 Migration validation ensures all reported migrations actually succeeded.");
+      log.cli("   Please investigate these failures before considering the migration complete.");
     }
   }
 }

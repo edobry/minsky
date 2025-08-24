@@ -1,29 +1,69 @@
-# Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command
+## Status: IN PROGRESS ⚠️
 
-Status: TODO
-Priority: HIGH
+### Core Deliverables Status
 
-## Summary
+✅ **Database Backend Implementation**
 
-Introduce a minimal database-backed task backend (`backend = db`, task ID prefix `db#`) that treats the Postgres `tasks` table as the source of truth for both metadata and spec. Deprecate all reads of the monolithic `process/tasks.md`. Provide a manual export command to generate human-readable markdown artifacts, but do not perform exports automatically.
+- Implemented `DatabaseTaskBackend` class with 3-table schema design
+- Added support for `backend = db` configuration
+- Implemented all required `TaskBackend` interface methods
 
-## Goals
+✅ **Schema Design & Migration**
 
-- Create a new tasks backend type: `db` (ID prefix `db#`).
-- Treat DB as SoT (metadata + spec) for this backend.
-- Stop reading `process/tasks.md` entirely in runtime command paths.
-- Reuse the existing migration/import flow to write tasks into the DB with `backend = db` instead of `markdown`.
-- Implement a manual export command to generate read-only markdown artifacts for inspection/PRs (no inbound parsing).
-- Add an optional strict mode to error on any usage/configuration of in-tree backends (markdown/json) while transitioning.
+- Designed 3-table separation: `tasks` (metadata), `task_specs` (content), `tasks_embeddings` (vectors)
+- Created SQL migration `0008_create_task_specs_table.sql`
+- Removed `spec` column from `tasks` table for proper separation
 
-## Non-Goals (for this task)
+✅ **Embedding Generation Fix**
 
-- Field-level ownership policy, GI sync, or webhooks.
-- Automatic/export-on-write behavior.
-- Migration to new `db#` IDs across the codebase (links/aliases). For now, keep IDs as-is; revisit later as needed.
+- **CRITICAL**: Fixed broken embedding logic that tried to embed from non-existent fields
+- Updated `TaskSimilarityService.extractTaskContent()` to use title + full spec content
+- Modified service instantiation to pass `getTaskSpecContent` dependency
 
-## Requirements
+✅ **Interface Consolidation (PARTIAL)**
 
+- Merged 4 different `TaskBackend` interfaces into single unified interface in `types.ts`
+- Removed duplicate and unused methods (`fileExists`, parse/format methods)
+- **⚠️ CRITICAL ISSUES REMAINING**: Many compilation errors related to interface changes
+
+✅ **Task Data Model Clarification**
+
+- Confirmed tasks have only `title` + `spec` content, no separate `description` field
+- Renamed `createTaskFromTitleAndDescription` → `createTaskFromTitleAndSpec` throughout codebase
+- Updated schemas: `descriptionPath` → `specPath` in CLI flags and validation
+
+✅ **Template Method Removal**
+
+- Removed `generateTaskSpecification` and `generateTaskSpecContent` methods
+- All backends now write provided spec content directly (AI-first approach)
+- Created task **md#441** for future backend-specific template exploration
+
+### 🚨 **CRITICAL ISSUES REMAINING**
+
+<<<<<<< HEAD
+**The task is NOT complete** - there are significant compilation errors directly related to our interface consolidation work:
+
+#### Missing Exports (50+ errors)
+
+- `createJsonFileTaskBackend` - not exported but still imported throughout codebase
+- `createConfiguredTaskService` - not exported but still imported in 10+ files
+- `createTaskService` - not exported but still imported
+- `TaskServiceOptions` - not exported but still imported
+- `createMarkdownTaskBackend` - not exported but still imported
+- `createDatabaseTaskBackend` - not exported but still imported
+
+#### Interface Compatibility Issues (30+ errors)
+
+- `TaskService` vs `TaskServiceInterface` incompatible in session operations
+- `getBackendForTask()` returns `TaskBackend | null` but callers expect `string`
+- Missing `getCapabilities()` method in `MarkdownTaskBackend` and others
+- Backend interface mismatches throughout the codebase
+
+#### Missing Dependencies/Imports (20+ errors)
+
+- `../storage/db` module not found for `DatabaseTaskBackend`
+- Missing types: `TaskData`, `TaskBackend`, `TaskServiceOptions`, etc.
+- # Import path mismatches from interface reorganization
 - Schema/config
 
   - Ensure `task_backend` enum includes `db`.
@@ -45,33 +85,39 @@ Introduce a minimal database-backed task backend (`backend = db`, task ID prefix
   - `minsky tasks export --format markdown --out docs/tasks/` (or similar) to write per-task files.
   - Each file contains a prominent header: “GENERATED – DO NOT EDIT. Source of truth is the database.”
   - Stable formatting to minimize diffs; never read these files back.
+    > > > > > > > origin/main
 
-- Guardrails (strict mode)
-  - Config flag (e.g., `tasks.strictDbMode: true`) that:
-    - Errors if markdown/json backends are configured or resolved for runtime operations.
-    - Logs a single deprecation warning if legacy files are present; errors in strict mode.
+#### Backend Implementation Issues (15+ errors)
 
-## CLI/MCP Surface (initial)
+- Missing required interface methods in backend implementations
+- Type mismatches in Drizzle ORM queries
+- Parameter type incompatibilities
+
+### Next Steps Required
+
+<<<<<<< HEAD
+
+1. **Fix Missing Exports**: Add proper exports for all factory functions and types
+2. **Resolve Interface Compatibility**: Align `TaskService` with `TaskServiceInterface`
+3. **Fix Backend Implementations**: Complete missing methods and fix type issues
+4. **Resolve Import Dependencies**: Fix missing module imports and paths
+5. # **Test Database Backend**: Verify the new db backend actually works end-to-end
 
 - MCP
 
   - `tasks.spec.get(id)`
   - `tasks.spec.set(id, content[, ifMatchContentHash])` with dry-run and optimistic concurrency.
   - `tasks.meta.get/set` for DB-owned fields (optional in this task if already present; otherwise stub).
+    > > > > > > > origin/main
 
-- CLI
-  - `minsky tasks export --format markdown --out <dir>` (manual export only).
-  - No automatic export on write.
+### Estimated Work Remaining
 
-## Acceptance Criteria
+- **High Priority**: 100+ compilation errors directly related to our changes
+- **Medium Priority**: Integration testing of database backend functionality
+- **Low Priority**: End-to-end verification that embedding fix works
 
-- DB-only backend (`db`) is selectable; commands operate solely on DB for these tasks.
-- No runtime path reads `process/tasks.md`.
-- Migration/import can populate tasks with `backend = db`.
-- Manual export command writes readable artifacts with a do-not-edit banner.
-- Strict mode flag prevents using in-tree backends and fails fast when enabled.
+The database backend implementation is structurally complete, but the interface consolidation introduced widespread breaking changes that need to be systematically resolved before the task can be considered complete.
 
-## Notes
+## Context
 
-- Future: add GI sync (pull-only first), field ownership, and webhooks.
-- Future: consider switching IDs to `db#` and/or introducing alias resolution.
+<!-- existing context section unchanged -->

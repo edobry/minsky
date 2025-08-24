@@ -16,6 +16,11 @@ import {
 } from "../shared/bridges/cli-bridge";
 import { log } from "../../utils/logger";
 import { getMinskyStateDir } from "../../utils/paths";
+import {
+  formatResolvedConfiguration,
+  getBackendDisplayName,
+  getSessionBackendDisplayName,
+} from "./utilities/formatting-utilities";
 
 /**
  * Private CLI bridge instance - should not be exported or accessed directly
@@ -221,7 +226,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           description: {
             description: "Description text for the task",
           },
-          descriptionPath: {
+          specPath: {
             description: "Path to file containing task description",
           },
         },
@@ -951,203 +956,9 @@ function formatConfigurationSources(resolved: any, sources: any[]): string {
   return output;
 }
 
-function formatResolvedConfiguration(resolved: any): string {
-  let output = "📋 CURRENT CONFIGURATION\n";
+// Removed duplicate formatResolvedConfiguration - using import from utilities instead
 
-  // Task Storage
-  output += `📁 Task Storage: ${getBackendDisplayName(resolved.backend)}`;
-  if (resolved.backend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
-    const github = resolved.backendConfig["github-issues"];
-    output += ` (${github.owner}/${github.repo})`;
-  }
-  output += "\n";
-
-  // Authentication & Credentials
-  const hasAuth =
-    (resolved.credentials && Object.keys(resolved.credentials).length > 0) ||
-    resolved.github?.token ||
-    (resolved.ai?.providers &&
-      Object.keys(resolved.ai.providers).some((p) => resolved.ai.providers[p]?.apiKey));
-
-  if (hasAuth) {
-    output += "🔐 Authentication:\n";
-
-    // GitHub authentication
-    if (resolved.github?.token || resolved.credentials?.github) {
-      output += "   • GitHub: ✓ configured\n";
-    }
-
-    // AI provider authentication
-    if (resolved.ai?.providers) {
-      const configuredAI: string[] = [];
-      for (const [provider, config] of Object.entries(resolved.ai.providers)) {
-        if (config && typeof config === "object") {
-          const providerConfig = config as any;
-          if (providerConfig.apiKey) {
-            configuredAI.push(provider);
-          }
-        }
-      }
-      if (configuredAI.length > 0) {
-        output += `   • AI Providers: ${configuredAI.join(", ")} ✓\n`;
-      }
-    }
-  }
-
-  // Session Storage
-  if (resolved.sessiondb) {
-    output += "💾 Session Storage:\n";
-    const sessionBackend = resolved.sessiondb.backend || "sqlite";
-    output += `   • Backend: ${getSessionBackendDisplayName(sessionBackend)}\n`;
-
-    if (sessionBackend === "sqlite" && resolved.sessiondb.sqlite?.path) {
-      output += `   • Database: ${resolved.sessiondb.sqlite.path}\n`;
-    } else if (sessionBackend === "postgres" && resolved.sessiondb.postgres?.connectionString) {
-      output += "   • Connection: configured\n";
-    }
-  }
-
-  // AI Configuration
-  if (resolved.ai?.providers && Object.keys(resolved.ai.providers).length > 0) {
-    output += "🤖 AI Configuration:\n";
-
-    if (resolved.ai.defaultProvider) {
-      output += `   • Default Provider: ${resolved.ai.defaultProvider}\n`;
-    }
-
-    output += "   • Configured Providers:\n";
-    for (const [provider, config] of Object.entries(resolved.ai.providers)) {
-      if (config && typeof config === "object") {
-        const providerConfig = config as any;
-        output += `     ${provider}:`;
-
-        const details: string[] = [];
-        if (providerConfig.model) {
-          details.push(`model: ${providerConfig.model}`);
-        }
-        if (providerConfig.enabled !== undefined) {
-          details.push(`enabled: ${providerConfig.enabled ? "yes" : "no"}`);
-        }
-        if (providerConfig.apiKey) {
-          details.push("authenticated");
-        }
-
-        if (details.length > 0) {
-          output += ` ${details.join(", ")}\n`;
-        } else {
-          output += "\n";
-        }
-      }
-    }
-  }
-
-  // GitHub Configuration
-  if (resolved.github && Object.keys(resolved.github).length > 0) {
-    output += "🐙 GitHub Configuration:\n";
-
-    if (resolved.github.token) {
-      output += "   • Token: configured\n";
-    }
-    if (resolved.github.organization) {
-      output += `   • Organization: ${resolved.github.organization}\n`;
-    }
-    if (resolved.github.baseUrl && resolved.github.baseUrl !== "https://api.github.com") {
-      output += `   • Base URL: ${resolved.github.baseUrl}\n`;
-    }
-  }
-
-  // Logger Configuration (show if non-default or has interesting settings)
-  if (resolved.logger) {
-    const logger = resolved.logger;
-    const hasNonDefaultSettings =
-      logger.mode !== "auto" ||
-      logger.level !== "info" ||
-      logger.enableAgentLogs === true ||
-      logger.logFile ||
-      logger.includeTimestamp === false ||
-      logger.includeLevel === false;
-
-    if (hasNonDefaultSettings) {
-      output += "📊 Logger Configuration:\n";
-
-      if (logger.mode && logger.mode !== "auto") {
-        output += `   • Mode: ${logger.mode}\n`;
-      }
-
-      if (logger.level && logger.level !== "info") {
-        output += `   • Level: ${logger.level}\n`;
-      }
-
-      if (logger.enableAgentLogs === true) {
-        output += "   • Agent Logs: enabled\n";
-      }
-
-      if (logger.logFile) {
-        output += `   • Log File: ${logger.logFile}\n`;
-      }
-
-      // Show other notable settings
-      const otherSettings: string[] = [];
-      if (logger.includeTimestamp === false) otherSettings.push("no timestamps");
-      if (logger.includeLevel === false) otherSettings.push("no levels");
-      if (logger.maxFileSize) otherSettings.push(`max file: ${logger.maxFileSize}MB`);
-      if (logger.maxFiles) otherSettings.push(`max files: ${logger.maxFiles}`);
-
-      if (otherSettings.length > 0) {
-        output += `   • Other: ${otherSettings.join(", ")}\n`;
-      }
-    }
-  }
-
-  // Backend-specific Configuration (only show if configured)
-  if (resolved.backendConfig && Object.keys(resolved.backendConfig).length > 0) {
-    const hasNonEmptyBackends = Object.entries(resolved.backendConfig).some(
-      ([, config]) =>
-        config && typeof config === "object" && Object.keys(config as object).length > 0
-    );
-
-    if (hasNonEmptyBackends) {
-      output += "⚙️  Backend Configuration:\n";
-
-      for (const [backend, config] of Object.entries(resolved.backendConfig)) {
-        if (config && typeof config === "object" && Object.keys(config as object).length > 0) {
-          output += `   • ${backend}:\n`;
-          for (const [key, value] of Object.entries(config as object)) {
-            output += `     ${key}: ${value}\n`;
-          }
-        }
-      }
-    }
-  }
-
-  return output.trim();
-}
-
-function getBackendDisplayName(backend: string): string {
-  switch (backend) {
-    case "markdown":
-      return "Markdown files (process/tasks.md)";
-    case "json-file":
-      return "JSON files";
-    case "github-issues":
-      return "GitHub Issues";
-    default:
-      return backend;
-  }
-}
-
-function getSessionBackendDisplayName(backend: string): string {
-  switch (backend) {
-    case "json":
-      return "JSON files";
-    case "sqlite":
-      return "SQLite database";
-    case "postgres":
-      return "PostgreSQL database";
-    default:
-      return backend;
-  }
-}
+// Removed duplicate getBackendDisplayName and getSessionBackendDisplayName - using imports from utilities instead
 
 function formatDetectionCondition(condition: string): string {
   switch (condition) {

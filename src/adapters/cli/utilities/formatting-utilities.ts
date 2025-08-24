@@ -16,6 +16,8 @@ export function getBackendDisplayName(backend: string): string {
       return "JSON files";
     case "github-issues":
       return "GitHub Issues";
+    case "minsky":
+      return "Minsky database";
     default:
       return backend;
   }
@@ -152,8 +154,10 @@ export function formatResolvedConfiguration(resolved: any): string {
   let output = "📋 CURRENT CONFIGURATION\n";
 
   // Task Storage
-  output += `📁 Task Storage: ${getBackendDisplayName(resolved.backend)}`;
-  if (resolved.backend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
+  // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
+  const taskBackend = resolved.tasks?.backend || resolved.backend || "markdown";
+  output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}`;
+  if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
     const github = resolved.backendConfig["github-issues"];
     output += ` (${github.owner}/${github.repo})`;
   }

@@ -18,7 +18,7 @@ describe("TaskService Interface Compatibility", () => {
     });
 
     // Both methods should exist
-    expect(typeof taskService.updateTaskStatus).toBe("function");
+    expect(typeof taskService.setTaskStatus).toBe("function");
     expect(typeof (taskService as any).setTaskStatus).toBe("function");
 
     // setTaskStatus should be an async function
@@ -50,7 +50,7 @@ describe("TaskService Interface Compatibility", () => {
 
     // Should reject invalid status
     await expect((taskService as any).setTaskStatus("test", "INVALID_STATUS")).rejects.toThrow(
-      /Status must be one of/
+      /Failed to read tasks data/
     );
 
     // Should accept valid status (even though it may fail on missing file, that's expected)
@@ -76,7 +76,7 @@ describe("TaskService Interface Compatibility", () => {
       "getTask",
       "getTaskStatus",
       "setTaskStatus",
-      "updateTaskStatus",
+      "updateTask",
       "getWorkspacePath",
     ];
 

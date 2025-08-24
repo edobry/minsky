@@ -686,7 +686,7 @@
 
 - [x] Improve task search output to include title, spec path, and other relevant information by default, with additional details behind a flag. Update both CLI and JSON output formats. [md#438](process/tasks/md#438-improve-task-search-output-to-include-title-spec-path-and-other-relevant-information-by-default-with-additional-details-behind-a-flag-update-both-cli-and-json-output-formats-.md)
 
-- [+] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
+- [x] Implement Minimal DB-Only Tasks Backend (db#) and Manual Export Command [md#439](process/tasks/md#439-implement-minimal-db-only-tasks-backend-db-and-manual-export-command.md)
 
 - [ ] Define Phased Future Direction: Backend-SoT + DB Overlay, MCP‑First (Minimal Path) [md#440](process/tasks/md#440-define-phased-future-direction-backend-sot-db-overlay-mcp-first-minimal-path-.md)
 
@@ -694,7 +694,7 @@
 
 - [ ] Implement Task Routing System for Automated Implementation Planning [md#442](process/tasks/md#442-implement-task-routing-system-for-automated-implementation-planning.md)
 
-- [ ] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
+- [+] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
 
 - [x] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
 
@@ -741,3 +741,5 @@
 - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
 - [ ] Create Test Architecture Documentation [md#459](process/tasks/md#459-create-test-architecture-documentation.md)
+
+- [ ] Implement test coverage enforcement in pre-commit hooks [md#460](process/tasks/md#460-implement-test-coverage-enforcement-in-pre-commit-hooks.md)

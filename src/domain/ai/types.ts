@@ -110,7 +110,7 @@ export interface AIModel {
   id: string;
   provider: string;
   name: string;
-  description?: string;
+  spec?: string;
   capabilities: AICapability[];
   contextWindow: number;
   maxOutputTokens: number;

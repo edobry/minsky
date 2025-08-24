@@ -38,14 +38,30 @@ export class OpenAIEmbeddingService implements EmbeddingService {
   }
 
   async generateEmbedding(content: string): Promise<number[]> {
-    const resp = await this.request([content]);
+    const resp = await this.requestWithRetry([content]);
     if (!resp.data?.[0]?.embedding) throw new Error("Invalid embedding response");
     return resp.data[0].embedding;
   }
 
   async generateEmbeddings(contents: string[]): Promise<number[][]> {
-    const resp = await this.request(contents);
+    const resp = await this.requestWithRetry(contents);
     return resp.data.map((d) => d.embedding);
+  }
+
+  private async requestWithRetry(inputs: string[]) {
+    try {
+      const { IntelligentRetryService } = await import("./intelligent-retry-service");
+      const retry = new IntelligentRetryService({ maxRetries: 3, baseDelay: 500 });
+      return await retry.execute(
+        async () => this.request(inputs),
+        (error) =>
+          /503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(String(error?.message || "")),
+        "openai-embeddings"
+      );
+    } catch {
+      // Fallback: single attempt
+      return this.request(inputs);
+    }
   }
 
   private async request(inputs: string[]): Promise<OpenAIEmbeddingResponse> {
@@ -60,8 +76,21 @@ export class OpenAIEmbeddingService implements EmbeddingService {
     });
 
     if (!res.ok) {
-      const text = await res.text().catch(() => "");
-      throw new Error(`Embedding request failed: ${res.status} ${res.statusText} ${text}`.trim());
+      // Try to parse a helpful JSON error first
+      let extra: string = "";
+      try {
+        const asJson: any = await res.json();
+        const err = asJson?.error || asJson;
+        const parts: string[] = [];
+        if (err?.code) parts.push(`code=${String(err.code)}`);
+        if (err?.type) parts.push(`type=${String(err.type)}`);
+        if (err?.message) parts.push(`message=${String(err.message)}`);
+        extra = parts.length > 0 ? ` - ${parts.join(", ")}` : ` ${JSON.stringify(asJson)}`;
+      } catch {
+        const text = await res.text().catch(() => "");
+        extra = text ? ` ${text}` : "";
+      }
+      throw new Error(`Embedding request failed: ${res.status} ${res.statusText}${extra}`.trim());
     }
     return (await res.json()) as OpenAIEmbeddingResponse;
   }
