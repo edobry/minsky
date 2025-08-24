@@ -4,6 +4,11 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Fix bug in rules search where `rule.spec.toLowerCase()` should be `rule.description.toLowerCase()` causing search failures with undefined property access
+- Add CLI customization for `rules search` to accept query as positional argument, making it consistent with `tasks search` UX
+
 ### Added
 
 - **Post-Migration Validation**: Migration command now performs comprehensive post-migration validation by default
