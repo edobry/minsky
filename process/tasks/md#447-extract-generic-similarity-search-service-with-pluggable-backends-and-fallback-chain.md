@@ -4,7 +4,7 @@
 
 ## Summary
 
-Extract a domain-agnostic similarity search service that supports pluggable backends (embeddings+vector, AI completion, lexical) and a fixed fallback chain used only on backend unavailability. This reduces reimplementation across tasks, rules, and future domains.
+Extract a domain-agnostic similarity search service that supports pluggable backends (embeddings+vector, AI completion, lexical) and a fixed fallback chain used only on backend unavailability. This reduces reimplementation across tasks, rules, and future domains. Additionally, consolidate redundant rule search commands by deprecating `context suggest-rules` in favor of a unified `rules search` interface.
 
 ## Scope
 
@@ -13,6 +13,7 @@ Extract a domain-agnostic similarity search service that supports pluggable back
 - Fixed fallback order: embeddings → ai → lexical. Fallback activates only if a higher-priority backend is unavailable (misconfig/outage/explicitly disabled), not based on score or recall.
 - Minimal domain resolvers to plug domains (tasks, rules) into the generic service: id mapping, candidate listing, content extraction
 - Shared utilities for normalization and de-duplication within a backend result set (no cross-backend mixing)
+- Consolidate redundant rule search commands: deprecate `context suggest-rules` in favor of enhanced `rules search`
 
 ## Phases
 
@@ -31,6 +32,7 @@ Extract a domain-agnostic similarity search service that supports pluggable back
 - Fixed fallback order (embeddings → ai → lexical) with fallback based solely on unavailability of higher-priority backends.
 - Demonstrated use from tasks similarity and rules suggestion with minimal glue (domain resolvers).
 - Documentation and examples; CLI progress/output remains identical across domains.
+- `context suggest-rules` command is deprecated/removed; `rules search` is enhanced with limit/threshold options and serves as the single rule search interface.
 
 ## Requirements
 
@@ -39,6 +41,7 @@ Extract a domain-agnostic similarity search service that supports pluggable back
 - No threshold configuration initially; return top-k sorted by backend's native score. Allow tiny internal floors to drop invalid/NaN scores.
 - Provide naming updates: use `LexicalSimilarityBackend` (not "keyword").
 - Prepare for future reranking (md#446) by leaving a no-op post-processor hook in the core, but add no config or code for reranking yet.
+- **Command Consolidation**: Deprecate `context suggest-rules` command since it's redundant with `rules search` after both use the same similarity search service. Enhance `rules search` with useful options from suggest-rules (`--limit`, `--threshold`) while maintaining backward compatibility.
 
 ## Solution
 
