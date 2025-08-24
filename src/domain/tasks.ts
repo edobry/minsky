@@ -73,7 +73,9 @@ export async function listTasksFromParams(params: any) {
     backend,
   });
 
-  log.debug("tasks.list created TaskService", { backend: taskService.listBackends().find(b => b.prefix === backend)?.name || "default" });
+  log.debug("tasks.list created TaskService", {
+    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+  });
   return await taskService.listTasks(validParams);
 }
 
@@ -111,7 +113,9 @@ export async function getTaskFromParams(params: any) {
     backend,
   });
 
-  log.debug("tasks.get created TaskService", { backend: taskService.listBackends().find(b => b.prefix === backend)?.name || "default" });
+  log.debug("tasks.get created TaskService", {
+    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+  });
   return await taskService.getTask(validParams.taskId);
 }
 
@@ -119,8 +123,14 @@ export async function getTaskStatusFromParams(params: any) {
   const validParams = taskStatusGetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.get params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.status.get created TaskService", { backend: taskService.listBackends().find(b => b.prefix === validParams.backend)?.name || "default" });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.status.get created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   return await taskService.getTaskStatus(validParams.taskId);
 }
 
@@ -128,8 +138,14 @@ export async function setTaskStatusFromParams(params: any) {
   const validParams = taskStatusSetParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.status.set params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.status.set created TaskService", { backend: taskService.listBackends().find(b => b.prefix === validParams.backend)?.name || "default" });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.status.set created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
@@ -138,8 +154,14 @@ export async function createTaskFromParams(params: any) {
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.create params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.create created TaskService", { backend: taskService.listBackends().find(b => b.prefix === validParams.backend)?.name || "default" });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.create created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   return await taskService.createTask(validParams.specPath);
 }
 
@@ -156,7 +178,8 @@ export async function createTaskFromTitleAndSpec(params: any) {
   });
 
   log.debug("tasks.createTitleSpec created TaskService", {
-    backend: taskService.listBackends().find(b => b.prefix === validParams.backend)?.name || "default",
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
@@ -168,8 +191,14 @@ export async function deleteTaskFromParams(params: any) {
   const validParams = taskDeleteParamsSchema.parse(params);
   const workspacePath = process.cwd();
   log.debug("tasks.delete params", { backend: validParams.backend });
-  const taskService = await createConfiguredTaskService({ workspacePath, backend: validParams.backend });
-  log.debug("tasks.delete created TaskService", { backend: taskService.listBackends().find(b => b.prefix === validParams.backend)?.name || "default" });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: validParams.backend,
+  });
+  log.debug("tasks.delete created TaskService", {
+    backend:
+      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+  });
   const success = await taskService.deleteTask(validParams.taskId, validParams);
   return { success, taskId: validParams.taskId };
 }
@@ -202,7 +231,9 @@ export async function getTaskSpecContentFromParams(params: any) {
   }
 
   const taskService = await createConfiguredTaskService({ workspacePath, backend });
-  log.debug("tasks.spec created TaskService", { backend: taskService.listBackends().find(b => b.prefix === backend)?.name || "default" });
+  log.debug("tasks.spec created TaskService", {
+    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+  });
   return await taskService.getTaskSpecContent(validParams.taskId);
 }
 

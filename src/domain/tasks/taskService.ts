@@ -270,52 +270,11 @@ export class TaskService {
     return await this.currentBackend.getTaskMetadata(id);
   }
 
-  // ---- Factory Methods ----
-
-  static async createWithRepositoryBackend(
-    workspacePath: string,
-    repoConfig?: any
-  ): Promise<TaskService> {
-    const effectiveBackend = repoConfig?.backend || "markdown";
-
-    let taskBackend: TaskBackend;
-    if (effectiveBackend === "markdown") {
-      taskBackend = createMarkdownTaskBackend({
-        name: "markdown",
-        workspacePath,
-      });
-    } else if (effectiveBackend === "json-file") {
-      taskBackend = createJsonFileTaskBackend({
-        name: "json-file",
-        workspacePath,
-      });
-    } else if (effectiveBackend === "minsky") {
-      taskBackend = createMinskyTaskBackend({
-        name: "minsky",
-        workspacePath,
-      });
-    } else {
-      throw new Error(`Unsupported backend type: ${effectiveBackend}`);
-    }
-
-    const service = new TaskService({
-      workspacePath,
-      backend: effectiveBackend,
-    });
-
-    if (taskBackend) {
-      service.currentBackend = taskBackend;
-    }
-
-    return service;
-  }
 }
 
 // ---- Factory Functions ----
 
-export function createTaskService(options: TaskServiceOptions): TaskService {
-  return new TaskService(options);
-}
+
 
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
@@ -346,13 +305,16 @@ export async function createConfiguredTaskService(options: {
       // Direct database connection bypassing config system
       const { drizzle } = await import("drizzle-orm/postgres-js");
       const postgres = (await import("postgres")).default;
-      
-      const sql = postgres("postgresql://postgres.prncxnvwabtrqrwvrvki:9o1hHdmKmsfCbltp@aws-0-us-east-2.pooler.supabase.com:6543/postgres", {
-        prepare: false,
-        onnotice: () => {},
-      });
+
+      const sql = postgres(
+        "postgresql://postgres.prncxnvwabtrqrwvrvki:9o1hHdmKmsfCbltp@aws-0-us-east-2.pooler.supabase.com:6543/postgres",
+        {
+          prepare: false,
+          onnotice: () => {},
+        }
+      );
       const db = drizzle(sql);
-      
+
       const minskyBackend = createMinskyTaskBackend({
         name: "minsky",
         workspacePath: "/Users/edobry/Projects/minsky", // Use absolute path to main workspace
@@ -400,47 +362,7 @@ export function parseGitHubRepoString(input: string): { owner: string; repo: str
   return { owner, repo };
 }
 
-/**
- * Creates a TaskService with proper dependency injection
- * Handles database connection creation for Minsky backend
- */
-export async function createTaskServiceWithDatabase(
-  options: TaskServiceOptions
-): Promise<TaskService> {
-  const backends: TaskBackend[] = [
-    createMarkdownTaskBackend({
-      name: "markdown",
-      workspacePath: options.workspacePath,
-    }),
-    createJsonFileTaskBackend({
-      name: "json-file",
-      workspacePath: options.workspacePath,
-    }),
-  ];
 
-  // Only try to add Minsky backend if needed
-  if (options.backend === "minsky" || !options.backend) {
-    try {
-      const db = await createDatabaseConnection();
-      backends.push(
-        createMinskyTaskBackend({
-          name: "minsky",
-          workspacePath: options.workspacePath,
-          db,
-        })
-      );
-      log.debug("Minsky backend added successfully");
-    } catch (error) {
-      log.warn(`Failed to create Minsky backend: ${error}. Minsky backend will not be available.`);
-      // If user specifically requested minsky backend but it failed, throw error
-      if (options.backend === "minsky") {
-        throw new Error(`Cannot create Minsky backend: ${error}`);
-      }
-    }
-  }
-
-  return new TaskService({ ...options, backends });
-}
 
 // ---- Type Exports ----
 
