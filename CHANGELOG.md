@@ -12,10 +12,18 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Context Analysis Only Mode**: Added `--analyze-only` flag to `minsky context generate` command to show only token analysis without full context content
-
+  
   - Supports both text and JSON output formats
   - Maintains backward compatibility with existing `--analyze` flag
   - Provides cleaner output when only analysis metrics are needed
+
+- **Enhanced Context Analysis Metadata**: Improved context analysis to include comprehensive model and tokenization information
+  
+  - Replaced `--format json` with `--json` flag for CLI consistency with other commands
+  - Shows model name, interface mode (cli/mcp), tokenizer details, and context window size
+  - Accurate context window utilization based on model-specific limits (Claude: 200k, GPT-4o: 128k, etc.)
+  - Includes generation timestamp and performance metrics
+  - Better optimization suggestions with model-aware calculations
 
 - **Post-Migration Validation**: Migration command now performs comprehensive post-migration validation by default
 
