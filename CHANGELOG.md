@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
+- Fixed SASL_SIGNATURE_MISMATCH database authentication error when using `minsky tasks list` command. The minsky task backend now properly uses the configured PostgreSQL connection string from `sessiondb.postgres.connectionString` instead of a hardcoded connection string with outdated credentials.
 
 - **CRITICAL Security**: Enhanced secret scanning to detect database credentials - gitleaks now catches PostgreSQL, MySQL, MongoDB, Redis connection strings with credentials (closes major security gap that allowed Supabase credentials to slip through)
 - **Security**: Remove hardcoded PostgreSQL URL fallback in storage configuration - now properly throws error when MINSKY_POSTGRES_URL not set, preventing accidental connections to unintended databases
