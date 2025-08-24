@@ -545,7 +545,7 @@ export class RuleService {
       }
 
       // Search in description
-      if (rule.description && rule.spec.toLowerCase().includes(searchTerm)) {
+      if (rule.description && rule.description.toLowerCase().includes(searchTerm)) {
         return true;
       }
 

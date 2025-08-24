@@ -38,14 +38,30 @@ export class OpenAIEmbeddingService implements EmbeddingService {
   }
 
   async generateEmbedding(content: string): Promise<number[]> {
-    const resp = await this.request([content]);
+    const resp = await this.requestWithRetry([content]);
     if (!resp.data?.[0]?.embedding) throw new Error("Invalid embedding response");
     return resp.data[0].embedding;
   }
 
   async generateEmbeddings(contents: string[]): Promise<number[][]> {
-    const resp = await this.request(contents);
+    const resp = await this.requestWithRetry(contents);
     return resp.data.map((d) => d.embedding);
+  }
+
+  private async requestWithRetry(inputs: string[]) {
+    try {
+      const { IntelligentRetryService } = await import("./intelligent-retry-service");
+      const retry = new IntelligentRetryService({ maxRetries: 3, baseDelay: 500 });
+      return await retry.execute(
+        async () => this.request(inputs),
+        (error) =>
+          /503|Service Unavailable|ECONNRESET|ETIMEDOUT/i.test(String(error?.message || "")),
+        "openai-embeddings"
+      );
+    } catch {
+      // Fallback: single attempt
+      return this.request(inputs);
+    }
   }
 
   private async request(inputs: string[]): Promise<OpenAIEmbeddingResponse> {

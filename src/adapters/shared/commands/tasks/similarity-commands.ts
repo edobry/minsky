@@ -26,7 +26,8 @@ export class TasksSimilarCommand extends BaseTaskCommand {
    */
   private async enhanceSearchResults(
     searchResults: Array<{ id: string; score?: number }>,
-    includeDetails: boolean = false
+    includeDetails: boolean = false,
+    includeSpecPath: boolean = true
   ): Promise<
     Array<{
       id: string;
@@ -43,10 +44,14 @@ export class TasksSimilarCommand extends BaseTaskCommand {
       try {
         // Get full task details
         const tasksModule = await import("../../../../domain/tasks");
-        const taskService = await (tasksModule as any).createConfiguredTaskService({
-          workspacePath: process.cwd(),
-          backend: "markdown",
-        });
+        const { createTaskServiceWithDatabase } = await import(
+          "../../../../domain/tasks/taskService"
+        );
+        const taskService = (await (tasksModule as any).createTaskServiceWithDatabase)
+          ? await (tasksModule as any).createTaskServiceWithDatabase({
+              workspacePath: process.cwd(),
+            })
+          : await createTaskServiceWithDatabase({ workspacePath: process.cwd() });
         const task = await taskService.getTask(result.id);
 
         if (task) {
@@ -55,7 +60,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
             score: result.score,
             title: task.title,
             status: task.status,
-            specPath: task.specPath,
+            specPath: includeSpecPath ? (task as any).specPath : undefined,
             // Only include description if details requested
             description: includeDetails ? task.description : undefined,
           });
@@ -91,7 +96,12 @@ export class TasksSimilarCommand extends BaseTaskCommand {
     const searchResults = await service.similarToTask(taskId, limit, threshold);
 
     // Enhance results with task details for better usability
-    const enhancedResults = await this.enhanceSearchResults(searchResults, (params as any).details);
+    const includeSpecPath = (params as any).backend !== "minsky";
+    const enhancedResults = await this.enhanceSearchResults(
+      searchResults,
+      (params as any).details,
+      includeSpecPath
+    );
 
     return this.formatResult(
       {
@@ -115,7 +125,8 @@ export class TasksSearchCommand extends BaseTaskCommand {
    */
   private async enhanceSearchResults(
     searchResults: Array<{ id: string; score?: number }>,
-    includeDetails: boolean = false
+    includeDetails: boolean = false,
+    includeSpecPath: boolean = true
   ): Promise<
     Array<{
       id: string;
@@ -132,10 +143,14 @@ export class TasksSearchCommand extends BaseTaskCommand {
       try {
         // Get full task details
         const tasksModule = await import("../../../../domain/tasks");
-        const taskService = await (tasksModule as any).createConfiguredTaskService({
-          workspacePath: process.cwd(),
-          backend: "markdown",
-        });
+        const { createTaskServiceWithDatabase } = await import(
+          "../../../../domain/tasks/taskService"
+        );
+        const taskService = (await (tasksModule as any).createTaskServiceWithDatabase)
+          ? await (tasksModule as any).createTaskServiceWithDatabase({
+              workspacePath: process.cwd(),
+            })
+          : await createTaskServiceWithDatabase({ workspacePath: process.cwd() });
         const task = await taskService.getTask(result.id);
 
         if (task) {
@@ -144,7 +159,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
             score: result.score,
             title: task.title,
             status: task.status,
-            specPath: task.specPath,
+            specPath: includeSpecPath ? (task as any).specPath : undefined,
             // Only include description if details requested
             description: includeDetails ? task.description : undefined,
           });
@@ -202,7 +217,12 @@ export class TasksSearchCommand extends BaseTaskCommand {
     const searchResults = await service.searchByText(query, limit, threshold);
 
     // Enhance results with task details for better usability
-    let enhancedResults = await this.enhanceSearchResults(searchResults, (params as any).details);
+    const includeSpecPath = (params as any).backend !== "minsky";
+    let enhancedResults = await this.enhanceSearchResults(
+      searchResults,
+      (params as any).details,
+      includeSpecPath
+    );
 
     // Apply status filtering using shared utility
     const { filterTasksByStatus } = await import("../../../../domain/tasks/task-filters");
@@ -237,10 +257,10 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const tasksModule = await import("../../../../domain/tasks");
-  const taskService = await (tasksModule as any).createConfiguredTaskService({
-    workspacePath: process.cwd(),
-    backend: "markdown",
-  });
+  const { createTaskServiceWithDatabase } = await import("../../../../domain/tasks/taskService");
+  const taskService = (await (tasksModule as any).createTaskServiceWithDatabase)
+    ? await (tasksModule as any).createTaskServiceWithDatabase({ workspacePath: process.cwd() })
+    : await createTaskServiceWithDatabase({ workspacePath: process.cwd() });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);

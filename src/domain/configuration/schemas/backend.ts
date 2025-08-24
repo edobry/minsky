@@ -53,25 +53,6 @@ export const backendConfigSchema = z
   .default({});
 
 /**
- * Detection rule for automatic backend selection
- */
-export const detectionRuleSchema = z
-  .object({
-    condition: enumSchemas.detectionCondition,
-    backend: baseSchemas.nonEmptyString,
-  })
-  .strict();
-
-/**
- * Array of detection rules (evaluated in order)
- *
- * @deprecated Detection rules that set the root backend property are deprecated.
- * Backend detection is now handled by BackendDetectionService which properly
- * sets tasks.backend instead of the deprecated root backend property.
- */
-export const detectionRulesSchema = z.array(detectionRuleSchema).default([]);
-
-/**
  * Complete backend configuration combining all backend-related settings
  */
 export const backendFullConfigSchema = z
@@ -81,9 +62,6 @@ export const backendFullConfigSchema = z
 
     // Backend-specific configurations
     backendConfig: backendConfigSchema,
-
-    // Automatic detection rules
-    detectionRules: detectionRulesSchema,
   })
   .strict();
 

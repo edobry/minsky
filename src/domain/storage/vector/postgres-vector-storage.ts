@@ -49,6 +49,7 @@ export class PostgresVectorStorage implements VectorStorage {
       embeddingColumn: "vector",
       // dimension column was dropped in migration 0009
       lastIndexedAtColumn: "indexed_at",
+      contentHashColumn: "content_hash",
     });
   }
 
@@ -123,6 +124,23 @@ export class PostgresVectorStorage implements VectorStorage {
        ON CONFLICT (${this.config.idColumn}) DO UPDATE SET ${updateSets.join(", ")}`;
 
     await this.sql.unsafe(sql, values);
+  }
+
+  async getMetadata(id: string): Promise<Record<string, any> | null> {
+    const cols: string[] = [this.config.idColumn];
+    if (this.config.contentHashColumn) cols.push(this.config.contentHashColumn);
+    if (this.config.lastIndexedAtColumn) cols.push(this.config.lastIndexedAtColumn);
+    if (this.config.metadataColumn) cols.push(this.config.metadataColumn);
+
+    const rows = await this.sql.unsafe(
+      `SELECT ${cols.join(", ")} FROM ${this.config.tableName} WHERE ${this.config.idColumn} = $1 LIMIT 1`,
+      [id]
+    );
+    const row = (rows as any[])[0];
+    if (!row) return null;
+    const out: Record<string, any> = {};
+    for (const c of cols) out[c] = (row as any)[c];
+    return out;
   }
 
   async search(queryVector: number[], limit = 10, threshold = 0.0): Promise<SearchResult[]> {

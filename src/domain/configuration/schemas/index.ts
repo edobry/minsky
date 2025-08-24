@@ -8,12 +8,7 @@
 import { z } from "zod";
 
 // Import all domain schemas
-import {
-  backendConfigSchema,
-  detectionRulesSchema,
-  type BackendConfig,
-  type DetectionRules,
-} from "./backend";
+import { backendSchema, backendConfigSchema, type Backend, type BackendConfig } from "./backend";
 
 import { sessionDbConfigSchema, type SessionDbConfig } from "./sessiondb";
 
@@ -38,7 +33,6 @@ export const configurationSchema = z
   .object({
     // Note: Deprecated root 'backend' property removed - use tasks.backend instead
     backendConfig: backendConfigSchema,
-    detectionRules: detectionRulesSchema,
 
     // Session database configuration
     sessiondb: sessionDbConfigSchema,
@@ -243,7 +237,6 @@ export const configurationValidation = {
 export type {
   Backend,
   BackendConfig,
-  DetectionRules,
   SessionDbConfig,
   GitHubConfig,
   AIConfig,
@@ -257,7 +250,6 @@ export type {
 export {
   backendSchema,
   backendConfigSchema,
-  detectionRulesSchema,
   sessionDbConfigSchema,
   githubConfigSchema,
   aiConfigSchema,

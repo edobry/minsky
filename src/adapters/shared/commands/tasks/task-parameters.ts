@@ -94,6 +94,16 @@ export const taskDeletionParams = {
 export const tasksIndexEmbeddingsParams: CommandParameterMap = {
   // Optional single-task target (CLI should use --task, not --task-id)
   task: CommonParameters.task,
+  reindex: {
+    schema: z.boolean().default(false),
+    description: "Force re-embedding even if up-to-date",
+    required: false,
+  },
+  concurrency: {
+    schema: z.number().int().positive().default(4),
+    description: "Number of tasks to index in parallel",
+    required: false,
+  },
   limit: {
     schema: z.number().int().positive().default(10),
     description: "Max number of tasks to index (to avoid heavy costs)",

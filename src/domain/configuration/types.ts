@@ -95,15 +95,9 @@ export interface GlobalUserConfig {
 
 // Core Configuration Types
 
-export interface DetectionRule {
-  condition: "json_file_exists" | "tasks_md_exists" | "always";
-  backend: string;
-}
-
 export interface ResolvedConfig {
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfig;
-  detectionRules: DetectionRule[];
   sessiondb: SessionDbConfig;
   github?: GitHubConfig;
   ai?: AIConfig;

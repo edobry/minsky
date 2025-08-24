@@ -892,6 +892,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
       "rules.search": {
         parameters: {
           query: {
+            asArgument: true,
             description: "Search query term",
           },
           tag: {
