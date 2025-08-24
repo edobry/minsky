@@ -14,8 +14,8 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createMinskyTaskBackend, type MinskyTaskBackendConfig } from "./minskyTaskBackend";
 import {
-  createMultiBackendTaskService,
-  type MultiBackendTaskService,
+  createTaskService,
+  type TaskService,
 } from "./multi-backend-service";
 import { createDatabaseConnection } from "../database/connection-manager";
 import { log } from "../../utils/logger";
@@ -43,8 +43,8 @@ export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
 }): Promise<TaskServiceInterface> {
-  // Create multi-backend service - this is now the default!
-  const service = createMultiBackendTaskService({ workspacePath: options.workspacePath });
+  // Create task service - automatically handles multiple backends!
+  const service = createTaskService({ workspacePath: options.workspacePath });
 
   // Register all available backends with their prefixes
   try {

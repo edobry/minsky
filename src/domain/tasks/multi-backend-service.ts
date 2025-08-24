@@ -47,7 +47,7 @@ export interface TaskExportData {
 }
 
 // Public service interface - extends TaskServiceInterface for compatibility
-export interface MultiBackendTaskService extends TaskServiceInterface {
+export interface TaskService extends TaskServiceInterface {
   // Multi-backend specific methods
   registerBackend(backend: TaskBackend): void;
   listBackends(): TaskBackend[];
@@ -57,7 +57,7 @@ export interface MultiBackendTaskService extends TaskServiceInterface {
 }
 
 // Complete implementation that supports both single-backend and multi-backend operations
-export class MultiBackendTaskServiceImpl implements MultiBackendTaskService {
+export class TaskServiceImpl implements TaskService {
   private readonly backends: TaskBackend[] = [];
   private readonly workspacePath: string;
   private defaultBackend: TaskBackend | null = null;
@@ -270,8 +270,8 @@ export class MultiBackendTaskServiceImpl implements MultiBackendTaskService {
 }
 
 // Production-ready factory function
-export function createMultiBackendTaskService(options: {
+export function createTaskService(options: {
   workspacePath: string;
-}): MultiBackendTaskService {
-  return new MultiBackendTaskServiceImpl(options);
+}): TaskService {
+  return new TaskServiceImpl(options);
 }

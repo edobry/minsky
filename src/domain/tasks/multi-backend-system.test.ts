@@ -8,14 +8,14 @@ import type {
   MigrationResult,
   CollisionReport,
   TaskCollision,
-  MultiBackendTaskService,
+  TaskService,
 } from "./multi-backend-service";
 import {
   createMockBackend,
-  createMultiBackendTaskServiceWithMocks,
+  createTaskServiceWithMocks,
   mockTaskSpecs,
 } from "./mock-backend-factory";
-import { createMultiBackendTaskService } from "./multi-backend-service";
+import { createTaskService } from "./multi-backend-service";
 
 describe("Multi-Backend Task System", () => {
   describe("TaskBackend Interface", () => {
@@ -53,7 +53,7 @@ describe("Multi-Backend Task System", () => {
     describe("Backend Registration", () => {
       it("should register multiple backends", () => {
         const { service, mdBackend, ghBackend, jsonBackend } =
-          createMultiBackendTaskServiceWithMocks();
+          createTaskServiceWithMocks();
         const backends = service.listBackends();
         expect(backends.length).toBe(3);
         expect(backends.map((b) => (b as any).prefix)).toEqual(["md", "gh", "json"]);
@@ -62,7 +62,7 @@ describe("Multi-Backend Task System", () => {
 
     describe("Task Operations", () => {
       it("should support task creation across backends", async () => {
-        const { service } = createMultiBackendTaskServiceWithMocks();
+        const { service } = createTaskServiceWithMocks();
         const spec = mockTaskSpecs.simple();
         const created = await service.createTask({ ...spec, id: "md#new" } as any, "md");
         expect(created.id.startsWith("md#")).toBe(true);
@@ -70,7 +70,7 @@ describe("Multi-Backend Task System", () => {
       });
 
       it("should support task listing from all backends", async () => {
-        const { service } = createMultiBackendTaskServiceWithMocks();
+        const { service } = createTaskServiceWithMocks();
         const all = await service.listAllTasks();
         expect(all.length).toBe(6);
         const ids = all.map((t) => t.id);
@@ -82,7 +82,7 @@ describe("Multi-Backend Task System", () => {
 
     describe("ID Management", () => {
       it("should convert all task IDs to qualified format", async () => {
-        const { service } = createMultiBackendTaskServiceWithMocks();
+        const { service } = createTaskServiceWithMocks();
         const all = await service.listAllTasks();
         expect(all.every((t) => /.+#.+/.test(t.id))).toBe(true);
       });

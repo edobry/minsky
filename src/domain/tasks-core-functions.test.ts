@@ -89,7 +89,9 @@ describe("interface-agnostic task functions", () => {
     });
 
     // Spy on the factory function (LEGACY PATTERN - works!)
-    spyOn(taskServiceModule, "createConfiguredTaskService").mockImplementation(() => Promise.resolve(taskDeps.taskService));
+    spyOn(taskServiceModule, "createConfiguredTaskService").mockImplementation(() =>
+      Promise.resolve(taskDeps.taskService)
+    );
   });
 
   describe("listTasksFromParams", () => {
