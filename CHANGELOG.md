@@ -386,3 +386,5 @@ All notable changes to this project will be documented in this file.
 - tasks: Centralized status filtering in `src/domain/tasks/task-filters.ts`; both `TaskService.listTasks` and `tasks search` use the same utility to ensure consistent behavior.
 
 - similarity(core): Extract generic `SimilaritySearchService` with pluggable backends (embeddings → ai → lexical, fallback only on unavailability). Introduced shared types (`src/domain/similarity/types.ts`), core orchestrator (`similarity-search-service.ts`), and backends (`backends/embeddings-backend.ts`, `backends/lexical-backend.ts`, AI backend scaffold). Wired `TaskSimilarityService` to delegate to the core via resolvers. No behavior change in CLI output; prepares for future md#446 reranking without config changes.
+
+- md#447 (spec): Finalize semantics: embeddings → ai → lexical; fallback only on unavailability; remove thresholds (top-k per backend); reserve rerank hook for md#446 (design only). Kept CLI stable; delegate tasks/rules flows to the core internally.
