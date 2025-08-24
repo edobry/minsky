@@ -13,7 +13,8 @@ export async function createRuleSimilarityCore(workspacePath: string) {
   const dimension = getEmbeddingDimension(model, 1536);
 
   let embeddings: EmbeddingsSimilarityBackend | null = null;
-  const disable = typeof process !== "undefined" && process.env?.SIMILARITY_DISABLE_EMBEDDINGS === "1";
+  const disable =
+    typeof process !== "undefined" && process.env?.SIMILARITY_DISABLE_EMBEDDINGS === "1";
   if (!disable) {
     try {
       const embedding = await createEmbeddingServiceFromConfig();

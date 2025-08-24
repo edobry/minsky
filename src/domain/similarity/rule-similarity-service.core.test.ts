@@ -9,10 +9,11 @@ describe("RuleSimilarityService → SimilaritySearchService (lexical fallback)",
   const workspacePath = "/mock/workspace";
 
   beforeAll(async () => {
-    const { initializeConfiguration, CustomConfigFactory } = await import(
-      "../configuration/index"
-    );
-    await initializeConfiguration(new CustomConfigFactory(), { enableCache: true, skipValidation: true });
+    const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");
+    await initializeConfiguration(new CustomConfigFactory(), {
+      enableCache: true,
+      skipValidation: true,
+    });
     (process as any).env = { ...(process as any).env, SIMILARITY_DISABLE_EMBEDDINGS: "1" };
   });
 

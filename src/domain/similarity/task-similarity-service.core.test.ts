@@ -8,10 +8,11 @@ import { EmbeddingsSimilarityBackend } from "./backends/embeddings-backend";
 
 describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)", () => {
   beforeAll(async () => {
-    const { initializeConfiguration, CustomConfigFactory } = await import(
-      "../configuration/index"
-    );
-    await initializeConfiguration(new CustomConfigFactory(), { enableCache: true, skipValidation: true });
+    const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");
+    await initializeConfiguration(new CustomConfigFactory(), {
+      enableCache: true,
+      skipValidation: true,
+    });
     // Ensure embeddings backend is globally disabled for this test file
     (process as any).env = { ...(process as any).env, SIMILARITY_DISABLE_EMBEDDINGS: "1" };
   });
