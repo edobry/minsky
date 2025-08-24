@@ -1,12 +1,68 @@
 # Upgrade to Multi-Backend TaskService with Proper Qualified ID Routing
 
-Status: TODO
+Status: IN-PROGRESS
 Priority: HIGH
 Dependencies: md#439 (database backend implementation)
 
 ## Summary
 
 Replace the current single-backend `TaskService` with the `MultiBackendTaskService` to enable proper qualified ID routing. When a user calls `getTask("md#123")`, it should automatically route to the markdown backend with `localId="123"`. This will enable true multi-backend coordination and deprecate the current limited single-backend architecture.
+
+## ⚠️ CURRENT STATUS - CRITICAL ANALYSIS (Updated)
+
+### ✅ **COMPLETED WORK**
+
+**Multi-Backend Service Implementation:**
+- ✅ `MultiBackendTaskService` fully implements `TaskServiceInterface` 
+- ✅ All interface compatibility issues resolved
+- ✅ Database connection fixed (Supabase instead of localhost)
+- ✅ Schema alignment corrected
+- ✅ 738 total tasks accessible (372 md# + 366 mt#)
+
+**Core Command Functions Updated:**
+- ✅ `src/domain/tasks.ts` - All 8 main command functions now use `createConfiguredTaskService`
+- ✅ Session operations - Already using `createConfiguredTaskService`
+- ✅ `similarity-commands.ts` - Already using `createConfiguredTaskService`
+
+**Test Results:**
+- ✅ 1,417 tests passing
+- ✅ Multi-backend routing verified working
+- ✅ All backend types accessible through unified interface
+
+### 🔴 **REMAINING LEGACY USAGE** (Critical Production Issues)
+
+**Major Production Files Still Using Legacy:**
+
+1. **`src/domain/tasks/taskCommands.ts`** - 🔴 **15+ instances of `createTaskServiceWithDatabase`**
+   - Lines: 88, 152, 218, 280, 406, 549 and imported at line 12
+   - Used in dependency injection patterns for command functions
+   - **Impact**: Command-level operations bypass multi-backend routing
+
+2. **`src/adapters/shared/commands/tasks/migrate-backend-command.ts`** - 🔴 **5 instances of `createTaskServiceWithDatabase`**
+   - Lines: 214, 218, 463, 468 and imported at line 12
+   - **Impact**: Migration operations use single-backend approach
+
+3. **`src/domain/tasks/taskService.ts`** - 🔴 **Legacy factory functions still exported**
+   - `createTaskService()` - Line 316 (old single-backend factory)
+   - `createTaskServiceWithDatabase()` - Line 410 (intermediate factory)
+   - `new TaskService()` usage in lines 301, 317, 445
+   - **Impact**: Legacy API still available, confusion about which to use
+
+4. **`src/domain/tasks/index.js`** - 🔴 **Legacy exports**
+   - Still exports `createTaskService` alongside new functions
+   - **Impact**: Mixed API surface, unclear migration path
+
+### 📊 **COMPLETION ANALYSIS**
+
+**Current Completion: ~60%**
+- ✅ Core functionality: 40% (interface, routing, database connection)
+- ✅ Main commands: 15% (src/domain/tasks.ts functions)
+- 🔴 Command operations: 20% (taskCommands.ts - REMAINING)
+- 🔴 Migration tools: 10% (migrate-backend-command.ts - REMAINING)  
+- 🔴 Legacy cleanup: 10% (factory functions, exports - REMAINING)
+- ✅ Testing: 5% (verification completed)
+
+**Estimated Remaining Work: 3-4 hours**
 
 ## Context
 
@@ -108,59 +164,135 @@ await taskService.getTask("db#789"); // ✅ Routes to database backend with loca
 - [ ] **Configuration**: Support both single-backend and multi-backend configs
 - [ ] **Error handling**: Proper error messages for unknown backend prefixes
 
-## Implementation Steps
+## 🚨 REMAINING IMPLEMENTATION WORK
 
-### Phase 1: Backend Interface Updates
+### **PHASE 1: Complete Command-Level Integration** (Priority 1 - ~2 hours)
 
-1. **Add multi-backend interface properties** to all existing backends:
+**Target**: Replace all `createTaskServiceWithDatabase` with `createConfiguredTaskService`
 
-   - Add `prefix` property (`"md"`, `"gh"`, `"db"`, `"json"`)
-   - Implement `exportTask()` and `importTask()` methods
-   - Implement `validateLocalId()` method
+#### **1.1 Update `src/domain/tasks/taskCommands.ts`**
+- 🔴 **Lines to fix**: 88, 152, 218, 280, 406, 549
+- 🔴 **Import to fix**: Line 12 - remove `createTaskServiceWithDatabase`
+- **Pattern replacement**:
+  ```typescript
+  // OLD (15+ instances):
+  const createTaskService = deps?.createTaskService || 
+    (async (options) => await createTaskServiceWithDatabase(options));
+  
+  // NEW:
+  const createTaskService = deps?.createTaskService || 
+    (async (options) => await createConfiguredTaskService(options));
+  ```
+- **Impact**: Fixes dependency injection for all command-level operations
+- **Testing**: Verify all taskCommands.test.ts tests still pass
 
-2. **Update local ID handling** in all backends:
-   - Ensure backends expect and work with local IDs only (post-# portion)
-   - Ensure backends return qualified IDs in response objects
-   - Update all backend tests to verify this behavior
+#### **1.2 Update `src/adapters/shared/commands/tasks/migrate-backend-command.ts`**
+- 🔴 **Lines to fix**: 214, 218, 463, 468
+- 🔴 **Import to fix**: Line 12 - replace `createTaskServiceWithDatabase`
+- **Pattern replacement**:
+  ```typescript
+  // OLD (5 instances):
+  const sourceService = await createTaskServiceWithDatabase({
+    workspacePath, backend: sourceBackend
+  });
+  
+  // NEW:
+  const sourceService = await createConfiguredTaskService({
+    workspacePath, backend: sourceBackend
+  });
+  ```
+- **Impact**: Fixes migration operations to use multi-backend routing
+- **Testing**: Verify migrate-backend tests still pass
 
-### Phase 2: Service Integration
+### **PHASE 2: Legacy API Cleanup** (Priority 2 - ~1 hour)
 
-3. **Replace TaskService with MultiBackendTaskService**:
+#### **2.1 Remove Legacy Factory Functions from `src/domain/tasks/taskService.ts`**
 
-   - Update service creation in CLI adapters
-   - Update service creation in MCP adapters
-   - Update imports throughout codebase
+**Remove these functions** (mark as deprecated first, then remove):
+- 🔴 **Line 316**: `export function createTaskService(options: TaskServiceOptions): TaskService`
+- 🔴 **Line 410**: `export async function createTaskServiceWithDatabase(options: TaskServiceOptions): Promise<TaskService>`
 
-4. **Update routing configuration**:
-   - Register all available backends in MultiBackendTaskService
-   - Set appropriate default backend for unqualified IDs
-   - Handle backend availability gracefully
+**Remove these internal usages**:
+- 🔴 **Line 301**: `const service = new TaskService({ workspacePath, backend: effectiveBackend });`
+- 🔴 **Line 317**: `return new TaskService(options);`
+- 🔴 **Line 445**: `return new TaskService({ ...options, backends });`
 
-### Phase 3: Testing and Validation
+**Action Plan**:
+1. **Mark as deprecated** with `@deprecated` JSDoc comments
+2. **Add deprecation warnings** in implementation
+3. **Update internal usage** to use `createConfiguredTaskService`
+4. **Remove after verification** that nothing breaks
 
-5. **Verify multi-backend tests** (STATUS: ✅ ALREADY PASSING):
+#### **2.2 Clean Up Export Files**
+- 🔴 **`src/domain/tasks/index.js`**: Remove `createTaskService` export
+- 🔴 **Verify no other files export legacy functions**
 
-   - ✅ multi-backend-system.test.ts: 7/7 tests passing
-   - ✅ multi-backend-real-integration.test.ts: 6/6 tests passing
-   - Add comprehensive routing tests for edge cases
+### **PHASE 3: Verification & Testing** (Priority 3 - ~1 hour)
 
-6. **Integration testing**:
-   - Test all CLI commands with qualified IDs
-   - Test cross-backend operations (list, search, migrate)
-   - Test error handling for unknown backends
+#### **3.1 Comprehensive Legacy Usage Audit**
+```bash
+# Verify NO remaining usage:
+grep -r "createTaskServiceWithDatabase\|createTaskService(" src/ --exclude-dir=*.test.* --exclude-dir=*.backup
+grep -r "new TaskService(" src/ --exclude-dir=*.test.* --exclude-dir=*.backup
+```
 
-### Phase 4: Documentation and Cleanup
+#### **3.2 End-to-End Integration Testing**
+- 🔴 **Test migration commands** with multi-backend
+- 🔴 **Test all command-level operations** with qualified IDs
+- 🔴 **Verify performance** - ensure no regression
+- 🔴 **Test error handling** for edge cases
 
-7. **Update documentation**:
+#### **3.3 Backwards Compatibility Verification**
+- 🔴 **CLI commands**: All existing commands work unchanged
+- 🔴 **Configuration**: Single-backend configs still work
+- 🔴 **Error messages**: Clear errors for deprecated usage
 
-   - Document qualified ID routing behavior
-   - Update CLI help text to mention multi-backend support
-   - Add migration guide for users
+### **COMPLETION CRITERIA**
 
-8. **Deprecate old TaskService**:
-   - Mark old TaskService as deprecated
-   - Provide migration path
-   - Plan removal timeline
+**✅ Ready to claim "LEGACY TASKSERVICE COMPLETELY REPLACED" when:**
+
+1. **Zero Production Legacy Usage**:
+   ```bash
+   grep -r "createTaskServiceWithDatabase\|createTaskService\(" src/ --exclude="*.test.*" --exclude="*.backup" | wc -l
+   # Must return: 0
+   ```
+
+2. **Zero Legacy Exports**:
+   ```bash
+   grep -r "export.*createTaskService[^d]" src/ | wc -l
+   # Must return: 0
+   ```
+
+3. **Zero Internal TaskService Construction**:
+   ```bash
+   grep -r "new TaskService(" src/ --exclude="*.test.*" | wc -l  
+   # Must return: 0 (except in factory functions that are properly isolated)
+   ```
+
+4. **All Tests Still Pass**:
+   ```bash
+   bun test
+   # Must show: >1400 tests passing, 0 failing
+   ```
+
+5. **End-to-End Verification**:
+   ```bash
+   # Multi-backend routing works:
+   minsky tasks list  # Shows all 738 tasks from all backends
+   minsky tasks get md#123  # Routes to markdown backend
+   minsky tasks get mt#456  # Routes to minsky backend
+   ```
+
+### **ESTIMATED COMPLETION TIME**
+- **Total remaining**: 3-4 hours
+- **Phase 1**: 2 hours (critical path)
+- **Phase 2**: 1 hour (cleanup)  
+- **Phase 3**: 1 hour (verification)
+
+### **RISK ASSESSMENT**
+- **Low Risk**: Most complex work (interface, database, routing) already completed
+- **Medium Risk**: Dependency injection patterns in taskCommands.ts
+- **High Confidence**: Clear patterns to follow, comprehensive test coverage exists
 
 ## Expected Behavior Changes
 
