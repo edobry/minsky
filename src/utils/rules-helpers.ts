@@ -10,15 +10,21 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
  */
 export async function readContentFromFileIfExists(contentPath: string): Promise<string> {
   try {
-    // Use dynamic import to avoid module loading issues
-    const { stat, readFile } = await import("fs/promises");
+    // Use dynamic import to avoid module loading issues in test environment
+    const fsPromises = await import("fs/promises");
+    const { existsSync } = await import("fs");
+
+    // Check if file exists first to handle ENOENT gracefully
+    if (!existsSync(contentPath)) {
+      return contentPath;
+    }
 
     // Try to check if it's a file and read its contents
-    const stats = await stat(contentPath);
+    const stats = await fsPromises.stat(contentPath);
     if (stats.isFile()) {
       // If it's a file, read its contents
-      const content = String(await readFile(contentPath, "utf-8"));
-      return content.toString();
+      const content = await fsPromises.readFile(contentPath, "utf-8");
+      return String(content);
     } else {
       // If it exists but is not a file (e.g., directory), throw an error
       throw new Error(`Failed to read _content from file ${contentPath}: Not a file`);

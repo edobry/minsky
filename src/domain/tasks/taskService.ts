@@ -62,22 +62,13 @@ export async function createConfiguredTaskService(options: {
 
     // Add minsky backend (mt# prefix) - requires database connection
     try {
-      // Direct database connection bypassing config system
-      const { drizzle } = await import("drizzle-orm/postgres-js");
-      const postgres = (await import("postgres")).default;
-
-      const sql = postgres(
-        "postgresql://postgres.prncxnvwabtrqrwvrvki:9o1hHdmKmsfCbltp@aws-0-us-east-2.pooler.supabase.com:6543/postgres",
-        {
-          prepare: false,
-          onnotice: () => {},
-        }
-      );
-      const db = drizzle(sql);
+      // Use configured database connection
+      const { createDatabaseConnection } = await import("../database/connection-manager");
+      const db = await createDatabaseConnection();
 
       const minskyBackend = createMinskyTaskBackend({
         name: "minsky",
-        workspacePath: "/Users/edobry/Projects/minsky", // Use absolute path to main workspace
+        workspacePath: options.workspacePath,
         db,
       });
       (minskyBackend as any).prefix = "mt";
