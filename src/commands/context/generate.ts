@@ -537,8 +537,8 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
     console.log("━".repeat(50));
 
     for (const opt of analysis.optimizations) {
-      const icon = opt.type === "reduce" ? "🔽" : 
-                   opt.type === "review" ? "👀" : 
+      const icon = opt.type === "reduce" ? "🔽" :
+                   opt.type === "review" ? "👀" :
                    opt.type === "optimize" ? "⚡" : "⚠️";
       console.log(`${icon} ${opt.component}`);
       console.log(`   ${opt.suggestion}`);

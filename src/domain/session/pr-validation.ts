@@ -29,9 +29,12 @@ export function validatePrContent(
     const bodyLines = body.trim().split("\n");
     const firstBodyLine = bodyLines[0]?.trim();
 
-    if (firstBodyLine === title.trim()) {
+    if (firstBodyLine && isDuplicateContent(title.trim(), firstBodyLine)) {
       // Remove the duplicated title from body
       sanitizedBody = bodyLines.slice(1).join("\n").trim();
+      errors.push(
+        `Title "${title.trim()}" appears to be duplicated as the first line of the body: "${firstBodyLine}"`
+      );
       log.warn("Detected and removed duplicate title from PR body", {
         originalTitle: title,
         duplicatedLine: firstBodyLine,
@@ -63,6 +66,9 @@ export function isDuplicateContent(content1: string, content2: string): boolean 
         .toLowerCase()
         // Remove markdown header prefixes (# ## ### etc.)
         .replace(/^#+\s*/, "")
+        // Remove conventional commit prefixes (feat:, feat(scope):, etc.)
+        .replace(/^[a-z]+!?\([^)]*\):\s*/i, "")
+        .replace(/^[a-z]+!?:\s*/i, "")
         // Normalize task ID formats: md#123 -> #123, task-md-123 -> #123
         .replace(/(?:task-)?md[#-](\d+)/g, "#$1")
         // Normalize whitespace

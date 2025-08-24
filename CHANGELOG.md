@@ -11,6 +11,12 @@ All notable changes to this project will be documented in this file.
 - Fix bug in rules search where `rule.spec.toLowerCase()` should be `rule.description.toLowerCase()` causing search failures with undefined property access
 - Add CLI customization for `rules search` to accept query as positional argument, making it consistent with `tasks search` UX
 
+- **PR Title Duplication Validation**: Enhanced PR validation to prevent title duplication in pull request bodies
+  - Fixed validation logic to handle conventional commit prefixes properly (feat(md#443) vs feat(#443))
+  - Integrated preparePrContent validation into actual PR creation flow (was only in tests/hooks)
+  - Enhanced isDuplicateContent normalization to strip markdown headers and conventional prefixes
+  - Retroactively fixed existing PR #110 that had duplicate title line
+
 ### Added
 
 - **Context Analysis Only Mode**: Added `--analyze-only` flag to `minsky context generate` command to show only token analysis without full context content
@@ -40,6 +46,17 @@ All notable changes to this project will be documented in this file.
   - Test-driven implementation with comprehensive test coverage for all validation scenarios
 
 - **Enhanced Pre-Commit Hook Documentation**: Comprehensive documentation for the new multi-layered pre-commit validation system
+
+- **Multi-Backend TaskService with Qualified ID Routing (md#443)**: Complete migration from single-backend to multi-backend TaskService architecture
+
+  - **Qualified ID Routing**: `getTask("md#123")` automatically routes to markdown backend, `mt#456` to minsky backend
+  - **Clean Public API**: Renamed MultiBackendTaskService → TaskService following meta-cognitive-boundary-protocol
+  - **Interface Compatibility**: Zero breaking changes - implements existing TaskServiceInterface
+  - **Backend Registration**: Automatic registration of markdown, minsky, json, github backends with proper prefix mapping
+  - **Legacy Elimination**: Completely removed legacy TaskService class (233 lines) and obsolete factory functions
+  - **Test Coverage**: 17/17 multi-backend tests + 10/10 core function tests passing
+  - **Validation**: 482 total tasks accessible (372 md# + 110 mt#) via unified interface
+  - **Dependency Injection**: Fixed mocking patterns to work with service-level DI architecture
 
 ### Changed
 

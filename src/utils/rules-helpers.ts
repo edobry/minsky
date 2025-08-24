@@ -4,6 +4,7 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
  * Shared utility functions for rules operations
  */
 
+
 /**
  * Helper to read content from a file if the path exists
  */
@@ -11,7 +12,7 @@ export async function readContentFromFileIfExists(contentPath: string): Promise<
   try {
     // Use dynamic import to avoid module loading issues
     const { stat, readFile } = await import("fs/promises");
-    
+
     // Try to check if it's a file and read its contents
     const stats = await stat(contentPath);
     if (stats.isFile()) {
