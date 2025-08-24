@@ -8,7 +8,6 @@ import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
 import {
   createConfiguredTaskService as createConfiguredTaskServiceImpl,
-  TaskService,
   TaskServiceOptions,
   TaskServiceInterface,
 } from "./taskService";
@@ -407,7 +406,7 @@ export async function createTaskFromTitleAndDescription(
   // Create task service
   const createTaskService =
     deps?.createConfiguredTaskService ||
-         (async (options) => await createConfiguredTaskServiceImpl(options));
+    (async (options) => await createConfiguredTaskServiceImpl(options));
   const taskService = await createTaskService({
     workspacePath,
     backend: validParams.backend || "markdown",

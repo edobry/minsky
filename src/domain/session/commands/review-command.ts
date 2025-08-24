@@ -1,6 +1,6 @@
 import { createSessionProvider } from "../../session";
 import { createGitService } from "../../git";
-import { TaskService } from "../../tasks";
+import { TaskServiceInterface } from "../../tasks";
 import { createConfiguredTaskService } from "../../tasks/taskService";
 import { getCurrentSession } from "../../workspace";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";

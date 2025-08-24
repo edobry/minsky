@@ -15,7 +15,7 @@ import {
   deleteTaskFromParams,
 } from "./taskCommands";
 import { TASK_STATUS } from "./taskConstants";
-import type { TaskService } from "./taskService";
+import type { TaskServiceInterface } from "./taskService";
 import { createMockTaskService } from "../../utils/test-utils/dependencies";
 
 import path from "path";

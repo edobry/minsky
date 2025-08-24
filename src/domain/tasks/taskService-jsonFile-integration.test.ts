@@ -5,7 +5,7 @@ const TEST_VALUE = 123;
  * @migrated Converted from complex module mocking to established DI patterns
  */
 import { describe, test, expect, beforeEach } from "bun:test";
-import { TaskService } from "./taskService";
+import { TaskServiceInterface } from "./taskService";
 import { createTestDeps } from "../../utils/test-utils/dependencies";
 import type { DomainDependencies } from "../../utils/test-utils/dependencies";
 

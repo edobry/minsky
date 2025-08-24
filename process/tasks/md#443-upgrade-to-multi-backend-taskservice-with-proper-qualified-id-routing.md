@@ -13,18 +13,21 @@ Replace the current single-backend `TaskService` with the `MultiBackendTaskServi
 ### ✅ **COMPLETED WORK**
 
 **Multi-Backend Service Implementation:**
-- ✅ `MultiBackendTaskService` fully implements `TaskServiceInterface` 
+
+- ✅ `MultiBackendTaskService` fully implements `TaskServiceInterface`
 - ✅ All interface compatibility issues resolved
 - ✅ Database connection fixed (Supabase instead of localhost)
 - ✅ Schema alignment corrected
 - ✅ 738 total tasks accessible (372 md# + 366 mt#)
 
 **Core Command Functions Updated:**
+
 - ✅ `src/domain/tasks.ts` - All 8 main command functions now use `createConfiguredTaskService`
 - ✅ Session operations - Already using `createConfiguredTaskService`
 - ✅ `similarity-commands.ts` - Already using `createConfiguredTaskService`
 
 **Test Results:**
+
 - ✅ 1,417 tests passing
 - ✅ Multi-backend routing verified working
 - ✅ All backend types accessible through unified interface
@@ -48,16 +51,18 @@ Previous claims of "COMPLETELY REPLACED" were false. Comprehensive verification 
 **Critical Production Issues Still Present:**
 
 1. **`src/domain/tasks.js`** - 🔴 **Legacy export still active**
+
    ```javascript
    export {
      TaskService,
-     createTaskService,  // ← LEGACY EXPORT ACTIVE
+     createTaskService, // ← LEGACY EXPORT ACTIVE
    } from "./tasks/index";
    ```
 
 2. **`src/domain/tasks/taskCommands.ts`** - 🔴 **25+ dependency injection references**
+
    - Multiple DI interfaces still reference `createTaskService`
-   - Some still call `createTaskServiceImpl(options)` 
+   - Some still call `createTaskServiceImpl(options)`
    - **Impact**: Legacy bypass through dependency injection
 
 3. **`src/domain/tasks/operations/base-task-operation.ts`** - 🔴 **Legacy DI patterns**
@@ -68,7 +73,8 @@ Previous claims of "COMPLETELY REPLACED" were false. Comprehensive verification 
 ### 📊 **HONEST COMPLETION ANALYSIS**
 
 **Current Completion: ~75%** (not 100% as previously claimed)
-- ✅ Direct usage elimination: 60% 
+
+- ✅ Direct usage elimination: 60%
 - ✅ Main command migration: 10%
 - 🔴 Dependency injection cleanup: 15% (REMAINING)
 - 🔴 Legacy export removal: 5% (REMAINING)
@@ -183,36 +189,44 @@ await taskService.getTask("db#789"); // ✅ Routes to database backend with loca
 **Target**: Replace all `createTaskServiceWithDatabase` with `createConfiguredTaskService`
 
 #### **1.1 Update `src/domain/tasks/taskCommands.ts`**
+
 - 🔴 **Lines to fix**: 88, 152, 218, 280, 406, 549
 - 🔴 **Import to fix**: Line 12 - remove `createTaskServiceWithDatabase`
 - **Pattern replacement**:
+
   ```typescript
   // OLD (15+ instances):
-  const createTaskService = deps?.createTaskService || 
-    (async (options) => await createTaskServiceWithDatabase(options));
-  
+  const createTaskService =
+    deps?.createTaskService || (async (options) => await createTaskServiceWithDatabase(options));
+
   // NEW:
-  const createTaskService = deps?.createTaskService || 
-    (async (options) => await createConfiguredTaskService(options));
+  const createTaskService =
+    deps?.createTaskService || (async (options) => await createConfiguredTaskService(options));
   ```
+
 - **Impact**: Fixes dependency injection for all command-level operations
 - **Testing**: Verify all taskCommands.test.ts tests still pass
 
 #### **1.2 Update `src/adapters/shared/commands/tasks/migrate-backend-command.ts`**
+
 - 🔴 **Lines to fix**: 214, 218, 463, 468
 - 🔴 **Import to fix**: Line 12 - replace `createTaskServiceWithDatabase`
 - **Pattern replacement**:
+
   ```typescript
   // OLD (5 instances):
   const sourceService = await createTaskServiceWithDatabase({
-    workspacePath, backend: sourceBackend
+    workspacePath,
+    backend: sourceBackend,
   });
-  
+
   // NEW:
   const sourceService = await createConfiguredTaskService({
-    workspacePath, backend: sourceBackend
+    workspacePath,
+    backend: sourceBackend,
   });
   ```
+
 - **Impact**: Fixes migration operations to use multi-backend routing
 - **Testing**: Verify migrate-backend tests still pass
 
@@ -221,27 +235,32 @@ await taskService.getTask("db#789"); // ✅ Routes to database backend with loca
 #### **2.1 Remove Legacy Factory Functions from `src/domain/tasks/taskService.ts`**
 
 **Remove these functions** (mark as deprecated first, then remove):
+
 - 🔴 **Line 316**: `export function createTaskService(options: TaskServiceOptions): TaskService`
 - 🔴 **Line 410**: `export async function createTaskServiceWithDatabase(options: TaskServiceOptions): Promise<TaskService>`
 
 **Remove these internal usages**:
+
 - 🔴 **Line 301**: `const service = new TaskService({ workspacePath, backend: effectiveBackend });`
 - 🔴 **Line 317**: `return new TaskService(options);`
 - 🔴 **Line 445**: `return new TaskService({ ...options, backends });`
 
 **Action Plan**:
+
 1. **Mark as deprecated** with `@deprecated` JSDoc comments
 2. **Add deprecation warnings** in implementation
 3. **Update internal usage** to use `createConfiguredTaskService`
 4. **Remove after verification** that nothing breaks
 
 #### **2.2 Clean Up Export Files**
+
 - 🔴 **`src/domain/tasks/index.js`**: Remove `createTaskService` export
 - 🔴 **Verify no other files export legacy functions**
 
 ### **PHASE 3: Verification & Testing** (Priority 3 - ~1 hour)
 
 #### **3.1 Comprehensive Legacy Usage Audit**
+
 ```bash
 # Verify NO remaining usage:
 grep -r "createTaskServiceWithDatabase\|createTaskService(" src/ --exclude-dir=*.test.* --exclude-dir=*.backup
@@ -249,12 +268,14 @@ grep -r "new TaskService(" src/ --exclude-dir=*.test.* --exclude-dir=*.backup
 ```
 
 #### **3.2 End-to-End Integration Testing**
+
 - 🔴 **Test migration commands** with multi-backend
 - 🔴 **Test all command-level operations** with qualified IDs
 - 🔴 **Verify performance** - ensure no regression
 - 🔴 **Test error handling** for edge cases
 
 #### **3.3 Backwards Compatibility Verification**
+
 - 🔴 **CLI commands**: All existing commands work unchanged
 - 🔴 **Configuration**: Single-backend configs still work
 - 🔴 **Error messages**: Clear errors for deprecated usage
@@ -264,24 +285,28 @@ grep -r "new TaskService(" src/ --exclude-dir=*.test.* --exclude-dir=*.backup
 **✅ Ready to claim "LEGACY TASKSERVICE COMPLETELY REPLACED" when:**
 
 1. **Zero Production Legacy Usage**:
+
    ```bash
    grep -r "createTaskServiceWithDatabase\|createTaskService\(" src/ --exclude="*.test.*" --exclude="*.backup" | wc -l
    # Must return: 0
    ```
 
 2. **Zero Legacy Exports**:
+
    ```bash
    grep -r "export.*createTaskService[^d]" src/ | wc -l
    # Must return: 0
    ```
 
 3. **Zero Internal TaskService Construction**:
+
    ```bash
-   grep -r "new TaskService(" src/ --exclude="*.test.*" | wc -l  
+   grep -r "new TaskService(" src/ --exclude="*.test.*" | wc -l
    # Must return: 0 (except in factory functions that are properly isolated)
    ```
 
 4. **All Tests Still Pass**:
+
    ```bash
    bun test
    # Must show: >1400 tests passing, 0 failing
@@ -296,12 +321,14 @@ grep -r "new TaskService(" src/ --exclude-dir=*.test.* --exclude-dir=*.backup
    ```
 
 ### **ESTIMATED COMPLETION TIME**
+
 - **Total remaining**: 3-4 hours
 - **Phase 1**: 2 hours (critical path)
-- **Phase 2**: 1 hour (cleanup)  
+- **Phase 2**: 1 hour (cleanup)
 - **Phase 3**: 1 hour (verification)
 
 ### **RISK ASSESSMENT**
+
 - **Low Risk**: Most complex work (interface, database, routing) already completed
 - **Medium Risk**: Dependency injection patterns in taskCommands.ts
 - **High Confidence**: Clear patterns to follow, comprehensive test coverage exists

@@ -10,7 +10,11 @@ import { resolveMainWorkspacePath } from "../../workspace";
 import { ValidationError, ResourceNotFoundError } from "../../../errors/index";
 // normalizeTaskId removed: strict qualified IDs expected upstream
 import { createTaskIdParsingErrorMessage } from "../../../errors/enhanced-error-templates";
-import { createConfiguredTaskService, TaskService, TaskServiceOptions, TaskServiceInterface } from "../taskService";
+import {
+  createConfiguredTaskService,
+  TaskServiceOptions,
+  TaskServiceInterface,
+} from "../taskService";
 
 /**
  * Common dependencies for task operations
@@ -115,7 +119,10 @@ export abstract class BaseTaskOperation<TParams, TResult> {
   /**
    * Get a task and verify it exists
    */
-  protected async getTaskAndVerifyExists(taskService: TaskServiceInterface, taskId: string): Promise<any> {
+  protected async getTaskAndVerifyExists(
+    taskService: TaskServiceInterface,
+    taskId: string
+  ): Promise<any> {
     const task = await taskService.getTask(taskId);
 
     if (!task) {

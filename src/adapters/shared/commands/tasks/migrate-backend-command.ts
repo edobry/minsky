@@ -9,7 +9,10 @@ import { z } from "zod";
 import type { CommandExecutionContext } from "../../command-registry";
 import { BaseTaskCommand } from "./base-task-command";
 import { log } from "../../../../utils/logger";
-import { TaskService, createConfiguredTaskService } from "../../../../domain/tasks/taskService";
+import {
+  createConfiguredTaskService,
+  TaskServiceInterface,
+} from "../../../../domain/tasks/taskService";
 
 const migrateBackendParamsSchema = z.object({
   from: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),

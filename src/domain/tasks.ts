@@ -26,8 +26,7 @@ import { createGitService } from "./git";
 // Command-level wrapper functions for CLI integration
 // These wrap TaskService methods with parameter validation and formatting
 
-import { TaskService } from "./tasks/taskService";
-export { TaskService } from "./tasks/taskService";
+import { TaskServiceInterface } from "./tasks/taskService";
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
@@ -241,60 +240,7 @@ export async function getTaskSpecContentFromParams(params: any) {
 export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
 export type { TaskStatus } from "./tasks/taskConstants";
 
-/**
- * Interface for task service operations
- * This defines the contract for task-related functionality
- */
-export interface TaskServiceInterface {
-  /**
-   * Get all tasks with optional filtering
-   */
-  listTasks(options?: TaskListOptions): Promise<Task[]>;
 
-  /**
-   * Get a task by ID
-   */
-  getTask(id: string): Promise<Task | null>;
-
-  /**
-   * Get the status of a task
-   */
-  getTaskStatus(id: string): Promise<string | undefined>;
-
-  /**
-   * Set the status of a task
-   */
-  setTaskStatus(id: string, status: string): Promise<void>;
-
-  /**
-   * Get the workspace path for the current backend
-   */
-  getWorkspacePath(): string;
-
-  /**
-   * Create a task with the given specification path
-   */
-  createTask(specPath: string, options?: CreateTaskOptions): Promise<Task>;
-
-  /**
-   * Create a task from title and description
-   */
-  createTaskFromTitleAndSpec(
-    title: string,
-    spec: string,
-    options?: CreateTaskOptions
-  ): Promise<Task>;
-
-  /**
-   * Delete a task
-   */
-  deleteTask(id: string, options?: DeleteTaskOptions): Promise<boolean>;
-
-  /**
-   * Get the backend type for a specific task
-   */
-  getBackendForTask(taskId: string): Promise<string>;
-}
 
 export interface Task {
   id: string;
