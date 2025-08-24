@@ -4,7 +4,30 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **CRITICAL Security**: Enhanced secret scanning to detect database credentials - gitleaks now catches PostgreSQL, MySQL, MongoDB, Redis connection strings with credentials (closes major security gap that allowed Supabase credentials to slip through)
+- **Security**: Remove hardcoded PostgreSQL URL fallback in storage configuration - now properly throws error when MINSKY_POSTGRES_URL not set, preventing accidental connections to unintended databases
+- Fix bug in rules search where `rule.spec.toLowerCase()` should be `rule.description.toLowerCase()` causing search failures with undefined property access
+- Add CLI customization for `rules search` to accept query as positional argument, making it consistent with `tasks search` UX
+
 ### Added
+
+- **Context Analysis Only Mode**: Added `--analyze-only` flag to `minsky context generate` command to show only token analysis without full context content
+
+  - Supports both text and JSON output formats
+  - Maintains backward compatibility with existing `--analyze` flag
+  - Provides cleaner output when only analysis metrics are needed
+
+- **Enhanced Context Analysis Metadata**: Improved context analysis to include comprehensive model and tokenization information
+
+  - Replaced `--format json` with `--json` flag for CLI consistency with other commands
+  - Shows model name, interface mode (cli/mcp), tokenizer details, and context window size
+  - Accurate context window utilization based on model-specific limits (Claude: 200k, GPT-4o: 128k, etc.)
+  - Includes generation timestamp and performance metrics
+  - Better optimization suggestions with model-aware calculations
+  - Eliminated redundant suggestions by implementing smart prioritization logic
+  - New optimization categories: dominating components (🔽), review recommendations (👀), and optimization opportunities (⚡)
 
 - **Post-Migration Validation**: Migration command now performs comprehensive post-migration validation by default
 
@@ -248,6 +271,8 @@ All notable changes to this project will be documented in this file.
 
 - **Session Start GitHub Auto-Detect (md#435)**: Domain `startSessionImpl` now honors `repository.default_repo_backend=github` by auto-detecting the GitHub remote when `--repo` is not provided, persisting `backendType` accordingly. The CLI adapter is thin and delegates entirely to the domain implementation.
 
+- **Session Repair Backend Defaulting**: `session repair --backend-sync` now uses the configured `repository.default_repo_backend` to set `backendType` when it's missing, instead of leaving it undefined. If a recorded type exists, we still prefer the detected actual type; when missing, we default to config (e.g., `github`).
+
 ### Added
 
 - **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
@@ -372,34 +397,4 @@ All notable changes to this project will be documented in this file.
 - tasks search: Added `--status` and `--all` options to filter results by task status, matching `tasks list` semantics. By default, DONE and CLOSED tasks are hidden unless `--all` is provided. Applies to CLI and MCP adapters.
 - tasks: Centralized status filtering in `src/domain/tasks/task-filters.ts`; both `TaskService.listTasks` and `tasks search` use the same utility to ensure consistent behavior.
 
-## 2025-01-XX - Legacy TaskService Complete Replacement
-
-### Added
-
-- Multi-backend task routing: createConfiguredTaskService() now supports qualified IDs (md#123 → markdown backend)
-- Unified task service interface: MultiBackendTaskService fully implements TaskServiceInterface
-- Database backend connectivity: 738 total tasks accessible (372 md# + 366 mt#)
-
-### Changed
-
-- **BREAKING**: Replaced all createTaskServiceWithDatabase() with createConfiguredTaskService()
-- Command-level operations (taskCommands.ts): 15+ instances migrated to multi-backend approach
-- Migration operations (migrate-backend-command.ts): 5 instances migrated to multi-backend approach
-- Factory functions: Removed legacy createTaskService() and createTaskServiceWithDatabase()
-
-### Removed
-
-- Legacy TaskService factory functions (createTaskService, createTaskServiceWithDatabase)
-- Static method createWithRepositoryBackend() (unused)
-- Legacy exports from domain/tasks/index.js
-
-### Technical
-
-- Tests passing: 1,416/1,417 (99.9% success rate)
-- Zero production legacy usage verified by comprehensive search
-- All 738 tasks (md# + mt#) accessible through unified interface
-
-### Notes
-
-- One test expects old DB wiring behavior and needs updating for new multi-backend approach
-- This completes the transition from single-backend to multi-backend TaskService architecture
+- similarity(core): Extract generic `SimilaritySearchService` with pluggable backends (embeddings → ai → lexical, fallback only on unavailability). Introduced shared types (`src/domain/similarity/types.ts`), core orchestrator (`similarity-search-service.ts`), and backends (`backends/embeddings-backend.ts`, `backends/lexical-backend.ts`, AI backend scaffold). Wired `TaskSimilarityService` to delegate to the core via resolvers. No behavior change in CLI output; prepares for future md#446 reranking without config changes.
