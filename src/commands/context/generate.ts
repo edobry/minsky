@@ -20,6 +20,7 @@ interface GenerateOptions {
   prompt?: string;
   interface?: "cli" | "mcp" | "hybrid";
   analyze?: boolean;
+  analyzeOnly?: boolean;
 }
 
 interface GenerateRequest {
@@ -65,6 +66,7 @@ export function createGenerateCommand(): Command {
       "cli"
     )
     .option("--analyze", "Analyze the generated context for token usage and optimization", false)
+    .option("--analyze-only", "Only show analysis without the full context content", false)
     .addHelpText(
       "after",
       `
@@ -78,6 +80,7 @@ Examples:
   minsky context generate --prompt "focus on authentication and security rules"
   minsky context generate --interface mcp  # Use XML format for tool schemas
   minsky context generate --analyze  # Generate context with token analysis
+  minsky context generate --analyze-only  # Show only analysis without full context
   minsky context generate --model claude-3.5-sonnet --analyze  # Analyze with specific model
 `
     )
@@ -145,24 +148,38 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
 
   // Perform analysis if requested
   let analysisResult = null;
-  if (options.analyze || options.compareModels || options.showBreakdown) {
+  if (options.analyze || options.analyzeOnly || options.compareModels || options.showBreakdown) {
     analysisResult = await analyzeGeneratedContext(result, options);
   }
 
   // Output result
   if (options.format === "json") {
-    const jsonOutput = {
-      sections: result.components,
-      metadata: result.metadata,
-      ...(analysisResult && { analysis: analysisResult }),
-    };
-    console.log(JSON.stringify(jsonOutput, null, 2));
+    if (options.analyzeOnly && analysisResult) {
+      // Only output analysis in JSON format
+      console.log(JSON.stringify(analysisResult, null, 2));
+    } else {
+      const jsonOutput = {
+        sections: result.components,
+        metadata: result.metadata,
+        ...(analysisResult && { analysis: analysisResult }),
+      };
+      console.log(JSON.stringify(jsonOutput, null, 2));
+    }
   } else {
-    console.log(result.content);
+    if (options.analyzeOnly) {
+      // Only display analysis in human-readable format
+      if (analysisResult) {
+        displayAnalysisResults(analysisResult, options);
+      } else {
+        console.log("No analysis performed. Use --analyze-only to enable analysis.");
+      }
+    } else {
+      console.log(result.content);
 
-    // Display analysis in human-readable format
-    if (analysisResult) {
-      displayAnalysisResults(analysisResult, options);
+      // Display analysis in human-readable format
+      if (analysisResult) {
+        displayAnalysisResults(analysisResult, options);
+      }
     }
   }
 

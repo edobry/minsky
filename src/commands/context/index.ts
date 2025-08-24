@@ -27,6 +27,7 @@ Examples:
   minsky context suggest-rules "I need to fix a bug"
   minsky context generate --format json --components environment,rules
   minsky context generate --analyze --show-breakdown  # Generate with analysis
+  minsky context generate --analyze-only  # Show only analysis without full context
   minsky context generate --compare-models gpt-4,claude-3-5-sonnet  # Cross-model comparison
   minsky context generate --output /tmp/test-context.txt
 
