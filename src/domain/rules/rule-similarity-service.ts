@@ -9,7 +9,10 @@ export interface RuleSimilarityServiceConfig {
  * RuleSimilarityService: embedding-based rule retrieval
  */
 export class RuleSimilarityService {
-  constructor(private readonly workspacePath: string, private readonly config: RuleSimilarityServiceConfig = {}) {}
+  constructor(
+    private readonly workspacePath: string,
+    private readonly config: RuleSimilarityServiceConfig = {}
+  ) {}
 
   /**
    * Search rules by natural language query using embeddings
@@ -18,6 +21,6 @@ export class RuleSimilarityService {
     const core = await createRuleSimilarityCore(this.workspacePath);
     const items = await core.search({ queryText: query, limit });
     // Map to SearchResult shape (id/score compatible)
-    return items.map((i) => ({ id: i.id, score: i.score } as SearchResult));
+    return items.map((i) => ({ id: i.id, score: i.score }) as SearchResult);
   }
 }

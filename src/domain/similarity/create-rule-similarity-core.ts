@@ -12,10 +12,17 @@ export async function createRuleSimilarityCore(workspacePath: string) {
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
-  const embedding = await createEmbeddingServiceFromConfig();
-  const storage = await createRulesVectorStorageFromConfig(dimension);
-
-  const embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
+  let embeddings: EmbeddingsSimilarityBackend | null = null;
+  const disable = typeof process !== "undefined" && process.env?.SIMILARITY_DISABLE_EMBEDDINGS === "1";
+  if (!disable) {
+    try {
+      const embedding = await createEmbeddingServiceFromConfig();
+      const storage = await createRulesVectorStorageFromConfig(dimension);
+      embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
+    } catch {
+      embeddings = null;
+    }
+  }
 
   // Build lexical resolvers from rules service
   const rulesService = new ModularRulesService(workspacePath);
@@ -38,8 +45,6 @@ export async function createRuleSimilarityCore(workspacePath: string) {
   });
 
   // Fallback order: embeddings -> ai (future) -> lexical
-  const backends = [embeddings /* ai (future) */, lexical];
+  const backends = [embeddings, /* ai (future) */ lexical].filter(Boolean) as any;
   return new SimilaritySearchService(backends);
 }
-
-

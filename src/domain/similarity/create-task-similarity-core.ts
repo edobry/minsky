@@ -15,16 +15,23 @@ export async function createTaskSimilarityCore(resolvers: {
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
-  const embedding = await createEmbeddingServiceFromConfig();
-  const storage = await createVectorStorageFromConfig(dimension);
-
-  const embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
+  let embeddings: EmbeddingsSimilarityBackend | null = null;
+  const disable = typeof process !== "undefined" && process.env?.SIMILARITY_DISABLE_EMBEDDINGS === "1";
+  if (!disable) {
+    try {
+      const embedding = await createEmbeddingServiceFromConfig();
+      const storage = await createVectorStorageFromConfig(dimension);
+      embeddings = new EmbeddingsSimilarityBackend(embedding, storage);
+    } catch {
+      embeddings = null; // Treat embeddings as unavailable when misconfigured in tests
+    }
+  }
   const lexical = new LexicalSimilarityBackend({
     getById: resolvers.getById,
     listCandidateIds: resolvers.listCandidateIds,
     getContent: async (id: string) => await resolvers.getContent(id),
   });
 
-  const backends = [embeddings /* ai (future) */, lexical];
+  const backends = [embeddings, /* ai (future) */ lexical].filter(Boolean) as any;
   return new SimilaritySearchService(backends);
 }
