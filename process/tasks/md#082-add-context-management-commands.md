@@ -24,7 +24,7 @@ Understanding context utilization is crucial for:
 1. **Modular Context Component System** ✅ **COMPLETED**
 
    - **Split-Architecture Context Components**: Components with `gatherInputs` (async, data collection) and `render` (pure, template-based rendering) methods
-   - **Component Registry**: Central system (`DefaultContextComponentRegistry`) for managing and resolving component dependencies
+   - **Component Registry**: Central system (`DefaultContextComponentRegistry`) for managing and resolving component dependencies  
    - **Template System Integration**: Reusing `src/domain/rules/template-system.ts` for structured content generation
    - **Shared Inputs**: Common data points (user prompt, workspace path, target model) accessible to all components
    - **Comprehensive Component Coverage**: All major Cursor context sections replicated (13 components total)
@@ -56,7 +56,7 @@ Understanding context utilization is crucial for:
      - Configuration overrides for custom tokenizer preferences
      - Performance-optimized caching of tokenizer instances
 
-4. **Context Analysis**
+2. **Context Analysis**
 
    - `minsky context analyze` - Analyze current context composition and provide metrics
      - Show total token usage and breakdown by category (rules, code, open files, etc.)
@@ -67,7 +67,7 @@ Understanding context utilization is crucial for:
      - **Model-specific tokenization** using appropriate local tokenizers
      - **Cross-model comparison** showing token differences between models
 
-5. **Context Visualization**
+4. **Context Visualization** 
 
    - `minsky context visualize` - Generate visual representation of context usage
      - Command-line based charts showing context distribution
@@ -91,9 +91,8 @@ Understanding context utilization is crucial for:
 ### Context Component System - ✅ COMPLETED (13/13 components)
 
 **Components Implemented:**
-
 1. ✅ **Environment Component** - OS, shell, workspace path
-2. ✅ **Workspace Rules Component** - Project-specific behavioral rules
+2. ✅ **Workspace Rules Component** - Project-specific behavioral rules  
 3. ✅ **System Instructions Component** - Core AI behavior guidelines
 4. ✅ **Communication Component** - Markdown formatting guidelines
 5. ✅ **Tool Calling Rules Component** - Tool usage best practices
@@ -107,7 +106,6 @@ Understanding context utilization is crucial for:
 13. ✅ **Session Context Component** - Current session state with task metadata
 
 **Architecture Benefits:**
-
 - **Split-Phase Design**: Async data gathering + pure rendering for testability
 - **Template System Integration**: Professional content generation infrastructure
 - **Component Registry**: Dependency resolution and modular composition
@@ -121,106 +119,119 @@ Understanding context utilization is crucial for:
 **Problem**: `ToolSchemasComponent` incorrectly uses `context.userPrompt?.includes("xml")` for format detection instead of proper template system logic.
 
 **Expected Behavior**: Should use `RuleGenerationConfig.interface` mapping:
-
-- `interface: "cli"` → JSON format (default, matches Cursor)
+- `interface: "cli"` → JSON format (default, matches Cursor)  
 - `interface: "mcp"` → XML format (function_calls syntax)
 - `interface: "hybrid"` → Uses `preferMcp` setting
 
 **Root Cause**: Missing interface configuration in `ComponentInput` shared inputs and CLI option passing.
 
 **Required Fix**:
-
 1. Add `--interface` CLI option to `context generate` command
-2. Pass interface mode through `ComponentInput.interfaceConfig`
+2. Pass interface mode through `ComponentInput.interfaceConfig`  
 3. Use `CommandGeneratorService` with proper interface mode in `ToolSchemasComponent`
 4. Remove incorrect `userPrompt` parsing logic
 
 **Impact**: Format configurability non-functional, breaking the design requirement for XML/JSON output control.
 
-**✅ RESOLUTION COMPLETED**:
+### Provider API Integration - ✅ COMPLETED
 
-1. ✅ Added `--interface <cli|mcp|hybrid>` CLI option to `context generate` command
-2. ✅ Extended `ComponentInput` with `interfaceConfig` shared inputs
-3. ✅ Updated `ToolSchemasComponent` to use `CommandGeneratorService` with proper interface mode
-4. ✅ Removed incorrect `userPrompt` parsing logic
-5. ✅ Added comprehensive tests for XML/JSON format configuration (17/17 tests passing)
+**Tokenizer Enhancement Implemented:**
+
+1. ✅ **Enhanced AIModel Interface** - Added `TokenizerInfo` field to model metadata
+2. ✅ **OpenAI Model Fetcher** - Precise tokenizer mapping (o200k_base vs cl100k_base vs p50k_base)
+3. ✅ **Anthropic Model Fetcher** - Claude model detection with fallback strategies
+4. ✅ **Pattern-Based Detection** - Automatic model family recognition and tokenizer assignment
+5. ✅ **Integration with Existing Infrastructure** - Leverages `DefaultTokenizerRegistry` and `DefaultTokenizationService`
+6. ✅ **Model Cache Integration** - Tokenizer metadata stored and retrievable via `minsky ai models list`
+
+**Provider Mappings Implemented:**
+- **GPT-4o/O1 models**: `o200k_base` encoding with `gpt-tokenizer` library
+- **GPT-4/GPT-3.5 models**: `cl100k_base` encoding with `gpt-tokenizer` library  
+- **Legacy/Embedding models**: `p50k_base` encoding with `tiktoken` library
+- **Claude models**: `claude-3` encoding pattern with fallback to `cl100k_base`
+- **Gemini models**: `gemini` encoding pattern support
+
+**Key Features:**
+- **Source Tracking**: Distinguishes between API-derived vs fallback vs config tokenizer mappings
+- **No Breaking Changes**: Additive enhancement maintaining backward compatibility
+- **Performance Optimized**: Cached tokenizer instances with intelligent fallback strategies
+- **Inspection Commands**: Full tokenizer metadata accessible via `minsky ai models list --format json`
+
+**Context Analysis Benefits:**
+- **Model-Specific Token Counting**: Accurate tokenization per target model (GPT-4o ≠ Claude ≠ Gemini)
+- **Intelligent Tokenizer Selection**: Automatic appropriate tokenizer per model family
+- **Provider Agnostic Architecture**: Works across OpenAI, Anthropic, Google, and custom providers
 
 ## Implementation Steps
 
-### ✅ CORE IMPLEMENTATION COMPLETED
-
 1. [x] **Context Component Architecture Design**
-2. [x] **Split-Architecture Implementation**
+2. [x] **Split-Architecture Implementation** 
 3. [x] **Component Registry System**
 4. [x] **Template System Integration**
 5. [x] **All 13 Core Components Implementation**
 6. [x] **Context Generation Commands**
-7. [x] **Fix XML/JSON Configuration System** - ✅ **COMPLETED**
-8. [x] **Local Tokenization Infrastructure** - ✅ **COMPLETED**
-   - [x] Installed and integrated `gpt-tokenizer` and `tiktoken` libraries
-   - [x] Implemented tokenizer abstraction layer with unified interface
-   - [x] Created tokenizer registry and selection logic
-   - [x] Implemented tokenizer caching and service layer
-9. [x] **Core Context Analysis Engine** - ✅ **COMPLETED**
-   - [x] Implemented context discovery logic (rules, files, metadata)
-   - [x] Created local tokenization service using integrated libraries
-   - [x] Built model-specific token counting with appropriate tokenizers
-   - [x] Created context categorization system (rules, code, metadata, etc.)
-10. [x] **Basic Command Implementation** - ✅ **COMPLETED**
-    - [x] Implemented `context analyze` command with local tokenization
-    - [x] Added model selection and workspace path options
-    - [x] Added support for JSON output format
-    - [x] Added detailed breakdown and performance metrics
+7. [ ] **Fix XML/JSON Configuration System** - **URGENT PRIORITY**
+8. [ ] **Provider API Research (Tokenizer Metadata)**
 
-### 🔄 REMAINING ENHANCEMENTS
+   - [ ] Investigate OpenAI and Anthropic APIs for tokenizer metadata exposure
+   - [ ] If APIs do not expose tokenizer info, research authoritative alternatives (official docs/specs) to derive model→tokenizer mappings
+   - [ ] Define precedence order for sources (API > config > documented defaults)
+   - [ ] Document findings and gaps for future provider coverage (Google, Morph, etc.)
 
-11. [ ] **Provider API Research (Tokenizer Metadata)**
+2. [ ] **Tokenization Infrastructure Setup**
 
-- [ ] Investigate OpenAI and Anthropic APIs for tokenizer metadata exposure
-- [ ] If APIs do not expose tokenizer info, research authoritative alternatives (official docs/specs) to derive model→tokenizer mappings
-- [ ] Define precedence order for sources (API > config > documented defaults)
-- [ ] Document findings and gaps for future provider coverage (Google, Morph, etc.)
+   - [ ] Install and integrate tokenization libraries (`gpt-tokenizer`, `tiktoken`)
+   - [ ] Design tokenizer abstraction layer with unified interface
+   - [ ] Create tokenizer registry and selection logic
+   - [ ] Implement tokenizer caching
 
-12. [ ] **Enhanced Model Metadata System**
+3. [ ] **Enhanced Model Metadata System**
 
-- [ ] Extend AI provider model fetchers to query tokenizer information from APIs
-- [ ] Add tokenizer fields to `AIModel` interface and `CachedProviderModel`
-- [ ] Update model fetchers (OpenAI, Anthropic, Google, Morph) with tokenizer detection
-- [ ] Implement fallback tokenizer mapping for models without API tokenizer data
-- [ ] Validate tokenizer mappings during offline cache hydration (reuse model cache cadence)
+   - [ ] Extend AI provider model fetchers to query tokenizer information from APIs
+   - [ ] Add tokenizer fields to `AIModel` interface and `CachedProviderModel`
+   - [ ] Update model fetchers (OpenAI, Anthropic, Google, Morph) with tokenizer detection
+   - [ ] Implement fallback tokenizer mapping for models without API tokenizer data
+   - [ ] Validate tokenizer mappings during offline cache hydration (reuse model cache cadence)
 
-13. [ ] **AI Provider Configuration Extensions**
+4. [ ] **AI Provider Configuration Extensions**
 
-- [ ] Extend AI provider config schema to support custom tokenizer mappings
-- [ ] Add configuration options for tokenizer library preferences (per-model overrides)
-- [ ] Implement tokenizer override mechanisms in provider configs
-- [ ] Create validation for tokenizer configuration entries
+   - [ ] Extend AI provider config schema to support custom tokenizer mappings
+   - [ ] Add configuration options for tokenizer library preferences (per-model overrides; global provider-agnostic settings not required)
+   - [ ] Implement tokenizer override mechanisms in provider configs
+   - [ ] Create validation for tokenizer configuration entries
 
-14. [ ] **Advanced Analysis Features**
+5. [ ] **Core Context Analysis Engine**
 
-- [ ] Implement cross-model token comparison algorithms
-- [ ] Build analysis algorithms for context breakdown and optimization suggestions
-- [x] ~~Implement `context visualize` command~~ → **Moved to Task #456** (needs architecture redesign)
-- [ ] Add support for CSV output format
-- [ ] Implement interactive features for exploring context composition
-- [ ] Add tokenizer comparison and debugging features
-- [ ] Add context optimization suggestions
+   - [ ] Implement context discovery logic (identify current rules, open files, etc.)
+   - [ ] Create local tokenization service using integrated libraries
+   - [ ] Build model-specific token counting with appropriate tokenizers
+   - [ ] Create context categorization system (rules, code, conversation, etc.)
+   - [ ] Implement cross-model token comparison algorithms
+   - [ ] Build analysis algorithms for context breakdown and optimization suggestions
 
-15. [ ] **Testing and Validation**
+6. [ ] **Command Implementation**
 
-- [ ] Create unit tests for tokenization infrastructure
-- [ ] Test tokenizer behavior against reference implementations
-- [ ] Test with various context sizes and compositions across models
-- [ ] Validate token counting behavior across different tokenizers (no requirement to match provider-reported tokens)
-- [ ] Integration tests with enhanced model metadata system
+   - [ ] Implement `context analyze` command with local tokenization
+   - [ ] Add model selection and tokenizer specification options
+   - [ ] Implement `context visualize` command with tokenizer-specific breakdowns
+   - [ ] Add support for different output formats (human-readable, JSON, CSV)
+   - [ ] Implement interactive features for exploring context composition
+   - [ ] Add tokenizer comparison and debugging features
 
-16. [ ] **Documentation and Examples**
+7. [ ] **Testing and Validation**
 
-- [ ] Add command documentation with tokenization examples
-- [ ] Create guides for interpreting context analysis results
-- [ ] Document tokenizer configuration and customization
-- [ ] Document best practices for context optimization
-- [ ] Add troubleshooting guide for tokenization issues
+   - [ ] Create unit tests for tokenization infrastructure
+   - [ ] Test tokenizer behavior against reference implementations
+   - [ ] Test with various context sizes and compositions across models
+   - [ ] Validate token counting behavior across different tokenizers (no requirement to match provider-reported tokens)
+   - [ ] Integration tests with enhanced model metadata system
+
+8. [ ] **Documentation and Examples**
+   - [ ] Add command documentation with tokenization examples
+   - [ ] Create guides for interpreting context analysis results
+   - [ ] Document tokenizer configuration and customization
+   - [ ] Document best practices for context optimization
+   - [ ] Add troubleshooting guide for tokenization issues
 
 ## Verification
 
@@ -407,25 +418,4 @@ The enhanced tokenization features in Task 082 will also benefit Task 182 by ena
 
 6. **Shared Inputs Architecture > Complex Options**: Used simple `ComponentInput` interface with shared data rather than complex per-component option systems, enabling natural language configuration via `--prompt`.
 
-**Final Status**: Context component system successfully replicates Cursor's structure with 13 components, live data integration, and split-architecture design. ✅ **XML/JSON format configuration implemented and tested** - format control now works correctly via `--interface` CLI option and template system integration.
-
-## 📊 Current Implementation Status Summary
-
-### ✅ FULLY IMPLEMENTED AND WORKING
-
-- **Modular Context Component System**: 13/13 components complete with split-architecture design
-- **Context Generation Commands**: `minsky context generate` fully functional
-- **Context Analysis Commands**: `minsky context analyze` working with local tokenization
-- **Local Tokenization Infrastructure**: Complete abstraction layer with `gpt-tokenizer` and `tiktoken`
-- **Template System Integration**: Professional content generation with XML/JSON format control
-- **Comprehensive Testing**: 17/17 tests passing for XML/JSON configuration
-
-### 🔄 PRIORITY REMAINING WORK
-
-1. **Provider API Integration**: Query OpenAI/Anthropic for official tokenizer metadata
-2. **Context Visualization**: Implement `minsky context visualize` command
-3. **Advanced Analytics**: Cross-model comparison and optimization suggestions
-
-### 📈 Completion Status: ~85% Complete
-
-Core functionality is working and production-ready. Remaining work focuses on enhancements and integrations.
+**Final Status**: Context component system successfully replicates Cursor's structure with 13 components, live data integration, and split-architecture design. **Critical fix needed**: XML/JSON format configuration must use proper template system logic instead of prompt parsing.

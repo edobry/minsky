@@ -192,7 +192,7 @@ const rulesGenerateCommandParams: CommandParameterMap = {
 type RulesCreateParams = {
   id: string;
   content: string;
-  spec?: string;
+  description?: string;
   name?: string;
   globs?: string;
   tags?: string;
@@ -231,7 +231,7 @@ const rulesCreateCommandParams: CommandParameterMap = composeParams(
 type RulesUpdateParams = {
   id: string;
   content?: string;
-  spec?: string;
+  description?: string;
   name?: string;
   globs?: string;
   tags?: string;
@@ -314,8 +314,9 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
           tableName: "rules_embeddings",
           idColumn: "rule_id",
-          embeddingColumn: "vector",
-          lastIndexedAtColumn: "indexed_at",
+          embeddingColumn: "embedding",
+          dimensionColumn: "dimension",
+          lastIndexedAtColumn: "last_indexed_at",
           metadataColumn: "metadata",
           contentHashColumn: "content_hash",
         });
@@ -377,7 +378,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
               const { createHash } = await import("crypto");
               contentHash = createHash("sha256").update(contentLimited).digest("hex");
             } catch {
-              // Ignore hash generation errors
+              // Ignore hash generation errors - continue without content hash
             }
             const vector = await embeddingService.generateEmbedding(contentLimited);
             // Store metadata JSON and content hash in dedicated column for staleness detection
@@ -626,7 +627,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     description: "Update an existing rule",
     parameters: rulesUpdateCommandParams,
     execute: async (params: any) => {
-      log.debug("Executing rules.update command", { params });
+      log.debug("Executing rules.update command"!, { params });
 
       const typedParams = params as RulesUpdateParams;
 
