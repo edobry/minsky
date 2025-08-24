@@ -24,9 +24,7 @@ export const defaultConfiguration: PartialConfiguration = {
     "json-file": {},
   },
 
-  // Detection rules removed - these were setting the deprecated root backend property
-  // Backend detection is now handled by BackendDetectionService which properly sets tasks.backend
-  detectionRules: [],
+
 
   // Session database configuration
   sessiondb: {

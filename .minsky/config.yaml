@@ -4,6 +4,3 @@ version: 1
 # backend: removed - deprecated property, use tasks.backend instead
 tasks:
   backend: "minsky"  # Modern task backend configuration
-sessiondb:
-  postgres:
-    connectionString: "postgresql://localhost:5432/minsky"

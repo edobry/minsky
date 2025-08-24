@@ -111,7 +111,6 @@ const fieldTypes: Record<string, keyof typeof typeConverters> = {
   "ai.providers.mistral.enabled": "boolean",
 
   // JSON (arrays and objects)
-  detectionRules: "json",
   "ai.providers.openai.models": "json",
   "ai.providers.anthropic.models": "json",
   "ai.providers.google.models": "json",

@@ -61,11 +61,7 @@ export const LoggerConfigSchema = z.object({
   enableAgentLogs: z.boolean().default(false),
 });
 
-// Backend detection rule schema
-export const DetectionRuleSchema = z.object({
-  condition: z.string(),
-  backend: BackendTypeSchema,
-});
+
 
 // Backend configuration schema
 export const BackendConfigSchema = z.record(z.string(), z.any());
@@ -74,7 +70,6 @@ export const BackendConfigSchema = z.record(z.string(), z.any());
 export const ConfigSchema = z.object({
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfigSchema.default({}),
-  detectionRules: z.array(DetectionRuleSchema).default([]),
   sessiondb: SessionDbConfigSchema,
   ai: AIConfigSchema.optional(),
   github: GitHubConfigSchema.optional(),
