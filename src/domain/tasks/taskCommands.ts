@@ -6,7 +6,12 @@ import { z } from "zod";
 import { resolveRepoPath } from "../repo-utils";
 import { getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
-import { createConfiguredTaskService as createConfiguredTaskServiceImpl, TaskService, TaskServiceOptions, TaskServiceInterface } from "./taskService";
+import {
+  createConfiguredTaskService as createConfiguredTaskServiceImpl,
+  TaskService,
+  TaskServiceOptions,
+  TaskServiceInterface,
+} from "./taskService";
 
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
@@ -79,7 +84,8 @@ export async function listTasksFromParams(
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
-      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
+      deps?.createConfiguredTaskService ||
+      (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -143,7 +149,8 @@ export async function getTaskFromParams(
     // Create task service using dependency injection or default implementation
     log.debug("[getTaskFromParams] About to create task service");
     const createTaskService =
-      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
+      deps?.createConfiguredTaskService ||
+      (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -209,7 +216,8 @@ export async function getTaskStatusFromParams(
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
-      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
+      deps?.createConfiguredTaskService ||
+      (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -271,7 +279,8 @@ export async function setTaskStatusFromParams(
 
     // Create task service using dependency injection or default implementation
     const createTaskService =
-      deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskServiceImpl(options));
+      deps?.createConfiguredTaskService ||
+      (async (options) => await createConfiguredTaskServiceImpl(options));
 
     const taskService = await createTaskService({
       workspacePath,
@@ -397,7 +406,8 @@ export async function createTaskFromTitleAndDescription(
 
   // Create task service
   const createTaskService =
-    deps?.createConfiguredTaskService || (async (options) => await createConfiguredTaskService(options));
+    deps?.createConfiguredTaskService ||
+         (async (options) => await createConfiguredTaskServiceImpl(options));
   const taskService = await createTaskService({
     workspacePath,
     backend: validParams.backend || "markdown",
