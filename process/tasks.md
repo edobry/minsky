@@ -694,7 +694,7 @@
 
 - [ ] Implement Task Routing System for Automated Implementation Planning [md#442](process/tasks/md#442-implement-task-routing-system-for-automated-implementation-planning.md)
 
-- [+] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
+- [-] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
 
 - [x] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
 
