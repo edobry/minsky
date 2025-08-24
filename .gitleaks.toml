@@ -1,0 +1,37 @@
+# Gitleaks Configuration for Minsky
+title = "Enhanced Gitleaks Config for Minsky"
+
+[extend]
+useDefault = true
+
+[[rules]]
+description = "PostgreSQL Connection String with Credentials"
+id = "postgresql-connection-string"
+regex = '''postgresql://[^:\s]+:[^@\s]+@[^/\s]+'''
+keywords = ["postgresql://"]
+
+[[rules]]
+description = "Supabase Connection String (High Priority)"
+id = "supabase-connection"
+regex = '''postgresql://postgres\.[a-zA-Z0-9]+:[a-zA-Z0-9]+@.*supabase\.com'''
+keywords = ["supabase.com"]
+
+[[rules]]
+description = "Database URL with Credentials"
+id = "database-url-credentials"
+regex = '''(postgres|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@[^/\s]+'''
+keywords = ["://"]
+
+# Allowlist patterns for documentation  
+[allowlist]
+description = "Documentation and test examples"
+paths = [
+  '''docs/.*''',
+  '''README\.md''', 
+  '''process/tasks/.*\.md'''
+]
+regexes = [
+  '''postgresql://(user|username|admin):(password|pass|secret)@(localhost|host|example\.com)''',
+  '''postgresql://(team|test|mock):(password|pass)@.*''',
+  '''postgres://(user|username):(pass|password)@(host|localhost)'''
+]

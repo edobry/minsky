@@ -3,16 +3,18 @@
 
 echo "🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)..."
 
-# SECURITY: Secret scanning with gitleaks
-echo "🔍 Running gitleaks scan..."
+# SECURITY: Secret scanning with enhanced gitleaks configuration
+echo "🔍 Running enhanced gitleaks scan (includes database credentials)..."
 if command -v gitleaks >/dev/null 2>&1; then
-    if ! gitleaks protect --staged --source . --verbose; then
+    if ! gitleaks protect --staged --source . --config .gitleaks.toml --verbose; then
         echo "❌ 🚨 SECRETS DETECTED BY GITLEAKS! Commit blocked for security."
         echo "📋 Review the findings above and sanitize any real credentials."
-        echo "💡 Use placeholder values like 'sk-proj-xxx...xxxxx' instead."
+        echo "💡 Database URLs: Use placeholder values like 'postgresql://user:pass@localhost/db'"
+        echo "💡 API Keys: Use placeholder values like 'sk-proj-xxx...xxxxx'"
+        echo "💡 Real credentials detected in: PostgreSQL, MySQL, MongoDB, Redis URLs, or API keys"
         exit 1
     fi
-    echo "✅ Gitleaks: No secrets detected in staged changes."
+    echo "✅ Gitleaks: No secrets detected in staged changes (enhanced scan complete)."
 else
     echo "⚠️  gitleaks not found. Please install via:"
     echo "   macOS: brew install gitleaks"
