@@ -2,7 +2,7 @@ import { describe, it, expect } from "bun:test";
 import { listTasksFromParams } from "./taskCommands";
 
 describe("DB wiring for minsky backend", () => {
-  it.skip("should work with minsky backend via multi-backend service (uses createConfiguredTaskService)", async () => {
+  it("should work with minsky backend via multi-backend service (uses createConfiguredTaskService)", async () => {
     // With the new multi-backend approach, minsky backend is properly registered
     // and can connect to the configured Supabase database
     let threw: any = null;
@@ -23,8 +23,7 @@ describe("DB wiring for minsky backend", () => {
     } else {
       // If successful, should return task list (could be empty, that's fine)
       expect(result).toBeDefined();
-      expect(result.data).toBeDefined();
-      expect(Array.isArray(result.data)).toBe(true);
+      expect(Array.isArray(result)).toBe(true);
     }
   });
 });

@@ -240,8 +240,6 @@ export async function getTaskSpecContentFromParams(params: any) {
 export { TASK_STATUS, TASK_STATUS_CHECKBOX } from "./tasks/taskConstants";
 export type { TaskStatus } from "./tasks/taskConstants";
 
-
-
 export interface Task {
   id: string;
   title: string;

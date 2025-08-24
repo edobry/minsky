@@ -92,7 +92,7 @@ const mockCreateTaskService = createMock(() => Promise.resolve(mockTaskService a
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveWorkspacePath: mockResolveWorkspacePath,
-  createTaskService: mockCreateTaskService,
+  createConfiguredTaskService: mockCreateTaskService,
   resolveMainWorkspacePath: createMock(() => Promise.resolve("/test/workspace/path")),
   resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path")),
 } as any; // Cast to any to avoid TypeScript errors with the deps parameter

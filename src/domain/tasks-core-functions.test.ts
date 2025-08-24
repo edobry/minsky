@@ -89,11 +89,11 @@ const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"))
 const mockResolveMainWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
 const mockCreateTaskService = createMock(() => Promise.resolve(mockTaskService));
 
-// Type assertion for mock dependencies
+// Type assertion for mock dependencies  
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveMainWorkspacePath: mockResolveMainWorkspacePath,
-  createTaskService: mockCreateTaskService,
+  createConfiguredTaskService: mockCreateTaskService,
   resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path")),
 };
 
