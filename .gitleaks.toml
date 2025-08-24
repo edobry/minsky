@@ -5,29 +5,17 @@ title = "Enhanced Gitleaks Config for Minsky"
 useDefault = true
 
 [[rules]]
-description = "PostgreSQL Connection String with Credentials"
-id = "postgresql-connection-string"
-regex = '''postgresql://[^:\s]+:[^@\s]+@[^/\s]+'''
-keywords = ["postgresql://"]
-
-[[rules]]
-description = "Supabase Connection String (High Priority)"
-id = "supabase-connection"
-regex = '''postgresql://postgres\.[a-zA-Z0-9]+:[a-zA-Z0-9]+@.*supabase\.com'''
-keywords = ["supabase.com"]
-
-[[rules]]
-description = "Database URL with Credentials"
+description = "Database URL with Credentials (PostgreSQL, MySQL, MongoDB, Redis)"
 id = "database-url-credentials"
-regex = '''(postgres|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@[^/\s]+'''
+regex = '''(postgresql|postgres|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@[^/\s]+'''
 keywords = ["://"]
 
-# Allowlist patterns for documentation  
+# Allowlist patterns for documentation
 [allowlist]
 description = "Documentation and test examples"
 paths = [
   '''docs/.*''',
-  '''README\.md''', 
+  '''README\.md''',
   '''process/tasks/.*\.md'''
 ]
 regexes = [
