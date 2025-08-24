@@ -84,8 +84,7 @@ export function getDefaultStorageConfig(): StorageConfig {
       timeout: 5000,
     },
     postgres: {
-      connectionString:
-        (process.env as any).MINSKY_POSTGRES_URL || "postgresql://localhost:5432/minsky",
+      connectionString: (process.env as any).MINSKY_POSTGRES_URL || null,
       maxConnections: 10,
       connectTimeout: 30,
     },
