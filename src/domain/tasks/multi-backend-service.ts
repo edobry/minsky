@@ -260,7 +260,10 @@ export class TaskServiceImpl implements TaskService {
 
   // ---- TaskServiceInterface Required Methods (continued) ----
 
-  async getTaskSpecContent(taskId: string, section?: string): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+  async getTaskSpecContent(
+    taskId: string,
+    section?: string
+  ): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
     const backend = this.routeToBackend(taskId);
 
     // Get the task first

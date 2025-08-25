@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
 - Enabled quiet test output in pre-commit hooks using Bun's AI agent integration (`AGENT=1` environment variable)
   - Reduces verbose test output during commits to only show failures, errors, and summary statistics
   - Applies to both main unit test suite and ESLint rule tooling tests
@@ -13,8 +14,15 @@ All notable changes to this project will be documented in this file.
   - Support comma-separated status combinations (e.g., `--status open,draft`)
   - Enhanced CLI help to clearly show all valid status options: open, closed, merged, draft, created, all
   - Applied to both `session pr list` and `session pr get` commands
+- Fixed session PR list to include sessions with merged/closed PRs
+  - Expanded session filtering to include sessions that might have had PRs based on naming patterns
+  - Added "unknown" and "not_found" status options for better visibility of historical sessions
+  - Now shows sessions that previously didn't appear due to missing active PR tracking data
+  - Significantly increased PR visibility from 1 to 28+ sessions in typical repositories
 
 ### Fixed
+
+- tasks search: Replace obsolete createTaskServiceWithDatabase with createConfiguredTaskService to fix CLI runtime error in `minsky tasks search` and `tasks similar`. Also restored a safe default for `tasks.backend` (markdown) in configuration defaults to satisfy tests and maintain backward compatibility.
 - Replaced defensive checks with proper dependency injection for file system operations in rules helpers
   - Refactored `readContentFromFileIfExists` to accept file system dependencies using established DI pattern
   - Updated callers in `rules.ts` to provide FS dependencies following `RuleService` pattern

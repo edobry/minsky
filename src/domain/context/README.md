@@ -11,24 +11,28 @@ The Context Management Module provides **AI context replication** capabilities f
 ## Key Constraints & Design Decisions
 
 ### 1. **Replication Over Efficiency**
+
 - **Constraint**: Must match Cursor's context structure exactly
 - **Decision**: Include all sections that Cursor provides, even if they seem redundant
 - **Example**: Environment component replicates OS/Shell/Workspace info that Cursor already shows
 - **Rationale**: Consistency in AI context is more important than avoiding duplication
 
 ### 2. **Template System Integration**
+
 - **Constraint**: Must use existing Minsky infrastructure properly
 - **Decision**: Leverage `CommandGeneratorService` and `getParameterDocumentation()` for tool schemas
 - **Anti-pattern**: Custom schema generation that bypasses existing systems
 - **Benefit**: Professional, maintainable output using proven template system
 
 ### 3. **Session-Aware Context**
+
 - **Constraint**: Context must reflect current Minsky session state
 - **Decision**: Include session metadata and task information when in active session
 - **Implementation**: Session context includes task metadata automatically (every session has associated task)
 - **Scope**: Uses CURRENT session (e.g., `task-md#082`) when detected
 
 ### 4. **Modular Component Architecture**
+
 - **Constraint**: Each context section must be independently testable
 - **Decision**: Split into `gatherInputs()` (async) and `render()` (pure) phases
 - **Benefit**: Testable pure functions with mockable input gathering
@@ -52,14 +56,16 @@ Context Generation Pipeline:
 ## Component Categories
 
 ### Core Replication Components
+
 These components replicate sections that Cursor provides:
 
 1. **Environment**: OS, Shell, Workspace Path (matches Cursor's environment section)
-2. **Workspace Rules**: Project-specific behavioral rules 
+2. **Workspace Rules**: Project-specific behavioral rules
 3. **System Instructions**: Core AI behavior guidelines
 4. **Tool Schemas**: Available tools and parameters (using template system)
 
-### Instruction Components  
+### Instruction Components
+
 Static instruction sections that guide AI behavior:
 
 5. **Communication**: Markdown formatting guidelines
@@ -71,6 +77,7 @@ Static instruction sections that guide AI behavior:
 11. **Task Management**: Todo system and task tracking
 
 ### Minsky-Specific Enhancements
+
 Components that add value beyond what Cursor provides:
 
 12. **Project Context**: Live git status and repository info
@@ -82,25 +89,26 @@ The default component order matches Cursor's structure:
 
 ```typescript
 [
-  "environment",                     // OS, shell, workspace (replicates Cursor)
-  "workspace-rules",                 // Project rules
-  "system-instructions",             // AI behavior
-  "communication",                   // Formatting rules
-  "tool-calling-rules",             // Tool usage
-  "maximize-parallel-tool-calls",   // Parallel optimization
+  "environment", // OS, shell, workspace (replicates Cursor)
+  "workspace-rules", // Project rules
+  "system-instructions", // AI behavior
+  "communication", // Formatting rules
+  "tool-calling-rules", // Tool usage
+  "maximize-parallel-tool-calls", // Parallel optimization
   "maximize-context-understanding", // Context exploration
-  "making-code-changes",            // Code implementation
-  "code-citation-format",           // Citation format
-  "task-management",                // Todo tracking
-  "tool-schemas",                   // Available tools
-  "project-context",                // Git status
-  "session-context",                // Session + task metadata
-]
+  "making-code-changes", // Code implementation
+  "code-citation-format", // Citation format
+  "task-management", // Todo tracking
+  "tool-schemas", // Available tools
+  "project-context", // Git status
+  "session-context", // Session + task metadata
+];
 ```
 
 ## Key Implementation Patterns
 
 ### 1. **Component Interface**
+
 ```typescript
 interface ContextComponent {
   id: string;
@@ -113,6 +121,7 @@ interface ContextComponent {
 ```
 
 ### 2. **Template System Usage**
+
 ```typescript
 // CORRECT: Use existing infrastructure
 const commandGenerator = new CommandGeneratorService(config);
@@ -123,6 +132,7 @@ const customSchema = manuallyBuildSchema(command);
 ```
 
 ### 3. **Session Detection**
+
 ```typescript
 // Current session context is automatically detected
 const isInSession = isSessionWorkspace(workspacePath);
@@ -133,21 +143,25 @@ const sessionContext = await getCurrentSessionContext(workspacePath);
 ## Critical Lessons Learned
 
 ### 1. **Replication vs. Duplication**
+
 - **Initial Mistake**: Tried to avoid "duplicating" Cursor's environment section
 - **Correction**: Goal is REPLICATION - include all sections for consistency
 - **Learning**: AI context consistency trumps avoiding duplication
 
 ### 2. **Template System Integration**
+
 - **Initial Mistake**: Built custom tool schema generation
 - **Correction**: Use existing `CommandGeneratorService` and `getParameterDocumentation()`
 - **Learning**: Leverage existing infrastructure instead of reinventing
 
 ### 3. **Session/Task Relationship**
+
 - **Initial Approach**: Separate session and task components
 - **Refined Approach**: Include task metadata in session context (every session has associated task)
 - **Learning**: Simplify architecture based on domain constraints
 
 ### 4. **Format Matching**
+
 - **Initial Issue**: XML format with numeric tool names ("0", "1", "2")
 - **Correction**: JSON format by default with proper command IDs
 - **Learning**: Format details matter for exact replication
@@ -155,6 +169,7 @@ const sessionContext = await getCurrentSessionContext(workspacePath);
 ## Testing Strategy
 
 ### Component Testing
+
 Each component should be tested in isolation:
 
 ```typescript
@@ -168,6 +183,7 @@ expect(output.content).toContain("expected content");
 ```
 
 ### Integration Testing
+
 Full context generation should be tested:
 
 ```typescript
@@ -178,6 +194,7 @@ expect(context.totalLines).toBeGreaterThan(800);
 ```
 
 ### Format Validation
+
 Output format should match expectations:
 
 ```typescript
@@ -189,14 +206,17 @@ expect(toolSchemas).toHaveProperty("mcp_minsky-server_tasks_list");
 ## Configuration
 
 ### Format Options
+
 - **Default**: JSON format (matches Cursor)
 - **Alternative**: XML format (via `--prompt "xml"`)
 
 ### Component Selection
+
 - **Default**: All 13 components
 - **Custom**: `--components "workspace-rules,tool-schemas"`
 
 ### Model Targeting
+
 Context can be optimized for specific AI models while maintaining core structure.
 
 ## Future Considerations
@@ -210,17 +230,19 @@ Context can be optimized for specific AI models while maintaining core structure
 ## Provider API Integration
 
 ### Model-Tokenizer Mapping
+
 The context module now includes comprehensive **Provider API Integration** for accurate model-specific tokenization:
 
 #### **Enhanced AI Model Interface**
+
 ```typescript
 export interface AIModel {
   // ... existing fields
-  tokenizer?: TokenizerInfo;  // NEW: Provider-specific tokenizer metadata
+  tokenizer?: TokenizerInfo; // NEW: Provider-specific tokenizer metadata
 }
 
 export interface TokenizerInfo {
-  encoding: string;           // e.g., "o200k_base", "cl100k_base", "claude-3"
+  encoding: string; // e.g., "o200k_base", "cl100k_base", "claude-3"
   library: "gpt-tokenizer" | "tiktoken" | "anthropic" | "google" | "custom";
   source: "api" | "fallback" | "config";
   config?: Record<string, any>;
@@ -228,11 +250,13 @@ export interface TokenizerInfo {
 ```
 
 #### **Model Fetcher Enhancements**
+
 - **OpenAI Fetcher**: Precise mapping for GPT-4o (`o200k_base`) vs GPT-4 (`cl100k_base`) vs legacy models (`p50k_base`)
 - **Anthropic Fetcher**: Claude model detection with fallback tokenization
 - **Pattern-Based Detection**: Automatic model family recognition
 
 #### **Tokenization Integration**
+
 The context module leverages the existing comprehensive tokenization infrastructure:
 
 - **DefaultTokenizerRegistry**: Model-aware tokenizer selection
@@ -240,6 +264,7 @@ The context module leverages the existing comprehensive tokenization infrastruct
 - **Multiple Libraries**: Support for `gpt-tokenizer`, `tiktoken`, `anthropic`, and `google` tokenizers
 
 #### **Context Analysis Benefits**
+
 With Provider API Integration, context analysis now provides:
 
 - **Accurate Token Counts**: Model-specific tokenization (GPT-4o vs Claude vs Gemini)
@@ -247,6 +272,7 @@ With Provider API Integration, context analysis now provides:
 - **Performance Optimization**: Cached tokenizer instances and pattern-based detection
 
 #### **Inspection Commands**
+
 You can now inspect tokenizer information using:
 
 ```bash

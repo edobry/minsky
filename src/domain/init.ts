@@ -73,7 +73,7 @@ export async function initializeProject(
 
     // Initialize the tasks backend based on user selection
     switch (backend) {
-      case "markdown":
+      case "markdown": {
         const tasksFilePath = path.join(repoPath, "process", "tasks.md");
         await createFileIfNotExists(
           tasksFilePath,
@@ -88,8 +88,9 @@ export async function initializeProject(
           fileSystem
         );
         break;
+      }
 
-      case "json-file":
+      case "json-file": {
         const jsonFilePath = path.join(repoPath, "process", "tasks", "tasks.json");
         await createFileIfNotExists(
           jsonFilePath,
@@ -98,16 +99,19 @@ export async function initializeProject(
           fileSystem
         );
         break;
+      }
 
-      case "github-issues":
+      case "github-issues": {
         // GitHub Issues backend uses external GitHub repository - no local files needed
         // Configuration will be set up in the config file below
         break;
+      }
 
-      case "minsky":
+      case "minsky": {
         // Minsky backend uses database - no task files needed
         // Database configuration will be set up in the config file below
         break;
+      }
 
       default:
         throw new Error(`Backend "${backend}" is not supported.`);
@@ -513,16 +517,16 @@ function getMinskyConfigContent(backend: z.infer<typeof enumSchemas.backendType>
     {
       tasks: {
         backend: backend,
-        strictIds: false
+        strictIds: false,
       },
       sessiondb: {
-        backend: "sqlite"
+        backend: "sqlite",
       },
       logger: {
         mode: "auto",
         level: "info",
-        enableAgentLogs: false
-      }
+        enableAgentLogs: false,
+      },
     },
     null,
     2

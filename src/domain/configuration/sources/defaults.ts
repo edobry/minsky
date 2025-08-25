@@ -127,6 +127,8 @@ export const defaultConfiguration: PartialConfiguration = {
 
   // Tasks configuration
   tasks: {
+    // Provide a safe default backend expected by tests and CLI
+    backend: "markdown",
     strictIds: false,
   },
 };

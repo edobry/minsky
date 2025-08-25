@@ -21,6 +21,15 @@ import { createConfiguredTaskService } from "./taskService";
 setupTestMocks();
 
 describe("Task ID Integration Issues (Domain Layer Testing)", () => {
+  beforeEach(() => {
+    // Clear all mocks before each test to prevent state pollution
+    mock.restore();
+  });
+
+  afterEach(() => {
+    // Clean up after each test
+    mock.restore();
+  });
   describe("Task Service Operations", () => {
     test("should handle qualified task IDs in task operations", async () => {
       // Create mock task service that supports qualified IDs

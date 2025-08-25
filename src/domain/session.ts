@@ -190,7 +190,9 @@ export async function startSessionFromParams(
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
-    taskService: depsInput?.taskService || (await createConfiguredTaskService({ workspacePath: process.cwd() })),
+    taskService:
+      depsInput?.taskService ||
+      (await createConfiguredTaskService({ workspacePath: process.cwd() })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
     resolveRepositoryAndBackend:
       depsInput?.resolveRepositoryAndBackend || resolveRepositoryAndBackend,

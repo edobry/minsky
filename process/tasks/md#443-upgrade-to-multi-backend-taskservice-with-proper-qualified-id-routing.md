@@ -39,17 +39,19 @@ Replace the current single-backend `TaskService` with the `MultiBackendTaskServi
 ### 🎯 **USER-FACING API ACHIEVED**
 
 **Clean Public Interface (Following Meta-Cognitive-Boundary-Protocol):**
+
 ```typescript
 // Users now get this clean API:
 const taskService = await createConfiguredTaskService({ workspacePath });
 
 // Automatic qualified ID routing works transparently:
-await taskService.getTask("md#123");  // → markdown backend
-await taskService.getTask("mt#456");  // → minsky backend  
-await taskService.getTask("gh#789");  // → github backend
+await taskService.getTask("md#123"); // → markdown backend
+await taskService.getTask("mt#456"); // → minsky backend
+await taskService.getTask("gh#789"); // → github backend
 ```
 
 **Internal Complexity Hidden:**
+
 - ✅ No "MultiBackend" terminology exposed to users
 - ✅ Automatic backend registration and routing
 - ✅ Backward compatible with existing `TaskServiceInterface`
@@ -60,7 +62,7 @@ await taskService.getTask("gh#789");  // → github backend
 **Migration Status: 100% COMPLETE**
 
 - ✅ Legacy elimination: 100%
-- ✅ API cleanup: 100%  
+- ✅ API cleanup: 100%
 - ✅ Multi-backend integration: 100%
 - ✅ Test coverage: 100%
 - ✅ Documentation updated: 100%

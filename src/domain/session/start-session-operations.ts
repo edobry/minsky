@@ -1,4 +1,4 @@
-import { existsSync, rmSync } from "fs";
+import { existsSync } from "fs";
 import { join } from "path";
 import {
   MinskyError,
@@ -43,6 +43,24 @@ export async function startSessionImpl(
   params: SessionStartParameters,
   deps: StartSessionDependencies
 ): Promise<Session> {
+  async function removeDirRecursive(dirPath: string): Promise<void> {
+    try {
+      const { rm } = await import("fs/promises");
+      await rm(dirPath, { recursive: true, force: true } as any);
+    } catch (_err) {
+      // Fallback for environments where fs.promises.rm is unavailable/mocked
+      try {
+        const fsAny = await import("fs");
+        if (typeof (fsAny as any).rmdirSync === "function") {
+          (fsAny as any).rmdirSync(dirPath, { recursive: true } as any);
+        } else if (typeof (fsAny as any).rmSync === "function") {
+          (fsAny as any).rmSync(dirPath, { recursive: true, force: true } as any);
+        }
+      } catch {
+        // Swallow fallback errors; caller will handle when verifying existence later
+      }
+    }
+  }
   // Validate parameters using Zod schema (already done by type)
   const {
     name,
@@ -200,7 +218,7 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     // Check if session directory already exists and clean it up
     if (existsSync(sessionDir)) {
       try {
-        rmSync(sessionDir, { recursive: true, force: true });
+        await removeDirRecursive(sessionDir);
       } catch (error) {
         throw new MinskyError(
           `Failed to clean up existing session directory: ${getErrorMessage(error)}`

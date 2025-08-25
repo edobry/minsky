@@ -234,10 +234,20 @@ export async function sessionPrList(params: {
     // Get all sessions
     const sessions = await sessionDB.listSessions();
 
-    // Filter sessions that have PR information
+    // Filter sessions that have or might have had PR information
     let filteredSessions = sessions.filter((session) => {
-      // Include sessions that have prState or pullRequest info
-      return !!session.prState?.commitHash || session.pullRequest;
+      // Include sessions that have current PR tracking data
+      if (!!session.prState?.commitHash || session.pullRequest) return true;
+
+      // Also include sessions that might have had PRs based on naming patterns
+      // This helps include merged PRs that no longer have active tracking data
+      return (
+        session.session.startsWith("task-") ||
+        session.session.includes("#") ||
+        session.session.includes("fix-") ||
+        session.session.includes("feature-") ||
+        session.session.includes("rfc-")
+      );
     });
 
     // Apply filters
@@ -257,11 +267,30 @@ export async function sessionPrList(params: {
       const pr = session.pullRequest;
       const prState = session.prState;
 
+      // Determine status with better logic for merged/closed PRs
+      const inferredStatus = (() => {
+        // If we have explicit PR state, use it
+        if (pr?.state) return pr.state;
+
+        // If we have a commit hash, it was created
+        if (prState?.commitHash) return "created";
+
+        // For sessions without PR tracking data, try to infer status
+        // This is a heuristic for sessions that might have been merged before tracking
+        if (session.session.startsWith("task-") && session.taskId) {
+          // Could check git history here for a more accurate status
+          // For now, assume these had PRs that might be merged
+          return "unknown";
+        }
+
+        return "not_found";
+      })();
+
       return {
         sessionName: session.session,
         taskId: session.taskId,
         prNumber: pr?.number,
-        status: pr?.state || (prState?.commitHash ? "created" : "not_found"),
+        status: inferredStatus,
         title: pr?.title || `PR for ${session.session}`,
         url: pr?.url,
         updatedAt: pr?.updatedAt || prState?.lastChecked,

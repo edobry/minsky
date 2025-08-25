@@ -212,7 +212,10 @@ export class MinskyTaskBackend implements TaskBackend {
     }
   }
 
-  async getTaskSpecContent(taskId: string, section?: string): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+  async getTaskSpecContent(
+    taskId: string,
+    section?: string
+  ): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
     // Get the task first
     const task = await this.getTask(taskId);
     if (!task) {

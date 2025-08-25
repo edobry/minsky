@@ -46,7 +46,7 @@ export async function createConfiguredTaskService(options: {
   // If specific backend requested, only register that backend
   if (options.backend) {
     switch (options.backend) {
-      case "markdown":
+      case "markdown": {
         const markdownBackend = createMarkdownTaskBackend({
           name: "markdown",
           workspacePath: options.workspacePath,
@@ -54,8 +54,9 @@ export async function createConfiguredTaskService(options: {
         (markdownBackend as any).prefix = "md";
         service.registerBackend(markdownBackend);
         break;
+      }
 
-      case "json-file":
+      case "json-file": {
         const jsonBackend = createJsonFileTaskBackend({
           name: "json-file",
           workspacePath: options.workspacePath,
@@ -63,8 +64,9 @@ export async function createConfiguredTaskService(options: {
         (jsonBackend as any).prefix = "json";
         service.registerBackend(jsonBackend);
         break;
+      }
 
-      case "minsky":
+      case "minsky": {
         try {
           const { createDatabaseConnection } = await import("../database/connection-manager");
           const db = await createDatabaseConnection();
@@ -78,9 +80,12 @@ export async function createConfiguredTaskService(options: {
           log.debug("Minsky backend registered successfully");
         } catch (error) {
           log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
-          throw new Error(`Minsky backend requested but not available: ${getErrorMessage(error as any)}`);
+          throw new Error(
+            `Minsky backend requested but not available: ${getErrorMessage(error as any)}`
+          );
         }
         break;
+      }
 
       default:
         throw new Error(`Unknown backend: ${options.backend}`);

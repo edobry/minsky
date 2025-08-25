@@ -391,17 +391,27 @@ export const sessionPrListCommandParams = {
   status: {
     schema: z.string().refine(
       (value) => {
-        const validStatuses = ["open", "closed", "merged", "draft", "created", "all"];
+        const validStatuses = [
+          "open",
+          "closed",
+          "merged",
+          "draft",
+          "created",
+          "unknown",
+          "not_found",
+          "all",
+        ];
         if (value === "all") return true;
-        const parts = value.split(",").map(s => s.trim().toLowerCase());
-        return parts.every(part => validStatuses.includes(part));
+        const parts = value.split(",").map((s) => s.trim().toLowerCase());
+        return parts.every((part) => validStatuses.includes(part));
       },
       {
-        message: "Invalid status. Valid options: open, closed, merged, draft, created, all (or comma-separated combinations like 'open,draft')"
+        message:
+          "Invalid status. Valid options: open, closed, merged, draft, created, unknown, not_found, all (or comma-separated combinations like 'open,draft')",
       }
     ),
     description:
-      "Filter by PR status. Valid options: open, closed, merged, draft, created, all (or comma-separated combinations)",
+      "Filter by PR status. Valid options: open, closed, merged, draft, created, unknown, not_found, all (or comma-separated combinations)",
     required: false,
   },
   backend: {
@@ -453,13 +463,23 @@ export const sessionPrGetCommandParams = {
   status: {
     schema: z.string().refine(
       (value) => {
-        const validStatuses = ["open", "closed", "merged", "draft", "created", "all"];
+        const validStatuses = [
+          "open",
+          "closed",
+          "merged",
+          "draft",
+          "created",
+          "unknown",
+          "not_found",
+          "all",
+        ];
         if (value === "all") return true;
-        const parts = value.split(",").map(s => s.trim().toLowerCase());
-        return parts.every(part => validStatuses.includes(part));
+        const parts = value.split(",").map((s) => s.trim().toLowerCase());
+        return parts.every((part) => validStatuses.includes(part));
       },
       {
-        message: "Invalid status. Valid options: open, closed, merged, draft, created, all (or comma-separated combinations like 'open,draft')"
+        message:
+          "Invalid status. Valid options: open, closed, merged, draft, created, unknown, not_found, all (or comma-separated combinations like 'open,draft')",
       }
     ),
     description:

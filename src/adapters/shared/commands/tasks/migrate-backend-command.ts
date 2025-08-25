@@ -185,7 +185,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   private async detectCurrentBackend(workspacePath: string): Promise<string> {
     // Use the backend detection service instead of hardcoded logic
     const detectedBackend = await _backendDetectionService.detectBackend(workspacePath);
-    
+
     // Convert TaskBackend enum to string format expected by migration command
     switch (detectedBackend) {
       case "MARKDOWN":

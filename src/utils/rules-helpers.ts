@@ -4,7 +4,6 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
  * Shared utility functions for rules operations
  */
 
-
 import type { promises as fsPromises } from "fs";
 import fs from "fs";
 
@@ -25,8 +24,8 @@ export async function readContentFromFileIfExists(
   deps?: RulesHelpersDependencies
 ): Promise<string> {
   // Defensive check: ensure contentPath is defined
-  if (!contentPath || typeof contentPath !== 'string') {
-    return contentPath || '';
+  if (!contentPath || typeof contentPath !== "string") {
+    return contentPath || "";
   }
 
   // Use injected dependencies or defaults
