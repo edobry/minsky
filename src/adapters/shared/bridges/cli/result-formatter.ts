@@ -183,8 +183,33 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         break;
 
       case "rules.search":
-        if ("rules" in result) {
-          this.formatRulesListResult(result.rules);
+        if ("rules" in result && Array.isArray(result.rules)) {
+          const rules = result.rules as Array<{
+            id: string;
+            score?: number;
+            name?: string;
+            description?: string;
+            format?: string;
+          }>;
+          if (rules.length === 0) {
+            log.cli("No rules found.");
+          } else {
+            // Visual separator after any header emitted by the command implementation
+            log.cli("");
+            rules.forEach((rule, index) => {
+              const name = rule.name || rule.id;
+              const fmt = rule.format ? ` [${rule.format}]` : "";
+              const desc = rule.description ? ` - ${rule.description}` : "";
+              // Show score in --details mode if available
+              const scorePart = rule.score !== undefined && this.shouldShowDetails(result) 
+                ? `\nScore: ${rule.score.toFixed(3)}` 
+                : "";
+              log.cli(`${index + 1}. ${name}${fmt}${desc}${scorePart}`);
+            });
+            // Footer separator before count
+            log.cli("");
+            log.cli(`${rules.length} result${rules.length === 1 ? "" : "s"} found`);
+          }
         } else {
           this.formatGenericObject(result);
         }
@@ -209,9 +234,10 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
               const idPart = r.title ? ` [${r.id}]` : "";
               const statusPart = r.status ? ` [${r.status}]` : "";
               // Show score in --details mode if available
-              const scorePart = r.score !== undefined && this.shouldShowDetails(result) 
-                ? `\nScore: ${r.score.toFixed(3)}` 
-                : "";
+              const scorePart =
+                r.score !== undefined && this.shouldShowDetails(result)
+                  ? `\nScore: ${r.score.toFixed(3)}`
+                  : "";
               log.cli(`${index + 1}. ${title}${idPart}${statusPart}${scorePart}`);
             });
             // Footer separator before count

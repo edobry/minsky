@@ -710,10 +710,17 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (params: any) => {
+    execute: async (params: any, ctx?: CommandExecutionContext) => {
       log.debug("Executing rules.search command", { params });
 
       try {
+        // Emit progress message like tasks.search does
+        const quiet = Boolean(params.quiet);
+        const json = Boolean(params.json) || ctx?.format === "json";
+        if (!quiet && !json && params.query) {
+          log.cliWarn(`Searching for rules matching: "${params.query}" ...`);
+        }
+
         // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
