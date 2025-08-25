@@ -121,10 +121,22 @@ export class TaskServiceImpl implements TaskService {
   // TaskServiceInterface implementation
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     const results: Task[] = [];
+    console.log(`[DEBUG] Multi-backend listTasks: Registered backends: ${this.backends.length}`);
+    
     for (const b of this.backends) {
-      const list = await b.listTasks(options);
-      results.push(...list.map((t) => this.qualifyTaskFromBackend(t, b)!));
+      console.log(`[DEBUG] Processing backend: ${b.name}, prefix: ${(b as any).prefix}`);
+      try {
+        const list = await b.listTasks(options);
+        console.log(`[DEBUG] Backend ${b.name} returned ${list.length} tasks`);
+        const qualified = list.map((t) => this.qualifyTaskFromBackend(t, b)!);
+        results.push(...qualified);
+        console.log(`[DEBUG] Added ${qualified.length} qualified tasks from ${b.name}`);
+      } catch (error) {
+        console.log(`[DEBUG] Error from backend ${b.name}:`, error);
+      }
     }
+    
+    console.log(`[DEBUG] Total results: ${results.length} tasks`);
     return results;
   }
 
