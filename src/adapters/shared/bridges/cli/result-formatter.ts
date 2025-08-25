@@ -202,13 +202,16 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
           if (results.length === 0) {
             log.cli("No results found.");
           } else {
+            // Visual separator after any header emitted by the command implementation
+            log.cli("");
             results.forEach((r, index) => {
               const title = r.title ? r.title : r.id;
               const idPart = r.title ? ` [${r.id}]` : "";
               const statusPart = r.status ? ` [${r.status}]` : "";
               log.cli(`${index + 1}. ${title}${idPart}${statusPart}`);
             });
-
+            // Footer separator before count
+            log.cli("");
             if (typeof (result as any).count === "number") {
               const count = (result as any).count as number;
               log.cli(`${count} result${count === 1 ? "" : "s"} found`);
@@ -291,6 +294,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     }
 
     // Align with tasks.search style: numbered items and trailing count
+    // Visual separator after any header emitted by the command implementation
+    log.cli("");
     rules.forEach((rule: any, index: number) => {
       const r = rule as Record<string, any>;
       const ruleId = r.id || "unknown";
@@ -298,6 +303,8 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       const desc = r.description ? ` - ${r.description}` : "";
       log.cli(`${index + 1}. ${ruleId}${fmt}${desc}`);
     });
+    // Footer separator before count
+    log.cli("");
     log.cli(`${rules.length} result${rules.length === 1 ? "" : "s"} found`);
   }
 

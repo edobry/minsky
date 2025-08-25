@@ -389,6 +389,10 @@ All notable changes to this project will be documented in this file.
 - **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.
 - **Tasks Status No-Op Messaging (md#410)**: `minsky tasks status set` now reports a clear no-op when the new status equals the current status, e.g., `status is already DONE (no change)`, instead of misleading "changed from DONE to DONE".
 
+### Changed
+
+- tasks search: Immediate progress message to stderr when starting search; add `--quiet` to suppress. Keeps `--json` output clean on stdout. Improves perceived responsiveness for longer searches.
+
 ### Cleanup
 
 - **Test Task Cleanup**: Successfully removed all generic test tasks with names like "Test session for MCP fix verification", "Fix the authentication bug", "Test to see exact MCP error", and other temporary testing tasks. Cleaned up task IDs: md#003, md#377, md#382, md#383, md#399, and their associated spec files. This cleanup improves task list clarity and removes outdated testing artifacts.
