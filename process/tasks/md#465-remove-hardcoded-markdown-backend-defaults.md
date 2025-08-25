@@ -4,7 +4,9 @@
 
 Replace all hardcoded backend='markdown' fallbacks with proper configuration system defaults. Maintain 'markdown' as valid option but not hardcoded default. System should use backend detection service or explicit configuration instead of hardcoded values.
 
-With the completion of **md#443 (Multi-Backend TaskService)**, the system now supports automatic qualified ID routing (`md#123` → markdown, `mt#456` → minsky, etc.) and multi-backend coordination. However, several areas of the codebase still contain hardcoded `|| "markdown"` fallbacks that bypass this new architecture and force markdown as the default backend.
+With the completion of **md#443 (Multi-Backend TaskService)**, the system now supports automatic qualified ID routing (`md#123` → markdown, `mt#456` → minsky, etc.) and multi-backend coordination.
+
+However, several areas of the codebase still contain hardcoded `|| "markdown"` fallbacks that bypass this new architecture and force markdown as the default backend.
 
 ## Requirements
 

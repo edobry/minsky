@@ -49,7 +49,7 @@ echo Simple unquoted text
 **✅ For Complex Operations:**
 ```bash
 echo 'Step 1 complete'
-echo 'Step 2 complete'  
+echo 'Step 2 complete'
 echo 'Step 3 complete'
 ```
 

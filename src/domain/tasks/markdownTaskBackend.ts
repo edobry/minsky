@@ -119,7 +119,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async getTask(id: string): Promise<Task | null> {
-    const tasks = await this.listTasks();
+    const tasks = await this.listTasks({ all: true });
 
     // Handle ID format mismatches for multi-backend compatibility
     const foundTask = tasks.find((task) => {
