@@ -4,28 +4,15 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
-### Added
-
-- Enabled quiet test output in pre-commit hooks using Bun's AI agent integration (`AGENT=1` environment variable)
-  - Reduces verbose test output during commits to only show failures, errors, and summary statistics
-  - Applies to both main unit test suite and ESLint rule tooling tests
-- Improved session PR status parameter validation and help text
-  - Added validation for `--status` parameter with helpful error messages showing valid options
-  - Support comma-separated status combinations (e.g., `--status open,draft`)
-  - Enhanced CLI help to clearly show all valid status options: open, closed, merged, draft, created, all
-  - Applied to both `session pr list` and `session pr get` commands
-- Fixed session PR list to include sessions with merged/closed PRs
-  - Expanded session filtering to include sessions that might have had PRs based on naming patterns
-  - Added "unknown" and "not_found" status options for better visibility of historical sessions
-  - Now shows sessions that previously didn't appear due to missing active PR tracking data
-  - Significantly increased PR visibility from 1 to 28+ sessions in typical repositories
-
 ### Fixed
+<<<<<<< HEAD
+=======
 
 - tasks delete: Make deletion resilient across backends when primary routed backend cannot delete
   - Added fallback in `TaskServiceImpl.deleteTask` to attempt deletion on other registered backends when the routed backend returns false or is unavailable
   - Resolves failures like `Failed to delete task mt#464` when DB-backed tasks exist but routing or registration prevents direct deletion
   - Verified via CLI: `minsky tasks delete --force --json mt#464` now returns success and the task is removed from listings
+>>>>>>> origin/main
 - **Test Architecture**: Replaced global state reset anti-pattern with isolated per-test resources in configuration tests
   - Removed `resetGlobalConfiguration` function that shared state between tests
   - Replaced global configuration functions with isolated provider instances per test
@@ -449,3 +436,5 @@ All notable changes to this project will be documented in this file.
 - tasks: Centralized status filtering in `src/domain/tasks/task-filters.ts`; both `TaskService.listTasks` and `tasks search` use the same utility to ensure consistent behavior.
 
 - similarity(core): Extract generic `SimilaritySearchService` with pluggable backends (embeddings → ai → lexical, fallback only on unavailability). Introduced shared types (`src/domain/similarity/types.ts`), core orchestrator (`similarity-search-service.ts`), and backends (`backends/embeddings-backend.ts`, `backends/lexical-backend.ts`, AI backend scaffold). Wired `TaskSimilarityService` to delegate to the core via resolvers. No behavior change in CLI output; prepares for future md#446 reranking without config changes.
+
+- md#447 (spec): Finalize semantics: embeddings → ai → lexical; fallback only on unavailability; remove thresholds (top-k per backend); reserve rerank hook for md#446 (design only). Kept CLI stable; delegate tasks/rules flows to the core internally.

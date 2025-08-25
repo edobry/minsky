@@ -23,15 +23,15 @@ describe("PR Validation Utilities", () => {
       expect(result.sanitizedBody).toBe(body);
     });
 
-    test("should detect and remove title duplication in body", () => {
+    test("should detect and error on title duplication in body", () => {
       const title = "feat(#285): Fix session PR title duplication bug";
       const duplicatedBody =
         "feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.";
 
       const result = validatePrContent(title, duplicatedBody);
 
-      expect(result.isValid).toBe(true);
-      expect(result.errors).toEqual([]);
+      expect(result.isValid).toBe(false);
+      expect(result.errors.length).toBeGreaterThan(0);
       expect(result.sanitizedBody).toBe("## Summary\n\nThis PR fixes the issue.");
     });
 

@@ -12,9 +12,6 @@ import type { RuleSuggestionRequest, RuleSuggestionResponse } from "../../domain
 import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
 import fs from "fs/promises";
-import { getEmbeddingDimension } from "../../domain/ai/embedding-models";
-import { createEmbeddingServiceFromConfig } from "../../domain/ai/embedding-service-factory";
-import { createRulesVectorStorageFromConfig } from "../../domain/storage/vector/vector-storage-factory";
 import { RuleSimilarityService } from "../../domain/rules/rule-similarity-service";
 
 interface SuggestRulesOptions {
@@ -99,15 +96,9 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
   const startTime = Date.now();
   let totalTime = 0;
   if (useEmbeddings) {
-    // Build embedding service and vector storage for rules
-    const model = (config as any).embeddings?.model || "text-embedding-3-small";
-    const dimension = getEmbeddingDimension(model, 1536);
-    const embedding = await createEmbeddingServiceFromConfig();
-    const storage = await createRulesVectorStorageFromConfig(dimension);
-    const sim = new RuleSimilarityService(embedding, storage, {});
+    const sim = new RuleSimilarityService(workspacePath, {});
     const limit = parseInt(String(options.limit || 5), 10);
-    const threshold = options.threshold !== undefined ? Number(options.threshold) : undefined;
-    const results = await sim.searchByText(query, limit, threshold);
+    const results = await sim.searchByText(query, limit);
 
     // Human-readable: mirror tasks.search format (no extra analysis); show raw distance as Score
     if (!options.json) {

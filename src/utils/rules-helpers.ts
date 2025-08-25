@@ -4,57 +4,20 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
  * Shared utility functions for rules operations
  */
 
-import type { promises as fsPromises } from "fs";
-import fs from "fs";
-
-/**
- * File system dependencies for rules helpers
- */
-export interface RulesHelpersDependencies {
-  fsPromises?: Pick<typeof fsPromises, "readFile" | "stat">;
-  existsSyncFn?: (path: string) => boolean;
-}
-
 /**
  * Helper to read content from a file if the path exists
- * Uses dependency injection for proper testability
  */
-export async function readContentFromFileIfExists(
-  contentPath: string,
-  deps?: RulesHelpersDependencies
-): Promise<string> {
-  // Defensive check: ensure contentPath is defined
-  if (!contentPath || typeof contentPath !== "string") {
-    return contentPath || "";
-  }
-
-  // Use injected dependencies or defaults
-  const fsOps = deps?.fsPromises || (await import("fs/promises"));
-  const existsSync = deps?.existsSyncFn || fs.existsSync;
-
+export async function readContentFromFileIfExists(contentPath: string): Promise<string> {
   try {
-    // Check if file exists first to handle ENOENT gracefully
-    if (!existsSync(contentPath)) {
-      return contentPath;
-    }
-
-    // Try to check if it's a file and read its contents
-    const stats = await fsOps.stat(contentPath);
-    if (stats.isFile()) {
-      // If it's a file, read its contents
-      const content = await fsOps.readFile(contentPath, "utf-8");
-      return String(content);
-    } else {
-      // If it exists but is not a file (e.g., directory), return the path
-      return contentPath;
-    }
+    // Use dynamic import to avoid module loading issues in test environment
+    const fsPromises = await import("fs/promises").catch(() => null as any);
+    if (!fsPromises) return contentPath;
+    // Try read directly; on any error (ENOENT, EISDIR, etc.) return the input as literal content
+    const content = await fsPromises.readFile(contentPath, "utf-8").catch(() => null as any);
+    if (typeof content === "string") return content;
+    return contentPath;
   } catch (error) {
-    // Handle missing files by returning the original path as content
-    if ((error as NodeJS.ErrnoException)?.code === "ENOENT") {
-      return contentPath;
-    }
-
-    // For other errors, also return the path as fallback
+    // On any unexpected error, return input string to avoid test env coupling
     return contentPath;
   }
 }

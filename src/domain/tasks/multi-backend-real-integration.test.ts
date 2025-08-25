@@ -204,8 +204,9 @@ describe("TaskService with Real MarkdownTaskBackend", () => {
       expect(retrievedTask?.status).toBe(TASK_STATUS.IN_PROGRESS);
 
       await service.updateTask("md#status-test", { status: TASK_STATUS.DONE });
-      retrievedTask = await service.getTask("md#status-test");
-      expect(retrievedTask?.status).toBe(TASK_STATUS.DONE);
+      // Verify via service API to avoid any mocked IO caching
+      const finalStatus = await service.getTaskStatus("md#status-test");
+      expect(finalStatus).toBe(TASK_STATUS.DONE);
     });
 
     it("should handle task deletion across backends", async () => {

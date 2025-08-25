@@ -10,12 +10,7 @@ export class EmbeddingsSimilarityBackend implements SimilarityBackend {
   ) {}
 
   async isAvailable(): Promise<boolean> {
-    try {
-      // If vector storage can be touched (no-op), assume availability
-      return Boolean(this.embeddingService) && Boolean(this.vectorStorage);
-    } catch {
-      return false;
-    }
+    return Boolean(this.embeddingService) && Boolean(this.vectorStorage);
   }
 
   async search(query: SimilarityQuery): Promise<SimilarityItem[]> {

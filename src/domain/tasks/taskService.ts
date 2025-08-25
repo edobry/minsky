@@ -1,33 +1,10 @@
-import { promises as fs } from "fs";
-import type {
-  Task,
-  TaskBackend,
-  TaskBackendConfig,
-  TaskListOptions,
-  CreateTaskOptions,
-  DeleteTaskOptions,
-  TaskMetadata,
-} from "./types";
-import type { TaskData } from "../types/tasks/taskData";
 import type { TaskServiceInterface } from "../tasks";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
-import { createMinskyTaskBackend, type MinskyTaskBackendConfig } from "./minskyTaskBackend";
-import { createTaskService, type TaskService } from "./multi-backend-service";
-import { createDatabaseConnection } from "../database/connection-manager";
+import { createMinskyTaskBackend } from "./minskyTaskBackend";
+import { createTaskService } from "./multi-backend-service";
 import { log } from "../../utils/logger";
-// normalizeTaskId removed: strict qualified IDs expected upstream
-import { TASK_STATUS, TASK_STATUS_VALUES, isValidTaskStatus } from "./taskConstants";
 import { getErrorMessage } from "../../errors/index";
-import { get } from "../configuration/index";
-import { validateQualifiedTaskId } from "./task-id-utils";
-import { getGitHubBackendConfig } from "./githubBackendConfig";
-import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
-import { detectRepositoryBackendType } from "../session/repository-backend-detection";
-import { validateTaskBackendCompatibility } from "./taskBackendCompatibility";
-import type { RepositoryBackend } from "../repository/index";
-import { createRepositoryBackend, RepositoryBackendType } from "../repository/index";
-import { filterTasksByStatus } from "./task-filters";
 
 export interface TaskServiceOptions {
   workspacePath: string;

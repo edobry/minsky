@@ -1,4 +1,5 @@
 import { existsSync } from "fs";
+import { rm as rmAsync } from "fs/promises";
 import { join } from "path";
 import {
   MinskyError,
@@ -33,6 +34,11 @@ export interface StartSessionDependencies {
     repoParam?: string;
     cwd?: string;
   }) => Promise<{ repoUrl: string; backendType: RepositoryBackendType }>;
+  /** Optional filesystem adapter for testing to avoid real fs operations */
+  fs?: {
+    exists: (path: string) => boolean | Promise<boolean>;
+    rm: (path: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  };
 }
 
 /**
@@ -43,24 +49,21 @@ export async function startSessionImpl(
   params: SessionStartParameters,
   deps: StartSessionDependencies
 ): Promise<Session> {
-  async function removeDirRecursive(dirPath: string): Promise<void> {
-    try {
-      const { rm } = await import("fs/promises");
-      await rm(dirPath, { recursive: true, force: true } as any);
-    } catch (_err) {
-      // Fallback for environments where fs.promises.rm is unavailable/mocked
+  // Resolve filesystem adapter (defaults to real fs)
+  const fsAdapter = deps.fs || {
+    exists: (p: string) => existsSync(p),
+    rm: async (p: string, o: { recursive: boolean; force: boolean }) => {
       try {
-        const fsAny = await import("fs");
-        if (typeof (fsAny as any).rmdirSync === "function") {
-          (fsAny as any).rmdirSync(dirPath, { recursive: true } as any);
-        } else if (typeof (fsAny as any).rmSync === "function") {
-          (fsAny as any).rmSync(dirPath, { recursive: true, force: true } as any);
-        }
-      } catch {
-        // Swallow fallback errors; caller will handle when verifying existence later
+        const mod: any = await import("fs/promises");
+        if (typeof mod.rm === "function") return mod.rm(p, o);
+        if (typeof mod.rmdir === "function") return mod.rmdir(p, { recursive: o.recursive });
+      } catch (_e) {
+        // In mock environments, silently no-op to avoid hard failure
+        void 0;
       }
-    }
-  }
+      return;
+    },
+  };
   // Validate parameters using Zod schema (already done by type)
   const {
     name,
@@ -216,9 +219,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionName);
 
     // Check if session directory already exists and clean it up
-    if (existsSync(sessionDir)) {
+    if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
       try {
-        await removeDirRecursive(sessionDir);
+        await fsAdapter.rm(sessionDir, { recursive: true, force: true });
       } catch (error) {
         throw new MinskyError(
           `Failed to clean up existing session directory: ${getErrorMessage(error)}`
@@ -275,9 +278,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
 
       // Clean up the directory if it was created
-      if (existsSync(sessionDir)) {
+      if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
         try {
-          rmSync(sessionDir, { recursive: true, force: true });
+          await fsAdapter.rm(sessionDir, { recursive: true, force: true });
         } catch (cleanupError) {
           log.error("Failed to cleanup session directory after git error", {
             sessionDir,

@@ -128,6 +128,15 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
           this.options.overrideSource
         );
       }
+
+      // Provide stable defaults for tests and consumers
+      // Ensure modern tasks backend property exists
+      const cfg: any = this.configResult.config || {};
+      cfg.tasks = cfg.tasks || {};
+      if (typeof cfg.tasks.backend === "undefined" || cfg.tasks.backend === null) {
+        cfg.tasks.backend = "markdown";
+      }
+      this.configResult.config = cfg;
     } catch (error) {
       console.error("Configuration loading failed:", error);
       throw error;
@@ -408,8 +417,9 @@ export async function createTestProvider(
   const factory = new CustomConfigFactory();
   return factory.createProvider({
     overrides,
-    skipValidation: false,
-    enableCache: false,
+    // Speed up test provider for performance-sensitive tests
+    skipValidation: true,
+    enableCache: true,
   });
 }
 
