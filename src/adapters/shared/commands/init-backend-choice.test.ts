@@ -1,6 +1,6 @@
 /**
  * Test for Init Backend Selection Fix
- * 
+ *
  * Demonstrates that the init command now respects user backend choices
  * instead of hardcoding markdown as the default.
  */
@@ -25,8 +25,8 @@ describe("Init Backend Selection Fix", () => {
     // Demonstrate the old bug was fixed
     const userWantsJsonFile = "json-file";
     const result = testBackendMapping(userWantsJsonFile);
-    
-    expect(result).toBe("json-file");     // ✅ User's choice is respected
+
+    expect(result).toBe("json-file"); // ✅ User's choice is respected
     expect(result).not.toBe("markdown"); // ✅ No longer hardcoded to markdown
   });
 
@@ -36,26 +36,26 @@ describe("Init Backend Selection Fix", () => {
       return {
         tasks: {
           backend: backend,
-          strictIds: false
+          strictIds: false,
         },
         sessiondb: {
-          backend: "sqlite"
+          backend: "sqlite",
         },
         logger: {
           mode: "auto",
-          level: "info", 
-          enableAgentLogs: false
-        }
+          level: "info",
+          enableAgentLogs: false,
+        },
       };
     };
 
     // Test each backend option
     const jsonConfig = createConfig("json-file");
     expect(jsonConfig.tasks.backend).toBe("json-file");
-    
+
     const githubConfig = createConfig("github-issues");
     expect(githubConfig.tasks.backend).toBe("github-issues");
-    
+
     const minskyConfig = createConfig("minsky");
     expect(minskyConfig.tasks.backend).toBe("minsky");
 
@@ -77,12 +77,12 @@ describe("Init Backend Selection Fix", () => {
 
     // Demonstrate the difference
     const userWants = "json-file";
-    
+
     const buggyResult = oldBuggyPattern(userWants);
     const fixedResult = newFixedPattern(userWants);
-    
-    expect(buggyResult).toBe("tasks.md");    // Old bug: always markdown
-    expect(fixedResult).toBe("json-file");   // New fix: respects user choice
+
+    expect(buggyResult).toBe("tasks.md"); // Old bug: always markdown
+    expect(fixedResult).toBe("json-file"); // New fix: respects user choice
     expect(buggyResult).not.toBe(fixedResult); // Confirms the fix changed behavior
   });
 });

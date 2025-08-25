@@ -188,11 +188,8 @@ export async function startSessionFromParams(
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
     resolveRepositoryAndBackend?: typeof resolveRepositoryAndBackend;
-<<<<<<< HEAD
-=======
     // Back-compat for older tests/consumers
     resolveRepoPath?: typeof resolveRepositoryAndBackend;
->>>>>>> 76c8a5fb (fix(lint): replace empty blocks with guarded catch bodies; stabilize session fs.rm noop and task status reads)
     // Optional filesystem adapter passthrough for tests
     fs?: {
       exists: (path: string) => boolean | Promise<boolean>;
@@ -203,12 +200,11 @@ export async function startSessionFromParams(
   const deps = {
     sessionDB: depsInput?.sessionDB || createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
-    taskService: depsInput?.taskService || (await createConfiguredTaskService()),
+    taskService:
+      depsInput?.taskService ||
+      (await createConfiguredTaskService({ workspacePath: process.cwd() })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
     resolveRepositoryAndBackend:
-<<<<<<< HEAD
-      depsInput?.resolveRepositoryAndBackend || resolveRepositoryAndBackend,
-=======
       depsInput?.resolveRepositoryAndBackend ||
       // Back-compat: wrap legacy resolveRepoPath(uri) => string into the new resolver interface
       (depsInput?.resolveRepoPath
@@ -220,7 +216,6 @@ export async function startSessionFromParams(
             return { repoUrl: uri, backendType };
           }
         : resolveRepositoryAndBackend),
->>>>>>> 76c8a5fb (fix(lint): replace empty blocks with guarded catch bodies; stabilize session fs.rm noop and task status reads)
     fs: depsInput?.fs,
   } as const;
 

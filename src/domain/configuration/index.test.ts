@@ -14,7 +14,9 @@ import {
   get,
   has,
   CustomConfigurationProvider,
+  resetGlobalConfiguration,
 } from "./index";
+import { clearConfigurationCache } from "./loader";
 
 // Mock the configuration loader to prevent infinite loops
 const mockLoadConfiguration = mock(() =>
@@ -172,11 +174,19 @@ describe("Custom Configuration System", () => {
   let testFactory: TestConfigFactory;
 
   beforeEach(async () => {
+    // Reset global configuration state before each test
+    resetGlobalConfiguration();
+    clearConfigurationCache();
+
     testFactory = new TestConfigFactory();
     provider = await testFactory.createProvider({});
   });
 
   afterEach(() => {
+    // Clean up after each test
+    resetGlobalConfiguration();
+    clearConfigurationCache();
+
     // Reset mock call counts
     mockLoadConfiguration.mockClear();
   });

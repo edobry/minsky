@@ -43,15 +43,12 @@ export class TasksSimilarCommand extends BaseTaskCommand {
     for (const result of searchResults) {
       try {
         // Get full task details
-        const tasksModule = await import("../../../../domain/tasks");
-        const { createTaskServiceWithDatabase } = await import(
+        const { createConfiguredTaskService } = await import(
           "../../../../domain/tasks/taskService"
         );
-        const taskService = (await (tasksModule as any).createTaskServiceWithDatabase)
-          ? await (tasksModule as any).createTaskServiceWithDatabase({
-              workspacePath: process.cwd(),
-            })
-          : await createTaskServiceWithDatabase({ workspacePath: process.cwd() });
+        const taskService = await createConfiguredTaskService({
+          workspacePath: process.cwd(),
+        });
         const task = await taskService.getTask(result.id);
 
         if (task) {
@@ -142,15 +139,12 @@ export class TasksSearchCommand extends BaseTaskCommand {
     for (const result of searchResults) {
       try {
         // Get full task details
-        const tasksModule = await import("../../../../domain/tasks");
-        const { createTaskServiceWithDatabase } = await import(
+        const { createConfiguredTaskService } = await import(
           "../../../../domain/tasks/taskService"
         );
-        const taskService = (await (tasksModule as any).createTaskServiceWithDatabase)
-          ? await (tasksModule as any).createTaskServiceWithDatabase({
-              workspacePath: process.cwd(),
-            })
-          : await createTaskServiceWithDatabase({ workspacePath: process.cwd() });
+        const taskService = await createConfiguredTaskService({
+          workspacePath: process.cwd(),
+        });
         const task = await taskService.getTask(result.id);
 
         if (task) {
@@ -256,11 +250,8 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   const storage = await createVectorStorageFromConfig(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
-  const tasksModule = await import("../../../../domain/tasks");
-  const { createTaskServiceWithDatabase } = await import("../../../../domain/tasks/taskService");
-  const taskService = (await (tasksModule as any).createTaskServiceWithDatabase)
-    ? await (tasksModule as any).createTaskServiceWithDatabase({ workspacePath: process.cwd() })
-    : await createTaskServiceWithDatabase({ workspacePath: process.cwd() });
+  const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+  const taskService = await createConfiguredTaskService({ workspacePath: process.cwd() });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);

@@ -39,7 +39,7 @@ echo "🧪 MANDATORY: Running unit test suite..."
 
 # Run the unit test suite (excluding integration tests) - ANY failure blocks the commit
 echo "  → Executing unit tests with timeout (excluding integration tests)..."
-if ! bun run test --bail; then
+if ! AGENT=1 bun run test --bail; then
   echo ""
   echo "❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌"
   echo ""
@@ -117,7 +117,7 @@ fi
 
 # Run ESLint rule tooling tests (separate from main test suite)
 echo "🔧 Running ESLint rule tooling tests..."
-if ! bun test src/eslint-rules/fixtures-test.test.js --timeout=5000; then
+if ! AGENT=1 bun test src/eslint-rules/fixtures-test.test.js --timeout=5000; then
   echo "❌ ESLint rule tooling tests failed! Please fix the fixture validation."
   exit 1
 fi
