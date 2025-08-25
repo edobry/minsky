@@ -147,10 +147,6 @@ export abstract class BaseTaskCommand {
           output += `Description: ${task.description}\n`;
         }
 
-        if (task.specPath) {
-          output += `Spec: ${task.specPath}\n`;
-        }
-
         return output.trim();
       }
 

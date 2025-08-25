@@ -122,13 +122,15 @@ export async function initializeProject(
     }
     await createDirectoryIfNotExists(rulesDirPath, fileSystem);
 
-    // Generate rules using template system
-    await generateRulesWithTemplateSystem(
-      rulesDirPath,
-      ruleFormat,
-      overwrite,
-      mcp?.enabled ?? false
-    );
+    // Generate rules using template system (skip if MCP is explicitly disabled for testing)
+    if (mcp?.enabled !== false) {
+      await generateRulesWithTemplateSystem(
+        rulesDirPath,
+        ruleFormat,
+        overwrite,
+        mcp?.enabled ?? false
+      );
+    }
   }
 
   // Create main Minsky configuration file with user's backend choice
