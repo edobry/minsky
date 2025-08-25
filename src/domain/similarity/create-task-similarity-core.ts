@@ -12,9 +12,9 @@ export interface SimilarityCoreOptions {
 
 export async function createTaskSimilarityCore(
   resolvers: {
-  getById(id: string): Promise<any | null>;
-  listCandidateIds(): Promise<string[]>;
-  getContent(id: string): Promise<string>;
+    getById(id: string): Promise<any | null>;
+    listCandidateIds(): Promise<string[]>;
+    getContent(id: string): Promise<string>;
   },
   options: SimilarityCoreOptions = {}
 ) {

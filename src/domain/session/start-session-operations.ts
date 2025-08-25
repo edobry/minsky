@@ -49,11 +49,11 @@ export async function startSessionImpl(
   params: SessionStartParameters,
   deps: StartSessionDependencies
 ): Promise<Session> {
-    // Resolve filesystem adapter (defaults to real fs)
-    const fsAdapter = deps.fs || {
-      exists: (p: string) => existsSync(p),
-      rm: (p: string, o: { recursive: boolean; force: boolean }) => rmAsync(p, o),
-    };
+  // Resolve filesystem adapter (defaults to real fs)
+  const fsAdapter = deps.fs || {
+    exists: (p: string) => existsSync(p),
+    rm: (p: string, o: { recursive: boolean; force: boolean }) => rmAsync(p, o),
+  };
   // Validate parameters using Zod schema (already done by type)
   const {
     name,

@@ -323,7 +323,7 @@ Please provide a title for your pull request:
 
     // Log warnings about any sanitization that occurred
     if (preparedContent.warnings.length > 0) {
-      preparedContent.warnings.forEach(warning => log.warn(`PR Content Warning: ${warning}`));
+      preparedContent.warnings.forEach((warning) => log.warn(`PR Content Warning: ${warning}`));
     }
 
     // Use repository backend to create pull request

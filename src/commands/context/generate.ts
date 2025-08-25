@@ -404,7 +404,7 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
   const tokenizerInfo = tokenizationService.getTokenizerInfo?.(targetModel) || {
     name: "tiktoken",
     encoding: "cl100k_base",
-    description: "OpenAI tokenizer"
+    description: "OpenAI tokenizer",
   };
 
   return {
@@ -502,7 +502,9 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
     console.log(`Model: ${analysis.metadata.model}`);
     console.log(`Interface Mode: ${analysis.metadata.interface}`);
     if (analysis.metadata.tokenizer) {
-      console.log(`Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`);
+      console.log(
+        `Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`
+      );
     }
     console.log(`Context Window: ${analysis.metadata.contextWindowSize.toLocaleString()} tokens`);
     console.log(`Generated: ${new Date(analysis.metadata.analysisTimestamp).toLocaleString()}`);
@@ -537,9 +539,14 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
     console.log("━".repeat(50));
 
     for (const opt of analysis.optimizations) {
-      const icon = opt.type === "reduce" ? "🔽" :
-                   opt.type === "review" ? "👀" :
-                   opt.type === "optimize" ? "⚡" : "⚠️";
+      const icon =
+        opt.type === "reduce"
+          ? "🔽"
+          : opt.type === "review"
+            ? "👀"
+            : opt.type === "optimize"
+              ? "⚡"
+              : "⚠️";
       console.log(`${icon} ${opt.component}`);
       console.log(`   ${opt.suggestion}`);
       console.log(`   Potential savings: ${opt.potentialSavings.toLocaleString()} tokens`);
