@@ -740,4 +740,4 @@
 
 - [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
 
-- [ ] Mock out logger in all tests to use in-memory logger instead of CLI output to eliminate test noise [md#467](process/tasks/md#467-mock-out-logger-in-all-tests-to-use-in-memory-logger-instead-of-cli-output-to-eliminate-test-noise.md)
+- [+] Mock out logger in all tests to use in-memory logger instead of CLI output to eliminate test noise [md#467](process/tasks/md#467-mock-out-logger-in-all-tests-to-use-in-memory-logger-instead-of-cli-output-to-eliminate-test-noise.md)
