@@ -187,6 +187,18 @@ export class TasksSearchCommand extends BaseTaskCommand {
 
     const service = await this.createService();
 
+    // Immediate progress hint to stderr unless JSON/quiet
+    try {
+      const { log } = await import("../../../../utils/logger");
+      const quiet = Boolean((params as any).quiet);
+      const json = Boolean((params as any).json) || ctx.format === "json";
+      if (!quiet && !json) {
+        log.cliWarn(`Searching for tasks matching: "${query}" ...`);
+      }
+    } catch {
+      // ignore logging failures
+    }
+
     // Optional human-friendly diagnostics (no global debug needed)
     if ((params as any).details) {
       try {

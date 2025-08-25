@@ -159,6 +159,8 @@ export const tasksSearchParams: CommandParameterMap = {
   // Add filtering options consistent with tasks list
   all: TaskParameters.all,
   status: TaskParameters.status,
+  // Support suppressing progress output
+  quiet: CommonParameters.quiet,
   ...taskContextParams,
   ...outputFormatParams,
 };
