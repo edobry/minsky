@@ -126,7 +126,7 @@ async function executeConflictsDetection(
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
     log.error("Error in conflicts detection", { error: errorMsg, repoPath });
-    
+
     if (options.format === "text") {
       return `Error: ${errorMsg}`;
     } else {
@@ -244,7 +244,7 @@ export async function conflictsFromParams(params: {
 }> {
   try {
     const repoPath = getCurrentWorkingDirectory();
-    
+
     const output = await executeConflictsDetection(repoPath, {
       format: params.format || "json",
       context: params.context || 3,

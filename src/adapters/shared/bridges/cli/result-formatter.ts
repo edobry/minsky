@@ -221,11 +221,11 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
                 }
 
                 // Description if included (--details flag)
-                if (r.description && r.spec.trim()) {
+                if (r.description && r.description.trim()) {
                   const truncatedDesc =
-                    r.spec.trim().length > 100
-                      ? `${r.spec.trim().substring(0, 100)}...`
-                      : r.spec.trim();
+                    r.description.trim().length > 100
+                      ? `${r.description.trim().substring(0, 100)}...`
+                      : r.description.trim();
                   log.cli(`Description: ${truncatedDesc}`);
                 }
 

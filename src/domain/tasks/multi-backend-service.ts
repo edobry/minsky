@@ -258,6 +258,55 @@ export class TaskServiceImpl implements TaskService {
     return this.defaultBackend?.name || "default";
   }
 
+  // ---- TaskServiceInterface Required Methods (continued) ----
+
+  async getTaskSpecContent(taskId: string, section?: string): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+    const backend = this.routeToBackend(taskId);
+
+    // Get the task first
+    const task = await this.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    // Check if backend has a getTaskSpecContent method
+    if ((backend as any).getTaskSpecContent) {
+      return await (backend as any).getTaskSpecContent(taskId, section);
+    }
+
+    // Fallback: construct spec path and read directly
+    const specPath = task.specPath || "";
+    if (!specPath) {
+      return {
+        task,
+        specPath: "",
+        content: "",
+        section,
+      };
+    }
+
+    try {
+      const { promises: fs } = await import("fs");
+      const { join } = await import("path");
+      const fullPath = join(this.workspacePath, specPath);
+      const content = await fs.readFile(fullPath, "utf-8");
+
+      return {
+        task,
+        specPath,
+        content,
+        section,
+      };
+    } catch (error) {
+      return {
+        task,
+        specPath,
+        content: "",
+        section,
+      };
+    }
+  }
+
   // ---- Helper Methods ----
 
   private routeToBackend(taskId: string): TaskBackend {

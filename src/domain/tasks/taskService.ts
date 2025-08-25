@@ -17,45 +17,89 @@ export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
 }): Promise<TaskServiceInterface> {
-  // Create task service - automatically handles multiple backends!
+  // Create task service - handles single or multiple backends based on options
   const service = createTaskService({ workspacePath: options.workspacePath });
 
-  // Register all available backends with their prefixes
-  try {
-    const markdownBackend = createMarkdownTaskBackend({
-      name: "markdown",
-      workspacePath: options.workspacePath,
-    });
-    // Add prefix property for multi-backend routing
-    (markdownBackend as any).prefix = "md";
-    service.registerBackend(markdownBackend);
+  // If specific backend requested, only register that backend
+  if (options.backend) {
+    switch (options.backend) {
+      case "markdown":
+        const markdownBackend = createMarkdownTaskBackend({
+          name: "markdown",
+          workspacePath: options.workspacePath,
+        });
+        (markdownBackend as any).prefix = "md";
+        service.registerBackend(markdownBackend);
+        break;
 
-    const jsonBackend = createJsonFileTaskBackend({
-      name: "json-file",
-      workspacePath: options.workspacePath,
-    });
-    (jsonBackend as any).prefix = "json";
-    service.registerBackend(jsonBackend);
+      case "json-file":
+        const jsonBackend = createJsonFileTaskBackend({
+          name: "json-file",
+          workspacePath: options.workspacePath,
+        });
+        (jsonBackend as any).prefix = "json";
+        service.registerBackend(jsonBackend);
+        break;
 
-    // Add minsky backend (mt# prefix) - requires database connection
-    try {
-      // Use configured database connection
-      const { createDatabaseConnection } = await import("../database/connection-manager");
-      const db = await createDatabaseConnection();
+      case "minsky":
+        try {
+          const { createDatabaseConnection } = await import("../database/connection-manager");
+          const db = await createDatabaseConnection();
+          const minskyBackend = createMinskyTaskBackend({
+            name: "minsky",
+            workspacePath: options.workspacePath,
+            db,
+          });
+          (minskyBackend as any).prefix = "mt";
+          service.registerBackend(minskyBackend);
+          log.debug("Minsky backend registered successfully");
+        } catch (error) {
+          log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
+          throw new Error(`Minsky backend requested but not available: ${getErrorMessage(error as any)}`);
+        }
+        break;
 
-      const minskyBackend = createMinskyTaskBackend({
-        name: "minsky",
-        workspacePath: options.workspacePath,
-        db,
-      });
-      (minskyBackend as any).prefix = "mt";
-      service.registerBackend(minskyBackend);
-      log.debug("Minsky backend registered successfully");
-    } catch (error) {
-      log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
+      default:
+        throw new Error(`Unknown backend: ${options.backend}`);
     }
-  } catch (error) {
-    log.warn("Failed to register some backends", { error: getErrorMessage(error as any) });
+  } else {
+    // No specific backend requested - register all available backends for multi-backend mode
+    try {
+      const markdownBackend = createMarkdownTaskBackend({
+        name: "markdown",
+        workspacePath: options.workspacePath,
+      });
+      // Add prefix property for multi-backend routing
+      (markdownBackend as any).prefix = "md";
+      service.registerBackend(markdownBackend);
+
+      const jsonBackend = createJsonFileTaskBackend({
+        name: "json-file",
+        workspacePath: options.workspacePath,
+      });
+      (jsonBackend as any).prefix = "json";
+      service.registerBackend(jsonBackend);
+
+      // Add minsky backend (mt# prefix) - requires database connection
+      try {
+        // Use configured database connection
+        const { createDatabaseConnection } = await import("../database/connection-manager");
+        const db = await createDatabaseConnection();
+
+        const minskyBackend = createMinskyTaskBackend({
+          name: "minsky",
+          workspacePath: options.workspacePath,
+          db,
+        });
+        (minskyBackend as any).prefix = "mt";
+        service.registerBackend(minskyBackend);
+        log.debug("Minsky backend registered successfully");
+      } catch (error) {
+        log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
+      }
+    } catch (error) {
+      log.warn("Failed to register some backends", { error: getErrorMessage(error as any) });
+    }
   }
 
   return service;
