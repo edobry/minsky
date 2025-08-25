@@ -212,6 +212,30 @@ export class MinskyTaskBackend implements TaskBackend {
     }
   }
 
+  async getTaskSpecContent(taskId: string, section?: string): Promise<{ task: Task; specPath: string; content: string; section?: string }> {
+    // Get the task first
+    const task = await this.getTask(taskId);
+    if (!task) {
+      throw new Error(`Task not found: ${taskId}`);
+    }
+
+    // Get spec content from database
+    const specRows = await this.db
+      .select()
+      .from(taskSpecsTable)
+      .where(eq(taskSpecsTable.taskId, taskId))
+      .limit(1);
+
+    const content = specRows.length > 0 ? specRows[0].content : "";
+
+    return {
+      task,
+      specPath: "", // Minsky backend doesn't use file paths
+      content,
+      section,
+    };
+  }
+
   // ---- Private Helper Methods ----
 
   private mapDbRowToTask(row: any): Task {
