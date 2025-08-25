@@ -168,11 +168,15 @@ class ImportExtensionFixer {
   async execute(): Promise<void> {
     const startTime = Date.now();
 
-    console.log("🚀 Starting import extension fixer...");
+    // Only show verbose output if not in AI agent mode
+    const isQuietMode = process.env.AGENT === '1';
+    if (!isQuietMode) {
+      console.log("🚀 Starting import extension fixer...");
+    }
 
     try {
       // Phase 1: Load source files
-      this.addSourceFiles();
+      this.addSourceFiles(isQuietMode);
 
       // Phase 2: Process each file
       for (const sourceFile of this.project.getSourceFiles()) {
@@ -180,11 +184,11 @@ class ImportExtensionFixer {
       }
 
       // Phase 3: Save changes
-      await this.saveChanges();
+      await this.saveChanges(isQuietMode);
 
       // Phase 4: Calculate metrics and generate report
       this.calculateMetrics(startTime);
-      this.generateReport();
+      this.generateReport(isQuietMode);
     } catch (error) {
       this.metrics.errors.push(`Fatal error: ${error}`);
       throw error;
@@ -194,7 +198,7 @@ class ImportExtensionFixer {
   /**
    * Add source files to the project using established patterns
    */
-  private addSourceFiles(): void {
+  private addSourceFiles(isQuietMode: boolean = false): void {
     const patterns = ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js"];
 
     const exclude = [
@@ -208,7 +212,9 @@ class ImportExtensionFixer {
 
     const files = patterns.flatMap((pattern) => globSync(pattern, { ignore: exclude }));
 
-    console.log(`📁 Found ${files.length} files to process`);
+    if (!isQuietMode) {
+      console.log(`📁 Found ${files.length} files to process`);
+    }
 
     try {
       this.project.addSourceFilesAtPaths(files);
@@ -340,8 +346,10 @@ class ImportExtensionFixer {
   /**
    * Save changes to disk with comprehensive error handling
    */
-  private async saveChanges(): Promise<void> {
-    console.log("💾 Saving changes...");
+  private async saveChanges(isQuietMode: boolean = false): Promise<void> {
+    if (!isQuietMode) {
+      console.log("💾 Saving changes...");
+    }
 
     const sourceFiles = this.project.getSourceFiles();
     let savedCount = 0;
@@ -360,7 +368,9 @@ class ImportExtensionFixer {
       }
     }
 
-    console.log(`✅ Saved ${savedCount} files`);
+    if (!isQuietMode) {
+      console.log(`✅ Saved ${savedCount} files`);
+    }
   }
 
   /**
@@ -381,7 +391,16 @@ class ImportExtensionFixer {
   /**
    * Generate comprehensive execution report
    */
-  private generateReport(): void {
+  private generateReport(isQuietMode: boolean = false): void {
+    // Skip detailed report in quiet mode, only show errors
+    if (isQuietMode) {
+      if (this.metrics.errors.length > 0) {
+        console.log(`❌ Import extension fixer errors: ${this.metrics.errors.length}`);
+        this.metrics.errors.forEach((error) => console.log(`  - ${error}`));
+      }
+      return;
+    }
+
     console.log("\n📊 Import Extension Fixer Report");
     console.log("================================");
 
