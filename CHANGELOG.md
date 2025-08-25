@@ -28,6 +28,11 @@ All notable changes to this project will be documented in this file.
 - Fixed SASL_SIGNATURE_MISMATCH database authentication error when using `minsky tasks list` command. The minsky task backend now properly uses the configured PostgreSQL connection string from `sessiondb.postgres.connectionString` instead of a hardcoded connection string with outdated credentials.
 
 - **CRITICAL Security**: Enhanced secret scanning to detect database credentials - gitleaks now catches PostgreSQL, MySQL, MongoDB, Redis connection strings with credentials (closes major security gap that allowed Supabase credentials to slip through)
+- Silenced Import Extension Fixer verbose output when `AGENT=1` environment variable is set
+  - Eliminates 30+ repetitive "Import Extension Fixer Report" messages during test runs
+  - Only shows errors in quiet mode for actionable feedback  
+  - Dramatically reduces test output noise in pre-commit hooks and CI environments
+  - Maintains full functionality while respecting quiet mode preferences
 - **Security**: Remove hardcoded PostgreSQL URL fallback in storage configuration - now properly throws error when MINSKY_POSTGRES_URL not set, preventing accidental connections to unintended databases
 - Fix bug in rules search where `rule.spec.toLowerCase()` should be `rule.description.toLowerCase()` causing search failures with undefined property access
 - Add CLI customization for `rules search` to accept query as positional argument, making it consistent with `tasks search` UX
