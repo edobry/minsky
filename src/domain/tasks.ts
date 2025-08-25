@@ -46,7 +46,7 @@ export async function listTasksFromParams(params: any) {
   // Use CLI backend if provided, otherwise use multi-backend mode (no default)
   // Configuration-based backend defaults are disabled to enable multi-backend routing
   let backend = validParams.backend;
-  
+
   // Only load configuration backend if explicitly requested via CLI
   // This allows multi-backend mode to work by default while preserving explicit CLI control
   if (backend) {
@@ -76,8 +76,8 @@ export async function getTaskFromParams(params: any) {
   // Use CLI backend if provided, otherwise use multi-backend mode (no default)
   // Configuration-based backend defaults are disabled to enable multi-backend routing
   let backend = validParams.backend;
-  
-  // Only load configuration backend if explicitly requested via CLI  
+
+  // Only load configuration backend if explicitly requested via CLI
   // This allows multi-backend mode to work by default while preserving explicit CLI control
   if (backend) {
     log.debug("tasks.get using CLI backend", { backend });

@@ -12,7 +12,10 @@ describe("MarkdownTaskBackend filtering regression test", () => {
 
   beforeEach(async () => {
     // Create temporary directory for test
-    testDir = join(tmpdir(), `minsky-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`);
+    testDir = join(
+      tmpdir(),
+      `minsky-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
+    );
     await fs.mkdir(testDir, { recursive: true });
     await fs.mkdir(join(testDir, "process"), { recursive: true });
 

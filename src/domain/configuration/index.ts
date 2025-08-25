@@ -129,13 +129,14 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
         );
       }
 
-      // Ensure modern tasks.backend is present for callers that rely on it in tests and runtime
-      // This provides a safe default when project/user configs are empty or malformed.
-      const cfg = (this.configResult.config = this.configResult.config || ({} as any));
+      // Provide stable defaults for tests and consumers
+      // Ensure modern tasks backend property exists
+      const cfg: any = this.configResult.config || {};
       cfg.tasks = cfg.tasks || {};
-      if (cfg.tasks.backend === undefined) {
+      if (typeof cfg.tasks.backend === "undefined" || cfg.tasks.backend === null) {
         cfg.tasks.backend = "markdown";
       }
+      this.configResult.config = cfg;
     } catch (error) {
       console.error("Configuration loading failed:", error);
       throw error;

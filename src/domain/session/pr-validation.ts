@@ -30,9 +30,11 @@ export function validatePrContent(
     const firstBodyLine = bodyLines[0]?.trim();
 
     if (firstBodyLine && isDuplicateContent(title.trim(), firstBodyLine)) {
-      // Remove the duplicated title from body; treat as non-fatal (no errors)
+      // Remove the duplicated title from body and mark as validation error
       sanitizedBody = bodyLines.slice(1).join("\n").trim();
-      log.warn("Detected and removed duplicate title from PR body", {
+      const message = `PR body must not repeat the title as the first line`;
+      errors.push(message);
+      log.warn("Detected duplicate title in PR body", {
         originalTitle: title,
         duplicatedLine: firstBodyLine,
         originalBodyLength: body.length,

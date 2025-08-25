@@ -26,7 +26,10 @@ import { type GitServiceInterface, preparePrFromParams } from "./git";
 import { createGitService } from "./git";
 import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
-import { resolveRepositoryAndBackend } from "./session/repository-backend-detection";
+import {
+  resolveRepositoryAndBackend,
+  detectRepositoryBackendTypeFromUrl,
+} from "./session/repository-backend-detection";
 import { TASK_STATUS, type TaskServiceInterface } from "./tasks";
 import { createConfiguredTaskService } from "./tasks/taskService";
 import { taskIdToSessionName } from "./tasks/task-id";
@@ -185,6 +188,11 @@ export async function startSessionFromParams(
     taskService?: TaskServiceInterface;
     workspaceUtils?: WorkspaceUtilsInterface;
     resolveRepositoryAndBackend?: typeof resolveRepositoryAndBackend;
+<<<<<<< HEAD
+=======
+    // Back-compat for older tests/consumers
+    resolveRepoPath?: typeof resolveRepositoryAndBackend;
+>>>>>>> 76c8a5fb (fix(lint): replace empty blocks with guarded catch bodies; stabilize session fs.rm noop and task status reads)
     // Optional filesystem adapter passthrough for tests
     fs?: {
       exists: (path: string) => boolean | Promise<boolean>;
@@ -198,7 +206,21 @@ export async function startSessionFromParams(
     taskService: depsInput?.taskService || (await createConfiguredTaskService()),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils.createWorkspaceUtils(),
     resolveRepositoryAndBackend:
+<<<<<<< HEAD
       depsInput?.resolveRepositoryAndBackend || resolveRepositoryAndBackend,
+=======
+      depsInput?.resolveRepositoryAndBackend ||
+      // Back-compat: wrap legacy resolveRepoPath(uri) => string into the new resolver interface
+      (depsInput?.resolveRepoPath
+        ? async (options?: { repoParam?: string; cwd?: string }) => {
+            const uri = await (depsInput.resolveRepoPath as any)(
+              options?.repoParam || options?.cwd
+            );
+            const backendType = detectRepositoryBackendTypeFromUrl(uri);
+            return { repoUrl: uri, backendType };
+          }
+        : resolveRepositoryAndBackend),
+>>>>>>> 76c8a5fb (fix(lint): replace empty blocks with guarded catch bodies; stabilize session fs.rm noop and task status reads)
     fs: depsInput?.fs,
   } as const;
 
