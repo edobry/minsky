@@ -2,8 +2,6 @@
 
 ## Context
 
-
-
 ## Requirements
 
 ## Solution
