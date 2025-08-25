@@ -40,6 +40,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Rules: Added `.cursor/rules/test-driven-bugfix.mdc` documenting required TDD workflow for bug fixes (write failing test first, fix, verify, refactor)
 - **Context Analysis Only Mode**: Added `--analyze-only` flag to `minsky context generate` command to show only token analysis without full context content
 
   - Supports both text and JSON output formats
