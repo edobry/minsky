@@ -43,15 +43,15 @@ export class TasksEditCommand extends BaseTaskCommand {
     // Validate that at least one edit operation is specified
     if (!params.title && !params.spec && !params.specFile && !params.specContent) {
       throw new ValidationError(
-        'At least one edit operation must be specified:\\n' +
-        '  --title <text>       Update task title\\n' +
-        '  --spec               Edit specification content interactively\\n' +
-        '  --spec-file <path>   Update specification from file\\n' +
-        '  --spec-content <text> Update specification content directly\\n\\n' +
-        'Examples:\\n' +
-        '  minsky tasks edit mt#123 --title "New Title"\\n' +
-        '  minsky tasks edit mt#123 --spec-file /path/to/spec.md\\n' +
-        '  minsky tasks edit mt#123 --title "New Title" --spec'
+        "At least one edit operation must be specified:\\n" +
+          "  --title <text>       Update task title\\n" +
+          "  --spec               Edit specification content interactively\\n" +
+          "  --spec-file <path>   Update specification from file\\n" +
+          "  --spec-content <text> Update specification content directly\\n\\n" +
+          "Examples:\\n" +
+          '  minsky tasks edit mt#123 --title "New Title"\\n' +
+          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\\n" +
+          '  minsky tasks edit mt#123 --title "New Title" --spec'
       );
     }
 
@@ -63,7 +63,11 @@ export class TasksEditCommand extends BaseTaskCommand {
     });
 
     if (!currentTask) {
-      throw new ResourceNotFoundError(`Task "${validatedTaskId}" not found`, "task", validatedTaskId);
+      throw new ResourceNotFoundError(
+        `Task "${validatedTaskId}" not found`,
+        "task",
+        validatedTaskId
+      );
     }
 
     this.debug("Task found, preparing updates");
@@ -77,25 +81,31 @@ export class TasksEditCommand extends BaseTaskCommand {
       this.debug(`Title update: "${params.title}"`);
     }
 
-    // Handle spec content update  
+    // Handle spec content update
     if (params.specContent) {
       updates.spec = params.specContent;
       this.debug("Using direct spec content");
     } else if (params.specFile) {
       try {
-        updates.spec = await fs.readFile(params.specFile, 'utf-8');
+        updates.spec = await fs.readFile(params.specFile, "utf-8");
         this.debug(`Read spec content from file: ${params.specFile}`);
       } catch (error) {
-        throw new ValidationError(`Failed to read spec file "${params.specFile}": ${error.message}`);
+        throw new ValidationError(
+          `Failed to read spec file "${params.specFile}": ${error.message}`
+        );
       }
     }
 
     // Apply the updates
     this.debug("Applying updates to task");
-    
+
     try {
-      const { createConfiguredTaskService } = await import("../../../../domain/tasks/multi-backend-service");
-      const { resolveMainWorkspacePath } = await import("../../../../domain/workspace/workspace-resolver");
+      const { createConfiguredTaskService } = await import(
+        "../../../../domain/tasks/multi-backend-service"
+      );
+      const { resolveMainWorkspacePath } = await import(
+        "../../../../domain/workspace/workspace-resolver"
+      );
 
       const service = await createConfiguredTaskService({
         repoPath: await resolveMainWorkspacePath(),
@@ -140,7 +150,6 @@ export class TasksEditCommand extends BaseTaskCommand {
         }),
         params.json
       );
-
     } catch (error) {
       this.debug(`Task edit failed: ${error.message}`);
       throw error;
@@ -149,7 +158,7 @@ export class TasksEditCommand extends BaseTaskCommand {
 
   private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {
     const parts: string[] = [];
-    
+
     if (updates.title && updates.spec) {
       parts.push("title and specification");
     } else if (updates.title) {

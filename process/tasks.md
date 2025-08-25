@@ -727,14 +727,14 @@
 - [ ] Create Test Architecture Documentation [md#459](process/tasks/md#459-create-test-architecture-documentation.md)
 
 - [ ] Implement test coverage enforcement in pre-commit hooks [md#460](process/tasks/md#460-implement-test-coverage-enforcement-in-pre-commit-hooks.md)
- - [ ] Remove hardcoded 'markdown' backend defaults [md#461](process/tasks/md#461-remove-hardcoded-markdown-backend-defaults.md)
+- [ ] Remove hardcoded 'markdown' backend defaults [md#461](process/tasks/md#461-remove-hardcoded-markdown-backend-defaults.md)
 
- - [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
 
- - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
- - [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
+- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
 
- - [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
+- [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
 
- - [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
+- [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
