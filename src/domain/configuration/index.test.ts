@@ -9,14 +9,8 @@ import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverride
 import {
   CustomConfigFactory,
   createTestProvider,
-  initializeConfiguration,
-  getConfiguration,
-  get,
-  has,
   CustomConfigurationProvider,
-  resetGlobalConfiguration,
 } from "./index";
-import { clearConfigurationCache } from "./loader";
 
 // Mock the configuration loader to prevent infinite loops
 const mockLoadConfiguration = mock(() =>
@@ -173,21 +167,14 @@ describe("Custom Configuration System", () => {
   let provider: ConfigurationProvider;
   let testFactory: TestConfigFactory;
 
-  beforeEach(async () => {
-    // Reset global configuration state before each test
-    resetGlobalConfiguration();
-    clearConfigurationCache();
-
+    beforeEach(async () => {
+    // Create isolated configuration factory and provider per test
     testFactory = new TestConfigFactory();
     provider = await testFactory.createProvider({});
   });
 
   afterEach(() => {
-    // Clean up after each test
-    resetGlobalConfiguration();
-    clearConfigurationCache();
-
-    // Reset mock call counts
+    // Reset mock call counts only - no shared state to clean up
     mockLoadConfiguration.mockClear();
   });
 
@@ -252,25 +239,27 @@ describe("Custom Configuration System", () => {
 
   describe("Configuration Initialization", () => {
     test("should initialize with custom factory", async () => {
+      // Create isolated factory instance for this test
       const factory = new CustomConfigFactory();
-      await expect(initializeConfiguration(factory)).resolves.toBeUndefined();
+      const isolatedProvider = await factory.createProvider({});
 
-      // Test global access
-      const config = getConfiguration();
+      // Test isolated provider access (no global state)
+      const config = isolatedProvider.getConfig();
       expect(config).toBeDefined();
 
       // Test that modern properties work correctly
-      expect(has("tasks.backend")).toBe(true);
-      expect(get("tasks.backend")).toBeDefined();
+      expect(isolatedProvider.has("tasks.backend")).toBe(true);
+      expect(isolatedProvider.get("tasks.backend")).toBeDefined();
     });
 
     test("should support configuration overrides", async () => {
-      const factory = new TestConfigFactory(); // Use TestConfigFactory instead of CustomConfigFactory
-      await initializeConfiguration(factory, {
+      // Create isolated factory instance with overrides for this test
+      const factory = new TestConfigFactory();
+      const isolatedProvider = await factory.createProvider({
         overrides: { tasks: { backend: "json-file" } }, // Use modern property structure
       });
 
-      const config = getConfiguration();
+      const config = isolatedProvider.getConfig();
       expect(config.tasks.backend).toBe("json-file"); // Use modern tasks.backend instead of deprecated backend
     });
   });
