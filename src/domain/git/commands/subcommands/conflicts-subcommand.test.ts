@@ -32,10 +32,10 @@ mock.module("../../../../utils/logger", () => ({
 }));
 
 // Import after mocking
-import { 
-  executeConflictsCommand, 
+import {
+  executeConflictsCommand,
   conflictsFromParams,
-  conflictsCommandParams 
+  conflictsCommandParams
 } from "./conflicts-subcommand";
 import { getCurrentWorkingDirectory } from "../../../../utils/process";
 import { analyzeConflictRegions } from "../../conflict-analysis-operations";
@@ -57,7 +57,7 @@ describe("Git Conflicts Command", () => {
       };
 
       const result = await executeConflictsCommand(parameters, mockContext);
-      
+
       expect(result).toContain('"repository": "/test/repo"');
       expect(result).toContain('"conflicts": []');
       expect(result).toContain('"summary"');
@@ -73,7 +73,7 @@ describe("Git Conflicts Command", () => {
       };
 
       const result = await executeConflictsCommand(parameters, mockContext);
-      
+
       expect(result).toContain("Git Conflict Scan Results");
       expect(result).toContain("Repository: /test/repo");
       expect(result).toContain("No conflicts found.");
@@ -83,7 +83,7 @@ describe("Git Conflicts Command", () => {
   describe("conflictsFromParams", () => {
     test("should return success result with default parameters", async () => {
       const result = await conflictsFromParams({});
-      
+
       expect(result.success).toBe(true);
       expect(result.data).toBeDefined();
       expect(result.error).toBeUndefined();
@@ -96,7 +96,7 @@ describe("Git Conflicts Command", () => {
         context: 5,
         files: "*.js",
       });
-      
+
       expect(result.success).toBe(true);
       expect(result.data).toContain("Git Conflict Scan Results");
     });

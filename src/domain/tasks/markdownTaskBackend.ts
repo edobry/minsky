@@ -28,6 +28,7 @@ import type {
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData";
 import { TaskStatus, TASK_STATUS, TASK_PARSING_UTILS } from "./taskConstants";
+import { filterTasksByStatus } from "./task-filters";
 
 import {
   parseTasksFromMarkdown,
@@ -113,11 +114,8 @@ export class MarkdownTaskBackend implements TaskBackend {
 
     const tasks = this.parseTasks(result.content);
 
-    if (options?.status) {
-      return tasks.filter((task) => task.status === options?.status);
-    }
-
-    return tasks;
+    // Use shared filtering logic to ensure consistent behavior across backends
+    return filterTasksByStatus(tasks, options);
   }
 
   async getTask(id: string): Promise<Task | null> {
@@ -757,6 +755,23 @@ export class MarkdownTaskBackend implements TaskBackend {
       }
       throw error;
     }
+  }
+
+  /**
+   * Create a new task from title and spec (required by TaskBackend interface)
+   * @param title Title of the task
+   * @param spec Specification content for the task
+   * @param options Options for creating the task
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndSpec(
+    title: string,
+    spec: string,
+    options: CreateTaskOptions = {}
+  ): Promise<Task> {
+    // Delegate to the existing createTaskFromTitleAndDescription method
+    // since spec and description are semantically equivalent
+    return await this.createTaskFromTitleAndDescription(title, spec, options);
   }
 
   /**

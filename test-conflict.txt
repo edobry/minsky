@@ -1,7 +1,0 @@
-line before conflict
-<<<<<<< HEAD
-This is our content
-=======
-This is their content
->>>>>>> other-branch
-line after conflict

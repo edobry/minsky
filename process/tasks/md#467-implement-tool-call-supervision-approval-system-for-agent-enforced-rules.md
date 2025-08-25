@@ -105,7 +105,7 @@ AI Agent → Tool Call → Supervision Layer → Policy Engine → Execution
 1. **Prohibition Rules** (immediate rejection)
    ```
    BLOCK: git commit --no-verify
-   BLOCK: rm -rf / 
+   BLOCK: rm -rf /
    BLOCK: sudo commands (unless explicitly allowed)
    BLOCK: commands that modify production systems
    ```
@@ -281,22 +281,22 @@ interface ToolCallSupervisionRule {
   id: string;
   name: string;
   description: string;
-  
+
   // Pattern matching
   toolPattern: string | RegExp;
   parameterPatterns?: Record<string, string | RegExp>;
   contextConditions?: ContextCondition[];
-  
+
   // Decision logic
   action: 'APPROVE' | 'REJECT' | 'MODIFY' | 'ESCALATE';
   modification?: ToolCallModification;
   reasoning: string;
-  
+
   // Metadata
   severity: 'LOW' | 'MEDIUM' | 'HIGH' | 'CRITICAL';
   priority: number;
   enabled: boolean;
-  
+
   // Learning
   successRate?: number;
   lastUpdated: Date;
