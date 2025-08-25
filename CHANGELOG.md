@@ -7,11 +7,14 @@ All notable changes to this project will be documented in this file.
 ### Added
 - Enabled quiet test output in pre-commit hooks using Bun's AI agent integration (`AGENT=1` environment variable)
   - Reduces verbose test output during commits to only show failures, errors, and summary statistics
-  - Applies to both main unit test suite and ESLint rule tooling tests  
-  - Significantly improves developer experience by reducing context pollution in commit output
-  - Based on Bun's official AI agent integration feature for cleaner output in automated environments
+  - Applies to both main unit test suite and ESLint rule tooling tests
 
-### Fixed
+### Fixed  
+- Replaced defensive checks with proper dependency injection for file system operations in rules helpers
+  - Refactored `readContentFromFileIfExists` to accept file system dependencies using established DI pattern
+  - Updated callers in `rules.ts` to provide FS dependencies following `RuleService` pattern
+  - Resolved test failures caused by module loading issues during full test suite runs
+  - Improved consistency with existing codebase dependency injection architecture
 - Fixed SASL_SIGNATURE_MISMATCH database authentication error when using `minsky tasks list` command. The minsky task backend now properly uses the configured PostgreSQL connection string from `sessiondb.postgres.connectionString` instead of a hardcoded connection string with outdated credentials.
 
 - **CRITICAL Security**: Enhanced secret scanning to detect database credentials - gitleaks now catches PostgreSQL, MySQL, MongoDB, Redis connection strings with credentials (closes major security gap that allowed Supabase credentials to slip through)
