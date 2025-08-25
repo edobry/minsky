@@ -106,7 +106,7 @@ export async function initializeProject(
 
       case "minsky":
         // Minsky backend uses database - no task files needed
-        // Database configuration will be set up in the config file below  
+        // Database configuration will be set up in the config file below
         break;
 
       default:
@@ -136,7 +136,7 @@ export async function initializeProject(
   // Create main Minsky configuration file with user's backend choice
   const configDir = path.join(repoPath, "config");
   await createDirectoryIfNotExists(configDir, fileSystem);
-  
+
   const configPath = path.join(configDir, "default.json");
   const configContent = getMinskyConfigContent(backend);
   await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
@@ -520,7 +520,7 @@ function getMinskyConfigContent(backend: z.infer<typeof enumSchemas.backendType>
       },
       logger: {
         mode: "auto",
-        level: "info", 
+        level: "info",
         enableAgentLogs: false
       }
     },
