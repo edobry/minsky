@@ -22,6 +22,10 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- tasks delete: Make deletion resilient across backends when primary routed backend cannot delete
+  - Added fallback in `TaskServiceImpl.deleteTask` to attempt deletion on other registered backends when the routed backend returns false or is unavailable
+  - Resolves failures like `Failed to delete task mt#464` when DB-backed tasks exist but routing or registration prevents direct deletion
+  - Verified via CLI: `minsky tasks delete --force --json mt#464` now returns success and the task is removed from listings
 - **Test Architecture**: Replaced global state reset anti-pattern with isolated per-test resources in configuration tests
   - Removed `resetGlobalConfiguration` function that shared state between tests
   - Replaced global configuration functions with isolated provider instances per test
