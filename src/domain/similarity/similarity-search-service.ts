@@ -13,11 +13,7 @@ export class SimilaritySearchService {
         const available = await backend.isAvailable();
         if (!available) continue;
         const items = await backend.search(query);
-        if (Array.isArray(items) && items.length > 0) {
-          return items;
-        }
-        // If no results, try next backend as graceful fallback
-        continue;
+        return Array.isArray(items) ? items : [];
       } catch {
         continue;
       }

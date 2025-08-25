@@ -143,7 +143,7 @@ export class PostgresVectorStorage implements VectorStorage {
     return out;
   }
 
-  async search(queryVector: number[], limit = 10, threshold = 0.0): Promise<SearchResult[]> {
+  async search(queryVector: number[], limit = 10, threshold?: number): Promise<SearchResult[]> {
     const vectorLiteral = `[${queryVector.join(",")}]`;
     try {
       log.debug("[vector.search] Using Postgres vector storage", {
@@ -169,7 +169,7 @@ export class PostgresVectorStorage implements VectorStorage {
       score: Number((r as any).score),
     }));
 
-    return results.filter((r) => (isFinite(threshold) ? r.score <= threshold : true));
+    return results.filter((r) => (isFinite(threshold as number) ? r.score <= (threshold as number) : true));
   }
 
   async delete(id: string): Promise<void> {

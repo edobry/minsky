@@ -5,7 +5,18 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Fixed
-
+- **Test Architecture**: Replaced global state reset anti-pattern with isolated per-test resources in configuration tests
+  - Removed `resetGlobalConfiguration` function that shared state between tests
+  - Replaced global configuration functions with isolated provider instances per test
+  - Create new configuration factory and provider for each test ensuring true test independence
+  - Tests now use completely isolated resources and can run safely in parallel
+  - Follow proper dependency injection patterns for test isolation
+- tasks search: Replace obsolete createTaskServiceWithDatabase with createConfiguredTaskService to fix CLI runtime error in `minsky tasks search` and `tasks similar`. Restored default `tasks.backend=markdown`. Removed lexical fallback so embeddings search returns true zero-result when embeddings are unavailable or mismatched, avoiding masking indexing/config issues.
+- Replaced defensive checks with proper dependency injection for file system operations in rules helpers
+  - Refactored `readContentFromFileIfExists` to accept file system dependencies using established DI pattern
+  - Updated callers in `rules.ts` to provide FS dependencies following `RuleService` pattern
+  - Resolved test failures caused by module loading issues during full test suite runs
+  - Improved consistency with existing codebase dependency injection architecture
 - Fixed SASL_SIGNATURE_MISMATCH database authentication error when using `minsky tasks list` command. The minsky task backend now properly uses the configured PostgreSQL connection string from `sessiondb.postgres.connectionString` instead of a hardcoded connection string with outdated credentials.
 
 - **CRITICAL Security**: Enhanced secret scanning to detect database credentials - gitleaks now catches PostgreSQL, MySQL, MongoDB, Redis connection strings with credentials (closes major security gap that allowed Supabase credentials to slip through)

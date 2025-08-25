@@ -6,11 +6,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverrides } from "./index";
-import {
-  CustomConfigFactory,
-  createTestProvider,
-  CustomConfigurationProvider,
-} from "./index";
+import { CustomConfigFactory, createTestProvider, CustomConfigurationProvider } from "./index";
 
 // Mock the configuration loader to prevent infinite loops
 const mockLoadConfiguration = mock(() =>
@@ -167,7 +163,7 @@ describe("Custom Configuration System", () => {
   let provider: ConfigurationProvider;
   let testFactory: TestConfigFactory;
 
-    beforeEach(async () => {
+  beforeEach(async () => {
     // Create isolated configuration factory and provider per test
     testFactory = new TestConfigFactory();
     provider = await testFactory.createProvider({});
