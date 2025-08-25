@@ -168,15 +168,11 @@ class ImportExtensionFixer {
   async execute(): Promise<void> {
     const startTime = Date.now();
 
-    // Only show verbose output if not in AI agent mode
-    const isQuietMode = process.env.AGENT === '1';
-    if (!isQuietMode) {
-      console.log("🚀 Starting import extension fixer...");
-    }
+    console.log("🚀 Starting import extension fixer...");
 
     try {
       // Phase 1: Load source files
-      this.addSourceFiles(isQuietMode);
+      this.addSourceFiles();
 
       // Phase 2: Process each file
       for (const sourceFile of this.project.getSourceFiles()) {
@@ -184,11 +180,11 @@ class ImportExtensionFixer {
       }
 
       // Phase 3: Save changes
-      await this.saveChanges(isQuietMode);
+      await this.saveChanges();
 
       // Phase 4: Calculate metrics and generate report
       this.calculateMetrics(startTime);
-      this.generateReport(isQuietMode);
+      this.generateReport();
     } catch (error) {
       this.metrics.errors.push(`Fatal error: ${error}`);
       throw error;
@@ -198,7 +194,7 @@ class ImportExtensionFixer {
   /**
    * Add source files to the project using established patterns
    */
-  private addSourceFiles(isQuietMode: boolean = false): void {
+  private addSourceFiles(): void {
     const patterns = ["src/**/*.ts", "src/**/*.tsx", "src/**/*.js"];
 
     const exclude = [
@@ -212,9 +208,7 @@ class ImportExtensionFixer {
 
     const files = patterns.flatMap((pattern) => globSync(pattern, { ignore: exclude }));
 
-    if (!isQuietMode) {
-      console.log(`📁 Found ${files.length} files to process`);
-    }
+    console.log(`📁 Found ${files.length} files to process`);
 
     try {
       this.project.addSourceFilesAtPaths(files);
@@ -346,10 +340,8 @@ class ImportExtensionFixer {
   /**
    * Save changes to disk with comprehensive error handling
    */
-  private async saveChanges(isQuietMode: boolean = false): Promise<void> {
-    if (!isQuietMode) {
-      console.log("💾 Saving changes...");
-    }
+  private async saveChanges(): Promise<void> {
+    console.log("💾 Saving changes...");
 
     const sourceFiles = this.project.getSourceFiles();
     let savedCount = 0;
@@ -368,9 +360,7 @@ class ImportExtensionFixer {
       }
     }
 
-    if (!isQuietMode) {
-      console.log(`✅ Saved ${savedCount} files`);
-    }
+    console.log(`✅ Saved ${savedCount} files`);
   }
 
   /**
