@@ -201,9 +201,10 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
               const fmt = rule.format ? ` [${rule.format}]` : "";
               const desc = rule.description ? ` - ${rule.description}` : "";
               // Show score in --details mode if available
-              const scorePart = rule.score !== undefined && this.shouldShowDetails(result) 
-                ? `\nScore: ${rule.score.toFixed(3)}` 
-                : "";
+              const scorePart =
+                rule.score !== undefined && this.shouldShowDetails(result)
+                  ? `\nScore: ${rule.score.toFixed(3)}`
+                  : "";
               log.cli(`${index + 1}. ${name}${fmt}${desc}${scorePart}`);
             });
             // Footer separator before count
