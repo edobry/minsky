@@ -728,7 +728,7 @@
 
 - [ ] Implement test coverage enforcement in pre-commit hooks [md#460](process/tasks/md#460-implement-test-coverage-enforcement-in-pre-commit-hooks.md)
 
-- [+] Remove hardcoded 'markdown' backend defaults [md#465](process/tasks/md#465-remove-hardcoded-markdown-backend-defaults.md)
+- [x] Remove hardcoded 'markdown' backend defaults [md#465](process/tasks/md#465-remove-hardcoded-markdown-backend-defaults.md)
 
 - [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
 

@@ -1,0 +1,58 @@
+---
+alwaysApply: true
+---
+
+# Terminal Command Best Practices
+
+## Core Guidelines for run_terminal_cmd Tool Usage
+
+When using the `run_terminal_cmd` tool, follow these practices to avoid shell parsing issues:
+
+### Quote Character Requirements
+
+- **Use ASCII quotes only**: Always use straight ASCII quotes (`"` and `'`) in commands, never smart quotes (`"` `"` `'` `'`)
+- **Prefer single quotes over double quotes** when possible to avoid shell interpretation issues
+- **Use unquoted text for simple echo statements** when special characters aren't needed
+
+### Command Structure Guidelines
+
+- **Keep commands simple**: Avoid overly complex command chains with many `&&` operators
+- **Break complex operations into multiple simple commands** rather than chaining 10+ commands together
+- **Test command syntax**: If experiencing `dquote>` or parsing issues, simplify the command structure
+
+### Problem Identification
+
+**Signs of Quote/Parsing Issues:**
+- Commands hang with `dquote>` prompt
+- Shell showing `cmdand cmdand cmdand` patterns
+- Need to type `"` and press enter to continue
+
+**Root Causes:**
+- Unicode character contamination in command strings
+- Smart quotes instead of ASCII quotes
+- Overly complex command chains
+
+### Examples
+
+**❌ Problematic:**
+```bash
+echo "Complex && command && chains && with && many && operations"
+```
+
+**✅ Preferred:**
+```bash
+echo 'Simple command'
+# or
+echo Simple unquoted text
+```
+
+**✅ For Complex Operations:**
+```bash
+echo 'Step 1 complete'
+echo 'Step 2 complete'  
+echo 'Step 3 complete'
+```
+
+## Rationale
+
+Prevents shell parsing issues that cause commands to hang with `dquote>` prompts due to Unicode character contamination or overly complex command structures. Ensures reliable terminal command execution across all sessions.
