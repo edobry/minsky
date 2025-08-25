@@ -128,6 +128,11 @@ export const tasksSimilarParams: CommandParameterMap = {
     description: "Optional distance threshold (lower is closer)",
     required: false,
   },
+  details: {
+    schema: z.boolean().default(false),
+    description: "Show detailed output including scores and diagnostics",
+    required: false,
+  },
   ...taskContextParams,
   ...outputFormatParams,
 };

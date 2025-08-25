@@ -7,6 +7,7 @@ interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;
   limit?: number;
   threshold?: number;
+  details?: boolean;
 }
 
 interface TasksSearchParams extends BaseTaskParams {
@@ -96,7 +97,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
     const includeSpecPath = (params as any).backend !== "minsky";
     const enhancedResults = await this.enhanceSearchResults(
       searchResults,
-      (params as any).details,
+      params.details,
       includeSpecPath
     );
 
@@ -105,6 +106,7 @@ export class TasksSimilarCommand extends BaseTaskCommand {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
+        details: params.details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
     );
@@ -242,6 +244,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
         success: true,
         count: enhancedResults.length,
         results: enhancedResults,
+        details: params.details, // Pass through details flag for CLI formatter
       },
       params.json || ctx.format === "json"
     );

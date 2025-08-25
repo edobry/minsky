@@ -275,6 +275,7 @@ type RulesSearchParams = {
   query?: string;
   tag?: string;
   format?: "cursor" | "generic";
+  details?: boolean;
   json?: boolean;
   debug?: boolean;
 };
@@ -284,6 +285,11 @@ const rulesSearchCommandParams: CommandParameterMap = composeParams(
     query: RulesParameters.query,
     format: RulesParameters.format,
     tag: RulesParameters.tag,
+    details: {
+      schema: z.boolean().default(false),
+      description: "Show detailed output including scores and diagnostics",
+      required: false,
+    },
   },
   {
     json: CommonParameters.json,
@@ -725,6 +731,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         return {
           success: true,
           rules,
+          details: params.details, // Pass through details flag for CLI formatter
         };
       } catch (error) {
         log.error("Failed to search rules", {

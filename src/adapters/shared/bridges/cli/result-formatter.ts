@@ -208,7 +208,11 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
               const title = r.title ? r.title : r.id;
               const idPart = r.title ? ` [${r.id}]` : "";
               const statusPart = r.status ? ` [${r.status}]` : "";
-              log.cli(`${index + 1}. ${title}${idPart}${statusPart}`);
+              // Show score in --details mode if available
+              const scorePart = r.score !== undefined && this.shouldShowDetails(result) 
+                ? `\nScore: ${r.score.toFixed(3)}` 
+                : "";
+              log.cli(`${index + 1}. ${title}${idPart}${statusPart}${scorePart}`);
             });
             // Footer separator before count
             log.cli("");
@@ -282,6 +286,14 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
     } else {
       log.cli("No sessions found.");
     }
+  }
+
+  /**
+   * Check if details should be shown (scores, diagnostics, etc.)
+   */
+  private shouldShowDetails(result: any): boolean {
+    // Check if details flag was passed to the command
+    return Boolean((result as any)?.showDetails || (result as any)?.details);
   }
 
   /**
