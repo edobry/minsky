@@ -30,7 +30,7 @@ All notable changes to this project will be documented in this file.
 - **CRITICAL Security**: Enhanced secret scanning to detect database credentials - gitleaks now catches PostgreSQL, MySQL, MongoDB, Redis connection strings with credentials (closes major security gap that allowed Supabase credentials to slip through)
 - Silenced Import Extension Fixer verbose output when `AGENT=1` environment variable is set
   - Eliminates 30+ repetitive "Import Extension Fixer Report" messages during test runs
-  - Only shows errors in quiet mode for actionable feedback  
+  - Only shows errors in quiet mode for actionable feedback
   - Dramatically reduces test output noise in pre-commit hooks and CI environments
   - Maintains full functionality while respecting quiet mode preferences
 - **Security**: Remove hardcoded PostgreSQL URL fallback in storage configuration - now properly throws error when MINSKY_POSTGRES_URL not set, preventing accidental connections to unintended databases
