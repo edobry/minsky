@@ -35,7 +35,7 @@ mock.module("../../../../utils/logger", () => ({
 import {
   executeConflictsCommand,
   conflictsFromParams,
-  conflictsCommandParams
+  conflictsCommandParams,
 } from "./conflicts-subcommand";
 import { getCurrentWorkingDirectory } from "../../../../utils/process";
 import { analyzeConflictRegions } from "../../conflict-analysis-operations";

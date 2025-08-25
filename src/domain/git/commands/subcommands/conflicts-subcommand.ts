@@ -130,10 +130,14 @@ async function executeConflictsDetection(
     if (options.format === "text") {
       return `Error: ${errorMsg}`;
     } else {
-      return JSON.stringify({
-        error: errorMsg,
-        timestamp: new Date().toISOString(),
-      }, null, 2);
+      return JSON.stringify(
+        {
+          error: errorMsg,
+          timestamp: new Date().toISOString(),
+        },
+        null,
+        2
+      );
     }
   }
 }
@@ -207,16 +211,64 @@ async function findFilesToScan(repoPath: string, pattern?: string): Promise<stri
  */
 function isTextFile(fileName: string): boolean {
   const textExtensions = [
-    ".ts", ".js", ".tsx", ".jsx", ".json", ".md", ".txt", ".yml", ".yaml",
-    ".xml", ".html", ".css", ".scss", ".less", ".py", ".java", ".c", ".cpp",
-    ".h", ".hpp", ".cs", ".php", ".rb", ".go", ".rs", ".sh", ".bash", ".zsh",
-    ".sql", ".toml", ".ini", ".conf", ".config",
+    ".ts",
+    ".js",
+    ".tsx",
+    ".jsx",
+    ".json",
+    ".md",
+    ".txt",
+    ".yml",
+    ".yaml",
+    ".xml",
+    ".html",
+    ".css",
+    ".scss",
+    ".less",
+    ".py",
+    ".java",
+    ".c",
+    ".cpp",
+    ".h",
+    ".hpp",
+    ".cs",
+    ".php",
+    ".rb",
+    ".go",
+    ".rs",
+    ".sh",
+    ".bash",
+    ".zsh",
+    ".sql",
+    ".toml",
+    ".ini",
+    ".conf",
+    ".config",
   ];
 
   const binaryExtensions = [
-    ".png", ".jpg", ".jpeg", ".gif", ".bmp", ".ico", ".svg", ".pdf", ".zip",
-    ".tar", ".gz", ".rar", ".7z", ".exe", ".dll", ".so", ".dylib", ".bin",
-    ".o", ".obj", ".a", ".lib",
+    ".png",
+    ".jpg",
+    ".jpeg",
+    ".gif",
+    ".bmp",
+    ".ico",
+    ".svg",
+    ".pdf",
+    ".zip",
+    ".tar",
+    ".gz",
+    ".rar",
+    ".7z",
+    ".exe",
+    ".dll",
+    ".so",
+    ".dylib",
+    ".bin",
+    ".o",
+    ".obj",
+    ".a",
+    ".lib",
   ];
 
   const ext = fileName.toLowerCase().substring(fileName.lastIndexOf("."));
