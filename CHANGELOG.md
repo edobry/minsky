@@ -4,6 +4,13 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+- Enabled quiet test output in pre-commit hooks using Bun's AI agent integration (`AGENT=1` environment variable)
+  - Reduces verbose test output during commits to only show failures, errors, and summary statistics
+  - Applies to both main unit test suite and ESLint rule tooling tests  
+  - Significantly improves developer experience by reducing context pollution in commit output
+  - Based on Bun's official AI agent integration feature for cleaner output in automated environments
+
 ### Fixed
 - Fixed SASL_SIGNATURE_MISMATCH database authentication error when using `minsky tasks list` command. The minsky task backend now properly uses the configured PostgreSQL connection string from `sessiondb.postgres.connectionString` instead of a hardcoded connection string with outdated credentials.
 
