@@ -716,7 +716,7 @@
 
 - [+] Resolve merge conflicts after tasks search status filtering work; ensure session uses GitHub backend. [md#452](process/tasks/md#452-resolve-merge-conflicts-after-tasks-search-status-filtering-work-ensure-session-uses-github-backend-.md)
 
-- [ ] Investigate AI Integration Test Validation Logic [md#456](process/tasks/md#456-investigate-ai-integration-test-validation-logic.md)
+- [+] Investigate AI Integration Test Validation Logic [md#456](process/tasks/md#456-investigate-ai-integration-test-validation-logic.md)
 
 - [ ] Context Visualization Redesign [md#461](process/tasks/md#461-context-visualization-redesign.md)
 

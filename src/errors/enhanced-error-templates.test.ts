@@ -234,7 +234,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const result = createBackendDetectionErrorMessage(undefined, [], {}, "/workspace", []);
 
       expect(result)!.toContain("Failed to automatically detect appropriate task backend");
-      expect(result)!.toContain("• markdown (default)");
+      expect(result)!.toContain("• markdown");
       expect(result)!.toContain("• json-file");
       expect(result)!.toContain("• github-issues (requires GitHub config)");
     });

@@ -13,6 +13,7 @@ import {
   createConfiguredTaskService,
   TaskServiceInterface,
 } from "../../../../domain/tasks/taskService";
+import { _backendDetectionService } from "../../../../domain/configuration/backend-detection";
 
 const migrateBackendParamsSchema = z.object({
   from: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
@@ -182,17 +183,20 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
   }
 
   private async detectCurrentBackend(workspacePath: string): Promise<string> {
-    // Simple detection logic - can be enhanced
-    const { existsSync } = await import("fs");
-    const { join } = await import("path");
-
-    const tasksMarkdownFile = join(workspacePath, "process", "tasks.md");
-    if (existsSync(tasksMarkdownFile)) {
-      return "markdown";
+    // Use the backend detection service instead of hardcoded logic
+    const detectedBackend = await _backendDetectionService.detectBackend(workspacePath);
+    
+    // Convert TaskBackend enum to string format expected by migration command
+    switch (detectedBackend) {
+      case "MARKDOWN":
+        return "markdown";
+      case "JSON_FILE":
+        return "json-file";
+      case "GITHUB_ISSUES":
+        return "github";
+      default:
+        throw new Error(`Unable to detect current backend in workspace: ${workspacePath}`);
     }
-
-    // Could add more detection logic here
-    return "markdown"; // Default fallback
   }
 
   private async migrateTasksBetweenBackends(options: {

@@ -1,0 +1,1 @@
+Pre-existing test failure in rules-helpers.ts is unrelated to hardcoded markdown defaults removal. All targeted functionality has been successfully implemented and tested.
