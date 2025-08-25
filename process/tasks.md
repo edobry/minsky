@@ -736,7 +736,6 @@
 
 - [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
 
-- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
 
 - [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
 
@@ -744,6 +743,4 @@
 
 - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
-- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
 
-- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
