@@ -155,8 +155,12 @@ export function formatResolvedConfiguration(resolved: any): string {
 
   // Task Storage
   // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
-  const taskBackend = resolved.tasks?.backend || resolved.backend || "markdown";
-  output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}`;
+  const taskBackend = resolved.tasks?.backend || resolved.backend;
+  if (taskBackend) {
+    output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}`;
+  } else {
+    output += `📁 Task Storage: Auto-detected (multi-backend mode)`;
+  }
   if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
     const github = resolved.backendConfig["github-issues"];
     output += ` (${github.owner}/${github.repo})`;

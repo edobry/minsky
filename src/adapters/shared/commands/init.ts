@@ -282,15 +282,8 @@ export function registerInitCommands() {
         const mcpOnly = params.mcpOnly ?? false;
         const overwrite = params.overwrite ?? false;
 
-        // Map backend values to what the domain function expects
-        const domainBackend =
-          backend === "markdown"
-            ? "tasks.md"
-            : backend === "json-file"
-              ? "tasks.md" // json-file also uses tasks.md for now
-              : backend === "github-issues"
-                ? "tasks.md" // github-issues uses tasks.md base
-                : "tasks.md"; // default fallback
+        // Use the backend selected by the user (or provided via CLI parameter)
+        const domainBackend = backend;
 
         await initializeProjectFromParams({
           repoPath,

@@ -224,7 +224,7 @@ export async function getTaskStatusFromParams(
 
     const taskService = await createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown",
+      backend: validParams.backend, // Let service determine backend via detection/config
     });
 
     // Get the task
@@ -287,7 +287,7 @@ export async function setTaskStatusFromParams(
 
     const taskService = await createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown",
+      backend: validParams.backend, // Let service determine backend via detection/config
     });
 
     // Verify the task exists before setting status and get old status for commit message
@@ -305,11 +305,7 @@ export async function setTaskStatusFromParams(
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
 
-    // Auto-commit changes for markdown backend
-    if ((validParams.backend || "markdown") === "markdown") {
-      const commitMessage = `chore(${validParams.taskId}): update task status ${oldStatus} → ${validParams.status}`;
-      // Intentionally no commit call here per updated design
-    }
+    // Auto-commit functionality was removed - no backend-specific handling needed
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -365,11 +361,7 @@ export async function createTaskFromParams(
       force: validParams.force,
     });
 
-    // Auto-commit changes for markdown backend
-    if ((validParams.backend || "markdown") === "markdown") {
-      const commitMessage = `feat(${task.id}): create task \"${validParams.title}\"`;
-      // Intentionally no commit call here per updated design
-    }
+    // Auto-commit functionality was removed - no backend-specific handling needed
 
     return task;
   } catch (error) {
@@ -413,7 +405,7 @@ export async function createTaskFromTitleAndDescription(
     (async (options) => await createConfiguredTaskServiceImpl(options));
   const taskService = await createTaskService({
     workspacePath,
-    backend: validParams.backend || "markdown",
+    backend: validParams.backend, // Let service determine backend via detection/config
   });
 
   // Create the task from title and description
@@ -592,11 +584,7 @@ export async function deleteTaskFromParams(
       force: validParams.force,
     });
 
-    // Auto-commit changes for markdown backend
-    if (deleted && (validParams.backend || "markdown") === "markdown") {
-      const commitMessage = `chore(${validParams.taskId}): delete task`;
-      // Intentionally no commit call here per updated design
-    }
+    // Auto-commit functionality was removed - no backend-specific handling needed
 
     return {
       success: deleted,
