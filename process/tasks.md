@@ -702,7 +702,7 @@
 
 - [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
 
-- [+] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
+- [x] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
 
 - [ ] Explore task templates for different backends [md#448](process/tasks/md#448-explore-task-templates-for-different-backends.md)
 
@@ -718,7 +718,7 @@
 
 - [+] Investigate AI Integration Test Validation Logic [md#456](process/tasks/md#456-investigate-ai-integration-test-validation-logic.md)
 
-- [ ] Context Visualization Redesign [md#461](process/tasks/md#461-context-visualization-redesign.md)
+- [+] Context Visualization Redesign [md#461](process/tasks/md#461-context-visualization-redesign.md)
 
 - [ ] Rethink test organization for consistency and principled structure [md#457](process/tasks/md#457-rethink-test-organization-for-consistency-and-principled-structure.md)
 
@@ -727,14 +727,17 @@
 - [ ] Create Test Architecture Documentation [md#459](process/tasks/md#459-create-test-architecture-documentation.md)
 
 - [ ] Implement test coverage enforcement in pre-commit hooks [md#460](process/tasks/md#460-implement-test-coverage-enforcement-in-pre-commit-hooks.md)
- - [ ] Remove hardcoded 'markdown' backend defaults [md#461](process/tasks/md#461-remove-hardcoded-markdown-backend-defaults.md)
 
- - [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
+- [x] Remove hardcoded 'markdown' backend defaults [md#465](process/tasks/md#465-remove-hardcoded-markdown-backend-defaults.md)
 
- - [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
 
- - [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
- - [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
+- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
 
- - [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
+- [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
+
+- [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
+
+- [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
