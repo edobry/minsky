@@ -36,6 +36,9 @@ export class ModularTasksCommandManager {
       const { createTasksStatusGetCommand } = require("./tasks/status-commands");
       const { createTasksStatusSetCommand } = require("./tasks/status-commands");
 
+      log.debug("[ModularTasksCommandManager] Requiring edit-commands");
+      const { createTasksEditCommand } = require("./tasks/edit-commands");
+
       log.debug("[ModularTasksCommandManager] Requiring migrate-command");
       const { createMigrateTasksCommand } = require("./tasks/migrate-command");
 
@@ -52,6 +55,7 @@ export class ModularTasksCommandManager {
       const listCommand = createTasksListCommand();
       const getCommand = createTasksGetCommand();
       const createCommand = createTasksCreateCommand();
+      const editCommand = createTasksEditCommand();
       const deleteCommand = createTasksDeleteCommand();
       const specCommand = createTasksSpecCommand();
       const statusGetCommand = createTasksStatusGetCommand();
@@ -96,6 +100,18 @@ export class ModularTasksCommandManager {
         parameters: createCommand.parameters,
         execute: async (params: any, context: any) => {
           return await createCommand.execute(params, context);
+        },
+      });
+
+      // Register edit command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.edit",
+        category: CommandCategory.TASKS,
+        name: "edit",
+        description: "Edit task title and/or specification content",
+        parameters: editCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await editCommand.execute(params, context);
         },
       });
 
