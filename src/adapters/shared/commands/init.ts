@@ -283,7 +283,7 @@ export function registerInitCommands() {
         const overwrite = params.overwrite ?? false;
 
         // Use the backend selected by the user (or provided via CLI parameter)
-        const domainBackend = backend as "markdown" | "json-file" | "github-issues" | "minsky";
+        const domainBackend = backend;
 
         await initializeProjectFromParams({
           repoPath,
