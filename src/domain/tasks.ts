@@ -43,27 +43,17 @@ export async function listTasksFromParams(params: any) {
   const workspacePath = process.cwd();
   log.debug("tasks.list params", { backend: validParams.backend });
 
-  // Read backend from configuration if not provided via command line
+  // Use CLI backend if provided, otherwise use multi-backend mode (no default)
+  // Configuration-based backend defaults are disabled to enable multi-backend routing
   let backend = validParams.backend;
-  if (!backend) {
-    try {
-      const { ConfigurationLoader } = await import("./configuration/loader");
-      const configLoader = new ConfigurationLoader();
-      const configResult = await configLoader.load();
-
-      if (configResult.config.tasks?.backend) {
-        backend = configResult.config.tasks.backend;
-        log.debug("tasks.list backend from configuration", { backend });
-      } else if (configResult.config.backend) {
-        // Fallback to deprecated root backend property for backward compatibility
-        backend = configResult.config.backend;
-        log.warn("Using deprecated root 'backend' property. Please use 'tasks.backend' instead.", {
-          backend,
-        });
-      }
-    } catch (error) {
-      log.debug("tasks.list failed to load configuration", { error });
-    }
+  
+  // Only load configuration backend if explicitly requested via CLI
+  // This allows multi-backend mode to work by default while preserving explicit CLI control
+  if (backend) {
+    log.debug("tasks.list using CLI backend", { backend });
+  } else {
+    log.debug("tasks.list using multi-backend mode (no default backend)");
+    // backend remains undefined for multi-backend mode
   }
 
   // Use unified async factory for all backends
@@ -83,27 +73,17 @@ export async function getTaskFromParams(params: any) {
   const workspacePath = process.cwd();
   log.debug("tasks.get params", { backend: validParams.backend });
 
-  // Read backend from configuration if not provided via command line
+  // Use CLI backend if provided, otherwise use multi-backend mode (no default)
+  // Configuration-based backend defaults are disabled to enable multi-backend routing
   let backend = validParams.backend;
-  if (!backend) {
-    try {
-      const { ConfigurationLoader } = await import("./configuration/loader");
-      const configLoader = new ConfigurationLoader();
-      const configResult = await configLoader.load();
-
-      if (configResult.config.tasks?.backend) {
-        backend = configResult.config.tasks.backend;
-        log.debug("tasks.get backend from configuration", { backend });
-      } else if (configResult.config.backend) {
-        // Fallback to deprecated root backend property for backward compatibility
-        backend = configResult.config.backend;
-        log.warn("Using deprecated root 'backend' property. Please use 'tasks.backend' instead.", {
-          backend,
-        });
-      }
-    } catch (error) {
-      log.debug("tasks.get failed to load configuration", { error });
-    }
+  
+  // Only load configuration backend if explicitly requested via CLI  
+  // This allows multi-backend mode to work by default while preserving explicit CLI control
+  if (backend) {
+    log.debug("tasks.get using CLI backend", { backend });
+  } else {
+    log.debug("tasks.get using multi-backend mode (no default backend)");
+    // backend remains undefined for multi-backend mode
   }
 
   // Use unified async factory for all backends
