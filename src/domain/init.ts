@@ -8,7 +8,7 @@ const TEST_VALUE = 123;
 
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
-  backend: z.enum(["tasks.md", "tasks.csv"] as const),
+  backend: z.enum(["markdown", "json-file", "github-issues", "minsky"] as const),
   ruleFormat: z.enum(["cursor", "generic"] as const),
   mcp: z
     .object({
@@ -38,7 +38,7 @@ export async function initializeProjectFromParams(params: InitializeProjectParam
 
 export interface InitializeProjectOptions {
   repoPath: string;
-  backend: "tasks.md" | "tasks.csv";
+  backend: "markdown" | "json-file" | "github-issues" | "minsky";
   ruleFormat: "cursor" | "generic";
   mcp?: {
     enabled: boolean;
@@ -66,30 +66,50 @@ export async function initializeProject(
 ): Promise<void> {
   // When mcpOnly is true, we only set up MCP configuration and skip other setup
   if (!mcpOnly) {
-    // Check if backend is implemented
-    if (backend === "tasks.csv") {
-      throw new Error("The tasks.csv backend is not implemented yet.");
-    }
-
     // Create process/tasks directory structure
     const tasksDir = path.join(repoPath, "process", "tasks");
     await createDirectoryIfNotExists(tasksDir, fileSystem);
 
-    // Initialize the tasks backend
-    if (backend === "tasks.md") {
-      const tasksFilePath = path.join(repoPath, "process", "tasks.md");
-      await createFileIfNotExists(
-        tasksFilePath,
-        `# Minsky Tasks
+    // Initialize the tasks backend based on user selection
+    switch (backend) {
+      case "markdown":
+        const tasksFilePath = path.join(repoPath, "process", "tasks.md");
+        await createFileIfNotExists(
+          tasksFilePath,
+          `# Minsky Tasks
 
 ## Task List
 
 | ID | Title | Status |
 |----|-------|--------|
 `,
-        overwrite,
-        fileSystem
-      );
+          overwrite,
+          fileSystem
+        );
+        break;
+
+      case "json-file":
+        const jsonFilePath = path.join(repoPath, "process", "tasks", "tasks.json");
+        await createFileIfNotExists(
+          jsonFilePath,
+          JSON.stringify({ tasks: [] }, null, 2),
+          overwrite,
+          fileSystem
+        );
+        break;
+
+      case "github-issues":
+        // GitHub Issues backend uses external GitHub repository - no local files needed
+        // Configuration will be set up in the config file below
+        break;
+
+      case "minsky":
+        // Minsky backend uses database - no task files needed
+        // Database configuration will be set up in the config file below  
+        break;
+
+      default:
+        throw new Error(`Backend "${backend}" is not supported.`);
     }
 
     // Create rule file directory
@@ -109,6 +129,14 @@ export async function initializeProject(
       mcp?.enabled ?? false
     );
   }
+
+  // Create main Minsky configuration file with user's backend choice
+  const configDir = path.join(repoPath, "config");
+  await createDirectoryIfNotExists(configDir, fileSystem);
+  
+  const configPath = path.join(configDir, "default.json");
+  const configContent = getMinskyConfigContent(backend);
+  await createFileIfNotExists(configPath, configContent, overwrite, fileSystem);
 
   // Setup MCP if enabled
   if (mcp?.enabled !== false) {
@@ -472,6 +500,30 @@ Some rules are closely related and often used together:
 - **pr-description-guidelines** and **changelog** both contribute to documentation of changes
 
 This index serves as a guide to help you understand which rules are relevant to different aspects of working with Minsky and how they interact with each other.`;
+}
+
+/**
+ * Returns the content for the main Minsky config file
+ */
+function getMinskyConfigContent(backend: "markdown" | "json-file" | "github-issues" | "minsky"): string {
+  return JSON.stringify(
+    {
+      tasks: {
+        backend: backend,
+        strictIds: false
+      },
+      sessiondb: {
+        backend: "sqlite"
+      },
+      logger: {
+        mode: "auto",
+        level: "info", 
+        enableAgentLogs: false
+      }
+    },
+    null,
+    2
+  );
 }
 
 /**
