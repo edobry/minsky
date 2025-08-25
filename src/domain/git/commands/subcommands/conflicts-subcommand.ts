@@ -3,13 +3,7 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
-import {
-  scanSessionConflicts,
-  formatSessionConflictResults,
-  type SessionConflictScanOptions,
-} from "../../../session/session-conflicts-operations";
 import { analyzeConflictRegions } from "../../conflict-analysis-operations";
-import { getCurrentSessionContext } from "../../../workspace";
 import { log } from "../../../../utils/logger";
 import { getCurrentWorkingDirectory } from "../../../../utils/process";
 import { execAsync } from "../../../../utils/exec";
@@ -63,27 +57,11 @@ export async function executeConflictsCommand(
       });
     }
 
-    // Check if we're in a session context
-    const sessionContext = await getCurrentSessionContext(repoPath);
-
-    if (sessionContext) {
-      // We're in a session - use session-specific logic
-      const options: SessionConflictScanOptions = {
-        format: format as "json" | "text",
-        context: contextLines,
-        files,
-      };
-
-      const result = await scanSessionConflicts({}, options);
-      return formatSessionConflictResults(result, format as "json" | "text");
-    } else {
-      // We're not in a session - use general git conflict detection
-      return await executeGeneralConflictsDetection(repoPath, {
-        format: format as "json" | "text",
-        context: contextLines,
-        files,
-      });
-    }
+    return await executeConflictsDetection(repoPath, {
+      format: format as "json" | "text",
+      context: contextLines,
+      files,
+    });
   } catch (error) {
     log.error("Error executing conflicts command", { error, parameters });
 
@@ -103,9 +81,9 @@ export async function executeConflictsCommand(
 }
 
 /**
- * Execute general conflict detection for any git repository (not session-specific)
+ * Execute conflict detection for any git repository
  */
-async function executeGeneralConflictsDetection(
+async function executeConflictsDetection(
   repoPath: string,
   options: {
     format: "json" | "text";
@@ -141,13 +119,13 @@ async function executeGeneralConflictsDetection(
     };
 
     if (options.format === "text") {
-      return formatGeneralConflictResults(result);
+      return formatConflictResults(result);
     } else {
       return JSON.stringify(result, null, 2);
     }
   } catch (error) {
     const errorMsg = error instanceof Error ? error.message : String(error);
-    log.error("Error in general conflicts detection", { error: errorMsg, repoPath });
+    log.error("Error in conflicts detection", { error: errorMsg, repoPath });
     
     if (options.format === "text") {
       return `Error: ${errorMsg}`;
@@ -161,9 +139,9 @@ async function executeGeneralConflictsDetection(
 }
 
 /**
- * Format general conflict results as text
+ * Format conflict results as text
  */
-function formatGeneralConflictResults(result: {
+function formatConflictResults(result: {
   repository: string;
   timestamp: string;
   conflicts: Array<{ file: string; conflicts: number }>;
@@ -267,37 +245,16 @@ export async function conflictsFromParams(params: {
   try {
     const repoPath = getCurrentWorkingDirectory();
     
-    // Check if we're in a session context
-    const sessionContext = await getCurrentSessionContext(repoPath);
+    const output = await executeConflictsDetection(repoPath, {
+      format: params.format || "json",
+      context: params.context || 3,
+      files: params.files,
+    });
 
-    if (sessionContext) {
-      // We're in a session - use session-specific logic
-      const options: SessionConflictScanOptions = {
-        format: params.format || "json",
-        context: params.context || 3,
-        files: params.files,
-      };
-
-      const result = await scanSessionConflicts({}, options);
-      const formattedOutput = formatSessionConflictResults(result, options.format);
-
-      return {
-        success: true,
-        data: formattedOutput,
-      };
-    } else {
-      // We're not in a session - use general git conflict detection
-      const output = await executeGeneralConflictsDetection(repoPath, {
-        format: params.format || "json",
-        context: params.context || 3,
-        files: params.files,
-      });
-
-      return {
-        success: true,
-        data: output,
-      };
-    }
+    return {
+      success: true,
+      data: output,
+    };
   } catch (error) {
     log.error("Error executing conflicts command", { error, params });
     return {
