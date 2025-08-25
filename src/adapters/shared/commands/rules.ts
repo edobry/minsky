@@ -579,8 +579,14 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
 
+        // Create FS dependencies for rules helpers (same pattern as RuleService)
+        const fsDeps = {
+          fsPromises: await import("fs/promises"),
+          existsSyncFn: (await import("fs")).existsSync,
+        };
+
         // Process content (could be file path)
-        const content = await readContentFromFileIfExists(typedParams.content);
+        const content = await readContentFromFileIfExists(typedParams.content, fsDeps);
 
         // Process globs and tags
         const globs = parseGlobs(typedParams.globs);
@@ -636,9 +642,15 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
 
+        // Create FS dependencies for rules helpers (same pattern as RuleService)
+        const fsDeps = {
+          fsPromises: await import("fs/promises"),
+          existsSyncFn: (await import("fs")).existsSync,
+        };
+
         // Process content if provided (could be file path)
         const content = typedParams.content
-          ? await readContentFromFileIfExists(typedParams.content)
+          ? await readContentFromFileIfExists(typedParams.content, fsDeps)
           : undefined;
 
         // Process globs and tags
