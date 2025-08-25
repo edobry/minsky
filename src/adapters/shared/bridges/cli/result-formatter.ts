@@ -183,20 +183,21 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         break;
 
       case "rules.search":
-        if ("rules" in result && Array.isArray(result.rules)) {
-          const rules = result.rules as Array<{
+        // Now uses same format as tasks.search (results array)
+        if (result && typeof result === "object" && Array.isArray((result as any).results)) {
+          const results = (result as any).results as Array<{
             id: string;
             score?: number;
             name?: string;
             description?: string;
             format?: string;
           }>;
-          if (rules.length === 0) {
+          if (results.length === 0) {
             log.cli("No rules found.");
           } else {
             // Visual separator after any header emitted by the command implementation
             log.cli("");
-            rules.forEach((rule, index) => {
+            results.forEach((rule, index) => {
               const name = rule.name || rule.id;
               const fmt = rule.format ? ` [${rule.format}]` : "";
               const desc = rule.description ? ` - ${rule.description}` : "";
@@ -209,7 +210,12 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
             });
             // Footer separator before count
             log.cli("");
-            log.cli(`${rules.length} result${rules.length === 1 ? "" : "s"} found`);
+            if (typeof (result as any).count === "number") {
+              const count = (result as any).count as number;
+              log.cli(`${count} result${count === 1 ? "" : "s"} found`);
+            } else {
+              log.cli(`${results.length} result${results.length === 1 ? "" : "s"} found`);
+            }
           }
         } else {
           this.formatGenericObject(result);

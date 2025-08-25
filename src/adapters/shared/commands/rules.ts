@@ -275,6 +275,8 @@ type RulesSearchParams = {
   query?: string;
   tag?: string;
   format?: "cursor" | "generic";
+  limit?: number;
+  threshold?: number;
   details?: boolean;
   json?: boolean;
   debug?: boolean;
@@ -285,9 +287,19 @@ const rulesSearchCommandParams: CommandParameterMap = composeParams(
     query: RulesParameters.query,
     format: RulesParameters.format,
     tag: RulesParameters.tag,
+    limit: {
+      schema: z.number().int().positive().default(10),
+      help: "Max number of results",
+      required: false,
+    },
+    threshold: {
+      schema: z.number().optional(),
+      help: "Optional distance threshold (lower is closer)",
+      required: false,
+    },
     details: {
       schema: z.boolean().default(false),
-      description: "Show detailed output including scores and diagnostics",
+      help: "Show detailed output including scores and diagnostics",
       required: false,
     },
   },
@@ -714,31 +726,73 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       log.debug("Executing rules.search command", { params });
 
       try {
+        // Resolve workspace path
+        const workspacePath = await resolveWorkspacePath({});
+
+        // Use similarity service (consistent with tasks.search)
+        const { createRuleSimilarityCore } = await import(
+          "../../../domain/similarity/create-rule-similarity-core"
+        );
+        const service = await createRuleSimilarityCore(workspacePath);
+
+        const query = params.query;
+        const limit = params.limit ?? 10;
+        const threshold = params.threshold;
+
         // Emit progress message like tasks.search does
         const quiet = Boolean(params.quiet);
         const json = Boolean(params.json) || ctx?.format === "json";
-        if (!quiet && !json && params.query) {
-          log.cliWarn(`Searching for rules matching: "${params.query}" ...`);
+        if (!quiet && !json && query) {
+          log.cliWarn(`Searching for rules matching: "${query}" ...`);
         }
 
-        // Resolve workspace path
-        const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
-
-        // Convert parameters
-        const format = params.format as RuleFormat | undefined;
-
-        // Call domain function
-        const rules = await ruleService.searchRules({
-          format,
-          tag: params.tag,
-          query: params.query,
+        // Perform similarity search
+        const results = await service.search({
+          query,
+          limit,
+          threshold,
         });
+
+        // Optional human-friendly diagnostics (consistent with tasks.search)
+        if (params.details) {
+          try {
+            const actualBackend = service.getLastUsedBackend();
+            if (actualBackend === "embeddings") {
+              const cfg = await (await import("../../../domain/configuration")).getConfiguration();
+              const provider =
+                (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
+              const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+              const effThreshold =
+                threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
+              log.cliWarn(`Search provider: ${provider}`);
+              log.cliWarn(`Model: ${model}`);
+              log.cliWarn(`Limit: ${limit}`);
+              log.cliWarn(`Threshold: ${String(effThreshold)}`);
+            } else {
+              log.cliWarn(`Search backend: ${actualBackend || "unknown"}`);
+              log.cliWarn(`Method: Lexical similarity (Jaccard index)`);
+              log.cliWarn(`Limit: ${limit}`);
+              log.cliWarn(`Note: Embeddings unavailable - falling back to lexical matching`);
+            }
+          } catch {
+            // ignore diagnostics failures
+          }
+        }
+
+        // Convert results format to match tasks.search
+        const enhancedResults = results.map((result: any) => ({
+          id: result.id,
+          score: result.score,
+          name: result.id,
+          description: result.description || "",
+          format: result.format || "",
+        }));
 
         return {
           success: true,
-          rules,
-          details: params.details, // Pass through details flag for CLI formatter
+          count: enhancedResults.length,
+          results: enhancedResults, // Use same format as tasks.search
+          details: params.details,
         };
       } catch (error) {
         log.error("Failed to search rules", {
