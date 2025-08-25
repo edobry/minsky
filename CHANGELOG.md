@@ -22,7 +22,13 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
-- tasks search: Replace obsolete createTaskServiceWithDatabase with createConfiguredTaskService to fix CLI runtime error in `minsky tasks search` and `tasks similar`. Also restored a safe default for `tasks.backend` (markdown) in configuration defaults to satisfy tests and maintain backward compatibility.
+- **Test Architecture**: Replaced global state reset anti-pattern with isolated per-test resources in configuration tests
+  - Removed `resetGlobalConfiguration` function that shared state between tests
+  - Replaced global configuration functions with isolated provider instances per test 
+  - Create new configuration factory and provider for each test ensuring true test independence
+  - Tests now use completely isolated resources and can run safely in parallel
+  - Follow proper dependency injection patterns for test isolation
+- tasks search: Replace obsolete createTaskServiceWithDatabase with createConfiguredTaskService to fix CLI runtime error in `minsky tasks search` and `tasks similar`. Restored default `tasks.backend=markdown`. Removed lexical fallback so embeddings search returns true zero-result when embeddings are unavailable or mismatched, avoiding masking indexing/config issues.
 - Replaced defensive checks with proper dependency injection for file system operations in rules helpers
   - Refactored `readContentFromFileIfExists` to accept file system dependencies using established DI pattern
   - Updated callers in `rules.ts` to provide FS dependencies following `RuleService` pattern
