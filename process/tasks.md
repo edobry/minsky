@@ -727,6 +727,7 @@
 - [ ] Create Test Architecture Documentation [md#459](process/tasks/md#459-create-test-architecture-documentation.md)
 
 - [ ] Implement test coverage enforcement in pre-commit hooks [md#460](process/tasks/md#460-implement-test-coverage-enforcement-in-pre-commit-hooks.md)
+
 - [ ] Remove hardcoded 'markdown' backend defaults [md#461](process/tasks/md#461-remove-hardcoded-markdown-backend-defaults.md)
 
 - [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
@@ -738,3 +739,5 @@
 - [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
 
 - [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
+
+- [ ] Mock out logger in all tests to use in-memory logger instead of CLI output to eliminate test noise [md#467](process/tasks/md#467-mock-out-logger-in-all-tests-to-use-in-memory-logger-instead-of-cli-output-to-eliminate-test-noise.md)
