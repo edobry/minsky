@@ -29,7 +29,8 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         description: "Create a new task",
       },
       "tasks.edit": {
-        description: "Edit task title and/or specification content. Supports editing both title and spec content with multiple input methods for comprehensive task editing across all backends.",
+        description:
+          "Edit task title and/or specification content. Supports editing both title and spec content with multiple input methods for comprehensive task editing across all backends.",
       },
       "tasks.spec": {
         description: "Get the specification for a task",

@@ -8,7 +8,7 @@ import { type CommandExecutionContext } from "../../command-registry";
 import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
-import { getTaskFromParams } from "../../../../domain/tasks/taskFunctions";
+import { getTaskFromParams } from "../../../../domain/tasks";
 import { log } from "../../../../utils/logger";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
@@ -27,7 +27,7 @@ interface TasksEditParams extends BaseTaskParams {
 
 /**
  * Task edit command implementation
- * 
+ *
  * Supports editing both task title and specification content with multiple input methods:
  * - Title: Direct string input via --title
  * - Spec: Interactive editor via --spec, file input via --spec-file, or direct content via --spec-content
@@ -48,15 +48,15 @@ export class TasksEditCommand extends BaseTaskCommand {
     // Validate that at least one edit operation is specified
     if (!params.title && !params.spec && !params.specFile && !params.specContent) {
       throw new ValidationError(
-        'At least one edit operation must be specified:\n' +
-        '  --title <text>       Update task title\n' +
-        '  --spec               Edit specification content interactively\n' +
-        '  --spec-file <path>   Update specification from file\n' +
-        '  --spec-content <text> Update specification content directly\n\n' +
-        'Examples:\n' +
-        '  minsky tasks edit mt#123 --title "New Title"\n' +
-        '  minsky tasks edit mt#123 --spec-file /path/to/spec.md\n' +
-        '  minsky tasks edit mt#123 --title "New Title" --spec'
+        "At least one edit operation must be specified:\n" +
+          "  --title <text>       Update task title\n" +
+          "  --spec               Edit specification content interactively\n" +
+          "  --spec-file <path>   Update specification from file\n" +
+          "  --spec-content <text> Update specification content directly\n\n" +
+          "Examples:\n" +
+          '  minsky tasks edit mt#123 --title "New Title"\n' +
+          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\n" +
+          '  minsky tasks edit mt#123 --title "New Title" --spec'
       );
     }
 
@@ -64,10 +64,10 @@ export class TasksEditCommand extends BaseTaskCommand {
     const specOptions = [params.spec, params.specFile, params.specContent].filter(Boolean);
     if (specOptions.length > 1) {
       throw new ValidationError(
-        'Only one specification edit method can be used at a time:\n' +
-        '  --spec               Interactive editor\n' +
-        '  --spec-file <path>   Read from file\n' +
-        '  --spec-content <text> Direct content'
+        "Only one specification edit method can be used at a time:\n" +
+          "  --spec               Interactive editor\n" +
+          "  --spec-file <path>   Read from file\n" +
+          "  --spec-content <text> Direct content"
       );
     }
 
@@ -79,7 +79,11 @@ export class TasksEditCommand extends BaseTaskCommand {
     });
 
     if (!currentTask) {
-      throw new ResourceNotFoundError(`Task "${validatedTaskId}" not found`, "task", validatedTaskId);
+      throw new ResourceNotFoundError(
+        `Task "${validatedTaskId}" not found`,
+        "task",
+        validatedTaskId
+      );
     }
 
     this.debug("Task found, preparing updates");
@@ -104,10 +108,12 @@ export class TasksEditCommand extends BaseTaskCommand {
       } else if (params.specFile) {
         // Read from file
         try {
-          newSpecContent = await fs.readFile(params.specFile, 'utf-8');
+          newSpecContent = await fs.readFile(params.specFile, "utf-8");
           this.debug(`Read spec content from file: ${params.specFile}`);
         } catch (error) {
-          throw new ValidationError(`Failed to read spec file "${params.specFile}": ${error.message}`);
+          throw new ValidationError(
+            `Failed to read spec file "${params.specFile}": ${error.message}`
+          );
         }
       } else if (params.spec) {
         // Interactive editor
@@ -120,15 +126,21 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Apply the updates using the backend's setTaskMetadata method
     this.debug("Applying updates to task");
-    
+
     try {
       // Get the appropriate backend for this task
-      const { createConfiguredTaskService } = await import("../../../../domain/tasks/multi-backend-service");
+      const { createConfiguredTaskService } = await import(
+        "../../../../domain/tasks/multi-backend-service"
+      );
       const { resolveRepoPath } = await import("../../../../domain/workspace");
-      const { resolveMainWorkspacePath } = await import("../../../../domain/workspace/workspace-resolver");
+      const { resolveMainWorkspacePath } = await import(
+        "../../../../domain/workspace/workspace-resolver"
+      );
 
       const service = await createConfiguredTaskService({
-        repoPath: params.repo ? await resolveRepoPath(params.repo) : await resolveMainWorkspacePath(),
+        repoPath: params.repo
+          ? await resolveRepoPath(params.repo)
+          : await resolveMainWorkspacePath(),
         sessionName: params.session,
         backend: params.backend,
       });
@@ -141,7 +153,9 @@ export class TasksEditCommand extends BaseTaskCommand {
 
       // Check if backend supports setTaskMetadata for spec updates
       if (updates.spec && !backend.setTaskMetadata) {
-        throw new ValidationError(`Backend "${backend.name}" does not support specification editing`);
+        throw new ValidationError(
+          `Backend "${backend.name}" does not support specification editing`
+        );
       }
 
       // Apply updates
@@ -177,7 +191,6 @@ export class TasksEditCommand extends BaseTaskCommand {
         }),
         params.json
       );
-
     } catch (error) {
       this.debug(`Task edit failed: ${error.message}`);
       throw error;
@@ -194,39 +207,41 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Create a temporary file with current spec content
     const tempDir = tmpdir();
-    const tempFile = join(tempDir, `task-${randomBytes(8).toString('hex')}.md`);
-    
+    const tempFile = join(tempDir, `task-${randomBytes(8).toString("hex")}.md`);
+
     try {
       // Write current spec content to temp file
-      const currentSpec = currentTask.spec || `# ${currentTask.title}\n\n## Requirements\n\n## Solution\n\n## Notes\n\n`;
-      await fs.writeFile(tempFile, currentSpec, 'utf-8');
+      const currentSpec =
+        currentTask.spec ||
+        `# ${currentTask.title}\n\n## Requirements\n\n## Solution\n\n## Notes\n\n`;
+      await fs.writeFile(tempFile, currentSpec, "utf-8");
 
       // Determine editor to use
-      const editor = process.env.EDITOR || process.env.VISUAL || 'nano';
-      
+      const editor = process.env.EDITOR || process.env.VISUAL || "nano";
+
       this.debug(`Opening editor: ${editor} ${tempFile}`);
 
       // Spawn editor in interactive mode
       const execFile = promisify(spawn);
       const child = spawn(editor, [tempFile], {
-        stdio: 'inherit',
+        stdio: "inherit",
         detached: false,
       });
 
       await new Promise<void>((resolve, reject) => {
-        child.on('close', (code) => {
+        child.on("close", (code) => {
           if (code === 0) {
             resolve();
           } else {
             reject(new Error(`Editor exited with code ${code}`));
           }
         });
-        child.on('error', reject);
+        child.on("error", reject);
       });
 
       // Read the edited content
-      const editedContent = await fs.readFile(tempFile, 'utf-8');
-      
+      const editedContent = await fs.readFile(tempFile, "utf-8");
+
       // Clean up temp file
       try {
         await fs.unlink(tempFile);
@@ -252,7 +267,7 @@ export class TasksEditCommand extends BaseTaskCommand {
    */
   private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {
     const parts: string[] = [];
-    
+
     if (updates.title && updates.spec) {
       parts.push("title and specification");
     } else if (updates.title) {
