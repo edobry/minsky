@@ -4,7 +4,7 @@
 
 ### 1. Tool Selection Violations
 **Pattern**: Using regular tools instead of session-specific tools in session workspaces
-**Examples**: 
+**Examples**:
 - Using `search_replace` instead of `mcp_minsky-server_session_search_replace`
 - Using `read` instead of `mcp_minsky-server_session_read_file`
 - Using `edit_file` instead of `mcp_minsky-server_session_edit_file`
@@ -18,7 +18,7 @@
 
 ### 3. Resource Management Violations
 **Pattern**: Creating documentation/rules with wrong tools
-**Examples**: 
+**Examples**:
 - Using `session_write_file` (doesn't exist) instead of `mcp_minsky-server_session_write_file`
 - Should use `mcp_minsky-server_rules_create` for rule files
 
