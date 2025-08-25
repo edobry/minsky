@@ -24,7 +24,7 @@ All notable changes to this project will be documented in this file.
 
 - **Test Architecture**: Replaced global state reset anti-pattern with isolated per-test resources in configuration tests
   - Removed `resetGlobalConfiguration` function that shared state between tests
-  - Replaced global configuration functions with isolated provider instances per test 
+  - Replaced global configuration functions with isolated provider instances per test
   - Create new configuration factory and provider for each test ensuring true test independence
   - Tests now use completely isolated resources and can run safely in parallel
   - Follow proper dependency injection patterns for test isolation

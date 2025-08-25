@@ -262,45 +262,105 @@ export async function sessionPrList(params: {
       );
     }
 
-    // Convert sessions to PR list format
-    const pullRequests = filteredSessions.map((session) => {
-      const pr = session.pullRequest;
-      const prState = session.prState;
+    // Convert sessions to PR list format with GitHub API refresh for unknown sessions
+    const pullRequests = await Promise.all(
+      filteredSessions.map(async (session) => {
+        const pr = session.pullRequest;
+        const prState = session.prState;
 
-      // Determine status with better logic for merged/closed PRs
-      const inferredStatus = (() => {
-        // If we have explicit PR state, use it
-        if (pr?.state) return pr.state;
+        // Determine initial status
+        let status = (() => {
+          // If we have explicit PR state, use it
+          if (pr?.state) return pr.state;
 
-        // If we have a commit hash, it was created
-        if (prState?.commitHash) return "created";
+          // If we have a commit hash, it was created
+          if (prState?.commitHash) return "created";
 
-        // For sessions without PR tracking data, try to infer status
-        // This is a heuristic for sessions that might have been merged before tracking
-        if (session.session.startsWith("task-") && session.taskId) {
-          // Could check git history here for a more accurate status
-          // For now, assume these had PRs that might be merged
           return "unknown";
+        })();
+
+        // For GitHub sessions with unknown status, try to refresh from API
+        let livePrData: any = null;
+        const isGitHubRepo =
+          session.backendType === "github" ||
+          (session.repoUrl &&
+            (session.repoUrl.includes("github.com") || session.repoUrl.includes("github")));
+
+        if (status === "unknown" && isGitHubRepo && session.repoUrl) {
+          try {
+            const { log } = require("../../../utils/logger");
+            log.debug(`Attempting GitHub API lookup for session ${session.session}`);
+
+            const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
+            const githubInfo = extractGitHubInfoFromUrl(session.repoUrl);
+
+            if (githubInfo) {
+              const { getConfiguration } = require("../../configuration/index");
+              const { Octokit } = require("@octokit/rest");
+
+              const config = getConfiguration();
+              const githubToken = config.github?.token;
+
+              if (githubToken) {
+                const octokit = new Octokit({ auth: githubToken });
+                const { owner, repo } = githubInfo;
+
+                // Try to find PR by session branch name
+                const potentialBranches = [
+                  session.session, // GitHub backend uses session name as branch
+                  `pr/${session.session}`, // Local backend pattern
+                  session.session.replace(/^task-/, ""), // Strip task- prefix
+                ];
+
+                for (const branchName of potentialBranches) {
+                  try {
+                    const { data: pulls } = await octokit.rest.pulls.list({
+                      owner,
+                      repo,
+                      head: `${owner}:${branchName}`,
+                      state: "all", // Include open, closed, merged
+                    });
+
+                    if (pulls.length > 0) {
+                      livePrData = pulls[0]; // Use the first/most recent PR
+                      status =
+                        livePrData.state === "closed" && livePrData.merged_at
+                          ? "merged"
+                          : livePrData.state;
+                      break;
+                    }
+                  } catch (branchError) {
+                    // Continue to next branch pattern
+                    continue;
+                  }
+                }
+              }
+            }
+          } catch (apiError) {
+            // API errors shouldn't break the listing, just continue with unknown status
+            const { log } = require("../../../utils/logger");
+            log.debug(
+              `GitHub API error for ${session.session}: ${(apiError as any)?.message || apiError}`
+            );
+          }
         }
 
-        return "not_found";
-      })();
-
-      return {
-        sessionName: session.session,
-        taskId: session.taskId,
-        prNumber: pr?.number,
-        status: inferredStatus,
-        title: pr?.title || `PR for ${session.session}`,
-        url: pr?.url,
-        updatedAt: pr?.updatedAt || prState?.lastChecked,
-        branch:
-          session.backendType === "github"
-            ? pr?.headBranch || session.session
-            : prState?.branchName || pr?.headBranch || `pr/${session.session}`,
-        backendType: (session.backendType as any) || undefined,
-      };
-    });
+        return {
+          sessionName: session.session,
+          taskId: session.taskId,
+          prNumber: pr?.number || livePrData?.number,
+          status,
+          title: pr?.title || livePrData?.title || `PR for ${session.session}`,
+          url: pr?.url || livePrData?.html_url,
+          updatedAt: pr?.updatedAt || livePrData?.updated_at || prState?.lastChecked,
+          branch:
+            session.backendType === "github"
+              ? pr?.headBranch || livePrData?.head?.ref || session.session
+              : prState?.branchName || pr?.headBranch || `pr/${session.session}`,
+          backendType: (session.backendType as any) || undefined,
+        };
+      })
+    );
 
     // Parse status filter (comma-separated or 'all')
     const normalizedStatuses = ((): Set<string> | null => {

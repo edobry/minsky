@@ -177,11 +177,36 @@ export class TaskServiceImpl implements TaskService {
   }
 
   async deleteTask(taskId: string, options?: DeleteTaskOptions): Promise<boolean> {
-    const backend = this.getBackendByPrefix(this.parsePrefixFromId(taskId));
-    if (!backend) {
-      throw new Error(`Backend not found for id: ${taskId}`);
+    const prefix = this.parsePrefixFromId(taskId);
+    const backend = this.getBackendByPrefix(prefix);
+
+    // Primary route: attempt deletion via routed backend when available
+    if (backend) {
+      const deleted = await backend.deleteTask(taskId, options);
+      if (deleted) {
+        return true;
+      }
+      // Fall through to fallback search if primary backend reported not deleted
     }
-    return await backend.deleteTask(taskId, options);
+
+    // Fallback: locate the task on any registered backend and delete there
+    // This handles cases where IDs are qualified with a prefix whose backend
+    // is unavailable, or where the task is stored under a different backend
+    // but shares the same local identifier.
+    for (const b of this.backends) {
+      try {
+        const found = await b.getTask(taskId);
+        if (found) {
+          const deleted = await b.deleteTask(taskId, options);
+          if (deleted) return true;
+        }
+      } catch (_err) {
+        // Ignore and continue trying other backends
+      }
+    }
+
+    // If nothing deleted, return false to allow caller to format a failure
+    return false;
   }
 
   // ---- TaskServiceInterface Required Methods ----
