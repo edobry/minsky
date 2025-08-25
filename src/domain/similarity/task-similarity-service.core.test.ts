@@ -13,8 +13,6 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
       enableCache: true,
       skipValidation: true,
     });
-    // Ensure embeddings backend is globally disabled for this test file
-    (process as any).env = { ...(process as any).env, SIMILARITY_DISABLE_EMBEDDINGS: "1" };
   });
   // Minimal dummy embedding service and vector storage (not used when embeddings is disabled)
   const dummyEmbedding: EmbeddingService = {

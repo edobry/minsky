@@ -1,0 +1,25 @@
+# Gitleaks Configuration for Minsky
+title = "Enhanced Gitleaks Config for Minsky"
+
+[extend]
+useDefault = true
+
+[[rules]]
+description = "Database URL with Credentials (PostgreSQL, MySQL, MongoDB, Redis)"
+id = "database-url-credentials"
+regex = '''(postgresql|postgres|mysql|mongodb|redis)://[^:\s]+:[^@\s]+@[^/\s]+'''
+keywords = ["://"]
+
+# Allowlist patterns for documentation
+[allowlist]
+description = "Documentation and test examples"
+paths = [
+  '''docs/.*''',
+  '''README\.md''',
+  '''process/tasks/.*\.md'''
+]
+regexes = [
+  '''postgresql://(user|username|admin):(password|pass|secret)@(localhost|host|example\.com)''',
+  '''postgresql://(team|test|mock):(password|pass)@.*''',
+  '''postgres://(user|username):(pass|password)@(host|localhost)'''
+]

@@ -22,7 +22,7 @@ describe("context generate command", () => {
     it("should include all expected options", () => {
       const optionFlags = command.options.map((opt: any) => opt.flags);
 
-      expect(optionFlags).toContainEqual(expect.stringContaining("--format"));
+      expect(optionFlags).toContainEqual(expect.stringContaining("--json"));
       expect(optionFlags).toContainEqual(expect.stringContaining("--components"));
       expect(optionFlags).toContainEqual(expect.stringContaining("--output"));
       expect(optionFlags).toContainEqual(expect.stringContaining("--template"));
@@ -48,9 +48,9 @@ describe("context generate command", () => {
       expect(modelOption.defaultValue).toBe("gpt-4o");
     });
 
-    it("should default format to text", () => {
-      const formatOption = command.options.find((opt: any) => opt.flags.includes("--format"));
-      expect(formatOption.defaultValue).toBe("text");
+    it("should default json to false", () => {
+      const jsonOption = command.options.find((opt: any) => opt.flags.includes("--json"));
+      expect(jsonOption.defaultValue).toBe(false);
     });
   });
 

@@ -12,7 +12,7 @@ import { DefaultTokenizationService } from "../../domain/ai/tokenization/index";
 const log = createLogger("context:generate");
 
 interface GenerateOptions {
-  format?: "text" | "json";
+  json?: boolean;
   components?: string[];
   output?: string;
   template?: string;
@@ -54,7 +54,7 @@ export function createGenerateCommand(): Command {
 
   return new Command("generate")
     .description("Generate AI context using modular components")
-    .option("-f, --format <format>", "Output format (text|json)", "text")
+    .option("--json", "Output in JSON format", false)
     .option("-c, --components <components>", "Comma-separated list of component IDs to include")
     .option("-o, --output <file>", "Output file path (defaults to stdout)")
     .option("-t, --template <template>", "Use specific template for generation")
@@ -75,7 +75,7 @@ ${helpText}
 
 Examples:
   minsky context generate
-  minsky context generate --components environment,rules,tool-schemas --format json
+  minsky context generate --components environment,rules,tool-schemas --json
   minsky context generate --template cursor-style --model claude-3-5-sonnet
   minsky context generate --prompt "focus on authentication and security rules"
   minsky context generate --interface mcp  # Use XML format for tool schemas
@@ -153,7 +153,7 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   }
 
   // Output result
-  if (options.format === "json") {
+  if (options.json) {
     if (options.analyzeOnly && analysisResult) {
       // Only output analysis in JSON format
       console.log(JSON.stringify(analysisResult, null, 2));
@@ -310,6 +310,62 @@ async function generateContext(request: GenerateRequest): Promise<GenerateResult
 }
 
 /**
+ * Get context window size for different models
+ */
+function getModelContextWindow(model: string): number {
+  const contextWindows: Record<string, number> = {
+    "gpt-4o": 128000,
+    "gpt-4o-mini": 128000,
+    "gpt-4": 8192,
+    "gpt-4-32k": 32768,
+    "gpt-3.5-turbo": 16385,
+    "gpt-3.5-turbo-16k": 16385,
+    "claude-3-5-sonnet": 200000,
+    "claude-3-5-sonnet-20241022": 200000,
+    "claude-3-5-haiku": 200000,
+    "claude-3-opus": 200000,
+    "claude-3-sonnet": 200000,
+    "claude-3-haiku": 200000,
+    "claude-2.1": 200000,
+    "claude-2": 100000,
+    "claude-instant-1.2": 100000,
+  };
+
+  // Try exact match first
+  if (contextWindows[model]) {
+    return contextWindows[model];
+  }
+
+  // Try partial matches for Claude models
+  if (model.includes("claude-3.5") || model.includes("claude-3")) {
+    return 200000;
+  }
+  if (model.includes("claude-2")) {
+    return 200000;
+  }
+  if (model.includes("claude")) {
+    return 100000; // Conservative fallback for Claude
+  }
+
+  // Try partial matches for GPT models
+  if (model.includes("gpt-4o")) {
+    return 128000;
+  }
+  if (model.includes("gpt-4") && model.includes("32k")) {
+    return 32768;
+  }
+  if (model.includes("gpt-4")) {
+    return 8192;
+  }
+  if (model.includes("gpt-3.5")) {
+    return 16385;
+  }
+
+  // Default fallback
+  return 128000;
+}
+
+/**
  * Analyze the generated context for token usage and optimization opportunities
  */
 async function analyzeGeneratedContext(result: GenerateResult, options: GenerateOptions) {
@@ -335,7 +391,8 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
   // Sort by token usage (largest first)
   componentAnalysis.sort((a, b) => b.tokens - a.tokens);
 
-  // Model comparison removed - use single model specified in options
+  // Get model-specific context window size
+  const contextWindowSize = getModelContextWindow(targetModel);
 
   // Generate optimization suggestions
   const optimizations = generateContextOptimizations(
@@ -343,7 +400,22 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
     result.metadata.totalTokens || 0
   );
 
+  // Get tokenizer information
+  const tokenizerInfo = tokenizationService.getTokenizerInfo?.(targetModel) || {
+    name: "tiktoken",
+    encoding: "cl100k_base",
+    description: "OpenAI tokenizer"
+  };
+
   return {
+    metadata: {
+      model: targetModel,
+      tokenizer: tokenizerInfo,
+      interface: options.interface || "cli",
+      contextWindowSize,
+      analysisTimestamp: new Date().toISOString(),
+      generationTime: result.metadata.generationTime,
+    },
     summary: {
       totalTokens: result.metadata.totalTokens || 0,
       totalComponents: result.components.length,
@@ -351,7 +423,7 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
         ? Math.round((result.metadata.totalTokens || 0) / componentAnalysis.length)
         : 0,
       largestComponent: componentAnalysis[0]?.component || "none",
-      contextWindowUtilization: ((result.metadata.totalTokens || 0) / 128000) * 100, // Assuming 128k context window
+      contextWindowUtilization: ((result.metadata.totalTokens || 0) / contextWindowSize) * 100,
     },
     componentBreakdown: componentAnalysis,
     optimizations,
@@ -365,43 +437,55 @@ function generateContextOptimizations(componentAnalysis: any[], totalTokens: num
   const optimizations = [];
 
   for (const component of componentAnalysis) {
-    // Suggest optimizing very large components
-    if (component.tokens > 10000) {
+    const percentage = parseFloat(component.percentage);
+    const tokens = component.tokens;
+
+    // Prioritize suggestions to avoid redundancy
+    if (tokens > 10000 && percentage > 50) {
+      // Very large component that dominates context
       optimizations.push({
         type: "reduce",
         component: component.component,
-        currentTokens: component.tokens,
-        suggestion: `Component "${component.component}" is very large (${component.tokens} tokens, ${component.percentage}% of context). Consider reducing its scope or splitting it.`,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" dominates your context (${tokens.toLocaleString()} tokens, ${component.percentage}%). Consider reducing its scope, splitting it into smaller components, or using only essential parts.`,
         confidence: "high",
-        potentialSavings: Math.floor(component.tokens * 0.3),
+        potentialSavings: Math.floor(tokens * 0.4),
       });
-    }
-
-    // Suggest reviewing components that are >20% of context
-    if (parseFloat(component.percentage) > 20) {
+    } else if (tokens > 10000) {
+      // Large component but not dominating
+      optimizations.push({
+        type: "reduce",
+        component: component.component,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" is very large (${tokens.toLocaleString()} tokens). Consider reducing its scope or splitting it into smaller components.`,
+        confidence: "high",
+        potentialSavings: Math.floor(tokens * 0.3),
+      });
+    } else if (percentage > 30) {
+      // Smaller but high-percentage component
       optimizations.push({
         type: "review",
         component: component.component,
-        currentTokens: component.tokens,
-        suggestion: `Component "${component.component}" consumes ${component.percentage}% of your context. Verify this is necessary for your use case.`,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" consumes ${component.percentage}% of your context. Consider if all this content is necessary for your use case.`,
         confidence: "medium",
-        potentialSavings: component.tokens,
+        potentialSavings: Math.floor(tokens * 0.2),
+      });
+    } else if (percentage > 20 && tokens > 5000) {
+      // Medium-sized component that could be optimized
+      optimizations.push({
+        type: "optimize",
+        component: component.component,
+        currentTokens: tokens,
+        suggestion: `Component "${component.component}" could be optimized (${tokens.toLocaleString()} tokens, ${component.percentage}%). Review if all content is essential.`,
+        confidence: "medium",
+        potentialSavings: Math.floor(tokens * 0.15),
       });
     }
   }
 
-  // Context window utilization warning
-  const utilization = (totalTokens / 128000) * 100;
-  if (utilization > 80) {
-    optimizations.push({
-      type: "restructure",
-      component: "overall",
-      currentTokens: totalTokens,
-      suggestion: `High context utilization (${utilization.toFixed(1)}%). Consider using fewer components or reducing component scope.`,
-      confidence: "high",
-      potentialSavings: Math.floor(totalTokens * 0.2),
-    });
-  }
+  // No overall context window warning needed here since we show utilization in metadata
+  // Individual component suggestions are more actionable
 
   return optimizations.slice(0, 5); // Limit to top 5 suggestions
 }
@@ -412,6 +496,18 @@ function generateContextOptimizations(componentAnalysis: any[], totalTokens: num
 function displayAnalysisResults(analysis: any, options: GenerateOptions) {
   console.log("\n🔍 Context Analysis");
   console.log("━".repeat(50));
+
+  // Model and tokenizer metadata
+  if (analysis.metadata) {
+    console.log(`Model: ${analysis.metadata.model}`);
+    console.log(`Interface Mode: ${analysis.metadata.interface}`);
+    if (analysis.metadata.tokenizer) {
+      console.log(`Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`);
+    }
+    console.log(`Context Window: ${analysis.metadata.contextWindowSize.toLocaleString()} tokens`);
+    console.log(`Generated: ${new Date(analysis.metadata.analysisTimestamp).toLocaleString()}`);
+    console.log("");
+  }
 
   // Summary
   console.log(`Total Tokens: ${analysis.summary.totalTokens.toLocaleString()}`);
@@ -441,7 +537,9 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
     console.log("━".repeat(50));
 
     for (const opt of analysis.optimizations) {
-      const icon = opt.type === "reduce" ? "🔽" : opt.type === "review" ? "👀" : "⚠️";
+      const icon = opt.type === "reduce" ? "🔽" :
+                   opt.type === "review" ? "👀" :
+                   opt.type === "optimize" ? "⚡" : "⚠️";
       console.log(`${icon} ${opt.component}`);
       console.log(`   ${opt.suggestion}`);
       console.log(`   Potential savings: ${opt.potentialSavings.toLocaleString()} tokens`);

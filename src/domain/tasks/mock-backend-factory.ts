@@ -5,9 +5,9 @@ import type {
   TaskSpec,
   TaskFilters,
   TaskExportData,
-  MultiBackendTaskService,
+  TaskService,
 } from "./multi-backend-service";
-import { createMultiBackendTaskService } from "./multi-backend-service";
+import { createTaskService } from "./multi-backend-service";
 
 // Mock TaskBackend implementation for testing
 export function createMockBackend(name: string, prefix: string): TaskBackend {
@@ -113,19 +113,19 @@ export function createMockBackend(name: string, prefix: string): TaskBackend {
   };
 }
 
-// Factory function that creates a MultiBackendTaskService with mocks
-export function createMockMultiBackendTaskService(): MultiBackendTaskService {
-  return createMultiBackendTaskService();
+// Factory function that creates a TaskService with mocks
+export function createMockTaskService(): TaskService {
+  return createTaskService({ workspacePath: "/test/workspace" });
 }
 
 // Helper function to create a service with pre-registered mock backends
-export function createMultiBackendTaskServiceWithMocks(): {
-  service: MultiBackendTaskService;
+export function createTaskServiceWithMocks(): {
+  service: TaskService;
   mdBackend: TaskBackend;
   ghBackend: TaskBackend;
   jsonBackend: TaskBackend;
 } {
-  const service = createMultiBackendTaskService();
+  const service = createTaskService({ workspacePath: "/test/workspace" });
   const mdBackend = createMockBackend("Markdown", "md");
   const ghBackend = createMockBackend("GitHub Issues", "gh");
   const jsonBackend = createMockBackend("JSON File", "json");

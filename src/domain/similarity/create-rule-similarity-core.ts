@@ -7,15 +7,20 @@ import { createRulesVectorStorageFromConfig } from "../storage/vector/vector-sto
 import { ModularRulesService } from "../rules/rules-service-modular";
 import { getConfiguration } from "../configuration";
 
-export async function createRuleSimilarityCore(workspacePath: string) {
+export interface RuleSimilarityCoreOptions {
+  disableEmbeddings?: boolean;
+}
+
+export async function createRuleSimilarityCore(
+  workspacePath: string,
+  options: RuleSimilarityCoreOptions = {}
+) {
   const cfg: any = await getConfiguration();
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
   let embeddings: EmbeddingsSimilarityBackend | null = null;
-  const disable =
-    typeof process !== "undefined" && process.env?.SIMILARITY_DISABLE_EMBEDDINGS === "1";
-  if (!disable) {
+  if (!options.disableEmbeddings) {
     try {
       const embedding = await createEmbeddingServiceFromConfig();
       const storage = await createRulesVectorStorageFromConfig(dimension);

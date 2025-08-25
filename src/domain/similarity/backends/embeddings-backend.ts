@@ -10,9 +10,6 @@ export class EmbeddingsSimilarityBackend implements SimilarityBackend {
   ) {}
 
   async isAvailable(): Promise<boolean> {
-    if (typeof process !== "undefined" && process.env?.SIMILARITY_DISABLE_EMBEDDINGS === "1") {
-      return false;
-    }
     return Boolean(this.embeddingService) && Boolean(this.vectorStorage);
   }
 

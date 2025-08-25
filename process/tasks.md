@@ -694,7 +694,7 @@
 
 - [ ] Implement Task Routing System for Automated Implementation Planning [md#442](process/tasks/md#442-implement-task-routing-system-for-automated-implementation-planning.md)
 
-- [+] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
+- [x] Upgrade to multi-backend TaskService with proper qualified ID routing [md#443](process/tasks/md#443-upgrade-to-multi-backend-taskservice-with-proper-qualified-id-routing.md)
 
 - [x] Improve task search to support filtering by status (and default hide DONE/CLOSED unless --all), consistent with `tasks list`. [md#444](process/tasks/md#444-improve-task-search-to-support-filtering-by-status-and-default-hide-done-closed-unless-all-consistent-with-tasks-list-.md)
 
@@ -702,7 +702,7 @@
 
 - [ ] Add cross-cutting reranking support to embeddings infra using Morph reranking API [md#446](process/tasks/md#446-add-cross-cutting-reranking-support-to-embeddings-infra-using-morph-reranking-api.md)
 
-- [ ] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
+- [+] Extract generic similarity search service with pluggable backends and fallback chain [md#447](process/tasks/md#447-extract-generic-similarity-search-service-with-pluggable-backends-and-fallback-chain.md)
 
 - [ ] Explore task templates for different backends [md#448](process/tasks/md#448-explore-task-templates-for-different-backends.md)
 

@@ -14,7 +14,6 @@ describe("RuleSimilarityService → SimilaritySearchService (lexical fallback)",
       enableCache: true,
       skipValidation: true,
     });
-    (process as any).env = { ...(process as any).env, SIMILARITY_DISABLE_EMBEDDINGS: "1" };
   });
 
   beforeEach(() => {

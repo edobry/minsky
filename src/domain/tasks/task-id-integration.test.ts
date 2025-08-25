@@ -63,7 +63,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       const tasks = await listTasksFromParams(
         { all: true },
         {
-          createTaskService: async () => mockTaskService as any,
+          createConfiguredTaskService: async () => mockTaskService as any,
           resolveMainWorkspacePath: async () => "/test/workspace",
         }
       );
@@ -137,6 +137,8 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
           name: "test-md999-integration",
           task: "md#999",
           repo: "test-repo",
+          // Ensure test isolation by skipping dependency installation side-effects
+          skipInstall: true,
         },
         {
           sessionDB: mockSessionDB as any,
@@ -144,6 +146,11 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
           taskService: mockTaskService as any,
           workspaceUtils: mockWorkspaceUtils as any,
           resolveRepoPath: async () => "/test/repo",
+          // Inject fs adapter to avoid real fs ops
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         }
       );
 

@@ -8,7 +8,7 @@ import {
 import type { SessionPRParameters } from "../../domain/schemas";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
-import { TASK_STATUS, TaskService } from "../tasks";
+import { TASK_STATUS, TaskServiceInterface } from "../tasks";
 import { createConfiguredTaskService } from "../tasks/taskService";
 import type { SessionProviderInterface } from "../session";
 import { updateSessionFromParams } from "../session";
@@ -317,11 +317,20 @@ Please provide a title for your pull request:
       repositoryBackend = await createRepositoryBackendForSession(currentDir);
     }
 
+    // STEP 7.5: Validate and sanitize PR content for title duplication
+    const { preparePrContent } = await import("./pr-validation");
+    const preparedContent = preparePrContent(titleToUse, bodyToUse || "");
+
+    // Log warnings about any sanitization that occurred
+    if (preparedContent.warnings.length > 0) {
+      preparedContent.warnings.forEach(warning => log.warn(`PR Content Warning: ${warning}`));
+    }
+
     // Use repository backend to create pull request
     const baseBranch = params.baseBranch || "main";
     const prInfo = await repositoryBackend.createPullRequest(
-      titleToUse,
-      bodyToUse || "",
+      preparedContent.title,
+      preparedContent.body,
       currentBranch,
       baseBranch,
       sessionName,

@@ -6,19 +6,24 @@ import { createVectorStorageFromConfig } from "../storage/vector/vector-storage-
 import { getEmbeddingDimension } from "../ai/embedding-models";
 import { getConfiguration } from "../configuration";
 
-export async function createTaskSimilarityCore(resolvers: {
+export interface SimilarityCoreOptions {
+  disableEmbeddings?: boolean;
+}
+
+export async function createTaskSimilarityCore(
+  resolvers: {
   getById(id: string): Promise<any | null>;
   listCandidateIds(): Promise<string[]>;
   getContent(id: string): Promise<string>;
-}) {
+  },
+  options: SimilarityCoreOptions = {}
+) {
   const cfg: any = await getConfiguration();
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
   let embeddings: EmbeddingsSimilarityBackend | null = null;
-  const disable =
-    typeof process !== "undefined" && process.env?.SIMILARITY_DISABLE_EMBEDDINGS === "1";
-  if (!disable) {
+  if (!options.disableEmbeddings) {
     try {
       const embedding = await createEmbeddingServiceFromConfig();
       const storage = await createVectorStorageFromConfig(dimension);

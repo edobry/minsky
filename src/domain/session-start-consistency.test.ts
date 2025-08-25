@@ -97,6 +97,13 @@ describe("Session Start Consistency Tests", () => {
         taskService: mockTaskService,
         workspaceUtils: mockWorkspaceUtils,
         resolveRepoPath: mockResolveRepoPath,
+        // Inject mock fs adapter to avoid real filesystem ops in tests
+        fs: {
+          exists: () => false,
+          rm: async () => {
+            /* no-op */
+          },
+        } as any,
       });
 
       // Assert - verify call order by checking that git operations were called first
@@ -133,6 +140,10 @@ describe("Session Start Consistency Tests", () => {
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         })
       ).rejects.toThrow("destination path already exists");
 
@@ -161,6 +172,10 @@ describe("Session Start Consistency Tests", () => {
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         })
       ).rejects.toThrow("failed to create branch");
 
@@ -189,6 +204,10 @@ describe("Session Start Consistency Tests", () => {
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         })
       ).rejects.toThrow("git operation failed");
 
@@ -228,6 +247,10 @@ describe("Session Start Consistency Tests", () => {
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         })
       ).rejects.toThrow("Session 'task-md#160' already exists");
 
@@ -268,6 +291,10 @@ describe("Session Start Consistency Tests", () => {
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         })
       ).rejects.toThrow("A session for task md#160 already exists");
 
@@ -297,6 +324,10 @@ describe("Session Start Consistency Tests", () => {
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         })
       ).rejects.toThrow(ResourceNotFoundError);
 
@@ -330,6 +361,10 @@ describe("Session Start Consistency Tests", () => {
           taskService: mockTaskService,
           workspaceUtils: mockWorkspaceUtils,
           resolveRepoPath: mockResolveRepoPath,
+          fs: {
+            exists: () => false,
+            rm: async () => {},
+          } as any,
         })
       ).rejects.toThrow("fatal: destination path");
 
@@ -360,6 +395,10 @@ describe("Session Start Consistency Tests", () => {
         taskService: mockTaskService,
         workspaceUtils: mockWorkspaceUtils,
         resolveRepoPath: mockResolveRepoPath,
+        fs: {
+          exists: () => false,
+          rm: async () => {},
+        } as any,
       });
 
       // Assert - verify session was properly added to database

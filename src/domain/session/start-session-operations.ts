@@ -1,4 +1,5 @@
-import { existsSync, rmSync } from "fs";
+import { existsSync } from "fs";
+import { rm as rmAsync } from "fs/promises";
 import { join } from "path";
 import {
   MinskyError,
@@ -33,6 +34,11 @@ export interface StartSessionDependencies {
     repoParam?: string;
     cwd?: string;
   }) => Promise<{ repoUrl: string; backendType: RepositoryBackendType }>;
+  /** Optional filesystem adapter for testing to avoid real fs operations */
+  fs?: {
+    exists: (path: string) => boolean | Promise<boolean>;
+    rm: (path: string, options: { recursive: boolean; force: boolean }) => Promise<void>;
+  };
 }
 
 /**
@@ -43,6 +49,11 @@ export async function startSessionImpl(
   params: SessionStartParameters,
   deps: StartSessionDependencies
 ): Promise<Session> {
+    // Resolve filesystem adapter (defaults to real fs)
+    const fsAdapter = deps.fs || {
+      exists: (p: string) => existsSync(p),
+      rm: (p: string, o: { recursive: boolean; force: boolean }) => rmAsync(p, o),
+    };
   // Validate parameters using Zod schema (already done by type)
   const {
     name,
@@ -198,9 +209,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
     const sessionDir = join(sessionBaseDir, "minsky", "sessions", sessionName);
 
     // Check if session directory already exists and clean it up
-    if (existsSync(sessionDir)) {
+    if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
       try {
-        rmSync(sessionDir, { recursive: true, force: true });
+        await fsAdapter.rm(sessionDir, { recursive: true, force: true });
       } catch (error) {
         throw new MinskyError(
           `Failed to clean up existing session directory: ${getErrorMessage(error)}`
@@ -257,9 +268,9 @@ Need help? Run 'minsky sessions list' to see all available sessions.`);
       }
 
       // Clean up the directory if it was created
-      if (existsSync(sessionDir)) {
+      if (await Promise.resolve(fsAdapter.exists(sessionDir))) {
         try {
-          rmSync(sessionDir, { recursive: true, force: true });
+          await fsAdapter.rm(sessionDir, { recursive: true, force: true });
         } catch (cleanupError) {
           log.error("Failed to cleanup session directory after git error", {
             sessionDir,

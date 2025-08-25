@@ -128,6 +128,14 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
           this.options.overrideSource
         );
       }
+
+      // Ensure modern tasks.backend is present for callers that rely on it in tests and runtime
+      // This provides a safe default when project/user configs are empty or malformed.
+      const cfg = (this.configResult.config = this.configResult.config || ({} as any));
+      cfg.tasks = cfg.tasks || {};
+      if (cfg.tasks.backend === undefined) {
+        cfg.tasks.backend = "markdown";
+      }
     } catch (error) {
       console.error("Configuration loading failed:", error);
       throw error;
