@@ -39,7 +39,7 @@ echo "🧪 MANDATORY: Running unit test suite..."
 
 # Run the unit test suite (excluding integration tests) - ANY failure blocks the commit
 echo "  → Executing unit tests with timeout (excluding integration tests)..."
-if ! AGENT=1 bun test --timeout=15000 --bail src tests/adapters tests/domain; then
+if ! AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail src tests/adapters tests/domain; then
   echo ""
   echo "❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌"
   echo ""
