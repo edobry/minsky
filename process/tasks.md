@@ -739,3 +739,5 @@
 - [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
 
 - [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
+
+- [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
