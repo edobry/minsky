@@ -88,7 +88,7 @@ export async function listTasksFromParams(
 
     const taskService = await createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown",
+      backend: validParams.backend, // Use multi-backend mode when no backend specified
     });
 
     // Get tasks with filters - delegate filtering to domain layer
@@ -157,7 +157,7 @@ export async function getTaskFromParams(
 
     const taskService = await createTaskService({
       workspacePath,
-      backend: validParams.backend || "markdown",
+      backend: validParams.backend, // Use multi-backend mode when no backend specified
     });
     log.debug("[getTaskFromParams] Task service created");
 
