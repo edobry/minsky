@@ -372,16 +372,6 @@ export async function reloadConfiguration(): Promise<void> {
 }
 
 /**
- * Reset the global configuration for testing
- *
- * @internal For testing only
- */
-export function resetGlobalConfiguration(): void {
-  globalProvider = null;
-  globalFactory = null;
-}
-
-/**
  * Get configuration metadata for debugging
  *
  * @returns Configuration metadata including source information
