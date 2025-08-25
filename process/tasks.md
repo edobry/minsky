@@ -727,6 +727,7 @@
 - [ ] Create Test Architecture Documentation [md#459](process/tasks/md#459-create-test-architecture-documentation.md)
 
 - [ ] Implement test coverage enforcement in pre-commit hooks [md#460](process/tasks/md#460-implement-test-coverage-enforcement-in-pre-commit-hooks.md)
+<<<<<<< HEAD
 
 - [ ] Remove hardcoded 'markdown' backend defaults [md#461](process/tasks/md#461-remove-hardcoded-markdown-backend-defaults.md)
 
@@ -750,3 +751,5 @@
 
 - [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
 >>>>>>> eef40030 (fix: remove duplicate task md#463 'Remove hardcoded markdown backend defaults')
+=======
+>>>>>>> 9525571e (chore: commit pending changes before PR (md#447))
