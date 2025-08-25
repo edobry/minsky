@@ -4,11 +4,12 @@ import * as path from "path";
 import { z } from "zod";
 import { createRuleTemplateService } from "./rules/rule-template-service";
 import type { RuleFormat } from "./rules";
+import { enumSchemas } from "./configuration/schemas/base";
 const TEST_VALUE = 123;
 
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
-  backend: z.enum(["markdown", "json-file", "github-issues", "minsky"] as const),
+  backend: enumSchemas.backendType,
   ruleFormat: z.enum(["cursor", "generic"] as const),
   mcp: z
     .object({
@@ -38,7 +39,7 @@ export async function initializeProjectFromParams(params: InitializeProjectParam
 
 export interface InitializeProjectOptions {
   repoPath: string;
-  backend: "markdown" | "json-file" | "github-issues" | "minsky";
+  backend: z.infer<typeof enumSchemas.backendType>;
   ruleFormat: "cursor" | "generic";
   mcp?: {
     enabled: boolean;
@@ -505,7 +506,7 @@ This index serves as a guide to help you understand which rules are relevant to 
 /**
  * Returns the content for the main Minsky config file
  */
-function getMinskyConfigContent(backend: "markdown" | "json-file" | "github-issues" | "minsky"): string {
+function getMinskyConfigContent(backend: z.infer<typeof enumSchemas.backendType>): string {
   return JSON.stringify(
     {
       tasks: {
