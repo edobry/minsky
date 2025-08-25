@@ -95,7 +95,15 @@ export async function getTaskFromParams(params: any) {
   log.debug("tasks.get created TaskService", {
     backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
   });
-  return await taskService.getTask(validParams.taskId);
+  const task = await taskService.getTask(validParams.taskId);
+  if (!task) {
+    throw new ResourceNotFoundError(
+      `Task ${validParams.taskId} not found`,
+      "task",
+      validParams.taskId
+    );
+  }
+  return task;
 }
 
 export async function getTaskStatusFromParams(params: any) {

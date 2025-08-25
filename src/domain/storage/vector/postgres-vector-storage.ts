@@ -169,7 +169,9 @@ export class PostgresVectorStorage implements VectorStorage {
       score: Number((r as any).score),
     }));
 
-    return results.filter((r) => (isFinite(threshold as number) ? r.score <= (threshold as number) : true));
+    return results.filter((r) =>
+      isFinite(threshold as number) ? r.score <= (threshold as number) : true
+    );
   }
 
   async delete(id: string): Promise<void> {
