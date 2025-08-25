@@ -12,7 +12,7 @@ import {
   createTaskFromTitleAndSpec,
   deleteTaskFromParams,
 } from "../../../../domain/tasks";
-import { ValidationError } from "../../../../errors/index";
+import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import {
   tasksListParams,
@@ -257,6 +257,11 @@ export class TasksDeleteCommand extends BaseTaskCommand {
       ...this.createTaskParams(params),
       taskId,
     });
+
+    // Guard against null task to avoid accessing properties on null
+    if (!task) {
+      throw new ResourceNotFoundError(`Task ${taskId} not found`, "task", taskId);
+    }
 
     // Import confirm from @clack/prompts for confirmation
     const { confirm, isCancel } = await import("@clack/prompts");
