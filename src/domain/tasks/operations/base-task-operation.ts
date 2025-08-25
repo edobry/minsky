@@ -112,7 +112,7 @@ export abstract class BaseTaskOperation<TParams, TResult> {
   ): Promise<TaskServiceInterface> {
     return await this.deps.createConfiguredTaskService({
       workspacePath,
-      backend: params.backend || "markdown", // Use markdown as default to avoid config lookup
+      backend: params.backend, // Let service determine backend via detection/config
     });
   }
 

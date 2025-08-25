@@ -40,7 +40,9 @@ export class DefaultBackendDetectionService implements BackendDetectionService {
       return TaskBackend.JSON_FILE;
     }
 
-    // Default fallback - prefer markdown for new projects
+    // Default fallback for new projects when no backend files exist
+    // This is specific to project initialization, not command-level defaults
+    // Multi-backend routing (md#443) handles backend selection for existing projects
     return TaskBackend.MARKDOWN;
   }
 

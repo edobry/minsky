@@ -367,7 +367,7 @@ export function createBackendDetectionErrorMessage(
             return `• ${backend}${reqText}`;
           })
           .join("\n")
-      : "• markdown (default)\n• json-file\n• github-issues (requires GitHub config)";
+      : "• markdown\n• json-file\n• github-issues (requires GitHub config)\n• minsky (requires database config)";
 
   const suggestions: CommandSuggestion[] = [
     {
