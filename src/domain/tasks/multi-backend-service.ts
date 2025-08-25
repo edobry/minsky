@@ -140,34 +140,61 @@ export class TaskServiceImpl implements TaskService {
       throw new Error(`Backend not found for id: ${taskId}`);
     }
 
-    // Update status via backend API if provided
-    if (updates.status) {
-      await backend.setTaskStatus(taskId, updates.status);
-      this.lastKnownStatusById.set(taskId, updates.status);
+    // Get current task to merge with updates
+    const currentTask = await backend.getTask(taskId);
+    if (!currentTask) {
+      throw new Error(`Task ${taskId} not found`);
     }
 
-    // Update title directly in tasks.md if provided
-    if (typeof updates.title === "string") {
-      const workspacePath = backend.getWorkspacePath();
-      const tasksFilePath = getTasksFilePath(workspacePath);
-      const content = await fs.readFile(tasksFilePath, "utf-8").catch(() => "");
-      const tasks = parseTasksFromMarkdown(content);
+    // If backend has setTaskMetadata method, use it for comprehensive updates
+    if ('setTaskMetadata' in backend && typeof (backend as any).setTaskMetadata === 'function') {
+      const metadata = {
+        id: taskId,
+        title: updates.title !== undefined ? updates.title : currentTask.title,
+        status: updates.status !== undefined ? updates.status : currentTask.status,
+        spec: updates.spec,
+        backend: currentTask.backend || backend.name,
+        updatedAt: new Date(),
+      };
+      
+      await (backend as any).setTaskMetadata(taskId, metadata);
+      
+      // Update local cache
+      if (updates.status) {
+        this.lastKnownStatusById.set(taskId, updates.status);
+      }
+    } else {
+      // Fallback to individual updates for backends without setTaskMetadata
+      
+      // Update status via backend API if provided
+      if (updates.status) {
+        await backend.setTaskStatus(taskId, updates.status);
+        this.lastKnownStatusById.set(taskId, updates.status);
+      }
 
-      // Find task (replicating backend's matching logic)
-      const index = tasks.findIndex((task) => {
-        if (task.id === taskId) return true;
-        const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
-        const searchLocalId = taskId.includes("#") ? taskId.split("#").pop() : taskId;
-        if (taskLocalId === searchLocalId) return true;
-        if (!/^#/.test(taskId) && task.id === `#${taskId}`) return true;
-        if (taskId.startsWith("#") && task.id === taskId.substring(1)) return true;
-        return false;
-      });
+      // Update title directly in tasks.md for markdown backends
+      if (typeof updates.title === "string") {
+        const workspacePath = backend.getWorkspacePath();
+        const tasksFilePath = getTasksFilePath(workspacePath);
+        const content = await fs.readFile(tasksFilePath, "utf-8").catch(() => "");
+        const tasks = parseTasksFromMarkdown(content);
 
-      if (index !== -1) {
-        tasks[index] = { ...tasks[index], title: updates.title } as any;
-        const updated = formatTasksToMarkdown(tasks);
-        await fs.writeFile(tasksFilePath, updated, "utf-8");
+        // Find task (replicating backend's matching logic)
+        const index = tasks.findIndex((task) => {
+          if (task.id === taskId) return true;
+          const taskLocalId = task.id.includes("#") ? task.id.split("#").pop() : task.id;
+          const searchLocalId = taskId.includes("#") ? taskId.split("#").pop() : taskId;
+          if (taskLocalId === searchLocalId) return true;
+          if (!/^#/.test(taskId) && task.id === `#${taskId}`) return true;
+          if (taskId.startsWith("#") && task.id === taskId.substring(1)) return true;
+          return false;
+        });
+
+        if (index !== -1) {
+          tasks[index] = { ...tasks[index], title: updates.title } as any;
+          const updated = formatTasksToMarkdown(tasks);
+          await fs.writeFile(tasksFilePath, updated, "utf-8");
+        }
       }
     }
 

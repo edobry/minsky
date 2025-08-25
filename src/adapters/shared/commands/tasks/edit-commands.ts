@@ -8,7 +8,7 @@ import { type CommandExecutionContext } from "../../command-registry";
 import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
-import { getTaskFromParams } from "../../../../domain/tasks";
+import { getTaskFromParams, updateTaskFromParams } from "../../../../domain/tasks";
 import { log } from "../../../../utils/logger";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
@@ -96,26 +96,31 @@ export class TasksEditCommand extends BaseTaskCommand {
       }
     }
 
-    // For now, just return a success message showing the task was found and updates were prepared
-    // TODO: Implement actual update logic
-    this.debug("Task found and updates prepared (not yet applied)");
+    // Apply the updates using the real persistence function
+    this.debug("Applying updates to task");
+    
+    try {
+      const updatedTask = await updateTaskFromParams({
+        taskId: validatedTaskId,
+        title: updates.title,
+        spec: updates.spec,
+        ...this.createTaskParams(params),
+      });
 
-    const message = `Task ${validatedTaskId} edit command executed successfully (updates prepared: ${Object.keys(updates).join(", ")})`;
-    this.debug("Task edit completed (mock implementation)");
+      const message = this.buildUpdateMessage(updates, validatedTaskId);
+      this.debug("Task edit completed successfully");
 
-    return this.formatResult(
-      this.createSuccessResult(validatedTaskId, message, {
-        updates,
-        task: {
-          id: validatedTaskId,
-          title: updates.title || currentTask.title,
-          status: currentTask.status,
-          backend: currentTask.backend,
-        },
-        note: "This is a mock implementation - actual updates not yet implemented",
-      }),
-      params.json
-    );
+      return this.formatResult(
+        this.createSuccessResult(validatedTaskId, message, {
+          updates,
+          task: updatedTask,
+        }),
+        params.json
+      );
+    } catch (error) {
+      this.debug(`Task edit failed: ${error.message}`);
+      throw error;
+    }
   }
 
   private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {

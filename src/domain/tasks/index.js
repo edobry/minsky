@@ -8,6 +8,7 @@ export {
   getTaskFromParams,
   getTaskStatusFromParams,
   setTaskStatusFromParams,
+  updateTaskFromParams,
   listTasksFromParams,
   createTaskFromParams,
   getTaskSpecContentFromParams,
