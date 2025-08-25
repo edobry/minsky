@@ -33,6 +33,7 @@ export function createAllTaskCommands() {
     createTasksCreateCommand,
     createTasksDeleteCommand,
   } = require("./crud-commands");
+  const { createTasksEditCommand } = require("./edit-commands");
   const { createMigrateTasksCommand } = require("./migrate-command");
   const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
   const { TasksSimilarCommand, TasksSearchCommand } = require("./similarity-commands");
@@ -45,6 +46,7 @@ export function createAllTaskCommands() {
     createTasksListCommand(),
     createTasksGetCommand(),
     createTasksCreateCommand(),
+    createTasksEditCommand(),
     createTasksDeleteCommand(),
     new TasksSimilarCommand(),
     new TasksSearchCommand(),

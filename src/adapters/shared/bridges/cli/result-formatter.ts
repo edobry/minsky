@@ -317,13 +317,20 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
    * Format rules list results
    */
   private formatRulesListResult(rules: any[]): void {
-    if (Array.isArray(rules) && rules.length > 0) {
-      rules.forEach((rule: any) => {
-        formatRuleSummary(rule);
-      });
-    } else {
+    if (!Array.isArray(rules) || rules.length === 0) {
       log.cli("No rules found.");
+      return;
     }
+
+    // Align with tasks.search style: numbered items and trailing count
+    rules.forEach((rule: any, index: number) => {
+      const r = rule as Record<string, any>;
+      const ruleId = r.id || "unknown";
+      const fmt = r.format ? ` [${r.format}]` : "";
+      const desc = r.description ? ` - ${r.description}` : "";
+      log.cli(`${index + 1}. ${ruleId}${fmt}${desc}`);
+    });
+    log.cli(`${rules.length} result${rules.length === 1 ? "" : "s"} found`);
   }
 
   /**

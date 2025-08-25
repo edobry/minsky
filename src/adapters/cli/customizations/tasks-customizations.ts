@@ -52,6 +52,27 @@ export function getTasksCustomizations(): {
             },
           },
         },
+        "tasks.edit": {
+          useFirstRequiredParamAsArgument: true,
+          parameters: {
+            taskId: {
+              asArgument: true,
+              description: "ID of the task to edit",
+            },
+            title: {
+              description: "New title for the task",
+            },
+            spec: {
+              description: "Edit task specification content interactively",
+            },
+            specFile: {
+              description: "Path to file containing new task specification content",
+            },
+            specContent: {
+              description: "New specification content (for programmatic updates)",
+            },
+          },
+        },
         "tasks.delete": {
           useFirstRequiredParamAsArgument: true,
           parameters: {
