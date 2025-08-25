@@ -389,9 +389,19 @@ export const sessionPrListCommandParams = {
   },
   task: commonSessionParams.task,
   status: {
-    schema: z.string(),
+    schema: z.string().refine(
+      (value) => {
+        const validStatuses = ["open", "closed", "merged", "draft", "created", "all"];
+        if (value === "all") return true;
+        const parts = value.split(",").map(s => s.trim().toLowerCase());
+        return parts.every(part => validStatuses.includes(part));
+      },
+      {
+        message: "Invalid status. Valid options: open, closed, merged, draft, created, all (or comma-separated combinations like 'open,draft')"
+      }
+    ),
     description:
-      "Filter by PR status. Accepts comma-separated values: open,closed,merged,draft,created or 'all'",
+      "Filter by PR status. Valid options: open, closed, merged, draft, created, all (or comma-separated combinations)",
     required: false,
   },
   backend: {
@@ -441,9 +451,19 @@ export const sessionPrGetCommandParams = {
     required: false,
   },
   status: {
-    schema: z.string(),
+    schema: z.string().refine(
+      (value) => {
+        const validStatuses = ["open", "closed", "merged", "draft", "created", "all"];
+        if (value === "all") return true;
+        const parts = value.split(",").map(s => s.trim().toLowerCase());
+        return parts.every(part => validStatuses.includes(part));
+      },
+      {
+        message: "Invalid status. Valid options: open, closed, merged, draft, created, all (or comma-separated combinations like 'open,draft')"
+      }
+    ),
     description:
-      "Optional state constraint for the matched PR: open,closed,merged,draft,created or 'all'",
+      "Optional state constraint for the matched PR: open, closed, merged, draft, created, all (or comma-separated combinations)",
     required: false,
   },
   since: {

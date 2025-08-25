@@ -479,7 +479,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
             description: "Task ID",
           },
           status: {
-            description: "Filter by PR status",
+            description: "Filter by PR status. Valid options: open, closed, merged, draft, created, all (or comma-separated combinations)",
           },
           repo: {
             description: "Repository path",

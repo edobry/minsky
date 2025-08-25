@@ -8,8 +8,13 @@ All notable changes to this project will be documented in this file.
 - Enabled quiet test output in pre-commit hooks using Bun's AI agent integration (`AGENT=1` environment variable)
   - Reduces verbose test output during commits to only show failures, errors, and summary statistics
   - Applies to both main unit test suite and ESLint rule tooling tests
+- Improved session PR status parameter validation and help text
+  - Added validation for `--status` parameter with helpful error messages showing valid options
+  - Support comma-separated status combinations (e.g., `--status open,draft`)
+  - Enhanced CLI help to clearly show all valid status options: open, closed, merged, draft, created, all
+  - Applied to both `session pr list` and `session pr get` commands
 
-### Fixed  
+### Fixed
 - Replaced defensive checks with proper dependency injection for file system operations in rules helpers
   - Refactored `readContentFromFileIfExists` to accept file system dependencies using established DI pattern
   - Updated callers in `rules.ts` to provide FS dependencies following `RuleService` pattern
