@@ -305,11 +305,7 @@ export async function setTaskStatusFromParams(
     // Set the task status
     await taskService.setTaskStatus(validParams.taskId, validParams.status);
 
-    // Auto-commit changes for markdown backend (only when explicitly configured)
-    if (validParams.backend === "markdown") {
-      const commitMessage = `chore(${validParams.taskId}): update task status ${oldStatus} → ${validParams.status}`;
-      // Intentionally no commit call here per updated design
-    }
+    // Auto-commit functionality was removed - no backend-specific handling needed
   } catch (error) {
     if (error instanceof z.ZodError) {
       throw new ValidationError(
@@ -365,11 +361,7 @@ export async function createTaskFromParams(
       force: validParams.force,
     });
 
-    // Auto-commit changes for markdown backend (only when explicitly configured)
-    if (validParams.backend === "markdown") {
-      const commitMessage = `feat(${task.id}): create task \"${validParams.title}\"`;
-      // Intentionally no commit call here per updated design
-    }
+    // Auto-commit functionality was removed - no backend-specific handling needed
 
     return task;
   } catch (error) {
@@ -592,11 +584,7 @@ export async function deleteTaskFromParams(
       force: validParams.force,
     });
 
-    // Auto-commit changes for markdown backend (only when explicitly configured)
-    if (deleted && validParams.backend === "markdown") {
-      const commitMessage = `chore(${validParams.taskId}): delete task`;
-      // Intentionally no commit call here per updated design
-    }
+    // Auto-commit functionality was removed - no backend-specific handling needed
 
     return {
       success: deleted,
