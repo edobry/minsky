@@ -737,10 +737,12 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         for (const result of results) {
           try {
             // Get full rule details
-            const { ModularRulesService } = await import("../../../domain/rules/rules-service-modular");
+            const { ModularRulesService } = await import(
+              "../../../domain/rules/rules-service-modular"
+            );
             const rulesService = new ModularRulesService(workspacePath);
             const rule = await rulesService.getRule(result.id);
-            
+
             enhancedResults.push({
               id: result.id,
               score: result.score,
