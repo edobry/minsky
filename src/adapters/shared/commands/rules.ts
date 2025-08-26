@@ -358,7 +358,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           if (!(params.json || ctx?.format === "json")) {
             log.cli(`- ${rule.id}`);
           }
-          
+
           try {
             const changed = await service.indexRule(rule.id);
             if (changed) {
@@ -385,7 +385,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             ms: elapsed,
           };
         }
-        
+
         log.cli(
           `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`
         );
@@ -696,10 +696,10 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const workspacePath = await resolveWorkspacePath({});
 
         // Use similarity service (consistent with tasks.search)
-        const { createRuleSimilarityCore } = await import(
-          "../../../domain/similarity/create-rule-similarity-core"
+        const { createRuleSimilarityService } = await import(
+          "../../../domain/rules/rule-similarity-service"
         );
-        const service = await createRuleSimilarityCore(workspacePath);
+        const service = await createRuleSimilarityService();
 
         const query = params.query;
         const limit = params.limit ?? 10;
@@ -712,34 +712,21 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           log.cliWarn(`Searching for rules matching: "${query}" ...`);
         }
 
-        // Perform similarity search
-        const results = await service.search({
-          query,
-          limit,
-          threshold,
-        });
+        // Perform similarity search (consistent with tasks.search)
+        const results = await service.searchByText(query, limit, threshold);
 
         // Optional human-friendly diagnostics (consistent with tasks.search)
         if (params.details) {
           try {
-            const actualBackend = service.getLastUsedBackend();
-            if (actualBackend === "embeddings") {
-              const cfg = await (await import("../../../domain/configuration")).getConfiguration();
-              const provider =
-                (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
-              const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
-              const effThreshold =
-                threshold ?? (service as any)?.config?.similarityThreshold ?? "(default)";
-              log.cliWarn(`Search provider: ${provider}`);
-              log.cliWarn(`Model: ${model}`);
-              log.cliWarn(`Limit: ${limit}`);
-              log.cliWarn(`Threshold: ${String(effThreshold)}`);
-            } else {
-              log.cliWarn(`Search backend: ${actualBackend || "unknown"}`);
-              log.cliWarn(`Method: Lexical similarity (Jaccard index)`);
-              log.cliWarn(`Limit: ${limit}`);
-              log.cliWarn(`Note: Embeddings unavailable - falling back to lexical matching`);
-            }
+            const cfg = await (await import("../../../domain/configuration")).getConfiguration();
+            const provider =
+              (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
+            const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+            const effThreshold = threshold ?? "(default)";
+            log.cliWarn(`Search provider: ${provider}`);
+            log.cliWarn(`Model: ${model}`);
+            log.cliWarn(`Limit: ${limit}`);
+            log.cliWarn(`Threshold: ${String(effThreshold)}`);
           } catch {
             // ignore diagnostics failures
           }

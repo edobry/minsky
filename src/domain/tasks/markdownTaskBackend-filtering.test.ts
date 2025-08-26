@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach } from "bun:test";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { TASK_STATUS } from "./taskConstants";
+// Use mock.module() to mock filesystem operations
 import { promises as fs } from "fs";
 import { join } from "path";
 import { tmpdir } from "os";
