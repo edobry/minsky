@@ -97,7 +97,7 @@ export function getTasksCustomizations(): {
             },
           },
         },
-        "tasks.spec": {
+        "tasks.spec.get": {
           useFirstRequiredParamAsArgument: true,
           parameters: {
             taskId: {

@@ -243,7 +243,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           },
         },
       },
-      "tasks.spec": {
+      "tasks.spec.get": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
           taskId: {

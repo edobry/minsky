@@ -41,7 +41,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
       "tasks.spec.search_replace": {
         description: "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
       },
-      "tasks.spec": {
+      "tasks.spec.get": {
         description: "Get the specification for a task",
       },
       "tasks.status.get": {
