@@ -1,11 +1,11 @@
 /**
  * Global Test Setup
- * 
+ *
  * This file sets up global mocks and configuration for all tests.
  * It mocks the logger to prevent console output noise during test runs.
  */
 
-import { beforeEach, afterEach, mock } from "bun:test";
+import { mock } from "bun:test";
 import { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
 
 // Use Bun's mock system to replace the logger module
@@ -32,6 +32,17 @@ process.env.NODE_ENV = "test";
 process.env.MINSKY_LOG_LEVEL = "error";
 process.env.MINSKY_LOG_MODE = "STRUCTURED";
 
+// Print setup message before mocking console
+process.stdout.write("🔇 Global test setup: Logger and console mocked to prevent output during tests\n");
+
+// Mock the console methods globally to prevent any console output during tests
+const originalConsole = { ...console };
+console.log = mock(() => {});
+console.info = mock(() => {});
+console.warn = mock(() => {});
+console.error = mock(() => {});
+console.debug = mock(() => {});
+
 // Export mock logger utilities for tests that need to verify logging behavior
 export { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
 export {
@@ -39,5 +50,3 @@ export {
   getLoggedErrors,
   getLoggedWarnings,
 } from "../src/utils/test-utils/mock-logger";
-
-console.log("🔇 Global test setup: Logger mocked to prevent console output during tests");
