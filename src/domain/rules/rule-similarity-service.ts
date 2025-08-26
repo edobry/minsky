@@ -33,11 +33,11 @@ export class RuleSimilarityService {
    */
   async indexRule(ruleId: string): Promise<boolean> {
     const core = await createRuleSimilarityCore(this.workspacePath);
-    
+
     // Get the embeddings backend from the core
     const backends = (core as any).backends;
     const embeddingsBackend = backends?.find((b: any) => b.name === "embeddings");
-    
+
     if (!embeddingsBackend) {
       throw new Error("Embeddings backend not available for indexing");
     }
@@ -45,11 +45,11 @@ export class RuleSimilarityService {
     // Get the embeddings storage and service
     const storage = (embeddingsBackend as any).vectorStorage;
     const embeddingService = (embeddingsBackend as any).embeddingService;
-    
+
     if (!storage) {
       throw new Error("Vector storage not available from embeddings backend");
     }
-    
+
     if (!embeddingService) {
       throw new Error("Embedding service not available from embeddings backend");
     }
@@ -65,7 +65,7 @@ export class RuleSimilarityService {
     if (!resolvers || typeof resolvers.getContent !== "function") {
       throw new Error("Content resolver not available from lexical backend");
     }
-    
+
     const content = await resolvers.getContent(ruleId);
     if (!content) {
       throw new Error(`Rule not found: ${ruleId}`);

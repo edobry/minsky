@@ -358,7 +358,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           if (!(params.json || ctx?.format === "json")) {
             log.cli(`- ${rule.id}`);
           }
-          
+
           try {
             const changed = await service.indexRule(rule.id);
             if (changed) {
@@ -385,7 +385,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             ms: elapsed,
           };
         }
-        
+
         log.cli(
           `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`
         );

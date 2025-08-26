@@ -30,19 +30,23 @@ const TaskIdentifierSchema = z.object({
 /**
  * Schema for task edit operations
  */
-const TaskEditSchema = TaskIdentifierSchema.merge(z.object({
-  instructions: z.string().describe("Instructions describing the edit to make"),
-  content: z.string().describe("The edit content with '// ... existing code ...' markers"),
-  dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
-}));
+const TaskEditSchema = TaskIdentifierSchema.merge(
+  z.object({
+    instructions: z.string().describe("Instructions describing the edit to make"),
+    content: z.string().describe("The edit content with '// ... existing code ...' markers"),
+    dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
+  })
+);
 
 /**
  * Schema for task search and replace operations
  */
-const TaskSearchReplaceSchema = TaskIdentifierSchema.merge(z.object({
-  search: z.string().describe("Text to search for (must be unique in the task spec)"),
-  replace: z.string().describe("Text to replace with"),
-}));
+const TaskSearchReplaceSchema = TaskIdentifierSchema.merge(
+  z.object({
+    search: z.string().describe("Text to search for (must be unique in the task spec)"),
+    replace: z.string().describe("Text to replace with"),
+  })
+);
 
 // ========================
 // TYPE DEFINITIONS
@@ -59,7 +63,6 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
  * Registers task-aware editing tools with the MCP command mapper
  */
 export function registerTaskEditTools(commandMapper: CommandMapper): void {
-
   // Task edit file tool - works like session.edit_file but for task specs
   commandMapper.addCommand({
     name: "tasks.edit_file",
@@ -133,8 +136,8 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
         if (args.dryRun) {
           // Return preview information without making changes
           const stats = {
-            originalLines: originalContent.split('\n').length,
-            newLines: finalContent.split('\n').length,
+            originalLines: originalContent.split("\n").length,
+            newLines: finalContent.split("\n").length,
           };
 
           return {
@@ -169,7 +172,6 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           message: `Successfully updated task ${args.taskId} specification`,
           instructions: args.instructions,
         };
-
       } catch (error) {
         log.error("Task edit_file operation failed", { taskId: args.taskId, error });
         throw error;
@@ -180,7 +182,8 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
   // Task search replace tool - works like session.search_replace but for task specs
   commandMapper.addCommand({
     name: "tasks.search_replace",
-    description: "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
+    description:
+      "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
     parameters: TaskSearchReplaceSchema,
     handler: async (args: TaskSearchReplaceArgs): Promise<Record<string, any>> => {
       try {
@@ -240,7 +243,6 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           search: args.search,
           replace: args.replace,
         };
-
       } catch (error) {
         log.error("Task search_replace operation failed", { taskId: args.taskId, error });
         throw error;
