@@ -381,16 +381,7 @@ class ImportExtensionFixer {
   /**
    * Generate comprehensive execution report
    */
-  private generateReport(isQuietMode: boolean = false): void {
-    // Skip detailed report in quiet mode, only show errors
-    if (isQuietMode) {
-      if (this.metrics.errors.length > 0) {
-        console.log(`❌ Import extension fixer errors: ${this.metrics.errors.length}`);
-        this.metrics.errors.forEach((error) => console.log(`  - ${error}`));
-      }
-      return;
-    }
-
+  private generateReport(): void {
     console.log("\n📊 Import Extension Fixer Report");
     console.log("================================");
 

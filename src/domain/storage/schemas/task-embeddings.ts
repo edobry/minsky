@@ -1,6 +1,7 @@
 import { pgTable, text, integer, timestamp, index, pgEnum } from "drizzle-orm/pg-core";
 import { vector } from "drizzle-orm/pg-core";
 import { enumSchemas } from "../../configuration/schemas/base";
+import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
 
 // Enumerated task status matching markdown backend
 export const taskStatusEnum = pgEnum("task_status", [
@@ -46,20 +47,5 @@ export const taskSpecsTable = pgTable(
 );
 
 // Drizzle schema for tasks embeddings (vectors only)
-// Separate from `tasks` metadata for clear responsibility boundaries
-export const tasksEmbeddingsTable = pgTable(
-  "tasks_embeddings",
-  {
-    taskId: text("task_id").primaryKey(),
-    vector: vector("vector", { dimensions: 1536 }),
-    metadata: text("metadata"), // JSON metadata as text
-    contentHash: text("content_hash").notNull(),
-    indexedAt: timestamp("indexed_at", { withTimezone: true }),
-  },
-  (table) => [
-    index("idx_tasks_embeddings_hnsw").using(
-      "hnsw",
-      table.vector.asc().nullsLast().op("vector_l2_ops")
-    ),
-  ]
-);
+// Uses standardized embeddings schema factory for consistency with rules_embeddings
+export const tasksEmbeddingsTable = createEmbeddingsTable(EMBEDDINGS_CONFIGS.tasks);
