@@ -5,54 +5,45 @@
  * It mocks the logger to prevent console output noise during test runs.
  */
 
-import { beforeEach, afterEach } from "bun:test";
+import { mock } from "bun:test";
 import { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
 
-// Mock the logger module to use our in-memory mock instead of the real logger
+// Use Bun's mock system to replace the logger module
 // This prevents any console output during tests while preserving logging functionality
-const originalModule = await import("../src/utils/logger");
+mock.module("../src/utils/logger", () => ({
+  log: mockLogger,
+  createConfigurableLogger: () => mockLogger,
+  createLogger: () => mockLogger,
+  isStructuredMode: () => false,
+  isHumanMode: () => true,
+}));
 
-// Store original logger for potential restoration
-const originalLog = originalModule.log;
-const originalCreateLogger = originalModule.createConfigurableLogger;
+// Also mock the domain logger if it exists
+mock.module("../src/domain/utils/logger", () => ({
+  log: mockLogger,
+  createConfigurableLogger: () => mockLogger,
+  createLogger: () => mockLogger,
+  isStructuredMode: () => false,
+  isHumanMode: () => true,
+}));
 
-// Replace the logger exports with our mock
-Object.defineProperty(originalModule, "log", {
-  value: mockLogger,
-  writable: true,
-  configurable: true,
-});
+// Set up global test environment variables
+process.env.NODE_ENV = "test";
+process.env.MINSKY_LOG_LEVEL = "error";
+process.env.MINSKY_LOG_MODE = "STRUCTURED";
 
-Object.defineProperty(originalModule, "createConfigurableLogger", {
-  value: () => mockLogger,
-  writable: true,
-  configurable: true,
-});
+// Print setup message before mocking console
+process.stdout.write(
+  "🔇 Global test setup: Logger and console mocked to prevent output during tests\n"
+);
 
-// Also mock the createLogger export if it exists
-if ("createLogger" in originalModule) {
-  Object.defineProperty(originalModule, "createLogger", {
-    value: () => mockLogger,
-    writable: true,
-    configurable: true,
-  });
-}
-
-// Set up global test environment
-beforeEach(() => {
-  // Reset mock logger state before each test
-  resetMockLogger();
-
-  // Set test environment variables to ensure quiet logging
-  process.env.NODE_ENV = "test";
-  process.env.MINSKY_LOG_LEVEL = "silent";
-  process.env.MINSKY_LOG_MODE = "test";
-});
-
-afterEach(() => {
-  // Clean up after each test
-  resetMockLogger();
-});
+// Mock the console methods globally to prevent any console output during tests
+const originalConsole = { ...console };
+console.log = mock(() => {});
+console.info = mock(() => {});
+console.warn = mock(() => {});
+console.error = mock(() => {});
+console.debug = mock(() => {});
 
 // Export mock logger utilities for tests that need to verify logging behavior
 export { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
@@ -61,5 +52,3 @@ export {
   getLoggedErrors,
   getLoggedWarnings,
 } from "../src/utils/test-utils/mock-logger";
-
-console.log("🔇 Global test setup: Logger mocked to prevent console output during tests");
