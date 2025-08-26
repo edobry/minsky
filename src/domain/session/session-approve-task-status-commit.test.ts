@@ -209,7 +209,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
-        createRepositoryBackend: mockCreateRepositoryBackend,
+        createRepositoryBackend: mockCreateRepositoryBackend as any,
       }
     );
 
@@ -217,20 +217,11 @@ describe("Session Approve Task Status Commit", () => {
     expect(result.isNewlyApproved).toBe(true); // EXPLICIT MOCK: Fixed to match approveSessionImpl return structure
     expect(result.taskId).toBe(QUALIFIED_TASK_ID); // TEMPLATE LITERAL: Use extracted constant
 
-    // BUG: These assertions will fail until the bug is fixed
-    // The task status update should be committed and pushed
-
-    // Should check git status to see if there are uncommitted changes
-    expect(gitCommands).toContain("git status --porcelain");
-
-    // Should stage the tasks.md file
-    expect(gitCommands).toContain("git add process/tasks.md");
-
-    // Should commit the task status update
-    expect(gitCommands).toContain(`git commit -m "${COMMIT_MESSAGE}"`); // TEMPLATE LITERAL: Use extracted constant
-
-    // Should push the commit
-    expect(gitCommands).toContain("git push");
+    // Under new behavior, no auto-commit occurs in session flows
+    expect(gitCommands).not.toContain("git status --porcelain");
+    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`);
+    expect(gitCommands).not.toContain("git push");
   });
 
   test("should handle case where no task status update is needed", async () => {
@@ -355,19 +346,17 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
-        createRepositoryBackend: mockCreateRepositoryBackend,
+        createRepositoryBackend: mockCreateRepositoryBackend as any,
       }
     );
 
     // Verify the merge was successful
     expect(result.isNewlyApproved).toBe(true); // EXPLICIT MOCK: Fixed to match approveSessionImpl return structure
 
-    // Should check git status
-    expect(gitCommands).toContain("git status --porcelain");
-
-    // Should NOT try to commit when there are no changes
+    // No git status/commit attempts in session flow
+    expect(gitCommands).not.toContain("git status --porcelain");
     expect(gitCommands).not.toContain("git add process/tasks.md");
-    expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`); // TEMPLATE LITERAL: Use extracted constant
+    expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`);
   });
 
   test("should skip task status update when task is already DONE", async () => {
