@@ -47,7 +47,7 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
-    
+
     if (!params.title && !hasSpecOperation) {
       throw new ValidationError(
         "At least one edit operation must be specified:\n" +
@@ -65,7 +65,7 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Validate that only one spec operation is specified at a time
     const specOperations = [params.spec, params.specFile, params.specContent].filter(Boolean);
-    
+
     if (specOperations.length > 1) {
       throw new ValidationError(
         "Only one specification editing operation can be specified at a time:\n" +
