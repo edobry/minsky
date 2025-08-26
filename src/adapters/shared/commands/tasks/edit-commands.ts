@@ -27,13 +27,10 @@ interface TasksEditParams extends BaseTaskParams {
 
 /**
  * Task edit command implementation
-<<<<<<< HEAD
-=======
  *
  * Supports editing both task title and specification content with multiple input methods:
  * - Title: Direct string input via --title
  * - Spec: Interactive editor via --spec, file input via --spec-file, or direct content via --spec-content
->>>>>>> origin/main
  */
 export class TasksEditCommand extends BaseTaskCommand {
   readonly id = "tasks.edit";
@@ -49,20 +46,19 @@ export class TasksEditCommand extends BaseTaskCommand {
     const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Validate that at least one edit operation is specified
-<<<<<<< HEAD
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
     
     if (!params.title && !hasSpecOperation) {
       throw new ValidationError(
-        "At least one edit operation must be specified:\\n" +
-          "  --title <text>       Update task title\\n" +
-          "  --spec               Edit specification content interactively\\n" +
-          "  --spec-file <path>   Update specification from file\\n" +
-          "  --spec-content <text> Replace specification content\\n\\n" +
-          "For advanced editing with patterns, use: minsky tasks spec edit\\n\\n" +
-          "Examples:\\n" +
-          '  minsky tasks edit mt#123 --title "New Title"\\n' +
-          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\\n" +
+        "At least one edit operation must be specified:\n" +
+          "  --title <text>       Update task title\n" +
+          "  --spec               Edit specification content interactively\n" +
+          "  --spec-file <path>   Update specification from file\n" +
+          "  --spec-content <text> Replace specification content\n\n" +
+          "For advanced editing with patterns, use: minsky tasks spec edit\n\n" +
+          "Examples:\n" +
+          '  minsky tasks edit mt#123 --title "New Title"\n' +
+          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\n" +
           '  minsky tasks edit mt#123 --spec-content "New spec content"'
       );
     }
@@ -72,31 +68,10 @@ export class TasksEditCommand extends BaseTaskCommand {
     
     if (specOperations.length > 1) {
       throw new ValidationError(
-        "Only one specification editing operation can be specified at a time"
-=======
-    if (!params.title && !params.spec && !params.specFile && !params.specContent) {
-      throw new ValidationError(
-        "At least one edit operation must be specified:\n" +
-          "  --title <text>       Update task title\n" +
-          "  --spec               Edit specification content interactively\n" +
-          "  --spec-file <path>   Update specification from file\n" +
-          "  --spec-content <text> Update specification content directly\n\n" +
-          "Examples:\n" +
-          '  minsky tasks edit mt#123 --title "New Title"\n' +
-          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\n" +
-          '  minsky tasks edit mt#123 --title "New Title" --spec'
-      );
-    }
-
-    // Validate mutually exclusive spec options
-    const specOptions = [params.spec, params.specFile, params.specContent].filter(Boolean);
-    if (specOptions.length > 1) {
-      throw new ValidationError(
-        "Only one specification edit method can be used at a time:\n" +
+        "Only one specification editing operation can be specified at a time:\n" +
           "  --spec               Interactive editor\n" +
           "  --spec-file <path>   Read from file\n" +
           "  --spec-content <text> Direct content"
->>>>>>> origin/main
       );
     }
 
@@ -127,35 +102,6 @@ export class TasksEditCommand extends BaseTaskCommand {
     }
 
     // Handle spec content update
-<<<<<<< HEAD
-    if (params.specContent) {
-      // Complete replacement
-      updates.spec = params.specContent;
-      this.debug("Using direct spec content (replace)");
-    } else if (params.specFile) {
-      // Complete replacement from file
-      try {
-        updates.spec = await fs.readFile(params.specFile, "utf-8");
-        this.debug(`Read spec content from file: ${params.specFile}`);
-      } catch (error) {
-        throw new ValidationError(
-          `Failed to read spec file "${params.specFile}": ${error.message}`
-        );
-      }
-    }
-
-    // Apply the updates using the real persistence function
-    this.debug("Applying updates to task");
-    
-    try {
-      const updatedTask = await updateTaskFromParams({
-        taskId: validatedTaskId,
-        title: updates.title,
-        spec: updates.spec,
-        ...this.createTaskParams(params),
-      });
-
-=======
     if (params.spec || params.specFile || params.specContent) {
       let newSpecContent: string;
 
@@ -234,23 +180,18 @@ export class TasksEditCommand extends BaseTaskCommand {
         this.debug("Updated task title only");
       }
 
->>>>>>> origin/main
       const message = this.buildUpdateMessage(updates, validatedTaskId);
       this.debug("Task edit completed successfully");
 
       return this.formatResult(
         this.createSuccessResult(validatedTaskId, message, {
           updates,
-<<<<<<< HEAD
-          task: updatedTask,
-=======
           task: {
             id: validatedTaskId,
             title: updates.title || currentTask.title,
             status: currentTask.status,
             backend: currentTask.backend,
           },
->>>>>>> origin/main
         }),
         params.json
       );
@@ -260,10 +201,6 @@ export class TasksEditCommand extends BaseTaskCommand {
     }
   }
 
-<<<<<<< HEAD
-
-
-=======
   /**
    * Open an interactive editor for spec content
    */
@@ -332,7 +269,6 @@ export class TasksEditCommand extends BaseTaskCommand {
   /**
    * Build a descriptive update message
    */
->>>>>>> origin/main
   private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {
     const parts: string[] = [];
 
