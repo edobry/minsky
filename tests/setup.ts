@@ -63,4 +63,3 @@ export {
 } from "../src/utils/test-utils/mock-logger";
 
 console.log("🔇 Global test setup: Logger mocked to prevent console output during tests");
-

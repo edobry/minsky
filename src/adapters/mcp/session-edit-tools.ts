@@ -442,7 +442,7 @@ Instructions:
 /**
  * Count occurrences of a string in content
  */
-function countOccurrences(content: string, search: string): number {
+export function countOccurrences(content: string, search: string): number {
   let count = 0;
   let position = 0;
 

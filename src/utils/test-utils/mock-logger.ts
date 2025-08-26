@@ -163,4 +163,3 @@ export function getLoggedErrors(): string[] {
 export function getLoggedWarnings(): string[] {
   return mockLogger._mock.getLogsByLevel("warn").map((log) => log.message);
 }
-
