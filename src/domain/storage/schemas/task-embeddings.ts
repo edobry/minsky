@@ -46,6 +46,13 @@ export const taskSpecsTable = pgTable(
   () => []
 );
 
-// Drizzle schema for tasks embeddings (vectors only)
+// Drizzle schema for tasks embeddings (vectors + denormalized filter columns)
 // Uses standardized embeddings schema factory for consistency with rules_embeddings
-export const tasksEmbeddingsTable = createEmbeddingsTable(EMBEDDINGS_CONFIGS.tasks);
+// Includes denormalized status and backend columns for server-side filtering
+export const tasksEmbeddingsTable = createEmbeddingsTable({
+  ...EMBEDDINGS_CONFIGS.tasks,
+  domainColumns: {
+    status: taskStatusEnum("status"),
+    backend: taskBackendEnum("backend"),
+  },
+});
