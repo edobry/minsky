@@ -89,6 +89,32 @@ export const taskDeletionParams = {
 };
 
 /**
+ * Task editing parameters
+ */
+export const taskEditParams = {
+  title: {
+    schema: z.string(),
+    description: "New title for the task",
+    required: false,
+  },
+  spec: {
+    schema: z.boolean().default(false),
+    description: "Edit task specification content (opens editor or reads from stdin)",
+    required: false,
+  },
+  specFile: {
+    schema: z.string(),
+    description: "Path to file containing new task specification content",
+    required: false,
+  },
+  specContent: {
+    schema: z.string(),
+    description: "New specification content (completely replaces existing)",
+    required: false,
+  },
+};
+
+/**
  * Index embeddings parameters
  */
 export const tasksIndexEmbeddingsParams: CommandParameterMap = {
@@ -236,32 +262,6 @@ export const tasksDeleteParams: CommandParameterMap = {
   ...taskDeletionParams,
   ...taskContextParams,
   ...outputFormatParams,
-};
-
-/**
- * Task editing parameters
- */
-export const taskEditParams = {
-  title: {
-    schema: z.string(),
-    description: "New title for the task",
-    required: false,
-  },
-  spec: {
-    schema: z.boolean().default(false),
-    description: "Edit task specification content (opens editor or reads from stdin)",
-    required: false,
-  },
-  specFile: {
-    schema: z.string(),
-    description: "Path to file containing new task specification content",
-    required: false,
-  },
-  specContent: {
-    schema: z.string(),
-    description: "New specification content (for programmatic updates)",
-    required: false,
-  },
 };
 
 /**

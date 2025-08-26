@@ -108,6 +108,16 @@ if ! bun run format; then
 fi
 echo "✅ Code formatting completed."
 
+# Check for console usage violations (prevents test noise pollution)
+echo "🔇 Checking for console usage violations..."
+if ! bun run lint:console:strict; then
+  echo "❌ Console usage violations found! These cause test output pollution."
+  echo "💡 Replace console.* calls with logger.* or mock logger utilities"
+  echo "📖 See docs/testing/global-test-setup.md for guidance"
+  exit 1
+fi
+echo "✅ No console usage violations found."
+
 # Run linting (suppress warnings to reduce noise, only show errors)
 echo "🔍 Running ESLint..."
 if ! npm run lint -- --quiet; then

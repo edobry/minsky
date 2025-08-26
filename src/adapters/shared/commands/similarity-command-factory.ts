@@ -3,16 +3,16 @@
  *
  * Provides a reusable pattern for creating similarity search commands
  * with customizable result formatting and enhancement.
- * 
+ *
  * @example
  * ```typescript
  * // In your domain-specific module (e.g., rules-search-command.ts):
  * import { createSimilaritySearchCommand } from "../similarity-command-factory";
  * import { ruleStyleFormatter } from "./rules-search-formatter";
- * 
+ *
  * export const rulesSearchCommand = createSimilaritySearchCommand({
  *   commandId: "rules.search",
- *   name: "search", 
+ *   name: "search",
  *   description: "Search for rules...",
  *   entityName: "rules",
  *   createService: () => createRuleSimilarityService(),
@@ -74,7 +74,7 @@ export interface SimilarityCommandConfig<TService, TResult extends SimilaritySea
   /** Optional result enhancement function */
   enhanceResults?: (results: TResult[], workspacePath: string) => Promise<EnhancedSearchResult[]>;
 
-  /** 
+  /**
    * Custom result formatter for CLI output
    * If not provided, uses defaultSimilarityFormatter
    * Each consuming module should provide its own formatter

@@ -3,7 +3,10 @@
  * (This is just a demonstration - not replacing the current implementation)
  */
 
-import { createSimilaritySearchCommand, type EnhancedSearchResult } from "./similarity-command-factory";
+import {
+  createSimilaritySearchCommand,
+  type EnhancedSearchResult,
+} from "./similarity-command-factory";
 import { ruleStyleFormatter } from "./rules-search-formatter";
 import type { Rule } from "../../../domain/rules/types";
 
@@ -22,14 +25,14 @@ async function enhanceRulesResults(
   workspacePath: string
 ): Promise<RuleSearchResult[]> {
   const enhanced: RuleSearchResult[] = [];
-  
+
   for (const result of results) {
     try {
       // Get full rule details
       const { ModularRulesService } = await import("../../../domain/rules/rules-service-modular");
       const rulesService = new ModularRulesService(workspacePath);
       const rule = await rulesService.getRule(result.id);
-      
+
       enhanced.push({
         id: result.id,
         score: result.score,
@@ -48,7 +51,7 @@ async function enhanceRulesResults(
       });
     }
   }
-  
+
   return enhanced;
 }
 
@@ -60,16 +63,18 @@ export const rulesSearchCommand = createSimilaritySearchCommand({
   name: "search",
   description: "Search for rules similar to a natural language query",
   entityName: "rules",
-  
+
   createService: async () => {
-    const { createRuleSimilarityService } = await import("../../../domain/rules/rule-similarity-service");
+    const { createRuleSimilarityService } = await import(
+      "../../../domain/rules/rule-similarity-service"
+    );
     return await createRuleSimilarityService();
   },
-  
+
   searchMethod: async (service, query, limit, threshold) => {
     return await service.searchByText(query, limit, threshold);
   },
-  
+
   enhanceResults: enhanceRulesResults,
   formatResult: ruleStyleFormatter, // Rules-specific formatter provided by consuming module
 });

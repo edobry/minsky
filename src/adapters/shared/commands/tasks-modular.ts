@@ -129,7 +129,7 @@ export class ModularTasksCommandManager {
 
       // Register spec command
       sharedCommandRegistry.registerCommand({
-        id: "tasks.spec",
+        id: "tasks.spec.get",
         category: CommandCategory.TASKS,
         name: "spec",
         description: "Get task specification content",

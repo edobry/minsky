@@ -137,6 +137,30 @@ export async function setTaskStatusFromParams(params: any) {
   return { success: true, taskId: validParams.taskId, status: validParams.status };
 }
 
+export async function updateTaskFromParams(params: any) {
+  const workspacePath = process.cwd();
+  log.debug("tasks.update params", { backend: params.backend });
+  const taskService = await createConfiguredTaskService({
+    workspacePath,
+    backend: params.backend,
+  });
+  log.debug("tasks.update created TaskService", {
+    backend: taskService.listBackends().find((b) => b.prefix === params.backend)?.name || "default",
+  });
+
+  // Prepare updates object
+  const updates: any = {};
+  if (params.title !== undefined) {
+    updates.title = params.title;
+  }
+  if (params.spec !== undefined) {
+    updates.spec = params.spec;
+  }
+
+  const updatedTask = await taskService.updateTask(params.taskId, updates);
+  return updatedTask;
+}
+
 export async function createTaskFromParams(params: any) {
   const validParams = taskCreateParamsSchema.parse(params);
   const workspacePath = process.cwd();

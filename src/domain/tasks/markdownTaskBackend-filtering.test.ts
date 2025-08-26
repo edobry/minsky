@@ -1,29 +1,26 @@
-import { describe, it, expect, beforeEach, afterEach } from "bun:test";
+import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { TASK_STATUS } from "./taskConstants";
-// Use mock.module() to mock filesystem operations
-import { promises as fs } from "fs";
 import { join } from "path";
-import { tmpdir } from "os";
+import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
+
+// Mock filesystem operations to prevent module loading issues in test environment
 
 describe("MarkdownTaskBackend filtering regression test", () => {
   let backend: any;
-  let testDir: string;
-  let tasksFile: string;
+  let mockFs: ReturnType<typeof createMockFilesystem>;
+  let tasksFileContent: string;
+
+  // Static mock paths to prevent environment dependencies
+  const mockTestDir = "/mock/test-workspace";
+  const tasksFile = join(mockTestDir, "process", "tasks.md");
 
   beforeEach(async () => {
-    // Create temporary directory for test
-    testDir = join(
-      tmpdir(),
-      `minsky-test-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`
-    );
-    await fs.mkdir(testDir, { recursive: true });
-    await fs.mkdir(join(testDir, "process"), { recursive: true });
-
-    tasksFile = join(testDir, "process", "tasks.md");
+    // Create isolated mock filesystem for each test
+    mockFs = createMockFilesystem();
 
     // Create test tasks file with mixed statuses
-    const tasksContent = `- [x] Task 1 DONE [md#001](process/tasks/md#001-task-1.md)
+    tasksFileContent = `- [x] Task 1 DONE [md#001](process/tasks/md#001-task-1.md)
 - [ ] Task 2 TODO [md#002](process/tasks/md#002-task-2.md)
 - [+] Task 3 IN-PROGRESS [md#003](process/tasks/md#003-task-3.md)
 - [x] Task 4 DONE [md#004](process/tasks/md#004-task-4.md)
@@ -31,21 +28,36 @@ describe("MarkdownTaskBackend filtering regression test", () => {
 - [~] Task 6 BLOCKED [md#006](process/tasks/md#006-task-6.md)
 `;
 
-    await fs.writeFile(tasksFile, tasksContent);
+    // Mock filesystem operations with state
+    mock.module("fs", () => ({
+      promises: {
+        mkdir: mock(async () => {}),
+        rm: mock(async () => {}),
+        readFile: mock(async (path: string) => {
+          if (path.includes("tasks.md")) {
+            return tasksFileContent;
+          }
+          return "";
+        }),
+        writeFile: mock(async (path: string, content: string) => {
+          if (path.includes("tasks.md")) {
+            tasksFileContent = content;
+          }
+        }),
+        readdir: mock(async () => []),
+      },
+      existsSync: mock((path: string) => path.includes("tasks.md")),
+    }));
 
     backend = createMarkdownTaskBackend({
       name: "markdown",
-      workspacePath: testDir,
+      workspacePath: mockTestDir,
     });
   });
 
   afterEach(async () => {
-    // Clean up
-    try {
-      await fs.rm(testDir, { recursive: true, force: true });
-    } catch (error) {
-      // Ignore cleanup errors
-    }
+    // Clean up mock filesystem
+    mockFs?.cleanup();
   });
 
   it("should filter out DONE and CLOSED tasks by default (FIXED)", async () => {
