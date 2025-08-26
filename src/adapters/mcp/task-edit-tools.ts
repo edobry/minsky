@@ -9,26 +9,8 @@ import { z } from "zod";
 import { CommandMapper } from "./command-mapper";
 import { getTaskSpecContentFromParams, updateTaskFromParams } from "../../domain/tasks";
 import { log } from "../../utils/logger";
-import { applyEditPattern } from "./session-edit-tools";
-
-// ========================
-// UTILITY FUNCTIONS
-// ========================
-
-/**
- * Count occurrences of a string in content
- */
-function countOccurrences(content: string, search: string): number {
-  let count = 0;
-  let position = 0;
-
-  while ((position = content.toString().indexOf(search, position)) !== -1) {
-    count++;
-    position += search.length;
-  }
-
-  return count;
-}
+import { applyEditPattern } from "./edit-pattern-provider";
+import { countOccurrences } from "./session-edit-tools";
 
 // ========================
 // SCHEMAS
@@ -40,7 +22,7 @@ function countOccurrences(content: string, search: string): number {
 const TaskIdentifierSchema = z.object({
   taskId: z.string().describe("Task identifier (e.g., mt#123, md#456)"),
   repo: z.string().optional().describe("Repository path"),
-  workspace: z.string().optional().describe("Workspace path"), 
+  workspace: z.string().optional().describe("Workspace path"),
   session: z.string().optional().describe("Session identifier"),
   backend: z.string().optional().describe("Backend type"),
 });
@@ -48,19 +30,23 @@ const TaskIdentifierSchema = z.object({
 /**
  * Schema for task edit operations
  */
-const TaskEditSchema = TaskIdentifierSchema.merge(z.object({
-  instructions: z.string().describe("Instructions describing the edit to make"),
-  content: z.string().describe("The edit content with '// ... existing code ...' markers"),
-  dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
-}));
+const TaskEditSchema = TaskIdentifierSchema.merge(
+  z.object({
+    instructions: z.string().describe("Instructions describing the edit to make"),
+    content: z.string().describe("The edit content with '// ... existing code ...' markers"),
+    dryRun: z.boolean().optional().default(false).describe("Preview changes without applying"),
+  })
+);
 
 /**
  * Schema for task search and replace operations
  */
-const TaskSearchReplaceSchema = TaskIdentifierSchema.merge(z.object({
-  search: z.string().describe("Text to search for (must be unique in the task spec)"),
-  replace: z.string().describe("Text to replace with"),
-}));
+const TaskSearchReplaceSchema = TaskIdentifierSchema.merge(
+  z.object({
+    search: z.string().describe("Text to search for (must be unique in the task spec)"),
+    replace: z.string().describe("Text to replace with"),
+  })
+);
 
 // ========================
 // TYPE DEFINITIONS
@@ -77,10 +63,16 @@ type TaskSearchReplaceArgs = z.infer<typeof TaskSearchReplaceSchema>;
  * Registers task-aware editing tools with the MCP command mapper
  */
 export function registerTaskEditTools(commandMapper: CommandMapper): void {
+<<<<<<< HEAD
 
   // Task spec edit tool - works like session.edit_file but for task specs
   commandMapper.addCommand({
     name: "tasks.spec.edit",
+=======
+  // Task edit file tool - works like session.edit_file but for task specs
+  commandMapper.addCommand({
+    name: "tasks.edit_file",
+>>>>>>> origin/main
     description: `Edit a task specification using familiar file editing patterns. Works exactly like session.edit_file but operates on task specs in-memory with backend delegation.
 
 Use this tool to make edits to a task specification. You should make it clear what the edit is, while also minimizing the unchanged content you write.
@@ -94,7 +86,11 @@ For example:
 Added content here
 // ... existing code ...
 ## Updated Section
+<<<<<<< HEAD
 Modified content here  
+=======
+Modified content here
+>>>>>>> origin/main
 // ... existing code ...
 
 You should still bias towards repeating as few lines of the original spec as possible to convey the change. But, each edit should contain sufficient context of unchanged lines around the content you're editing to resolve ambiguity.
@@ -121,7 +117,11 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
             session: args.session,
             backend: args.backend,
           });
+<<<<<<< HEAD
           
+=======
+
+>>>>>>> origin/main
           if (specResult?.content) {
             originalContent = specResult.content;
             specExists = true;
@@ -151,8 +151,13 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
         if (args.dryRun) {
           // Return preview information without making changes
           const stats = {
+<<<<<<< HEAD
             originalLines: originalContent.split('\n').length,
             newLines: finalContent.split('\n').length,
+=======
+            originalLines: originalContent.split("\n").length,
+            newLines: finalContent.split("\n").length,
+>>>>>>> origin/main
           };
 
           return {
@@ -187,7 +192,10 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           message: `Successfully updated task ${args.taskId} specification`,
           instructions: args.instructions,
         };
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/main
       } catch (error) {
         log.error("Task edit_file operation failed", { taskId: args.taskId, error });
         throw error;
@@ -195,10 +203,18 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
     },
   });
 
+<<<<<<< HEAD
   // Task spec search replace tool - works like session.search_replace but for task specs
   commandMapper.addCommand({
     name: "tasks.spec.search_replace",
     description: "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
+=======
+  // Task search replace tool - works like session.search_replace but for task specs
+  commandMapper.addCommand({
+    name: "tasks.search_replace",
+    description:
+      "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
+>>>>>>> origin/main
     parameters: TaskSearchReplaceSchema,
     handler: async (args: TaskSearchReplaceArgs): Promise<Record<string, any>> => {
       try {
@@ -245,7 +261,11 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           backend: args.backend,
         });
 
+<<<<<<< HEAD
         log.debug("Task search_replace operation completed", { 
+=======
+        log.debug("Task search_replace operation completed", {
+>>>>>>> origin/main
           taskId: args.taskId,
           searchLength: args.search.length,
           replaceLength: args.replace.length,
@@ -258,7 +278,10 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
           search: args.search,
           replace: args.replace,
         };
+<<<<<<< HEAD
 
+=======
+>>>>>>> origin/main
       } catch (error) {
         log.error("Task search_replace operation failed", { taskId: args.taskId, error });
         throw error;

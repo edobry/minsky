@@ -28,6 +28,11 @@ All notable changes to this project will be documented in this file.
 - Fixed SASL_SIGNATURE_MISMATCH database authentication error when using `minsky tasks list` command. The minsky task backend now properly uses the configured PostgreSQL connection string from `sessiondb.postgres.connectionString` instead of a hardcoded connection string with outdated credentials.
 
 - **CRITICAL Security**: Enhanced secret scanning to detect database credentials - gitleaks now catches PostgreSQL, MySQL, MongoDB, Redis connection strings with credentials (closes major security gap that allowed Supabase credentials to slip through)
+- Silenced Import Extension Fixer verbose output when `AGENT=1` environment variable is set
+  - Eliminates 30+ repetitive "Import Extension Fixer Report" messages during test runs
+  - Only shows errors in quiet mode for actionable feedback
+  - Dramatically reduces test output noise in pre-commit hooks and CI environments
+  - Maintains full functionality while respecting quiet mode preferences
 - **Security**: Remove hardcoded PostgreSQL URL fallback in storage configuration - now properly throws error when MINSKY_POSTGRES_URL not set, preventing accidental connections to unintended databases
 - Fix bug in rules search where `rule.spec.toLowerCase()` should be `rule.description.toLowerCase()` causing search failures with undefined property access
 - Add CLI customization for `rules search` to accept query as positional argument, making it consistent with `tasks search` UX
@@ -388,6 +393,10 @@ All notable changes to this project will be documented in this file.
 - **GitHub Issues Backend Integration**: Complete integration with repository backend architecture system [Task #357]
 - **MCP Tools Command Simplified Output**: Modified `minsky mcp tools` command to output just tool names by default (one per line) for cleaner CLI usage. Added `--json` option to output full JSON response with descriptions and schemas for programmatic access. Maintains backward compatibility while providing more user-friendly default output.
 - **Tasks Status No-Op Messaging (md#410)**: `minsky tasks status set` now reports a clear no-op when the new status equals the current status, e.g., `status is already DONE (no change)`, instead of misleading "changed from DONE to DONE".
+
+### Changed
+
+- tasks search: Immediate progress message to stderr when starting search; add `--quiet` to suppress. Keeps `--json` output clean on stdout. Improves perceived responsiveness for longer searches.
 
 ### Cleanup
 

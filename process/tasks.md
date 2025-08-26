@@ -726,16 +726,20 @@
 
 - [ ] Create Test Architecture Documentation [md#459](#)
 
-- [ ] Implement test coverage enforcement in pre-commit hooks [md#460](#)
+- [ ] Implement test coverage enforcement in pre-commit hooks [md#460](process/tasks/md#460-implement-test-coverage-enforcement-in-pre-commit-hooks.md)
 
-- [ ] Remove hardcoded 'markdown' backend defaults [md#461](#)
+- [ ] Remove hardcoded 'markdown' backend defaults [md#461](process/tasks/md#461-remove-hardcoded-markdown-backend-defaults.md)
 
-- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](#)
+- [ ] Investigate "seek human input" / "ask expert" tool and Agent Inbox pattern; design DB-backed queue and turn-taking semantics (research-only) [md#454](process/tasks/md#454-investigate-seek-human-input-ask-expert-tool-and-agent-inbox-pattern-design-db-backed-queue-and-turn-taking-semantics-research-only-.md)
 
-- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](#)
+- [ ] Formalize task types (speculative/investigative/experimental) and explore CLI/PR integration (research-only) [md#455](process/tasks/md#455-formalize-task-types-speculative-investigative-experimental-and-explore-cli-pr-integration-research-only-.md)
 
-- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](#)
+- [ ] Investigate rearchitecting Minsky around InversifyJS for proper dependency injection [md#462](process/tasks/md#462-investigate-rearchitecting-minsky-around-inversifyjs-for-proper-dependency-injection.md)
 
-- [ ] Test Task Creation After Bug Fix [md#464](#)
+- [ ] Test Task Creation After Bug Fix [md#464](process/tasks/md#464-test-task-creation-after-bug-fix.md)
 
-- [ ] Task Edit Commands - ACTUALLY WORKING NOW [md#466](#)
+- [ ] Implement Task Editing Commands for CLI and MCP [md#466](process/tasks/md#466-implement-task-editing-commands-for-cli-and-mcp.md)
+
+- [x] Mock out logger in all tests to use in-memory logger instead of CLI output to eliminate test noise [md#467](process/tasks/md#467-mock-out-logger-in-all-tests-to-use-in-memory-logger-instead-of-cli-output-to-eliminate-test-noise.md)
+
+- [ ] Comprehensive test infrastructure improvements: integration test cleanup, quality monitoring, documentation, noise prevention, and debugging safety nets [md#468](process/tasks/md#468-comprehensive-test-infrastructure-improvements-integration-test-cleanup-quality-monitoring-documentation-noise-prevention-and-debugging-safety-nets.md)

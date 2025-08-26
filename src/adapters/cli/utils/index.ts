@@ -67,7 +67,6 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
     }
   } catch (e) {
     try {
-      // eslint-disable-next-line no-console
       console.log(options.json ? JSON.stringify(result, null, 2) : String(result));
     } catch {
       // ignore fallback errors

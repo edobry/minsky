@@ -275,6 +275,9 @@ type RulesSearchParams = {
   query?: string;
   tag?: string;
   format?: "cursor" | "generic";
+  limit?: number;
+  threshold?: number;
+  details?: boolean;
   json?: boolean;
   debug?: boolean;
 };
@@ -284,6 +287,21 @@ const rulesSearchCommandParams: CommandParameterMap = composeParams(
     query: RulesParameters.query,
     format: RulesParameters.format,
     tag: RulesParameters.tag,
+    limit: {
+      schema: z.number().int().positive().default(10),
+      help: "Max number of results",
+      required: false,
+    },
+    threshold: {
+      schema: z.number().optional(),
+      help: "Optional distance threshold (lower is closer)",
+      required: false,
+    },
+    details: {
+      schema: z.boolean().default(false),
+      help: "Show detailed output including scores and diagnostics",
+      required: false,
+    },
   },
   {
     json: CommonParameters.json,
@@ -305,90 +323,57 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     parameters: rulesIndexEmbeddingsParams,
     execute: async (params: RulesIndexEmbeddingsParams, ctx?: CommandExecutionContext) => {
       try {
-        const cfg = await getConfiguration();
-        const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
-        const dimension = getEmbeddingDimension(model, 1536);
+        // Use the proper service abstraction (same pattern as tasks)
+        const { createRuleSimilarityService } = await import(
+          "../../../domain/rules/rule-similarity-service"
+        );
+        const service = await createRuleSimilarityService();
 
-        // Initialize embedding service and storage (schema managed by Drizzle migrations)
-        const embeddingService = await createEmbeddingServiceFromConfig();
-        const storage = await PostgresVectorStorage.fromSessionDbConfig(dimension, {
-          tableName: "rules_embeddings",
-          idColumn: "rule_id",
-          embeddingColumn: "embedding",
-          dimensionColumn: "dimension",
-          lastIndexedAtColumn: "last_indexed_at",
-          metadataColumn: "metadata",
-          contentHashColumn: "content_hash",
-        });
-
-        // Resolve workspace and list rules
+        // Get list of rules to index
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
         const rules = await ruleService.listRules({});
 
-        const limit = params.limit && params.limit > 0 ? params.limit : undefined;
-        const slice = typeof limit === "number" ? rules.slice(0, limit) : rules;
+        // Apply limit for debugging
+        const slice = params.limit ? rules.slice(0, params.limit) : rules;
 
-        if (!params.json && ctx?.format !== "json") {
+        if (slice.length === 0) {
+          if (params.json || ctx?.format === "json") {
+            return { success: true, indexed: 0, skipped: 0, total: 0 };
+          }
+          log.cli("No rules found to index.");
+          return { success: true };
+        }
+
+        let indexed = 0;
+        let skipped = 0;
+        const start = Date.now();
+
+        if (!(params.json || ctx?.format === "json")) {
           log.cli(`Indexing embeddings for ${slice.length} rule(s)...`);
         }
 
-        const start = Date.now();
-        let indexed = 0;
-        let skipped = 0;
+        // Index each rule using the service
         for (const rule of slice) {
           if (!(params.json || ctx?.format === "json")) {
             log.cli(`- ${rule.id}`);
           }
-          try {
-            // Prefer full rule content; fallback to file; then to metadata
-            let content = "";
-            const rawFromRule = (rule as any).content;
-            if (typeof rawFromRule === "string" && rawFromRule.trim().length > 0) {
-              content = rawFromRule;
-            } else if (typeof (rule as any).path === "string") {
-              try {
-                const fileText = await fs.readFile(String((rule as any).path), "utf-8");
-                if (fileText && fileText.trim().length > 0) content = fileText;
-              } catch {
-                // ignore file read errors
-              }
-            }
-            if (!content) {
-              const textParts: string[] = [];
-              if (rule.name) textParts.push(String(rule.name));
-              if (rule.description) textParts.push(String(rule.description));
-              if ((rule as any).tags && Array.isArray((rule as any).tags)) {
-                textParts.push((rule as any).tags.join(" "));
-              }
-              // As a last resort include rule id
-              if (textParts.length === 0) textParts.push(String(rule.id));
-              content = textParts.join("\n\n");
-            }
-            // Limit content length to reasonable window
-            const contentLimited = content.slice(0, 4000).trim();
-            if (!contentLimited) {
-              skipped += 1;
-              continue;
-            }
 
-            const metadata: any = { name: rule.name, description: rule.description };
-            let contentHash: string | undefined;
-            try {
-              const { createHash } = await import("crypto");
-              contentHash = createHash("sha256").update(contentLimited).digest("hex");
-            } catch {
-              // Ignore hash generation errors - continue without content hash
+          try {
+            const changed = await service.indexRule(rule.id);
+            if (changed) {
+              indexed++;
+            } else {
+              skipped++;
             }
-            const vector = await embeddingService.generateEmbedding(contentLimited);
-            // Store metadata JSON and content hash in dedicated column for staleness detection
-            await storage.store(rule.id, vector, { ...metadata, contentHash });
-            indexed += 1;
-          } catch (e) {
-            // Skip problematic rule and continue; surface count in JSON
-            skipped += 1;
+          } catch (error) {
+            skipped++;
+            if (params.debug) {
+              log.cliError(`Error indexing rule ${rule.id}: ${getErrorMessage(error as any)}`);
+            }
           }
         }
+
         const elapsed = Date.now() - start;
 
         if (params.json || ctx?.format === "json") {
@@ -398,10 +383,9 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
             skipped,
             total: slice.length,
             ms: elapsed,
-            dimension,
-            model,
           };
         }
+
         log.cli(
           `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`
         );
@@ -704,27 +688,64 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     name: "search",
     description: "Search for rules by content or metadata",
     parameters: rulesSearchCommandParams,
-    execute: async (params: any) => {
+    execute: async (params: any, ctx?: CommandExecutionContext) => {
       log.debug("Executing rules.search command", { params });
 
       try {
         // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
 
-        // Convert parameters
-        const format = params.format as RuleFormat | undefined;
+        // Use similarity service (consistent with tasks.search)
+        const { createRuleSimilarityService } = await import(
+          "../../../domain/rules/rule-similarity-service"
+        );
+        const service = await createRuleSimilarityService();
 
-        // Call domain function
-        const rules = await ruleService.searchRules({
-          format,
-          tag: params.tag,
-          query: params.query,
-        });
+        const query = params.query;
+        const limit = params.limit ?? 10;
+        const threshold = params.threshold;
+
+        // Emit progress message like tasks.search does
+        const quiet = Boolean(params.quiet);
+        const json = Boolean(params.json) || ctx?.format === "json";
+        if (!quiet && !json && query) {
+          log.cliWarn(`Searching for rules matching: "${query}" ...`);
+        }
+
+        // Perform similarity search (consistent with tasks.search)
+        const results = await service.searchByText(query, limit, threshold);
+
+        // Optional human-friendly diagnostics (consistent with tasks.search)
+        if (params.details) {
+          try {
+            const cfg = await (await import("../../../domain/configuration")).getConfiguration();
+            const provider =
+              (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
+            const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
+            const effThreshold = threshold ?? "(default)";
+            log.cliWarn(`Search provider: ${provider}`);
+            log.cliWarn(`Model: ${model}`);
+            log.cliWarn(`Limit: ${limit}`);
+            log.cliWarn(`Threshold: ${String(effThreshold)}`);
+          } catch {
+            // ignore diagnostics failures
+          }
+        }
+
+        // Convert results format to match tasks.search
+        const enhancedResults = results.map((result: any) => ({
+          id: result.id,
+          score: result.score,
+          name: result.id,
+          description: result.description || "",
+          format: result.format || "",
+        }));
 
         return {
           success: true,
-          rules,
+          count: enhancedResults.length,
+          results: enhancedResults, // Use same format as tasks.search
+          details: params.details,
         };
       } catch (error) {
         log.error("Failed to search rules", {

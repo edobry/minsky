@@ -183,8 +183,40 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
         break;
 
       case "rules.search":
-        if ("rules" in result) {
-          this.formatRulesListResult(result.rules);
+        // Now uses same format as tasks.search (results array)
+        if (result && typeof result === "object" && Array.isArray((result as any).results)) {
+          const results = (result as any).results as Array<{
+            id: string;
+            score?: number;
+            name?: string;
+            description?: string;
+            format?: string;
+          }>;
+          if (results.length === 0) {
+            log.cli("No rules found.");
+          } else {
+            // Visual separator after any header emitted by the command implementation
+            log.cli("");
+            results.forEach((rule, index) => {
+              const name = rule.name || rule.id;
+              const fmt = rule.format ? ` [${rule.format}]` : "";
+              const desc = rule.description ? ` - ${rule.description}` : "";
+              // Show score in --details mode if available
+              const scorePart =
+                rule.score !== undefined && this.shouldShowDetails(result)
+                  ? `\nScore: ${rule.score.toFixed(3)}`
+                  : "";
+              log.cli(`${index + 1}. ${name}${fmt}${desc}${scorePart}`);
+            });
+            // Footer separator before count
+            log.cli("");
+            if (typeof (result as any).count === "number") {
+              const count = (result as any).count as number;
+              log.cli(`${count} result${count === 1 ? "" : "s"} found`);
+            } else {
+              log.cli(`${results.length} result${results.length === 1 ? "" : "s"} found`);
+            }
+          }
         } else {
           this.formatGenericObject(result);
         }
@@ -198,49 +230,25 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
             score?: number;
             title?: string;
             status?: string;
-            specPath?: string;
-            spec?: string;
           }>;
           if (results.length === 0) {
-            log.cli("No matching tasks found.");
+            log.cli("No results found.");
           } else {
+            // Visual separator after any header emitted by the command implementation
+            log.cli("");
             results.forEach((r, index) => {
-              // Enhanced format: Show title and status by default
-              if (r.title && r.status) {
-                // Main line: #. Title [ID] [Status]
-                log.cli(`${index + 1}. ${r.title} [${r.id}] [${r.status}]`);
-
-                // Spec path if available
-                if (r.specPath) {
-                  log.cli(`Spec: ${r.specPath}`);
-                }
-
-                // Score
-                if (typeof r.score === "number" && isFinite(r.score)) {
-                  log.cli(`Score: ${r.score.toFixed(3)}`);
-                }
-
-                // Description if included (--details flag)
-                if (r.description && r.description.trim()) {
-                  const truncatedDesc =
-                    r.description.trim().length > 100
-                      ? `${r.description.trim().substring(0, 100)}...`
-                      : r.description.trim();
-                  log.cli(`Description: ${truncatedDesc}`);
-                }
-
-                // Add spacing between results
-                log.cli("");
-              } else {
-                // Fallback to old format for missing data
-                const scoreText =
-                  typeof r.score === "number" && isFinite(r.score)
-                    ? ` (score: ${r.score.toFixed(3)})`
-                    : "";
-                log.cli(`${index + 1}. ${r.id}${scoreText}`);
-              }
+              const title = r.title ? r.title : r.id;
+              const idPart = r.title ? ` [${r.id}]` : "";
+              const statusPart = r.status ? ` [${r.status}]` : "";
+              // Show score in --details mode if available
+              const scorePart =
+                r.score !== undefined && this.shouldShowDetails(result)
+                  ? `\nScore: ${r.score.toFixed(3)}`
+                  : "";
+              log.cli(`${index + 1}. ${title}${idPart}${statusPart}${scorePart}`);
             });
-
+            // Footer separator before count
+            log.cli("");
             if (typeof (result as any).count === "number") {
               const count = (result as any).count as number;
               log.cli(`${count} result${count === 1 ? "" : "s"} found`);
@@ -314,16 +322,35 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
   }
 
   /**
+   * Check if details should be shown (scores, diagnostics, etc.)
+   */
+  private shouldShowDetails(result: any): boolean {
+    // Check if details flag was passed to the command
+    return Boolean((result as any)?.showDetails || (result as any)?.details);
+  }
+
+  /**
    * Format rules list results
    */
   private formatRulesListResult(rules: any[]): void {
-    if (Array.isArray(rules) && rules.length > 0) {
-      rules.forEach((rule: any) => {
-        formatRuleSummary(rule);
-      });
-    } else {
+    if (!Array.isArray(rules) || rules.length === 0) {
       log.cli("No rules found.");
+      return;
     }
+
+    // Align with tasks.search style: numbered items and trailing count
+    // Visual separator after any header emitted by the command implementation
+    log.cli("");
+    rules.forEach((rule: any, index: number) => {
+      const r = rule as Record<string, any>;
+      const ruleId = r.id || "unknown";
+      const fmt = r.format ? ` [${r.format}]` : "";
+      const desc = r.description ? ` - ${r.description}` : "";
+      log.cli(`${index + 1}. ${ruleId}${fmt}${desc}`);
+    });
+    // Footer separator before count
+    log.cli("");
+    log.cli(`${rules.length} result${rules.length === 1 ? "" : "s"} found`);
   }
 
   /**
