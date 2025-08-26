@@ -22,6 +22,10 @@ interface TasksEditParams extends BaseTaskParams {
   spec?: boolean;
   specFile?: string;
   specContent?: string;
+  specAppend?: string;
+  specPrepend?: string;
+  specInsertAfter?: string;
+  specInsertBefore?: string;
 }
 
 /**
@@ -41,17 +45,37 @@ export class TasksEditCommand extends BaseTaskCommand {
     const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
     // Validate that at least one edit operation is specified
-    if (!params.title && !params.spec && !params.specFile && !params.specContent) {
+    const hasSpecOperation = !!(params.spec || params.specFile || params.specContent || 
+                               params.specAppend || params.specPrepend || 
+                               params.specInsertAfter || params.specInsertBefore);
+    
+    if (!params.title && !hasSpecOperation) {
       throw new ValidationError(
         "At least one edit operation must be specified:\\n" +
-          "  --title <text>       Update task title\\n" +
-          "  --spec               Edit specification content interactively\\n" +
-          "  --spec-file <path>   Update specification from file\\n" +
-          "  --spec-content <text> Update specification content directly\\n\\n" +
+          "  --title <text>              Update task title\\n" +
+          "  --spec                      Edit specification content interactively\\n" +
+          "  --spec-file <path>          Update specification from file\\n" +
+          "  --spec-content <text>       Replace specification content\\n" +
+          "  --spec-append <text>        Append to existing specification\\n" +
+          "  --spec-prepend <text>       Prepend to existing specification\\n" +
+          "  --spec-insert-after <text>  Insert after pattern (format: 'pattern|||content')\\n" +
+          "  --spec-insert-before <text> Insert before pattern (format: 'pattern|||content')\\n\\n" +
           "Examples:\\n" +
           '  minsky tasks edit mt#123 --title "New Title"\\n' +
           "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\\n" +
-          '  minsky tasks edit mt#123 --title "New Title" --spec'
+          '  minsky tasks edit mt#123 --spec-append "## New Section"\\n' +
+          '  minsky tasks edit mt#123 --spec-insert-after "## Overview|||\\n\\nNew content here"'
+      );
+    }
+
+    // Validate that only one spec operation is specified at a time
+    const specOperations = [params.spec, params.specFile, params.specContent, 
+                           params.specAppend, params.specPrepend, 
+                           params.specInsertAfter, params.specInsertBefore].filter(Boolean);
+    
+    if (specOperations.length > 1) {
+      throw new ValidationError(
+        "Only one specification editing operation can be specified at a time"
       );
     }
 
@@ -83,9 +107,11 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Handle spec content update
     if (params.specContent) {
+      // Complete replacement
       updates.spec = params.specContent;
-      this.debug("Using direct spec content");
+      this.debug("Using direct spec content (replace)");
     } else if (params.specFile) {
+      // Complete replacement from file
       try {
         updates.spec = await fs.readFile(params.specFile, "utf-8");
         this.debug(`Read spec content from file: ${params.specFile}`);
@@ -94,6 +120,19 @@ export class TasksEditCommand extends BaseTaskCommand {
           `Failed to read spec file "${params.specFile}": ${error.message}`
         );
       }
+    } else if (params.specAppend || params.specPrepend || params.specInsertAfter || params.specInsertBefore) {
+      // In-memory editing operations - need current spec content
+      this.debug("Performing in-memory spec editing");
+      const specResult = await import("../../../../domain/tasks").then(m => 
+        m.getTaskSpecContentFromParams({
+          ...this.createTaskParams(params),
+          taskId: validatedTaskId,
+        })
+      );
+      
+      const currentSpec = specResult?.content || "";
+      updates.spec = await this.performInMemorySpecEdit(currentSpec, params);
+      this.debug("Completed in-memory spec editing");
     }
 
     // Apply the updates using the real persistence function
@@ -121,6 +160,56 @@ export class TasksEditCommand extends BaseTaskCommand {
       this.debug(`Task edit failed: ${error.message}`);
       throw error;
     }
+  }
+
+  private async performInMemorySpecEdit(currentSpec: string, params: TasksEditParams): Promise<string> {
+    let editedSpec = currentSpec;
+
+    if (params.specAppend) {
+      // Append to the end
+      editedSpec = editedSpec + (editedSpec.endsWith('\n') ? '' : '\n') + params.specAppend;
+      this.debug("Applied spec append operation");
+    } else if (params.specPrepend) {
+      // Prepend to the beginning
+      editedSpec = params.specPrepend + (params.specPrepend.endsWith('\n') ? '' : '\n') + editedSpec;
+      this.debug("Applied spec prepend operation");
+    } else if (params.specInsertAfter) {
+      // Insert after a pattern: "pattern|||content"
+      const [pattern, content] = params.specInsertAfter.split('|||');
+      if (!pattern || !content) {
+        throw new ValidationError("spec-insert-after format must be 'pattern|||content'");
+      }
+      
+      const lines = editedSpec.split('\n');
+      const insertIndex = lines.findIndex(line => line.includes(pattern));
+      
+      if (insertIndex === -1) {
+        throw new ValidationError(`Pattern "${pattern}" not found in specification`);
+      }
+      
+      lines.splice(insertIndex + 1, 0, content);
+      editedSpec = lines.join('\n');
+      this.debug(`Applied spec insert-after operation at line ${insertIndex + 1}`);
+    } else if (params.specInsertBefore) {
+      // Insert before a pattern: "pattern|||content"  
+      const [pattern, content] = params.specInsertBefore.split('|||');
+      if (!pattern || !content) {
+        throw new ValidationError("spec-insert-before format must be 'pattern|||content'");
+      }
+      
+      const lines = editedSpec.split('\n');
+      const insertIndex = lines.findIndex(line => line.includes(pattern));
+      
+      if (insertIndex === -1) {
+        throw new ValidationError(`Pattern "${pattern}" not found in specification`);
+      }
+      
+      lines.splice(insertIndex, 0, content);
+      editedSpec = lines.join('\n');
+      this.debug(`Applied spec insert-before operation at line ${insertIndex}`);
+    }
+
+    return editedSpec;
   }
 
   private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {

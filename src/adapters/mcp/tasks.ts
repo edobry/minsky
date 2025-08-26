@@ -3,6 +3,7 @@
  */
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { registerTaskCommandsWithMcp } from "./shared-command-integration";
+import { registerTaskEditTools } from "./task-edit-tools";
 import { log } from "../../utils/logger";
 
 /**
@@ -12,6 +13,9 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
   log.debug(
     "Exposing task commands via shared command integration (commands already registered during CLI init)"
   );
+
+  // Register new task-specific editing tools (tasks.edit_file, tasks.search_replace)
+  registerTaskEditTools(commandMapper);
 
   // Use the bridge integration to expose already-registered task commands
   // Note: Shared commands are already registered during CLI initialization,
@@ -29,7 +33,13 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         description: "Create a new task",
       },
       "tasks.edit": {
-        description: "Edit task title and/or specification content. Supports editing both title and spec content with multiple input methods for comprehensive task editing across all backends.",
+        description: "Edit task title and/or specification content with advanced in-memory editing capabilities. Supports: title updates, complete spec replacement, appending/prepending content, and precise insertions after/before patterns. Ideal for AI agents needing sophisticated document editing without external file dependencies.",
+      },
+      "tasks.spec.edit": {
+        description: "Edit task specification using familiar file editing patterns. Works exactly like session.edit_file but operates on task specs in-memory with backend delegation. Use '// ... existing code ...' markers for precise edits.",
+      },
+      "tasks.spec.search_replace": {
+        description: "Replace a single occurrence of text in a task specification. Works exactly like session.search_replace but operates on task specs in-memory with backend delegation.",
       },
       "tasks.spec": {
         description: "Get the specification for a task",
@@ -43,5 +53,5 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
     },
   });
 
-  log.debug("Task commands exposed successfully via shared integration");
+  log.debug("Task commands and editing tools registered successfully");
 }
