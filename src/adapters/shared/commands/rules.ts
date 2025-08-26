@@ -732,14 +732,33 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           }
         }
 
-        // Convert results format to match tasks.search
-        const enhancedResults = results.map((result: any) => ({
-          id: result.id,
-          score: result.score,
-          name: result.id,
-          description: result.description || "",
-          format: result.format || "",
-        }));
+        // Enhance results with rule details (similar to tasks.search)
+        const enhancedResults = [];
+        for (const result of results) {
+          try {
+            // Get full rule details
+            const { ModularRulesService } = await import("../../../domain/rules/rules-service-modular");
+            const rulesService = new ModularRulesService(workspacePath);
+            const rule = await rulesService.getRule(result.id);
+            
+            enhancedResults.push({
+              id: result.id,
+              score: result.score,
+              name: rule.name || result.id,
+              description: rule.description || rule.name || "",
+              format: rule.format || "",
+            });
+          } catch (error) {
+            // Rule not found or error loading rule, include minimal info
+            enhancedResults.push({
+              id: result.id,
+              score: result.score,
+              name: result.id,
+              description: "",
+              format: "",
+            });
+          }
+        }
 
         return {
           success: true,

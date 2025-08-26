@@ -8,6 +8,7 @@
 export interface Rule {
   id: string; // Filename without extension
   name?: string; // From frontmatter
+  description?: string; // From frontmatter
   spec?: string; // From frontmatter
   globs?: string[]; // From frontmatter, file patterns that this rule applies to
   alwaysApply?: boolean; // From frontmatter, whether this rule is always applied
@@ -20,6 +21,7 @@ export interface Rule {
 
 export interface RuleMeta {
   name?: string;
+  description?: string;
   spec?: string;
   globs?: string[];
   alwaysApply?: boolean;
