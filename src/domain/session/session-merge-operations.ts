@@ -327,93 +327,21 @@ export async function mergeSessionPr(
   const taskId = sessionRecord.taskId;
   if (taskId && taskService.setTaskStatus && taskService.getTaskStatus) {
     try {
-      // Check current status first to avoid unnecessary updates
       const currentStatus = await taskService.getTaskStatus(taskId);
-
       if (currentStatus !== TASK_STATUS.DONE) {
         if (!params.json) {
           log.cli(`📋 Updating task ${taskId} status to DONE...`);
         }
         log.debug(`Updating task ${taskId} status from ${currentStatus} to DONE`);
         await taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-
-        // After updating task status, check if there are uncommitted changes that need to be committed
-        try {
-          const statusOutput = await gitService.execInRepository(
-            originalRepoPath,
-            "git status --porcelain"
-          );
-          const hasUncommittedChanges = statusOutput.trim().length > 0;
-
-          if (hasUncommittedChanges) {
-            if (!params.json) {
-              log.cli("📝 Committing task status update...");
-            }
-            log.debug("Task status update created uncommitted changes, committing them");
-
-            // Stage the tasks.md file (or any other changed files from task status update)
-            await gitService.execInRepository(originalRepoPath, "git add process/tasks.md");
-
-            // Commit the task status update with conventional commits format
-            try {
-              await gitService.execInRepository(
-                originalRepoPath,
-                `git commit -m "chore(${taskId}): update task status to DONE"`
-              );
-              log.debug(`Committed task ${taskId} status update`);
-
-              // Try to push the commit
-              try {
-                await gitService.execInRepository(originalRepoPath, "git push");
-                log.debug(`Pushed task ${taskId} status update`);
-                if (!params.json) {
-                  log.cli("✅ Task status updated and committed");
-                }
-              } catch (pushError) {
-                // Log but don't fail if push fails
-                log.warn("Failed to push task status commit", {
-                  taskId,
-                  error: getErrorMessage(pushError),
-                });
-                if (!params.json) {
-                  log.cli("⚠️  Task status updated but failed to push");
-                }
-              }
-            } catch (commitError) {
-              // Handle pre-commit hook failures gracefully
-              const errorMsg = getErrorMessage(commitError as Error);
-              if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
-                if (!params.json) {
-                  log.cli("⚠️  Task status updated but commit had linting issues");
-                  log.cli("💡 Run 'bun run lint:fix' to address any remaining issues");
-                }
-                log.warn("Task status commit failed due to pre-commit checks");
-              } else {
-                throw commitError;
-              }
-            }
-          } else {
-            log.debug("No uncommitted changes from task status update");
-            if (!params.json) {
-              log.cli("✅ Task status updated");
-            }
-          }
-        } catch (commitError) {
-          // Log the error but don't fail the whole operation
-          const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
-          log.error(errorMsg, { taskId, error: commitError });
-          if (!params.json) {
-            log.cli(`⚠️  Warning: ${errorMsg}`);
-          }
-        }
-      } else {
-        log.debug(`Task ${taskId} is already DONE, skipping status update`);
+        // Do not perform git commits here; persistence is handled by the task backend
         if (!params.json) {
-          log.cli("ℹ️  Task is already marked as DONE");
+          log.cli("✅ Task status updated (handled by task backend)");
         }
+      } else if (!params.json) {
+        log.cli("ℹ️  Task is already marked as DONE");
       }
     } catch (error) {
-      // Log the error but don't fail the whole operation
       const errorMsg = `Failed to update task status: ${getErrorMessage(error)}`;
       log.error(errorMsg, { taskId, error });
       if (!params.json) {

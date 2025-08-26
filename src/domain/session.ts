@@ -1219,53 +1219,7 @@ Task ${taskIdToUse} exists but has no associated session to approve.
         if (currentStatus !== TASK_STATUS.DONE) {
           log.debug(`Updating task ${taskId} status from ${currentStatus} to DONE`);
           await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-
-          // After updating task status, check if there are uncommitted changes that need to be committed
-          try {
-            const statusOutput = await deps.gitService.execInRepository(workingDirectory, "git status --porcelain");
-            const hasUncommittedChanges = statusOutput.trim().length > 0;
-
-            if (hasUncommittedChanges) {
-              log.debug("Task status update created uncommitted changes, committing them");
-
-              // Stage the tasks.md file (or any other changed files from task status update)
-              await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
-
-              // Commit the task status update with conventional commits format
-              try {
-                await deps.gitService.execInRepository(workingDirectory, `git commit -m "chore(${taskId}): update task status to DONE"`);
-                log.debug(`Committed task ${taskId} status update`);
-              } catch (commitError) {
-                // Re-throw commit errors to be handled by outer catch block
-                throw commitError;
-              }
-
-              // Try to push the commit if it succeeded
-              try {
-                await deps.gitService.execInRepository(workingDirectory, "git push");
-                log.debug(`Pushed task ${taskId} status update`);
-              } catch (pushError) {
-                // Log but don't fail if push fails
-                log.warn("Failed to push task status commit", {
-                  taskId,
-                  error: getErrorMessage(pushError),
-                });
-              }
-            } else {
-              log.debug("No uncommitted changes from task status update");
-            }
-          } catch (commitError) {
-            // Handle MinskyError specially to avoid duplicate logging
-            if (commitError instanceof MinskyError) {
-              // MinskyError (e.g., linting issues) already logged by implementation, just re-throw
-              throw commitError;
-            } else {
-              // Log the error but don't fail the whole operation for other commit errors
-              const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
-              log.error(errorMsg, { taskId, error: commitError });
-              log.cli(`Warning: ${errorMsg}`);
-            }
-          }
+          // Do not perform git commits here; persistence is handled by the task backend
         } else {
           log.debug(`Task ${taskId} is already DONE, skipping status update`);
         }

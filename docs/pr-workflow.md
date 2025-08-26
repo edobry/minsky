@@ -176,8 +176,10 @@ This command:
 
 1. Identifies the PR branch for the session
 2. Merges it using fast-forward only
-3. Updates the task status to "DONE"
-4. Records merge metadata (commit hash, date, author) in the task spec
+3. Updates the task status to "DONE" via the configured task backend
+4. Records merge metadata (commit hash, date, author) when applicable
+
+Note: Persistence and any commits are handled by the task backend (e.g., Markdown or GitHub Issues). The session workflow does not perform git commits for task updates.
 
 ## Error Codes
 
@@ -244,4 +246,4 @@ If you prefer more control:
 - **Clean History**: Ensures a linear commit history with meaningful merge commits
 - **Reduced Conflicts**: Conflicts are resolved during PR branch preparation, not during merging
 - **Consistent Process**: Standardizes the PR workflow across all projects
-- **Task Integration**: Automatically updates task status and records merge metadata
+- **Task Integration**: Automatically updates task status; persistence/commits are performed by the task backend

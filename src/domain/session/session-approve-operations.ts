@@ -447,87 +447,9 @@ The task exists but has no associated session to approve.
         if (currentStatus !== TASK_STATUS.DONE) {
           log.debug(`Updating task ${taskId} status from ${currentStatus} to DONE`);
           await deps.taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
-
-          // After updating task status, check if there are uncommitted changes that need to be committed
-          try {
-            const statusOutput = await deps.gitService.execInRepository(
-              workingDirectory,
-              "git status --porcelain"
-            );
-            const hasUncommittedChanges = statusOutput.trim().length > 0;
-
-            if (hasUncommittedChanges) {
-              log.debug("Task status update created uncommitted changes, committing them");
-
-              // Stage the tasks.md file (or any other changed files from task status update)
-              await deps.gitService.execInRepository(workingDirectory, "git add process/tasks.md");
-
-              // Commit the task status update with conventional commits format
-              try {
-                await deps.gitService.execInRepository(
-                  workingDirectory,
-                  `git commit -m "chore(${taskId}): update task status to DONE"`
-                );
-                log.debug(`Committed task ${taskId} status update`);
-              } catch (commitError) {
-                // Handle pre-commit hook failures gracefully
-                const errorMsg = getErrorMessage(commitError as Error);
-                if (errorMsg.includes("pre-commit") || errorMsg.includes("lint")) {
-                  // Parse linter output to show clean summary
-                  const errorCount = (errorMsg.match(/error/g) || []).length;
-                  const warningCount = (errorMsg.match(/warning/g) || []).length;
-
-                  if (!params.json) {
-                    log.cli("⚠️  Pre-commit linting detected issues during task status commit");
-                    log.cli("📝 Task status was updated but commit had linting issues");
-
-                    if (errorCount > 0) {
-                      log.cli(`📋 Found ${errorCount} linting errors`);
-                    }
-                    if (warningCount > 0) {
-                      log.cli(`📋 Found ${warningCount} linting warnings`);
-                    }
-
-                    log.cli("");
-                    log.cli("💡 To fix issues:");
-                    log.cli("  • Run 'bun run lint' to see detailed errors");
-                    log.cli("  • Run 'bun run lint:fix' to auto-fix what's possible");
-                    log.cli("");
-                    log.cli(
-                      "✅ The task is marked as DONE - you can fix linting issues separately"
-                    );
-                  }
-                  // Log the warning without JSON metadata for cleaner output
-                  log.warn("Task status commit failed due to pre-commit checks");
-                  // Re-throw to fail the command - linting issues should block session approval
-                  throw new MinskyError(
-                    `Session approval failed due to linting issues (${errorCount} errors, ${warningCount} warnings)`
-                  );
-                } else {
-                  // Re-throw for other types of commit errors
-                  throw commitError;
-                }
-              }
-
-              // Try to push the commit if it succeeded
-              try {
-                await deps.gitService.execInRepository(workingDirectory, "git push");
-                log.debug(`Pushed task ${taskId} status update`);
-              } catch (pushError) {
-                // Log but don't fail if push fails
-                log.warn("Failed to push task status commit", {
-                  taskId,
-                  error: getErrorMessage(pushError),
-                });
-              }
-            } else {
-              log.debug("No uncommitted changes from task status update");
-            }
-          } catch (commitError) {
-            // Log the error but don't fail the whole operation
-            const errorMsg = `Failed to commit task status update: ${getErrorMessage(commitError as Error)}`;
-            log.error(errorMsg, { taskId, error: commitError });
-            log.cli(`Warning: ${errorMsg}`);
+          // Do not perform git commits here; persistence is handled by the task backend
+          if (!params.json) {
+            log.cli("✅ Task status updated (handled by task backend)");
           }
         } else {
           log.debug(`Task ${taskId} is already DONE, skipping status update`);

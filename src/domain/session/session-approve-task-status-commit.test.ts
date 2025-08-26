@@ -460,7 +460,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
-        createRepositoryBackend: createMockRepositoryBackend(),
+        createRepositoryBackend: createMockRepositoryBackend() as any,
       }
     );
 
@@ -570,7 +570,7 @@ describe("Session Approve Task Status Commit", () => {
         sessionDB: mockSessionDB as any,
         gitService: mockGitService as any,
         taskService: mockTaskService as any,
-        createRepositoryBackend: createMockRepositoryBackend(),
+        createRepositoryBackend: createMockRepositoryBackend() as any,
       }
     );
 
