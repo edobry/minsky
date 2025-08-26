@@ -4,21 +4,31 @@
  * Provides a reusable pattern for creating similarity search commands
  * with customizable result formatting and enhancement.
  *
- * @example
+  * @example
  * ```typescript
- * // In your domain-specific module (e.g., rules-search-command.ts):
- * import { createSimilaritySearchCommand } from "../similarity-command-factory";
- * import { ruleStyleFormatter } from "./rules-search-formatter";
- *
+ * // In your consuming module (e.g., rules.ts):
+ * import { createSimilaritySearchCommand, type EnhancedSearchResult } from "./similarity-command-factory";
+ * 
+ * // Define formatter directly in the consuming module
+ * function ruleStyleFormatter(result: EnhancedSearchResult, index: number, showScore: boolean): string {
+ *   const name = result.name || result.id;
+ *   const format = (result as any).format;
+ *   const formatPart = format ? ` [${format}]` : "";
+ *   const desc = result.description ? ` - ${result.description}` : "";
+ *   const scorePart = showScore && result.score !== undefined ? `\nScore: ${result.score.toFixed(3)}` : "";
+ *   return `${index + 1}. ${name}${formatPart}${desc}${scorePart}`;
+ * }
+ * 
+ * // Use in command registration (if using the factory pattern)
  * export const rulesSearchCommand = createSimilaritySearchCommand({
  *   commandId: "rules.search",
- *   name: "search",
+ *   name: "search", 
  *   description: "Search for rules...",
  *   entityName: "rules",
  *   createService: () => createRuleSimilarityService(),
  *   searchMethod: (service, query, limit, threshold) => service.searchByText(query, limit, threshold),
  *   enhanceResults: enhanceRulesResults, // Your custom enhancement logic
- *   formatResult: ruleStyleFormatter,    // Your custom formatter
+ *   formatResult: ruleStyleFormatter,    // Formatter defined in this same module
  * });
  * ```
  */

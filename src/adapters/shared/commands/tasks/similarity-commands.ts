@@ -2,6 +2,25 @@ import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import type { CommandExecutionContext } from "../../command-registry";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
+import type { EnhancedSearchResult } from "../similarity-command-factory";
+
+/**
+ * Task-style result formatter for similarity search results
+ * Format: "1. Task Title [mt#123] [IN-PROGRESS]"
+ */
+function taskStyleFormatter(
+  result: EnhancedSearchResult,
+  index: number,
+  showScore: boolean
+): string {
+  const title = result.name || result.id;
+  const id = (result as any).displayId || result.id;
+  const status = (result as any).status || "";
+  const statusPart = status ? ` [${status}]` : "";
+  const scorePart =
+    showScore && result.score !== undefined ? `\nScore: ${result.score.toFixed(3)}` : "";
+  return `${index + 1}. ${title} [${id}]${statusPart}${scorePart}`;
+}
 
 interface TasksSimilarParams extends BaseTaskParams {
   taskId: string;

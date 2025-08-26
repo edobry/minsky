@@ -18,6 +18,25 @@ import { RuleService, type RuleFormat } from "../../../domain/rules";
 import { createRuleTemplateService } from "../../../domain/rules/rule-template-service";
 import { type RuleGenerationConfig } from "../../../domain/rules/template-system";
 import { resolveWorkspacePath } from "../../../domain/workspace";
+import type { EnhancedSearchResult } from "./similarity-command-factory";
+
+/**
+ * Rule-style result formatter for similarity search results
+ * Format: "1. rule-name [cursor] - Description of the rule"
+ */
+function ruleStyleFormatter(
+  result: EnhancedSearchResult,
+  index: number,
+  showScore: boolean
+): string {
+  const name = result.name || result.id;
+  const format = (result as any).format;
+  const formatPart = format ? ` [${format}]` : "";
+  const desc = result.description ? ` - ${result.description}` : "";
+  const scorePart =
+    showScore && result.score !== undefined ? `\nScore: ${result.score.toFixed(3)}` : "";
+  return `${index + 1}. ${name}${formatPart}${desc}${scorePart}`;
+}
 import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
 import { log } from "../../../utils/logger";
 import {

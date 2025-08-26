@@ -14,7 +14,8 @@ import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import { log } from "../../utils/logger";
 import { type GitServiceInterface } from "../git";
 import { createGitService } from "../git";
-import { TASK_STATUS, type TaskServiceInterface, createConfiguredTaskService } from "../tasks";
+import { TASK_STATUS, createConfiguredTaskService } from "../tasks";
+import type { TaskServiceInterface } from "../tasks/taskService";
 import { execAsync } from "../../utils/exec";
 import {
   type WorkspaceUtilsInterface,

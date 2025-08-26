@@ -32,18 +32,25 @@ process.env.NODE_ENV = "test";
 process.env.MINSKY_LOG_LEVEL = "error";
 process.env.MINSKY_LOG_MODE = "STRUCTURED";
 
-// Print setup message before mocking console
-process.stdout.write(
-  "🔇 Global test setup: Logger and console mocked to prevent output during tests\n"
-);
+// Check for debug mode to bypass console mocking
+const isDebugMode = process.env.DEBUG_TESTS === "1" || process.env.DEBUG === "1";
 
-// Mock the console methods globally to prevent any console output during tests
-const originalConsole = { ...console };
-console.log = mock(() => {});
-console.info = mock(() => {});
-console.warn = mock(() => {});
-console.error = mock(() => {});
-console.debug = mock(() => {});
+if (isDebugMode) {
+  process.stdout.write("🐛 DEBUG MODE: Console mocking disabled for debugging\n");
+} else {
+  // Print setup message before mocking console
+  process.stdout.write(
+    "🔇 Global test setup: Logger and console mocked to prevent output during tests\n"
+  );
+
+  // Mock the console methods globally to prevent any console output during tests
+  const originalConsole = { ...console };
+  console.log = mock(() => {});
+  console.info = mock(() => {});
+  console.warn = mock(() => {});
+  console.error = mock(() => {});
+  console.debug = mock(() => {});
+}
 
 // Export mock logger utilities for tests that need to verify logging behavior
 export { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";

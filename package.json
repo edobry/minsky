@@ -21,6 +21,8 @@
     "test:quality": "bun tests/utils/test-quality-cli.ts report",
     "test:flaky": "bun tests/utils/test-quality-cli.ts flaky",
     "test:slow": "bun tests/utils/test-quality-cli.ts slow",
+    "test:debug": "DEBUG_TESTS=1 bun test --preload ./tests/setup.ts --timeout=15000",
+    "test:debug:integration": "DEBUG_TESTS=1 RUN_INTEGRATION_TESTS=1 bun test --preload ./tests/setup.ts --timeout=30000",
     "lint:console": "bun scripts/lint-console-usage.ts",
     "lint:console:strict": "bun scripts/lint-console-usage.ts --fail-on-error",
     "validate-commit": "bun scripts/validate-commit-message.ts",
