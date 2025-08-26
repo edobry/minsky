@@ -15,6 +15,7 @@ Previously, our test suite was producing hundreds of lines of console output pol
 - Debug messages from application code
 
 This noise made it difficult to:
+
 - Focus on actual test failures
 - Identify real issues among the output flood
 - Run tests cleanly in CI/CD pipelines
@@ -27,12 +28,14 @@ This noise made it difficult to:
 **Purpose**: Preloaded before all test execution to establish global mocking
 
 **What it does**:
+
 - Mocks the entire logger system (`src/utils/logger.ts`, `src/domain/utils/logger.ts`)
 - Mocks all console API methods (`console.log`, `console.info`, `console.warn`, `console.error`, `console.debug`)
 - Sets up test environment variables
 - Provides utilities for tests that need to verify logging behavior
 
 **How it's activated**:
+
 ```bash
 bun test --preload ./tests/setup.ts [other-flags]
 ```
@@ -42,14 +45,16 @@ bun test --preload ./tests/setup.ts [other-flags]
 **Purpose**: In-memory logger that captures log messages without console output
 
 **Key Features**:
+
 - Captures all log levels (debug, info, warn, error, cli, agent, etc.)
 - Provides utilities to check if specific messages were logged
 - Maintains message history for test verification
 - Compatible with existing logger API
 
 **Usage in tests**:
+
 ```typescript
-import { getLoggedMessages, wasMessageLogged } from './tests/setup';
+import { getLoggedMessages, wasMessageLogged } from "./tests/setup";
 
 // Verify logging behavior
 expect(wasMessageLogged("Expected message", "info")).toBeTrue();
@@ -64,12 +69,14 @@ expect(messages.length).toBe(3);
 **Purpose**: Tracks test performance and reliability metrics
 
 **Features**:
+
 - Flaky test detection (tests with inconsistent pass/fail patterns)
 - Performance monitoring (slow test identification)
 - Test categorization (fast/medium/slow/flaky/critical)
 - Historical tracking and trend analysis
 
 **CLI Tool** (`tests/utils/test-quality-cli.ts`):
+
 ```bash
 # Show comprehensive quality report
 bun run test:quality
@@ -77,7 +84,7 @@ bun run test:quality
 # List flaky tests
 bun run test:flaky
 
-# List slowest tests  
+# List slowest tests
 bun run test:slow
 ```
 
@@ -104,8 +111,8 @@ The setup configures these test environment variables:
 
 ```typescript
 process.env.NODE_ENV = "test";
-process.env.MINSKY_LOG_LEVEL = "error";  // Minimum level for any actual logging
-process.env.MINSKY_LOG_MODE = "STRUCTURED";  // JSON format for consistency
+process.env.MINSKY_LOG_LEVEL = "error"; // Minimum level for any actual logging
+process.env.MINSKY_LOG_MODE = "STRUCTURED"; // JSON format for consistency
 ```
 
 ### Pre-commit Hook
@@ -119,6 +126,7 @@ if ! AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail src test
 ## Results
 
 ### Before (Console Noise Pollution)
+
 ```
 Mock cleanup for directory: /mock/test-tmp/session-cli-test
 Setting up test with mock storage path: /tmp/test-storage-123
@@ -133,6 +141,7 @@ Debug: hasLocalPr=undefined, hasGitHubPr=undefined
 ```
 
 ### After (Clean Output)
+
 ```
 🔇 Global test setup: Logger and console mocked to prevent output during tests
 
@@ -149,22 +158,25 @@ Ran 1371 tests across 171 files. [1123.00ms]
 For debugging tests that require console output, you can bypass the mocking:
 
 ### Option 1: Environment Variable
+
 ```bash
 DEBUG_TESTS=1 bun test [test-file]
 ```
 
 ### Option 2: Direct Execution (bypasses setup)
+
 ```bash
 bun test [test-file]  # without --preload flag
 ```
 
 ### Option 3: Test-specific Console Access
+
 ```typescript
 // In tests that need real console output
 const originalConsole = {
   log: console.log,
   warn: console.warn,
-  error: console.error
+  error: console.error,
 };
 
 // Use originalConsole.log() for debugging output
@@ -235,4 +247,3 @@ Most tests should work without changes. For tests that relied on console output:
 1. **Use mock logger utilities**: Import from `./tests/setup`
 2. **Test logging behavior**: Verify expected log messages
 3. **Follow clean test principles**: No console output in tests
-
