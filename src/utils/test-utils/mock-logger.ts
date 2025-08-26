@@ -1,6 +1,6 @@
 /**
  * Mock Logger for Tests
- * 
+ *
  * Provides an in-memory logger that captures log output instead of printing to console,
  * eliminating noise in test output while preserving the ability to test logging behavior.
  */
@@ -21,26 +21,26 @@ export interface MockLoggerInterface {
   info: (message: string, metadata?: any) => void;
   warn: (message: string, metadata?: any) => void;
   error: (message: string | Error, metadata?: any) => void;
-  
-  // CLI-specific methods  
+
+  // CLI-specific methods
   cli: (message: string, metadata?: any) => void;
   cliDebug: (message: string, metadata?: any) => void;
   cliWarn: (message: string, metadata?: any) => void;
   cliError: (message: string | Error, metadata?: any) => void;
   systemDebug: (message: string, metadata?: any) => void;
-  
+
   // Configuration and mode
   mode: string;
   isStructuredMode: () => boolean;
   isHumanMode: () => boolean;
   config: LoggerConfig;
-  
+
   // Internal for testing
   _internal: {
     programLogger: any;
     agentLogger: any;
   };
-  
+
   // Mock-specific methods for testing
   _mock: {
     clear: () => void;
@@ -58,15 +58,15 @@ export interface MockLoggerInterface {
  */
 export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInterface {
   const logs: LogEntry[] = [];
-  
+
   const loggerConfig: LoggerConfig = configOverride || {
     mode: "auto",
     level: "silent", // Default to silent in tests
     enableAgentLogs: false,
   };
-  
+
   const currentLogMode = LogMode.HUMAN; // Default to human mode in tests
-  
+
   function addLog(level: string, message: string | Error, metadata?: any) {
     const entry: LogEntry = {
       level,
@@ -76,7 +76,7 @@ export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInter
     };
     logs.push(entry);
   }
-  
+
   // Create mock logger methods
   const mockLogger: MockLoggerInterface = {
     // Core logging methods
@@ -85,20 +85,20 @@ export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInter
     info: (message: string, metadata?: any) => addLog("info", message, metadata),
     warn: (message: string, metadata?: any) => addLog("warn", message, metadata),
     error: (message: string | Error, metadata?: any) => addLog("error", message, metadata),
-    
+
     // CLI-specific methods
     cli: (message: string, metadata?: any) => addLog("info", message, metadata),
     cliDebug: (message: string, metadata?: any) => addLog("debug", message, metadata),
     cliWarn: (message: string, metadata?: any) => addLog("warn", message, metadata),
     cliError: (message: string | Error, metadata?: any) => addLog("error", message, metadata),
     systemDebug: (message: string, metadata?: any) => addLog("debug", message, metadata),
-    
+
     // Configuration and mode
     mode: currentLogMode === LogMode.STRUCTURED ? "STRUCTURED" : "HUMAN",
     isStructuredMode: () => currentLogMode === LogMode.STRUCTURED,
     isHumanMode: () => currentLogMode === LogMode.HUMAN,
     config: loggerConfig,
-    
+
     // Internal (empty mocks for compatibility)
     _internal: {
       programLogger: {
@@ -114,19 +114,19 @@ export function createMockLogger(configOverride?: LoggerConfig): MockLoggerInter
         debug: (message: string, metadata?: any) => addLog("debug", message, metadata),
       },
     },
-    
+
     // Mock-specific testing methods
     _mock: {
-      clear: () => logs.length = 0,
+      clear: () => (logs.length = 0),
       getAllLogs: () => [...logs],
-      getLogsByLevel: (level: string) => logs.filter(log => log.level === level),
+      getLogsByLevel: (level: string) => logs.filter((log) => log.level === level),
       getLastLog: () => logs[logs.length - 1],
       getLogCount: () => logs.length,
-      hasLoggedError: () => logs.some(log => log.level === "error"),
-      hasLoggedWarning: () => logs.some(log => log.level === "warn"),
+      hasLoggedError: () => logs.some((log) => log.level === "error"),
+      hasLoggedWarning: () => logs.some((log) => log.level === "warn"),
     },
   };
-  
+
   return mockLogger;
 }
 
@@ -147,19 +147,19 @@ export function resetMockLogger(): void {
  */
 export function wasMessageLogged(message: string, level?: string): boolean {
   const logs = level ? mockLogger._mock.getLogsByLevel(level) : mockLogger._mock.getAllLogs();
-  return logs.some(log => log.message.includes(message));
+  return logs.some((log) => log.message.includes(message));
 }
 
 /**
  * Helper to get all error messages logged
  */
 export function getLoggedErrors(): string[] {
-  return mockLogger._mock.getLogsByLevel("error").map(log => log.message);
+  return mockLogger._mock.getLogsByLevel("error").map((log) => log.message);
 }
 
 /**
- * Helper to get all warning messages logged  
+ * Helper to get all warning messages logged
  */
 export function getLoggedWarnings(): string[] {
-  return mockLogger._mock.getLogsByLevel("warn").map(log => log.message);
+  return mockLogger._mock.getLogsByLevel("warn").map((log) => log.message);
 }

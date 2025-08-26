@@ -33,7 +33,9 @@ process.env.MINSKY_LOG_LEVEL = "error";
 process.env.MINSKY_LOG_MODE = "STRUCTURED";
 
 // Print setup message before mocking console
-process.stdout.write("🔇 Global test setup: Logger and console mocked to prevent output during tests\n");
+process.stdout.write(
+  "🔇 Global test setup: Logger and console mocked to prevent output during tests\n"
+);
 
 // Mock the console methods globally to prevent any console output during tests
 const originalConsole = { ...console };
