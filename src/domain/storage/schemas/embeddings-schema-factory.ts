@@ -14,13 +14,7 @@ export interface EmbeddingsTableConfig {
  * This ensures consistency between tasks_embeddings and rules_embeddings
  */
 export function createEmbeddingsTable(config: EmbeddingsTableConfig) {
-  const {
-    tableName,
-    idColumn,
-    vectorColumn,
-    indexedAtColumn,
-    dimensions = 1536,
-  } = config;
+  const { tableName, idColumn, vectorColumn, indexedAtColumn, dimensions = 1536 } = config;
 
   return pgTable(
     tableName,
@@ -51,10 +45,9 @@ export const EMBEDDINGS_CONFIGS = {
     indexedAtColumn: "indexed_at",
   },
   rules: {
-    tableName: "rules_embeddings", 
+    tableName: "rules_embeddings",
     idColumn: "rule_id",
     vectorColumn: "vector", // Standardize on "vector" column name
     indexedAtColumn: "indexed_at", // Standardize on "indexed_at" column name
   },
 } as const;
-
