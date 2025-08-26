@@ -112,26 +112,6 @@ export const taskEditParams = {
     description: "New specification content (completely replaces existing)",
     required: false,
   },
-  specAppend: {
-    schema: z.string(),
-    description: "Content to append to existing specification",
-    required: false,
-  },
-  specPrepend: {
-    schema: z.string(),
-    description: "Content to prepend to existing specification",
-    required: false,
-  },
-  specInsertAfter: {
-    schema: z.string(),
-    description: "Content to insert after a specific line/pattern (format: 'pattern|||content')",
-    required: false,
-  },
-  specInsertBefore: {
-    schema: z.string(),
-    description: "Content to insert before a specific line/pattern (format: 'pattern|||content')",
-    required: false,
-  },
 };
 
 /**

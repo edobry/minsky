@@ -33,7 +33,7 @@ export function registerTaskTools(commandMapper: CommandMapper): void {
         description: "Create a new task",
       },
       "tasks.edit": {
-        description: "Edit task title and/or specification content with advanced in-memory editing capabilities. Supports: title updates, complete spec replacement, appending/prepending content, and precise insertions after/before patterns. Ideal for AI agents needing sophisticated document editing without external file dependencies.",
+        description: "Edit task title and/or specification content with basic operations. Supports: title updates, complete spec replacement from content or file. For advanced editing with patterns, use tasks.spec.edit instead.",
       },
       "tasks.spec.edit": {
         description: "Edit task specification using familiar file editing patterns. Works exactly like session.edit_file but operates on task specs in-memory with backend delegation. Use '// ... existing code ...' markers for precise edits.",

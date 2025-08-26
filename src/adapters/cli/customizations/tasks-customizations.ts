@@ -71,18 +71,6 @@ export function getTasksCustomizations(): {
             specContent: {
               description: "New specification content (completely replaces existing)",
             },
-            specAppend: {
-              description: "Content to append to existing specification",
-            },
-            specPrepend: {
-              description: "Content to prepend to existing specification",
-            },
-            specInsertAfter: {
-              description: "Content to insert after a specific line/pattern (format: 'pattern|||content')",
-            },
-            specInsertBefore: {
-              description: "Content to insert before a specific line/pattern (format: 'pattern|||content')",
-            },
           },
         },
         "tasks.delete": {
