@@ -319,6 +319,78 @@ export async function setTaskStatusFromParams(
 }
 
 /**
+ * Update a task using the provided parameters
+ * This function implements the interface-agnostic command architecture
+ * @param params Parameters for updating a task
+ * @returns The updated task
+ */
+export async function updateTaskFromParams(
+  params: { taskId: string; title?: string; spec?: string; repo?: string; workspace?: string; session?: string; backend?: string },
+  deps?: {
+    resolveRepoPath?: typeof resolveRepoPath;
+    createConfiguredTaskService?: (options: TaskServiceOptions) => Promise<TaskServiceInterface>;
+    resolveMainWorkspacePath?: () => Promise<string>;
+  }
+): Promise<Task> {
+  try {
+    // Normalize taskId before validation
+    const qualifiedTaskId = normalizeTaskIdInput(params.taskId);
+
+    // Resolve workspace path (prefer injected main path)
+    const workspacePath =
+      (await deps?.resolveMainWorkspacePath?.()) ??
+      (await (deps?.resolveRepoPath || resolveRepoPath)({
+        session: params.session,
+        repo: params.repo,
+      }));
+
+    // Create task service using dependency injection or default implementation
+    const createTaskService =
+      deps?.createConfiguredTaskService ||
+      (async (options) => await createConfiguredTaskServiceImpl(options));
+
+    const taskService = await createTaskService({
+      workspacePath,
+      backend: params.backend, // Let service determine backend via detection/config
+    });
+
+    // Verify the task exists before updating
+    const existingTask = await taskService.getTask(qualifiedTaskId);
+
+    if (!existingTask || !existingTask.id) {
+      throw new ResourceNotFoundError(
+        `Task ${qualifiedTaskId} not found`,
+        "task",
+        qualifiedTaskId
+      );
+    }
+
+    // Prepare updates object
+    const updates: Partial<Task> = {};
+    if (params.title !== undefined) {
+      updates.title = params.title;
+    }
+    if (params.spec !== undefined) {
+      updates.spec = params.spec;
+    }
+
+    // Update the task
+    const updatedTask = await taskService.updateTask(qualifiedTaskId, updates);
+
+    return updatedTask;
+  } catch (error) {
+    if (error instanceof z.ZodError) {
+      throw new ValidationError(
+        "Invalid parameters for updating task",
+        (error as any).format(),
+        error as any
+      );
+    }
+    throw error;
+  }
+}
+
+/**
  * Create a task using the provided parameters
  * This function implements the interface-agnostic command architecture
  * @param params Parameters for creating a task

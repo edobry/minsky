@@ -69,7 +69,7 @@ export function getTasksCustomizations(): {
               description: "Path to file containing new task specification content",
             },
             specContent: {
-              description: "New specification content (for programmatic updates)",
+              description: "New specification content (completely replaces existing)",
             },
           },
         },
@@ -85,7 +85,7 @@ export function getTasksCustomizations(): {
             },
           },
         },
-        "tasks.spec": {
+        "tasks.spec.get": {
           useFirstRequiredParamAsArgument: true,
           parameters: {
             taskId: {
