@@ -16,7 +16,14 @@ export interface EmbeddingsTableConfig {
  * Supports optional domain-specific columns for server-side filtering
  */
 export function createEmbeddingsTable(config: EmbeddingsTableConfig) {
-  const { tableName, idColumn, vectorColumn, indexedAtColumn, dimensions = 1536, domainColumns = {} } = config;
+  const {
+    tableName,
+    idColumn,
+    vectorColumn,
+    indexedAtColumn,
+    dimensions = 1536,
+    domainColumns = {},
+  } = config;
 
   const baseColumns = {
     id: text(idColumn).primaryKey(),
@@ -31,16 +38,12 @@ export function createEmbeddingsTable(config: EmbeddingsTableConfig) {
   // Merge base columns with domain-specific columns
   const allColumns = { ...baseColumns, ...domainColumns };
 
-  return pgTable(
-    tableName,
-    allColumns,
-    (table) => [
-      index(`idx_${tableName}_hnsw`).using(
-        "hnsw",
-        table.vector.asc().nullsLast().op("vector_l2_ops")
-      ),
-    ]
-  );
+  return pgTable(tableName, allColumns, (table) => [
+    index(`idx_${tableName}_hnsw`).using(
+      "hnsw",
+      table.vector.asc().nullsLast().op("vector_l2_ops")
+    ),
+  ]);
 }
 
 // Standard configurations for consistency

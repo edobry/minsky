@@ -115,10 +115,9 @@ describe("Session Auto-Task Creation", () => {
 
   test("should auto-create task when description is provided", async () => {
     const params = {
-      description: "Fix the authentication bug",
-      quiet: false,
-      noStatusUpdate: false,
-      skipInstall: true,
+      repositoryPath: "https://github.com/test/repo.git",
+      description: "Fix the authentication bug", // Provided for auto-creation
+      // No taskId or sessionName provided - both should be auto-generated
     };
 
     const result = await startSessionFromParams(params, {
@@ -136,11 +135,9 @@ describe("Session Auto-Task Creation", () => {
 
   test("should not auto-create task when task ID is provided", async () => {
     const params = {
-      task: "md#001",
-      description: "Fix the authentication bug",
-      quiet: false,
-      noStatusUpdate: false,
-      skipInstall: true,
+      taskId: "md#001",
+      repositoryPath: "https://github.com/test/repo.git",
+      // sessionName will be auto-generated from taskId
     };
 
     await startSessionFromParams(params, {
@@ -157,11 +154,10 @@ describe("Session Auto-Task Creation", () => {
 
   test("should use session name when provided with description", async () => {
     const params = {
-      name: "custom-session",
-      description: "Fix the authentication bug",
-      quiet: false,
-      noStatusUpdate: false,
-      skipInstall: true,
+      sessionName: "custom-session",
+      repositoryPath: "https://github.com/test/repo.git",
+      description: "Fix the authentication bug", // Provided for auto-creation
+      // No taskId provided - should auto-create from description
     };
 
     const result = await startSessionFromParams(params, {

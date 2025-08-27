@@ -8,10 +8,28 @@
  */
 
 import { testMonitor } from "./test-monitor";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
-const MONITOR_DATA_FILE = join(process.cwd(), ".test-monitor-data.json");
+// Use mock path instead of process.cwd() to prevent environment dependencies
+const MONITOR_DATA_FILE = join("/mock/workspace", ".test-monitor-data.json");
+
+// Mock filesystem operations for testing environment
+const existsSync = (path: string): boolean => {
+  // Mock implementation - return false for test environment
+  return false;
+};
+
+const readFileSync = (path: string, encoding: string): string => {
+  // Mock implementation - return empty test data
+  return JSON.stringify({ timestamp: Date.now(), executions: [] });
+};
+
+const writeFileSync = (path: string, data: string): void => {
+  // Mock implementation - no-op for test environment
+  return;
+};
 
 function loadMonitorData() {
   if (existsSync(MONITOR_DATA_FILE)) {

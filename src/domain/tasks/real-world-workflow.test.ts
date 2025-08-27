@@ -119,18 +119,8 @@ describe("Real-World Workflow Testing", () => {
     mockFileSystem.clear();
     mockDirectories.clear();
 
-    // Clean up any real files that might have been created
-    try {
-      const fs = require("fs");
-      if (fs.existsSync(testBaseDir)) {
-        fs.rmSync(testBaseDir, { recursive: true, force: true });
-      }
-      if (fs.existsSync("/tmp/nonexistent")) {
-        fs.rmSync("/tmp/nonexistent", { recursive: true, force: true });
-      }
-    } catch (error) {
-      // Ignore cleanup errors
-    }
+    // Clean up mock filesystem - no real filesystem operations needed
+    // All operations are already mocked and cleaned up by mockFileSystem.clear() above
   });
 
   describe("TaskService Integration", () => {

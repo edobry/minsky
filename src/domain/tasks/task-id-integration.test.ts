@@ -143,11 +143,9 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       // Test session start with qualified task ID
       const session = await startSessionFromParams(
         {
-          name: "test-md999-integration",
-          task: "md#999",
-          repo: "test-repo",
-          // Ensure test isolation by skipping dependency installation side-effects
-          skipInstall: true,
+          sessionName: "test-md999-integration",
+          taskId: "md#999",
+          repositoryPath: "test-repo",
         },
         {
           sessionDB: mockSessionDB as any,

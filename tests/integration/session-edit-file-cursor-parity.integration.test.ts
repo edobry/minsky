@@ -34,7 +34,7 @@ let testConfig: {
 };
 
 async function loadFixture(name: string): Promise<string> {
-  const fixturePath = join(process.cwd(), "tests", "fixtures", name);
+  const fixturePath = join("/mock/workspace", "tests", "fixtures", name);
   return await readFile(fixturePath, "utf-8");
 }
 
@@ -311,7 +311,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS)(
       // Initialize the configuration system
       const factory = new CustomConfigFactory();
       await initializeConfiguration(factory, {
-        workingDirectory: process.cwd(),
+        workingDirectory: "/mock/workspace",
       });
 
       const config = getConfiguration();

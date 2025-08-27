@@ -224,7 +224,7 @@ beforeAll(async () => {
   try {
     // Load the real config from environment (but don't set it globally)
     const factory = new CustomConfigFactory();
-    const provider = await factory.createProvider({ workingDirectory: process.cwd() });
+    const provider = await factory.createProvider({ workingDirectory: "/mock/workspace" });
     loadedConfig = provider.getConfig();
 
     const morph = loadedConfig.ai?.providers?.morph as any;

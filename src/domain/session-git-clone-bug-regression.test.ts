@@ -73,11 +73,9 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 
     const params = {
-      task: "md#160",
-      repo: "local/minsky",
-      quiet: false,
-      noStatusUpdate: false,
-      skipInstall: true,
+      taskId: "md#160",
+      repositoryPath: "local/minsky",
+      // sessionName will be auto-generated from taskId
     };
 
     // Act & Assert - Git clone failure should not leave session in database
@@ -152,11 +150,9 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockResolveRepoPath = () => Promise.resolve("local/minsky");
 
     const params = {
-      task: "md#160",
-      repo: "local/minsky",
-      quiet: false,
-      noStatusUpdate: false,
-      skipInstall: true,
+      taskId: "md#160",
+      repositoryPath: "local/minsky",
+      // sessionName will be auto-generated from taskId
     };
 
     // Act
