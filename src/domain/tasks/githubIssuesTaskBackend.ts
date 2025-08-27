@@ -159,12 +159,11 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     try {
       log.debug("Fetching GitHub issues", { owner: this.owner, repo: this.repo });
 
-      // Fetch all issues with Minsky labels
-      const labelQueries = Object.values(this.statusLabels).join(",");
+      // Fetch all issues from the repo
+      // We'll filter for Minsky-labeled issues in the parsing logic
       const response = await this.octokit.rest.issues.listForRepo({
         owner: this.owner,
         repo: this.repo,
-        labels: labelQueries,
         state: "all", // Get both open and closed issues
         per_page: 100, // Adjust as needed
       });
@@ -281,7 +280,19 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     try {
       const rawIssues = JSON.parse(content);
       const validatedIssues = validateGitHubIssues(rawIssues);
-      return validatedIssues.map((issue) => this.convertIssueToTaskData(issue));
+      
+      // Filter for issues that have Minsky status labels
+      const minskyStatusLabels = Object.values(this.statusLabels);
+      const minskyIssues = validatedIssues.filter((issue) => {
+        const issueLabels = issue.labels.map((label) => 
+          typeof label === 'string' ? label : label.name
+        );
+        return issueLabels.some((label) => minskyStatusLabels.includes(label));
+      });
+      
+      log.debug(`Filtered ${minskyIssues.length} Minsky issues from ${validatedIssues.length} total issues`);
+      
+      return minskyIssues.map((issue) => this.convertIssueToTaskData(issue));
     } catch (error) {
       log.error("Failed to parse GitHub issues data", {
         error: getErrorMessage(error),
