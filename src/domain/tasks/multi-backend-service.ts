@@ -77,12 +77,12 @@ export class TaskServiceImpl implements TaskService {
   }
 
   setDefaultBackend(backendName: string): void {
-    const backend = this.backends.find(b => b.name === backendName);
+    const backend = this.backends.find((b) => b.name === backendName);
     if (backend) {
       this.defaultBackend = backend;
     } else {
       log.warn(`Cannot set default backend '${backendName}' - backend not found`, {
-        availableBackends: this.backends.map(b => b.name)
+        availableBackends: this.backends.map((b) => b.name),
       });
     }
   }

@@ -10,6 +10,7 @@
 import { describe, it, expect, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import {
   createMockSessionProvider,
   createMockGitService,
@@ -36,7 +37,7 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     let branchSpy = createMock();
     branchSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task-md#160", branch: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
@@ -47,7 +48,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     });
 
     // Add getNewSessionRepoPath method not covered by centralized factory
-    (mockSessionDB as any).getNewSessionRepoPath = () => "/test/sessions/task-md#160";
+    (mockSessionDB as any).getNewSessionRepoPath = () => TEST_PATHS.SESSION_MD_160;
 
     const mockGitService = createMockGitService({
       clone: cloneSpy,
@@ -108,12 +109,12 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     let cloneSpy = createMock();
     cloneSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task-md#160", session: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: "task-md#160" })
     );
 
     let branchSpy = createMock();
     branchSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task-md#160", branch: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
     );
 
     const mockSessionDB = createMockSessionProvider({
@@ -124,7 +125,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     });
 
     // Add getNewSessionRepoPath method not covered by centralized factory
-    (mockSessionDB as any).getNewSessionRepoPath = () => "/test/sessions/task-md#160";
+    (mockSessionDB as any).getNewSessionRepoPath = () => TEST_PATHS.SESSION_MD_160;
 
     const mockGitService = createMockGitService({
       clone: cloneSpy,

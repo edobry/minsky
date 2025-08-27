@@ -14,6 +14,7 @@ import {
   TaskServiceInterface,
 } from "../../../../domain/tasks/taskService";
 import { _backendDetectionService } from "../../../../domain/configuration/backend-detection";
+import { updateSessionTaskAssociation } from "../../../../domain/session/session-task-association";
 
 const migrateBackendParamsSchema = z.object({
   from: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
@@ -295,10 +296,59 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
             status: fullTask.status,
           });
 
-          // Update the task ID and backend if needed
+          // Update session task associations if task ID changed
           if (newTaskId !== taskId) {
-            // This would require additional backend support for ID updates
-            // For now, we'll use the generated ID from the target backend
+            try {
+              const sessionUpdateResult = await updateSessionTaskAssociation(taskId, newTaskId, {
+                dryRun: false, // We're already in execute mode
+              });
+
+              if (sessionUpdateResult.sessionsUpdated > 0) {
+                log.info("Updated session task associations", {
+                  oldTaskId: taskId,
+                  newTaskId,
+                  sessionsUpdated: sessionUpdateResult.sessionsUpdated,
+                  updatedSessions: sessionUpdateResult.updatedSessions,
+                });
+              }
+
+              if (sessionUpdateResult.errors.length > 0) {
+                log.warn("Some session updates failed", {
+                  taskId,
+                  newTaskId,
+                  errors: sessionUpdateResult.errors,
+                });
+              }
+            } catch (error) {
+              // Don't fail the entire migration if session update fails
+              log.warn("Failed to update session associations", {
+                taskId,
+                newTaskId,
+                error: error instanceof Error ? error.message : String(error),
+              });
+            }
+          }
+        } else if (dryRun && newTaskId !== taskId) {
+          // In dry-run mode, show what session updates would happen
+          try {
+            const sessionUpdateResult = await updateSessionTaskAssociation(taskId, newTaskId, {
+              dryRun: true,
+            });
+
+            if (sessionUpdateResult.sessionsFound > 0) {
+              log.info("Would update session task associations (dry-run)", {
+                oldTaskId: taskId,
+                newTaskId,
+                sessionsFound: sessionUpdateResult.sessionsFound,
+                sessionNames: sessionUpdateResult.updatedSessions,
+              });
+            }
+          } catch (error) {
+            log.debug("Failed to check session associations in dry-run", {
+              taskId,
+              newTaskId,
+              error: error instanceof Error ? error.message : String(error),
+            });
           }
         }
 
@@ -308,6 +358,13 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           status: "migrated",
           sourceBackend,
           targetBackend,
+          sessionUpdates:
+            newTaskId !== taskId
+              ? {
+                  wouldUpdateSessions: dryRun,
+                  taskIdChanged: true,
+                }
+              : undefined,
         });
       } catch (error) {
         result.errors++;
