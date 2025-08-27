@@ -211,7 +211,7 @@ export class SessionPrMergeCommand extends BaseSessionCommand<any, any> {
       cleanupSession: shouldCleanup,
     });
 
-    return this.createSuccessResult({ result });
+    return this.createSuccessResult({ result, printed: true });
   }
 }
 

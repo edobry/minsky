@@ -4,6 +4,17 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- **Session Task Association Management**: Automatic session task association updates during task migrations
+  - Added `updateSessionTaskAssociation()` function to handle session-to-task ID relationships during backend migrations
+  - Integrated session association updates into `TasksMigrateBackendCommand` for automatic execution
+  - Sessions are now automatically repointed when tasks are migrated between backends (e.g., `md#123` → `mt#123`)
+  - Includes dry-run support to preview what session updates would happen
+  - Comprehensive test coverage with 15 test cases covering all scenarios and error conditions
+  - Documentation in `docs/session-task-association.md`
+  - Resolves issue where sessions become orphaned after task migrations, preventing merge command failures
+
 ### Fixed
 
 - tasks delete: Make deletion resilient across backends when primary routed backend cannot delete
