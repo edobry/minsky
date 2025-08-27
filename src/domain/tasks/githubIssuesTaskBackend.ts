@@ -716,6 +716,53 @@ ${description}
     }
   }
 
+  /**
+   * Create a new task from title and spec (implements TaskBackend interface)
+   * @param title Title of the task
+   * @param spec Task specification content
+   * @param options Options for creating the task
+   * @returns Promise resolving to the created task
+   */
+  async createTaskFromTitleAndSpec(
+    title: string,
+    spec: string,
+    options: CreateTaskOptions = {}
+  ): Promise<Task> {
+    try {
+      // Create GitHub issue directly via API
+      const response = await this.octokit.rest.issues.create({
+        owner: this.owner,
+        repo: this.repo,
+        title,
+        body: spec || "",
+        labels: this.getLabelsForTaskStatus("TODO"), // Default to TODO status
+      });
+
+      // Generate task ID using GitHub issue number
+      const taskId = `gh#${response.data.number}`;
+
+      log.debug("Created GitHub issue successfully", {
+        taskId,
+        issueNumber: response.data.number,
+        title,
+      });
+
+      return {
+        id: taskId,
+        title,
+        status: "TODO",
+        description: spec,
+        specPath: undefined, // GitHub issues don't use local spec files
+      };
+    } catch (error) {
+      log.error("Failed to create task from title and spec", {
+        title,
+        error: getErrorMessage(error),
+      });
+      throw error;
+    }
+  }
+
   // Helper method to extract issue number from task ID
   private extractIssueNumberFromTaskId(taskId: string): number | null {
     // Use the unified task ID utility to extract the numeric part

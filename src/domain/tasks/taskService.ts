@@ -16,6 +16,8 @@ export interface TaskServiceInterface {
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";
 import { createMinskyTaskBackend } from "./minskyTaskBackend";
+import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
+import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { createTaskService } from "./multi-backend-service";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
@@ -54,6 +56,27 @@ export async function createConfiguredTaskService(options: {
         });
         (jsonBackend as any).prefix = "json";
         service.registerBackend(jsonBackend);
+        break;
+      }
+
+      case "github": {
+        const config = getGitHubBackendConfig(options.workspacePath, { logErrors: true });
+        if (!config || !config.githubToken || !config.owner || !config.repo) {
+          throw new Error(
+            "GitHub backend configuration not available. Ensure GitHub token, owner, and repo are configured."
+          );
+        }
+        const githubBackend = createGitHubIssuesTaskBackend({
+          name: "github",
+          workspacePath: options.workspacePath,
+          githubToken: config.githubToken,
+          owner: config.owner,
+          repo: config.repo,
+          statusLabels: config.statusLabels,
+        });
+        (githubBackend as any).prefix = "gh";
+        service.registerBackend(githubBackend);
+        log.debug("GitHub backend registered successfully");
         break;
       }
 
@@ -98,6 +121,26 @@ export async function createConfiguredTaskService(options: {
       });
       (jsonBackend as any).prefix = "json";
       service.registerBackend(jsonBackend);
+
+      // Add GitHub backend (gh# prefix) - requires GitHub configuration
+      try {
+        const config = getGitHubBackendConfig(options.workspacePath, { logErrors: false });
+        if (config && config.githubToken && config.owner && config.repo) {
+          const githubBackend = createGitHubIssuesTaskBackend({
+            name: "github",
+            workspacePath: options.workspacePath,
+            githubToken: config.githubToken,
+            owner: config.owner,
+            repo: config.repo,
+            statusLabels: config.statusLabels,
+          });
+          (githubBackend as any).prefix = "gh";
+          service.registerBackend(githubBackend);
+          log.debug("GitHub backend registered successfully");
+        }
+      } catch (error) {
+        log.debug("GitHub backend not available", { error: getErrorMessage(error as any) });
+      }
 
       // Add minsky backend (mt# prefix) - requires database connection
       try {
