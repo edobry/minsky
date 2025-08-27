@@ -17,6 +17,16 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- **Session merge logging**: Improved human-friendliness by removing implementation detail noise
+  - Removed 'handled by task backend' parenthetical from task status updates  
+  - Removed 'using github backend for merge' implementation detail
+  - Removed 'Starting session merge...' noise padding for operations that speak for themselves
+  - Removed 'Session PR merged successfully!' message redundant with merge action
+  - Removed 'Session record removed from database' internal cleanup detail
+  - Removed final generic 'Success' message by setting printed=true flag
+  - Removed 'Cleaning up local branches...' noise padding for fast operations
+  - Output now focuses on actionable information: PR approval status, merge commit hash, and meaningful cleanup counts
+
 - tasks delete: Make deletion resilient across backends when primary routed backend cannot delete
   - Added fallback in `TaskServiceImpl.deleteTask` to attempt deletion on other registered backends when the routed backend returns false or is unavailable
   - Resolves failures like `Failed to delete task mt#464` when DB-backed tasks exist but routing or registration prevents direct deletion
