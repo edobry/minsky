@@ -280,18 +280,20 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     try {
       const rawIssues = JSON.parse(content);
       const validatedIssues = validateGitHubIssues(rawIssues);
-      
+
       // Filter for issues that have Minsky status labels
       const minskyStatusLabels = Object.values(this.statusLabels);
       const minskyIssues = validatedIssues.filter((issue) => {
-        const issueLabels = issue.labels.map((label) => 
-          typeof label === 'string' ? label : label.name
+        const issueLabels = issue.labels.map((label) =>
+          typeof label === "string" ? label : label.name
         );
         return issueLabels.some((label) => minskyStatusLabels.includes(label));
       });
-      
-      log.debug(`Filtered ${minskyIssues.length} Minsky issues from ${validatedIssues.length} total issues`);
-      
+
+      log.debug(
+        `Filtered ${minskyIssues.length} Minsky issues from ${validatedIssues.length} total issues`
+      );
+
       return minskyIssues.map((issue) => this.convertIssueToTaskData(issue));
     } catch (error) {
       log.error("Failed to parse GitHub issues data", {
