@@ -10,21 +10,22 @@ import {
   SessionContextResolverFactory,
   resolveSessionForInterface,
 } from "./session-context-resolver";
+import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import { ValidationError } from "../errors/index";
 
 describe("Interface-Layer Session Context Resolution", () => {
   describe("CLI Session Context Resolver", () => {
     it("should use explicit name when provided", () => {
-      const params = { name: "explicit-session", title: "test" };
+      const params = { name: TEST_PATHS.SESSION_EXPLICIT, title: "test" };
       const result = CLISessionContextResolver.resolveSessionContext(params);
 
-      expect(result.session).toBe("explicit-session");
+      expect(result.session).toBe(TEST_PATHS.SESSION_EXPLICIT);
       expect(result.title).toBe("test");
     });
 
     it("should auto-detect session from session workspace path", () => {
       const params = { title: "test" };
-      const workingDir = "/Users/edobry/.local/state/minsky/sessions/task#158";
+      const workingDir = TEST_PATHS.MINSKY_SESSIONS_TASK;
 
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
 
@@ -43,12 +44,12 @@ describe("Interface-Layer Session Context Resolution", () => {
     });
 
     it("should prefer explicit name over auto-detection", () => {
-      const params = { name: "explicit-session", title: "test" };
-      const workingDir = "/Users/edobry/.local/state/minsky/sessions/task#158";
+      const params = { name: TEST_PATHS.SESSION_EXPLICIT, title: "test" };
+      const workingDir = TEST_PATHS.MINSKY_SESSIONS_TASK;
 
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
 
-      expect(result.session).toBe("explicit-session");
+      expect(result.session).toBe(TEST_PATHS.SESSION_EXPLICIT);
       expect(result.title).toBe("test");
     });
 
@@ -95,7 +96,7 @@ describe("Interface-Layer Session Context Resolution", () => {
 
     it("should not auto-detect even in session workspace", () => {
       const params = { title: "test" };
-      const workingDir = "/Users/edobry/.local/state/minsky/sessions/task#158";
+      const workingDir = TEST_PATHS.MINSKY_SESSIONS_TASK;
 
       expect(() => {
         MCPSessionContextResolver.resolveSessionContext(params, workingDir);
@@ -143,7 +144,7 @@ describe("Interface-Layer Session Context Resolution", () => {
       const cliResult = SessionContextResolverFactory.resolveSessionContext(
         { title: "test" },
         "cli",
-        "/Users/edobry/.local/state/minsky/sessions/task#158"
+        TEST_PATHS.MINSKY_SESSIONS_TASK
       );
       expect(cliResult.session).toBe("task#158");
 
@@ -152,7 +153,7 @@ describe("Interface-Layer Session Context Resolution", () => {
         SessionContextResolverFactory.resolveSessionContext(
           { title: "test" },
           "mcp",
-          "/Users/edobry/.local/state/minsky/sessions/task#158"
+          TEST_PATHS.MINSKY_SESSIONS_TASK
         );
       }).toThrow(ValidationError);
     });
@@ -163,7 +164,7 @@ describe("Interface-Layer Session Context Resolution", () => {
       const result = resolveSessionForInterface(
         { title: "test" },
         "cli",
-        "/Users/edobry/.local/state/minsky/sessions/task#158"
+        TEST_PATHS.MINSKY_SESSIONS_TASK
       );
 
       expect(result.session).toBe("task#158");
