@@ -105,7 +105,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // CASE 1: Main workspace context - should fail
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_MAIN_WORKSPACE);
 
       let mainWorkspaceError: Error | null = null;
       try {
@@ -178,7 +178,7 @@ describe("Session Context Resolution Architecture Issues", () => {
         } as any)
       ).rejects.toThrow(ERROR_MESSAGES.SESSION_PARAMETER_REQUIRED);
 
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_MAIN_WORKSPACE);
       await expect(
         pureDomainFunction({
           title: "test",
@@ -243,7 +243,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       expect(cliResolvedParams.session).toBe("task#158");
 
       // MCP adapter should require explicit session
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_MAIN_WORKSPACE);
       expect(() => {
         mockMcpAdapter.resolveSessionContext(
           {
