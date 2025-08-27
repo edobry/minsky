@@ -36,7 +36,13 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
         ? "Tasks file not found. Ensure you're pointing to the main workspace (process/tasks.md)."
         : undefined;
 
-    log.error(`Failed to read tasks file: ${filePath}${hint ? `\n💡 ${hint}` : ""}`);
+    // Log at debug level for missing files (common in multi-backend mode)
+    // Log at error level for other file read issues
+    if (code === "ENOENT") {
+      log.debug(`Tasks file not found: ${filePath} (normal in multi-backend mode)`);
+    } else {
+      log.error(`Failed to read tasks file: ${filePath}${hint ? `\n💡 ${hint}` : ""}`);
+    }
     return {
       success: false,
       filePath,
