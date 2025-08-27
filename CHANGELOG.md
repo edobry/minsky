@@ -18,7 +18,7 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Session merge logging**: Improved human-friendliness by removing implementation detail noise
-  - Removed 'handled by task backend' parenthetical from task status updates  
+  - Removed 'handled by task backend' parenthetical from task status updates
   - Removed 'using github backend for merge' implementation detail
   - Removed 'Starting session merge...' noise padding for operations that speak for themselves
   - Removed 'Session PR merged successfully!' message redundant with merge action
