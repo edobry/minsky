@@ -38,7 +38,7 @@ describe("GitHubIssuesTaskBackend", () => {
 
     // Create backend instance for testing pure functions (API calls are mocked)
     backend = createGitHubIssuesTaskBackend({
-      name: "github-issues",
+      name: "github",
       workspacePath: "/test/workspace",
       githubToken: "test-token",
       owner: "test-owner",
@@ -48,13 +48,13 @@ describe("GitHubIssuesTaskBackend", () => {
 
   describe("configuration", () => {
     test("should create instance with correct configuration", () => {
-      expect(backend.name).toBe("github-issues");
+      expect(backend.name).toBe("github");
       expect(backend.getWorkspacePath()).toBe("/test/workspace");
     });
 
     test("should initialize with custom status labels", () => {
       const customBackend = createGitHubIssuesTaskBackend({
-        name: "github-issues",
+        name: "github",
         workspacePath: "/test/workspace",
         githubToken: "test-token",
         owner: "test-owner",

@@ -108,7 +108,7 @@ function extractGitHubRepoFromRemote(
  * GitHubIssuesTaskBackend implementation
  */
 export class GitHubIssuesTaskBackend implements TaskBackend {
-  name = "github-issues";
+  name = "github";
   prefix = "gh"; // Backend prefix for qualified IDs
   private readonly workspacePath: string;
   private readonly octokit: Octokit;
