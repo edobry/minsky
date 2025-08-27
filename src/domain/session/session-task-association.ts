@@ -1,6 +1,6 @@
 /**
  * Session Task Association Management
- * 
+ *
  * Provides utilities for updating session task associations,
  * particularly during task migrations between backends.
  */
@@ -30,7 +30,7 @@ export interface SessionAssociationUpdateResult {
 
 /**
  * Updates session task associations when a task is migrated to a new ID
- * 
+ *
  * @param oldTaskId Original task ID (e.g., "md#123")
  * @param newTaskId New task ID (e.g., "mt#123")
  * @param options Update options
@@ -42,7 +42,7 @@ export async function updateSessionTaskAssociation(
   options: SessionAssociationUpdateOptions = {}
 ): Promise<SessionAssociationUpdateResult> {
   const { dryRun = false, sessionProvider = createSessionProvider() } = options;
-  
+
   const result: SessionAssociationUpdateResult = {
     sessionsFound: 0,
     sessionsUpdated: 0,
@@ -71,17 +71,15 @@ export async function updateSessionTaskAssociation(
 
     // Get all sessions to find ones associated with the old task ID
     const allSessions = await sessionProvider.listSessions();
-    
+
     // Find sessions associated with the old task ID
-    const matchingSessions = allSessions.filter(session => 
-      session.taskId === oldLocalId
-    );
+    const matchingSessions = allSessions.filter((session) => session.taskId === oldLocalId);
 
     result.sessionsFound = matchingSessions.length;
 
     log.debug("Found matching sessions", {
       count: matchingSessions.length,
-      sessions: matchingSessions.map(s => s.session),
+      sessions: matchingSessions.map((s) => s.session),
     });
 
     if (matchingSessions.length === 0) {
@@ -130,7 +128,6 @@ export async function updateSessionTaskAssociation(
       errors: result.errors.length,
       dryRun,
     });
-
   } catch (error) {
     const errorMessage = `Failed to update session associations: ${error instanceof Error ? error.message : String(error)}`;
     result.errors.push(errorMessage);
@@ -142,7 +139,7 @@ export async function updateSessionTaskAssociation(
 
 /**
  * Finds all sessions associated with a given task ID
- * 
+ *
  * @param taskId Task ID to search for (can be qualified like "md#123" or plain like "123")
  * @param sessionProvider Session provider to use
  * @returns List of session names associated with the task
@@ -152,7 +149,7 @@ export async function findSessionsByTaskId(
   sessionProvider: SessionProviderInterface = createSessionProvider()
 ): Promise<string[]> {
   const localId = isQualifiedTaskId(taskId) ? extractLocalId(taskId) : taskId;
-  
+
   if (!localId) {
     log.warn("Invalid task ID format", { taskId });
     return [];
@@ -160,13 +157,13 @@ export async function findSessionsByTaskId(
 
   const allSessions = await sessionProvider.listSessions();
   return allSessions
-    .filter(session => session.taskId === localId)
-    .map(session => session.session);
+    .filter((session) => session.taskId === localId)
+    .map((session) => session.session);
 }
 
 /**
  * Checks if any sessions are associated with a given task ID
- * 
+ *
  * @param taskId Task ID to check for
  * @param sessionProvider Session provider to use
  * @returns True if any sessions are found, false otherwise

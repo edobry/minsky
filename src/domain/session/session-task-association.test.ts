@@ -82,7 +82,7 @@ describe("Session Task Association", () => {
         createdAt: "2023-01-01T00:00:00Z",
         taskId: "123",
       };
-      
+
       mockProvider.listSessions = mock(() => Promise.resolve([...mockSessions, extraSession]));
 
       const result = await updateSessionTaskAssociation("md#123", "mt#123", {

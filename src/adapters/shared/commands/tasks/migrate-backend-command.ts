@@ -358,10 +358,13 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
           status: "migrated",
           sourceBackend,
           targetBackend,
-          sessionUpdates: newTaskId !== taskId ? {
-            wouldUpdateSessions: dryRun,
-            taskIdChanged: true,
-          } : undefined,
+          sessionUpdates:
+            newTaskId !== taskId
+              ? {
+                  wouldUpdateSessions: dryRun,
+                  taskIdChanged: true,
+                }
+              : undefined,
         });
       } catch (error) {
         result.errors++;
