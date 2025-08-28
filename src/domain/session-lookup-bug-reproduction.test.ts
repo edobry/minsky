@@ -71,7 +71,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
     mockFs.reset();
 
     // Create individual spies for methods that need call tracking
-    addSessionSpy = createMock(() => Promise.resolve());
+    addSessionSpy = mock(() => Promise.resolve());
 
     // Setup clean mocks for each test using centralized factories
     mockSessionDB = createMockSessionProvider({
@@ -102,11 +102,11 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
 
     // Mock workspace utilities
     mockWorkspaceUtils = {
-      createWorkspaceStructure: createMock(() => Promise.resolve()),
-      validateWorkspace: createMock(() => Promise.resolve(true)),
+      createWorkspaceStructure: mock(() => Promise.resolve()),
+      validateWorkspace: mock(() => Promise.resolve(true)),
     };
 
-    mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
+    mockResolveRepoPath = mock(() => Promise.resolve("/mock/repo/path"));
   });
 
   afterEach(() => {
@@ -221,7 +221,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
         if (scenario.inDatabase) {
           // Mock the database to return this session
           const originalGetSession = mockSessionDB.getSession;
-          mockSessionDB.getSession = createMock(async (name: string) => {
+          mockSessionDB.getSession = mock(async (name: string) => {
             if (name === scenario.name) {
               return {
                 session: scenario.name,
