@@ -21,6 +21,7 @@ import { initializeSessionDbState, getSessionWorkdirFn } from "./session-db";
 import { readSessionDbFile } from "./session-db-io";
 import { approveSessionImpl } from "./session-approve-operations";
 import type { SessionRecord, SessionDbState } from "./types";
+import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("Session Database BaseDir Bug", () => {
   let mockSessionDB: any;
@@ -220,7 +221,7 @@ describe("Session Database BaseDir Bug", () => {
     const incorrectWorkdir = getSessionWorkdirFn(incorrectState, "test-session");
 
     // Show the difference in paths
-    expect(correctWorkdir).toBe("/test/minsky/sessions/test-session");
+    expect(correctWorkdir).toBe(PATH_TEST_PATTERNS.TEST_SESSION_PATH);
     expect(incorrectWorkdir).toBe("/test/minsky/wrong/sessions/test-session");
 
     // The incorrect path is what causes the posix_spawn error
@@ -260,9 +261,9 @@ describe("Session Database BaseDir Bug", () => {
     const localGitBackendPathFixed = join(mockBaseDir, "sessions", "test-session");
 
     // Show the inconsistency that caused the bug
-    expect(sessionDbPath).toBe("/test/minsky/sessions/test-session");
+    expect(sessionDbPath).toBe(PATH_TEST_PATTERNS.TEST_SESSION_PATH);
     expect(localGitBackendPathOld).toBe("/test/minsky/test-repo/sessions/test-session");
-    expect(localGitBackendPathFixed).toBe("/test/minsky/sessions/test-session");
+    expect(localGitBackendPathFixed).toBe(PATH_TEST_PATTERNS.TEST_SESSION_PATH);
 
     // The old paths were different (causing posix_spawn error)
     expect(sessionDbPath).not.toBe(localGitBackendPathOld);

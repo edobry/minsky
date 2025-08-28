@@ -209,6 +209,9 @@ export const PATH_TEST_PATTERNS = {
   MOCK_FILE_PATH: "/path/to/file.txt",
   TMP_TEST_SESSION: "/tmp/test-session",
   FEATURE_TASK_BRANCH: "feature/task-123",
+  TEST_SESSION_PATH: "/test/minsky/sessions/test-session",
+  TEST_SESSION_1_PATH: "/test/base/dir/sessions/test-session-1",
+  ETC_PASSWD_PATH: "../../../etc/passwd",
 } as const;
 
 // Code comment patterns
