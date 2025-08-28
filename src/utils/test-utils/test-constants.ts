@@ -86,6 +86,7 @@ export const CLI_COMMANDS = {
   MINSKY_SESSION_START_TASK: "minsky session start --task 123",
   MCP_MINSKY_TASKS_LIST: "mcp_minsky-server_tasks_list",
   SHOWING_ACTIVE_TASKS: "Showing active tasks (use --all to include completed tasks)",
+  JSONSCHEMA_FUNCTIONS_AVAILABLE: "Here are the functions available in JSONSchema format:",
 } as const;
 
 // Error and validation messages
@@ -93,6 +94,7 @@ export const ERROR_MESSAGES = {
   SESSION_PARAMETER_REQUIRED: "Session parameter is required",
   PERMISSION_DENIED: "Permission denied",
   WITHOUT_UNDERSCORE: "without_underscore",
+  FAILED_UNSET_CONFIG_PERMISSION: "Failed to unset configuration: Permission denied",
 } as const;
 
 // Rules and content
