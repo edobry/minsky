@@ -22,7 +22,7 @@ import {
   DEFAULT_MCP_CONFIG,
   DEFAULT_HYBRID_CONFIG,
 } from "./template-system";
-import { CLI_COMMANDS } from "../../utils/test-utils/test-constants";
+import { CLI_COMMANDS, CODE_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("RuleTemplateService", () => {
   // Mock default templates to avoid command registry conflicts
@@ -399,8 +399,8 @@ ${helpers.workflowStep("tasks.status.get", "check task status")}
 ${helpers.parameterDoc("tasks.list")}
 
 ## Conditional Content
-${helpers.conditionalSection(context.config.interface === "cli", "This appears for CLI")}
-${helpers.conditionalSection(context.config.interface === "mcp", "This appears for MCP")}
+${helpers.conditionalSection(context.config.interface === "cli", CODE_TEST_PATTERNS.CLI_MESSAGE)}
+${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTERNS.MCP_MESSAGE)}
 `;
         },
       };
@@ -423,8 +423,8 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(cliContent).toContain(CLI_COMMANDS.MINSKY_SESSION_START_TASK);
       expect(cliContent).toContain("check task status");
       expect(cliContent).toContain("Optional");
-      expect(cliContent).toContain("This appears for CLI");
-      expect(cliContent).not.toContain("This appears for MCP");
+      expect(cliContent).toContain(CODE_TEST_PATTERNS.CLI_MESSAGE);
+      expect(cliContent).not.toContain(CODE_TEST_PATTERNS.MCP_MESSAGE);
 
       // Test MCP configuration
       const mcpResult = await service.generateRules({
@@ -439,8 +439,8 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(mcpContent).toContain(CLI_COMMANDS.MINSKY_SESSION_START_TASK);
       expect(mcpContent).toContain("mcp_minsky-server_tasks_status_get");
       expect(mcpContent).toContain("Optional");
-      expect(mcpContent).not.toContain("This appears for CLI");
-      expect(mcpContent).toContain("This appears for MCP");
+      expect(mcpContent).not.toContain(CODE_TEST_PATTERNS.CLI_MESSAGE);
+      expect(mcpContent).toContain(CODE_TEST_PATTERNS.MCP_MESSAGE);
     });
   });
 

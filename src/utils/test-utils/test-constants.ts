@@ -180,8 +180,17 @@ export const RULES_TEST_PATTERNS = {
   DESCRIPTION_PLACEHOLDER: "Description here.",
 } as const;
 
+// Test data patterns
+export const TEST_DATA_PATTERNS = {
+  UPDATED_TASK_TITLE: "Updated Test Task 2",
+  TEST_DESCRIPTION: "This is a test description.",
+  TASK_GH_ID: "task#gh:issue-123",
+} as const;
+
 // Code comment patterns
 export const CODE_TEST_PATTERNS = {
   EXISTING_CODE_COMMENT: "// ... existing code ...",
   SKIPPING_MORPH_MESSAGE: "⏭️  Skipping - Morph not configured",
+  CLI_MESSAGE: "This appears for CLI",
+  MCP_MESSAGE: "This appears for MCP",
 } as const;

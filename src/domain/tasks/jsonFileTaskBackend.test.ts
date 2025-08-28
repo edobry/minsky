@@ -7,6 +7,7 @@ const TEST_ARRAY_SIZE = 3;
  */
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { TEST_DATA_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("JsonFileTaskBackend", () => {
   let backend: any;
@@ -159,18 +160,18 @@ describe("JsonFileTaskBackend", () => {
 
       // Update task
       const updates = {
-        title: "Updated Test Task 2",
+        title: TEST_DATA_PATTERNS.UPDATED_TASK_TITLE,
         status: "IN-PROGRESS",
       };
 
       const updated = await backend.updateTaskData("#002", updates);
       expect(updated).toBeDefined();
-      expect(updated.title).toBe("Updated Test Task 2");
+      expect(updated.title).toBe(TEST_DATA_PATTERNS.UPDATED_TASK_TITLE);
       expect(updated.status).toBe("IN-PROGRESS");
 
       // Verify update persisted
       const retrieved = await backend.getTaskById("#002");
-      expect(retrieved.title).toBe("Updated Test Task 2");
+      expect(retrieved.title).toBe(TEST_DATA_PATTERNS.UPDATED_TASK_TITLE);
       expect(retrieved.status).toBe("IN-PROGRESS");
     });
 
