@@ -30,9 +30,19 @@ export class MemoryVectorStorage implements VectorStorage {
         let shouldInclude = true;
         for (const [key, value] of Object.entries(filters)) {
           if (value !== undefined && value !== null) {
-            if (!metadata || metadata[key] !== value) {
-              shouldInclude = false;
-              break;
+            // Handle exclusion filters (e.g., statusExclude: ['DONE', 'CLOSED'])
+            if (key.endsWith('Exclude') && Array.isArray(value) && value.length > 0) {
+              const columnName = key.replace('Exclude', '');
+              if (metadata && value.includes(metadata[columnName])) {
+                shouldInclude = false;
+                break;
+              }
+            } else {
+              // Handle regular equality filters (e.g., status: 'TODO')
+              if (!metadata || metadata[key] !== value) {
+                shouldInclude = false;
+                break;
+              }
             }
           }
         }

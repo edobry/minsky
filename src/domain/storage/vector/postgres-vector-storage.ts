@@ -168,9 +168,18 @@ export class PostgresVectorStorage implements VectorStorage {
       const filterConditions: string[] = [];
       for (const [key, value] of Object.entries(filters)) {
         if (value !== undefined && value !== null) {
-          filterConditions.push(`${key} = $${paramIndex}`);
-          queryParams.push(value);
-          paramIndex++;
+          // Handle exclusion filters (e.g., statusExclude: ['DONE', 'CLOSED'])
+          if (key.endsWith('Exclude') && Array.isArray(value) && value.length > 0) {
+            const columnName = key.replace('Exclude', '');
+            const placeholders = value.map(() => `$${paramIndex++}`).join(', ');
+            filterConditions.push(`${columnName} NOT IN (${placeholders})`);
+            queryParams.push(...value);
+          } else {
+            // Handle regular equality filters (e.g., status: 'TODO')
+            filterConditions.push(`${key} = $${paramIndex}`);
+            queryParams.push(value);
+            paramIndex++;
+          }
         }
       }
       if (filterConditions.length > 0) {
