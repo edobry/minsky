@@ -1,17 +1,16 @@
 import type { Rule } from "./types";
 import { classifyRuleType, RuleType } from "./rule-classifier";
 import { matchesGlobPatterns } from "./glob-matcher";
+import { extractRuleMentions, stripRuleMentions } from "./rule-mention-parser";
 
 /**
  * Options for enhanced rule suggestion
  */
 export interface RuleSuggestOptions {
-  /** User query for semantic similarity matching */
+  /** User query for semantic similarity matching and @ruleName detection */
   query?: string;
   /** Files currently in context for glob matching */
   filesInContext?: string[];
-  /** Whether to include manual rules (default: false) */
-  includeManual?: boolean;
   /** Maximum number of agent-requested rules to return */
   limit?: number;
   /** Minimum similarity threshold for agent-requested rules */
@@ -48,10 +47,13 @@ export async function suggestRules(
   const {
     query,
     filesInContext = [],
-    includeManual = false,
     limit = 10,
     threshold = 0.1
   } = options;
+  
+  // Extract @ruleName mentions from query
+  const mentionedRuleNames = query ? extractRuleMentions(query) : [];
+  const strippedQuery = query ? stripRuleMentions(query).trim() : undefined;
 
   // Get all rules if not provided
   if (!allRules) {
@@ -90,8 +92,8 @@ export async function suggestRules(
     }
   }
 
-  // 3. Agent Requested rules - include based on query similarity
-  if (query && similarityService) {
+  // 3. Agent Requested rules - include based on semantic similarity (using stripped query)
+  if (strippedQuery && strippedQuery.length > 0 && similarityService) {
     try {
       // Get only agent-requested rules
       const agentRequestedRules = allRules.filter(
@@ -99,8 +101,8 @@ export async function suggestRules(
       );
       const agentRequestedIds = new Set(agentRequestedRules.map(r => r.id));
 
-      // Search for similar rules
-      const searchResults = await similarityService.searchByText(query, limit, threshold);
+      // Search for similar rules using stripped query (without @mentions)
+      const searchResults = await similarityService.searchByText(strippedQuery, limit, threshold);
       
       // Filter to only agent-requested rules and add them
       for (const result of searchResults) {
@@ -117,12 +119,28 @@ export async function suggestRules(
     }
   }
 
-  // 4. Manual rules - only include if explicitly requested
-  if (includeManual) {
-    const manualRules = allRules.filter(
-      rule => classifyRuleType(rule) === RuleType.MANUAL
-    );
+  // 4. Manual rules - include ONLY when explicitly mentioned with @ruleName syntax
+  if (mentionedRuleNames.length > 0) {
+    const mentionedRuleSet = new Set(mentionedRuleNames);
+    
+    // Find rules that match mentioned names (could be any type, but we only add manual ones)
+    const manualRules = allRules.filter(rule => {
+      const isManual = classifyRuleType(rule) === RuleType.MANUAL;
+      const isMentioned = mentionedRuleSet.has(rule.id) || mentionedRuleSet.has(rule.name || '');
+      return isManual && isMentioned;
+    });
+    
     manualRules.forEach(addRule);
+    
+    // Also handle case where non-manual rules are explicitly mentioned
+    // (user might @mention any rule type)
+    const nonManualMentioned = allRules.filter(rule => {
+      const isNotManual = classifyRuleType(rule) !== RuleType.MANUAL;
+      const isMentioned = mentionedRuleSet.has(rule.id) || mentionedRuleSet.has(rule.name || '');
+      return isNotManual && isMentioned;
+    });
+    
+    nonManualMentioned.forEach(addRule);
   }
 
   return suggestions;

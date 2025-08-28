@@ -47,7 +47,6 @@ export const WorkspaceRulesComponent: ContextComponent = {
           filteredRules = await suggestRules({
             query: userQuery,
             filesInContext: filesInContext,
-            includeManual: false,
             limit: 20,
             threshold: 0.1
           }, allRules, similarityService);

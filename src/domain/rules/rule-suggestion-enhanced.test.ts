@@ -141,9 +141,9 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
       expect(manualRule).toBeUndefined();
     });
 
-    it("should include MANUAL rules when explicitly requested", async () => {
+    it("should include MANUAL rules when explicitly mentioned with @ruleName syntax", async () => {
       const options: RuleSuggestOptions = {
-        includeManual: true
+        query: "Help me configure this @manual-rule-1 for my project"
       };
 
       const suggestions = await suggestRules(options, mockRules);
@@ -151,6 +151,45 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
       const manualRule = suggestions.find(r => r.id === "manual-rule-1");
       expect(manualRule).toBeDefined();
       expect(manualRule?.name).toBe("Manual Only Rule");
+    });
+
+    it("should NOT include MANUAL rules when not mentioned, even if query matches content", async () => {
+      const options: RuleSuggestOptions = {
+        query: "I need manual configuration help"  // Contains "manual" but no @mention
+      };
+
+      const suggestions = await suggestRules(options, mockRules);
+      
+      // Should not include manual rule without explicit @mention
+      const manualRule = suggestions.find(r => r.id === "manual-rule-1");
+      expect(manualRule).toBeUndefined();
+    });
+
+    it("should handle @mentions of rules by id (spaces not supported in @syntax)", async () => {
+      const options: RuleSuggestOptions = {
+        query: "Use @manual-rule-1 for this configuration" // Mention by id (no spaces)
+      };
+
+      const suggestions = await suggestRules(options, mockRules);
+      
+      // Should find rule by id match
+      const manualRule = suggestions.find(r => r.id === "manual-rule-1");
+      expect(manualRule).toBeDefined();
+    });
+
+    it("should allow @mention of any rule type, not just manual", async () => {
+      const options: RuleSuggestOptions = {
+        query: "Apply @always-rule-1 and @glob-rule-ts specifically"
+      };
+
+      const suggestions = await suggestRules(options, mockRules);
+      
+      // Should include the mentioned rules regardless of their normal classification
+      const alwaysRule = suggestions.find(r => r.id === "always-rule-1");
+      const globRule = suggestions.find(r => r.id === "glob-rule-ts");
+      
+      expect(alwaysRule).toBeDefined(); // Would be included anyway (always apply)
+      expect(globRule).toBeDefined(); // Included due to @mention
     });
   });
 
@@ -269,9 +308,8 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
       };
 
       const options: RuleSuggestOptions = {
-        query: "React",
-        filesInContext: ["src/index.ts"],
-        includeManual: true
+        query: "React @manual-rule-1", // Include @mention to trigger manual rule inclusion
+        filesInContext: ["src/index.ts"]
       };
 
       const suggestions = await suggestRules(options, mockRules, mockSimilarityService);
