@@ -6,31 +6,6 @@
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import type { CommandExecutionContext } from "../../../../adapters/shared/command-registry";
 
-// Mock the modules using Bun's mock.module
-mock.module("../../../../utils/process", () => ({
-  getCurrentWorkingDirectory: mock(() => "/test/repo"),
-}));
-
-mock.module("../../conflict-analysis-operations", () => ({
-  analyzeConflictRegions: mock(async (_repoPath: string, _filePath: string) => []),
-}));
-
-mock.module("../../../../utils/exec", () => ({
-  execAsync: mock(async (command: string) => {
-    if (command === "git ls-files") {
-      return { stdout: "src/file1.ts\nsrc/file2.js\nREADME.md\n", stderr: "" };
-    }
-    return { stdout: "", stderr: "" };
-  }),
-}));
-
-mock.module("../../../../utils/logger", () => ({
-  log: {
-    debug: mock(() => {}),
-    error: mock(() => {}),
-  },
-}));
-
 // Import after mocking
 import {
   executeConflictsCommand,
@@ -43,6 +18,30 @@ import { execAsync } from "../../../../utils/exec";
 import { log } from "../../../../utils/logger";
 
 describe("Git Conflicts Command", () => {
+  // Mock the modules using Bun's mock.module
+  mock.module("../../../../utils/process", () => ({
+    getCurrentWorkingDirectory: mock(() => "/test/repo"),
+  }));
+
+  mock.module("../../conflict-analysis-operations", () => ({
+    analyzeConflictRegions: mock(async (_repoPath: string, _filePath: string) => []),
+  }));
+
+  mock.module("../../../../utils/exec", () => ({
+    execAsync: mock(async (command: string) => {
+      if (command === "git ls-files") {
+        return { stdout: "src/file1.ts\nsrc/file2.js\nREADME.md\n", stderr: "" };
+      }
+      return { stdout: "", stderr: "" };
+    }),
+  }));
+
+  mock.module("../../../../utils/logger", () => ({
+    log: {
+      debug: mock(() => {}),
+      error: mock(() => {}),
+    },
+  }));
   const mockContext: CommandExecutionContext = {
     debug: false,
     verbose: false,
