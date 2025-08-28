@@ -1,11 +1,11 @@
 import { createHash } from "crypto";
 import { createLogger } from "../../utils/logger";
-import { type EmbeddingService } from "../ai/embedding-service";
-import { type VectorStorage } from "../ai/vector-storage";
+import { type EmbeddingService } from "../ai/embeddings/types";
+import { type VectorStorage } from "../storage/vector/types";
 import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factory";
-import { createToolsVectorStorageFromConfig } from "../storage/vector-storage-factory";
-import { getConfiguration } from "../config/config-manager";
-import { getEmbeddingDimension } from "../ai/embedding-utils";
+import { createToolsVectorStorageFromConfig } from "../../storage/vector/vector-storage-factory";
+import { getConfiguration } from "../configuration";
+import { getEmbeddingDimension } from "../ai/embeddings/embedding-utils";
 import { sharedCommandRegistry, type SharedCommand } from "../../adapters/shared/command-registry";
 
 const log = createLogger("tool-embedding-service");
