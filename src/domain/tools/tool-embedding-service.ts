@@ -19,9 +19,7 @@ export interface ToolEmbeddingServiceConfig {
  * Follows patterns from RuleSimilarityService (mt#445)
  */
 export class ToolEmbeddingService {
-  constructor(
-    private readonly config: ToolEmbeddingServiceConfig = {}
-  ) {}
+  constructor(private readonly config: ToolEmbeddingServiceConfig = {}) {}
 
   /**
    * Index a tool for embedding-based search
@@ -101,7 +99,9 @@ export class ToolEmbeddingService {
       }
     }
 
-    log.info(`Tool indexing complete: ${indexed} indexed, ${skipped} skipped, ${errors.length} errors`);
+    log.info(
+      `Tool indexing complete: ${indexed} indexed, ${skipped} skipped, ${errors.length} errors`
+    );
     return { indexed, skipped, errors };
   }
 
@@ -112,11 +112,7 @@ export class ToolEmbeddingService {
   private extractToolContent(tool: SharedCommand): string {
     // Combine tool name, description, category, and parameter names
     // This creates a comprehensive text representation for embedding
-    const parts = [
-      tool.name,
-      tool.description,
-      tool.category.toLowerCase(),
-    ];
+    const parts = [tool.name, tool.description, tool.category.toLowerCase()];
 
     // Add parameter names and descriptions if available
     if (tool.parameters) {

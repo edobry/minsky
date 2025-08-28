@@ -34,6 +34,7 @@ graph TD
 ### Service Architecture (Following Proven Patterns)
 
 **1. ToolSimilarityService** (Primary Interface)
+
 ```typescript
 interface ToolSimilarityService {
   findRelevantTools(request: ToolSearchRequest): Promise<RelevantTool[]>;
@@ -52,11 +53,12 @@ interface ToolSearchRequest {
 ```
 
 **2. Generic Similarity Service Integration** (mt#447 Foundation)
+
 ```typescript
 // Tool-specific adapter for generic similarity service
 class ToolSimilarityAdapter implements SimilaritySearchAdapter<Tool> {
   extractContent(tool: Tool): string {
-    return `${tool.description} ${tool.category} ${tool.parameters.join(' ')}`;
+    return `${tool.description} ${tool.category} ${tool.parameters.join(" ")}`;
   }
 
   extractId(tool: Tool): string {
@@ -67,13 +69,14 @@ class ToolSimilarityAdapter implements SimilaritySearchAdapter<Tool> {
     return {
       category: tool.category,
       description: tool.description,
-      parameters: tool.parameters
+      parameters: tool.parameters,
     };
   }
 }
 ```
 
 **3. Database Schema** (Following mt#253/mt#445 Patterns)
+
 ```sql
 CREATE TABLE tool_embeddings (
   id TEXT PRIMARY KEY,                    -- UUID
@@ -104,28 +107,30 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
 **Tasks**:
 
 1. **Database Schema Setup**
+
    ```typescript
    // src/adapters/database/schemas/tool-embeddings.ts
-   export const toolEmbeddingsSchema = pgTable('tool_embeddings', {
-     id: text('id').primaryKey(),
-     toolId: text('tool_id').notNull(),
-     category: text('category').notNull(),
-     dimension: integer('dimension').notNull(),
-     embedding: vector('embedding'),
-     metadata: jsonb('metadata'),
-     createdAt: timestamp('created_at').defaultNow(),
-     updatedAt: timestamp('updated_at').defaultNow(),
-     lastIndexedAt: timestamp('last_indexed_at')
+   export const toolEmbeddingsSchema = pgTable("tool_embeddings", {
+     id: text("id").primaryKey(),
+     toolId: text("tool_id").notNull(),
+     category: text("category").notNull(),
+     dimension: integer("dimension").notNull(),
+     embedding: vector("embedding"),
+     metadata: jsonb("metadata"),
+     createdAt: timestamp("created_at").defaultNow(),
+     updatedAt: timestamp("updated_at").defaultNow(),
+     lastIndexedAt: timestamp("last_indexed_at"),
    });
    ```
 
 2. **Tool Embedding Service** (Reusing mt#445 Patterns)
+
    ```typescript
    // src/domain/tools/embeddings/tool-embedding-service.ts
    export class ToolEmbeddingService {
      constructor(
-       private embeddingService: OpenAIEmbeddingService,  // Reuse from mt#445
-       private vectorStorage: PostgresVectorStorage,      // Reuse from mt#253
+       private embeddingService: OpenAIEmbeddingService, // Reuse from mt#445
+       private vectorStorage: PostgresVectorStorage, // Reuse from mt#253
        private commandRegistry: SharedCommandRegistry
      ) {}
 
@@ -139,7 +144,7 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
        const batches = chunk(tools, 10); // Batch processing
 
        for (const batch of batches) {
-         const contents = batch.map(tool => this.extractToolContent(tool));
+         const contents = batch.map((tool) => this.extractToolContent(tool));
          const embeddings = await this.embeddingService.generateEmbeddings(contents);
 
          for (let i = 0; i < batch.length; i++) {
@@ -153,7 +158,7 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
      }
 
      private extractToolContent(tool: Tool): string {
-       return `${tool.name} ${tool.description} ${tool.category} ${Object.keys(tool.parameters).join(' ')}`;
+       return `${tool.name} ${tool.description} ${tool.category} ${Object.keys(tool.parameters).join(" ")}`;
      }
    }
    ```
@@ -171,11 +176,12 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
 **Tasks**:
 
 1. **Tool Similarity Service Implementation**
+
    ```typescript
    // src/domain/tools/similarity/tool-similarity-service.ts
    export class ToolSimilarityService {
      constructor(
-       private genericSimilarityService: GenericSimilarityService,  // mt#447
+       private genericSimilarityService: GenericSimilarityService, // mt#447
        private toolAdapter: ToolSimilarityAdapter
      ) {}
 
@@ -183,26 +189,27 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
        // Use generic similarity service with tool-specific adapter
        const results = await this.genericSimilarityService.search({
          query: request.query,
-         domain: 'tools',
+         domain: "tools",
          adapter: this.toolAdapter,
          limit: request.limit || 20,
          threshold: request.threshold || 0.3,
          filters: {
-           category: request.categories
-         }
+           category: request.categories,
+         },
        });
 
-       return results.map(result => ({
+       return results.map((result) => ({
          toolId: result.id,
          relevanceScore: result.score,
          tool: this.getToolFromRegistry(result.id),
-         reason: result.reason
+         reason: result.reason,
        }));
      }
    }
    ```
 
 2. **Fallback Mechanisms** (Following mt#447 Pattern)
+
    ```typescript
    // Implement keyword and category-based fallbacks
    class ToolKeywordFallback implements SimilaritySearchBackend {
@@ -216,11 +223,11 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
 
      private extractToolKeywords(query: string): string[] {
        const toolKeywords = {
-         'debug': ['git', 'test', 'debug'],
-         'review': ['git', 'diff', 'code'],
-         'implement': ['tasks', 'file', 'edit'],
-         'test': ['test', 'coverage', 'run'],
-         'deploy': ['deploy', 'config', 'env']
+         debug: ["git", "test", "debug"],
+         review: ["git", "diff", "code"],
+         implement: ["tasks", "file", "edit"],
+         test: ["test", "coverage", "run"],
+         deploy: ["deploy", "config", "env"],
        };
 
        return Object.entries(toolKeywords)
@@ -237,20 +244,22 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
 **Tasks**:
 
 1. **Enhanced Tool-Schemas Component**
+
    ```typescript
    // src/domain/context/components/tool-schemas.ts
    export const ToolSchemasComponent: ContextComponent = {
      async gatherInputs(context: ComponentInput): Promise<ComponentInputs> {
        // NEW: Query-aware tool filtering
        if (context.userQuery || context.userPrompt) {
-         const toolSimilarityService = container.resolve<ToolSimilarityService>('ToolSimilarityService');
+         const toolSimilarityService =
+           container.resolve<ToolSimilarityService>("ToolSimilarityService");
 
          const relevantTools = await toolSimilarityService.findRelevantTools({
            query: context.userQuery || context.userPrompt,
            taskContext: context.task,
            sessionContext: context.session,
            limit: 20, // Configurable limit
-           threshold: 0.3 // Configurable threshold
+           threshold: 0.3, // Configurable threshold
          });
 
          // Build tool schemas for relevant tools only
@@ -263,8 +272,8 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
              parameters: {
                type: "object",
                properties,
-               required
-             }
+               required,
+             },
            };
          }
 
@@ -274,7 +283,7 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
            filteredBy: "user-query",
            originalToolCount: this.getAllToolsCount(),
            reductionPercentage: this.calculateReduction(relevantTools.length),
-           queryUsed: context.userQuery || context.userPrompt
+           queryUsed: context.userQuery || context.userPrompt,
          };
        }
 
@@ -290,13 +299,13 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
              tokenCount: this.estimateTokenCount(inputs.toolSchemas),
              toolCount: inputs.totalTools,
              filteredBy: inputs.filteredBy,
-             reductionAchieved: inputs.reductionPercentage
-           }
+             reductionAchieved: inputs.reductionPercentage,
+           },
          };
        }
 
        return this.renderAllTools(inputs);
-     }
+     },
    };
    ```
 
@@ -320,28 +329,30 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
 **Tasks**:
 
 1. **Comprehensive Testing**
+
    ```typescript
    // Test various user query scenarios
    const testCases = [
      {
        query: "help me debug a failing test",
        expectedCategories: ["TASKS", "GIT", "DEBUG"],
-       expectedTools: ["tasks.list", "git.bisect", "debug.analyze"]
+       expectedTools: ["tasks.list", "git.bisect", "debug.analyze"],
      },
      {
        query: "review this pull request",
        expectedCategories: ["GIT", "TASKS"],
-       expectedTools: ["git.diff", "git.log", "tasks.get"]
+       expectedTools: ["git.diff", "git.log", "tasks.get"],
      },
      {
        query: "implement user authentication",
        expectedCategories: ["TASKS", "CONFIG", "SESSION"],
-       expectedTools: ["tasks.create", "config.set", "session.start"]
-     }
+       expectedTools: ["tasks.create", "config.set", "session.start"],
+     },
    ];
    ```
 
 2. **Performance Benchmarking**
+
    ```bash
    # Before optimization
    minsky context generate --analyze-only
@@ -354,6 +365,7 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
    ```
 
 3. **Validation Scripts**
+
    ```typescript
    // Automated validation of token reduction and relevance
    export async function validateContextOptimization() {
@@ -362,7 +374,7 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
        "review pull request",
        "implement authentication",
        "deploy application",
-       "analyze performance"
+       "analyze performance",
      ];
 
      for (const query of queries) {
@@ -384,18 +396,21 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
 ### Following Proven Infrastructure
 
 **1. Database Patterns** (mt#253 + mt#445)
+
 - Reuse session database connection
 - Follow identical table structure patterns
 - Use same pgvector indexing strategies
 - Implement same migration patterns
 
 **2. Embedding Patterns** (mt#445)
+
 - Reuse OpenAIEmbeddingService
 - Follow same batch processing logic
 - Use identical error handling
 - Implement same progress reporting
 
 **3. Similarity Service Patterns** (mt#447)
+
 - Use generic similarity service foundation
 - Implement tool-specific adapter
 - Configure fallback chain
@@ -428,13 +443,13 @@ CREATE INDEX idx_tool_embeddings_tool_id ON tool_embeddings (tool_id);
 
 ### Quantitative Targets
 
-| Metric | Baseline | Target | Validation Method |
-|--------|----------|--------|------------------|
-| Tool Schema Tokens | 15,946 | <5,000 | Context analysis |
-| Total Context Tokens | 21,853 | <11,000 | Context analysis |
-| Tool Count (with query) | 50+ | 15-20 | Tool counting |
-| Relevance Accuracy | ~30% | >90% | Manual review |
-| Response Time | N/A | <500ms | Performance testing |
+| Metric                  | Baseline | Target  | Validation Method   |
+| ----------------------- | -------- | ------- | ------------------- |
+| Tool Schema Tokens      | 15,946   | <5,000  | Context analysis    |
+| Total Context Tokens    | 21,853   | <11,000 | Context analysis    |
+| Tool Count (with query) | 50+      | 15-20   | Tool counting       |
+| Relevance Accuracy      | ~30%     | >90%    | Manual review       |
+| Response Time           | N/A      | <500ms  | Performance testing |
 
 ### Qualitative Validation
 

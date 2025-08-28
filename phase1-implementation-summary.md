@@ -7,6 +7,7 @@ Successfully implemented **Phase 1: Tool Embeddings Infrastructure** for mt#256 
 ## Problem Context
 
 **Critical Discovery**: Analysis of `minsky context generate --analyze-only` revealed:
+
 - **Tool schemas consume 73% of total context** (15,946 tokens out of 21,853)
 - **No intelligent filtering** - ALL 50+ tools included regardless of user query
 - **Massive optimization opportunity** - potential 60-70% token reduction
@@ -17,11 +18,13 @@ Successfully implemented **Phase 1: Tool Embeddings Infrastructure** for mt#256 
 ### ✅ **1. Database Infrastructure**
 
 **File**: `src/domain/storage/schemas/tool-embeddings.ts`
+
 - Created `tool_embeddings` table schema using proven patterns from mt#253/mt#445
 - Follows standardized embeddings schema factory for consistency
 - Includes domain-specific columns (category, description) for server-side filtering
 
 **Migration**: `src/domain/storage/migrations/pg/0014_create_tool_embeddings.sql`
+
 - PostgreSQL + pgvector table creation
 - HNSW indexes for similarity search
 - Additional indexes for category and description filtering
@@ -29,12 +32,14 @@ Successfully implemented **Phase 1: Tool Embeddings Infrastructure** for mt#256 
 ### ✅ **2. Service Layer**
 
 **File**: `src/domain/tools/tool-embedding-service.ts`
+
 - `ToolEmbeddingService` following mt#445 patterns exactly
 - Batch processing with content hash checking
 - Integration with existing OpenAI embedding service
 - Comprehensive tool content extraction for embeddings
 
 **Key Features**:
+
 - `indexTool(toolId)` - Index individual tools with up-to-date checking
 - `indexAllTools()` - Batch index all tools from shared command registry
 - Content extraction from tool name, description, category, and parameters
@@ -43,39 +48,46 @@ Successfully implemented **Phase 1: Tool Embeddings Infrastructure** for mt#256 
 ### ✅ **3. Vector Storage Integration**
 
 **File**: `src/domain/storage/vector/vector-storage-factory.ts`
+
 - Added `createToolsVectorStorageFromConfig()` function
 - Follows same patterns as rules and tasks vector storage
 - Uses session database connection by default
 - Support for both PostgreSQL and memory backends
 
 **Enhanced**: `src/domain/storage/schemas/embeddings-schema-factory.ts`
+
 - Added tools configuration to standardized embeddings configs
 - Maintains consistency with tasks and rules schemas
 
 ### ✅ **4. CLI Command Interface**
 
 **File**: `src/adapters/shared/commands/tools/index-embeddings-command.ts`
+
 - `minsky tools index-embeddings` command (currently under DEBUG category)
 - Follows patterns from tasks and rules index-embeddings commands
 - Supports --limit, --force, --json, --debug flags
 - Comprehensive error handling and progress reporting
 
 **Registration**: `src/adapters/shared/commands/tools.ts`
+
 - Command registration in shared command registry
 - Integration with existing command infrastructure
 
 **Integration**: `src/adapters/shared/commands/index.ts`
+
 - Added tools command registration to main command index
 - Exported for modular usage
 
 ### ✅ **5. Infrastructure Patterns**
 
 **Follows Proven Patterns From**:
+
 - **mt#253**: PostgreSQL + pgvector database storage, session database reuse
 - **mt#445**: OpenAI embedding service integration, batch processing, content hash checking
 - **Standardized Schema Factory**: Consistent table structure and indexing
 
 **Configuration Integration**:
+
 - Uses existing embedding service configuration
 - Leverages existing vector storage configuration
 - Maintains consistency with established patterns
@@ -105,14 +117,15 @@ CREATE INDEX "idx_tool_embeddings_description" ON "tool_embeddings" ("descriptio
 ### Tool Content Extraction
 
 Tools are embedded using comprehensive content extraction:
+
 ```typescript
 // Combines tool name, description, category, and parameter information
 const content = [
-  tool.name,              // e.g., "list"
-  tool.description,       // e.g., "List tasks with filtering"
-  tool.category,          // e.g., "TASKS"
-  ...parameterNames,      // e.g., ["status", "backend", "limit"]
-  ...parameterDescriptions // e.g., ["Filter by status", "Specify backend"]
+  tool.name, // e.g., "list"
+  tool.description, // e.g., "List tasks with filtering"
+  tool.category, // e.g., "TASKS"
+  ...parameterNames, // e.g., ["status", "backend", "limit"]
+  ...parameterDescriptions, // e.g., ["Filter by status", "Specify backend"]
 ].join(" ");
 ```
 
@@ -129,21 +142,25 @@ interface ToolEmbeddingService {
 ## Integration with Existing Infrastructure
 
 ### ✅ **Database Layer**
+
 - Uses existing session database connection patterns
 - Leverages proven pgvector + PostgreSQL setup
 - Follows standardized migration patterns
 
 ### ✅ **Embedding Service**
+
 - Reuses `OpenAIEmbeddingService` from mt#445
 - Same model configuration (`text-embedding-3-small`)
 - Identical batch processing and error handling
 
 ### ✅ **Vector Storage**
+
 - Extends `PostgresVectorStorage` patterns
 - Same configuration and initialization patterns
 - Consistent metadata handling
 
 ### ✅ **Command Registry**
+
 - Integrates with shared command registry
 - Follows existing command registration patterns
 - Maintains CLI consistency
@@ -151,16 +168,19 @@ interface ToolEmbeddingService {
 ## Validation and Testing
 
 ### ✅ **Linting**
+
 - All new files pass linting requirements
 - Follow existing code style and patterns
 - No console usage violations in new code
 
 ### ✅ **Pattern Validation**
+
 - Database schema follows standardized factory patterns
 - Service implementation matches mt#445 exactly
 - Vector storage integration consistent with mt#253
 
 ### ✅ **CLI Integration**
+
 - Command registration verified
 - Help system integration confirmed
 - Parameter handling follows existing patterns
@@ -170,11 +190,13 @@ interface ToolEmbeddingService {
 Phase 1 has established the foundation. **Phase 2** will implement:
 
 1. **Generic Similarity Service Integration**
+
    - Build `ToolSimilarityService` using mt#447 foundation
    - Implement semantic tool matching for user queries
    - Add fallback mechanisms (embeddings → keyword → category)
 
 2. **Query-Aware Tool Filtering**
+
    - Modify `tool-schemas` component in context generation
    - Parse user prompts for intent detection
    - Filter tools based on semantic similarity
@@ -187,18 +209,21 @@ Phase 1 has established the foundation. **Phase 2** will implement:
 ## Success Metrics (Phase 1)
 
 ### ✅ **Infrastructure Readiness**
+
 - Database schema created and ready for migration
 - Service layer implemented following proven patterns
 - CLI command available for tool indexing
 - Vector storage integration completed
 
 ### ✅ **Code Quality**
+
 - Zero linting errors
 - Follows established architectural patterns
 - Comprehensive error handling and logging
 - Consistent with existing codebase standards
 
 ### ✅ **Integration Completeness**
+
 - Command registry integration verified
 - Configuration system integration completed
 - Database connection patterns followed
@@ -209,6 +234,7 @@ Phase 1 has established the foundation. **Phase 2** will implement:
 **Commit**: `6d3ea946` - "feat(mt#256): Implement Phase 1 - Tool Embeddings Infrastructure"
 
 **Files Added/Modified**:
+
 - `src/domain/storage/schemas/tool-embeddings.ts` (new)
 - `src/domain/storage/migrations/pg/0014_create_tool_embeddings.sql` (new)
 - `src/domain/tools/tool-embedding-service.ts` (new)
@@ -221,12 +247,14 @@ Phase 1 has established the foundation. **Phase 2** will implement:
 ## Risk Assessment
 
 ### ✅ **Low Risk Implementation**
+
 - Builds on proven infrastructure (mt#253, mt#445)
 - No breaking changes to existing functionality
 - Follows established patterns exactly
 - Comprehensive error handling implemented
 
 ### ✅ **Quality Assurance**
+
 - All code follows existing patterns
 - Linting and style guidelines met
 - Integration with existing systems verified

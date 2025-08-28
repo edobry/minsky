@@ -19,6 +19,7 @@ As our MCP tool ecosystem grows larger and more sophisticated, we face **immedia
 **CRITICAL DISCOVERY**: Analysis of the `minsky context generate` command reveals that tool schemas consume **73% of total context** (15,946 out of 21,853 tokens), with **no intelligent filtering** applied regardless of user query or task context.
 
 **Current Context Pollution Evidence:**
+
 ```bash
 🔍 Context Analysis (minsky context generate --analyze-only)
 Total Tokens: 21,853
@@ -30,6 +31,7 @@ Potential savings: 6,378+ tokens (30%+ context reduction)
 ```
 
 **The Problem:** Even when users specify targeted queries like:
+
 - `minsky context generate --prompt "help me debug a failing test"`
 - `minsky context generate --prompt "review this pull request"`
 
@@ -55,6 +57,7 @@ This system will serve as the foundation for intelligent context management and 
 4. **🚧 Task #447 (TODO)**: Generic similarity search service with pluggable backends - **FOUNDATION**
 
 **CURRENT INFRASTRUCTURE**:
+
 - ✅ PostgreSQL + pgvector database storage
 - ✅ OpenAI embedding service integration
 - ✅ `task_embeddings` and `rules_embeddings` tables
@@ -62,6 +65,7 @@ This system will serve as the foundation for intelligent context management and 
 - ✅ Session database connection reuse
 
 **INTEGRATION POINTS**:
+
 1. **MCP Tool System**: Integrates with existing MCP server and tool infrastructure
 2. **Session Management**: Leverages session context and current session detection
 3. **Task Management**: Integrates with task system for task-specific tool selection
@@ -159,6 +163,7 @@ Implement a comprehensive context-aware tool management system that intelligentl
 - Integration with existing embedding infrastructure from tasks/rules domains
 
 **Proven Implementation Patterns:**
+
 - Reuse `OpenAIEmbeddingService` and `PostgresVectorStorage` from mt#253
 - Follow `rules_embeddings` table structure from mt#445
 - Leverage server-side filtering patterns from mt#449
@@ -169,12 +174,14 @@ Implement a comprehensive context-aware tool management system that intelligentl
 ### Core Architecture
 
 1. **ToolSimilarityService:**
+
    - **Built on Generic Similarity Service (mt#447)** with pluggable backends
    - Semantic tool matching using embeddings + vector search
    - Fallback to keyword search when embeddings unavailable
    - Configurable similarity thresholds and result limits
 
 2. **ContextAwareToolFilter:**
+
    - **Primary Integration Point**: Modifies `tool-schemas` component in context generation
    - Multi-dimensional context analysis (user query, task, session, workflow)
    - Rule-based and embedding-based filtering
@@ -222,7 +229,7 @@ export const ToolSchemasComponent: ContextComponent = {
         taskContext: context.task,
         sessionContext: context.session,
         limit: 20, // Reduced from 50+ tools
-        threshold: 0.3
+        threshold: 0.3,
       });
 
       return {
@@ -235,7 +242,7 @@ export const ToolSchemasComponent: ContextComponent = {
 
     // Fallback to existing logic for backward compatibility
     return generateAllTools(context);
-  }
+  },
   // ... rest of component
 };
 ```
@@ -243,17 +250,20 @@ export const ToolSchemasComponent: ContextComponent = {
 ### Tool Selection Algorithm
 
 1. **Base Tool Set:**
+
    - Always-available core tools (file operations, basic search)
    - Context-independent utility tools
    - Safety and emergency tools
 
 2. **Query-Driven Selection:**
+
    - Parse user query for intent and domain keywords
    - Semantic similarity matching using embeddings
    - Category-based filtering based on detected intent
    - Prioritize tools by relevance score
 
 3. **Context-Specific Addition:**
+
    - Add tools based on detected context (task, session, workflow)
    - Respect context size limits and constraints
    - Dynamic tool swapping as context changes
@@ -268,7 +278,9 @@ export const ToolSchemasComponent: ContextComponent = {
 ### Phase 1: Context Generation Integration (IMMEDIATE)
 
 **Week 1-2: Foundation**
+
 1. **Tool Embeddings Infrastructure:**
+
    - Create `tool_embeddings` table using proven schema patterns
    - Implement `ToolEmbeddingService` reusing OpenAI + pgvector infrastructure
    - Generate embeddings for all existing tools using mt#445 patterns
@@ -278,11 +290,11 @@ export const ToolSchemasComponent: ContextComponent = {
    - Add tool-specific adapters for content extraction and ID mapping
    - Configure fallback chain: embeddings → keyword → category-based
 
-**Week 3-4: Context Integration**
-3. **Query-Aware Tool Filtering:**
-   - Modify `tool-schemas` component to accept user query
-   - Implement semantic tool matching for user prompts
-   - Add configuration for tool count limits and similarity thresholds
+**Week 3-4: Context Integration** 3. **Query-Aware Tool Filtering:**
+
+- Modify `tool-schemas` component to accept user query
+- Implement semantic tool matching for user prompts
+- Add configuration for tool count limits and similarity thresholds
 
 4. **Testing and Validation:**
    - Test context generation with various user queries
@@ -292,7 +304,9 @@ export const ToolSchemasComponent: ContextComponent = {
 ### Phase 2: Advanced Context Awareness (FOLLOW-UP)
 
 **Month 2: Enhanced Intelligence**
+
 1. **Workflow Phase Detection:**
+
    - Implement automatic phase detection algorithms
    - Create phase-specific tool mappings
    - Add manual override capabilities
@@ -305,7 +319,9 @@ export const ToolSchemasComponent: ContextComponent = {
 ### Phase 3: Dynamic Tool Management (FUTURE)
 
 **Month 3: MCP Integration**
+
 1. **Real-time Tool Registration:**
+
    - Implement dynamic tool registration/deregistration
    - Create tool selection middleware for MCP server
    - Add real-time tool availability updates
@@ -471,6 +487,7 @@ The context-aware tool management system represents a critical advancement in AI
 ## Implementation Plan Summary
 
 **IMMEDIATE PRIORITY**: Context Generation Integration
+
 - **Week 1**: Tool embeddings infrastructure using proven patterns
 - **Week 2**: Generic similarity service integration for tools
 - **Week 3**: Query-aware filtering in tool-schemas component

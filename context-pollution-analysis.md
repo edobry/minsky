@@ -60,23 +60,29 @@ communication              46 tokens (0.2%)
 ### User Query Scenarios
 
 **Test Case 1**: Debugging Query
+
 ```bash
 minsky context generate --prompt "help me debug a failing test"
 ```
+
 **Expected Tools**: tasks, git bisect, test runners, debugging utilities
 **Actual Result**: ALL 50+ tools including session creation, config management, AI models, deployment
 
 **Test Case 2**: Code Review Query
+
 ```bash
 minsky context generate --prompt "review this pull request"
 ```
+
 **Expected Tools**: git commands, diff analysis, code review tools
 **Actual Result**: ALL 50+ tools including test runners, database operations, session management
 
 **Test Case 3**: Implementation Query
+
 ```bash
 minsky context generate --prompt "implement user authentication"
 ```
+
 **Expected Tools**: task management, file operations, security-related tools
 **Actual Result**: ALL 50+ tools including git bisect, database migration, deployment scripts
 
@@ -91,12 +97,12 @@ minsky context generate --prompt "implement user authentication"
 
 ### Context Efficiency Metrics
 
-| Metric | Current | Target | Improvement |
-|--------|---------|--------|-------------|
-| Tool Schema Tokens | 15,946 | ~5,000 | 68% reduction |
-| Total Context Tokens | 21,853 | ~11,000 | 50% reduction |
-| Context Window Usage | 17.1% | 8.6% | 50% more efficient |
-| Relevant Tool Ratio | ~30% | ~90% | 3x relevance improvement |
+| Metric               | Current | Target  | Improvement              |
+| -------------------- | ------- | ------- | ------------------------ |
+| Tool Schema Tokens   | 15,946  | ~5,000  | 68% reduction            |
+| Total Context Tokens | 21,853  | ~11,000 | 50% reduction            |
+| Context Window Usage | 17.1%   | 8.6%    | 50% more efficient       |
+| Relevant Tool Ratio  | ~30%    | ~90%    | 3x relevance improvement |
 
 ## Root Cause Analysis
 
@@ -105,6 +111,7 @@ minsky context generate --prompt "implement user authentication"
 **File**: `src/domain/context/components/tool-schemas.ts`
 
 **Current Implementation** (Lines 104-148):
+
 ```typescript
 const categories = [
   CommandCategory.TASKS,     // All task commands
@@ -150,6 +157,7 @@ for (const category of categories) {
 ### Infrastructure Dependencies
 
 **Available Infrastructure** (Ready for Use):
+
 - ✅ PostgreSQL + pgvector database storage (mt#253)
 - ✅ OpenAI embedding service integration (mt#445)
 - ✅ Similarity search with configurable thresholds
@@ -183,20 +191,20 @@ for (const category of categories) {
 
 ### Technical Risks
 
-| Risk | Probability | Impact | Mitigation |
-|------|------------|--------|------------|
-| Embedding performance issues | Low | Medium | Use proven patterns from mt#253/445 |
-| Relevance accuracy problems | Medium | High | Implement fallback to category-based filtering |
-| Backward compatibility breaking | Low | High | Maintain existing behavior when no query |
-| Integration complexity | Medium | Medium | Build on existing infrastructure |
+| Risk                            | Probability | Impact | Mitigation                                     |
+| ------------------------------- | ----------- | ------ | ---------------------------------------------- |
+| Embedding performance issues    | Low         | Medium | Use proven patterns from mt#253/445            |
+| Relevance accuracy problems     | Medium      | High   | Implement fallback to category-based filtering |
+| Backward compatibility breaking | Low         | High   | Maintain existing behavior when no query       |
+| Integration complexity          | Medium      | Medium | Build on existing infrastructure               |
 
 ### Delivery Risks
 
-| Risk | Probability | Impact | Mitigation |
-|------|------------|--------|------------|
-| Infrastructure dependencies | Low | Medium | All required infrastructure available |
-| Testing complexity | Medium | Low | Use existing embedding test patterns |
-| Performance degradation | Low | High | Implement caching and optimization |
+| Risk                        | Probability | Impact | Mitigation                            |
+| --------------------------- | ----------- | ------ | ------------------------------------- |
+| Infrastructure dependencies | Low         | Medium | All required infrastructure available |
+| Testing complexity          | Medium      | Low    | Use existing embedding test patterns  |
+| Performance degradation     | Low         | High   | Implement caching and optimization    |
 
 ## Recommendations
 
@@ -219,6 +227,7 @@ for (const category of categories) {
 ### Success Validation
 
 **Before/After Test Protocol**:
+
 ```bash
 # Test various user queries and measure:
 # 1. Token reduction in tool-schemas component
