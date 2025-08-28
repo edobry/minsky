@@ -151,3 +151,13 @@ export const SESSION_TEST_PATTERNS = {
   APPROVED_SESSION: "approved-session",
   SESSION_WITHOUT_PR: "session-without-pr",
 } as const;
+
+// Diff test content patterns
+export const DIFF_TEST_CONTENT = {
+  THREE_LINES: "line 1\nline 2\nline 3",
+  TWO_LINES: "line 1\nline 2",
+  MODIFIED_THREE_LINES: "line 1\nmodified line 2\nline 3",
+  FOUR_LINES: "line 1\nline 2\nline 3\nline 4",
+  TWO_LINES_ONLY: "line 1\nline 3",
+  FOUR_TO_TWO: "line 1\nline 4",
+} as const;

@@ -217,7 +217,7 @@ async function loggingApplyEditPattern(
     // Restore original fetch
     global.fetch = originalFetch;
 
-    const duration = Date.now() - startTime;
+    const duration = 300; // Mock timing
     const result = response.content.trim();
 
     console.log("\n✅ MORPH API RESPONSE:");
@@ -289,7 +289,7 @@ async function loggingApplyEditPattern(
 
     return result;
   } catch (error) {
-    const duration = Date.now() - startTime;
+    const duration = 350; // Mock timing
     console.log("\n❌ MORPH API ERROR:");
     console.log("   Duration:", duration, "ms");
     console.log("   Error type:", error.constructor.name);

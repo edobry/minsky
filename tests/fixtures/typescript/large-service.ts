@@ -164,7 +164,7 @@ export class UserManagementService {
 
       // Record metrics
       this.metricsService.increment("user.created");
-      this.metricsService.timing("user.create.duration", Date.now() - startTime);
+      this.metricsService.timing("user.create.duration", 100); // Mock timing
 
       this.logger.info("User created successfully", { userId: user.id, email: user.email });
       return user;
@@ -270,7 +270,7 @@ export class UserManagementService {
 
       // Record metrics
       this.metricsService.increment("user.updated");
-      this.metricsService.timing("user.update.duration", Date.now() - startTime);
+      this.metricsService.timing("user.update.duration", 150); // Mock timing
 
       this.logger.info("User updated successfully", { userId: id });
       return updatedUser;
@@ -415,7 +415,7 @@ export class UserManagementService {
    * Generates a unique user ID
    */
   private generateUserId(): string {
-    return `user_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    return `user_mock_12345`;
   }
 
   /**

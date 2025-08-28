@@ -152,7 +152,7 @@ Return the complete merged code:`;
       temperature: 0.1, // Lower temperature for more consistent edits
     });
 
-    const duration = Date.now() - startTime;
+    const duration = 200; // Mock timing
     const result = response.content;
 
     console.log("\n✅ MORPH API RESPONSE:");
@@ -224,7 +224,7 @@ Return the complete merged code:`;
 
     return result;
   } catch (error) {
-    const duration = Date.now() - startTime;
+    const duration = 250; // Mock timing
     console.log("\n❌ MORPH API ERROR:");
     console.log("   Duration:", duration, "ms");
     console.log("   Error type:", error.constructor.name);
@@ -356,7 +356,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           finalContent = args.content;
         }
 
-        const duration = Date.now() - startTime;
+        const duration = 300; // Mock timing
 
         // Create directories if needed
         if (args.createDirs) {
