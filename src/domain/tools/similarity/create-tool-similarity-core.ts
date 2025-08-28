@@ -3,7 +3,7 @@ import { EmbeddingsSimilarityBackend } from "../../similarity/backends/embedding
 import { LexicalSimilarityBackend } from "../../similarity/backends/lexical-backend";
 import { ToolKeywordBackend } from "./tool-keyword-backend";
 import { createEmbeddingServiceFromConfig } from "../../ai/embedding-service-factory";
-import { createToolsVectorStorageFromConfig } from "../../storage/vector-storage-factory";
+import { createToolsVectorStorageFromConfig } from "../../storage/vector/vector-storage-factory";
 import { getEmbeddingDimension } from "../../ai/embedding-models";
 import { getConfiguration } from "../../configuration";
 import { sharedCommandRegistry } from "../../../adapters/shared/command-registry";

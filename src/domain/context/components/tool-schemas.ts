@@ -103,7 +103,7 @@ export const ToolSchemasComponent: ContextComponent = {
 
       // Check if query-aware filtering should be applied
       const userQuery = context.userQuery || context.userPrompt;
-      const shouldFilterByQuery = Boolean(userQuery?.trim());
+      let shouldFilterByQuery = Boolean(userQuery?.trim());
 
       let toolSchemas: Record<string, any> = {};
       let totalTools = 0;
