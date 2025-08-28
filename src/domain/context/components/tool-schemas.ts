@@ -170,10 +170,7 @@ export const ToolSchemasComponent: ContextComponent = {
               : 0;
           filteredBy = "user-query";
         } catch (error) {
-          log.warn(
-            "Failed to apply query-aware tool filtering, falling back to all tools:",
-            error
-          );
+          log.warn("Failed to apply query-aware tool filtering, falling back to all tools:", error);
           // Fall back to including all tools if filtering fails
           shouldFilterByQuery = false;
         }
