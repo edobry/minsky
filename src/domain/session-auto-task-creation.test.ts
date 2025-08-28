@@ -36,7 +36,7 @@ describe("Session Auto-Task Creation", () => {
     await initializeConfiguration(factory, { workingDirectory: "/mock/workspace" });
 
     // Create spy for tracking task creation
-    createTaskSpy = createMock(() =>
+    createTaskSpy = mock(() =>
       Promise.resolve({
         id: "md#001", // Use qualified format to match expectations
         title: "Test Task",
