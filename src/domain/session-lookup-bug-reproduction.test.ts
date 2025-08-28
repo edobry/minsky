@@ -21,6 +21,7 @@ import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { join } from "path";
 import { startSessionFromParams, listSessionsFromParams } from "./session";
 import { createMock } from "../utils/test-utils/mocking";
+import { SESSION_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 import {
   createMockSessionProvider,
   createMockGitService,
@@ -161,7 +162,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       mockFs.writeFile(
         "/mock/sessions/orphaned-session/session.json",
         JSON.stringify({
-          session: "orphaned-session",
+          session: SESSION_TEST_PATTERNS.ORPHANED_SESSION,
           repoUrl: "https://github.com/test/repo.git",
           branch: "main",
         })
@@ -171,7 +172,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       expect(mockFs.existsSync("/mock/sessions/orphaned-session")).toBe(true);
 
       // But session lookup fails because it's not in the database
-      const session = await mockSessionDB.getSession("orphaned-session");
+      const session = await mockSessionDB.getSession(SESSION_TEST_PATTERNS.ORPHANED_SESSION);
       expect(session).toBeNull();
 
       // And session doesn't appear in list
@@ -192,7 +193,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
           hasDirectory: true,
         },
         {
-          name: "orphaned-session",
+          name: SESSION_TEST_PATTERNS.ORPHANED_SESSION,
           inDatabase: false,
           hasDirectory: true, // Bug: directory exists but not in database
         },
@@ -243,7 +244,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
         console.log(`  Directory: ${directoryExists ? "✓" : "✗"}`);
 
         // Verify the expected inconsistencies
-        if (scenario.name === "orphaned-session") {
+        if (scenario.name === SESSION_TEST_PATTERNS.ORPHANED_SESSION) {
           expect(sessionExists).toBeNull(); // Not in database
           expect(directoryExists).toBe(true); // But directory exists
         }
