@@ -1,6 +1,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { mock } from "bun:test";
+import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import {
   isSessionWorkspace,
   isSessionRepository,
@@ -35,7 +36,7 @@ describe("Workspace Domain Methods", () => {
   describe("isSessionRepository (async workspace checking)", () => {
     test("returns true for a path in a session repository", async () => {
       // Arrange
-      const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+      const repoPath = SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS;
       const execAsyncMock = mockGitRootExecAsync(repoPath);
 
       // Override environment variables for testing
@@ -82,7 +83,7 @@ describe("Workspace Domain Methods", () => {
 
     test("verifies isSessionRepository consistency", async () => {
       // Arrange
-      const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+      const repoPath = SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS;
       const execAsyncMock = mockGitRootExecAsync(repoPath);
 
       // Override environment variables for testing
@@ -106,7 +107,7 @@ describe("Workspace Domain Methods", () => {
   describe("getSessionFromWorkspace (getSessionFromRepo)", () => {
     test("gets session information for a valid session repository", async () => {
       // Arrange
-      const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+      const repoPath = SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS;
       const execAsyncMock = mockGitRootExecAsync(repoPath);
 
       // Set up environment for testing
@@ -133,7 +134,7 @@ describe("Workspace Domain Methods", () => {
         expect(result).toEqual({
           session: "session-name",
           upstreamRepository: "https://github.com/org/repo.git",
-          gitRoot: "/Users/test/.local/state/minsky/sessions/session-name",
+          gitRoot: SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS,
         });
       } finally {
         // Restore original HOME
@@ -181,7 +182,7 @@ describe("Workspace Domain Methods", () => {
 
     test("verifies getSessionFromRepo is an alias for getSessionFromWorkspace", async () => {
       // Arrange
-      const repoPath = "/Users/test/.local/state/minsky/sessions/session-name";
+      const repoPath = SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS;
       const execAsyncMock = mockGitRootExecAsync(repoPath);
 
       // Set up environment for testing
@@ -216,7 +217,7 @@ describe("Workspace Domain Methods", () => {
   describe("getCurrentSession", () => {
     test("returns session name when in a session directory", async () => {
       // Arrange
-      const sessionPath = "/Users/test/.local/state/minsky/sessions/session-name";
+      const sessionPath = SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS;
       const execAsyncMock = mockGitRootExecAsync(sessionPath);
 
       // Set up environment for testing
@@ -321,7 +322,7 @@ describe("Workspace Domain Methods", () => {
 
     test("uses provided sessionWorkspace path", async () => {
       // Arrange
-      const sessionWorkspace = "/Users/test/.local/state/minsky/sessions/session-name";
+      const sessionWorkspace = SESSION_TEST_PATTERNS.TEST_USERS_SESSIONS;
       const options = { sessionWorkspace };
 
       // Act
