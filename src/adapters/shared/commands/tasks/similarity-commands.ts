@@ -258,7 +258,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
     } else if (!showAll) {
       // Default: exclude DONE and CLOSED tasks unless --all is specified
       // This matches the behavior of tasks list command (mt#477)
-      filters.statusExclude = ['DONE', 'CLOSED'];
+      filters.statusExclude = ["DONE", "CLOSED"];
     }
 
     const searchResults = await service.searchByText(query, limit, threshold, filters);

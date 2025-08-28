@@ -74,14 +74,22 @@ async function testContextReduction() {
     log.info("\n📊 Context Pollution Reduction Summary:");
 
     const debugReduction = baselineOutput.metadata.tokenCount! - debugOutput.metadata.tokenCount!;
-    const debugReductionPercent = Math.round((debugReduction / baselineOutput.metadata.tokenCount!) * 100);
+    const debugReductionPercent = Math.round(
+      (debugReduction / baselineOutput.metadata.tokenCount!) * 100
+    );
 
     const tasksReduction = baselineOutput.metadata.tokenCount! - tasksOutput.metadata.tokenCount!;
-    const tasksReductionPercent = Math.round((tasksReduction / baselineOutput.metadata.tokenCount!) * 100);
+    const tasksReductionPercent = Math.round(
+      (tasksReduction / baselineOutput.metadata.tokenCount!) * 100
+    );
 
     log.info(`   Baseline (no filtering): ${baselineOutput.metadata.tokenCount} tokens`);
-    log.info(`   Debug query filtering: ${debugOutput.metadata.tokenCount} tokens (${debugReductionPercent}% reduction)`);
-    log.info(`   Tasks query filtering: ${tasksOutput.metadata.tokenCount} tokens (${tasksReductionPercent}% reduction)`);
+    log.info(
+      `   Debug query filtering: ${debugOutput.metadata.tokenCount} tokens (${debugReductionPercent}% reduction)`
+    );
+    log.info(
+      `   Tasks query filtering: ${tasksOutput.metadata.tokenCount} tokens (${tasksReductionPercent}% reduction)`
+    );
 
     // Success criteria
     const targetReduction = 30; // Target minimum 30% reduction
@@ -89,8 +97,12 @@ async function testContextReduction() {
     const achievedTargetTasks = tasksReductionPercent >= targetReduction;
 
     log.info(`\n✅ Results:`);
-    log.info(`   Debug query: ${achievedTargetDebug ? "✅ PASSED" : "❌ FAILED"} (${debugReductionPercent}% reduction, target: ${targetReduction}%+)`);
-    log.info(`   Tasks query: ${achievedTargetTasks ? "✅ PASSED" : "❌ FAILED"} (${tasksReductionPercent}% reduction, target: ${targetReduction}%+)`);
+    log.info(
+      `   Debug query: ${achievedTargetDebug ? "✅ PASSED" : "❌ FAILED"} (${debugReductionPercent}% reduction, target: ${targetReduction}%+)`
+    );
+    log.info(
+      `   Tasks query: ${achievedTargetTasks ? "✅ PASSED" : "❌ FAILED"} (${tasksReductionPercent}% reduction, target: ${targetReduction}%+)`
+    );
 
     if (achievedTargetDebug && achievedTargetTasks) {
       log.info(`\n🎉 Context pollution reduction test PASSED!`);
@@ -99,7 +111,6 @@ async function testContextReduction() {
       log.info(`\n⚠️  Context pollution reduction test PARTIAL SUCCESS`);
       log.info(`   Some queries did not achieve ${targetReduction}%+ reduction target`);
     }
-
   } catch (error) {
     log.error("❌ Context pollution reduction test failed:", error);
     throw error;

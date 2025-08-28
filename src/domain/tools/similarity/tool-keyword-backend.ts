@@ -63,17 +63,47 @@ export class ToolKeywordBackend implements SimilarityBackend {
   private extractKeywords(queryText: string): string[] {
     // Remove common stop words and extract meaningful keywords
     const stopWords = new Set([
-      "a", "an", "and", "are", "as", "at", "be", "by", "for",
-      "from", "has", "he", "in", "is", "it", "its", "of", "on",
-      "that", "the", "to", "was", "will", "with", "me", "help",
-      "i", "can", "how", "what", "where", "when", "why", "do"
+      "a",
+      "an",
+      "and",
+      "are",
+      "as",
+      "at",
+      "be",
+      "by",
+      "for",
+      "from",
+      "has",
+      "he",
+      "in",
+      "is",
+      "it",
+      "its",
+      "of",
+      "on",
+      "that",
+      "the",
+      "to",
+      "was",
+      "will",
+      "with",
+      "me",
+      "help",
+      "i",
+      "can",
+      "how",
+      "what",
+      "where",
+      "when",
+      "why",
+      "do",
     ]);
 
     return queryText
       .split(/\s+/)
-      .map(word => word.replace(/[^\w]/g, ''))
-      .filter(word => word.length > 2 && !stopWords.has(word))
-      .map(word => word.toLowerCase());
+      .map((word) => word.replace(/[^\w]/g, ""))
+      .filter((word) => word.length > 2 && !stopWords.has(word))
+      .map((word) => word.toLowerCase());
   }
 
   /**
@@ -82,48 +112,89 @@ export class ToolKeywordBackend implements SimilarityBackend {
   private extractIntentKeywords(queryText: string): Record<string, string[]> {
     const intentMap = {
       // Task management related
-      'tasks': ['task', 'todo', 'work', 'project', 'issue', 'ticket', 'manage', 'list', 'create', 'update'],
+      tasks: [
+        "task",
+        "todo",
+        "work",
+        "project",
+        "issue",
+        "ticket",
+        "manage",
+        "list",
+        "create",
+        "update",
+      ],
 
       // Git/version control related
-      'git': ['git', 'commit', 'branch', 'merge', 'pull', 'push', 'repo', 'repository', 'version', 'control'],
+      git: [
+        "git",
+        "commit",
+        "branch",
+        "merge",
+        "pull",
+        "push",
+        "repo",
+        "repository",
+        "version",
+        "control",
+      ],
 
       // Debug/troubleshooting related
-      'debug': ['debug', 'fix', 'error', 'bug', 'issue', 'problem', 'troubleshoot', 'investigate', 'analyze'],
+      debug: [
+        "debug",
+        "fix",
+        "error",
+        "bug",
+        "issue",
+        "problem",
+        "troubleshoot",
+        "investigate",
+        "analyze",
+      ],
 
       // Session management related
-      'session': ['session', 'workspace', 'context', 'environment', 'setup', 'init', 'start', 'switch'],
+      session: [
+        "session",
+        "workspace",
+        "context",
+        "environment",
+        "setup",
+        "init",
+        "start",
+        "switch",
+      ],
 
       // Configuration related
-      'config': ['config', 'configure', 'setting', 'option', 'preference', 'setup', 'parameter'],
+      config: ["config", "configure", "setting", "option", "preference", "setup", "parameter"],
 
       // Rules related
-      'rules': ['rule', 'policy', 'guideline', 'standard', 'practice', 'convention'],
+      rules: ["rule", "policy", "guideline", "standard", "practice", "convention"],
 
       // AI/embedding related
-      'ai': ['ai', 'embedding', 'similarity', 'search', 'semantic', 'intelligent', 'smart'],
+      ai: ["ai", "embedding", "similarity", "search", "semantic", "intelligent", "smart"],
 
       // Database related
-      'sessiondb': ['database', 'db', 'data', 'store', 'persist', 'save', 'query', 'record'],
+      sessiondb: ["database", "db", "data", "store", "persist", "save", "query", "record"],
 
       // Testing related
-      'test': ['test', 'testing', 'spec', 'verify', 'validate', 'check', 'assert'],
+      test: ["test", "testing", "spec", "verify", "validate", "check", "assert"],
 
       // Code review related
-      'review': ['review', 'diff', 'compare', 'examine', 'inspect', 'audit'],
+      review: ["review", "diff", "compare", "examine", "inspect", "audit"],
 
       // Implementation related
-      'implement': ['implement', 'code', 'develop', 'build', 'create', 'write', 'program'],
+      implement: ["implement", "code", "develop", "build", "create", "write", "program"],
 
       // Deployment related
-      'deploy': ['deploy', 'deployment', 'release', 'publish', 'launch', 'ship']
+      deploy: ["deploy", "deployment", "release", "publish", "launch", "ship"],
     };
 
     const detected: Record<string, string[]> = {};
     const words = queryText.toLowerCase().split(/\s+/);
 
     for (const [category, keywords] of Object.entries(intentMap)) {
-      const matches = keywords.filter(keyword =>
-        words.some(word => word.includes(keyword) || keyword.includes(word))
+      const matches = keywords.filter((keyword) =>
+        words.some((word) => word.includes(keyword) || keyword.includes(word))
       );
 
       if (matches.length > 0) {
@@ -150,8 +221,10 @@ export class ToolKeywordBackend implements SimilarityBackend {
       tool.name,
       tool.description,
       tool.category.toLowerCase(),
-      ...Object.keys(tool.parameters || {})
-    ].join(" ").toLowerCase();
+      ...Object.keys(tool.parameters || {}),
+    ]
+      .join(" ")
+      .toLowerCase();
 
     // Score based on direct keyword matches
     for (const keyword of keywords) {
@@ -172,8 +245,10 @@ export class ToolKeywordBackend implements SimilarityBackend {
 
     // Score based on intent keywords (category matching)
     for (const [category, matches] of Object.entries(intentKeywords)) {
-      if (tool.category.toLowerCase().includes(category) ||
-          category.includes(tool.category.toLowerCase())) {
+      if (
+        tool.category.toLowerCase().includes(category) ||
+        category.includes(tool.category.toLowerCase())
+      ) {
         score += 0.5 * matches.length; // Strong category match
       }
     }

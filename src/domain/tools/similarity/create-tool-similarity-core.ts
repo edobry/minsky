@@ -12,9 +12,7 @@ export interface ToolSimilarityCoreOptions {
   disableEmbeddings?: boolean;
 }
 
-export async function createToolSimilarityCore(
-  options: ToolSimilarityCoreOptions = {}
-) {
+export async function createToolSimilarityCore(options: ToolSimilarityCoreOptions = {}) {
   const cfg: any = await getConfiguration();
   const model = cfg?.embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
@@ -51,11 +49,7 @@ export async function createToolSimilarityCore(
       if (!tool) return "";
 
       // Extract same content as ToolEmbeddingService for consistency
-      const parts = [
-        tool.name,
-        tool.description,
-        tool.category.toLowerCase(),
-      ];
+      const parts = [tool.name, tool.description, tool.category.toLowerCase()];
 
       // Add parameter names and descriptions if available
       if (tool.parameters) {

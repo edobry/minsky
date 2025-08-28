@@ -169,9 +169,9 @@ export class PostgresVectorStorage implements VectorStorage {
       for (const [key, value] of Object.entries(filters)) {
         if (value !== undefined && value !== null) {
           // Handle exclusion filters (e.g., statusExclude: ['DONE', 'CLOSED'])
-          if (key.endsWith('Exclude') && Array.isArray(value) && value.length > 0) {
-            const columnName = key.replace('Exclude', '');
-            const placeholders = value.map(() => `$${paramIndex++}`).join(', ');
+          if (key.endsWith("Exclude") && Array.isArray(value) && value.length > 0) {
+            const columnName = key.replace("Exclude", "");
+            const placeholders = value.map(() => `$${paramIndex++}`).join(", ");
             filterConditions.push(`${columnName} NOT IN (${placeholders})`);
             queryParams.push(...value);
           } else {

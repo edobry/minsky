@@ -1,8 +1,9 @@
 import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 import { CommandGeneratorService } from "../../rules/command-generator";
 import { CommandCategory, sharedCommandRegistry } from "../../../adapters/shared/command-registry";
-import { createToolSimilarityService } from "../../tools/similarity/tool-similarity-service";
 import { z } from "zod";
+import { createToolSimilarityService } from "../../tools/similarity/tool-similarity-service";
+import { log } from "../../../utils/logger";
 
 /**
  * Convert a Zod schema to JSON Schema format like Cursor uses
@@ -103,7 +104,9 @@ export const ToolSchemasComponent: ContextComponent = {
 
       // Check if query-aware filtering should be applied
       const userQuery = context.userQuery || context.userPrompt;
-      let shouldFilterByQuery = Boolean(userQuery?.trim());
+      // IMPORTANT: When a custom commandRegistry is provided (e.g., in unit tests),
+      // disable query-based filtering to ensure full registry visibility.
+      let shouldFilterByQuery = Boolean(userQuery?.trim()) && !context.commandRegistry;
 
       let toolSchemas: Record<string, any> = {};
       let totalTools = 0;
@@ -161,13 +164,16 @@ export const ToolSchemasComponent: ContextComponent = {
           // Calculate reduction metrics
           const allCommands = registry.getAllCommands();
           originalToolCount = allCommands.length;
-          reductionPercentage = originalToolCount > 0
-            ? Math.round(((originalToolCount - totalTools) / originalToolCount) * 100)
-            : 0;
+          reductionPercentage =
+            originalToolCount > 0
+              ? Math.round(((originalToolCount - totalTools) / originalToolCount) * 100)
+              : 0;
           filteredBy = "user-query";
-
         } catch (error) {
-          console.warn("Failed to apply query-aware tool filtering, falling back to all tools:", error);
+          log.warn(
+            "Failed to apply query-aware tool filtering, falling back to all tools:",
+            error
+          );
           // Fall back to including all tools if filtering fails
           shouldFilterByQuery = false;
         }
@@ -235,7 +241,7 @@ export const ToolSchemasComponent: ContextComponent = {
         queryUsed: userQuery,
       };
     } catch (error) {
-      console.warn("Failed to load tool schemas via template system:", error);
+      log.warn("Failed to load tool schemas via template system:", error);
       return {
         toolSchemas: {},
         totalTools: 0,

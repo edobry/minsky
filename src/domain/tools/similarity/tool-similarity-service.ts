@@ -1,5 +1,11 @@
-import { createToolSimilarityCore, type ToolSimilarityCoreOptions } from "./create-tool-similarity-core";
-import { sharedCommandRegistry, type SharedCommand } from "../../../adapters/shared/command-registry";
+import {
+  createToolSimilarityCore,
+  type ToolSimilarityCoreOptions,
+} from "./create-tool-similarity-core";
+import {
+  sharedCommandRegistry,
+  type SharedCommand,
+} from "../../../adapters/shared/command-registry";
 import { createLogger } from "../../../utils/logger";
 import type { SimilarityItem } from "../../similarity/types";
 
@@ -33,9 +39,7 @@ export interface RelevantTool {
  * Follows patterns from TaskSimilarityService and RuleSimilarityService
  */
 export class ToolSimilarityService {
-  constructor(
-    private readonly config: ToolSimilarityServiceConfig = {}
-  ) {}
+  constructor(private readonly config: ToolSimilarityServiceConfig = {}) {}
 
   /**
    * Search tools by natural language query using embeddings and fallback mechanisms
@@ -104,11 +108,7 @@ export class ToolSimilarityService {
   private generateReasonForTool(tool: SharedCommand, query: string, score: number): string {
     // Simple heuristic for generating explanations
     const queryWords = query.toLowerCase().split(/\s+/);
-    const toolWords = [
-      tool.name,
-      tool.description,
-      tool.category.toLowerCase(),
-    ]
+    const toolWords = [tool.name, tool.description, tool.category.toLowerCase()]
       .join(" ")
       .toLowerCase();
 

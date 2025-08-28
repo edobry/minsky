@@ -23,38 +23,38 @@ async function testToolSimilarity() {
       {
         query: "help me debug a failing test",
         expectedCategories: ["DEBUG", "TASKS"],
-        description: "Debug-related query"
+        description: "Debug-related query",
       },
       {
         query: "list my current tasks",
         expectedCategories: ["TASKS"],
-        description: "Task management query"
+        description: "Task management query",
       },
       {
         query: "commit my changes to git",
         expectedCategories: ["GIT"],
-        description: "Git operations query"
+        description: "Git operations query",
       },
       {
         query: "start a new session",
         expectedCategories: ["SESSION"],
-        description: "Session management query"
+        description: "Session management query",
       },
       {
         query: "configure my settings",
         expectedCategories: ["CONFIG"],
-        description: "Configuration query"
+        description: "Configuration query",
       },
       {
         query: "review this pull request",
         expectedCategories: ["GIT", "TASKS"],
-        description: "Code review query"
+        description: "Code review query",
       },
       {
         query: "implement user authentication",
         expectedCategories: ["TASKS", "CONFIG"],
-        description: "Implementation query"
-      }
+        description: "Implementation query",
+      },
     ];
 
     log.info(`Testing ${testQueries.length} queries...\n`);
@@ -66,20 +66,23 @@ async function testToolSimilarity() {
       const results = await service.findRelevantTools({
         query: testCase.query,
         limit: 5,
-        threshold: 0.1
+        threshold: 0.1,
       });
 
       log.info(`   Found ${results.length} relevant tools:`);
 
-      for (const result of results.slice(0, 3)) { // Show top 3
-        log.info(`     • ${result.tool.name} (${result.tool.category}) - Score: ${result.relevanceScore.toFixed(3)}`);
+      for (const result of results.slice(0, 3)) {
+        // Show top 3
+        log.info(
+          `     • ${result.tool.name} (${result.tool.category}) - Score: ${result.relevanceScore.toFixed(3)}`
+        );
         log.info(`       ${result.tool.description}`);
         log.info(`       Reason: ${result.reason}`);
       }
 
       // Check if we found tools from expected categories
-      const foundCategories = [...new Set(results.map(r => r.tool.category))];
-      const hasExpectedCategory = testCase.expectedCategories.some(cat =>
+      const foundCategories = [...new Set(results.map((r) => r.tool.category))];
+      const hasExpectedCategory = testCase.expectedCategories.some((cat) =>
         foundCategories.includes(cat)
       );
 
@@ -98,7 +101,6 @@ async function testToolSimilarity() {
     log.info(`🔧 Last used backend: ${backend || "none"}`);
 
     log.info("✅ Tool similarity service test completed successfully!");
-
   } catch (error) {
     log.error("❌ Tool similarity service test failed:", error);
     throw error;
