@@ -8,6 +8,7 @@ export interface SimilarityQuery {
   queryText?: string;
   subjectId?: string;
   limit?: number;
+  filters?: Record<string, any>;
 }
 
 export interface SimilarityBackend {

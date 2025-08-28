@@ -17,7 +17,10 @@ export class EmbeddingsSimilarityBackend implements SimilarityBackend {
     const limit = typeof query.limit === "number" && query.limit > 0 ? query.limit : 10;
     const text = query.queryText ?? "";
     const vector = await this.embeddingService.generateEmbedding(text);
-    const results = await this.vectorStorage.search(vector, limit);
+    const results = await this.vectorStorage.search(vector, {
+      limit,
+      filters: query.filters,
+    });
     return results.map((r) => ({ id: r.id, score: r.score, metadata: r.metadata }));
   }
 }

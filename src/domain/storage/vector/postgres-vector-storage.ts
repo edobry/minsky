@@ -1,7 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import { getConfiguration } from "../../configuration";
-import type { VectorStorage, SearchResult } from "./types";
+import type { VectorStorage, SearchResult, SearchOptions } from "./types";
 import { log } from "../../../utils/logger";
 
 export interface PostgresVectorStorageConfig {
@@ -143,12 +143,15 @@ export class PostgresVectorStorage implements VectorStorage {
     return out;
   }
 
-  async search(queryVector: number[], limit = 10, threshold?: number): Promise<SearchResult[]> {
+  async search(queryVector: number[], options: SearchOptions = {}): Promise<SearchResult[]> {
+    const { limit = 10, threshold, filters } = options;
     const vectorLiteral = `[${queryVector.join(",")}]`;
+
     try {
       log.debug("[vector.search] Using Postgres vector storage", {
         limit,
         threshold,
+        filters,
         dimension: this.dimension,
         table: this.config.tableName,
       });
@@ -156,13 +159,34 @@ export class PostgresVectorStorage implements VectorStorage {
       // ignore debug logging errors
     }
 
-    const rows = await this.sql.unsafe(
-      `SELECT ${this.config.idColumn} AS id, (${this.config.embeddingColumn} <-> $1::vector) AS score
-       FROM ${this.config.tableName}
-       ORDER BY ${this.config.embeddingColumn} <-> $1::vector
-       LIMIT $2`,
-      [vectorLiteral, limit]
-    );
+    // Build WHERE clause for filters
+    let whereClause = "";
+    const queryParams: any[] = [vectorLiteral, limit];
+    let paramIndex = 3;
+
+    if (filters && Object.keys(filters).length > 0) {
+      const filterConditions: string[] = [];
+      for (const [key, value] of Object.entries(filters)) {
+        if (value !== undefined && value !== null) {
+          filterConditions.push(`${key} = $${paramIndex}`);
+          queryParams.push(value);
+          paramIndex++;
+        }
+      }
+      if (filterConditions.length > 0) {
+        whereClause = `WHERE ${filterConditions.join(" AND ")}`;
+      }
+    }
+
+    const query = `
+      SELECT ${this.config.idColumn} AS id, (${this.config.embeddingColumn} <-> $1::vector) AS score
+      FROM ${this.config.tableName}
+      ${whereClause}
+      ORDER BY ${this.config.embeddingColumn} <-> $1::vector
+      LIMIT $2
+    `;
+
+    const rows = await this.sql.unsafe(query, queryParams);
 
     const results: SearchResult[] = (rows as any[]).map((r) => ({
       id: String((r as any).id),
