@@ -22,7 +22,7 @@ interface TasksSpecParams extends BaseTaskParams {
  */
 export class TasksSpecCommand extends BaseTaskCommand {
   readonly id = "tasks.spec.get";
-  readonly name = "spec";
+  readonly name = "get";
   readonly description = "Get task specification content";
   readonly parameters = tasksSpecParams;
 
