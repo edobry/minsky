@@ -12,6 +12,7 @@ const TEST_ARRAY_SIZE = 3;
  */
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitService } from "./git";
+import { SESSION_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 // ❌ DEPRECATED: sessionPrFromParams - tests for legacy implementation
 import { createMock, setupTestMocks } from "../utils/test-utils/mocking";
 import { log } from "../utils/logger";
@@ -63,7 +64,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         await mockExecAsync("git -C /test/repo push origin pr/feature-branch");
 
         return {
-          prBranch: "pr/feature-branch",
+          prBranch: SESSION_TEST_PATTERNS.PR_FEATURE_BRANCH,
           baseBranch: "main",
           title: options.title,
           body: options.body,
@@ -169,7 +170,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       expect(gitCommands).toContain("git -C /test/repo push origin pr/feature-branch");
 
       // Verify result structure
-      expect(result.prBranch).toBe("pr/feature-branch");
+      expect(result.prBranch).toBe(SESSION_TEST_PATTERNS.PR_FEATURE_BRANCH);
       expect(result.baseBranch).toBe("main");
       expect(result._title).toBe("Test PR");
 
@@ -188,7 +189,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // can be fast-forward merged by session approve
 
       const workdir = "/test/repo";
-      const prBranch = "pr/feature-branch";
+      const prBranch = SESSION_TEST_PATTERNS.PR_FEATURE_BRANCH;
       const baseBranch = "main";
 
       // Simulate the prepared merge commit workflow

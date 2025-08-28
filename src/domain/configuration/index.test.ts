@@ -7,7 +7,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverrides } from "./index";
 import { CustomConfigFactory, createTestProvider, CustomConfigurationProvider } from "./index";
-import { GIT_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { GIT_TEST_PATTERNS, CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 // Mock the configuration loader to prevent infinite loops
 const mockLoadConfiguration = mock(() =>
@@ -186,13 +186,13 @@ describe("Custom Configuration System", () => {
     test("should implement get() method with path access", () => {
       // backend property is deprecated and may not exist, test tasks.backend instead
       expect(provider.get("tasks.backend")).toBeDefined();
-      expect(provider.get("sessiondb.backend")).toBeDefined();
+      expect(provider.get(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND)).toBeDefined();
     });
 
     test("should implement has() method for path checking", () => {
       // backend property is deprecated and may not exist, test tasks.backend instead
       expect(provider.has("tasks.backend")).toBe(true);
-      expect(provider.has("sessiondb.backend")).toBe(true);
+      expect(provider.has(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND)).toBe(true);
       expect(provider.has("nonexistent.path")).toBe(false);
     });
 
@@ -280,7 +280,7 @@ describe("Custom Configuration System", () => {
 
       for (let i = 0; i < iterations; i++) {
         provider.get("tasks.backend"); // Use tasks.backend instead of deprecated backend
-        provider.get("sessiondb.backend");
+        provider.get(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND);
         provider.has("github.token");
       }
 

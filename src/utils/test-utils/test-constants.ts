@@ -151,6 +151,8 @@ export const SESSION_TEST_PATTERNS = {
   APPROVED_SESSION: "approved-session",
   SESSION_WITHOUT_PR: "session-without-pr",
   PR_TEST_APPROVAL_SESSION: "pr/test-pr-approval-session",
+  PR_FEATURE_BRANCH: "pr/feature-branch",
+  PR_TASK_123_FEATURE: "pr/task-123-feature",
 } as const;
 
 // Diff test content patterns
@@ -187,6 +189,21 @@ export const TEST_DATA_PATTERNS = {
   UPDATED_TASK_TITLE: "Updated Test Task 2",
   TEST_DESCRIPTION: "This is a test description.",
   TASK_GH_ID: "task#gh:issue-123",
+} as const;
+
+// Configuration patterns
+export const CONFIG_TEST_PATTERNS = {
+  SESSIONDB_BACKEND: "sessiondb.backend",
+  OPENAI_MODEL_PATH: "ai.providers.openai.model",
+} as const;
+
+// File path patterns
+export const PATH_TEST_PATTERNS = {
+  TASK_MD_001: "process/tasks/001-test-task.md",
+  TASK_MD_999: "process/tasks/md#999-test-integration.md",
+  MOCK_FILE_PATH: "/path/to/file.txt",
+  TMP_TEST_SESSION: "/tmp/test-session",
+  FEATURE_TASK_BRANCH: "feature/task-123",
 } as const;
 
 // Code comment patterns

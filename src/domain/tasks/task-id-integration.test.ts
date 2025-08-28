@@ -11,7 +11,7 @@ import {
   createMockSessionProvider,
   createMockGitService,
 } from "../../utils/test-utils/dependencies";
-import { RULES_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { RULES_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 // Import domain functions to test
 import { listTasksFromParams } from "./taskCommands";
@@ -40,7 +40,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
             id: "md#999",
             title: "Test Qualified Task md#999",
             status: "TODO",
-            specPath: "process/tasks/md#999-test-integration.md",
+            specPath: PATH_TEST_PATTERNS.TASK_MD_999,
           },
           {
             id: "gh#888",
@@ -55,7 +55,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
               id: "md#999",
               title: "Test Qualified Task md#999",
               status: "TODO",
-              specPath: "process/tasks/md#999-test-integration.md",
+              specPath: PATH_TEST_PATTERNS.TASK_MD_999,
             };
           }
           return null;
@@ -94,7 +94,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
               title: "Test Qualified Task md#999",
               status: "TODO",
               description: "This is a test task with qualified ID for integration testing.",
-              specPath: "process/tasks/md#999-test-integration.md",
+              specPath: PATH_TEST_PATTERNS.TASK_MD_999,
             };
           }
           return null;

@@ -4,6 +4,7 @@
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
+import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 // Mock implementations that we can control and verify
 const mockCreateGitHubLabels = mock(() => Promise.resolve());
@@ -166,7 +167,7 @@ describe("GitHubIssuesTaskBackend", () => {
           title: "Test Task",
           description: "Test description",
           status: "TODO" as const,
-          specPath: "process/tasks/001-test-task.md",
+          specPath: PATH_TEST_PATTERNS.TASK_MD_001,
         },
       ];
 
@@ -227,12 +228,12 @@ This is a test task description.
   describe("getTaskSpecPath", () => {
     test("should generate correct spec path", () => {
       const path = backend.getTaskSpecPath("#001", "Test Task");
-      expect(path).toBe("process/tasks/001-test-task.md");
+      expect(path).toBe(PATH_TEST_PATTERNS.TASK_MD_001);
     });
 
     test("should handle task ID without # prefix", () => {
       const path = backend.getTaskSpecPath("001", "Test Task");
-      expect(path).toBe("process/tasks/001-test-task.md");
+      expect(path).toBe(PATH_TEST_PATTERNS.TASK_MD_001);
     });
 
     test("should normalize title for filename", () => {
