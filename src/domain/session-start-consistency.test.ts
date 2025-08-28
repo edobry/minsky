@@ -8,6 +8,7 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
 import { MinskyError, ResourceNotFoundError } from "../errors";
+import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
@@ -37,15 +38,13 @@ describe("Session Start Consistency Tests", () => {
       listSessions: () => Promise.resolve([]),
       addSession: () => Promise.resolve(),
       deleteSession: () => Promise.resolve(true),
-      getRepoPath: () => Promise.resolve("/test/sessions/task-md#160"),
-      getSessionWorkdir: () => Promise.resolve("/test/sessions/task-md#160"),
+      getRepoPath: () => Promise.resolve(TEST_PATHS.SESSION_MD_160),
+      getSessionWorkdir: () => Promise.resolve(TEST_PATHS.SESSION_MD_160),
     });
 
     mockGitService = createMockGitService({
-      clone: () =>
-        Promise.resolve({ workdir: "/test/sessions/task-md#160", session: "task-md#160" }),
-      branch: () =>
-        Promise.resolve({ workdir: "/test/sessions/task-md#160", branch: "task-md#160" }),
+      clone: () => Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: "task-md#160" }),
+      branch: () => Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" }),
     });
 
     mockTaskService = createMockTaskService({
@@ -66,10 +65,10 @@ describe("Session Start Consistency Tests", () => {
 
     // Create individual spies for call tracking
     gitCloneSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task-md#160", session: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, session: "task-md#160" })
     );
     gitBranchWithoutSessionSpy = mock(() =>
-      Promise.resolve({ workdir: "/test/sessions/task-md#160", branch: "task-md#160" })
+      Promise.resolve({ workdir: TEST_PATHS.SESSION_MD_160, branch: "task-md#160" })
     );
     sessionAddSpy = mock(() => Promise.resolve());
 

@@ -15,6 +15,8 @@ export const GIT_COMMANDS = {
   CONFIG_USER_NAME: "git config user.name",
   PUSH_ORIGIN_MAIN: "git push origin main",
   REV_PARSE_ABBREV_REF_HEAD: "rev-parse --abbrev-ref HEAD",
+  BRANCH_SHOW_CURRENT: "branch --show-current",
+  COMMIT_EXAMPLE: "abc123 feat: add new feature",
   STASH_POP_ZERO: 'stash pop "stash@{0}"',
 } as const;
 
@@ -41,6 +43,7 @@ export const TEST_PATHS = {
   TEST_BASE_DIR_SESSIONS: "/test/base/dir/sessions/test-session-1",
   TMP_TEST_SESSION: "/tmp/test-session",
   PASSWD_PATH: "../../../etc/passwd",
+  TEST_USER_SESSIONS: "/Users/test/.local/state/minsky/sessions/session-name",
 } as const;
 
 // Task and session test data
