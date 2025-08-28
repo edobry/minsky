@@ -1,4 +1,4 @@
-import { describe, test, expect } from "bun:test";
+import { describe, test, expect, mock } from "bun:test";
 import { resolveRepoPath, normalizeRepoName, type RepoUtilsDependencies } from "./repo-utils";
 import { createMock } from "../utils/test-utils/mocking";
 
@@ -16,17 +16,17 @@ describe("Repo Utils", () => {
     // Create mock dependencies
     const mockDeps: RepoUtilsDependencies = {
       sessionProvider: {
-        getSession: createMock(() => Promise.resolve(null)),
-        listSessions: createMock(() => Promise.resolve([])),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        addSession: createMock(() => Promise.resolve()),
-        updateSession: createMock(() => Promise.resolve()),
-        deleteSession: createMock(() => Promise.resolve(true)),
-        getRepoPath: createMock(() => Promise.resolve("/mock/repo/path")),
-        getSessionWorkdir: createMock(() => Promise.resolve("/mock/workdir/path")),
+        getSession: mock(() => Promise.resolve(null)),
+        listSessions: mock(() => Promise.resolve([])),
+        getSessionByTaskId: mock(() => Promise.resolve(null)),
+        addSession: mock(() => Promise.resolve()),
+        updateSession: mock(() => Promise.resolve()),
+        deleteSession: mock(() => Promise.resolve(true)),
+        getRepoPath: mock(() => Promise.resolve("/mock/repo/path")),
+        getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
-      execCwd: createMock(() => Promise.resolve({ stdout: "/git/repo/path", stderr: "" })),
-      getCurrentDirectory: createMock(() => "/current/directory"),
+      execCwd: mock(() => Promise.resolve({ stdout: "/git/repo/path", stderr: "" })),
+      getCurrentDirectory: mock(() => "/current/directory"),
     };
 
     const _result = await resolveRepoPath({ repo: "/test/path" }, mockDeps);
@@ -37,7 +37,7 @@ describe("Repo Utils", () => {
     // Create mock dependencies with session data
     const mockDeps: RepoUtilsDependencies = {
       sessionProvider: {
-        getSession: createMock((name) =>
+        getSession: mock((name) =>
           Promise.resolve(
             name === "test-session"
               ? {
@@ -49,16 +49,16 @@ describe("Repo Utils", () => {
               : null
           )
         ),
-        listSessions: createMock(() => Promise.resolve([])),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        addSession: createMock(() => Promise.resolve()),
-        updateSession: createMock(() => Promise.resolve()),
-        deleteSession: createMock(() => Promise.resolve(true)),
-        getRepoPath: createMock(() => Promise.resolve("/mock/repo/path")),
-        getSessionWorkdir: createMock(() => Promise.resolve("/mock/workdir/path")),
+        listSessions: mock(() => Promise.resolve([])),
+        getSessionByTaskId: mock(() => Promise.resolve(null)),
+        addSession: mock(() => Promise.resolve()),
+        updateSession: mock(() => Promise.resolve()),
+        deleteSession: mock(() => Promise.resolve(true)),
+        getRepoPath: mock(() => Promise.resolve("/mock/repo/path")),
+        getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
-      execCwd: createMock(() => Promise.resolve({ stdout: "/git/repo/path", stderr: "" })),
-      getCurrentDirectory: createMock(() => "/current/directory"),
+      execCwd: mock(() => Promise.resolve({ stdout: "/git/repo/path", stderr: "" })),
+      getCurrentDirectory: mock(() => "/current/directory"),
     };
 
     const _result = await resolveRepoPath({ session: "test-session" }, mockDeps);
@@ -70,17 +70,17 @@ describe("Repo Utils", () => {
     // Create mock dependencies
     const mockDeps: RepoUtilsDependencies = {
       sessionProvider: {
-        getSession: createMock(() => Promise.resolve(null)),
-        listSessions: createMock(() => Promise.resolve([])),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        addSession: createMock(() => Promise.resolve()),
-        updateSession: createMock(() => Promise.resolve()),
-        deleteSession: createMock(() => Promise.resolve(true)),
-        getRepoPath: createMock(() => Promise.resolve("/mock/repo/path")),
-        getSessionWorkdir: createMock(() => Promise.resolve("/mock/workdir/path")),
+        getSession: mock(() => Promise.resolve(null)),
+        listSessions: mock(() => Promise.resolve([])),
+        getSessionByTaskId: mock(() => Promise.resolve(null)),
+        addSession: mock(() => Promise.resolve()),
+        updateSession: mock(() => Promise.resolve()),
+        deleteSession: mock(() => Promise.resolve(true)),
+        getRepoPath: mock(() => Promise.resolve("/mock/repo/path")),
+        getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
-      execCwd: createMock(() => Promise.resolve({ stdout: "/git/repo/path\n", stderr: "" })),
-      getCurrentDirectory: createMock(() => "/current/directory"),
+      execCwd: mock(() => Promise.resolve({ stdout: "/git/repo/path\n", stderr: "" })),
+      getCurrentDirectory: mock(() => "/current/directory"),
     };
 
     const _result = await resolveRepoPath({}, mockDeps);
@@ -92,17 +92,17 @@ describe("Repo Utils", () => {
     // Create mock dependencies with failing git command
     const mockDeps: RepoUtilsDependencies = {
       sessionProvider: {
-        getSession: createMock(() => Promise.resolve(null)),
-        listSessions: createMock(() => Promise.resolve([])),
-        getSessionByTaskId: createMock(() => Promise.resolve(null)),
-        addSession: createMock(() => Promise.resolve()),
-        updateSession: createMock(() => Promise.resolve()),
-        deleteSession: createMock(() => Promise.resolve(true)),
-        getRepoPath: createMock(() => Promise.resolve("/mock/repo/path")),
-        getSessionWorkdir: createMock(() => Promise.resolve("/mock/workdir/path")),
+        getSession: mock(() => Promise.resolve(null)),
+        listSessions: mock(() => Promise.resolve([])),
+        getSessionByTaskId: mock(() => Promise.resolve(null)),
+        addSession: mock(() => Promise.resolve()),
+        updateSession: mock(() => Promise.resolve()),
+        deleteSession: mock(() => Promise.resolve(true)),
+        getRepoPath: mock(() => Promise.resolve("/mock/repo/path")),
+        getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
-      execCwd: createMock(() => Promise.reject(new Error("Not a git repo"))),
-      getCurrentDirectory: createMock(() => "/current/directory"),
+      execCwd: mock(() => Promise.reject(new Error("Not a git repo"))),
+      getCurrentDirectory: mock(() => "/current/directory"),
     };
 
     const _result = await resolveRepoPath({}, mockDeps);

@@ -28,7 +28,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
     gitCommands = [];
 
     // Create mock that captures all git commands executed
-    mockExecAsync = createMock(async (command: unknown) => {
+    mockExecAsync = mock(async (command: unknown) => {
       gitCommands.push(command);
 
       // Mock responses for different git commands
@@ -57,7 +57,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock the preparePr method to use our mock execAsync
-      const preparePrSpy = createMock(async (options: unknown) => {
+      const preparePrSpy = mock(async (options: unknown) => {
         // Simulate current broken behavior: PR branch created FROM feature branch
         await mockExecAsync("git -C /test/repo checkout -b pr/feature-branch");
         await mockExecAsync("git -C /test/repo push origin pr/feature-branch");
@@ -106,7 +106,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock the CORRECT preparePr implementation
-      const correctPreparePrSpy = createMock(async (options: unknown) => {
+      const correctPreparePrSpy = mock(async (options: unknown) => {
         const workdir = "/test/repo";
         const sourceBranch = "feature-branch";
         const baseBranch = options.baseBranch || "main";
@@ -192,7 +192,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const baseBranch = "main";
 
       // Simulate the prepared merge commit workflow
-      const simulatePreparedMergeWorkflow = createMock(async () => {
+      const simulatePreparedMergeWorkflow = mock(async () => {
         // 1. Create PR branch from base branch
         await mockExecAsync(`git -C ${workdir} fetch origin ${baseBranch}`);
         await mockExecAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
@@ -229,7 +229,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
   describe("Error Handling", () => {
     test("SHOULD handle merge conflicts during prepared merge commit creation", async () => {
       // Mock merge conflict scenario
-      const conflictMockExecAsync = createMock(async (command: unknown) => {
+      const conflictMockExecAsync = mock(async (command: unknown) => {
         gitCommands.push(command);
 
         if (command.includes("merge --no-ff")) {
@@ -243,7 +243,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       const gitService = new GitService();
 
       // Mock preparePr to simulate conflict handling
-      const preparePrWithConflictSpy = createMock(async (options: unknown) => {
+      const preparePrWithConflictSpy = mock(async (options: unknown) => {
         try {
           await conflictMockExecAsync(
             "git -C /test/repo merge --no-ff feature-branch -F .pr_title"
