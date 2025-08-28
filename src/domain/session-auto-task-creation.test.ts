@@ -33,7 +33,7 @@ describe("Session Auto-Task Creation", () => {
   beforeEach(async () => {
     // Initialize configuration to avoid initialization errors
     const factory = new CustomConfigFactory();
-    await initializeConfiguration(factory, { workingDirectory: process.cwd() });
+    await initializeConfiguration(factory, { workingDirectory: "/mock/workspace" });
 
     // Create spy for tracking task creation
     createTaskSpy = createMock(() =>
