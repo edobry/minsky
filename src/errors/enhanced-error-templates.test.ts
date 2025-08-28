@@ -14,7 +14,7 @@ import {
   createMergeConflictErrorMessage,
   createBackendDetectionErrorMessage,
 } from "./enhanced-error-templates";
-import { ERROR_MESSAGES } from "../utils/test-utils/test-constants";
+import { ERROR_MESSAGES, GIT_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 
 describe("Task 223 Enhanced Error Messages", () => {
   describe("createSessionPrBranchErrorMessage", () => {

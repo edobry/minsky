@@ -168,4 +168,7 @@ export const GIT_TEST_PATTERNS = {
   SSH_REPO_URL: "git@github.com:org/repo.git",
   PERMISSION_DENIED: "Permission denied",
   ORIGIN_MAIN: "origin/origin/main",
+  GIT_PUSH_WITH_TIMEOUT: "gitPushWithTimeout",
+  GIT_FETCH_WITH_TIMEOUT: "gitFetchWithTimeout",
+  BRANCH_SHOW_CURRENT: "branch --show-current",
 } as const;
