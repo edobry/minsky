@@ -60,9 +60,9 @@ const defaultGetTaskMock = (id: unknown) => {
 };
 
 const mockTaskService = {
-  listTasks: createMock(() => Promise.resolve([mockTask])),
-  getTask: createMock(defaultGetTaskMock),
-  getTaskStatus: createMock((id: unknown) => {
+  listTasks: mock(() => Promise.resolve([mockTask])),
+  getTask: mock(defaultGetTaskMock),
+  getTaskStatus: mock((id: unknown) => {
     const taskId = String(id);
     // Handle qualified format (new approach) and legacy formats for backward compatibility
     if (
@@ -77,24 +77,24 @@ const mockTaskService = {
     }
     return Promise.resolve(null);
   }),
-  setTaskStatus: createMock(() => Promise.resolve()),
+  setTaskStatus: mock(() => Promise.resolve()),
   backends: [] as any,
   currentBackend: {} as any,
-  getWorkspacePath: createMock(() => "/mock/workspace/path"),
-  createTask: createMock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "md#new" })),
+  getWorkspacePath: mock(() => "/mock/workspace/path"),
+  createTask: mock((_specPath: unknown) => Promise.resolve({ ...mockTask, id: "md#new" })),
 };
 
-const mockResolveRepoPath = createMock(() => Promise.resolve("/mock/repo/path"));
-const mockResolveWorkspacePath = createMock(() => Promise.resolve("/mock/workspace/path"));
-const mockCreateTaskService = createMock((options: any) => Promise.resolve(mockTaskService as any));
+const mockResolveRepoPath = mock(() => Promise.resolve("/mock/repo/path"));
+const mockResolveWorkspacePath = mock(() => Promise.resolve("/mock/workspace/path"));
+const mockCreateTaskService = mock((options: any) => Promise.resolve(mockTaskService as any));
 
 // Type assertion for mock dependencies
 const mockDeps = {
   resolveRepoPath: mockResolveRepoPath,
   resolveWorkspacePath: mockResolveWorkspacePath,
   createConfiguredTaskService: mockCreateTaskService,
-  resolveMainWorkspacePath: createMock(() => Promise.resolve("/test/workspace/path")),
-  resolveTaskWorkspacePath: createMock(() => Promise.resolve("/mock/task/workspace/path")),
+  resolveMainWorkspacePath: mock(() => Promise.resolve("/test/workspace/path")),
+  resolveTaskWorkspacePath: mock(() => Promise.resolve("/mock/task/workspace/path")),
 } as any; // Cast to any to avoid TypeScript errors with the deps parameter
 
 describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRITE", () => {
