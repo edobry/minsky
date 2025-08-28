@@ -455,4 +455,3 @@ Given the large number of tools already available, we should investigate:
 - What are the privacy and security implications of tool description embeddings?
 
 This investigation should be conducted in parallel with core implementation and may inform future enhancements to the tool management system.
-

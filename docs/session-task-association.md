@@ -33,7 +33,7 @@ import { updateSessionTaskAssociation } from "../domain/session/session-task-ass
 
 // Update sessions from md#123 to mt#123
 const result = await updateSessionTaskAssociation("md#123", "mt#123", {
-  dryRun: false // Set to true for preview mode
+  dryRun: false, // Set to true for preview mode
 });
 
 console.log(`Updated ${result.sessionsUpdated} sessions`);
