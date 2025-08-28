@@ -13,6 +13,7 @@ import {
   mockModule,
   createMockFileSystem,
 } from "../utils/test-utils/mocking";
+import { GIT_COMMANDS } from "../utils/test-utils/test-constants";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
 import { createGitService } from "./git";
 import { commitChangesFromParams, pushFromParams } from "./git";
@@ -102,7 +103,7 @@ describe("GitService", () => {
 
     // Mock execInRepository to avoid actual git commands
     spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
-      if (command === "rev-parse --abbrev-ref HEAD") {
+      if (command === GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD) {
         return "main";
       }
       if (command === "rev-parse --show-toplevel") {
@@ -146,7 +147,7 @@ describe("GitService", () => {
   test("execInRepository should execute git commands in the specified repository", async () => {
     const _branch = await gitService.execInRepository(
       "/mock/repo/path",
-      "rev-parse --abbrev-ref HEAD"
+      GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD
     );
     expect(_branch).toBe("main");
   });
@@ -160,7 +161,7 @@ describe("GitService", () => {
     );
 
     try {
-      await gitService.execInRepository("/mock/repo/path", "rev-parse --abbrev-ref HEAD");
+      await gitService.execInRepository("/mock/repo/path", GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD);
       // The test should not reach this line
       expect(true).toBe(false);
     } catch (error: unknown) {
@@ -194,13 +195,13 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           if (cmd.includes("log --oneline")) {
             return { stdout: "abc123 feat: add new feature\ndef456 fix: bug fix", stderr: "" };
           }
-          if (cmd.includes("diff --name-only")) {
+          if (cmd.includes(GIT_COMMANDS.DIFF_NAME_ONLY)) {
             return { stdout: "src/feature.ts\nREADME.md", stderr: "" };
           }
           if (cmd.includes("merge-base")) {
             return { stdout: "base123", stderr: "" };
           }
-          if (cmd.includes("branch --show-current")) {
+          if (cmd.includes(GIT_COMMANDS.BRANCH_SHOW_CURRENT)) {
             return { stdout: "feature-branch", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -219,7 +220,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const result = await gitService.prWithDependencies({ session: "test-session" }, mockDeps);
 
       expect(result.markdown).toContain("feature-branch");
-      expect(result.markdown).toContain("abc123 feat: add new feature");
+      expect(result.markdown).toContain(GIT_COMMANDS.COMMIT_EXAMPLE);
       expect(result.markdown).toContain("src/feature.ts");
       expectToHaveBeenCalled(mockDeps.execAsync);
       expectToHaveBeenCalledWith(mockDeps.getSession, "test-session");
@@ -244,15 +245,15 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         execAsync: mock(async (command: unknown) => {
           const cmd = command as string;
           if (cmd.includes("log --oneline")) {
-            return { stdout: "abc123 feat: add new feature", stderr: "" };
+            return { stdout: GIT_COMMANDS.COMMIT_EXAMPLE, stderr: "" };
           }
-          if (cmd.includes("diff --name-only")) {
+          if (cmd.includes(GIT_COMMANDS.DIFF_NAME_ONLY)) {
             return { stdout: "src/feature.ts", stderr: "" };
           }
           if (cmd.includes("merge-base")) {
             return { stdout: "base123", stderr: "" };
           }
-          if (cmd.includes("branch --show-current")) {
+          if (cmd.includes(GIT_COMMANDS.BRANCH_SHOW_CURRENT)) {
             return { stdout: "feature-branch", stderr: "" };
           }
           if (cmd.includes("symbolic-ref")) {
@@ -261,7 +262,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           if (cmd.includes("diff --name-status")) {
             return { stdout: "M\tsrc/feature.ts", stderr: "" };
           }
-          if (cmd.includes("status --porcelain")) {
+          if (cmd.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
             return { stdout: "", stderr: "" };
           }
           if (cmd.includes("diff --stat")) {
@@ -297,7 +298,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
 
       // Verify PR was generated successfully
       expect(result.markdown).toContain("feature-branch");
-      expect(result.markdown).toContain("abc123 feat: add new feature");
+      expect(result.markdown).toContain(GIT_COMMANDS.COMMIT_EXAMPLE);
     });
 
     test("should throw error when taskId has no associated session", async () => {
@@ -337,15 +338,15 @@ describe("GitService - Core Methods with Dependency Injection", () => {
         execAsync: mock(async (command: unknown) => {
           const cmd = command as string;
           if (cmd.includes("log --oneline")) {
-            return { stdout: "abc123 feat: add new feature", stderr: "" };
+            return { stdout: GIT_COMMANDS.COMMIT_EXAMPLE, stderr: "" };
           }
-          if (cmd.includes("diff --name-only")) {
+          if (cmd.includes(GIT_COMMANDS.DIFF_NAME_ONLY)) {
             return { stdout: "src/feature.ts", stderr: "" };
           }
           if (cmd.includes("merge-base")) {
             return { stdout: "base123", stderr: "" };
           }
-          if (cmd.includes("branch --show-current")) {
+          if (cmd.includes(GIT_COMMANDS.BRANCH_SHOW_CURRENT)) {
             return { stdout: "feature-branch", stderr: "" };
           }
           if (cmd.includes("symbolic-ref")) {
@@ -354,7 +355,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           if (cmd.includes("diff --name-status")) {
             return { stdout: "M\tsrc/feature.ts", stderr: "" };
           }
-          if (cmd.includes("status --porcelain")) {
+          if (cmd.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
             return { stdout: "", stderr: "" };
           }
           if (cmd.includes("diff --stat")) {
@@ -398,7 +399,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           if (cmd.includes("rev-parse --show-toplevel")) {
             return { stdout: "/test/repo", stderr: "" };
           }
-          if (cmd.includes("branch --show-current")) {
+          if (cmd.includes(GIT_COMMANDS.BRANCH_SHOW_CURRENT)) {
             return { stdout: "test-branch", stderr: "" };
           }
           // Fail other git commands to test error handling
@@ -508,7 +509,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
           const cmd = command as string;
-          if (cmd.includes("status --porcelain")) {
+          if (cmd.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
             return { stdout: "M  modified-file.ts\n?? untracked-file.ts", stderr: "" }; // Has changes
           }
           if (cmd.includes("stash push")) {
@@ -529,7 +530,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
           const cmd = command as string;
-          if (cmd.includes("status --porcelain")) {
+          if (cmd.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
             return { stdout: "", stderr: "" }; // No changes
           }
           return { stdout: "", stderr: "" };
@@ -589,7 +590,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
           if (cmd.includes("merge feature-branch")) {
             throw new Error("Automatic merge failed; fix conflicts and then commit the result");
           }
-          if (cmd.includes("status --porcelain")) {
+          if (cmd.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
             return { stdout: "UU conflicted-file.ts\nAA another-conflict.ts", stderr: "" }; // Conflict markers
           }
           if (cmd.includes("merge --abort")) {

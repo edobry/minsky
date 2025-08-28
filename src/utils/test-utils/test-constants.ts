@@ -17,6 +17,8 @@ export const GIT_COMMANDS = {
   REV_PARSE_ABBREV_REF_HEAD: "rev-parse --abbrev-ref HEAD",
   BRANCH_SHOW_CURRENT: "branch --show-current",
   COMMIT_EXAMPLE: "abc123 feat: add new feature",
+  DIFF_NAME_ONLY: "diff --name-only",
+  STATUS_PORCELAIN_COMMAND: "status --porcelain",
   STASH_POP_ZERO: 'stash pop "stash@{0}"',
 } as const;
 
