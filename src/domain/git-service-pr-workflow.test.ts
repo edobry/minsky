@@ -11,6 +11,7 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { GitService } from "./git";
 import { createMock, setupTestMocks, mockModule } from "../utils/test-utils/mocking";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
+import { GIT_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -58,7 +59,7 @@ describe("PR Workflow with Dependencies", () => {
         if (cmd.includes("merge-base")) {
           return { stdout: "base123", stderr: "" };
         }
-        if (cmd.includes("branch --show-current")) {
+        if (cmd.includes(GIT_TEST_PATTERNS.BRANCH_SHOW_CURRENT)) {
           return { stdout: "feature-branch", stderr: "" };
         }
         return { stdout: "", stderr: "" };
@@ -110,7 +111,7 @@ describe("PR Workflow with Dependencies", () => {
         if (cmd.includes("merge-base")) {
           return { stdout: "base123", stderr: "" };
         }
-        if (cmd.includes("branch --show-current")) {
+        if (cmd.includes(GIT_TEST_PATTERNS.BRANCH_SHOW_CURRENT)) {
           return { stdout: "feature-branch", stderr: "" };
         }
         if (cmd.includes("symbolic-ref")) {
@@ -203,7 +204,7 @@ describe("PR Workflow with Dependencies", () => {
         if (cmd.includes("merge-base")) {
           return { stdout: "base123", stderr: "" };
         }
-        if (cmd.includes("branch --show-current")) {
+        if (cmd.includes(GIT_TEST_PATTERNS.BRANCH_SHOW_CURRENT)) {
           return { stdout: "feature-branch", stderr: "" };
         }
         if (cmd.includes("symbolic-ref")) {
@@ -256,7 +257,7 @@ describe("PR Workflow with Dependencies", () => {
         if (cmd.includes("rev-parse --show-toplevel")) {
           return { stdout: "/test/repo", stderr: "" };
         }
-        if (cmd.includes("branch --show-current")) {
+        if (cmd.includes(GIT_TEST_PATTERNS.BRANCH_SHOW_CURRENT)) {
           return { stdout: "test-branch", stderr: "" };
         }
         // Fail other git commands to test error handling

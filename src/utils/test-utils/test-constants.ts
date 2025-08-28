@@ -172,3 +172,9 @@ export const GIT_TEST_PATTERNS = {
   GIT_FETCH_WITH_TIMEOUT: "gitFetchWithTimeout",
   BRANCH_SHOW_CURRENT: "branch --show-current",
 } as const;
+
+// Rules and context patterns
+export const RULES_TEST_PATTERNS = {
+  DOMAIN_ORIENTED_MODULES: "domain-oriented-modules",
+  DESCRIPTION_PLACEHOLDER: "Description here.",
+} as const;

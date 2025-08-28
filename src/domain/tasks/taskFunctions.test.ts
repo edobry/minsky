@@ -7,6 +7,7 @@ const TEST_ARRAY_SIZE = 3;
 
 import { describe, test, expect } from "bun:test";
 import type { TaskData } from "../../types/tasks/taskData";
+import { RULES_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 import {
   parseTasksFromMarkdown,
   formatTasksToMarkdown,
@@ -342,12 +343,12 @@ This is a test description.
 
 ## Context
 
-Description here.
+${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
 `;
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("No ID Task");
-      expect(spec.description).toBe("Description here.");
+      expect(spec.description).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
       expect(spec.id).toBeUndefined();
     });
 
@@ -356,12 +357,12 @@ Description here.
 
 ## Context
 
-Description here.
+${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
 `;
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("Just a general title");
-      expect(spec.description).toBe("Description here.");
+      expect(spec.description).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
     });
 
     test("should return empty values for invalid input", () => {
@@ -392,12 +393,12 @@ Description here.
     test("should format task spec without ID", () => {
       const spec = {
         title: "Test Task Without ID",
-        description: "Description here.",
+        description: RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER,
       };
 
       const markdown = formatTaskSpecToMarkdown(spec);
       expect(markdown).toContain("# Test Task Without ID");
-      expect(markdown).toContain("Description here.");
+      expect(markdown).toContain(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
     });
   });
 

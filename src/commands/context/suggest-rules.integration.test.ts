@@ -8,6 +8,7 @@ import { describe, it, expect, beforeAll, mock } from "bun:test";
 import { DefaultRuleSuggestionService } from "../../domain/context/rule-suggestion";
 import type { RuleSuggestionRequest } from "../../domain/context/types";
 import type { Rule } from "../../domain/rules/types";
+import { RULES_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("suggest-rules service integration", () => {
   let mockAIService: any;
@@ -28,7 +29,7 @@ describe("suggest-rules service integration", () => {
         path: "/rules/test-driven-bugfix.mdc",
       },
       {
-        id: "domain-oriented-modules",
+        id: RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES,
         name: "Domain-Oriented Modules",
         description: "Use this when deciding where to put code, or when refactoring modules",
         content: "Guidelines for organizing code into domain modules...",
@@ -56,7 +57,7 @@ describe("suggest-rules service integration", () => {
           return {
             suggestions: [
               {
-                ruleId: "domain-oriented-modules",
+                ruleId: RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES,
                 relevanceScore: 0.8,
                 reasoning:
                   "Query about refactoring code organization matches domain module guidelines.",
@@ -152,7 +153,7 @@ describe("suggest-rules service integration", () => {
 
     expect(response.suggestions).toBeArray();
     expect(response.suggestions.length).toBe(1);
-    expect(response.suggestions[0].ruleId).toBe("domain-oriented-modules");
+    expect(response.suggestions[0].ruleId).toBe(RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES);
     expect(response.suggestions[0].relevanceScore).toBe(0.8);
     expect(response.queryAnalysis.intent).toContain("modules");
   });
@@ -201,7 +202,7 @@ describe("suggest-rules service integration", () => {
             confidenceLevel: "high",
           },
           {
-            ruleId: "domain-oriented-modules",
+            ruleId: RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES,
             relevanceScore: 0.8,
             reasoning: "Medium relevance",
             confidenceLevel: "medium",

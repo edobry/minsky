@@ -11,6 +11,7 @@ import {
   createMockSessionProvider,
   createMockGitService,
 } from "../../utils/test-utils/dependencies";
+import { RULES_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 // Import domain functions to test
 import { listTasksFromParams } from "./taskCommands";
