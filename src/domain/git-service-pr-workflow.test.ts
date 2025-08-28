@@ -7,7 +7,7 @@
  * @migrated Enhanced with DI patterns and comprehensive coverage
  */
 
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { GitService } from "./git";
 import { createMock, setupTestMocks, mockModule } from "../utils/test-utils/mocking";
 import { expectToHaveBeenCalled, expectToHaveBeenCalledWith } from "../utils/test-utils/assertions";
@@ -18,36 +18,36 @@ setupTestMocks();
 // Mock the logger module to avoid winston dependency issues
 mockModule("../../utils/logger", () => ({
   log: {
-    agent: createMock(),
-    debug: createMock(),
-    warn: createMock(),
-    error: createMock(),
-    cli: createMock(),
-    cliWarn: createMock(),
-    cliError: createMock(),
-    setLevel: createMock(),
-    cliDebug: createMock(),
+    agent: mock(),
+    debug: mock(),
+    warn: mock(),
+    error: mock(),
+    cli: mock(),
+    cliWarn: mock(),
+    cliError: mock(),
+    setLevel: mock(),
+    cliDebug: mock(),
   },
 }));
 
 // Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = createMock();
+const mockExecAsync = mock();
 mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
 // Mock the git-exec module to prevent real git execution
 mockModule("../../utils/git-exec", () => ({
-  execGitWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitMergeWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  execGitWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitMergeWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
 }));
 
 describe("PR Workflow with Dependencies", () => {
   test("should generate PR markdown with proper dependency injection", async () => {
     const mockDeps = {
-      execAsync: createMock(async (command: unknown) => {
+      execAsync: mock(async (command: unknown) => {
         const cmd = command as string;
         if (cmd.includes("log --oneline")) {
           return { stdout: "abc123 feat: add new feature\ndef456 fix: bug fix", stderr: "" };
@@ -63,14 +63,14 @@ describe("PR Workflow with Dependencies", () => {
         }
         return { stdout: "", stderr: "" };
       }) as any,
-      getSession: createMock(() =>
+      getSession: mock(() =>
         Promise.resolve({
           session: "test-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/user/repo.git",
         })
       ) as any,
-      getSessionWorkdir: createMock(() => "/test/repo/sessions/test-session") as any,
+      getSessionWorkdir: mock(() => "/test/repo/sessions/test-session") as any,
     };
 
     const gitService = new GitService();
@@ -85,9 +85,9 @@ describe("PR Workflow with Dependencies", () => {
 
   test("should handle missing session in PR workflow", async () => {
     const mockDeps = {
-      execAsync: createMock() as any,
-      getSession: createMock(() => Promise.resolve(null)) as any,
-      getSessionWorkdir: createMock() as any,
+      execAsync: mock() as any,
+      getSession: mock(() => Promise.resolve(null)) as any,
+      getSessionWorkdir: mock() as any,
     };
 
     const gitService = new GitService();
@@ -99,7 +99,7 @@ describe("PR Workflow with Dependencies", () => {
 
   test("should resolve taskId to session in PR workflow", async () => {
     const mockDeps = {
-      execAsync: createMock(async (command: unknown) => {
+      execAsync: mock(async (command: unknown) => {
         const cmd = command as string;
         if (cmd.includes("log --oneline")) {
           return { stdout: "abc123 feat: add new feature", stderr: "" };
@@ -127,15 +127,15 @@ describe("PR Workflow with Dependencies", () => {
         }
         return { stdout: "", stderr: "" };
       }) as any,
-      getSession: createMock(() =>
+      getSession: mock(() =>
         Promise.resolve({
           session: "task-143-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/user/repo.git",
         })
       ) as any,
-      getSessionWorkdir: createMock(() => "/test/repo/sessions/task-143-session") as any,
-      getSessionByTaskId: createMock(() =>
+      getSessionWorkdir: mock(() => "/test/repo/sessions/task-143-session") as any,
+      getSessionByTaskId: mock(() =>
         Promise.resolve({
           session: "task-143-session",
           repoName: "test-repo",
@@ -160,10 +160,10 @@ describe("PR Workflow with Dependencies", () => {
 
   test("should throw error when taskId has no associated session", async () => {
     const mockDeps = {
-      execAsync: createMock() as any,
-      getSession: createMock() as any,
-      getSessionWorkdir: createMock() as any,
-      getSessionByTaskId: createMock(() => Promise.resolve(null)) as any,
+      execAsync: mock() as any,
+      getSession: mock() as any,
+      getSessionWorkdir: mock() as any,
+      getSessionByTaskId: mock(() => Promise.resolve(null)) as any,
     };
 
     const gitService = new GitService();
@@ -177,9 +177,9 @@ describe("PR Workflow with Dependencies", () => {
 
   test("should throw error when getSessionByTaskId dependency is not available", async () => {
     const mockDeps = {
-      execAsync: createMock() as any,
-      getSession: createMock() as any,
-      getSessionWorkdir: createMock() as any,
+      execAsync: mock() as any,
+      getSession: mock() as any,
+      getSessionWorkdir: mock() as any,
       // getSessionByTaskId is intentionally omitted
     };
 
@@ -192,7 +192,7 @@ describe("PR Workflow with Dependencies", () => {
 
   test("should prioritize session over taskId when both are provided", async () => {
     const mockDeps = {
-      execAsync: createMock(async (command: unknown) => {
+      execAsync: mock(async (command: unknown) => {
         const cmd = command as string;
         if (cmd.includes("log --oneline")) {
           return { stdout: "abc123 feat: add new feature", stderr: "" };
@@ -220,15 +220,15 @@ describe("PR Workflow with Dependencies", () => {
         }
         return { stdout: "", stderr: "" };
       }) as any,
-      getSession: createMock(() =>
+      getSession: mock(() =>
         Promise.resolve({
           session: "direct-session",
           repoName: "test-repo",
           repoUrl: "https://github.com/user/repo.git",
         })
       ) as any,
-      getSessionWorkdir: createMock(() => "/test/repo/sessions/direct-session") as any,
-      getSessionByTaskId: createMock() as any,
+      getSessionWorkdir: mock(() => "/test/repo/sessions/direct-session") as any,
+      getSessionByTaskId: mock() as any,
     };
 
     const gitService = new GitService();
@@ -250,7 +250,7 @@ describe("PR Workflow with Dependencies", () => {
 
   test("should handle git command failures gracefully in PR workflow", async () => {
     const mockDeps = {
-      execAsync: createMock(async (command: unknown) => {
+      execAsync: mock(async (command: unknown) => {
         const cmd = command as string;
         // Allow some commands to succeed for basic workflow
         if (cmd.includes("rev-parse --show-toplevel")) {
@@ -262,13 +262,13 @@ describe("PR Workflow with Dependencies", () => {
         // Fail other git commands to test error handling
         throw new Error("git: command not found");
       }) as any,
-      getSession: createMock(() =>
+      getSession: mock(() =>
         Promise.resolve({
           session: "test-session",
           repoName: "test-repo",
         })
       ) as any,
-      getSessionWorkdir: createMock(() => "/test/repo") as any,
+      getSessionWorkdir: mock(() => "/test/repo") as any,
     };
 
     const gitService = new GitService();

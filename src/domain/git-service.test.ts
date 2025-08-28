@@ -13,30 +13,30 @@ setupTestMocks();
 // Mock the logger module to avoid winston dependency issues
 mockModule("../../utils/logger", () => ({
   log: {
-    agent: createMock(),
-    debug: createMock(),
-    warn: createMock(),
-    error: createMock(),
-    cli: createMock(),
-    cliWarn: createMock(),
-    cliError: createMock(),
-    setLevel: createMock(),
-    cliDebug: createMock(),
+    agent: mock(),
+    debug: mock(),
+    warn: mock(),
+    error: mock(),
+    cli: mock(),
+    cliWarn: mock(),
+    cliError: mock(),
+    setLevel: mock(),
+    cliDebug: mock(),
   },
 }));
 
 // Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = createMock();
+const mockExecAsync = mock();
 mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
 // Mock the git-exec module to prevent real git execution
 mockModule("../../utils/git-exec", () => ({
-  execGitWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitMergeWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  execGitWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitMergeWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
 }));
 
 describe("GitService", () => {
