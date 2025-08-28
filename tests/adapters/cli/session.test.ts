@@ -11,7 +11,6 @@ import { getSessionDirFromParams } from "../../../src/domain/session/commands/di
 import { updateSessionFromParams } from "../../../src/domain/session/commands/update-command";
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
-import { createMock as createMockFunction } from "../../../src/utils/test-utils/core/mock-functions";
 import { initializeConfiguration } from "../../../src/domain/configuration";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import {
@@ -235,7 +234,7 @@ describe("Session CLI Commands", () => {
 
       const mockSessionDB = {
         getSession: () => sessionRecord,
-        updateSession: createMockFunction(),
+        updateSession: mock(),
         getSessionWorkdir: () => sessionPath,
       };
 
@@ -277,7 +276,7 @@ describe("Session CLI Commands", () => {
 
       const mockSessionDB = {
         getSession: () => sessionRecord,
-        updateSession: createMockFunction(),
+        updateSession: mock(),
         getSessionWorkdir: () => sessionPath,
       };
 
@@ -334,7 +333,7 @@ describe("Session CLI Commands", () => {
       });
 
       // Mock execAsync to simulate git commands
-      const mockExecAsync = createMockFunction(async (command: string) => {
+      const mockExecAsync = mock(async (command: string) => {
         if (command === "git rev-parse --show-toplevel") {
           // Return a path that matches the session directory structure used by getSessionsDir()
           return { stdout: `/Users/edobry/.local/state/minsky/sessions/workspace-session` };
@@ -375,7 +374,7 @@ describe("Session CLI Commands", () => {
       });
 
       // Mock execAsync to simulate git commands
-      const mockExecAsync = createMockFunction(async (command: string) => {
+      const mockExecAsync = mock(async (command: string) => {
         if (command === "git rev-parse --show-toplevel") {
           // Return a path that matches the session directory structure used by getSessionsDir()
           return { stdout: `/Users/edobry/.local/state/minsky/sessions/directory-session` };
