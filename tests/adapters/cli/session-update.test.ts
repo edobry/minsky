@@ -13,6 +13,7 @@ import { createSessionTestData, cleanupSessionTestData } from "./session-test-ut
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import { createMock } from "../../../src/utils/test-utils/core/mock-functions";
 import type { SessionTestData } from "./session-test-utilities";
+import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import type { SessionRecord } from "../../../src/domain/session";
 
 describe("session update command", () => {
@@ -148,12 +149,17 @@ describe("session update command", () => {
   });
 
   test("should handle repository URL detection", async () => {
-    const sessionPath = join(testData.tempDir, "test-repo", "sessions", "url-test-session");
+    const sessionPath = join(
+      testData.tempDir,
+      "test-repo",
+      "sessions",
+      SESSION_TEST_PATTERNS.URL_TEST_SESSION
+    );
 
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
-      name: "url-test-session",
+      name: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
       taskId: "789",
       repoUrl: "https://github.com/test/repo.git",
       workspacePath: join(testData.tempDir, "test-repo"),
@@ -173,13 +179,13 @@ describe("session update command", () => {
 
     const result = await updateSessionFromParams(
       {
-        sessionName: "url-test-session",
+        sessionName: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
         autoResolveDeleteConflicts: true,
       },
       {
         gitService: mockGitService,
         sessionDB: mockSessionDB,
-        getCurrentSession: async () => "url-test-session", // Mock current session detection
+        getCurrentSession: async () => SESSION_TEST_PATTERNS.URL_TEST_SESSION, // Mock current session detection
       }
     );
 
