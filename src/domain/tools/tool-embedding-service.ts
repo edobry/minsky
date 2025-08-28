@@ -3,9 +3,9 @@ import { createLogger } from "../../utils/logger";
 import { type EmbeddingService } from "../ai/embeddings/types";
 import { type VectorStorage } from "../storage/vector/types";
 import { createEmbeddingServiceFromConfig } from "../ai/embedding-service-factory";
-import { createToolsVectorStorageFromConfig } from "../../storage/vector/vector-storage-factory";
+import { createToolsVectorStorageFromConfig } from "../storage/vector/vector-storage-factory";
 import { getConfiguration } from "../configuration";
-import { getEmbeddingDimension } from "../ai/embeddings/embedding-utils";
+import { getEmbeddingDimension } from "../ai/embedding-models";
 import { sharedCommandRegistry, type SharedCommand } from "../../adapters/shared/command-registry";
 
 const log = createLogger("tool-embedding-service");
