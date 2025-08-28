@@ -176,6 +176,7 @@ export const GIT_TEST_PATTERNS = {
   SAMPLE_COMMIT: "abc123 feat: add new feature",
   STASH_POP: 'stash pop "stash@{0}"',
   GIT_STATUS_MODIFIED: "M  src/file1.ts\n",
+  DIFF_NAME_ONLY: "diff --name-only",
 } as const;
 
 // Rules and context patterns

@@ -53,7 +53,7 @@ describe("PR Workflow with Dependencies", () => {
         if (cmd.includes("log --oneline")) {
           return { stdout: "abc123 feat: add new feature\ndef456 fix: bug fix", stderr: "" };
         }
-        if (cmd.includes("diff --name-only")) {
+        if (cmd.includes(GIT_TEST_PATTERNS.DIFF_NAME_ONLY)) {
           return { stdout: "src/feature.ts\nREADME.md", stderr: "" };
         }
         if (cmd.includes("merge-base")) {
@@ -105,7 +105,7 @@ describe("PR Workflow with Dependencies", () => {
         if (cmd.includes("log --oneline")) {
           return { stdout: GIT_TEST_PATTERNS.SAMPLE_COMMIT, stderr: "" };
         }
-        if (cmd.includes("diff --name-only")) {
+        if (cmd.includes(GIT_TEST_PATTERNS.DIFF_NAME_ONLY)) {
           return { stdout: "src/feature.ts", stderr: "" };
         }
         if (cmd.includes("merge-base")) {
@@ -198,7 +198,7 @@ describe("PR Workflow with Dependencies", () => {
         if (cmd.includes("log --oneline")) {
           return { stdout: GIT_TEST_PATTERNS.SAMPLE_COMMIT, stderr: "" };
         }
-        if (cmd.includes("diff --name-only")) {
+        if (cmd.includes(GIT_TEST_PATTERNS.DIFF_NAME_ONLY)) {
           return { stdout: "src/feature.ts", stderr: "" };
         }
         if (cmd.includes("merge-base")) {

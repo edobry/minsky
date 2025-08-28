@@ -12,7 +12,10 @@ import { updateSessionFromParams } from "../../../src/domain/session/commands/up
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { initializeConfiguration } from "../../../src/domain/configuration";
-import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
+import {
+  SESSION_TEST_PATTERNS,
+  PATH_TEST_PATTERNS,
+} from "../../../src/utils/test-utils/test-constants";
 import {
   createMockGitService,
   createMockSessionProvider,
@@ -127,7 +130,7 @@ describe("Session CLI Commands", () => {
               repoUrl: "https://github.com/test/repo.git",
               workspacePath: testData.tempDir,
               sessionPath,
-              branch: "feature/task-123",
+              branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
               created: new Date().toISOString(),
             };
           }
@@ -141,7 +144,7 @@ describe("Session CLI Commands", () => {
               repoUrl: "https://github.com/test/repo.git",
               workspacePath: testData.tempDir,
               sessionPath,
-              branch: "feature/task-123",
+              branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
               created: new Date().toISOString(),
             };
           }
@@ -155,7 +158,7 @@ describe("Session CLI Commands", () => {
             repoUrl: "https://github.com/test/repo.git",
             workspacePath: testData.tempDir,
             sessionPath,
-            branch: "feature/task-123",
+            branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
             created: new Date().toISOString(),
           },
         ],

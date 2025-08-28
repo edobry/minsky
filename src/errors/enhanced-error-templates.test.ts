@@ -14,18 +14,26 @@ import {
   createMergeConflictErrorMessage,
   createBackendDetectionErrorMessage,
 } from "./enhanced-error-templates";
-import { ERROR_MESSAGES, GIT_TEST_PATTERNS } from "../utils/test-utils/test-constants";
+import {
+  ERROR_MESSAGES,
+  GIT_TEST_PATTERNS,
+  SESSION_TEST_PATTERNS,
+} from "../utils/test-utils/test-constants";
 
 describe("Task 223 Enhanced Error Messages", () => {
   describe("createSessionPrBranchErrorMessage", () => {
     test("should create helpful error message for PR branch restriction", () => {
-      const result = createSessionPrBranchErrorMessage("pr/task-123-feature", "task-123", [
-        { label: "Current directory", value: "/Users/test/sessions/223" },
-        { label: "Current branch", value: "pr/task-123-feature" },
-      ]);
+      const result = createSessionPrBranchErrorMessage(
+        SESSION_TEST_PATTERNS.PR_TASK_123_FEATURE,
+        "task-123",
+        [
+          { label: "Current directory", value: "/Users/test/sessions/223" },
+          { label: "Current branch", value: SESSION_TEST_PATTERNS.PR_TASK_123_FEATURE },
+        ]
+      );
 
       expect(result)!.toContain("Cannot Run Session PR from PR Branch");
-      expect(result)!.toContain("pr/task-123-feature");
+      expect(result)!.toContain(SESSION_TEST_PATTERNS.PR_TASK_123_FEATURE);
       expect(result)!.toContain("git switch task-123");
       expect(result)!.toContain("git branch -a");
       expect(result)!.toContain("pwd | grep sessions");
