@@ -115,7 +115,7 @@ export const ToolSchemasComponent: ContextComponent = {
         try {
           // NEW: Query-aware tool filtering using ToolSimilarityService
           const toolSimilarityService = await createToolSimilarityService();
-          
+
           const relevantTools = await toolSimilarityService.findRelevantTools({
             query: userQuery!,
             limit: 20, // Configurable limit - default reduces from 50+ to 20 tools
@@ -125,7 +125,7 @@ export const ToolSchemasComponent: ContextComponent = {
           // Build tool schemas for relevant tools only
           for (const relevantTool of relevantTools) {
             const { properties, required } = extractParameterSchemas(relevantTool.tool.id);
-            
+
             if (interfaceConfig.interface === "cli") {
               toolSchemas[relevantTool.tool.id] = {
                 description: relevantTool.tool.description,
@@ -161,7 +161,7 @@ export const ToolSchemasComponent: ContextComponent = {
           // Calculate reduction metrics
           const allCommands = registry.getAllCommands();
           originalToolCount = allCommands.length;
-          reductionPercentage = originalToolCount > 0 
+          reductionPercentage = originalToolCount > 0
             ? Math.round(((originalToolCount - totalTools) / originalToolCount) * 100)
             : 0;
           filteredBy = "user-query";
@@ -299,7 +299,7 @@ ${JSON.stringify(cleanToolSchemas, null, 2)}`;
 <!-- Query: "${inputs.queryUsed}" -->
 <!-- Tools: ${inputs.totalTools} selected from ${inputs.originalToolCount} total (${inputs.reductionPercentage}% reduction) -->
 <!-- This reduces context pollution while providing relevant tools for your query -->`;
-      
+
       content += filteringSummary;
     }
 
