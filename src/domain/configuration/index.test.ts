@@ -7,6 +7,7 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverrides } from "./index";
 import { CustomConfigFactory, createTestProvider, CustomConfigurationProvider } from "./index";
+import { GIT_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 // Mock the configuration loader to prevent infinite loops
 const mockLoadConfiguration = mock(() =>

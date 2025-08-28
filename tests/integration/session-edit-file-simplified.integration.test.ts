@@ -9,6 +9,7 @@
 
 import { describe, test, expect, beforeAll, beforeEach, mock } from "bun:test";
 import { applyEditPattern } from "../../src/adapters/mcp/session-edit-tools";
+import { CODE_TEST_PATTERNS } from "../../src/utils/test-utils/test-constants";
 import {
   initializeConfiguration,
   CustomConfigFactory,
@@ -292,7 +293,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS)("Session Edit File Integration Te
     coreTestCases.forEach((testCase) => {
       test(`should handle ${testCase.name}`, async () => {
         if (!testConfig.hasValidMorphConfig) {
-          console.log("⏭️  Skipping - Morph not configured");
+          console.log(CODE_TEST_PATTERNS.SKIPPING_MORPH_MESSAGE);
           return;
         }
 
@@ -319,7 +320,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS)("Session Edit File Integration Te
     phase1TestCases.forEach((testCase) => {
       test(`should handle ${testCase.name}`, async () => {
         if (!testConfig.hasValidMorphConfig) {
-          console.log("⏭️  Skipping - Morph not configured");
+          console.log(CODE_TEST_PATTERNS.SKIPPING_MORPH_MESSAGE);
           return;
         }
 
@@ -346,7 +347,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS)("Session Edit File Integration Te
     phase2TestCases.forEach((testCase) => {
       test(`should handle ${testCase.name}`, async () => {
         if (!testConfig.hasValidMorphConfig) {
-          console.log("⏭️  Skipping - Morph not configured");
+          console.log(CODE_TEST_PATTERNS.SKIPPING_MORPH_MESSAGE);
           return;
         }
 
@@ -373,7 +374,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS)("Session Edit File Integration Te
     phase3TestCases.forEach((testCase) => {
       test(`should handle ${testCase.name}`, async () => {
         if (!testConfig.hasValidMorphConfig) {
-          console.log("⏭️  Skipping - Morph not configured");
+          console.log(CODE_TEST_PATTERNS.SKIPPING_MORPH_MESSAGE);
           return;
         }
 

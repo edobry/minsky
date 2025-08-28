@@ -78,7 +78,7 @@ describe("PR Workflow with Dependencies", () => {
     const result = await gitService.prWithDependencies({ session: "test-session" }, mockDeps);
 
     expect(result.markdown).toContain("feature-branch");
-    expect(result.markdown).toContain("abc123 feat: add new feature");
+    expect(result.markdown).toContain(GIT_TEST_PATTERNS.SAMPLE_COMMIT);
     expect(result.markdown).toContain("src/feature.ts");
     expectToHaveBeenCalled(mockDeps.execAsync);
     expectToHaveBeenCalledWith(mockDeps.getSession, "test-session");
@@ -103,7 +103,7 @@ describe("PR Workflow with Dependencies", () => {
       execAsync: mock(async (command: unknown) => {
         const cmd = command as string;
         if (cmd.includes("log --oneline")) {
-          return { stdout: "abc123 feat: add new feature", stderr: "" };
+          return { stdout: GIT_TEST_PATTERNS.SAMPLE_COMMIT, stderr: "" };
         }
         if (cmd.includes("diff --name-only")) {
           return { stdout: "src/feature.ts", stderr: "" };
@@ -156,7 +156,7 @@ describe("PR Workflow with Dependencies", () => {
 
     // Verify PR was generated successfully
     expect(result.markdown).toContain("feature-branch");
-    expect(result.markdown).toContain("abc123 feat: add new feature");
+    expect(result.markdown).toContain(GIT_TEST_PATTERNS.SAMPLE_COMMIT);
   });
 
   test("should throw error when taskId has no associated session", async () => {
@@ -196,7 +196,7 @@ describe("PR Workflow with Dependencies", () => {
       execAsync: mock(async (command: unknown) => {
         const cmd = command as string;
         if (cmd.includes("log --oneline")) {
-          return { stdout: "abc123 feat: add new feature", stderr: "" };
+          return { stdout: GIT_TEST_PATTERNS.SAMPLE_COMMIT, stderr: "" };
         }
         if (cmd.includes("diff --name-only")) {
           return { stdout: "src/feature.ts", stderr: "" };

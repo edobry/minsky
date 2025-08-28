@@ -171,10 +171,17 @@ export const GIT_TEST_PATTERNS = {
   GIT_PUSH_WITH_TIMEOUT: "gitPushWithTimeout",
   GIT_FETCH_WITH_TIMEOUT: "gitFetchWithTimeout",
   BRANCH_SHOW_CURRENT: "branch --show-current",
+  SAMPLE_COMMIT: "abc123 feat: add new feature",
 } as const;
 
 // Rules and context patterns
 export const RULES_TEST_PATTERNS = {
   DOMAIN_ORIENTED_MODULES: "domain-oriented-modules",
   DESCRIPTION_PLACEHOLDER: "Description here.",
+} as const;
+
+// Code comment patterns
+export const CODE_TEST_PATTERNS = {
+  EXISTING_CODE_COMMENT: "// ... existing code ...",
+  SKIPPING_MORPH_MESSAGE: "⏭️  Skipping - Morph not configured",
 } as const;
