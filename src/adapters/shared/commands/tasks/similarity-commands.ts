@@ -255,9 +255,11 @@ export class TasksSearchCommand extends BaseTaskCommand {
     const showAll = Boolean((params as any).all);
     if (statusParam && !showAll) {
       filters.status = statusParam;
+    } else if (!showAll) {
+      // Default: exclude DONE and CLOSED tasks unless --all is specified
+      // This matches the behavior of tasks list command (mt#477)
+      filters.statusExclude = ['DONE', 'CLOSED'];
     }
-    // NOTE: For default behavior (exclude DONE/CLOSED), we'll implement NOT IN server-side filtering
-    // For now, keeping it simple with only positive filters
 
     const searchResults = await service.searchByText(query, limit, threshold, filters);
 
