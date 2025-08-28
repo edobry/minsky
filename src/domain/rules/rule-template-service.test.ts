@@ -22,6 +22,7 @@ import {
   DEFAULT_MCP_CONFIG,
   DEFAULT_HYBRID_CONFIG,
 } from "./template-system";
+import { CLI_COMMANDS } from "../../utils/test-utils/test-constants";
 
 // Mock default templates to avoid command registry conflicts
 mock.module("./default-templates", () => ({
@@ -222,7 +223,7 @@ describe("RuleTemplateService", () => {
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
       expect(result.rules[0]!.id).toBe("cli-rule");
-      expect(result.rules[0]!.content).toContain("minsky tasks list");
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
 
     test("generates rule with MCP configuration", async () => {
@@ -245,7 +246,7 @@ describe("RuleTemplateService", () => {
 
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
-      expect(result.rules[0]!.content).toContain("mcp_minsky-server_tasks_list");
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MCP_MINSKY_TASKS_LIST);
     });
 
     test("generates rule with hybrid configuration preferring CLI", async () => {
@@ -268,7 +269,7 @@ describe("RuleTemplateService", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.rules[0]!.content).toContain("minsky tasks list");
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
 
     test("generates rule with hybrid configuration preferring MCP", async () => {
@@ -291,7 +292,7 @@ describe("RuleTemplateService", () => {
       });
 
       expect(result.success).toBe(true);
-      expect(result.rules[0]!.content).toContain("mcp_minsky-server_tasks_list");
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MCP_MINSKY_TASKS_LIST);
     });
   });
 
@@ -389,7 +390,7 @@ ${helpers.command("tasks.list", "list all tasks")}
 
 ## Code Block
 \`\`\`bash
-${helpers.codeBlock("minsky session start --task 123", "bash")}
+${helpers.codeBlock(CLI_COMMANDS.MINSKY_SESSION_START_TASK, "bash")}
 \`\`\`
 
 ## Workflow Step
@@ -419,8 +420,8 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       }
       expect(cliResult.success).toBe(true);
       const cliContent = cliResult.rules[0]!.content;
-      expect(cliContent).toContain("minsky tasks list");
-      expect(cliContent).toContain("minsky session start --task 123");
+      expect(cliContent).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
+      expect(cliContent).toContain(CLI_COMMANDS.MINSKY_SESSION_START_TASK);
       expect(cliContent).toContain("check task status");
       expect(cliContent).toContain("Optional");
       expect(cliContent).toContain("This appears for CLI");
@@ -435,8 +436,8 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
 
       expect(mcpResult.success).toBe(true);
       const mcpContent = mcpResult.rules[0]!.content;
-      expect(mcpContent).toContain("mcp_minsky-server_tasks_list");
-      expect(mcpContent).toContain("minsky session start --task 123");
+      expect(mcpContent).toContain(CLI_COMMANDS.MCP_MINSKY_TASKS_LIST);
+      expect(mcpContent).toContain(CLI_COMMANDS.MINSKY_SESSION_START_TASK);
       expect(mcpContent).toContain("mcp_minsky-server_tasks_status_get");
       expect(mcpContent).toContain("Optional");
       expect(mcpContent).not.toContain("This appears for CLI");
@@ -508,7 +509,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
 
       expect(result.success).toBe(true);
       expect(result.config.interface).toBe("cli");
-      expect(result.rules[0].content).toContain("minsky tasks list");
+      expect(result.rules[0].content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
 
     test("generateMcpRules uses MCP configuration", async () => {
@@ -528,7 +529,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
 
       expect(result.success).toBe(true);
       expect(result.config.interface).toBe("mcp");
-      expect(result.rules[0].content).toContain("mcp_minsky-server_tasks_list");
+      expect(result.rules[0].content).toContain(CLI_COMMANDS.MCP_MINSKY_TASKS_LIST);
     });
 
     test("generateHybridRules uses hybrid configuration", async () => {
@@ -549,7 +550,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(result.success).toBe(true);
       expect(result.config.interface).toBe("hybrid");
       // Should prefer CLI by default (preferMcp: false)
-      expect(result.rules[0].content).toContain("minsky tasks list");
+      expect(result.rules[0].content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
     });
   });
 
@@ -596,7 +597,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", "This appears f
       expect(result.rules).toHaveLength(1);
       expect(result.rules[0].id).toBe("test-template");
       expect(result.rules[0].content).toContain("# Test Rule");
-      expect(result.rules[0].content).toContain("minsky tasks list");
+      expect(result.rules[0].content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
 
       // Verify that dryRun: false was respected (files would be created in real scenario)
       expect(result.config.interface).toBe("cli");

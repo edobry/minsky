@@ -146,4 +146,8 @@ export const SESSION_TEST_PATTERNS = {
   DIRECTORY_SESSION: "directory-session",
   URL_TEST_SESSION: "url-test-session",
   TEST_USERS_SESSIONS: "/Users/test/.local/state/minsky/sessions/session-name",
+  ORPHANED_SESSION: "orphaned-session",
+  NON_EXISTENT_SESSION: "non-existent-session",
+  APPROVED_SESSION: "approved-session",
+  SESSION_WITHOUT_PR: "session-without-pr",
 } as const;
