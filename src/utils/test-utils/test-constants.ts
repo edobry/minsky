@@ -162,3 +162,10 @@ export const DIFF_TEST_CONTENT = {
   TWO_LINES_ONLY: "line 1\nline 3",
   FOUR_TO_TWO: "line 1\nline 4",
 } as const;
+
+// Git and repository patterns
+export const GIT_TEST_PATTERNS = {
+  SSH_REPO_URL: "git@github.com:org/repo.git",
+  PERMISSION_DENIED: "Permission denied",
+  ORIGIN_MAIN: "origin/origin/main",
+} as const;
