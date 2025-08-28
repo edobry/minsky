@@ -50,6 +50,11 @@ export class ModularTasksCommandManager {
       const { TasksSimilarCommand, TasksSearchCommand } = require("./tasks/similarity-commands");
       const { TasksIndexEmbeddingsCommand } = require("./tasks/index-embeddings-command");
 
+      log.debug("[ModularTasksCommandManager] Requiring deps-commands");
+      const { createTasksDepsAddCommand } = require("./tasks/deps-commands");
+      const { createTasksDepsRmCommand } = require("./tasks/deps-commands");
+      const { createTasksDepsListCommand } = require("./tasks/deps-commands");
+
       // Create command instances to get their parameter definitions
       log.debug("[ModularTasksCommandManager] Creating command instances");
       const listCommand = createTasksListCommand();
@@ -66,6 +71,10 @@ export class ModularTasksCommandManager {
       const similarCommand = new TasksSimilarCommand();
       const searchCommand = new TasksSearchCommand();
       const indexEmbeddingsCommand = new TasksIndexEmbeddingsCommand();
+
+      const depsAddCommand = createTasksDepsAddCommand();
+      const depsRmCommand = createTasksDepsRmCommand();
+      const depsListCommand = createTasksDepsListCommand();
 
       // Register list command
       sharedCommandRegistry.registerCommand({
@@ -216,8 +225,35 @@ export class ModularTasksCommandManager {
         parameters: (indexEmbeddingsCommand as any).parameters,
         execute: indexEmbeddingsCommand.execute.bind(indexEmbeddingsCommand),
       });
+
+      sharedCommandRegistry.registerCommand({
+        id: depsAddCommand.id,
+        category: CommandCategory.TASKS,
+        name: depsAddCommand.name,
+        description: depsAddCommand.description,
+        parameters: (depsAddCommand as any).parameters,
+        execute: depsAddCommand.execute.bind(depsAddCommand),
+      });
+
+      sharedCommandRegistry.registerCommand({
+        id: depsRmCommand.id,
+        category: CommandCategory.TASKS,
+        name: depsRmCommand.name,
+        description: depsRmCommand.description,
+        parameters: (depsRmCommand as any).parameters,
+        execute: depsRmCommand.execute.bind(depsRmCommand),
+      });
+
+      sharedCommandRegistry.registerCommand({
+        id: depsListCommand.id,
+        category: CommandCategory.TASKS,
+        name: depsListCommand.name,
+        description: depsListCommand.description,
+        parameters: (depsListCommand as any).parameters,
+        execute: depsListCommand.execute.bind(depsListCommand),
+      });
     } catch (error) {
-      console.warn("Failed to register task commands:", error);
+      log.warn("Failed to register task commands:", error);
     }
   }
 
@@ -225,7 +261,7 @@ export class ModularTasksCommandManager {
    * Get a specific task command by ID
    */
   getCommand(commandId: string) {
-    console.warn("getCommand is deprecated. Commands are created on-demand.");
+    log.warn("getCommand is deprecated. Commands are created on-demand.");
     return null;
   }
 
@@ -233,7 +269,7 @@ export class ModularTasksCommandManager {
    * Get all registered task commands
    */
   getAllCommands() {
-    console.warn("getAllCommands is deprecated. Commands are created on-demand.");
+    log.warn("getAllCommands is deprecated. Commands are created on-demand.");
     return [];
   }
 
@@ -241,7 +277,7 @@ export class ModularTasksCommandManager {
    * Get all task command registrations for the shared registry
    */
   getAllRegistrations() {
-    console.warn("getAllRegistrations is deprecated. Commands are created on-demand.");
+    log.warn("getAllRegistrations is deprecated. Commands are created on-demand.");
     return [];
   }
 
@@ -249,7 +285,7 @@ export class ModularTasksCommandManager {
    * Execute a task command by ID with the given parameters
    */
   async executeCommand(commandId: string, params: any, context: any) {
-    console.warn("executeCommand is deprecated. Commands are created on-demand.");
+    log.warn("executeCommand is deprecated. Commands are created on-demand.");
     throw new Error(`Task command not found: ${commandId}`);
   }
 
@@ -257,7 +293,7 @@ export class ModularTasksCommandManager {
    * Reset and re-register all commands (useful for testing)
    */
   resetCommands(): void {
-    console.warn("resetCommands is deprecated. Commands are created on-demand.");
+    log.warn("resetCommands is deprecated. Commands are created on-demand.");
   }
 }
 

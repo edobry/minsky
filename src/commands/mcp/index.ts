@@ -31,6 +31,7 @@ const INSPECTOR_PORT = 5173;
 import { registerSessionFileTools } from "../../adapters/mcp/session-files";
 import { registerSessionEditTools } from "../../adapters/mcp/session-edit-tools";
 import { setupConfiguration } from "../../config-setup";
+import { registerTaskRelationshipTools } from "../../adapters/mcp/task-relationships-tools";
 
 /**
  * Enhanced error information from MCP inspector
@@ -191,9 +192,9 @@ async function callMcpToolDirectly(
               }
               if (response.result !== undefined) {
                 if (typeof response.result === "string") {
-                  console.log(response.result);
+                  log.cli(String(response.result));
                 } else {
-                  console.log(JSON.stringify(response.result, null, 2));
+                  log.cli(JSON.stringify(response.result, null, 2));
                 }
                 resolve();
                 return;
@@ -275,9 +276,9 @@ async function callMcpToolDirectly(
             if (jsonrpcResponse.result !== undefined) {
               // Pretty print the result
               if (typeof jsonrpcResponse.result === "string") {
-                console.log(jsonrpcResponse.result);
+                log.cli(String(jsonrpcResponse.result));
               } else {
-                console.log(JSON.stringify(jsonrpcResponse.result, null, 2));
+                log.cli(JSON.stringify(jsonrpcResponse.result, null, 2));
               }
               resolve();
               return;
@@ -293,9 +294,9 @@ async function callMcpToolDirectly(
               const response = JSON.parse(trimmedLine);
               if (response.result !== undefined) {
                 if (typeof response.result === "string") {
-                  console.log(response.result);
+                  log.cli(String(response.result));
                 } else {
-                  console.log(JSON.stringify(response.result, null, 2));
+                  log.cli(JSON.stringify(response.result, null, 2));
                 }
                 resolve();
                 return;
@@ -529,6 +530,8 @@ export function createMCPCommand(): Command {
         // Register main application tools
         log.debug("[MCP] About to register task tools");
         registerTaskTools(commandMapper);
+        // Register task relationship tools (graph MVP)
+        registerTaskRelationshipTools(commandMapper);
         log.debug("[MCP] About to register session tools");
         registerSessionTools(commandMapper);
         registerSessionWorkspaceTools(commandMapper);
@@ -762,12 +765,12 @@ export function createMCPCommand(): Command {
 
                 if (options.json) {
                   // Output full JSON response
-                  console.log(JSON.stringify(parsed.result, null, 2));
+                  log.cli(JSON.stringify(parsed.result, null, 2));
                 } else {
                   // Output just tool names
                   const tools = parsed.result.tools || [];
                   for (const tool of tools) {
-                    console.log(tool.name);
+                    log.cli(tool.name);
                   }
                 }
                 resolve();
