@@ -220,4 +220,19 @@ export const CODE_TEST_PATTERNS = {
   SKIPPING_MORPH_MESSAGE: "⏭️  Skipping - Morph not configured",
   CLI_MESSAGE: "This appears for CLI",
   MCP_MESSAGE: "This appears for MCP",
+  SKIPPING_TEST_MORPH: "⏭️  Skipping test - Morph provider not configured",
+} as const;
+
+// UI and content patterns
+export const UI_TEST_PATTERNS = {
+  CREATE_NEW_FILE: "Create a new file",
+  NEW_FILE_CONTENT: "new file content\nline 2",
+  SHOWING_ACTIVE_TASKS: "Showing active tasks (use --all to include complet...",
+  PR_SUMMARY: "## Summary\n\nThis PR fixes the issue.",
+} as const;
+
+// Test description patterns
+export const TEST_DESC_PATTERNS = {
+  CREATES_MOCK_DEFAULT: "creates a mock with default behavior",
+  ACCEPTS_METHOD_OVERRIDES: "accepts method overrides",
 } as const;
