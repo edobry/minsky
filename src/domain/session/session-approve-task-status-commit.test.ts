@@ -24,28 +24,27 @@ import {
 } from "../../utils/test-utils/index";
 import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 
-// EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
-mock.module("./repository-backend-detection", () => ({
-  createRepositoryBackendForSession: mock(() =>
-    Promise.resolve({
-      getType: () => "local",
-      mergePullRequest: () =>
-        Promise.resolve({
-          commitHash: "abc123def456",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-        }),
-      approvePullRequest: () =>
-        Promise.resolve({
-          approvalId: "approval-123",
-          approvedAt: "2025-07-30T23:14:24.213Z",
-          approvedBy: "Test User",
-        }),
-    })
-  ),
-}));
-
 describe("Session Approve Task Status Commit", () => {
+  // EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
+  mock.module("./repository-backend-detection", () => ({
+    createRepositoryBackendForSession: mock(() =>
+      Promise.resolve({
+        getType: () => "local",
+        mergePullRequest: () =>
+          Promise.resolve({
+            commitHash: "abc123def456",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+          }),
+        approvePullRequest: () =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          }),
+      })
+    ),
+  }));
   // Mock log functions used by session approve operations
   const log = {
     cli: mock(() => {}),

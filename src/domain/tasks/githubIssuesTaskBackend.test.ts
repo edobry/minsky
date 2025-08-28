@@ -8,28 +8,27 @@ import { GitHubIssuesTaskBackend, createGitHubIssuesTaskBackend } from "./github
 // Mock implementations that we can control and verify
 const mockCreateGitHubLabels = mock(() => Promise.resolve());
 
-// Mock Octokit to prevent real GitHub API calls
-mock.module("@octokit/rest", () => ({
-  Octokit: mock(() => ({
-    rest: {
-      issues: {
-        getLabel: mock(() => Promise.resolve()),
-        createLabel: mock(() => Promise.resolve()),
-        list: mock(() => Promise.resolve({ data: [] })),
-        get: mock(() => Promise.resolve({ data: {} })),
-        create: mock(() => Promise.resolve({ data: {} })),
-        update: mock(() => Promise.resolve({ data: {} })),
-      },
-    },
-  })),
-}));
-
-// Mock the GitHub backend config to prevent real API calls
-mock.module("./githubBackendConfig", () => ({
-  createGitHubLabels: mockCreateGitHubLabels,
-}));
-
 describe("GitHubIssuesTaskBackend", () => {
+  // Mock Octokit to prevent real GitHub API calls
+  mock.module("@octokit/rest", () => ({
+    Octokit: mock(() => ({
+      rest: {
+        issues: {
+          getLabel: mock(() => Promise.resolve()),
+          createLabel: mock(() => Promise.resolve()),
+          list: mock(() => Promise.resolve({ data: [] })),
+          get: mock(() => Promise.resolve({ data: {} })),
+          create: mock(() => Promise.resolve({ data: {} })),
+          update: mock(() => Promise.resolve({ data: {} })),
+        },
+      },
+    })),
+  }));
+
+  // Mock the GitHub backend config to prevent real API calls
+  mock.module("./githubBackendConfig", () => ({
+    createGitHubLabels: mockCreateGitHubLabels,
+  }));
   let backend: GitHubIssuesTaskBackend;
 
   beforeEach(() => {
