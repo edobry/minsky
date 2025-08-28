@@ -13,6 +13,7 @@ import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { createMock as createMockFunction } from "../../../src/utils/test-utils/core/mock-functions";
 import { initializeConfiguration } from "../../../src/domain/configuration";
+import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import {
   createMockGitService,
   createMockSessionProvider,
@@ -313,18 +314,18 @@ describe("Session CLI Commands", () => {
   describe("getCurrentSession", () => {
     test("should get current session from workspace", async () => {
       const sessionRecord: SessionRecord = {
-        name: "workspace-session",
+        name: SESSION_TEST_PATTERNS.WORKSPACE_SESSION,
         taskId: "131415",
         repoUrl: "https://github.com/test/repo.git",
         workspacePath: testData.tempDir,
-        sessionPath: join(testData.tempDir, "sessions", "workspace-session"),
+        sessionPath: join(testData.tempDir, "sessions", SESSION_TEST_PATTERNS.WORKSPACE_SESSION),
         branch: "workspace-branch",
         created: new Date().toISOString(),
       };
 
       const mockSessionProviderWorkspace = createMockSessionProvider({
         getSession: (sessionName: string) => {
-          if (sessionName === "workspace-session") {
+          if (sessionName === SESSION_TEST_PATTERNS.WORKSPACE_SESSION) {
             return sessionRecord;
           }
           return null;
@@ -347,25 +348,25 @@ describe("Session CLI Commands", () => {
         mockSessionProviderWorkspace
       );
 
-      expect(result).toBe("workspace-session");
+      expect(result).toBe(SESSION_TEST_PATTERNS.WORKSPACE_SESSION);
     });
   });
 
   describe("getSessionFromWorkspace", () => {
     test("should get session from workspace directory", async () => {
       const sessionRecord: SessionRecord = {
-        name: "directory-session",
+        name: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,
         taskId: "161718",
         repoUrl: "https://github.com/test/repo.git",
         workspacePath: testData.tempDir,
-        sessionPath: join(testData.tempDir, "sessions", "directory-session"),
+        sessionPath: join(testData.tempDir, "sessions", SESSION_TEST_PATTERNS.DIRECTORY_SESSION),
         branch: "directory-branch",
         created: new Date().toISOString(),
       };
 
       const mockSessionProviderDirectory = createMockSessionProvider({
         getSession: (sessionName: string) => {
-          if (sessionName === "directory-session") {
+          if (sessionName === SESSION_TEST_PATTERNS.DIRECTORY_SESSION) {
             return sessionRecord;
           }
           return null;
@@ -389,7 +390,7 @@ describe("Session CLI Commands", () => {
       );
 
       expect(result).toEqual({
-        session: "directory-session",
+        session: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,
         upstreamRepository: "https://github.com/test/repo.git",
         gitRoot: "/Users/edobry/.local/state/minsky/sessions/directory-session",
       });

@@ -1,6 +1,7 @@
 import { describe, test, expect, mock } from "bun:test";
 import { resolveRepoPath, normalizeRepoName, type RepoUtilsDependencies } from "./repo-utils";
 import { createMock } from "../utils/test-utils/mocking";
+import { TEST_PATHS } from "../utils/test-utils/test-constants";
 
 describe("Repo Utils", () => {
   test("normalizeRepoName extracts repo name from URL", () => {
@@ -26,7 +27,7 @@ describe("Repo Utils", () => {
         getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
       execCwd: mock(() => Promise.resolve({ stdout: "/git/repo/path", stderr: "" })),
-      getCurrentDirectory: mock(() => "/current/directory"),
+      getCurrentDirectory: mock(() => TEST_PATHS.CURRENT_DIRECTORY),
     };
 
     const _result = await resolveRepoPath({ repo: "/test/path" }, mockDeps);
@@ -58,7 +59,7 @@ describe("Repo Utils", () => {
         getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
       execCwd: mock(() => Promise.resolve({ stdout: "/git/repo/path", stderr: "" })),
-      getCurrentDirectory: mock(() => "/current/directory"),
+      getCurrentDirectory: mock(() => TEST_PATHS.CURRENT_DIRECTORY),
     };
 
     const _result = await resolveRepoPath({ session: "test-session" }, mockDeps);
@@ -80,7 +81,7 @@ describe("Repo Utils", () => {
         getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
       execCwd: mock(() => Promise.resolve({ stdout: "/git/repo/path\n", stderr: "" })),
-      getCurrentDirectory: mock(() => "/current/directory"),
+      getCurrentDirectory: mock(() => TEST_PATHS.CURRENT_DIRECTORY),
     };
 
     const _result = await resolveRepoPath({}, mockDeps);
@@ -102,11 +103,11 @@ describe("Repo Utils", () => {
         getSessionWorkdir: mock(() => Promise.resolve("/mock/workdir/path")),
       },
       execCwd: mock(() => Promise.reject(new Error("Not a git repo"))),
-      getCurrentDirectory: mock(() => "/current/directory"),
+      getCurrentDirectory: mock(() => TEST_PATHS.CURRENT_DIRECTORY),
     };
 
     const _result = await resolveRepoPath({}, mockDeps);
-    expect(_result).toBe("/current/directory");
+    expect(_result).toBe(TEST_PATHS.CURRENT_DIRECTORY);
     expect(mockDeps.getCurrentDirectory).toHaveBeenCalledWith();
   });
 });

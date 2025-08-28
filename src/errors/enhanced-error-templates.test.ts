@@ -14,6 +14,7 @@ import {
   createMergeConflictErrorMessage,
   createBackendDetectionErrorMessage,
 } from "./enhanced-error-templates";
+import { ERROR_MESSAGES } from "../utils/test-utils/test-constants";
 
 describe("Task 223 Enhanced Error Messages", () => {
   describe("createSessionPrBranchErrorMessage", () => {
@@ -84,7 +85,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const result = createVariableNamingErrorMessage(
         "taskId",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "src/test.ts",
         10,
         15,
@@ -102,7 +103,7 @@ describe("Task 223 Enhanced Error Messages", () => {
     test("should identify reverse underscore mismatch (declaration without underscore, usage has underscore)", () => {
       const result = createVariableNamingErrorMessage(
         "sessionName",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "with_underscore",
         "src/session.ts",
         20,
@@ -122,7 +123,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const result = createVariableNamingErrorMessage(
         "variable",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "src/commands/task.ts",
         42,
         84,
@@ -260,7 +261,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const variableError = createVariableNamingErrorMessage(
         "var",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "file.ts",
         1,
         2,
@@ -314,7 +315,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const error = createVariableNamingErrorMessage(
         "variable",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "file.ts",
         10,
         20,

@@ -1,5 +1,7 @@
 // Helper utilities for edit pattern testing with mock filesystem
 
+import { SPEC_PATHS } from "../../../src/utils/test-utils/test-constants";
+
 export interface EditTestCase {
   name: string;
   fixture: string;
@@ -69,7 +71,7 @@ export function validateEditResult(
 export const coreTestCases: EditTestCase[] = [
   {
     name: "method addition to simple class",
-    fixture: "typescript/simple-class.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_SIMPLE_CLASS,
     instruction: "Add a multiply method to the Calculator class",
     editPattern: `export class Calculator {
   add(a: number, b: number): number {
@@ -89,7 +91,7 @@ export const coreTestCases: EditTestCase[] = [
   },
   {
     name: "replace method body in simple class",
-    fixture: "typescript/simple-class.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_SIMPLE_CLASS,
     instruction: "Change add to return 0 when any operand is 0",
     editPattern: `export class Calculator {
   add(a: number, b: number): number {
@@ -128,7 +130,7 @@ export const phase1TestCases: EditTestCase[] = [
   },
   {
     name: "sequential edit chain (two additions)",
-    fixture: "typescript/simple-class.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_SIMPLE_CLASS,
     instruction: "Add subtract and multiply methods to the Calculator class",
     editPattern: `export class Calculator {
   add(a: number, b: number): number {
@@ -213,7 +215,7 @@ export class Service {
   },
   {
     name: "static method addition",
-    fixture: "typescript/simple-class.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_SIMPLE_CLASS,
     instruction: "Add a static from method",
     editPattern: `export class Calculator {
   static from(): Calculator { return new Calculator(); }
@@ -231,7 +233,7 @@ export class Service {
 export const phase2TestCases: EditTestCase[] = [
   {
     name: "interface modification",
-    fixture: "typescript/interface-definitions.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_INTERFACE_DEFINITIONS,
     instruction: "Add isActive to User interface",
     editPattern: `export interface User {
   id: string;
@@ -300,7 +302,7 @@ export const phase2TestCases: EditTestCase[] = [
   },
   {
     name: "interface extension and property addition",
-    fixture: "typescript/interface-definitions.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_INTERFACE_DEFINITIONS,
     instruction: "Extend User interface and add UserService interface",
     editPattern: `export interface User {
   id: string;
@@ -332,7 +334,7 @@ export interface UserService {
   },
   {
     name: "type alias and union modifications",
-    fixture: "typescript/interface-definitions.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_INTERFACE_DEFINITIONS,
     instruction: "Add UserRole, UserStatus, and typed CreateUserData",
     editPattern: `// ... existing code ...
 
@@ -418,7 +420,7 @@ export class Repo {
   },
   {
     name: "conflicting edit detection (ambiguous position)",
-    fixture: "typescript/simple-class.ts",
+    fixture: SPEC_PATHS.TYPESCRIPT_SIMPLE_CLASS,
     instruction: "Insert method using ambiguous markers only",
     editPattern: `// ... existing code ...
 // ... existing code ...
