@@ -1,10 +1,19 @@
 import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
+import type { Rule } from "../../rules/types";
+import { suggestRules, groupRulesByType } from "../../rules/rule-suggestion-enhanced";
+import { createRuleSimilarityService } from "../../rules/rule-similarity-service";
 
 /**
  * Workspace Rules Component
  *
  * Provides workspace-level rules in Cursor's exact format.
  * This replicates how Cursor presents workspace rules to AI assistants.
+ * 
+ * Enhanced with context-aware filtering using rule types:
+ * - Always Apply: Always included
+ * - Auto Attached: Included when files match globs
+ * - Agent Requested: Included based on query similarity
+ * - Manual: Only included when explicitly requested
  */
 export const WorkspaceRulesComponent: ContextComponent = {
   id: "workspace-rules",
@@ -17,21 +26,64 @@ export const WorkspaceRulesComponent: ContextComponent = {
 
     try {
       const rulesService = new ModularRulesService(context.workspacePath || process.cwd());
-
       const allRules = await rulesService.listRules();
+      
+      // Check if we should use enhanced filtering
+      const userQuery = context.userQuery || context.userPrompt;
+      const filesInContext = context.filesInContext || [];
+      let shouldUseEnhancedFiltering = Boolean(userQuery?.trim() || filesInContext.length > 0);
 
-      // Filter rules based on user prompt if provided
-      let filteredRules = allRules;
-      if (context.userPrompt) {
-        const prompt = context.userPrompt.toLowerCase();
-        filteredRules = allRules.filter((rule) => {
-          if (!rule || !rule.name) return false;
-          return (
-            rule.name.toLowerCase().includes(prompt) ||
-            rule.description?.toLowerCase().includes(prompt) ||
-            rule.content?.toLowerCase().includes(prompt)
-          );
-        });
+      let filteredRules: Rule[] = [];
+      let filteredBy: string | undefined;
+      let queryUsed: string | undefined = userQuery;
+      let reductionPercentage: number | undefined;
+      let rulesByType: Record<string, Rule[]> | undefined;
+
+      if (shouldUseEnhancedFiltering) {
+        try {
+          // Use enhanced rule suggestion
+          const similarityService = await createRuleSimilarityService(context.workspacePath || process.cwd());
+          
+          filteredRules = await suggestRules({
+            query: userQuery,
+            filesInContext: filesInContext,
+            limit: 20,
+            threshold: 0.1
+          }, allRules, similarityService);
+
+          // Group rules by type
+          rulesByType = groupRulesByType(filteredRules);
+          
+          // Calculate reduction
+          reductionPercentage = allRules.length > 0 
+            ? Math.round(((allRules.length - filteredRules.length) / allRules.length) * 100)
+            : 0;
+          
+          filteredBy = "enhanced-suggestion";
+        } catch (error) {
+          console.warn("Failed to apply enhanced rule filtering, falling back to simple filter:", error);
+          // Fall back to simple filtering by leaving filteredBy undefined
+          filteredBy = undefined;
+        }
+      }
+      
+      // Fallback to simple filtering
+      if (!filteredBy) {
+        if (userQuery) {
+          const prompt = userQuery.toLowerCase();
+          filteredRules = allRules.filter((rule) => {
+            if (!rule || !rule.name) return false;
+            return (
+              rule.name.toLowerCase().includes(prompt) ||
+              rule.description?.toLowerCase().includes(prompt) ||
+              rule.content?.toLowerCase().includes(prompt)
+            );
+          });
+          filteredBy = "simple-filter-fallback";
+        } else {
+          filteredRules = allRules;
+          filteredBy = "all-rules";
+        }
       }
 
       return {
@@ -39,6 +91,11 @@ export const WorkspaceRulesComponent: ContextComponent = {
         totalRules: allRules.length,
         filteredCount: filteredRules.length,
         userPrompt: context.userPrompt,
+        filteredBy,
+        queryUsed,
+        reductionPercentage,
+        rulesByType,
+        originalToolCount: allRules.length, // For consistency with tool-schemas
       };
     } catch (error) {
       console.warn("Failed to load workspace rules:", error);
@@ -190,6 +247,9 @@ minsky sessiondb migrate --execute
         sections: ["rules", "agent_requestable_workspace_rules", "always_applied_workspace_rules"],
         totalRules: inputs.totalRules,
         filteredCount: inputs.filteredCount,
+        filteredBy: inputs.filteredBy,
+        queryUsed: inputs.queryUsed,
+        reductionPercentage: inputs.reductionPercentage,
       },
     };
   },

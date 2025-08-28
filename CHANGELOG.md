@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Context-Aware Rules Filtering**: Enhanced rules system with intelligent filtering based on Cursor's rule type system
+  - Implemented rule type classification (Always Apply, Auto Attached, Agent Requested, Manual)
+  - Added glob pattern matching for file-based rule inclusion
+  - Integrated semantic search for agent-requested rules using RuleSimilarityService
+  - Enhanced workspace-rules context component with query and file awareness
+  - Reduces context pollution by only including relevant rules
+  - Maintains backward compatibility with existing rules
+  - 35 new tests covering rule classification, glob matching, and suggestion logic
+
 - **Session Task Association Management**: Automatic session task association updates during task migrations
   - Added `updateSessionTaskAssociation()` function to handle session-to-task ID relationships during backend migrations
   - Integrated session association updates into `TasksMigrateBackendCommand` for automatic execution
