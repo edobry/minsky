@@ -18,6 +18,7 @@
 import { describe, test, expect, beforeEach } from "bun:test";
 import { createSessionProvider } from "../session";
 import type { SessionRecord } from "../session/types";
+import { SESSION_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 /**
  * CRITICAL BUG REPRODUCTION:
@@ -63,9 +64,9 @@ describe("Session PR Approval Bug", () => {
             repoUrl: "https://github.com/test/repo.git",
             createdAt: new Date().toISOString(),
             taskId: "md#123",
-            prBranch: "pr/test-pr-approval-session",
+            prBranch: SESSION_TEST_PATTERNS.PR_TEST_APPROVAL_SESSION,
             prState: {
-              branchName: "pr/test-pr-approval-session",
+              branchName: SESSION_TEST_PATTERNS.PR_TEST_APPROVAL_SESSION,
               exists: true,
               lastChecked: new Date().toISOString(),
               createdAt: new Date().toISOString(),
@@ -101,7 +102,7 @@ describe("Session PR Approval Bug", () => {
 
   test("should retrieve prBranch field after it was persisted", async () => {
     // Bug reproduction: Database has pr_branch but getSession doesn't return it
-    const prBranch = "pr/test-pr-approval-session";
+    const prBranch = SESSION_TEST_PATTERNS.PR_TEST_APPROVAL_SESSION;
 
     // Update session with PR branch data (this works)
     await sessionDB.updateSession(sessionName, {
@@ -127,7 +128,7 @@ describe("Session PR Approval Bug", () => {
 
   test("should allow PR approval when prBranch exists", async () => {
     // Set up session with PR branch (simulating successful PR creation)
-    const prBranch = "pr/test-pr-approval-session";
+    const prBranch = SESSION_TEST_PATTERNS.PR_TEST_APPROVAL_SESSION;
 
     await sessionDB.updateSession(sessionName, {
       prBranch,

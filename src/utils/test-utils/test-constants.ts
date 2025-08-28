@@ -150,6 +150,7 @@ export const SESSION_TEST_PATTERNS = {
   NON_EXISTENT_SESSION: "non-existent-session",
   APPROVED_SESSION: "approved-session",
   SESSION_WITHOUT_PR: "session-without-pr",
+  PR_TEST_APPROVAL_SESSION: "pr/test-pr-approval-session",
 } as const;
 
 // Diff test content patterns
