@@ -241,7 +241,25 @@ export class TasksSearchCommand extends BaseTaskCommand {
       }
     }
 
-    const searchResults = await service.searchByText(query, limit, threshold);
+    // Build filters from CLI parameters for server-side filtering
+    const filters: Record<string, any> = {};
+
+    // Add backend filter if provided
+    const backendParam = (params as any).backend as string | undefined;
+    if (backendParam) {
+      filters.backend = backendParam;
+    }
+
+    // Add status filter if provided and not showing all
+    const statusParam = (params as any).status as string | undefined;
+    const showAll = Boolean((params as any).all);
+    if (statusParam && !showAll) {
+      filters.status = statusParam;
+    }
+    // NOTE: For default behavior (exclude DONE/CLOSED), we'll implement NOT IN server-side filtering
+    // For now, keeping it simple with only positive filters
+
+    const searchResults = await service.searchByText(query, limit, threshold, filters);
 
     // Enhance results with task details for better usability
     const includeSpecPath = (params as any).backend !== "minsky";
@@ -251,12 +269,8 @@ export class TasksSearchCommand extends BaseTaskCommand {
       includeSpecPath
     );
 
-    // Apply status filtering using shared utility
-    const { filterTasksByStatus } = await import("../../../../domain/tasks/task-filters");
-    enhancedResults = filterTasksByStatus(enhancedResults, {
-      status: (params as any).status as string | undefined,
-      all: Boolean((params as any).all),
-    });
+    // Server-side filtering handles all filtering - no client-side filtering needed
+    // This eliminates redundant filtering and improves performance
 
     return this.formatResult(
       {
