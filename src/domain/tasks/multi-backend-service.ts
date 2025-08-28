@@ -9,6 +9,7 @@ import type { TaskServiceInterface } from "../tasks";
 import { promises as fs } from "fs";
 import { getTasksFilePath } from "./taskIO";
 import { parseTasksFromMarkdown, formatTasksToMarkdown } from "./taskFunctions";
+import { log } from "../../utils/logger";
 
 // Multi-backend specific interface - different from the main TaskBackend interface
 export interface MultiBackendTaskBackend {
@@ -72,6 +73,17 @@ export class TaskServiceImpl implements TaskService {
     // Set first backend as default for unqualified IDs
     if (!this.defaultBackend) {
       this.defaultBackend = backend;
+    }
+  }
+
+  setDefaultBackend(backendName: string): void {
+    const backend = this.backends.find((b) => b.name === backendName);
+    if (backend) {
+      this.defaultBackend = backend;
+    } else {
+      log.warn(`Cannot set default backend '${backendName}' - backend not found`, {
+        availableBackends: this.backends.map((b) => b.name),
+      });
     }
   }
 

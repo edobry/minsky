@@ -9,11 +9,12 @@ import {
   sanitizePrBody,
   preparePrContent,
 } from "./pr-validation";
+import { TEST_ENTITIES } from "../../utils/test-utils/test-constants";
 
 describe("PR Validation Utilities", () => {
   describe("validatePrContent", () => {
     test("should validate normal PR content without issues", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
       const body = "## Summary\n\nThis PR fixes the issue where titles are duplicated.";
 
       const result = validatePrContent(title, body);
@@ -24,7 +25,7 @@ describe("PR Validation Utilities", () => {
     });
 
     test("should detect and error on title duplication in body", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
       const duplicatedBody =
         "feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.";
 
@@ -32,7 +33,7 @@ describe("PR Validation Utilities", () => {
 
       expect(result.isValid).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.sanitizedBody).toBe("## Summary\n\nThis PR fixes the issue.");
+      expect(result.sanitizedBody).toBe(TEST_ENTITIES.PR_SUMMARY);
     });
 
     test("should reject empty title", () => {
@@ -43,7 +44,7 @@ describe("PR Validation Utilities", () => {
     });
 
     test("should handle empty body gracefully", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
 
       const result = validatePrContent(title, "");
 
@@ -55,28 +56,28 @@ describe("PR Validation Utilities", () => {
 
   describe("isDuplicateContent", () => {
     test("should detect identical content", () => {
-      const content1 = "feat(#285): Fix session PR title duplication bug";
-      const content2 = "feat(#285): Fix session PR title duplication bug";
+      const content1 = TEST_ENTITIES.TASK_TITLE_285;
+      const content2 = TEST_ENTITIES.TASK_TITLE_285;
 
       expect(isDuplicateContent(content1, content2)).toBe(true);
     });
 
     test("should detect content with different whitespace", () => {
-      const content1 = "feat(#285): Fix session PR title duplication bug";
+      const content1 = TEST_ENTITIES.TASK_TITLE_285;
       const content2 = "  feat(#285):   Fix session   PR title duplication bug  ";
 
       expect(isDuplicateContent(content1, content2)).toBe(true);
     });
 
     test("should detect content with different case", () => {
-      const content1 = "feat(#285): Fix session PR title duplication bug";
+      const content1 = TEST_ENTITIES.TASK_TITLE_285;
       const content2 = "FEAT(#285): FIX SESSION PR TITLE DUPLICATION BUG";
 
       expect(isDuplicateContent(content1, content2)).toBe(true);
     });
 
     test("should not match different content", () => {
-      const content1 = "feat(#285): Fix session PR title duplication bug";
+      const content1 = TEST_ENTITIES.TASK_TITLE_285;
       const content2 = "feat(#286): Different issue";
 
       expect(isDuplicateContent(content1, content2)).toBe(false);
@@ -121,7 +122,7 @@ describe("PR Validation Utilities", () => {
 
   describe("sanitizePrBody", () => {
     test("should remove lines that duplicate the title", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
       const body =
         "feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.\n\nfeat(#285): Fix session PR title duplication bug\n\n## Changes\n\n- Fixed parsing";
 
@@ -134,7 +135,7 @@ describe("PR Validation Utilities", () => {
     });
 
     test("should preserve non-duplicate content", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
       const body = "## Summary\n\nThis PR fixes the issue.\n\n## Changes\n\n- Fixed parsing";
 
       const result = sanitizePrBody(title, body);
@@ -143,7 +144,7 @@ describe("PR Validation Utilities", () => {
     });
 
     test("should handle empty body", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
       const body = "";
 
       const result = sanitizePrBody(title, body);
@@ -154,8 +155,8 @@ describe("PR Validation Utilities", () => {
 
   describe("preparePrContent", () => {
     test("should prepare normal content without changes", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
-      const body = "## Summary\n\nThis PR fixes the issue.";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
+      const body = TEST_ENTITIES.PR_SUMMARY;
 
       const result = preparePrContent(title, body);
 
@@ -190,14 +191,14 @@ This PR implements the complete minsky backend with database storage functionali
     });
 
     test("should sanitize content with duplication and provide warnings", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
       const body =
         "feat(#285): Fix session PR title duplication bug\n\n## Summary\n\nThis PR fixes the issue.";
 
       const result = preparePrContent(title, body);
 
       expect(result.title).toBe(title);
-      expect(result.body).toBe("## Summary\n\nThis PR fixes the issue.");
+      expect(result.body).toBe(TEST_ENTITIES.PR_SUMMARY);
       expect(result.warnings).toContain("Removed duplicate title content from PR body");
     });
 
@@ -211,7 +212,7 @@ This PR implements the complete minsky backend with database storage functionali
     });
 
     test("should handle undefined body", () => {
-      const title = "feat(#285): Fix session PR title duplication bug";
+      const title = TEST_ENTITIES.TASK_TITLE_285;
 
       const result = preparePrContent(title, undefined);
 

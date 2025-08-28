@@ -6,6 +6,7 @@ import {
   extractRepositoryInfo,
   UriFormat,
 } from "./uri-utils";
+import { REPO_URIS } from "../utils/test-utils/test-constants";
 
 // We'll skip validation tests since mocking is tricky in Bun
 
@@ -24,7 +25,7 @@ describe("URI Utilities", () => {
     });
 
     test("normalizes SSH URLs", () => {
-      const uri = "git@github.com:org/repo.git";
+      const uri = REPO_URIS.GITHUB_SSH;
       const _result = normalizeRepositoryUri(uri, { validateLocalExists: false });
 
       expect(_result)!.toEqual({
@@ -52,11 +53,11 @@ describe("URI Utilities", () => {
     test("converts HTTPS to SSH", () => {
       const uri = "https://github.com/org/repo";
       const _result = convertRepositoryUri(uri, UriFormat.SSH);
-      expect(_result)!.toBe("git@github.com:org/repo.git");
+      expect(_result)!.toBe(REPO_URIS.GITHUB_SSH);
     });
 
     test("converts SSH to HTTPS", () => {
-      const uri = "git@github.com:org/repo.git";
+      const uri = REPO_URIS.GITHUB_SSH;
       const _result = convertRepositoryUri(uri, UriFormat.HTTPS);
       expect(_result)!.toBe("https://github.com/org/repo");
     });
@@ -82,7 +83,7 @@ describe("URI Utilities", () => {
     });
 
     test("extracts info from SSH URL", () => {
-      const uri = "git@github.com:org/repo.git";
+      const uri = REPO_URIS.GITHUB_SSH;
       const _result = extractRepositoryInfo(uri);
       expect(_result)!.toEqual({ owner: "org", repo: "repo" });
     });

@@ -8,7 +8,8 @@
  */
 
 import { testMonitor } from "./test-monitor";
-import { existsSync, readFileSync, writeFileSync } from "fs";
+// Use mock.module() to mock filesystem operations
+// import { existsSync, readFileSync, writeFileSync } from "fs";
 import { join } from "path";
 
 const MONITOR_DATA_FILE = join(process.cwd(), ".test-monitor-data.json");

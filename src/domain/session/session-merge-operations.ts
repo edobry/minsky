@@ -121,9 +121,7 @@ export async function mergeSessionPr(
     createRepositoryBackend?: (config: RepositoryBackendConfig) => Promise<any>;
   }
 ): Promise<SessionMergeResult> {
-  if (!params.json) {
-    log.cli("🔄 Starting session merge...");
-  }
+  // Removed noise padding - operation speaks for itself
 
   // Set up session provider
   const sessionDB = deps?.sessionDB || createSessionProvider();
@@ -211,9 +209,7 @@ export async function mergeSessionPr(
   const createBackendFunc = deps?.createRepositoryBackend || createRepositoryBackend;
   const repositoryBackend = await createBackendFunc(config);
 
-  if (!params.json) {
-    log.cli(`📦 Using ${repositoryBackend.getType()} backend for merge`);
-  }
+  // Removed implementation detail - backend type is apparent from context
 
   // Re-check PR existence for merge operation
   const hasLocalPr = sessionRecord.prBranch;
@@ -290,15 +286,12 @@ export async function mergeSessionPr(
   const mergeInfo = await repositoryBackend.mergePullRequest(prIdentifier, sessionNameToUse);
 
   if (!params.json) {
-    log.cli("✅ Session PR merged successfully!");
     log.cli(`📝 Merge commit: ${mergeInfo.commitHash.substring(0, 8)}...`);
   }
 
   // Clean up local branches in main repository after successful merge
   try {
-    if (!params.json) {
-      log.cli("🧹 Cleaning up local branches...");
-    }
+    // Removed noise padding for fast operations
 
     // For branch cleanup, we need to work in the main repository, not session workspace
     const mainRepoPath = originalRepoPath;
@@ -336,7 +329,7 @@ export async function mergeSessionPr(
         await taskService.setTaskStatus(taskId, TASK_STATUS.DONE);
         // Do not perform git commits here; persistence is handled by the task backend
         if (!params.json) {
-          log.cli("✅ Task status updated (handled by task backend)");
+          log.cli("✅ Task status updated");
         }
       } else if (!params.json) {
         log.cli("ℹ️  Task is already marked as DONE");
@@ -355,9 +348,7 @@ export async function mergeSessionPr(
 
   if (params.cleanupSession !== false) {
     try {
-      if (!params.json) {
-        log.cli("🧹 Cleaning up session artifacts...");
-      }
+      // Removed noise padding for cleanup operations
 
       const cleanupResult = await cleanupSessionImpl(
         {
@@ -381,9 +372,7 @@ export async function mergeSessionPr(
         if (cleanupResult.errors.length > 0) {
           log.cli(`⚠️  ${cleanupResult.errors.length} cleanup errors occurred`);
         }
-        if (cleanupResult.sessionDeleted) {
-          log.cli("✅ Session record removed from database");
-        }
+        // Session record deletion is an implementation detail - no user output needed
       }
     } catch (cleanupError) {
       const errorMsg = `Session cleanup failed: ${getErrorMessage(cleanupError)}`;
