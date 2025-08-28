@@ -24,31 +24,30 @@ import {
 } from "./template-system";
 import { CLI_COMMANDS } from "../../utils/test-utils/test-constants";
 
-// Mock default templates to avoid command registry conflicts
-mock.module("./default-templates", () => ({
-  DEFAULT_TEMPLATES: [
-    {
-      id: "mock-default",
-      name: "Mock Default Template",
-      description: "Mock template for testing",
-      generateContent: () => "# Mock Default\n\nThis is a mock template.",
-    },
-    {
-      id: "minsky-workflow",
-      name: "Minsky Workflow",
-      description: "Mock minsky workflow template",
-      generateContent: () => "# Minsky Workflow\n\nMock workflow content.",
-    },
-    {
-      id: "test-template",
-      name: "Test Template",
-      description: "Another mock template",
-      generateContent: () => "# Test Template\n\nTest content.",
-    },
-  ],
-}));
-
 describe("RuleTemplateService", () => {
+  // Mock default templates to avoid command registry conflicts
+  mock.module("./default-templates", () => ({
+    DEFAULT_TEMPLATES: [
+      {
+        id: "mock-default",
+        name: "Mock Default Template",
+        description: "Mock template for testing",
+        generateContent: () => "# Mock Default\n\nThis is a mock template.",
+      },
+      {
+        id: "minsky-workflow",
+        name: "Minsky Workflow",
+        description: "Mock minsky workflow template",
+        generateContent: () => "# Minsky Workflow\n\nMock workflow content.",
+      },
+      {
+        id: "test-template",
+        name: "Test Template",
+        description: "Another mock template",
+        generateContent: () => "# Test Template\n\nTest content.",
+      },
+    ],
+  }));
   let testDir: string;
   let service: RuleTemplateService;
   let testRegistry: ReturnType<typeof createSharedCommandRegistry>;

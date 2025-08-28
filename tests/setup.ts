@@ -8,24 +8,27 @@
 import { mock } from "bun:test";
 import { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
 
-// Use Bun's mock system to replace the logger module
-// This prevents any console output during tests while preserving logging functionality
-mock.module("../src/utils/logger", () => ({
-  log: mockLogger,
-  createConfigurableLogger: () => mockLogger,
-  createLogger: () => mockLogger,
-  isStructuredMode: () => false,
-  isHumanMode: () => true,
-}));
+// Global test setup - logger mocks apply to all tests
+describe("Global Test Setup", () => {
+  // Use Bun's mock system to replace the logger module
+  // This prevents any console output during tests while preserving logging functionality
+  mock.module("../src/utils/logger", () => ({
+    log: mockLogger,
+    createConfigurableLogger: () => mockLogger,
+    createLogger: () => mockLogger,
+    isStructuredMode: () => false,
+    isHumanMode: () => true,
+  }));
 
-// Also mock the domain logger if it exists
-mock.module("../src/domain/utils/logger", () => ({
-  log: mockLogger,
-  createConfigurableLogger: () => mockLogger,
-  createLogger: () => mockLogger,
-  isStructuredMode: () => false,
-  isHumanMode: () => true,
-}));
+  // Also mock the domain logger if it exists
+  mock.module("../src/domain/utils/logger", () => ({
+    log: mockLogger,
+    createConfigurableLogger: () => mockLogger,
+    createLogger: () => mockLogger,
+    isStructuredMode: () => false,
+    isHumanMode: () => true,
+  }));
+});
 
 // Set up global test environment variables
 process.env.NODE_ENV = "test";
