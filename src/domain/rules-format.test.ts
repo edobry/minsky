@@ -2,6 +2,7 @@ import { describe, expect, test, beforeEach } from "bun:test";
 import { RuleService } from "./rules";
 import * as path from "path";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
+import { RULES_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 
 // No global module mocks. Each test creates its own mock filesystem and injects it
 
@@ -93,30 +94,36 @@ This rule exists in both cursor and generic formats.
   // Cleanup handled by fresh mockFs per test
 
   test("should get a rule in its original format when requested", async () => {
-    const cursorRule = await ruleService.getRule("cursor-only-rule", { format: "cursor" });
+    const cursorRule = await ruleService.getRule(RULES_TEST_PATTERNS.CURSOR_ONLY_RULE, {
+      format: "cursor",
+    });
     expect(cursorRule.format).toBe("cursor");
     expect(cursorRule.description).toBe("Test cursor rule");
     expect(cursorRule.formatNote).toBeUndefined();
 
-    const genericRule = await ruleService.getRule("generic-only-rule", { format: "generic" });
+    const genericRule = await ruleService.getRule(RULES_TEST_PATTERNS.GENERIC_ONLY_RULE, {
+      format: "generic",
+    });
     expect(genericRule.format).toBe("generic");
     expect(genericRule.description).toBe("Test generic rule");
     expect(genericRule.formatNote).toBeUndefined();
   });
 
   test("should get a rule in any format if no format specified", async () => {
-    const cursorRule = await ruleService.getRule("cursor-only-rule");
+    const cursorRule = await ruleService.getRule(RULES_TEST_PATTERNS.CURSOR_ONLY_RULE);
     expect(cursorRule.format).toBe("cursor");
     expect(cursorRule.description).toBe("Test cursor rule");
 
-    const genericRule = await ruleService.getRule("generic-only-rule");
+    const genericRule = await ruleService.getRule(RULES_TEST_PATTERNS.GENERIC_ONLY_RULE);
     expect(genericRule.format).toBe("generic");
     expect(genericRule.description).toBe("Test generic rule");
   });
 
   test("should return rule with format note when requested in different format", async () => {
     // When requesting a cursor-only rule in generic format
-    const cursorAsGeneric = await ruleService.getRule("cursor-only-rule", { format: "generic" });
+    const cursorAsGeneric = await ruleService.getRule(RULES_TEST_PATTERNS.CURSOR_ONLY_RULE, {
+      format: "generic",
+    });
     expect(cursorAsGeneric.format).toBe("cursor"); // Format is still the original
     expect(cursorAsGeneric.formatNote).toBeDefined();
     expect(cursorAsGeneric.formatNote).toContain(
@@ -124,7 +131,9 @@ This rule exists in both cursor and generic formats.
     );
 
     // When requesting a generic-only rule in cursor format
-    const genericAsCursor = await ruleService.getRule("generic-only-rule", { format: "cursor" });
+    const genericAsCursor = await ruleService.getRule(RULES_TEST_PATTERNS.GENERIC_ONLY_RULE, {
+      format: "cursor",
+    });
     expect(genericAsCursor.format).toBe("generic"); // Format is still the original
     expect(genericAsCursor.formatNote).toBeDefined();
     expect(genericAsCursor.formatNote).toContain(

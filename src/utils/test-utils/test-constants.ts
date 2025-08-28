@@ -183,6 +183,10 @@ export const GIT_TEST_PATTERNS = {
 export const RULES_TEST_PATTERNS = {
   DOMAIN_ORIENTED_MODULES: "domain-oriented-modules",
   DESCRIPTION_PLACEHOLDER: "Description here.",
+  CURSOR_ONLY_RULE: "cursor-only-rule",
+  GENERIC_ONLY_RULE: "generic-only-rule",
+  CURSOR_RULE_CONTENT: "Cursor rule content",
+  GENERIC_RULE_CONTENT: "Generic rule content",
 } as const;
 
 // Test data patterns
