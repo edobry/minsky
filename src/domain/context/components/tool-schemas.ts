@@ -1,6 +1,7 @@
 import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
 import { CommandGeneratorService } from "../../rules/command-generator";
 import { CommandCategory, sharedCommandRegistry } from "../../../adapters/shared/command-registry";
+import { createToolSimilarityService } from "../../tools/similarity/tool-similarity-service";
 import { z } from "zod";
 
 /**
@@ -100,51 +101,124 @@ export const ToolSchemasComponent: ContextComponent = {
       // Use custom registry if provided (for testing), otherwise use shared registry
       const registry = context.commandRegistry || sharedCommandRegistry;
 
-      // Get all command categories and build comprehensive tool list
-      const toolSchemas: Record<string, any> = {};
-      const categories = [
-        CommandCategory.TASKS,
-        CommandCategory.SESSION,
-        CommandCategory.SESSIONDB,
-        CommandCategory.RULES,
-        CommandCategory.GIT,
-        CommandCategory.CONFIG,
-        CommandCategory.DEBUG,
-        CommandCategory.INIT,
-        CommandCategory.AI,
-      ];
+      // Check if query-aware filtering should be applied
+      const userQuery = context.userQuery || context.userPrompt;
+      const shouldFilterByQuery = Boolean(userQuery?.trim());
 
+      let toolSchemas: Record<string, any> = {};
       let totalTools = 0;
-      for (const category of categories) {
-        const commands = registry.getCommandsByCategory(category);
-        for (const cmd of commands) {
-          // Extract actual parameter schemas from the shared command registry
-          const { properties, required } = extractParameterSchemas(cmd.id);
+      let filteredBy: string | undefined;
+      let originalToolCount: number | undefined;
+      let reductionPercentage: number | undefined;
 
-          // For JSON format (default), use clean tool schema format like Cursor
-          if (interfaceConfig.interface === "cli") {
-            toolSchemas[cmd.id] = {
-              description: cmd.description,
-              parameters: {
-                type: "object",
-                properties,
-                required,
-              },
-            };
-          } else {
-            // For MCP mode, include full command representation
-            toolSchemas[cmd.id] = {
-              description: cmd.description,
-              syntax: cmd.syntax,
-              parameters: {
-                type: "object",
-                properties,
-                required,
-              },
-            };
+      if (shouldFilterByQuery) {
+        try {
+          // NEW: Query-aware tool filtering using ToolSimilarityService
+          const toolSimilarityService = await createToolSimilarityService();
+          
+          const relevantTools = await toolSimilarityService.findRelevantTools({
+            query: userQuery!,
+            limit: 20, // Configurable limit - default reduces from 50+ to 20 tools
+            threshold: 0.1, // Low threshold to be inclusive while still filtering
+          });
+
+          // Build tool schemas for relevant tools only
+          for (const relevantTool of relevantTools) {
+            const { properties, required } = extractParameterSchemas(relevantTool.tool.id);
+            
+            if (interfaceConfig.interface === "cli") {
+              toolSchemas[relevantTool.tool.id] = {
+                description: relevantTool.tool.description,
+                parameters: {
+                  type: "object",
+                  properties,
+                  required,
+                },
+                // Optional: Include relevance metadata for debugging
+                _relevance: {
+                  score: relevantTool.relevanceScore,
+                  reason: relevantTool.reason,
+                },
+              };
+            } else {
+              toolSchemas[relevantTool.tool.id] = {
+                description: relevantTool.tool.description,
+                syntax: relevantTool.tool.syntax,
+                parameters: {
+                  type: "object",
+                  properties,
+                  required,
+                },
+                _relevance: {
+                  score: relevantTool.relevanceScore,
+                  reason: relevantTool.reason,
+                },
+              };
+            }
+            totalTools++;
           }
-          totalTools++;
+
+          // Calculate reduction metrics
+          const allCommands = registry.getAllCommands();
+          originalToolCount = allCommands.length;
+          reductionPercentage = originalToolCount > 0 
+            ? Math.round(((originalToolCount - totalTools) / originalToolCount) * 100)
+            : 0;
+          filteredBy = "user-query";
+
+        } catch (error) {
+          console.warn("Failed to apply query-aware tool filtering, falling back to all tools:", error);
+          // Fall back to including all tools if filtering fails
+          shouldFilterByQuery = false;
         }
+      }
+
+      if (!shouldFilterByQuery) {
+        // Original logic: Get all command categories and build comprehensive tool list
+        const categories = [
+          CommandCategory.TASKS,
+          CommandCategory.SESSION,
+          CommandCategory.SESSIONDB,
+          CommandCategory.RULES,
+          CommandCategory.GIT,
+          CommandCategory.CONFIG,
+          CommandCategory.DEBUG,
+          CommandCategory.INIT,
+          CommandCategory.AI,
+        ];
+
+        for (const category of categories) {
+          const commands = registry.getCommandsByCategory(category);
+          for (const cmd of commands) {
+            // Extract actual parameter schemas from the shared command registry
+            const { properties, required } = extractParameterSchemas(cmd.id);
+
+            // For JSON format (default), use clean tool schema format like Cursor
+            if (interfaceConfig.interface === "cli") {
+              toolSchemas[cmd.id] = {
+                description: cmd.description,
+                parameters: {
+                  type: "object",
+                  properties,
+                  required,
+                },
+              };
+            } else {
+              // For MCP mode, include full command representation
+              toolSchemas[cmd.id] = {
+                description: cmd.description,
+                syntax: cmd.syntax,
+                parameters: {
+                  type: "object",
+                  properties,
+                  required,
+                },
+              };
+            }
+            totalTools++;
+          }
+        }
+        filteredBy = "all-tools";
       }
 
       return {
@@ -154,6 +228,11 @@ export const ToolSchemasComponent: ContextComponent = {
         shouldUseMcp:
           interfaceConfig.interface === "mcp" ||
           (interfaceConfig.interface === "hybrid" && interfaceConfig.preferMcp),
+        // New: Include filtering metadata
+        filteredBy,
+        originalToolCount,
+        reductionPercentage,
+        queryUsed: userQuery,
       };
     } catch (error) {
       console.warn("Failed to load tool schemas via template system:", error);
@@ -185,13 +264,21 @@ Available tools could not be determined.`;
       };
     }
 
+    // Prepare tool schemas without internal metadata for output
+    const cleanToolSchemas: Record<string, any> = {};
+    for (const [toolId, schema] of Object.entries(inputs.toolSchemas)) {
+      // Remove internal _relevance metadata for clean output
+      const { _relevance, ...cleanSchema } = schema as any;
+      cleanToolSchemas[toolId] = cleanSchema;
+    }
+
     let content: string;
 
     if (inputs.shouldUseMcp) {
       // MCP/XML format for hybrid/mcp interface mode
       content = `Here are the functions available in JSONSchema format:
 <functions>
-${Object.entries(inputs.toolSchemas)
+${Object.entries(cleanToolSchemas)
   .map(
     ([name, schema]) =>
       `<function>${JSON.stringify({ description: schema.description, name, parameters: schema.parameters }, null, 2)}</function>`
@@ -201,7 +288,19 @@ ${Object.entries(inputs.toolSchemas)
     } else {
       // JSON format (default, matches Cursor exactly)
       content = `Here are the functions available in JSONSchema format:
-${JSON.stringify(inputs.toolSchemas, null, 2)}`;
+${JSON.stringify(cleanToolSchemas, null, 2)}`;
+    }
+
+    // Add filtering information as comment when query filtering was applied
+    if (inputs.filteredBy === "user-query" && inputs.queryUsed) {
+      const filteringSummary = `
+
+<!-- Context-Aware Tool Filtering Applied -->
+<!-- Query: "${inputs.queryUsed}" -->
+<!-- Tools: ${inputs.totalTools} selected from ${inputs.originalToolCount} total (${inputs.reductionPercentage}% reduction) -->
+<!-- This reduces context pollution while providing relevant tools for your query -->`;
+      
+      content += filteringSummary;
     }
 
     return {
@@ -211,6 +310,11 @@ ${JSON.stringify(inputs.toolSchemas, null, 2)}`;
         tokenCount: content.length / 4,
         sections: ["functions"],
         totalTools: inputs.totalTools,
+        // Include filtering metadata in component metadata
+        filteredBy: inputs.filteredBy,
+        originalToolCount: inputs.originalToolCount,
+        reductionPercentage: inputs.reductionPercentage,
+        queryUsed: inputs.queryUsed,
       },
     };
   },

@@ -2,7 +2,7 @@
 
 /**
  * Test Tool Similarity Service
- * 
+ *
  * Validates that the ToolSimilarityService works correctly with various user queries.
  * Tests both semantic matching and keyword fallback mechanisms.
  */
@@ -15,9 +15,9 @@ const log = createLogger("test-tool-similarity");
 async function testToolSimilarity() {
   try {
     log.info("🧪 Testing Tool Similarity Service");
-    
+
     const service = await createToolSimilarityService();
-    
+
     // Test queries that should match different tool categories
     const testQueries = [
       {
@@ -62,43 +62,43 @@ async function testToolSimilarity() {
     for (const testCase of testQueries) {
       log.info(`🔍 Query: "${testCase.query}"`);
       log.info(`   Expected categories: ${testCase.expectedCategories.join(", ")}`);
-      
+
       const results = await service.findRelevantTools({
         query: testCase.query,
         limit: 5,
         threshold: 0.1
       });
-      
+
       log.info(`   Found ${results.length} relevant tools:`);
-      
+
       for (const result of results.slice(0, 3)) { // Show top 3
         log.info(`     • ${result.tool.name} (${result.tool.category}) - Score: ${result.relevanceScore.toFixed(3)}`);
         log.info(`       ${result.tool.description}`);
         log.info(`       Reason: ${result.reason}`);
       }
-      
+
       // Check if we found tools from expected categories
       const foundCategories = [...new Set(results.map(r => r.tool.category))];
-      const hasExpectedCategory = testCase.expectedCategories.some(cat => 
+      const hasExpectedCategory = testCase.expectedCategories.some(cat =>
         foundCategories.includes(cat)
       );
-      
+
       if (hasExpectedCategory) {
         log.info(`   ✅ Found tools from expected categories`);
       } else {
         log.info(`   ⚠️  No tools from expected categories found`);
         log.info(`   Found categories: ${foundCategories.join(", ")}`);
       }
-      
+
       log.info(""); // Empty line for readability
     }
 
     // Test backend usage
     const backend = await service.getLastUsedBackend();
     log.info(`🔧 Last used backend: ${backend || "none"}`);
-    
+
     log.info("✅ Tool similarity service test completed successfully!");
-    
+
   } catch (error) {
     log.error("❌ Tool similarity service test failed:", error);
     throw error;

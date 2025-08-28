@@ -6,7 +6,7 @@ const log = createLogger("tool-keyword-backend");
 
 /**
  * ToolKeywordBackend: Keyword-based tool matching fallback
- * 
+ *
  * Provides intelligent keyword matching for tools when embeddings
  * are unavailable or produce poor results.
  */
@@ -35,7 +35,7 @@ export class ToolKeywordBackend implements SimilarityBackend {
 
     for (const tool of allTools) {
       const score = this.calculateToolScore(tool, keywords, intentKeywords, queryText);
-      
+
       if (score > 0) {
         scoredTools.push({
           id: tool.id,
@@ -63,8 +63,8 @@ export class ToolKeywordBackend implements SimilarityBackend {
   private extractKeywords(queryText: string): string[] {
     // Remove common stop words and extract meaningful keywords
     const stopWords = new Set([
-      "a", "an", "and", "are", "as", "at", "be", "by", "for", 
-      "from", "has", "he", "in", "is", "it", "its", "of", "on", 
+      "a", "an", "and", "are", "as", "at", "be", "by", "for",
+      "from", "has", "he", "in", "is", "it", "its", "of", "on",
       "that", "the", "to", "was", "will", "with", "me", "help",
       "i", "can", "how", "what", "where", "when", "why", "do"
     ]);
@@ -83,37 +83,37 @@ export class ToolKeywordBackend implements SimilarityBackend {
     const intentMap = {
       // Task management related
       'tasks': ['task', 'todo', 'work', 'project', 'issue', 'ticket', 'manage', 'list', 'create', 'update'],
-      
-      // Git/version control related  
+
+      // Git/version control related
       'git': ['git', 'commit', 'branch', 'merge', 'pull', 'push', 'repo', 'repository', 'version', 'control'],
-      
+
       // Debug/troubleshooting related
       'debug': ['debug', 'fix', 'error', 'bug', 'issue', 'problem', 'troubleshoot', 'investigate', 'analyze'],
-      
+
       // Session management related
       'session': ['session', 'workspace', 'context', 'environment', 'setup', 'init', 'start', 'switch'],
-      
+
       // Configuration related
       'config': ['config', 'configure', 'setting', 'option', 'preference', 'setup', 'parameter'],
-      
+
       // Rules related
       'rules': ['rule', 'policy', 'guideline', 'standard', 'practice', 'convention'],
-      
+
       // AI/embedding related
       'ai': ['ai', 'embedding', 'similarity', 'search', 'semantic', 'intelligent', 'smart'],
-      
+
       // Database related
       'sessiondb': ['database', 'db', 'data', 'store', 'persist', 'save', 'query', 'record'],
-      
+
       // Testing related
       'test': ['test', 'testing', 'spec', 'verify', 'validate', 'check', 'assert'],
-      
+
       // Code review related
       'review': ['review', 'diff', 'compare', 'examine', 'inspect', 'audit'],
-      
+
       // Implementation related
       'implement': ['implement', 'code', 'develop', 'build', 'create', 'write', 'program'],
-      
+
       // Deployment related
       'deploy': ['deploy', 'deployment', 'release', 'publish', 'launch', 'ship']
     };
@@ -122,10 +122,10 @@ export class ToolKeywordBackend implements SimilarityBackend {
     const words = queryText.toLowerCase().split(/\s+/);
 
     for (const [category, keywords] of Object.entries(intentMap)) {
-      const matches = keywords.filter(keyword => 
+      const matches = keywords.filter(keyword =>
         words.some(word => word.includes(keyword) || keyword.includes(word))
       );
-      
+
       if (matches.length > 0) {
         detected[category] = matches;
       }
@@ -157,12 +157,12 @@ export class ToolKeywordBackend implements SimilarityBackend {
     for (const keyword of keywords) {
       if (toolText.includes(keyword)) {
         score += 0.3; // Base keyword match
-        
+
         // Boost if keyword appears in name
         if (tool.name.toLowerCase().includes(keyword)) {
           score += 0.4;
         }
-        
+
         // Boost if keyword appears in description
         if (tool.description.toLowerCase().includes(keyword)) {
           score += 0.2;
@@ -172,7 +172,7 @@ export class ToolKeywordBackend implements SimilarityBackend {
 
     // Score based on intent keywords (category matching)
     for (const [category, matches] of Object.entries(intentKeywords)) {
-      if (tool.category.toLowerCase().includes(category) || 
+      if (tool.category.toLowerCase().includes(category) ||
           category.includes(tool.category.toLowerCase())) {
         score += 0.5 * matches.length; // Strong category match
       }

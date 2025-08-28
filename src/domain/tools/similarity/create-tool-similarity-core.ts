@@ -49,7 +49,7 @@ export async function createToolSimilarityCore(
     getContent: async (id: string) => {
       const tool = sharedCommandRegistry.getCommand(id);
       if (!tool) return "";
-      
+
       // Extract same content as ToolEmbeddingService for consistency
       const parts = [
         tool.name,
