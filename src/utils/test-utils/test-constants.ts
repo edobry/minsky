@@ -172,6 +172,8 @@ export const GIT_TEST_PATTERNS = {
   GIT_FETCH_WITH_TIMEOUT: "gitFetchWithTimeout",
   BRANCH_SHOW_CURRENT: "branch --show-current",
   SAMPLE_COMMIT: "abc123 feat: add new feature",
+  STASH_POP: 'stash pop "stash@{0}"',
+  GIT_STATUS_MODIFIED: "M  src/file1.ts\n",
 } as const;
 
 // Rules and context patterns

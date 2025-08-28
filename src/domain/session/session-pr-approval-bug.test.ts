@@ -73,9 +73,9 @@ describe("Session PR Approval Bug", () => {
               mergedAt: undefined,
             },
           });
-        } else if (name === "session-without-pr") {
+        } else if (name === SESSION_TEST_PATTERNS.SESSION_WITHOUT_PR) {
           return Promise.resolve({
-            session: "session-without-pr",
+            session: SESSION_TEST_PATTERNS.SESSION_WITHOUT_PR,
             repoName: "test-repo",
             repoUrl: "https://github.com/test/repo.git",
             createdAt: new Date().toISOString(),
@@ -161,7 +161,7 @@ describe("Session PR Approval Bug", () => {
 
   test("should fail approval validation when prBranch is missing", async () => {
     // Get session without PR branch
-    const session = await sessionDB.getSession("session-without-pr");
+    const session = await sessionDB.getSession(SESSION_TEST_PATTERNS.SESSION_WITHOUT_PR);
 
     function validateSessionHasPRBranch(sessionRecord: SessionRecord | null): boolean {
       if (!sessionRecord) {
