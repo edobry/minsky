@@ -139,6 +139,27 @@ Use these types for the PR title:
 - **test**: Adding or modifying tests
 - **chore**: Changes to the build process or auxiliary tools
 
+## PR Title Requirements (Formatting)
+
+- Titles MUST be description-only
+  - Do NOT include conventional prefixes in the title (e.g., "feat:", "fix:")
+  - Do NOT include task IDs in the title (e.g., "(mt#123)")
+  - Keep task IDs in the PR description/body and in commit messages
+
+### Correct Examples
+- Task relationships MVP
+- Improve error messages for invalid session paths
+- Add MCP tool for session file reads
+
+### Incorrect Examples
+- feat(mt#238): Task relationships MVP
+- Task relationships MVP (mt#238)
+- fix: Task relationships MVP
+
+### Validation Notes
+- The PR creation command enforces description-only titles. If you include prefixes or IDs, it will fail.
+- Use the PR body to reference the task ID (e.g., "Implements mt#238") and include the checklist.
+
 ## PR Submission Best Practices
 
 1. **Keep PRs focused**: Each PR should address a single task or issue

@@ -89,6 +89,15 @@ name: "task#123"\nminsky session dir [--name <value>] [--task <value>] [--repo <
 - `skipInstall`: Skip dependency installation (Optional, Default: `false`)
 - `packageManager`: Package manager to use (Optional)
 
+## Edit Operations Requirements (MCP File Edits)
 
+- Always perform marker-based edits when modifying existing files via MCP edit tools.
+  - Use the exact markers: `// ... existing code ...` to delimit unchanged regions.
+  - Only include the minimal changed lines between markers; avoid bulk rewrites.
+  - Provide precise instructions referencing the surrounding context.
+- New files may be written directly without markers.
+- If an edit was made without markers, reapply the change using marker-based edits.
+
+Rationale: Ensures safe, reviewable diffs and prevents accidental deletions or unrelated changes during automated edits.
 
 See README-MCP.md for detailed protocol specifications.

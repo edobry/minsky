@@ -2,13 +2,14 @@ import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput
 import type { Rule } from "../../rules/types";
 import { suggestRules, groupRulesByType } from "../../rules/rule-suggestion-enhanced";
 import { createRuleSimilarityService } from "../../rules/rule-similarity-service";
+import { log } from "../../../utils/logger";
 
 /**
  * Workspace Rules Component
  *
  * Provides workspace-level rules in Cursor's exact format.
  * This replicates how Cursor presents workspace rules to AI assistants.
- * 
+ *
  * Enhanced with context-aware filtering using rule types:
  * - Always Apply: Always included
  * - Auto Attached: Included when files match globs
@@ -27,7 +28,7 @@ export const WorkspaceRulesComponent: ContextComponent = {
     try {
       const rulesService = new ModularRulesService(context.workspacePath || process.cwd());
       const allRules = await rulesService.listRules();
-      
+
       // Check if we should use enhanced filtering
       const userQuery = context.userQuery || context.userPrompt;
       const filesInContext = context.filesInContext || [];
@@ -42,31 +43,41 @@ export const WorkspaceRulesComponent: ContextComponent = {
       if (shouldUseEnhancedFiltering) {
         try {
           // Use enhanced rule suggestion
-          const similarityService = await createRuleSimilarityService(context.workspacePath || process.cwd());
-          
-          filteredRules = await suggestRules({
-            query: userQuery,
-            filesInContext: filesInContext,
-            limit: 20,
-            threshold: 0.1
-          }, allRules, similarityService);
+          const similarityService = await createRuleSimilarityService(
+            context.workspacePath || process.cwd()
+          );
+
+          filteredRules = await suggestRules(
+            {
+              query: userQuery,
+              filesInContext: filesInContext,
+              limit: 20,
+              threshold: 0.1,
+            },
+            allRules,
+            similarityService
+          );
 
           // Group rules by type
           rulesByType = groupRulesByType(filteredRules);
-          
+
           // Calculate reduction
-          reductionPercentage = allRules.length > 0 
-            ? Math.round(((allRules.length - filteredRules.length) / allRules.length) * 100)
-            : 0;
-          
+          reductionPercentage =
+            allRules.length > 0
+              ? Math.round(((allRules.length - filteredRules.length) / allRules.length) * 100)
+              : 0;
+
           filteredBy = "enhanced-suggestion";
         } catch (error) {
-          console.warn("Failed to apply enhanced rule filtering, falling back to simple filter:", error);
+          log.warn(
+            "Failed to apply enhanced rule filtering, falling back to simple filter:",
+            error
+          );
           // Fall back to simple filtering by leaving filteredBy undefined
           filteredBy = undefined;
         }
       }
-      
+
       // Fallback to simple filtering
       if (!filteredBy) {
         if (userQuery) {
@@ -98,7 +109,7 @@ export const WorkspaceRulesComponent: ContextComponent = {
         originalToolCount: allRules.length, // For consistency with tool-schemas
       };
     } catch (error) {
-      console.warn("Failed to load workspace rules:", error);
+      log.warn("Failed to load workspace rules:", error);
       return {
         requestableRules: [],
         totalRules: 0,

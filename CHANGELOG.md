@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Context-Aware Rules Filtering**: Enhanced rules system with intelligent filtering based on Cursor's rule type system
+
   - Implemented rule type classification (Always Apply, Auto Attached, Agent Requested, Manual)
   - Added glob pattern matching for file-based rule inclusion
   - Integrated semantic search for agent-requested rules using RuleSimilarityService
