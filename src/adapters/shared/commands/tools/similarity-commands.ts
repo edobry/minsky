@@ -187,7 +187,7 @@ export class ToolsSimilarCommand {
     }
 
     let output = `Found ${enhancedResults.length} similar tools for: ${toolId}\n\n`;
-    
+
     enhancedResults.forEach((tool, index) => {
       const scoreDisplay = tool.score ? ` (score: ${tool.score.toFixed(3)})` : "";
       output += `${index + 1}. ${tool.name} [${tool.id}]${scoreDisplay}\n`;
@@ -278,7 +278,7 @@ export class ToolsSearchCommand {
           (cfg as any).embeddings?.provider || (cfg as any).ai?.defaultProvider || "openai";
         const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
         const effThreshold = threshold ?? "(default)";
-        
+
         // Print to CLI in human-friendly lines
         // Write diagnostics to stderr so --json stays clean on stdout
         log.cliWarn(`Search provider: ${provider}`);
@@ -321,7 +321,7 @@ export class ToolsSearchCommand {
     }
 
     let output = `Found ${enhancedResults.length} tools matching: "${query}"\n\n`;
-    
+
     enhancedResults.forEach((tool, index) => {
       const scoreDisplay = tool.score ? ` (score: ${tool.score.toFixed(3)})` : "";
       output += `${index + 1}. ${tool.name} [${tool.id}]${scoreDisplay}\n`;

@@ -11,6 +11,7 @@ import {
   getConfigCustomizations,
   getSessiondbCustomizations,
 } from "../customizations/config-customizations";
+import { getToolsCustomizations } from "../customizations/tools-customizations";
 
 /**
  * Helper function to setup common CLI command customizations
@@ -37,6 +38,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 
   const sessiondbConfig = getSessiondbCustomizations();
   cliFactory.customizeCategory(sessiondbConfig.category, sessiondbConfig.options);
+
+  const toolsConfig = getToolsCustomizations();
+  cliFactory.customizeCategory(toolsConfig.category, toolsConfig.options);
 }
 
 /**

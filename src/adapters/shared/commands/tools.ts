@@ -17,7 +17,7 @@ export function registerToolsCommands(): void {
 
   sharedCommandRegistry.registerCommand({
     id: indexEmbeddingsCommand.id,
-    category: CommandCategory.DEBUG, // Using DEBUG category for now, could create TOOLS category later
+    category: CommandCategory.TOOLS,
     name: indexEmbeddingsCommand.name,
     description: indexEmbeddingsCommand.description,
     parameters: indexEmbeddingsCommand.parameters,
@@ -31,7 +31,7 @@ export function registerToolsCommands(): void {
 
   sharedCommandRegistry.registerCommand({
     id: searchCommand.id,
-    category: CommandCategory.DEBUG, // Using DEBUG category to match index-embeddings
+    category: CommandCategory.TOOLS,
     name: searchCommand.name,
     description: searchCommand.description,
     parameters: searchCommand.parameters,
@@ -45,7 +45,7 @@ export function registerToolsCommands(): void {
 
   sharedCommandRegistry.registerCommand({
     id: similarCommand.id,
-    category: CommandCategory.DEBUG, // Using DEBUG category to match index-embeddings
+    category: CommandCategory.TOOLS,
     name: similarCommand.name,
     description: similarCommand.description,
     parameters: similarCommand.parameters,
