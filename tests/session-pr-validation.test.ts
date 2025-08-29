@@ -16,10 +16,12 @@ This is the actual content...`;
       // This test should FAIL until the validation is fixed
       // The validation should detect that the body starts with a duplicate title
       const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
-      
+
       expect(validationResult.isValid).toBe(false);
       expect(validationResult.error).toContain("Title duplication detected");
-      expect(validationResult.error).toContain("PR description body should NOT start with the same title");
+      expect(validationResult.error).toContain(
+        "PR description body should NOT start with the same title"
+      );
     });
 
     it("should accept PR body that starts with proper content", () => {
@@ -29,7 +31,7 @@ This is the actual content...`;
 Implemented an enhanced rules system...`;
 
       const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
-      
+
       expect(validationResult.isValid).toBe(true);
       expect(validationResult.error).toBeUndefined();
     });
@@ -41,13 +43,13 @@ Implemented an enhanced rules system...`;
 Content here...`;
 
       const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
-      
+
       expect(validationResult.isValid).toBe(false);
       expect(validationResult.error).toContain("Title duplication detected");
     });
 
     it("should allow similar but not duplicate titles", () => {
-      const prTitle = "feat(mt#478): Implement Rules";  
+      const prTitle = "feat(mt#478): Implement Rules";
       const prBody = `# Implementation Details
 
 ## Rules Enhancement
@@ -55,49 +57,59 @@ Content here...`;
 Content about rules...`;
 
       const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
-      
+
       expect(validationResult.isValid).toBe(true);
     });
   });
 });
 
 // Validation function to prevent title duplication in PR body
-function validatePRBodyForTitleDuplication(title: string, body: string): { isValid: boolean; error?: string } {
+function validatePRBodyForTitleDuplication(
+  title: string,
+  body: string
+): { isValid: boolean; error?: string } {
   if (!body || !title) {
     return { isValid: true }; // Empty body/title is valid
   }
 
   // Extract the first line of the body (typically a markdown header)
-  const firstLine = body.split('\n')[0].trim();
-  
+  const firstLine = body.split("\n")[0].trim();
+
   // Skip if first line is not a header
-  if (!firstLine.startsWith('#')) {
+  if (!firstLine.startsWith("#")) {
     return { isValid: true };
   }
 
   // Remove markdown header prefix and normalize for comparison
-  const bodyTitle = firstLine.replace(/^#+\s*/, '').trim();
-  const normalizedBodyTitle = bodyTitle.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ');
-  const normalizedPRTitle = title.toLowerCase().replace(/[^\w\s]/g, ' ').replace(/\s+/g, ' ');
+  const bodyTitle = firstLine.replace(/^#+\s*/, "").trim();
+  const normalizedBodyTitle = bodyTitle
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ");
+  const normalizedPRTitle = title
+    .toLowerCase()
+    .replace(/[^\w\s]/g, " ")
+    .replace(/\s+/g, " ");
 
   // Check if the normalized titles are substantially similar
   // Use a simple approach: check if one title contains most words of the other
-  const bodyWords = normalizedBodyTitle.split(' ').filter(w => w.length > 3); // Ignore short words
-  const titleWords = normalizedPRTitle.split(' ').filter(w => w.length > 3);
-  
+  const bodyWords = normalizedBodyTitle.split(" ").filter((w) => w.length > 3); // Ignore short words
+  const titleWords = normalizedPRTitle.split(" ").filter((w) => w.length > 3);
+
   if (bodyWords.length === 0 || titleWords.length === 0) {
     return { isValid: true };
   }
 
   // Count how many significant words from the title appear in the body title
-  const matchingWords = titleWords.filter(word => normalizedBodyTitle.includes(word));
+  const matchingWords = titleWords.filter((word) => normalizedBodyTitle.includes(word));
   const similarityRatio = matchingWords.length / titleWords.length;
 
   // If more than 70% of significant words match, consider it title duplication
   if (similarityRatio > 0.7) {
     return {
       isValid: false,
-      error: "PR description body should NOT start with the same title as the PR. Title duplication detected in first line."
+      error:
+        "PR description body should NOT start with the same title as the PR. Title duplication detected in first line.",
     };
   }
 
