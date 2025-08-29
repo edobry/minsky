@@ -11,7 +11,7 @@ import { describe, test, expect, beforeEach, afterEach } from "bun:test";
 // Removed tmpdir import - using mock paths instead
 import { join } from "path";
 import { execSync } from "child_process";
-import { TEST_ENTITIES } from "../../utils/test-utils/test-constants";
+import { TEST_ENTITIES } from "../utils/test-utils/test-constants";
 
 // Mock implementations to test the duplication patterns
 interface MockGitService {
