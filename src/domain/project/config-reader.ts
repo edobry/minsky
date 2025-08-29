@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from "fs";
 import { log } from "../../utils/logger";
 import { resolve, join } from "path";
 
+// Legacy interface - kept for backward compatibility
 export interface ProjectWorkflowConfig {
   lint?: string;
   lintFix?: string;
@@ -19,6 +20,20 @@ export interface ProjectWorkflowConfig {
   start?: string;
 }
 
+// New simplified workflow config format
+export interface WorkflowCommand {
+  jsonCommand: string;
+  fixCommand?: string;
+}
+
+export interface SimplifiedWorkflowConfig {
+  lint?: WorkflowCommand;
+  test?: WorkflowCommand;
+  build?: WorkflowCommand;
+  dev?: WorkflowCommand;
+  start?: WorkflowCommand;
+}
+
 export interface ProjectRuntimeConfig {
   packageManager?: "npm" | "yarn" | "pnpm" | "bun";
   language?: "typescript" | "javascript" | "rust" | "go" | "python" | "other";
@@ -27,6 +42,13 @@ export interface ProjectRuntimeConfig {
 export interface ProjectConfiguration {
   workflows: ProjectWorkflowConfig;
   runtime: ProjectRuntimeConfig;
+  configSource: "minsky.json" | "package.json" | "auto-detected" | "defaults";
+}
+
+// New simplified configuration interface
+export interface SimplifiedProjectConfiguration {
+  workflows: SimplifiedWorkflowConfig;
+  runtime?: ProjectRuntimeConfig;
   configSource: "minsky.json" | "package.json" | "auto-detected" | "defaults";
 }
 
@@ -120,10 +142,21 @@ export class ProjectConfigReader {
         try {
           const config = JSON.parse(readFileSync(configPath, "utf8"));
           if (config.workflows) {
-            return {
-              workflows: config.workflows,
-              runtime: config.runtime || {},
-            };
+            // Check if this is the new simplified format or legacy format
+            if (this.isSimplifiedFormat(config.workflows)) {
+              // Convert simplified format to legacy format for backward compatibility
+              const legacyWorkflows = this.convertSimplifiedToLegacy(config.workflows);
+              return {
+                workflows: legacyWorkflows,
+                runtime: config.runtime || {},
+              };
+            } else {
+              // Legacy format
+              return {
+                workflows: config.workflows,
+                runtime: config.runtime || {},
+              };
+            }
           }
         } catch (error) {
           // Continue to next file
@@ -133,6 +166,51 @@ export class ProjectConfigReader {
     }
 
     return null;
+  }
+
+  /**
+   * Check if the workflows config uses the simplified format
+   */
+  private isSimplifiedFormat(workflows: any): workflows is SimplifiedWorkflowConfig {
+    // Check if any workflow value is an object with jsonCommand property
+    return Object.values(workflows).some(
+      (workflow) => workflow && typeof workflow === "object" && "jsonCommand" in workflow
+    );
+  }
+
+  /**
+   * Convert simplified format to legacy format for backward compatibility
+   */
+  private convertSimplifiedToLegacy(simplified: SimplifiedWorkflowConfig): ProjectWorkflowConfig {
+    const legacy: ProjectWorkflowConfig = {};
+
+    if (simplified.lint) {
+      legacy.lintJson = simplified.lint.jsonCommand;
+      if (simplified.lint.fixCommand) {
+        legacy.lintFix = simplified.lint.fixCommand;
+      }
+      // Generate a generic lint command from jsonCommand by removing --format json
+      legacy.lint = simplified.lint.jsonCommand.replace(/\s+--format\s+json/g, "");
+    }
+
+    if (simplified.test) {
+      // For test commands, assume the jsonCommand can be used directly
+      legacy.test = simplified.test.jsonCommand.replace(/\s+--reporter\s+json/g, "");
+    }
+
+    if (simplified.build) {
+      legacy.build = simplified.build.jsonCommand;
+    }
+
+    if (simplified.dev) {
+      legacy.dev = simplified.dev.jsonCommand;
+    }
+
+    if (simplified.start) {
+      legacy.start = simplified.start.jsonCommand;
+    }
+
+    return legacy;
   }
 
   /**
