@@ -1,46 +1,52 @@
 import { sharedCommandRegistry } from "./src/adapters/shared/command-registry";
 import { registerAllSharedCommands } from "./src/adapters/shared/commands";
+import { log } from "./src/utils/logger";
 
 async function debugToolCategory() {
   try {
-    console.log("🔍 Debugging tool category issue...\n");
+    log.cli("🔍 Debugging tool category issue...\n");
 
     // First register all commands
-    console.log("📝 Registering all commands...");
+    log.cli("📝 Registering all commands...");
     await registerAllSharedCommands();
 
-    console.log("📊 Total commands registered:", sharedCommandRegistry.getAllCommands().length);
+    log.cli(`📊 Total commands registered: ${sharedCommandRegistry.getAllCommands().length}`);
 
     // Get the tools command
-    const tool = sharedCommandRegistry.getCommand('tools.index-embeddings');
+    const tool = sharedCommandRegistry.getCommand("tools.index-embeddings");
 
     if (!tool) {
-      console.log("❌ Tool not found in registry");
+      log.cli("❌ Tool not found in registry");
       return;
     }
 
-    console.log("📋 Tool object properties:");
-    console.log("   id:", tool.id);
-    console.log("   category:", tool.category);
-    console.log("   name:", tool.name);
-    console.log("   description:", tool.description);
-    console.log("   has parameters:", !!tool.parameters);
-    console.log("   has execute:", typeof tool.execute);
+    log.cli("📋 Tool object properties:");
+    log.cli(`   id: ${tool.id}`);
+    log.cli(`   category: ${tool.category}`);
+    log.cli(`   name: ${tool.name}`);
+    log.cli(`   description: ${tool.description}`);
+    log.cli(`   has parameters: ${!!tool.parameters}`);
+    log.cli(`   has execute: ${typeof tool.execute}`);
 
-    console.log("\n🔍 Full tool object:");
-    console.log(JSON.stringify(tool, (key, value) => {
-      if (typeof value === 'function') return '[function]';
-      return value;
-    }, 2));
+    log.cli("\n🔍 Full tool object:");
+    log.cli(
+      JSON.stringify(
+        tool,
+        (key, value) => {
+          if (typeof value === "function") return "[function]";
+          return value;
+        },
+        2
+      )
+    );
 
-    console.log("\n🧪 Testing what ToolEmbeddingService tries to access:");
-    console.log("   tool.category:", tool.category);
-    console.log("   tool.description:", tool.description);
-    console.log("   tool.name:", tool.name);
-    console.log("   tool.parameters keys:", Object.keys(tool.parameters || {}));
-
+    log.cli("\n🧪 Testing what ToolEmbeddingService tries to access:");
+    log.cli(`   tool.category: ${tool.category}`);
+    log.cli(`   tool.description: ${tool.description}`);
+    log.cli(`   tool.name: ${tool.name}`);
+    log.cli(`   tool.parameters keys: ${Object.keys(tool.parameters || {}).join(",")}`);
   } catch (error) {
-    console.error("❌ Error:", error);
+    log.cliError("❌ Error in debug-tool-category");
   }
 }
 

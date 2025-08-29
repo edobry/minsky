@@ -12,11 +12,12 @@ describe("Template System", () => {
   // Mock the command generator
   mock.module("./command-generator", () => {
     const mockCommandSyntax = (commandId: string, config: any) => {
-      if (config.interfaceMode === "cli") {
+      const isCli =
+        config.interfaceMode === "cli" || (config.interfaceMode === "hybrid" && !config.preferMcp);
+      if (isCli) {
         return `minsky ${commandId.replace(/\./g, " ")}`;
-      } else {
-        return `<function_calls><invoke name="mcp_minsky-server_${commandId.replace(/\./g, "_")}"></invoke></function_calls>`;
       }
+      return `<function_calls><invoke name="mcp_minsky-server_${commandId.replace(/\./g, "_")}"></invoke></function_calls>`;
     };
 
     const mockDocumentation = (commandId: string) => {

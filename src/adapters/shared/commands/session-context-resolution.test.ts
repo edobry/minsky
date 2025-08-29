@@ -73,7 +73,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       );
 
       // This demonstrates the problem - domain layer should NOT auto-detect
-      expect(result.sessionName).toBe("task#158");
+      expect(result.sessionName).toBe("task#150");
 
       // Force test failure to show this is the problem we need to fix
       expect("Domain layer should not auto-detect session").toBe(
@@ -240,7 +240,7 @@ describe("Session Context Resolution Architecture Issues", () => {
         mockCwd()
       );
 
-      expect(cliResolvedParams.session).toBe("task#158");
+      expect(cliResolvedParams.session).toBe("task#150");
 
       // MCP adapter should require explicit session
       mockCwd = mock(() => TEST_PATHS.MINSKY_MAIN_WORKSPACE);

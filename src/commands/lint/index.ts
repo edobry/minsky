@@ -48,13 +48,13 @@ async function runLinter(configReader: ProjectConfigReader): Promise<ESLintResul
   try {
     const lintJsonCommand = await configReader.getLintJsonCommand();
     log.debug(`Running lint command: ${lintJsonCommand}`);
-    
+
     const output = execSync(lintJsonCommand, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
       cwd: configReader["projectRoot"] || process.cwd(),
     });
-    
+
     return JSON.parse(output);
   } catch (error: any) {
     // Linter exits with non-zero when issues found, but still outputs JSON
@@ -66,7 +66,7 @@ async function runLinter(configReader: ProjectConfigReader): Promise<ESLintResul
         return [];
       }
     }
-    
+
     log.cliError("Failed to run linter");
     log.debug(`Linter error: ${error.message}`);
     exit(1);
@@ -80,10 +80,10 @@ function calculateSummary(results: ESLintResult[], threshold: number): LintSumma
   const totalErrors = results.reduce((sum, result) => sum + result.errorCount, 0);
   const totalWarnings = results.reduce((sum, result) => sum + result.warningCount, 0);
   const totalFiles = results.length;
-  
+
   // Status determination: fail if errors > 0 OR warnings > threshold
   const status = totalErrors > 0 || totalWarnings > threshold ? "fail" : "pass";
-  
+
   return {
     errorCount: totalErrors,
     warningCount: totalWarnings,
@@ -98,7 +98,7 @@ function calculateSummary(results: ESLintResult[], threshold: number): LintSumma
  */
 function generateRuleBreakdown(results: ESLintResult[]): Record<string, number> {
   const ruleCount: Record<string, number> = {};
-  
+
   for (const result of results) {
     for (const message of result.messages) {
       if (message.ruleId) {
@@ -106,44 +106,46 @@ function generateRuleBreakdown(results: ESLintResult[]): Record<string, number> 
       }
     }
   }
-  
+
   // Sort by count (descending)
-  return Object.fromEntries(
-    Object.entries(ruleCount).sort(([,a], [,b]) => b - a)
-  );
+  return Object.fromEntries(Object.entries(ruleCount).sort(([, a], [, b]) => b - a));
 }
 
 /**
  * Output results in human-readable format
  */
-function outputHumanReadable(results: ESLintResult[], summary: LintSummary, options: LintOptions): void {
+function outputHumanReadable(
+  results: ESLintResult[],
+  summary: LintSummary,
+  options: LintOptions
+): void {
   const statusIcon = summary.status === "pass" ? "✅" : "❌";
   const statusText = summary.status === "pass" ? "PASS" : "FAIL";
-  
+
   if (!options.quiet) {
-    console.log("🔍 ESLint Results");
-    console.log(`├─ Errors: ${summary.errorCount}`);
-    console.log(`├─ Warnings: ${summary.warningCount}`);
-    console.log(`├─ Files: ${summary.totalFiles}`);
-    console.log(`└─ Status: ${statusIcon} ${statusText}`);
-    
+    log.cli("🔍 ESLint Results");
+    log.cli(`├─ Errors: ${summary.errorCount}`);
+    log.cli(`├─ Warnings: ${summary.warningCount}`);
+    log.cli(`├─ Files: ${summary.totalFiles}`);
+    log.cli(`└─ Status: ${statusIcon} ${statusText}`);
+
     if (summary.warningCount > 0) {
-      console.log(`   Warning threshold: ${summary.warningCount}/${summary.threshold}`);
+      log.cli(`   Warning threshold: ${summary.warningCount}/${summary.threshold}`);
     }
-    
+
     // Show top rule violations if not quiet
     const ruleBreakdown = generateRuleBreakdown(results);
     const topRules = Object.entries(ruleBreakdown).slice(0, 5);
-    
+
     if (topRules.length > 0) {
-      console.log("\nTop Issues:");
+      log.cli("\nTop Issues:");
       for (const [rule, count] of topRules) {
-        console.log(`  • ${rule}: ${count} violation${count > 1 ? 's' : ''}`);
+        log.cli(`  • ${rule}: ${count} violation${count > 1 ? "s" : ""}`);
       }
     }
   } else {
     // Quiet mode: just status
-    console.log(`${statusText}: Errors: ${summary.errorCount}, Warnings: ${summary.warningCount}`);
+    log.cli(`${statusText}: Errors: ${summary.errorCount}, Warnings: ${summary.warningCount}`);
   }
 }
 
@@ -152,14 +154,14 @@ function outputHumanReadable(results: ESLintResult[], summary: LintSummary, opti
  */
 async function outputConfigDetection(configReader: ProjectConfigReader): Promise<void> {
   const config = await configReader.getConfiguration();
-  
-  console.log("🔍 Detected Configuration:");
-  console.log(`├─ Config Source: ${config.configSource}`);
-  console.log(`├─ Package Manager: ${config.runtime.packageManager || 'unknown'}`);
-  console.log(`├─ Language: ${config.runtime.language || 'unknown'}`);
-  console.log(`├─ Lint Command: ${config.workflows.lint || 'none'}`);
-  console.log(`├─ Lint JSON Command: ${config.workflows.lintJson || 'none'}`);
-  console.log(`└─ Lint Fix Command: ${config.workflows.lintFix || 'none'}`);
+
+  log.cli("🔍 Detected Configuration:");
+  log.cli(`├─ Config Source: ${config.configSource}`);
+  log.cli(`├─ Package Manager: ${config.runtime.packageManager || "unknown"}`);
+  log.cli(`├─ Language: ${config.runtime.language || "unknown"}`);
+  log.cli(`├─ Lint Command: ${config.workflows.lint || "none"}`);
+  log.cli(`├─ Lint JSON Command: ${config.workflows.lintJson || "none"}`);
+  log.cli(`└─ Lint Fix Command: ${config.workflows.lintFix || "none"}`);
 }
 
 /**
@@ -167,19 +169,19 @@ async function outputConfigDetection(configReader: ProjectConfigReader): Promise
  */
 function outputJson(results: ESLintResult[], summary: LintSummary): void {
   const ruleBreakdown = generateRuleBreakdown(results);
-  
+
   const output = {
     summary,
     rules: ruleBreakdown,
-    files: results.map(result => ({
+    files: results.map((result) => ({
       path: result.filePath,
       errorCount: result.errorCount,
       warningCount: result.warningCount,
       messages: result.messages,
     })),
   };
-  
-  console.log(JSON.stringify(output, null, 2));
+
+  log.cli(JSON.stringify(output, null, 2));
 }
 
 /**
@@ -226,28 +228,30 @@ for each project, making it universal across different runtimes.
         // Initialize project configuration reader
         const projectRoot = options.config || process.cwd();
         const configReader = new ProjectConfigReader(projectRoot);
-        
+
         // Handle --detect mode
         if (options.detect) {
           await outputConfigDetection(configReader);
           return; // Exit without running linter
         }
-        
+
         const threshold = parseInt(options.threshold?.toString() || "100");
-        
+
         // Run linter with auto-detected configuration
         const results = await runLinter(configReader);
         const summary = calculateSummary(results, threshold);
-        
+
         // Output in requested format
         if (options.json) {
           outputJson(results, summary);
         } else if (options.summary || options.quiet) {
-          console.log(`Errors: ${summary.errorCount}, Warnings: ${summary.warningCount}, Status: ${summary.status.toUpperCase()}`);
+          log.cli(
+            `Errors: ${summary.errorCount}, Warnings: ${summary.warningCount}, Status: ${summary.status.toUpperCase()}`
+          );
         } else {
           outputHumanReadable(results, summary, options);
         }
-        
+
         // Set exit code based on results
         if (summary.errorCount > 0) {
           exit(1); // Errors found
@@ -255,7 +259,6 @@ for each project, making it universal across different runtimes.
           exit(2); // Too many warnings
         }
         // else: exit 0 (success)
-        
       } catch (error: any) {
         log.cliError(`Lint command failed: ${error.message}`);
         log.debug(`Error details: ${error.stack}`);

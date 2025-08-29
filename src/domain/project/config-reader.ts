@@ -6,6 +6,7 @@
  */
 
 import { readFileSync, existsSync } from "fs";
+import { log } from "../../utils/logger";
 import { resolve, join } from "path";
 
 export interface ProjectWorkflowConfig {
@@ -83,20 +84,20 @@ export class ProjectConfigReader {
    */
   async getLintJsonCommand(): Promise<string> {
     const config = await this.getConfiguration();
-    
+
     if (config.workflows.lintJson) {
       return config.workflows.lintJson;
     }
-    
+
     // Build JSON command from base lint command
     const baseLintCommand = config.workflows.lint || "eslint .";
-    
+
     // Handle different package managers
     if (baseLintCommand.includes(" run ")) {
       // Package manager command - append format after the script name
       return baseLintCommand.replace(" run lint", " run lint -- --format json");
     }
-    
+
     // Direct command - append format flag
     return `${baseLintCommand} --format json`;
   }
@@ -104,7 +105,10 @@ export class ProjectConfigReader {
   /**
    * Load explicit minsky configuration
    */
-  private loadMinskyConfig(): { workflows: ProjectWorkflowConfig; runtime: ProjectRuntimeConfig } | null {
+  private loadMinskyConfig(): {
+    workflows: ProjectWorkflowConfig;
+    runtime: ProjectRuntimeConfig;
+  } | null {
     const possiblePaths = [
       join(this.projectRoot, "minsky.json"),
       join(this.projectRoot, ".minsky", "config.json"),
@@ -123,7 +127,7 @@ export class ProjectConfigReader {
           }
         } catch (error) {
           // Continue to next file
-          console.warn(`Warning: Failed to parse ${configPath}:`, error);
+          log.warn(`Warning: Failed to parse ${configPath}: ${(error as Error).message}`);
         }
       }
     }
@@ -134,9 +138,12 @@ export class ProjectConfigReader {
   /**
    * Detect configuration from package.json scripts
    */
-  private detectFromPackageJson(): { workflows: ProjectWorkflowConfig; runtime: ProjectRuntimeConfig } | null {
+  private detectFromPackageJson(): {
+    workflows: ProjectWorkflowConfig;
+    runtime: ProjectRuntimeConfig;
+  } | null {
     const packageJsonPath = join(this.projectRoot, "package.json");
-    
+
     if (!existsSync(packageJsonPath)) {
       return null;
     }
@@ -144,7 +151,7 @@ export class ProjectConfigReader {
     try {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
       const scripts = packageJson.scripts || {};
-      
+
       // Detect package manager from lockfiles and dependencies
       const packageManager = this.detectPackageManager();
       const language = this.detectLanguageFromPackageJson(packageJson);
@@ -156,23 +163,23 @@ export class ProjectConfigReader {
         workflows.lint = `${packageManager} run lint`;
         workflows.lintJson = `${packageManager} run lint -- --format json`;
       }
-      
+
       if (scripts["lint:fix"]) {
         workflows.lintFix = `${packageManager} run lint:fix`;
       }
-      
+
       if (scripts.test) {
         workflows.test = `${packageManager} run test`;
       }
-      
+
       if (scripts.build) {
         workflows.build = `${packageManager} run build`;
       }
-      
+
       if (scripts.dev) {
         workflows.dev = `${packageManager} run dev`;
       }
-      
+
       if (scripts.start) {
         workflows.start = `${packageManager} run start`;
       }
@@ -185,7 +192,7 @@ export class ProjectConfigReader {
         };
       }
     } catch (error) {
-      console.warn(`Warning: Failed to parse package.json:`, error);
+      log.warn(`Warning: Failed to parse package.json: ${(error as Error).message}`);
     }
 
     return null;
@@ -194,7 +201,10 @@ export class ProjectConfigReader {
   /**
    * Auto-detect configuration based on project language/structure
    */
-  private autoDetectFromLanguage(): { workflows: ProjectWorkflowConfig; runtime: ProjectRuntimeConfig } | null {
+  private autoDetectFromLanguage(): {
+    workflows: ProjectWorkflowConfig;
+    runtime: ProjectRuntimeConfig;
+  } | null {
     const workflows: ProjectWorkflowConfig = {};
     const runtime: ProjectRuntimeConfig = {};
 
@@ -219,9 +229,11 @@ export class ProjectConfigReader {
     }
 
     // Python detection
-    if (existsSync(join(this.projectRoot, "pyproject.toml")) || 
-        existsSync(join(this.projectRoot, "requirements.txt")) ||
-        existsSync(join(this.projectRoot, "setup.py"))) {
+    if (
+      existsSync(join(this.projectRoot, "pyproject.toml")) ||
+      existsSync(join(this.projectRoot, "requirements.txt")) ||
+      existsSync(join(this.projectRoot, "setup.py"))
+    ) {
       runtime.language = "python";
       workflows.lint = "flake8";
       workflows.lintJson = "flake8 --format=json";
@@ -255,7 +267,11 @@ export class ProjectConfigReader {
    * Detect package manager from lockfiles
    */
   private detectPackageManager(): "npm" | "yarn" | "pnpm" | "bun" {
-    if (existsSync(join(this.projectRoot, "bun.lockb")) || existsSync(join(this.projectRoot, "bun.lock"))) return "bun";
+    if (
+      existsSync(join(this.projectRoot, "bun.lockb")) ||
+      existsSync(join(this.projectRoot, "bun.lock"))
+    )
+      return "bun";
     if (existsSync(join(this.projectRoot, "pnpm-lock.yaml"))) return "pnpm";
     if (existsSync(join(this.projectRoot, "yarn.lock"))) return "yarn";
     return "npm"; // default
@@ -266,11 +282,15 @@ export class ProjectConfigReader {
    */
   private detectLanguageFromPackageJson(packageJson: any): "typescript" | "javascript" | "other" {
     const deps = { ...packageJson.dependencies, ...packageJson.devDependencies };
-    
-    if (deps.typescript || deps["@types/node"] || existsSync(join(this.projectRoot, "tsconfig.json"))) {
+
+    if (
+      deps.typescript ||
+      deps["@types/node"] ||
+      existsSync(join(this.projectRoot, "tsconfig.json"))
+    ) {
       return "typescript";
     }
-    
+
     return "javascript";
   }
 
@@ -285,7 +305,7 @@ export class ProjectConfigReader {
       // Check for common project indicators
       const indicators = [
         "package.json",
-        "Cargo.toml", 
+        "Cargo.toml",
         "go.mod",
         "pyproject.toml",
         ".git",
@@ -293,7 +313,7 @@ export class ProjectConfigReader {
         ".minsky",
       ];
 
-      if (indicators.some(indicator => existsSync(join(currentDir, indicator)))) {
+      if (indicators.some((indicator) => existsSync(join(currentDir, indicator)))) {
         return currentDir;
       }
 
