@@ -11,6 +11,7 @@ import { join } from "path";
 // Use mock.module() to mock filesystem operations
 // import { mkdirSync } from "fs";
 import { setupTestMocks } from "../utils/test-utils/mocking";
+import { REPO_URIS } from "../utils/test-utils/test-constants";
 import {
   parseRepositoryURI,
   normalizeRepositoryURI,
@@ -72,7 +73,7 @@ describe("Repository URI Utilities", () => {
     });
 
     test("parses SSH URLs", () => {
-      const uri = "git@github.com:org/repo.git";
+      const uri = REPO_URIS.GITHUB_SSH;
       const result = parseRepositoryURI(uri);
 
       expect(result.type).toBe(RepositoryURIType.SSH);
@@ -111,7 +112,7 @@ describe("Repository URI Utilities", () => {
     });
 
     test("normalizes SSH URLs", () => {
-      expect(normalizeRepositoryURI("git@github.com:org/repo.git")).toBe("org/repo");
+      expect(normalizeRepositoryURI(REPO_URIS.GITHUB_SSH)).toBe("org/repo");
     });
 
     test("preserves GitHub shorthand", () => {
@@ -139,12 +140,12 @@ describe("Repository URI Utilities", () => {
 
     test("converts from GitHub shorthand to SSH URL", () => {
       const result = convertRepositoryURI("org/repo", RepositoryURIType.SSH);
-      expect(result).toBe("git@github.com:org/repo.git");
+      expect(result).toBe(REPO_URIS.GITHUB_SSH);
     });
 
     test("converts from HTTPS URL to SSH URL", () => {
       const result = convertRepositoryURI("https://github.com/org/repo.git", RepositoryURIType.SSH);
-      expect(result).toBe("git@github.com:org/repo.git");
+      expect(result).toBe(REPO_URIS.GITHUB_SSH);
     });
 
     test("returns null for incompatible conversions", () => {
@@ -170,7 +171,7 @@ describe("Repository URI Utilities", () => {
     });
 
     test("extracts name from SSH URL", () => {
-      expect(getRepositoryName("git@github.com:org/repo.git")).toBe("repo");
+      expect(getRepositoryName(REPO_URIS.GITHUB_SSH)).toBe("repo");
     });
 
     test("extracts name from GitHub shorthand", () => {
@@ -184,7 +185,7 @@ describe("Repository URI Utilities", () => {
     });
 
     test("expands to SSH URL when specified", () => {
-      expect(expandGitHubShorthand("org/repo", "ssh")).toBe("git@github.com:org/repo.git");
+      expect(expandGitHubShorthand("org/repo", "ssh")).toBe(REPO_URIS.GITHUB_SSH);
     });
 
     test("returns null for invalid shorthand", () => {

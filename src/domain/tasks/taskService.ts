@@ -159,6 +159,21 @@ export async function createConfiguredTaskService(options: {
       } catch (error) {
         log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
       }
+
+      // Set the configured default backend (respect tasks.backend configuration with fallback to 'minsky')
+      try {
+        const { getConfiguration } = await import("../configuration");
+        const config = getConfiguration();
+        const configuredBackend = config.tasks.backend; // Config system handles default fallback
+        (service as any).setDefaultBackend(configuredBackend);
+        log.debug(`Set default backend to '${configuredBackend}' from configuration`);
+      } catch (error) {
+        log.debug("Could not read configuration for default backend", {
+          error: getErrorMessage(error as any),
+        });
+        // Fallback to 'minsky' if config system fails
+        (service as any).setDefaultBackend("minsky");
+      }
     } catch (error) {
       log.warn("Failed to register some backends", { error: getErrorMessage(error as any) });
     }

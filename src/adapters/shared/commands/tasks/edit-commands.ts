@@ -137,9 +137,7 @@ export class TasksEditCommand extends BaseTaskCommand {
         "../../../../domain/tasks/multi-backend-service"
       );
       const { resolveRepoPath } = await import("../../../../domain/workspace");
-      const { resolveMainWorkspacePath } = await import(
-        "../../../../domain/workspace/workspace-resolver"
-      );
+      const { resolveMainWorkspacePath } = await import("../../../../domain/workspace");
 
       const service = await createConfiguredTaskService({
         repoPath: params.repo

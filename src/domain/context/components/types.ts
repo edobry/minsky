@@ -12,6 +12,10 @@ export interface ComponentInput {
   };
   // Optional command registry for testing isolation
   commandRegistry?: any;
+  // Files currently in context for glob matching
+  filesInContext?: string[];
+  // Optional rules service for testing isolation
+  rulesService?: any;
   // ... other potential inputs
 }
 

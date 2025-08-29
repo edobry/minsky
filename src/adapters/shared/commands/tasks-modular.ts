@@ -136,15 +136,32 @@ export class ModularTasksCommandManager {
         },
       });
 
-      // Register spec command
+      // Register spec get command
       sharedCommandRegistry.registerCommand({
         id: "tasks.spec.get",
         category: CommandCategory.TASKS,
-        name: "spec",
+        name: "get",
         description: "Get task specification content",
         parameters: specCommand.parameters,
         execute: async (params: any, context: any) => {
           return await specCommand.execute(params, context);
+        },
+      });
+
+      // Register spec edit command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.spec.edit",
+        category: CommandCategory.TASKS,
+        name: "edit",
+        description: "Edit task specification content",
+        parameters: editCommand.parameters,
+        execute: async (params: any, context: any) => {
+          // For spec edit, we only allow spec-related parameters
+          const specParams = {
+            ...params,
+            title: undefined, // Don't allow title editing in spec edit
+          };
+          return await editCommand.execute(specParams, context);
         },
       });
 

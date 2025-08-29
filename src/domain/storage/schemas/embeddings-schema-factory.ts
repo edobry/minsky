@@ -60,4 +60,10 @@ export const EMBEDDINGS_CONFIGS = {
     vectorColumn: "vector", // Standardize on "vector" column name
     indexedAtColumn: "indexed_at", // Standardize on "indexed_at" column name
   },
+  tools: {
+    tableName: "tool_embeddings",
+    idColumn: "tool_id",
+    vectorColumn: "vector",
+    indexedAtColumn: "indexed_at",
+  },
 } as const;

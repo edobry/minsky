@@ -55,4 +55,6 @@ export const tasksEmbeddingsTable = createEmbeddingsTable({
     status: taskStatusEnum("status"),
     backend: taskBackendEnum("backend"),
   },
+  // Note: Single HNSW index + WHERE clauses perform very well
+  // Partial indexes add complexity without significant benefit for most use cases
 });
