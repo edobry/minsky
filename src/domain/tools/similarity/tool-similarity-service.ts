@@ -42,6 +42,39 @@ export class ToolSimilarityService {
   constructor(private readonly config: ToolSimilarityServiceConfig = {}) {}
 
   /**
+   * Find tools similar to a given tool using embeddings
+   */
+  async similarToTool(toolId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
+    const tool = sharedCommandRegistry.getCommand(toolId);
+    if (!tool) {
+      log.debug(`Tool not found: ${toolId}`);
+      return [];
+    }
+
+    // Create search content from tool metadata
+    const toolContent = [
+      tool.name,
+      tool.description,
+      tool.category,
+      // Add parameter descriptions if available
+      Object.values(tool.parameters || {})
+        .map((p: any) => p.help || "")
+        .filter(Boolean)
+        .join(" "),
+    ]
+      .filter(Boolean)
+      .join(" ");
+
+    const core = await createToolSimilarityCore();
+    const items: SimilarityItem[] = await core.search({ queryText: toolContent, limit });
+
+    // Filter out the original tool from results
+    return items
+      .filter((i) => i.id !== toolId)
+      .map((i) => ({ id: i.id, score: i.score }) as SearchResult);
+  }
+
+  /**
    * Search tools by natural language query using embeddings and fallback mechanisms
    */
   async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {

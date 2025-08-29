@@ -938,6 +938,13 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
       },
     },
   });
+
+  // Tools commands customization
+  cliFactory.customizeCategory(CommandCategory.TOOLS, {
+    commandOptions: {
+      // Tools commands use default customization for now
+    },
+  });
 }
 
 function formatConfigurationSources(resolved: any, sources: any[]): string {
