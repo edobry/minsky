@@ -2,7 +2,9 @@ import type { Rule } from "./types";
 import { classifyRuleType, RuleType } from "./rule-classifier";
 import { matchesGlobPatterns } from "./glob-matcher";
 import { extractRuleMentions, stripRuleMentions } from "./rule-mention-parser";
-import { log } from "../utils/logger";
+import { createLogger } from "../../utils/logger";
+
+const log = createLogger("rule-suggestion-enhanced");
 
 /**
  * Options for enhanced rule suggestion
