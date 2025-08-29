@@ -56,8 +56,9 @@ if (isDebugMode) {
 }
 
 // Export mock logger utilities for tests that need to verify logging behavior
-export { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
 export {
+  mockLogger,
+  resetMockLogger,
   wasMessageLogged,
   getLoggedErrors,
   getLoggedWarnings,

@@ -227,7 +227,7 @@ export const CODE_TEST_PATTERNS = {
 export const UI_TEST_PATTERNS = {
   CREATE_NEW_FILE: "Create a new file",
   NEW_FILE_CONTENT: "new file content\nline 2",
-  SHOWING_ACTIVE_TASKS: "Showing active tasks (use --all to include complet...",
+  SHOWING_ACTIVE_TASKS: "Showing active tasks (use --all to include completed _tasks)",
   PR_SUMMARY: "## Summary\n\nThis PR fixes the issue.",
 } as const;
 

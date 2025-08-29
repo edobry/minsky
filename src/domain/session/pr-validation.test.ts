@@ -9,7 +9,7 @@ import {
   sanitizePrBody,
   preparePrContent,
 } from "./pr-validation";
-import { TEST_ENTITIES } from "../../utils/test-utils/test-constants";
+import { TEST_ENTITIES, UI_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("PR Validation Utilities", () => {
   describe("validatePrContent", () => {
@@ -33,7 +33,7 @@ describe("PR Validation Utilities", () => {
 
       expect(result.isValid).toBe(false);
       expect(result.errors.length).toBeGreaterThan(0);
-      expect(result.sanitizedBody).toBe("## Summary\n\nThis PR fixes the issue.");
+      expect(result.sanitizedBody).toBe(UI_TEST_PATTERNS.PR_SUMMARY);
     });
 
     test("should reject empty title", () => {
@@ -156,7 +156,7 @@ describe("PR Validation Utilities", () => {
   describe("preparePrContent", () => {
     test("should prepare normal content without changes", () => {
       const title = TEST_ENTITIES.TASK_TITLE_285;
-      const body = "## Summary\n\nThis PR fixes the issue.";
+      const body = UI_TEST_PATTERNS.PR_SUMMARY;
 
       const result = preparePrContent(title, body);
 
@@ -198,7 +198,7 @@ This PR implements the complete minsky backend with database storage functionali
       const result = preparePrContent(title, body);
 
       expect(result.title).toBe(title);
-      expect(result.body).toBe("## Summary\n\nThis PR fixes the issue.");
+      expect(result.body).toBe(UI_TEST_PATTERNS.PR_SUMMARY);
       expect(result.warnings).toContain("Removed duplicate title content from PR body");
     });
 

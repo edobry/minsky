@@ -5,6 +5,7 @@ import {
   generateFilterMessages,
 } from "./filter-messages";
 import { expectToHaveLength } from "./test-utils/assertions";
+import { UI_TEST_PATTERNS } from "./test-utils/test-constants";
 
 describe("Filter Messages Utility", () => {
   describe("getStatusFilterMessage", () => {
@@ -22,7 +23,7 @@ describe("Filter Messages Utility", () => {
   describe("getActiveTasksMessage", () => {
     test("returns message about active tasks", () => {
       const message = getActiveTasksMessage();
-      expect(message).toBe("Showing active tasks (use --all to include completed _tasks)");
+      expect(message).toBe(UI_TEST_PATTERNS.SHOWING_ACTIVE_TASKS);
     });
 
     test("includes instruction about --all flag", () => {
@@ -41,7 +42,7 @@ describe("Filter Messages Utility", () => {
     test("returns active tasks message when not showing all tasks", () => {
       const messages = generateFilterMessages({ all: false });
       expectToHaveLength(messages, 1);
-      expect(messages[0]).toBe("Showing active tasks (use --all to include completed _tasks)");
+      expect(messages[0]).toBe(UI_TEST_PATTERNS.SHOWING_ACTIVE_TASKS);
     });
 
     test("returns no messages when all is true", () => {
@@ -58,7 +59,7 @@ describe("Filter Messages Utility", () => {
     test("returns empty array when no filter options provided", () => {
       const messages = generateFilterMessages({});
       expectToHaveLength(messages, 1);
-      expect(messages[0]).toBe("Showing active tasks (use --all to include completed _tasks)");
+      expect(messages[0]).toBe(UI_TEST_PATTERNS.SHOWING_ACTIVE_TASKS);
     });
   });
 });

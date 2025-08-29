@@ -80,7 +80,13 @@ export class ConfigWriter {
     } as Required<ConfigWriterOptions>;
 
     this.configDir = this.options.configDir || getUserConfigDir();
-    this.fs = deps?.fs || (nodeFs as unknown as SyncFs);
+    this.fs = deps?.fs || {
+      readFileSync: nodeFs.readFileSync,
+      writeFileSync: nodeFs.writeFileSync,
+      existsSync: nodeFs.existsSync,
+      mkdirSync: nodeFs.mkdirSync,
+      copyFileSync: nodeFs.copyFileSync,
+    };
   }
 
   /**
