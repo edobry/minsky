@@ -133,9 +133,7 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     try {
       // Get the appropriate backend for this task
-      const { createConfiguredTaskService } = await import(
-        "../../../../domain/tasks/taskService"
-      );
+      const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
       const { resolveRepoPath } = await import("../../../../domain/workspace");
       const { resolveMainWorkspacePath } = await import("../../../../domain/workspace");
 
