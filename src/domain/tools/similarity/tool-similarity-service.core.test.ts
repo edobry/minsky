@@ -7,7 +7,9 @@ import { EmbeddingsSimilarityBackend } from "../../similarity/backends/embedding
 
 describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)", () => {
   beforeAll(async () => {
-    const { initializeConfiguration, CustomConfigFactory } = await import("../../configuration/index");
+    const { initializeConfiguration, CustomConfigFactory } = await import(
+      "../../configuration/index"
+    );
     await initializeConfiguration(new CustomConfigFactory(), {
       enableCache: true,
       skipValidation: true,
@@ -36,7 +38,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
       query: "debug failing tests",
       limit: 2,
     });
-    
+
     expect(Array.isArray(results)).toBe(true);
     results.forEach((result) => {
       expect(typeof result.toolId).toBe("string");
@@ -51,17 +53,17 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
 
   it("similarToTool finds tools similar to given tool ID", async () => {
     const service = new ToolSimilarityService();
-    
+
     // Find a tool ID to use for similarity
     const searchResults = await service.searchByText("task", 1);
     if (searchResults.length === 0) {
       // Skip test if no tools available
       return;
     }
-    
+
     const targetToolId = searchResults[0].id;
     const results = await service.similarToTool(targetToolId, 2);
-    
+
     expect(Array.isArray(results)).toBe(true);
     // Should not include the original tool in results
     results.forEach((r) => {
@@ -78,7 +80,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
       categories: ["TASKS"], // Restrict to TASKS category only
       limit: 5,
     });
-    
+
     // All results should be from TASKS category if any exist
     results.forEach((result) => {
       expect(result.tool.category).toBe("TASKS");
@@ -87,22 +89,22 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
 
   it("respects threshold filtering in findRelevantTools", async () => {
     const service = new ToolSimilarityService();
-    
+
     const highThresholdResults = await service.findRelevantTools({
       query: "task management",
       threshold: 0.9, // Very high threshold
       limit: 10,
     });
-    
+
     const lowThresholdResults = await service.findRelevantTools({
-      query: "task management", 
+      query: "task management",
       threshold: 0.1, // Low threshold
       limit: 10,
     });
-    
+
     // High threshold should return fewer or equal results
     expect(highThresholdResults.length).toBeLessThanOrEqual(lowThresholdResults.length);
-    
+
     // All high threshold results should meet the threshold
     highThresholdResults.forEach((result) => {
       expect(result.relevanceScore).toBeGreaterThanOrEqual(0.9);

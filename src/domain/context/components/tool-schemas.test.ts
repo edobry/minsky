@@ -242,7 +242,7 @@ describe("ToolSchemasComponent", () => {
       const input: ComponentInput = {
         ...mockComponentInput,
         userQuery: "debug failing tests", // Query is provided
-        commandRegistry: testRegistry,    // Custom registry disables query filtering
+        commandRegistry: testRegistry, // Custom registry disables query filtering
       };
 
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
