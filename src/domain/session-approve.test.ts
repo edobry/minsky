@@ -231,7 +231,7 @@ describe("Session Approve", () => {
       getSessionByTaskId: () => Promise.resolve(null),
     });
 
-    (mockSessionDB as any).getSessionWorkdir = createMock(() => Promise.resolve(""));
+    (mockSessionDB as any).getSessionWorkdir = mock(() => Promise.resolve(""));
 
     const mockGitService = createMockGitService({
       execInRepository: () => Promise.resolve(""),
@@ -248,7 +248,7 @@ describe("Session Approve", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: {
-        getCurrentSession: createMock(() => Promise.resolve(null)),
+        getCurrentSession: mock(() => Promise.resolve(null)),
       },
     };
 

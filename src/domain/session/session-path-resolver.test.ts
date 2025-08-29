@@ -7,6 +7,7 @@ import { describe, test, expect, beforeEach } from "bun:test";
 import { SessionPathResolver } from "./session-path-resolver";
 import { join } from "path";
 import { InvalidPathError } from "../workspace/workspace-backend";
+import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("SessionPathResolver Domain Logic", () => {
   let sessionWorkspace: string;
@@ -36,7 +37,7 @@ describe("SessionPathResolver Domain Logic", () => {
 
     test("should block path traversal attempts", () => {
       expect(() => {
-        resolver.validateAndResolvePath(sessionWorkspace, "../../../etc/passwd");
+        resolver.validateAndResolvePath(sessionWorkspace, PATH_TEST_PATTERNS.ETC_PASSWD_PATH);
       }).toThrow(InvalidPathError);
     });
 
@@ -104,7 +105,7 @@ describe("SessionPathResolver Domain Logic", () => {
     });
 
     test("should throw error when any path is invalid", () => {
-      const paths = ["src/index.ts", "../../../etc/passwd", "package.json"];
+      const paths = ["src/index.ts", PATH_TEST_PATTERNS.ETC_PASSWD_PATH, "package.json"];
       expect(() => {
         resolver.validateMultiplePaths(sessionWorkspace, paths);
       }).toThrow(InvalidPathError);
@@ -119,7 +120,7 @@ describe("SessionPathResolver Domain Logic", () => {
 
     test("should prevent directory traversal in relative paths", () => {
       expect(() => {
-        resolver.normalizeRelativePath(sessionWorkspace, "../../../etc/passwd");
+        resolver.normalizeRelativePath(sessionWorkspace, PATH_TEST_PATTERNS.ETC_PASSWD_PATH);
       }).toThrow(InvalidPathError);
     });
   });

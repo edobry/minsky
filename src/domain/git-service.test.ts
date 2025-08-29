@@ -6,6 +6,7 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { GitService } from "./git";
 import { createMock, setupTestMocks, mockModule } from "../utils/test-utils/mocking";
+import { GIT_COMMANDS } from "../utils/test-utils/test-constants";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -13,30 +14,30 @@ setupTestMocks();
 // Mock the logger module to avoid winston dependency issues
 mockModule("../../utils/logger", () => ({
   log: {
-    agent: createMock(),
-    debug: createMock(),
-    warn: createMock(),
-    error: createMock(),
-    cli: createMock(),
-    cliWarn: createMock(),
-    cliError: createMock(),
-    setLevel: createMock(),
-    cliDebug: createMock(),
+    agent: mock(),
+    debug: mock(),
+    warn: mock(),
+    error: mock(),
+    cli: mock(),
+    cliWarn: mock(),
+    cliError: mock(),
+    setLevel: mock(),
+    cliDebug: mock(),
   },
 }));
 
 // Mock the centralized execAsync module at the top level for proper module interception
-const mockExecAsync = createMock();
+const mockExecAsync = mock();
 mockModule("../../utils/exec", () => ({
   execAsync: mockExecAsync,
 }));
 
 // Mock the git-exec module to prevent real git execution
 mockModule("../../utils/git-exec", () => ({
-  execGitWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitMergeWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  execGitWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitMergeWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
 }));
 
 describe("GitService", () => {
@@ -57,7 +58,7 @@ describe("GitService", () => {
 
     // Mock execInRepository to avoid actual git commands
     spyOn(GitService.prototype, "execInRepository").mockImplementation(async (workdir, command) => {
-      if (command === "rev-parse --abbrev-ref HEAD") {
+      if (command === GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD) {
         return "main";
       }
       if (command === "rev-parse --show-toplevel") {
@@ -101,7 +102,7 @@ describe("GitService", () => {
   test("execInRepository should execute git commands in the specified repository", async () => {
     const _branch = await gitService.execInRepository(
       "/mock/repo/path",
-      "rev-parse --abbrev-ref HEAD"
+      GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD
     );
     expect(_branch).toBe("main");
   });
@@ -115,7 +116,7 @@ describe("GitService", () => {
     );
 
     try {
-      await gitService.execInRepository("/mock/repo/path", "rev-parse --abbrev-ref HEAD");
+      await gitService.execInRepository("/mock/repo/path", GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD);
       // The test should not reach this line
       expect(true).toBe(false);
     } catch (error: unknown) {

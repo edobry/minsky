@@ -2,7 +2,7 @@
  * Regression test for origin/origin/main branch reference bug
  *
  * This test specifically covers the critical bug where session PR creation
- * was constructing invalid git references like "origin/origin/main" due to
+ * was constructing invalid git references like GIT_TEST_PATTERNS.ORIGIN_MAIN due to
  * double-prefixing of the origin remote name.
  *
  * Bug discovered during Task #228 implementation.
@@ -10,6 +10,7 @@
 
 import { describe, test, expect } from "bun:test";
 import { setupTestMocks } from "../utils/test-utils/mocking";
+import { GIT_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -57,7 +58,7 @@ describe("Session PR Branch Reference Bug Regression", () => {
     // Function to detect invalid branch references (the bug pattern)
     function detectInvalidBranchRefs(commands: string[]): string[] {
       return commands.filter(
-        (cmd) => cmd.includes("origin/origin/main") || cmd.includes("origin/origin/")
+        (cmd) => cmd.includes(GIT_TEST_PATTERNS.ORIGIN_MAIN) || cmd.includes("origin/origin/")
       );
     }
 
@@ -65,8 +66,8 @@ describe("Session PR Branch Reference Bug Regression", () => {
 
     // Should detect the 3 invalid commands
     expect(invalidRefs).toHaveLength(3);
-    expect(invalidRefs[0]).toContain("origin/origin/main");
-    expect(invalidRefs[1]).toContain("origin/origin/main");
+    expect(invalidRefs[0]).toContain(GIT_TEST_PATTERNS.ORIGIN_MAIN);
+    expect(invalidRefs[1]).toContain(GIT_TEST_PATTERNS.ORIGIN_MAIN);
     expect(invalidRefs[2]).toContain("origin/origin/develop");
   });
 
@@ -114,7 +115,7 @@ describe("Session PR Branch Reference Bug Regression", () => {
     // Before the fix: This would have happened
     const buggyBranchConstruction = (baseBranch: string) => {
       // Simulating the old buggy behavior
-      return `origin/${baseBranch}`; // If baseBranch was already "origin/main", this creates "origin/origin/main"
+      return `origin/${baseBranch}`; // If baseBranch was already "origin/main", this creates GIT_TEST_PATTERNS.ORIGIN_MAIN
     };
 
     // After the fix: This is what happens now
@@ -127,7 +128,7 @@ describe("Session PR Branch Reference Bug Regression", () => {
 
     // The bug would have produced this invalid reference
     const buggyResult = buggyBranchConstruction(testInput);
-    expect(buggyResult).toBe("origin/origin/main"); // This was the bug
+    expect(buggyResult).toBe(GIT_TEST_PATTERNS.ORIGIN_MAIN); // This was the bug
 
     // The fix produces this valid reference
     const fixedResult = fixedBranchConstruction(testInput);

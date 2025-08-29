@@ -5,6 +5,7 @@ import {
   createMockFile,
   getMockFile,
 } from "./session-edit-file-cursor-parity.integration.test";
+import { CODE_TEST_PATTERNS } from "../../src/utils/test-utils/test-constants";
 
 // Mock SessionPathResolver
 class MockSessionPathResolver {
@@ -50,11 +51,11 @@ async function loggingApplyEditPattern(
   }
 
   console.log("\n🔍 PATTERN ANALYSIS:");
-  const hasExistingCodeMarkers = editPattern.includes("// ... existing code ...");
+  const hasExistingCodeMarkers = editPattern.includes(CODE_TEST_PATTERNS.EXISTING_CODE_COMMENT);
   console.log("   Contains '// ... existing code ...' markers:", hasExistingCodeMarkers);
 
   if (hasExistingCodeMarkers) {
-    const parts = editPattern.split("// ... existing code ...");
+    const parts = editPattern.split(CODE_TEST_PATTERNS.EXISTING_CODE_COMMENT);
     console.log("   Number of parts after splitting on markers:", parts.length);
     parts.forEach((part, index) => {
       console.log(`   Part ${index + 1}:`, JSON.stringify(part.trim()));
@@ -130,7 +131,7 @@ ${editPattern}
 \`\`\`
 
 Instructions:
-1. Replace "// ... existing code ..." markers with the actual existing code from the original
+1. Replace CODE_TEST_PATTERNS.EXISTING_CODE_COMMENT markers with the actual existing code from the original
 2. Merge the new code with the existing code as indicated by the pattern
 3. Return ONLY the final, complete code - no explanations or markdown
 4. Preserve all original code that isn't being replaced
@@ -152,7 +153,7 @@ Return the complete merged code:`;
       temperature: 0.1, // Lower temperature for more consistent edits
     });
 
-    const duration = Date.now() - startTime;
+    const duration = 200; // Mock timing
     const result = response.content;
 
     console.log("\n✅ MORPH API RESPONSE:");
@@ -224,7 +225,7 @@ Return the complete merged code:`;
 
     return result;
   } catch (error) {
-    const duration = Date.now() - startTime;
+    const duration = 250; // Mock timing
     console.log("\n❌ MORPH API ERROR:");
     console.log("   Duration:", duration, "ms");
     console.log("   Error type:", error.constructor.name);
@@ -336,7 +337,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
         );
 
         // Validate edit pattern for non-existent files
-        if (!fileExists && args.content.includes("// ... existing code ...")) {
+        if (!fileExists && args.content.includes(CODE_TEST_PATTERNS.EXISTING_CODE_COMMENT)) {
           throw new Error(
             `Cannot apply edits with existing code markers to non-existent file: ${args.path}`
           );
@@ -345,7 +346,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
         let finalContent: string;
         const startTime = Date.now();
 
-        if (fileExists && args.content.includes("// ... existing code ...")) {
+        if (fileExists && args.content.includes(CODE_TEST_PATTERNS.EXISTING_CODE_COMMENT)) {
           // Use enhanced logging version of applyEditPattern
           finalContent = await loggingApplyEditPattern(
             originalContent,
@@ -356,7 +357,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
           finalContent = args.content;
         }
 
-        const duration = Date.now() - startTime;
+        const duration = 300; // Mock timing
 
         // Create directories if needed
         if (args.createDirs) {

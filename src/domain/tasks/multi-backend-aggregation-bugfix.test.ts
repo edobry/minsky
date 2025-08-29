@@ -28,7 +28,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
 
   beforeEach(() => {
     // Setup temporary workspace
-    tempWorkspacePath = `/tmp/test-workspace-${Date.now()}`;
+    tempWorkspacePath = "/mock/test-workspace";
 
     // Mock tasks from different backends
     mockMarkdownTasks = [

@@ -8,6 +8,7 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { ConfigWriter, createConfigWriter } from "./config-writer";
 import matter from "gray-matter";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
+import { CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("ConfigWriter", () => {
   let writer: ConfigWriter;
@@ -79,7 +80,7 @@ describe("ConfigWriter", () => {
       // Seed the mock filesystem with the config file
       mockFs.writeFileSync(mockConfigFile, "{}");
 
-      const result = await writer.setConfigValue("ai.providers.openai.model", "gpt-4");
+      const result = await writer.setConfigValue(CONFIG_TEST_PATTERNS.OPENAI_MODEL_PATH, "gpt-4");
       expect(result.success).toBe(true);
       expect(result.newValue).toBe("gpt-4");
 
@@ -195,7 +196,7 @@ describe("ConfigWriter", () => {
         "ai:\n  providers:\n    openai:\n      model: gpt-4\n    anthropic:\n      model: claude-3\n";
       mockFs.writeFileSync(mockConfigFile, configContent);
 
-      const result = await writer.unsetConfigValue("ai.providers.openai.model");
+      const result = await writer.unsetConfigValue(CONFIG_TEST_PATTERNS.OPENAI_MODEL_PATH);
 
       expect(result.success).toBe(true);
       expect(result.previousValue).toBe("gpt-4");
@@ -209,7 +210,7 @@ describe("ConfigWriter", () => {
       // Seed the mock filesystem with existing config
       mockFs.writeFileSync(mockConfigFile, configContent);
 
-      const result = await writer.unsetConfigValue("ai.providers.openai.model");
+      const result = await writer.unsetConfigValue(CONFIG_TEST_PATTERNS.OPENAI_MODEL_PATH);
 
       expect(result.success).toBe(true);
       expect(result.previousValue).toBe("gpt-4");

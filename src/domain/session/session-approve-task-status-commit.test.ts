@@ -22,29 +22,29 @@ import {
   createMockGitService,
   createMockTaskService,
 } from "../../utils/test-utils/index";
-
-// EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
-mock.module("./repository-backend-detection", () => ({
-  createRepositoryBackendForSession: mock(() =>
-    Promise.resolve({
-      getType: () => "local",
-      mergePullRequest: () =>
-        Promise.resolve({
-          commitHash: "abc123def456",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-        }),
-      approvePullRequest: () =>
-        Promise.resolve({
-          approvalId: "approval-123",
-          approvedAt: "2025-07-30T23:14:24.213Z",
-          approvedBy: "Test User",
-        }),
-    })
-  ),
-}));
+import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 
 describe("Session Approve Task Status Commit", () => {
+  // EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
+  mock.module("./repository-backend-detection", () => ({
+    createRepositoryBackendForSession: mock(() =>
+      Promise.resolve({
+        getType: () => "local",
+        mergePullRequest: () =>
+          Promise.resolve({
+            commitHash: "abc123def456",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+          }),
+        approvePullRequest: () =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          }),
+      })
+    ),
+  }));
   // Mock log functions used by session approve operations
   const log = {
     cli: mock(() => {}),
@@ -96,10 +96,10 @@ describe("Session Approve Task Status Commit", () => {
         gitCommands.push(command);
 
         // Mock successful git operations
-        if (command.includes("git checkout main")) {
+        if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
           return Promise.resolve("");
         }
-        if (command.includes("git fetch origin")) {
+        if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
           return Promise.resolve("");
         }
         if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
@@ -111,20 +111,20 @@ describe("Session Approve Task Status Commit", () => {
         if (command.includes(`git merge --ff-only ${PR_BRANCH}`)) {
           return Promise.resolve(""); // Merge succeeds
         }
-        if (command.includes("git rev-parse HEAD")) {
+        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
           return Promise.resolve("abc123commit");
         }
-        if (command.includes("git config user.name")) {
+        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
           return Promise.resolve("Test User");
         }
-        if (command.includes("git push origin main")) {
+        if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
           return Promise.resolve("");
         }
-        if (command.includes("git status --porcelain")) {
+        if (command.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
           // After task status update, tasks.md should be modified
           return Promise.resolve("M process/tasks.md");
         }
-        if (command.includes("git add process/tasks.md")) {
+        if (command.includes(GIT_COMMANDS.ADD_TASKS_MD)) {
           return Promise.resolve("");
         }
         if (command.includes(`git commit -m "${COMMIT_MESSAGE}"`)) {
@@ -218,8 +218,8 @@ describe("Session Approve Task Status Commit", () => {
     expect(result.taskId).toBe(QUALIFIED_TASK_ID); // TEMPLATE LITERAL: Use extracted constant
 
     // Under new behavior, no auto-commit occurs in session flows
-    expect(gitCommands).not.toContain("git status --porcelain");
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
+    expect(gitCommands).not.toContain(GIT_COMMANDS.ADD_TASKS_MD);
     expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`);
     expect(gitCommands).not.toContain("git push");
   });
@@ -240,10 +240,10 @@ describe("Session Approve Task Status Commit", () => {
         gitCommands.push(command);
 
         // Mock git operations
-        if (command.includes("git checkout main")) {
+        if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
           return Promise.resolve("");
         }
-        if (command.includes("git fetch origin")) {
+        if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
           return Promise.resolve("");
         }
         if (command.includes(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`)) {
@@ -258,16 +258,16 @@ describe("Session Approve Task Status Commit", () => {
           // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("");
         }
-        if (command.includes("git rev-parse HEAD")) {
+        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
           return Promise.resolve("def456commit");
         }
-        if (command.includes("git config user.name")) {
+        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
           return Promise.resolve("Test User");
         }
-        if (command.includes("git push origin main")) {
+        if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
           return Promise.resolve("");
         }
-        if (command.includes("git status --porcelain")) {
+        if (command.includes(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND)) {
           // No changes after task status update
           return Promise.resolve("");
         }
@@ -354,8 +354,8 @@ describe("Session Approve Task Status Commit", () => {
     expect(result.isNewlyApproved).toBe(true); // EXPLICIT MOCK: Fixed to match approveSessionImpl return structure
 
     // No git status/commit attempts in session flow
-    expect(gitCommands).not.toContain("git status --porcelain");
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
+    expect(gitCommands).not.toContain(GIT_COMMANDS.ADD_TASKS_MD);
     expect(gitCommands).not.toContain(`git commit -m "${COMMIT_MESSAGE}"`);
   });
 
@@ -381,18 +381,18 @@ describe("Session Approve Task Status Commit", () => {
             `Command failed: git show-ref --verify --quiet refs/heads/pr/task-md#125`
           );
         }
-        if (command.includes("git rev-parse HEAD")) {
+        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
           return Promise.resolve("ghi789commit");
         }
-        if (command.includes("git config user.name")) {
+        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
           return Promise.resolve("Test User");
         }
 
         // Normal merge flow commands (should not be reached due to early exit)
-        if (command.includes("git checkout main")) {
+        if (command.includes(GIT_COMMANDS.CHECKOUT_MAIN)) {
           return Promise.resolve("");
         }
-        if (command.includes("git fetch origin")) {
+        if (command.includes(GIT_COMMANDS.FETCH_ORIGIN)) {
           return Promise.resolve("");
         }
         if (command.includes(`git rev-parse ${PR_BRANCH}`)) {
@@ -403,7 +403,7 @@ describe("Session Approve Task Status Commit", () => {
           // TEMPLATE LITERAL: Use extracted constant
           return Promise.resolve("");
         }
-        if (command.includes("git push origin main")) {
+        if (command.includes(GIT_COMMANDS.PUSH_ORIGIN_MAIN)) {
           return Promise.resolve("");
         }
 
@@ -471,17 +471,17 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should only call commands to check PR branch existence, then exit
     expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/pr/task-md#125`); // EXPLICIT MOCK: Use correct PR branch with dash
-    expect(gitCommands).toContain("git rev-parse HEAD");
-    expect(gitCommands).toContain("git config user.name");
+    expect(gitCommands).toContain(GIT_COMMANDS.REV_PARSE_HEAD);
+    expect(gitCommands).toContain(GIT_COMMANDS.CONFIG_USER_NAME);
 
     // Should NOT attempt any merge operations
-    expect(gitCommands).not.toContain("git checkout main");
-    expect(gitCommands).not.toContain("git fetch origin");
+    expect(gitCommands).not.toContain(GIT_COMMANDS.CHECKOUT_MAIN);
+    expect(gitCommands).not.toContain(GIT_COMMANDS.FETCH_ORIGIN);
     expect(gitCommands).not.toContain(`git merge --ff-only ${PR_BRANCH}`); // TEMPLATE LITERAL: Use extracted constant
 
     // Should NOT attempt any task status commit operations
-    expect(gitCommands).not.toContain("git status --porcelain");
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
+    expect(gitCommands).not.toContain(GIT_COMMANDS.ADD_TASKS_MD);
     expect(gitCommands).not.toContain('git commit -m "chore(#125): update task status to DONE"');
     expect(gitCommands).not.toContain("git push");
   });
@@ -508,10 +508,10 @@ describe("Session Approve Task Status Commit", () => {
           // PR branch doesn't exist - this should trigger early exit
           throw new Error(`Command failed: git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
         }
-        if (command.includes("git rev-parse HEAD")) {
+        if (command.includes(GIT_COMMANDS.REV_PARSE_HEAD)) {
           return Promise.resolve("c89cf17c");
         }
-        if (command.includes("git config user.name")) {
+        if (command.includes(GIT_COMMANDS.CONFIG_USER_NAME)) {
           return Promise.resolve("Eugene Dobry");
         }
 
@@ -581,17 +581,17 @@ describe("Session Approve Task Status Commit", () => {
 
     // Should only call commands to check PR branch existence, then exit
     expect(gitCommands).toContain(`git show-ref --verify --quiet refs/heads/${PR_BRANCH}`);
-    expect(gitCommands).toContain("git rev-parse HEAD");
-    expect(gitCommands).toContain("git config user.name");
+    expect(gitCommands).toContain(GIT_COMMANDS.REV_PARSE_HEAD);
+    expect(gitCommands).toContain(GIT_COMMANDS.CONFIG_USER_NAME);
 
     // Should NOT attempt any merge operations
-    expect(gitCommands).not.toContain("git checkout main");
-    expect(gitCommands).not.toContain("git fetch origin");
+    expect(gitCommands).not.toContain(GIT_COMMANDS.CHECKOUT_MAIN);
+    expect(gitCommands).not.toContain(GIT_COMMANDS.FETCH_ORIGIN);
     expect(gitCommands).not.toContain("git merge --ff-only pr/task#266");
 
     // Should NOT attempt any task status commit operations
-    expect(gitCommands).not.toContain("git status --porcelain");
-    expect(gitCommands).not.toContain("git add process/tasks.md");
+    expect(gitCommands).not.toContain(GIT_COMMANDS.STATUS_PORCELAIN_COMMAND);
+    expect(gitCommands).not.toContain(GIT_COMMANDS.ADD_TASKS_MD);
     expect(gitCommands).not.toContain('git commit -m "chore(#266): update task status to DONE"');
   });
 });

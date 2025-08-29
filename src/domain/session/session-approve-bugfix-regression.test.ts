@@ -16,33 +16,32 @@ const mockLog = {
   cli: mock(() => {}),
 };
 
-mock.module("../../utils/logger", () => ({
-  log: mockLog,
-}));
-
-// EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
-mock.module("./repository-backend-detection", () => ({
-  createRepositoryBackendForSession: mock(() =>
-    Promise.resolve({
-      getType: () => "local",
-      mergePullRequest: () =>
-        Promise.resolve({
-          commitHash: "abc123def456",
-          mergeDate: "2025-07-30T23:14:24.213Z",
-          mergedBy: "Test User",
-        }),
-      approvePullRequest: mock(() =>
-        Promise.resolve({
-          approvalId: "approval-123",
-          approvedAt: "2025-07-30T23:14:24.213Z",
-          approvedBy: "Test User",
-        })
-      ),
-    })
-  ),
-}));
-
 describe("Session Approve - Bug Regression Tests", () => {
+  mock.module("../../utils/logger", () => ({
+    log: mockLog,
+  }));
+
+  // EXPLICIT MOCK: Mock repository backend detection to prevent filesystem operations
+  mock.module("./repository-backend-detection", () => ({
+    createRepositoryBackendForSession: mock(() =>
+      Promise.resolve({
+        getType: () => "local",
+        mergePullRequest: () =>
+          Promise.resolve({
+            commitHash: "abc123def456",
+            mergeDate: "2025-07-30T23:14:24.213Z",
+            mergedBy: "Test User",
+          }),
+        approvePullRequest: mock(() =>
+          Promise.resolve({
+            approvalId: "approval-123",
+            approvedAt: "2025-07-30T23:14:24.213Z",
+            approvedBy: "Test User",
+          })
+        ),
+      })
+    ),
+  }));
   describe("Bug #1: Untracked Files Auto-Stash", () => {
     // Bug Report: Session approve fails with untracked files that would be overwritten by merge
     // Original Error: "error: The following untracked working tree files would be overwritten by merge"

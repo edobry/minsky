@@ -1,21 +1,22 @@
 // Mock ALL git-related modules FIRST before any imports
-import { mockModule, createMock } from "../../utils/test-utils/mocking";
+import { mockModule } from "../../utils/test-utils/mocking";
+import { mock } from "bun:test";
 
 // Mock the exec utility that conflict-detection uses
 mockModule("../../utils/exec", () => ({
-  execAsync: createMock(async () => ({ stdout: "0\t1", stderr: "" })),
+  execAsync: mock(async () => ({ stdout: "0\t1", stderr: "" })),
 }));
 
 // Mock git-exec module
 mockModule("../../utils/git-exec", () => ({
-  execGitWithTimeout: createMock(async () => ({ stdout: "task-md#123", stderr: "" })),
-  gitFetchWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
-  gitPushWithTimeout: createMock(async () => ({ stdout: "", stderr: "" })),
+  execGitWithTimeout: mock(async () => ({ stdout: "task-md#123", stderr: "" })),
+  gitFetchWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
+  gitPushWithTimeout: mock(async () => ({ stdout: "", stderr: "" })),
 }));
 
 // Mock child_process directly to catch any remaining shell commands
 mockModule("node:child_process", () => ({
-  exec: createMock((command: string, callback: any) => {
+  exec: mock((command: string, callback: any) => {
     // Mock all git commands to return success
     process.nextTick(() => callback(null, { stdout: "0\t1", stderr: "" }));
   }),
@@ -23,7 +24,7 @@ mockModule("node:child_process", () => ({
 
 // No longer need to mock prepared-merge-commit-workflow since we use dependency injection
 
-import { describe, it, expect, mock } from "bun:test";
+import { describe, it, expect } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
 import type { SessionProviderInterface, SessionRecord } from "../session/types";
 

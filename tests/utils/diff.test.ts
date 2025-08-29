@@ -3,12 +3,13 @@
  */
 import { describe, test, expect } from "bun:test";
 import { generateUnifiedDiff, generateDiffSummary } from "../../src/utils/diff";
+import { DIFF_TEST_CONTENT } from "../../src/utils/test-utils/test-constants";
 
 describe("Diff Utilities", () => {
   describe("generateUnifiedDiff", () => {
     test("should generate diff for simple text changes", () => {
-      const original = "line 1\nline 2\nline 3";
-      const modified = "line 1\nmodified line 2\nline 3";
+      const original = DIFF_TEST_CONTENT.THREE_LINES;
+      const modified = DIFF_TEST_CONTENT.MODIFIED_THREE_LINES;
 
       const diff = generateUnifiedDiff(original, modified, "test.txt");
 
@@ -19,8 +20,8 @@ describe("Diff Utilities", () => {
     });
 
     test("should generate diff for added lines", () => {
-      const original = "line 1\nline 2";
-      const modified = "line 1\nline 2\nline 3";
+      const original = DIFF_TEST_CONTENT.TWO_LINES;
+      const modified = DIFF_TEST_CONTENT.THREE_LINES;
 
       const diff = generateUnifiedDiff(original, modified, "test.txt");
 
@@ -30,8 +31,8 @@ describe("Diff Utilities", () => {
     });
 
     test("should generate diff for removed lines", () => {
-      const original = "line 1\nline 2\nline 3";
-      const modified = "line 1\nline 3";
+      const original = DIFF_TEST_CONTENT.THREE_LINES;
+      const modified = DIFF_TEST_CONTENT.TWO_LINES_ONLY;
 
       const diff = generateUnifiedDiff(original, modified, "test.txt");
 
@@ -76,8 +77,8 @@ describe("Diff Utilities", () => {
 
   describe("generateDiffSummary", () => {
     test("should calculate correct statistics for changes", () => {
-      const original = "line 1\nline 2\nline 3";
-      const modified = "line 1\nmodified line 2\nline 3";
+      const original = DIFF_TEST_CONTENT.THREE_LINES;
+      const modified = DIFF_TEST_CONTENT.MODIFIED_THREE_LINES;
 
       const summary = generateDiffSummary(original, modified);
 
@@ -90,8 +91,8 @@ describe("Diff Utilities", () => {
     });
 
     test("should calculate correct statistics for additions", () => {
-      const original = "line 1\nline 2";
-      const modified = "line 1\nline 2\nline 3\nline 4";
+      const original = DIFF_TEST_CONTENT.TWO_LINES;
+      const modified = DIFF_TEST_CONTENT.FOUR_LINES;
 
       const summary = generateDiffSummary(original, modified);
 
@@ -104,8 +105,8 @@ describe("Diff Utilities", () => {
     });
 
     test("should calculate correct statistics for removals", () => {
-      const original = "line 1\nline 2\nline 3\nline 4";
-      const modified = "line 1\nline 4";
+      const original = DIFF_TEST_CONTENT.FOUR_LINES;
+      const modified = DIFF_TEST_CONTENT.FOUR_TO_TWO;
 
       const summary = generateDiffSummary(original, modified);
 
@@ -148,8 +149,8 @@ describe("Diff Utilities", () => {
     });
 
     test("should handle no changes", () => {
-      const original = "line 1\nline 2\nline 3";
-      const modified = "line 1\nline 2\nline 3";
+      const original = DIFF_TEST_CONTENT.THREE_LINES;
+      const modified = DIFF_TEST_CONTENT.THREE_LINES;
 
       const summary = generateDiffSummary(original, modified);
 

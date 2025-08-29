@@ -8,6 +8,7 @@
 import { mock } from "bun:test";
 import { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
 
+// Global test setup - logger mocks apply to all tests
 // Use Bun's mock system to replace the logger module
 // This prevents any console output during tests while preserving logging functionality
 mock.module("../src/utils/logger", () => ({
@@ -53,8 +54,9 @@ if (isDebugMode) {
 }
 
 // Export mock logger utilities for tests that need to verify logging behavior
-export { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger";
 export {
+  mockLogger,
+  resetMockLogger,
   wasMessageLogged,
   getLoggedErrors,
   getLoggedWarnings,

@@ -14,17 +14,26 @@ import {
   createMergeConflictErrorMessage,
   createBackendDetectionErrorMessage,
 } from "./enhanced-error-templates";
+import {
+  ERROR_MESSAGES,
+  GIT_TEST_PATTERNS,
+  SESSION_TEST_PATTERNS,
+} from "../utils/test-utils/test-constants";
 
 describe("Task 223 Enhanced Error Messages", () => {
   describe("createSessionPrBranchErrorMessage", () => {
     test("should create helpful error message for PR branch restriction", () => {
-      const result = createSessionPrBranchErrorMessage("pr/task-123-feature", "task-123", [
-        { label: "Current directory", value: "/Users/test/sessions/223" },
-        { label: "Current branch", value: "pr/task-123-feature" },
-      ]);
+      const result = createSessionPrBranchErrorMessage(
+        SESSION_TEST_PATTERNS.PR_TASK_123_FEATURE,
+        "task-123",
+        [
+          { label: "Current directory", value: "/Users/test/sessions/223" },
+          { label: "Current branch", value: SESSION_TEST_PATTERNS.PR_TASK_123_FEATURE },
+        ]
+      );
 
       expect(result)!.toContain("Cannot Run Session PR from PR Branch");
-      expect(result)!.toContain("pr/task-123-feature");
+      expect(result)!.toContain(SESSION_TEST_PATTERNS.PR_TASK_123_FEATURE);
       expect(result)!.toContain("git switch task-123");
       expect(result)!.toContain("git branch -a");
       expect(result)!.toContain("pwd | grep sessions");
@@ -84,7 +93,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const result = createVariableNamingErrorMessage(
         "taskId",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "src/test.ts",
         10,
         15,
@@ -102,7 +111,7 @@ describe("Task 223 Enhanced Error Messages", () => {
     test("should identify reverse underscore mismatch (declaration without underscore, usage has underscore)", () => {
       const result = createVariableNamingErrorMessage(
         "sessionName",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "with_underscore",
         "src/session.ts",
         20,
@@ -122,7 +131,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const result = createVariableNamingErrorMessage(
         "variable",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "src/commands/task.ts",
         42,
         84,
@@ -260,7 +269,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const variableError = createVariableNamingErrorMessage(
         "var",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "file.ts",
         1,
         2,
@@ -314,7 +323,7 @@ describe("Task 223 Enhanced Error Messages", () => {
       const error = createVariableNamingErrorMessage(
         "variable",
         "with_underscore",
-        "without_underscore",
+        ERROR_MESSAGES.WITHOUT_UNDERSCORE,
         "file.ts",
         10,
         20,

@@ -1,20 +1,21 @@
 import { describe, it, expect } from "bun:test";
 import { SessionPathResolver } from "../session/session-path-resolver";
 import { InvalidPathError } from "./workspace-backend";
+import { TEST_PATHS } from "../../utils/test-utils/test-constants";
 
 describe("SessionPathResolver", () => {
   const resolver = new SessionPathResolver();
-  const sessionDir = "/test/session/workspace";
+  const sessionDir = TEST_PATHS.TEST_SESSION_WORKSPACE;
 
   describe("validateAndResolvePath", () => {
     it("should resolve relative paths within session", () => {
       const result = resolver.validateAndResolvePath(sessionDir, "src/file.ts");
-      expect(result).toBe("/test/session/workspace/src/file.ts");
+      expect(result).toBe(TEST_PATHS.TEST_SESSION_WORKSPACE_FILE);
     });
 
     it("should resolve current directory reference", () => {
       const result = resolver.validateAndResolvePath(sessionDir, "./src/file.ts");
-      expect(result).toBe("/test/session/workspace/src/file.ts");
+      expect(result).toBe(TEST_PATHS.TEST_SESSION_WORKSPACE_FILE);
     });
 
     it("should throw error for path traversal outside session", () => {
@@ -25,7 +26,7 @@ describe("SessionPathResolver", () => {
 
     it("should throw error for absolute paths outside session", () => {
       expect(() => {
-        resolver.validateAndResolvePath(sessionDir, "/outside/file.ts");
+        resolver.validateAndResolvePath(sessionDir, TEST_PATHS.OUTSIDE_FILE);
       }).toThrow(InvalidPathError);
     });
 
@@ -38,9 +39,9 @@ describe("SessionPathResolver", () => {
     it("should allow absolute paths within session", () => {
       const result = resolver.validateAndResolvePath(
         sessionDir,
-        "/test/session/workspace/src/file.ts"
+        TEST_PATHS.TEST_SESSION_WORKSPACE_FILE
       );
-      expect(result).toBe("/test/session/workspace/src/file.ts");
+      expect(result).toBe(TEST_PATHS.TEST_SESSION_WORKSPACE_FILE);
     });
   });
 
@@ -48,35 +49,38 @@ describe("SessionPathResolver", () => {
     it("should return true for paths within session", () => {
       const result = resolver.isPathWithinSession(
         sessionDir,
-        "/test/session/workspace/src/file.ts"
+        TEST_PATHS.TEST_SESSION_WORKSPACE_FILE
       );
       expect(result).toBe(true);
     });
 
     it("should return false for paths outside session", () => {
-      const result = resolver.isPathWithinSession(sessionDir, "/outside/file.ts");
+      const result = resolver.isPathWithinSession(sessionDir, TEST_PATHS.OUTSIDE_FILE);
       expect(result).toBe(false);
     });
 
     it("should return true for session root", () => {
-      const result = resolver.isPathWithinSession(sessionDir, "/test/session/workspace");
+      const result = resolver.isPathWithinSession(sessionDir, TEST_PATHS.TEST_SESSION_WORKSPACE);
       expect(result).toBe(true);
     });
   });
 
   describe("absoluteToRelative", () => {
     it("should convert absolute path to relative", () => {
-      const result = resolver.absoluteToRelative(sessionDir, "/test/session/workspace/src/file.ts");
+      const result = resolver.absoluteToRelative(
+        sessionDir,
+        TEST_PATHS.TEST_SESSION_WORKSPACE_FILE
+      );
       expect(result).toBe("src/file.ts");
     });
 
     it("should return null for paths outside session", () => {
-      const result = resolver.absoluteToRelative(sessionDir, "/outside/file.ts");
+      const result = resolver.absoluteToRelative(sessionDir, TEST_PATHS.OUTSIDE_FILE);
       expect(result).toBe(null);
     });
 
     it("should return '.' for session root", () => {
-      const result = resolver.absoluteToRelative(sessionDir, "/test/session/workspace");
+      const result = resolver.absoluteToRelative(sessionDir, TEST_PATHS.TEST_SESSION_WORKSPACE);
       expect(result).toBe(".");
     });
   });

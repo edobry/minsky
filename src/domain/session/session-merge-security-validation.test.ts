@@ -16,6 +16,7 @@ import {
 } from "./session-merge-operations";
 import { ValidationError } from "../../errors/index";
 import type { SessionRecord } from "./types";
+import { SESSION_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 // Mock dependencies
 const mockSessionProvider = {
@@ -36,16 +37,15 @@ const mockRepositoryBackend = {
   getType: () => "test-backend",
 };
 
-// Mock modules for Bun test
-mock.module("./session-db-adapter", () => ({
-  createSessionProvider: () => mockSessionProvider,
-}));
-
-mock.module("./repository-backend-detection", () => ({
-  createRepositoryBackendForSession: () => mockRepositoryBackend,
-}));
-
 describe("Session Merge Security Validation", () => {
+  // Mock modules for Bun test
+  mock.module("./session-db-adapter", () => ({
+    createSessionProvider: () => mockSessionProvider,
+  }));
+
+  mock.module("./repository-backend-detection", () => ({
+    createRepositoryBackendForSession: () => mockRepositoryBackend,
+  }));
   beforeEach(() => {
     // Reset mock call counts for each test
     mockSessionProvider.getSession.mockClear?.();
@@ -212,7 +212,7 @@ describe("Session Merge Security Validation", () => {
     it("should ALLOW merge operation only for properly approved sessions", async () => {
       // SECURITY TEST: Only properly approved sessions should proceed to merge
       const approvedSession: SessionRecord = {
-        name: "approved-session",
+        name: SESSION_TEST_PATTERNS.APPROVED_SESSION,
         taskId: "task-999",
         repoUrl: "/test/repo",
         prBranch: "pr/approved-session",
@@ -231,7 +231,7 @@ describe("Session Merge Security Validation", () => {
       );
 
       const params: SessionMergeParams = {
-        session: "approved-session",
+        session: SESSION_TEST_PATTERNS.APPROVED_SESSION,
         json: false,
       };
 
@@ -242,13 +242,13 @@ describe("Session Merge Security Validation", () => {
       });
 
       expect(result).toBeDefined();
-      expect(result.session).toBe("approved-session");
+      expect(result.session).toBe(SESSION_TEST_PATTERNS.APPROVED_SESSION);
       expect(result.taskId).toBe("task-999");
 
       // Repository backend should be called for approved sessions
       expect(mockRepositoryBackend.mergePullRequest).toHaveBeenCalledWith(
         "pr/approved-session",
-        "approved-session"
+        SESSION_TEST_PATTERNS.APPROVED_SESSION
       );
     });
   });

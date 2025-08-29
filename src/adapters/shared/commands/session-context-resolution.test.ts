@@ -9,6 +9,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { CommandExecutionContext } from "../../../schemas/command-registry";
+import { TEST_PATHS, ERROR_MESSAGES } from "../../../utils/test-utils/test-constants";
 
 describe("Session Context Resolution Architecture Issues", () => {
   let originalCwd: () => string;
@@ -55,7 +56,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // CASE 1: CLI context (session workspace) - should NOT auto-detect in domain
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_SESSIONS_TASK);
 
       const cliContext: CommandExecutionContext = {
         interface: "cli",
@@ -104,7 +105,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // CASE 1: Main workspace context - should fail
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_MAIN_WORKSPACE);
 
       let mainWorkspaceError: Error | null = null;
       try {
@@ -120,7 +121,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       }
 
       // CASE 2: Session workspace context - auto-detects
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_SESSIONS_TASK);
 
       let sessionWorkspaceResult: any = null;
       try {
@@ -161,30 +162,30 @@ describe("Session Context Resolution Architecture Issues", () => {
       }) => {
         // Pure business logic - no interface concerns
         if (!params.session) {
-          throw new Error("Session parameter is required");
+          throw new Error(ERROR_MESSAGES.SESSION_PARAMETER_REQUIRED);
         }
         // ... business logic only
         return { success: true };
       };
 
       // Should always fail without session, regardless of working directory
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_SESSIONS_TASK);
       await expect(
         pureDomainFunction({
           title: "test",
           body: "test",
           // No session - should always fail
         } as any)
-      ).rejects.toThrow("Session parameter is required");
+      ).rejects.toThrow(ERROR_MESSAGES.SESSION_PARAMETER_REQUIRED);
 
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_MAIN_WORKSPACE);
       await expect(
         pureDomainFunction({
           title: "test",
           body: "test",
           // No session - should always fail
         } as any)
-      ).rejects.toThrow("Session parameter is required");
+      ).rejects.toThrow(ERROR_MESSAGES.SESSION_PARAMETER_REQUIRED);
 
       // Should always pass with session, regardless of working directory
       const result1 = await pureDomainFunction({
@@ -230,7 +231,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       };
 
       // CLI adapter should auto-resolve session
-      mockCwd = mock(() => "/Users/edobry/.local/state/minsky/sessions/task#158");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_SESSIONS_TASK);
       const cliResolvedParams = mockCliAdapter.resolveSessionContext(
         {
           title: "test",
@@ -242,7 +243,7 @@ describe("Session Context Resolution Architecture Issues", () => {
       expect(cliResolvedParams.session).toBe("task#158");
 
       // MCP adapter should require explicit session
-      mockCwd = mock(() => "/Users/edobry/Projects/minsky");
+      mockCwd = mock(() => TEST_PATHS.MINSKY_MAIN_WORKSPACE);
       expect(() => {
         mockMcpAdapter.resolveSessionContext(
           {

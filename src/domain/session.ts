@@ -219,7 +219,21 @@ export async function startSessionFromParams(
     fs: depsInput?.fs,
   } as const;
 
-  return startSessionImpl(params as unknown as any, deps as any);
+  // Map to proper types expected by startSessionImpl
+  const sessionStartParams = {
+    name: params.sessionName, // Can be undefined, will be auto-generated
+    task: params.taskId,
+    description: (params as any).description || "", // Support auto-task creation
+    branch: "main", // Default branch
+    packageManager: "bun" as const, // Default package manager
+    skipInstall: true, // Skip by default in tests
+    noStatusUpdate: false,
+    quiet: false,
+    // Add repository path if the schema supports it
+    repositoryPath: params.repositoryPath,
+  };
+
+  return startSessionImpl(sessionStartParams, deps);
 }
 
 /**

@@ -949,7 +949,7 @@ export class GitService implements GitServiceInterface {
       repoPath,
       sourceBranch,
       targetBranch,
-      options as unknown
+      options
     );
   }
 
@@ -969,7 +969,7 @@ export class GitService implements GitServiceInterface {
       repoPath,
       sessionBranch,
       baseBranch,
-      options as unknown
+      options
     );
   }
 }

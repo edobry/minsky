@@ -6,6 +6,7 @@
 
 import { describe, test, expect, mock } from "bun:test";
 import { executeConfigSet, type ConfigSetDependencies } from "./set";
+import { TEST_PATHS } from "../../utils/test-utils/test-constants";
 
 describe("config set command", () => {
   test("should set a simple configuration value", async () => {
@@ -13,7 +14,7 @@ describe("config set command", () => {
     const mockSetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: undefined,
         newValue: "markdown",
       })
@@ -48,7 +49,7 @@ describe("config set command", () => {
     const mockSetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: "gpt-3.5-turbo",
         newValue: "gpt-4",
         backupPath: "/home/user/.config/minsky/config.yaml.backup.2024-01-15T10-30-45-123Z",
@@ -83,7 +84,7 @@ describe("config set command", () => {
     const mockSetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: false,
         newValue: true,
       })
@@ -140,7 +141,7 @@ describe("config set command", () => {
     const mockSetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: undefined,
         newValue: "test",
         backupPath: undefined,
@@ -169,7 +170,7 @@ describe("config set command", () => {
           key: "key",
           previousValue: undefined,
           newValue: "test",
-          filePath: "/home/user/.config/minsky/config.yaml",
+          filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
           backupPath: undefined,
         },
         null,
@@ -182,7 +183,7 @@ describe("config set command", () => {
     const mockSetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: undefined,
         newValue: "value",
       })

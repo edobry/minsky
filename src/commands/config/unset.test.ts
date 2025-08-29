@@ -6,13 +6,14 @@
 
 import { describe, test, expect, mock } from "bun:test";
 import { executeConfigUnset, type ConfigUnsetDependencies } from "./unset";
+import { TEST_PATHS, ERROR_MESSAGES } from "../../utils/test-utils/test-constants";
 
 describe("config unset command", () => {
   test("should remove an existing configuration value", async () => {
     const mockUnsetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: "markdown",
         newValue: undefined,
       })
@@ -46,7 +47,7 @@ describe("config unset command", () => {
     const mockUnsetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: undefined,
         newValue: undefined,
       })
@@ -75,7 +76,7 @@ describe("config unset command", () => {
     const mockUnsetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: "gpt-4",
         newValue: undefined,
         backupPath: "/home/user/.config/minsky/config.yaml.backup.2024-01-15T10-30-45-123Z",
@@ -126,7 +127,7 @@ describe("config unset command", () => {
       await executeConfigUnset("key", {}, deps);
       expect(true).toBe(false); // Should not reach this line
     } catch (error) {
-      expect(error.message).toBe("Failed to unset configuration: Permission denied");
+      expect(error.message).toBe(ERROR_MESSAGES.FAILED_UNSET_CONFIG_PERMISSION);
     }
   });
 
@@ -134,7 +135,7 @@ describe("config unset command", () => {
     const mockUnsetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: "test",
         newValue: undefined,
       })
@@ -162,7 +163,7 @@ describe("config unset command", () => {
           key: "key",
           previousValue: "test",
           newValue: undefined,
-          filePath: "/home/user/.config/minsky/config.yaml",
+          filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
           backupPath: undefined,
         },
         null,
@@ -175,7 +176,7 @@ describe("config unset command", () => {
     const mockUnsetConfigValue = mock(() =>
       Promise.resolve({
         success: true,
-        filePath: "/home/user/.config/minsky/config.yaml",
+        filePath: TEST_PATHS.MINSKY_CONFIG_FILE,
         previousValue: "value",
         newValue: undefined,
       })
@@ -284,14 +285,14 @@ describe("config unset command", () => {
       await executeConfigUnset("key", { json: true }, deps);
       expect(true).toBe(false); // Should not reach this line
     } catch (error) {
-      expect(error.message).toBe("Failed to unset configuration: Permission denied");
+      expect(error.message).toBe(ERROR_MESSAGES.FAILED_UNSET_CONFIG_PERMISSION);
     }
 
     expect(mockConsoleLog).toHaveBeenCalledWith(
       JSON.stringify(
         {
           success: false,
-          error: "Failed to unset configuration: Permission denied",
+          error: ERROR_MESSAGES.FAILED_UNSET_CONFIG_PERMISSION,
         },
         null,
         2

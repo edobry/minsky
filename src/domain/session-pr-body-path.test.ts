@@ -3,17 +3,16 @@ import { join } from "path";
 import { ValidationError } from "../errors/index";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
 
-// Mock the fs modules to use our mock filesystem
-const mockFs = createMockFilesystem();
-
-mock.module("fs/promises", () => ({
-  writeFile: mockFs.writeFile,
-  mkdir: mockFs.mkdir,
-  rm: mockFs.rm,
-  readFile: mockFs.readFile,
-}));
-
 describe("Session PR bodyPath file reading functionality", () => {
+  // Mock the fs modules to use our mock filesystem
+  const mockFs = createMockFilesystem();
+
+  mock.module("fs/promises", () => ({
+    writeFile: mockFs.writeFile,
+    mkdir: mockFs.mkdir,
+    rm: mockFs.rm,
+    readFile: mockFs.readFile,
+  }));
   const testDir = "/mock/test/body-path";
   const testFilePath = join(testDir, "test-body.txt");
   const testContent = "This is the PR body content from file";
