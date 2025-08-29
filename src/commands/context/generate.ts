@@ -1,31 +1,30 @@
+/**
+ * Context generate command implementation
+ *
+ * Generate AI context using modular components with optional analysis and visualization.
+ */
+
 import { Command } from "commander";
-import { createLogger } from "../../utils/logger";
-import { type ComponentInput } from "../../domain/context/components/types";
+import { log } from "../../utils/logger.js";
 import {
+  getContextComponentRegistry,
   registerDefaultComponents,
-  getAvailableComponentIds,
   getComponentHelp,
-} from "../../domain/context/components/index";
-import { getContextComponentRegistry } from "../../domain/context/components/registry";
-import { DefaultTokenizationService } from "../../domain/ai/tokenization/index";
+} from "../../domain/context/components/index.js";
+import { DefaultTokenizationService } from "../../domain/ai/tokenization/index.js";
 
-const log = createLogger("context:generate");
-
-interface GenerateOptions {
-  json?: boolean;
-  components?: string[];
-  output?: string;
-  template?: string;
-  model?: string;
-  prompt?: string;
-  interface?: "cli" | "mcp" | "hybrid";
-  analyze?: boolean;
-  analyzeOnly?: boolean;
-}
-
+// Re-export types for backward compatibility
 interface GenerateRequest {
   components: string[];
-  input: ComponentInput;
+  input: {
+    environment: { os: string; shell: string };
+    workspacePath: string;
+    task: { id: string; title: string; status: string; description: string };
+    userQuery: string;
+    userPrompt?: string;
+    targetModel: string;
+    interfaceConfig: { interface: string; mcpEnabled: boolean; preferMcp: boolean };
+  };
 }
 
 interface GenerateResult {
@@ -38,10 +37,31 @@ interface GenerateResult {
   }>;
   metadata: {
     generationTime: number;
-    totalTokens?: number;
+    totalTokens: number;
     skipped: string[];
     errors: string[];
   };
+}
+
+interface GenerateOptions {
+  json?: boolean;
+  components?: string;
+  output?: string;
+  template?: string;
+  model?: string;
+  prompt?: string;
+  interface?: string;
+  analyze?: boolean;
+  analyzeOnly?: boolean;
+  compareModels?: string;
+  showBreakdown?: boolean;
+  // Visualization options
+  visualize?: boolean;
+  visualizeOnly?: boolean;
+  chartType?: string;
+  maxWidth?: string;
+  showDetails?: boolean;
+  csv?: boolean;
 }
 
 export function createGenerateCommand(): Command {
@@ -52,24 +72,34 @@ export function createGenerateCommand(): Command {
   const componentHelp = getComponentHelp();
   const helpText = componentHelp.map((c) => `  ${c.id.padEnd(18)} ${c.description}`).join("\n");
 
-  return new Command("generate")
-    .description("Generate AI context using modular components")
-    .option("--json", "Output in JSON format", false)
-    .option("-c, --components <components>", "Comma-separated list of component IDs to include")
-    .option("-o, --output <file>", "Output file path (defaults to stdout)")
-    .option("-t, --template <template>", "Use specific template for generation")
-    .option("-m, --model <model>", "Target AI model for context generation", "gpt-4o")
-    .option("-p, --prompt <prompt>", "User prompt to customize context generation")
-    .option(
-      "-i, --interface <interface>",
-      "Interface mode for tool schemas (cli|mcp|hybrid)",
-      "cli"
-    )
-    .option("--analyze", "Analyze the generated context for token usage and optimization", false)
-    .option("--analyze-only", "Only show analysis without the full context content", false)
-    .addHelpText(
-      "after",
-      `
+  return (
+    new Command("generate")
+      .description("Generate AI context using modular components")
+      .option("--json", "Output in JSON format", false)
+      .option("-c, --components <components>", "Comma-separated list of component IDs to include")
+      .option("-o, --output <file>", "Output file path (defaults to stdout)")
+      .option("-t, --template <template>", "Use specific template for generation")
+      .option("-m, --model <model>", "Target AI model for context generation", "gpt-4o")
+      .option("-p, --prompt <prompt>", "User prompt to customize context generation")
+      .option(
+        "-i, --interface <interface>",
+        "Interface mode for tool schemas (cli|mcp|hybrid)",
+        "cli"
+      )
+      .option("--analyze", "Analyze the generated context for token usage and optimization", false)
+      .option("--analyze-only", "Only show analysis without the full context content", false)
+      .option("--compare-models <models>", "Comma-separated list of models to compare")
+      .option("--show-breakdown", "Show detailed component breakdown in analysis", false)
+      // Visualization options
+      .option("--visualize", "Generate visual charts of token distribution", false)
+      .option("--visualize-only", "Only show visualization without context or analysis", false)
+      .option("--chart-type <type>", "Chart type: bar, pie, tree", "bar")
+      .option("--max-width <width>", "Maximum chart width in characters", "80")
+      .option("--show-details", "Show detailed breakdown of largest components", false)
+      .option("--csv", "Output results in CSV format", false)
+      .addHelpText(
+        "after",
+        `
 Available Components:
 ${helpText}
 
@@ -82,26 +112,41 @@ Examples:
   minsky context generate --analyze  # Generate context with token analysis
   minsky context generate --analyze-only  # Show only analysis without full context
   minsky context generate --model claude-3.5-sonnet --analyze  # Analyze with specific model
+  
+  # Visualization examples
+  minsky context generate --visualize  # Generate context with bar chart
+  minsky context generate --visualize-only --chart-type pie  # Only show pie chart
+  minsky context generate --visualize --chart-type tree --show-details  # Tree view with details
+  minsky context generate --compare-models gpt-4,claude-3-5-sonnet --visualize  # Compare models with charts
+  minsky context generate --csv  # Output component data in CSV format
 `
-    )
-    .action(async (options: GenerateOptions) => {
-      try {
-        await executeGenerate(options);
-      } catch (error) {
-        log.error("Failed to generate context", {
-          error: error instanceof Error ? error.message : String(error),
-          stack: error instanceof Error ? error.stack : undefined,
-        });
-        console.error(
-          `Failed to generate context: ${error instanceof Error ? error.message : String(error)}`
-        );
-        process.exit(1);
-      }
-    });
+      )
+      .action(async (options: GenerateOptions) => {
+        try {
+          await executeGenerate(options);
+        } catch (error) {
+          log.error("Failed to generate context", {
+            error: error instanceof Error ? error.message : String(error),
+            stack: error instanceof Error ? error.stack : undefined,
+          });
+          log.error(
+            `Failed to generate context: ${error instanceof Error ? error.message : String(error)}`
+          );
+          process.exit(1);
+        }
+      })
+  );
 }
 
 async function executeGenerate(options: GenerateOptions): Promise<void> {
   log.info("Starting context generation", { options });
+
+  // Handle model comparison if requested
+  if (options.compareModels) {
+    const models = options.compareModels.split(",").map((m) => m.trim());
+    await displayModelComparison(models, options);
+    return;
+  }
 
   // Determine which components to use
   const requestedComponents = options.components
@@ -146,39 +191,75 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   // Generate context
   const result = await generateContext(request);
 
-  // Perform analysis if requested
+  // Perform analysis if requested or needed for visualization
   let analysisResult = null;
-  if (options.analyze || options.analyzeOnly || options.compareModels || options.showBreakdown) {
+  if (
+    options.analyze ||
+    options.analyzeOnly ||
+    options.compareModels ||
+    options.showBreakdown ||
+    options.visualize ||
+    options.visualizeOnly
+  ) {
     analysisResult = await analyzeGeneratedContext(result, options);
   }
 
-  // Output result
-  if (options.json) {
+  // Output result based on options
+  if (options.csv) {
+    // CSV output
+    if (analysisResult) {
+      outputCSV(analysisResult);
+    } else {
+      throw new Error("CSV output requires analysis data. Use --analyze or --visualize flags.");
+    }
+  } else if (options.json) {
+    // JSON output
     if (options.analyzeOnly && analysisResult) {
       // Only output analysis in JSON format
-      console.log(JSON.stringify(analysisResult, null, 2));
+      log.cli(JSON.stringify(analysisResult, null, 2));
+    } else if (options.visualizeOnly && analysisResult) {
+      // Only output visualization data in JSON format
+      const visualizationData = {
+        analysis: analysisResult,
+        visualizations: generateVisualizationData(analysisResult, options),
+      };
+      log.cli(JSON.stringify(visualizationData, null, 2));
     } else {
       const jsonOutput = {
         sections: result.components,
         metadata: result.metadata,
         ...(analysisResult && { analysis: analysisResult }),
       };
-      console.log(JSON.stringify(jsonOutput, null, 2));
+      log.cli(JSON.stringify(jsonOutput, null, 2));
     }
   } else {
-    if (options.analyzeOnly) {
+    // Console output
+    if (options.visualizeOnly) {
+      // Only show visualization
+      if (analysisResult) {
+        displayContextVisualization(analysisResult, options);
+      } else {
+        log.cli("No analysis performed. Use --visualize-only to enable visualization.");
+      }
+    } else if (options.analyzeOnly) {
       // Only display analysis in human-readable format
       if (analysisResult) {
         displayAnalysisResults(analysisResult, options);
       } else {
-        console.log("No analysis performed. Use --analyze-only to enable analysis.");
+        log.cli("No analysis performed. Use --analyze-only to enable analysis.");
       }
     } else {
-      console.log(result.content);
+      // Show context content
+      log.cli(result.content);
 
-      // Display analysis in human-readable format
-      if (analysisResult) {
+      // Display analysis in human-readable format if requested
+      if (analysisResult && options.analyze) {
         displayAnalysisResults(analysisResult, options);
+      }
+
+      // Display visualization if requested
+      if (analysisResult && options.visualize) {
+        displayContextVisualization(analysisResult, options);
       }
     }
   }
@@ -190,6 +271,8 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
     generationTime: result.metadata.generationTime,
   });
 }
+
+// ... rest of the existing functions remain the same ...
 
 /**
  * Get default components to include
@@ -494,38 +577,36 @@ function generateContextOptimizations(componentAnalysis: any[], totalTokens: num
  * Display analysis results in human-readable format
  */
 function displayAnalysisResults(analysis: any, options: GenerateOptions) {
-  console.log("\n🔍 Context Analysis");
-  console.log("━".repeat(50));
+  log.cli("\n🔍 Context Analysis");
+  log.cli("━".repeat(50));
 
   // Model and tokenizer metadata
   if (analysis.metadata) {
-    console.log(`Model: ${analysis.metadata.model}`);
-    console.log(`Interface Mode: ${analysis.metadata.interface}`);
+    log.cli(`Model: ${analysis.metadata.model}`);
+    log.cli(`Interface Mode: ${analysis.metadata.interface}`);
     if (analysis.metadata.tokenizer) {
-      console.log(
+      log.cli(
         `Tokenizer: ${analysis.metadata.tokenizer.name} (${analysis.metadata.tokenizer.encoding})`
       );
     }
-    console.log(`Context Window: ${analysis.metadata.contextWindowSize.toLocaleString()} tokens`);
-    console.log(`Generated: ${new Date(analysis.metadata.analysisTimestamp).toLocaleString()}`);
-    console.log("");
+    log.cli(`Context Window: ${analysis.metadata.contextWindowSize.toLocaleString()} tokens`);
+    log.cli(`Generated: ${new Date(analysis.metadata.analysisTimestamp).toLocaleString()}`);
+    log.cli("");
   }
 
   // Summary
-  console.log(`Total Tokens: ${analysis.summary.totalTokens.toLocaleString()}`);
-  console.log(`Total Components: ${analysis.summary.totalComponents}`);
-  console.log(
-    `Context Window Utilization: ${analysis.summary.contextWindowUtilization.toFixed(1)}%`
-  );
-  console.log(`Largest Component: ${analysis.summary.largestComponent}`);
+  log.cli(`Total Tokens: ${analysis.summary.totalTokens.toLocaleString()}`);
+  log.cli(`Total Components: ${analysis.summary.totalComponents}`);
+  log.cli(`Context Window Utilization: ${analysis.summary.contextWindowUtilization.toFixed(1)}%`);
+  log.cli(`Largest Component: ${analysis.summary.largestComponent}`);
 
   // Component breakdown - always show when analyzing
   if (analysis.componentBreakdown.length > 0) {
-    console.log("\n📊 Component Breakdown");
-    console.log("━".repeat(50));
+    log.cli("\n📊 Component Breakdown");
+    log.cli("━".repeat(50));
 
     for (const component of analysis.componentBreakdown) {
-      console.log(
+      log.cli(
         `${component.component.padEnd(20)} ${component.tokens.toLocaleString().padStart(8)} tokens (${component.percentage}%)`
       );
     }
@@ -535,8 +616,8 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
 
   // Optimization suggestions
   if (analysis.optimizations && analysis.optimizations.length > 0) {
-    console.log("\n💡 Optimization Suggestions");
-    console.log("━".repeat(50));
+    log.cli("\n💡 Optimization Suggestions");
+    log.cli("━".repeat(50));
 
     for (const opt of analysis.optimizations) {
       const icon =
@@ -547,10 +628,241 @@ function displayAnalysisResults(analysis: any, options: GenerateOptions) {
             : opt.type === "optimize"
               ? "⚡"
               : "⚠️";
-      console.log(`${icon} ${opt.component}`);
-      console.log(`   ${opt.suggestion}`);
-      console.log(`   Potential savings: ${opt.potentialSavings.toLocaleString()} tokens`);
-      console.log("");
+      log.cli(`${icon} ${opt.component}`);
+      log.cli(`   ${opt.suggestion}`);
+      log.cli(`   Potential savings: ${opt.potentialSavings.toLocaleString()} tokens`);
+      log.cli("");
     }
   }
+}
+
+// === VISUALIZATION FUNCTIONS ===
+
+function generateVisualizationData(analysisResult: any, options: GenerateOptions) {
+  const { chartType, maxWidth } = options;
+
+  return {
+    chartType: chartType || "bar",
+    maxWidth: parseInt(maxWidth || "80"),
+    elements: analysisResult.componentBreakdown.map((component: any) => ({
+      type: "component",
+      name: component.component,
+      tokens: component.tokens,
+      percentage: component.percentage,
+    })),
+    typeBreakdown: {
+      components: {
+        count: analysisResult.componentBreakdown.length,
+        tokens: analysisResult.summary.totalTokens,
+      },
+    },
+  };
+}
+
+function displayContextVisualization(analysisResult: any, options: GenerateOptions) {
+  const { chartType, maxWidth, showDetails } = options;
+  const width = parseInt(maxWidth || "80");
+
+  log.cli("\n🎨 Context Visualization");
+  log.cli("━".repeat(Math.min(width, 80)));
+  log.cli(`Total Tokens: ${analysisResult.summary.totalTokens.toLocaleString()}`);
+  log.cli(
+    `Context Window Utilization: ${analysisResult.summary.contextWindowUtilization.toFixed(1)}%`
+  );
+  log.cli(`Total Components: ${analysisResult.summary.totalComponents}`);
+  log.cli(`Model: ${analysisResult.metadata.model}`);
+
+  switch (chartType) {
+    case "bar":
+      displayBarChart(analysisResult, width);
+      break;
+    case "pie":
+      displayPieChart(analysisResult, width);
+      break;
+    case "tree":
+      displayTreeView(analysisResult, width);
+      break;
+    default:
+      displayBarChart(analysisResult, width);
+  }
+
+  if (showDetails) {
+    displayDetailedBreakdown(analysisResult);
+  }
+}
+
+function displayBarChart(analysisResult: any, width: number) {
+  log.cli("\n📊 Token Distribution (Bar Chart)");
+  log.cli("━".repeat(Math.min(width, 80)));
+
+  const components = analysisResult.componentBreakdown;
+  const maxTokens = Math.max(...components.map((c: any) => c.tokens));
+  const barWidth = Math.min(width - 30, 50);
+
+  components.forEach((component: any) => {
+    const percentage = component.percentage;
+    const barLength = Math.round((component.tokens / maxTokens) * barWidth);
+    const bar = "█".repeat(barLength) + "░".repeat(barWidth - barLength);
+
+    log.cli(
+      `${component.component.padEnd(20)} │${bar}│ ${component.tokens.toLocaleString().padStart(8)} (${percentage}%)`
+    );
+  });
+}
+
+function displayPieChart(analysisResult: any, width: number) {
+  log.cli("\n🥧 Token Distribution (Pie Chart)");
+  log.cli("━".repeat(Math.min(width, 80)));
+
+  const components = analysisResult.componentBreakdown;
+
+  // Simple ASCII pie representation
+  components.forEach((component: any) => {
+    const percentage = parseFloat(component.percentage);
+    const segmentSize = Math.round(percentage / 5); // Each ● represents ~5%
+    const visual = "●".repeat(segmentSize) + "○".repeat(20 - segmentSize);
+    log.cli(
+      `${component.component.padEnd(20)} ${visual} ${component.percentage}% (${component.tokens.toLocaleString()} tokens)`
+    );
+  });
+}
+
+function displayTreeView(analysisResult: any, width: number) {
+  log.cli("\n🌳 Context Hierarchy (Tree View)");
+  log.cli("━".repeat(Math.min(width, 80)));
+
+  const components = analysisResult.componentBreakdown;
+
+  log.cli(`├── Context (${analysisResult.summary.totalTokens.toLocaleString()} tokens total)`);
+
+  components.forEach((component: any, index: number) => {
+    const isLast = index === components.length - 1;
+    const connector = isLast ? "└── " : "├── ";
+    log.cli(
+      `${connector}${component.component} (${component.tokens.toLocaleString()} tokens, ${component.percentage}%)`
+    );
+  });
+}
+
+function displayDetailedBreakdown(analysisResult: any) {
+  log.cli("\n📋 Detailed Component Breakdown");
+  log.cli("━".repeat(80));
+
+  const topComponents = analysisResult.componentBreakdown.slice(0, 10);
+
+  topComponents.forEach((component: any, index: number) => {
+    log.cli(`${(index + 1).toString().padStart(2)}. ${component.component}`);
+    log.cli(`    Tokens: ${component.tokens.toLocaleString()} (${component.percentage}%)`);
+    log.cli(`    Characters: ${component.content_length.toLocaleString()}`);
+    log.cli("");
+  });
+}
+
+async function displayModelComparison(models: string[], options: GenerateOptions) {
+  log.cli("\n🔄 Cross-Model Comparison");
+  log.cli("━".repeat(80));
+
+  const requestedComponents = options.components
+    ? options.components.split(",").map((c) => c.trim())
+    : getDefaultComponents();
+
+  const comparisons = [];
+
+  for (const model of models) {
+    try {
+      // Create generation request for this model
+      const request: GenerateRequest = {
+        components: requestedComponents,
+        input: {
+          environment: {
+            os: `${process.platform} ${process.arch}`,
+            shell: process.env.SHELL || "unknown",
+          },
+          workspacePath: process.cwd(),
+          task: {
+            id: "mt#461",
+            title: "Context Visualization Redesign",
+            status: "IN-PROGRESS",
+            description: "Implementing context visualization using new component architecture",
+          },
+          userQuery: options.prompt || "Generating context visualization analysis",
+          userPrompt: options.prompt,
+          targetModel: model.trim(),
+          interfaceConfig: {
+            interface: options.interface || "cli",
+            mcpEnabled: options.interface === "mcp" || options.interface === "hybrid",
+            preferMcp: options.interface === "mcp",
+          },
+        },
+      };
+
+      const result = await generateContext(request);
+      const analysisResult = await analyzeGeneratedContext(result, {
+        ...options,
+        model: model.trim(),
+      });
+      comparisons.push({ model: model.trim(), result: analysisResult });
+    } catch (error) {
+      log.cli(`❌ Failed to analyze for ${model}: ${error}`);
+    }
+  }
+
+  if (comparisons.length > 1) {
+    // Display comparison table
+    log.cli(
+      "Model".padEnd(25) +
+        "Tokens".padStart(10) +
+        "Components".padStart(12) +
+        "Utilization".padStart(12)
+    );
+    log.cli("-".repeat(59));
+
+    comparisons.forEach(({ model, result }) => {
+      const utilization = result.summary.contextWindowUtilization.toFixed(1);
+      log.cli(
+        model.padEnd(25) +
+          result.summary.totalTokens.toLocaleString().padStart(10) +
+          result.summary.totalComponents.toString().padStart(12) +
+          `${utilization}%`.padStart(12)
+      );
+    });
+
+    // Show component differences
+    log.cli("\n📊 Component Comparison");
+    log.cli("━".repeat(80));
+
+    const allComponents = new Set();
+    comparisons.forEach(({ result }) => {
+      result.componentBreakdown.forEach((comp: any) => allComponents.add(comp.component));
+    });
+
+    Array.from(allComponents).forEach((componentName) => {
+      log.cli(`\n${componentName}:`);
+      comparisons.forEach(({ model, result }) => {
+        const comp = result.componentBreakdown.find((c: any) => c.component === componentName);
+        if (comp) {
+          log.cli(
+            `  ${model.padEnd(20)} ${comp.tokens.toLocaleString().padStart(8)} tokens (${comp.percentage}%)`
+          );
+        } else {
+          log.cli(`  ${model.padEnd(20)}        0 tokens (0.0%)`);
+        }
+      });
+    });
+
+    // Show visualization for first model if requested
+    if (options.visualize && comparisons.length > 0) {
+      log.cli(`\n📊 Visualization for ${comparisons[0].model}`);
+      displayContextVisualization(comparisons[0].result, options);
+    }
+  }
+}
+
+function outputCSV(analysisResult: any) {
+  log.cli("Component,Tokens,Percentage,ContentLength");
+  analysisResult.componentBreakdown.forEach((component: any) => {
+    log.cli(
+      `${component.component},${component.tokens},${component.percentage},${component.content_length}`
+    );
+  });
 }

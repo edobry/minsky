@@ -15,6 +15,9 @@ export enum TaskBackend {
   MARKDOWN = "markdown",
   JSON_FILE = "json-file",
   GITHUB_ISSUES = "github-issues",
+  GITHUB = "github",
+  MINSKY = "minsky",
+  DB = "db",
 }
 
 export interface BackendDetectionService {
