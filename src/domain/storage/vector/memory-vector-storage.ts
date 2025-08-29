@@ -1,4 +1,4 @@
-import type { VectorStorage, SearchResult } from "./types";
+import type { VectorStorage, SearchResult, SearchOptions } from "./types";
 
 export class MemoryVectorStorage implements VectorStorage {
   private readonly dimension: number;
@@ -20,15 +20,37 @@ export class MemoryVectorStorage implements VectorStorage {
     this.storeMap.set(id, { vector, metadata });
   }
 
-  async search(
-    queryVector: number[],
-    limit = 10,
-    threshold = Number.POSITIVE_INFINITY
-  ): Promise<SearchResult[]> {
+  async search(queryVector: number[], options: SearchOptions = {}): Promise<SearchResult[]> {
+    const { limit = 10, threshold = Number.POSITIVE_INFINITY, filters } = options;
+
     const results: SearchResult[] = [];
-    for (const [id, { vector }] of this.storeMap.entries()) {
+    for (const [id, { vector, metadata }] of this.storeMap.entries()) {
+      // Apply filters if provided (post-filter fallback for memory backend)
+      if (filters && Object.keys(filters).length > 0) {
+        let shouldInclude = true;
+        for (const [key, value] of Object.entries(filters)) {
+          if (value !== undefined && value !== null) {
+            // Handle exclusion filters (e.g., statusExclude: ['DONE', 'CLOSED'])
+            if (key.endsWith("Exclude") && Array.isArray(value) && value.length > 0) {
+              const columnName = key.replace("Exclude", "");
+              if (metadata && value.includes(metadata[columnName])) {
+                shouldInclude = false;
+                break;
+              }
+            } else {
+              // Handle regular equality filters (e.g., status: 'TODO')
+              if (!metadata || metadata[key] !== value) {
+                shouldInclude = false;
+                break;
+              }
+            }
+          }
+        }
+        if (!shouldInclude) continue;
+      }
+
       const score = this.l2(queryVector, vector);
-      results.push({ id, score });
+      results.push({ id, score, metadata });
     }
     results.sort((a, b) => a.score - b.score);
     return results.filter((r) => r.score <= threshold).slice(0, limit);

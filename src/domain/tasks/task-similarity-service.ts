@@ -38,13 +38,18 @@ export class TaskSimilarityService {
     return items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata }));
   }
 
-  async searchByText(query: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
+  async searchByText(
+    query: string,
+    limit = 10,
+    threshold?: number,
+    filters?: Record<string, any>
+  ): Promise<SearchResult[]> {
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
       listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
       getContent: async (id: string) => (await this.getTaskSpecContent(id)).content,
     });
-    const items = await core.search({ queryText: query, limit });
+    const items = await core.search({ queryText: query, limit, filters });
     return items.map((i) => ({ id: i.id, score: i.score, metadata: i.metadata }));
   }
 

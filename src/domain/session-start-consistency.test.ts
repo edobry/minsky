@@ -13,6 +13,7 @@ import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
 import type { WorkspaceUtilsInterface } from "./workspace";
+import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import {
   createMockSessionProvider,
   createMockGitService,

@@ -4,7 +4,7 @@
  * Tests the new auto-creation functionality for tasks when starting sessions
  * with the --description parameter.
  */
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { startSessionFromParams, type SessionProviderInterface } from "./session";
 import type { TaskServiceInterface } from "./tasks";
 import type { GitServiceInterface } from "./git";

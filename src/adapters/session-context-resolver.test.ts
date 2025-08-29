@@ -29,7 +29,7 @@ describe("Interface-Layer Session Context Resolution", () => {
 
       const result = CLISessionContextResolver.resolveSessionContext(params, workingDir);
 
-      expect(result.session).toBe("task#158");
+      expect(result.session).toBe("task#150");
       expect(result.title).toBe("test");
     });
 
@@ -146,7 +146,7 @@ describe("Interface-Layer Session Context Resolution", () => {
         "cli",
         TEST_PATHS.MINSKY_SESSIONS_TASK
       );
-      expect(cliResult.session).toBe("task#158");
+      expect(cliResult.session).toBe("task#150");
 
       // MCP interface should require explicit session
       expect(() => {
@@ -167,7 +167,7 @@ describe("Interface-Layer Session Context Resolution", () => {
         TEST_PATHS.MINSKY_SESSIONS_TASK
       );
 
-      expect(result.session).toBe("task#158");
+      expect(result.session).toBe("task#150");
       expect(result.title).toBe("test");
     });
 

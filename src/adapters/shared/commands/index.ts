@@ -14,6 +14,7 @@ import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { registerSessiondbCommands } from "./sessiondb";
 import { registerAiCommands } from "./ai";
+import { registerToolsCommands } from "./tools";
 
 /**
  * Register all shared commands in the shared command registry
@@ -46,6 +47,9 @@ export async function registerAllSharedCommands(): Promise<void> {
   // Register AI commands
   registerAiCommands();
 
+  // Register tools commands
+  registerToolsCommands();
+
   // Additional command categories can be registered here as they're implemented
 }
 
@@ -61,4 +65,5 @@ export {
   registerDebugCommands,
   registerSessiondbCommands,
   registerAiCommands,
+  registerToolsCommands,
 };

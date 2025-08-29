@@ -9,7 +9,8 @@
 
 import { existsSync, readFileSync } from "fs";
 import { glob } from "glob";
-import { join, relative } from "path";
+import { join, relative, isAbsolute } from "path";
+import { execSync } from "child_process";
 
 interface ConsoleViolation {
   file: string;
@@ -174,18 +175,51 @@ class ConsoleUsageLinter {
    * Scan all files in the project
    */
   async scanProject(): Promise<void> {
-    // Find all TypeScript and JavaScript files
-    const patterns = ["**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx"];
+    // Prefer scanning ONLY staged files in git (pre-commit friendly)
+    const stagedFiles = this.getStagedSourceFiles();
 
+    if (stagedFiles.length > 0) {
+      for (const file of stagedFiles) {
+        this.scanFile(file);
+      }
+      return;
+    }
+
+    // Fallback: scan entire project when no staged files detected (CI or manual runs)
+    const patterns = ["**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx"];
     for (const pattern of patterns) {
       const files = await glob(pattern, {
         ignore: this.excludePatterns,
         absolute: true,
       });
-
       for (const file of files) {
         this.scanFile(file);
       }
+    }
+  }
+
+  /**
+   * Get staged source files from git (ts/js/tsx/jsx), absolute paths
+   */
+  private getStagedSourceFiles(): string[] {
+    try {
+      const output = execSync("git diff --cached --name-only --diff-filter=ACMRTUXB", {
+        stdio: ["ignore", "pipe", "ignore"],
+        encoding: "utf8",
+      })
+        .split("\n")
+        .map((s) => s.trim())
+        .filter(Boolean);
+
+      const exts = new Set([".ts", ".js", ".tsx", ".jsx"]);
+
+      const files = output
+        .filter((p) => exts.has(p.slice(p.lastIndexOf("."))))
+        .map((p) => (isAbsolute(p) ? p : join(process.cwd(), p)));
+
+      return files;
+    } catch {
+      return [];
     }
   }
 
