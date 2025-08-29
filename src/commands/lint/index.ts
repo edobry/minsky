@@ -9,12 +9,15 @@ import { Command } from "commander";
 import { execSync } from "child_process";
 import { log } from "../../utils/logger";
 import { exit } from "../../utils/process";
+import { ProjectConfigReader } from "../../domain/project/config-reader";
 
 interface LintOptions {
   json?: boolean;
   summary?: boolean;
   quiet?: boolean;
   threshold?: number;
+  detect?: boolean;
+  config?: string;
 }
 
 interface ESLintResult {
@@ -39,18 +42,22 @@ interface LintSummary {
 }
 
 /**
- * Run ESLint and parse JSON results
+ * Run linter and parse JSON results using project configuration
  */
-function runESLint(): ESLintResult[] {
+async function runLinter(configReader: ProjectConfigReader): Promise<ESLintResult[]> {
   try {
-    const output = execSync("bun run lint -- --format json", {
+    const lintJsonCommand = await configReader.getLintJsonCommand();
+    log.debug(`Running lint command: ${lintJsonCommand}`);
+    
+    const output = execSync(lintJsonCommand, {
       encoding: "utf8",
       stdio: ["pipe", "pipe", "pipe"],
+      cwd: configReader["projectRoot"] || process.cwd(),
     });
     
     return JSON.parse(output);
   } catch (error: any) {
-    // ESLint exits with non-zero when issues found, but still outputs JSON
+    // Linter exits with non-zero when issues found, but still outputs JSON
     if (error.stdout) {
       try {
         return JSON.parse(error.stdout);
@@ -60,8 +67,8 @@ function runESLint(): ESLintResult[] {
       }
     }
     
-    log.cliError("Failed to run ESLint");
-    log.debug(`ESLint error: ${error.message}`);
+    log.cliError("Failed to run linter");
+    log.debug(`Linter error: ${error.message}`);
     exit(1);
   }
 }
@@ -141,6 +148,21 @@ function outputHumanReadable(results: ESLintResult[], summary: LintSummary, opti
 }
 
 /**
+ * Output configuration detection results
+ */
+async function outputConfigDetection(configReader: ProjectConfigReader): Promise<void> {
+  const config = await configReader.getConfiguration();
+  
+  console.log("🔍 Detected Configuration:");
+  console.log(`├─ Config Source: ${config.configSource}`);
+  console.log(`├─ Package Manager: ${config.runtime.packageManager || 'unknown'}`);
+  console.log(`├─ Language: ${config.runtime.language || 'unknown'}`);
+  console.log(`├─ Lint Command: ${config.workflows.lint || 'none'}`);
+  console.log(`├─ Lint JSON Command: ${config.workflows.lintJson || 'none'}`);
+  console.log(`└─ Lint Fix Command: ${config.workflows.lintFix || 'none'}`);
+}
+
+/**
  * Output results in JSON format
  */
 function outputJson(results: ESLintResult[], summary: LintSummary): void {
@@ -165,36 +187,56 @@ function outputJson(results: ESLintResult[], summary: LintSummary): void {
  */
 export function createLintCommand(): Command {
   const lintCmd = new Command("lint")
-    .description("Run ESLint and show structured results with quality gates")
+    .description("Run linter and show structured results with quality gates (runtime-independent)")
     .option("--json", "Output results in JSON format")
     .option("--summary", "Show only summary counts")
     .option("-q, --quiet", "Minimal output (summary only)")
     .option("--threshold <number>", "Warning threshold (default: 100)", "100")
+    .option("--detect", "Show detected configuration and exit")
+    .option("--config <path>", "Override project root path for configuration detection")
     .addHelpText(
       "after",
       `
 Examples:
-  minsky lint                    # Show detailed results
+  minsky lint                    # Show detailed results using auto-detected config
   minsky lint --json             # JSON output for tooling
   minsky lint --summary          # Just the counts
   minsky lint --quiet            # Minimal output
   minsky lint --threshold 50     # Custom warning threshold
+  minsky lint --detect           # Show detected configuration
+  minsky lint --config /path     # Use specific project path
+
+Configuration Detection:
+  1. minsky.json or .minsky/config.json (explicit workflows)
+  2. package.json scripts (npm/yarn/pnpm/bun projects)
+  3. Language-specific detection (Rust: cargo clippy, Go: golangci-lint)
+  4. Generic defaults (eslint .)
 
 Exit Codes:
   0: Clean (no errors, warnings under threshold)
   1: Errors found
   2: Too many warnings (over threshold)
 
-The lint command uses the same quality gates as the pre-commit hook,
-with a default threshold of 100 warnings.
+The lint command automatically detects the appropriate linting tool
+for each project, making it universal across different runtimes.
 `
     )
     .action(async (options: LintOptions) => {
       try {
+        // Initialize project configuration reader
+        const projectRoot = options.config || process.cwd();
+        const configReader = new ProjectConfigReader(projectRoot);
+        
+        // Handle --detect mode
+        if (options.detect) {
+          await outputConfigDetection(configReader);
+          return; // Exit without running linter
+        }
+        
         const threshold = parseInt(options.threshold?.toString() || "100");
         
-        // Run ESLint and get results
-        const results = runESLint();
+        // Run linter with auto-detected configuration
+        const results = await runLinter(configReader);
         const summary = calculateSummary(results, threshold);
         
         // Output in requested format
@@ -216,6 +258,7 @@ with a default threshold of 100 warnings.
         
       } catch (error: any) {
         log.cliError(`Lint command failed: ${error.message}`);
+        log.debug(`Error details: ${error.stack}`);
         exit(1);
       }
     });
