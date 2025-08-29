@@ -3,33 +3,33 @@ import { mock } from "bun:test";
 import { createSharedCommandRegistry } from "../command-registry";
 import { registerRulesCommands } from "./rules";
 
-// Mock workspace resolver
-mock.module("../../../domain/workspace", () => ({
-  resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace")),
-}));
-
-// Mock rule template service
-mock.module("../../../domain/rules/rule-template-service", () => ({
-  createRuleTemplateService: mock(() => ({
-    registerDefaultTemplates: mock(() => Promise.resolve()),
-    generateRules: mock(() =>
-      Promise.resolve({
-        success: true,
-        rules: [
-          {
-            id: "test-rule",
-            path: "/mock/workspace/.cursor/rules/test-rule.mdc",
-            content: "# Test Rule\n\nThis is a test rule.",
-            meta: { name: "Test Rule", description: "A test rule" },
-          },
-        ],
-        errors: [],
-      })
-    ),
-  })),
-}));
-
 describe("Rules Commands", () => {
+  // Mock workspace resolver
+  mock.module("../../../domain/workspace", () => ({
+    resolveWorkspacePath: mock(() => Promise.resolve("/mock/workspace")),
+  }));
+
+  // Mock rule template service
+  mock.module("../../../domain/rules/rule-template-service", () => ({
+    createRuleTemplateService: mock(() => ({
+      registerDefaultTemplates: mock(() => Promise.resolve()),
+      generateRules: mock(() =>
+        Promise.resolve({
+          success: true,
+          rules: [
+            {
+              id: "test-rule",
+              path: "/mock/workspace/.cursor/rules/test-rule.mdc",
+              content: "# Test Rule\n\nThis is a test rule.",
+              meta: { name: "Test Rule", description: "A test rule" },
+            },
+          ],
+          errors: [],
+        })
+      ),
+    })),
+  }));
+
   let testRegistry: ReturnType<typeof createSharedCommandRegistry>;
 
   beforeEach(() => {

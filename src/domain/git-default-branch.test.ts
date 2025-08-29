@@ -14,7 +14,7 @@ describe("GitService Default Branch Detection", () => {
 
   beforeEach(() => {
     // Mock execInRepository to avoid actual git commands
-    GitService.prototype.execInRepository = createMock(() => Promise.resolve(""));
+    GitService.prototype.execInRepository = mock(() => Promise.resolve(""));
   });
 
   afterEach(() => {

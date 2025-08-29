@@ -4,6 +4,7 @@ const DEFAULT_HTTP_PORT = 8080;
  * Tests for network error handling
  */
 import { describe, expect, test } from "bun:test";
+import { GIT_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 import {
   NetworkError,
   PortInUseError,
@@ -55,7 +56,7 @@ describe("Network Error handling", () => {
     test("should create a NetworkPermissionError with the correct message", () => {
       const error = new NetworkPermissionError(PRIVILEGED_PORT);
 
-      expect(error.message).toContain("Permission denied");
+      expect(error.message).toContain(GIT_TEST_PATTERNS.PERMISSION_DENIED);
       expect(error.code).toBe("EACCES");
       expect(error.port).toBe(PRIVILEGED_PORT);
     });
@@ -74,7 +75,7 @@ describe("Network Error handling", () => {
       const eaddrinuseError = new Error("Address in use");
       (eaddrinuseError as any).code = "EADDRINUSE";
 
-      const eaccessError = new Error("Permission denied");
+      const eaccessError = new Error(GIT_TEST_PATTERNS.PERMISSION_DENIED);
       (eaccessError as any).code = "EACCES";
 
       const regularError = new Error("Regular error");
@@ -98,13 +99,13 @@ describe("Network Error handling", () => {
     });
 
     test("should create a NetworkPermissionError for EACCES errors", () => {
-      const originalError = new Error("Permission denied");
+      const originalError = new Error(GIT_TEST_PATTERNS.PERMISSION_DENIED);
       (originalError as any).code = "EACCES";
 
       const networkError = createNetworkError(originalError, PRIVILEGED_PORT);
 
       expect(networkError instanceof NetworkPermissionError).toBe(true);
-      expect(networkError.message).toContain("Permission denied");
+      expect(networkError.message).toContain(GIT_TEST_PATTERNS.PERMISSION_DENIED);
     });
 
     test("should create a generic NetworkError for other errors", () => {

@@ -11,7 +11,7 @@ const TEST_VALUE = 123;
  * - SessionDB (for session management)
  * - GitService (for git operations)
  */
-import { describe, test, expect, beforeEach, afterEach } from "bun:test";
+import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { GitHubBackend } from "./repository/github";
 import { join } from "path";
 // Use mock.module() to mock filesystem operations
@@ -23,7 +23,7 @@ setupTestMocks();
 
 // Mock the SessionDB dependencies using our utilities
 const mockSessionDB = {
-  listSessions: createMock(() =>
+  listSessions: mock(() =>
     Promise.resolve([
       {
         _session: "test-session",
@@ -32,7 +32,7 @@ const mockSessionDB = {
       },
     ])
   ),
-  getSession: createMock((sessionName: unknown) =>
+  getSession: mock((sessionName: unknown) =>
     Promise.resolve({
       _session: sessionName,
       repoName: "github/test-repo",
@@ -42,11 +42,11 @@ const mockSessionDB = {
       createdAt: new Date().toISOString(),
     })
   ),
-  addSession: createMock(() => Promise.resolve()),
-  updateSession: createMock(() => Promise.resolve()),
-  deleteSession: createMock(() => Promise.resolve(true)),
-  getRepoPath: createMock(() => "/mock/repo/path"),
-  getSessionWorkdir: createMock(() => "/mock/session/workdir"),
+  addSession: mock(() => Promise.resolve()),
+  updateSession: mock(() => Promise.resolve()),
+  deleteSession: mock(() => Promise.resolve(true)),
+  getRepoPath: mock(() => "/mock/repo/path"),
+  getSessionWorkdir: mock(() => "/mock/session/workdir"),
 };
 
 // Create temporary directory for testing

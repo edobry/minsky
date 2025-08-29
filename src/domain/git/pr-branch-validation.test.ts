@@ -1,6 +1,7 @@
 import { describe, it, expect, beforeEach, afterEach, mock } from "bun:test";
 import { preparePrImpl } from "./prepare-pr-operations";
 import { MinskyError } from "../../errors";
+import { GIT_COMMANDS } from "../../utils/test-utils/test-constants";
 
 // Mock execGitWithTimeout since that's what preparePrImpl actually uses
 const mockExecGitWithTimeout = mock();
@@ -31,7 +32,7 @@ describe("PR Branch Validation Bug Fix", () => {
 
       const mockExecInRepository = (workdir: string, command: string) => {
         // Simulate being on a PR branch (this is the bug scenario)
-        if (command.includes("rev-parse --abbrev-ref HEAD")) {
+        if (command.includes(GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD)) {
           return Promise.resolve("pr/task-md#357"); // Current branch is already a PR branch
         }
         if (command.includes("git status")) {
@@ -83,7 +84,7 @@ describe("PR Branch Validation Bug Fix", () => {
 
       const mockExecInRepository = (workdir: string, command: string) => {
         // Simulate being on a session branch (correct scenario)
-        if (command.includes("rev-parse --abbrev-ref HEAD")) {
+        if (command.includes(GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD)) {
           return Promise.resolve("task-md#357"); // Current branch is a session branch
         }
         if (command.includes("git status")) {
@@ -142,7 +143,7 @@ describe("PR Branch Validation Bug Fix", () => {
         },
         getSessionWorkdir: () => "/mock/workdir",
         execInRepository: (workdir: string, command: string) => {
-          if (command.includes("rev-parse --abbrev-ref HEAD")) {
+          if (command.includes(GIT_COMMANDS.REV_PARSE_ABBREV_REF_HEAD)) {
             return Promise.resolve("pr/feature-branch"); // Different PR branch pattern
           }
           return Promise.resolve("");

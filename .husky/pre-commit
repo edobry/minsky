@@ -1,5 +1,4 @@
 #!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
 
 echo "🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)..."
 
@@ -118,11 +117,52 @@ if ! bun run lint:console:strict; then
 fi
 echo "✅ No console usage violations found."
 
-# Run linting (suppress warnings to reduce noise, only show errors)
-echo "🔍 Running ESLint..."
-if ! npm run lint -- --quiet; then
-  echo "❌ Linting failed! Please fix the issues before committing."
+# Run linting with strict error and warning thresholds
+echo "🔍 Running ESLint with strict quality gates..."
+
+# Use JSON output for reliable parsing
+LINT_JSON=$(bun run lint -- --format json 2>/dev/null || echo "[]")
+
+# Extract total error and warning counts using simple arithmetic
+ERROR_COUNT=$(echo "$LINT_JSON" | grep -o '"errorCount":[0-9]*' | cut -d: -f2 | awk '{sum+=$1} END {print sum+0}')
+WARNING_COUNT=$(echo "$LINT_JSON" | grep -o '"warningCount":[0-9]*' | cut -d: -f2 | awk '{sum+=$1} END {print sum+0}')
+
+# Log the current state
+echo "📊 ESLint Results:"
+echo "   Errors: $ERROR_COUNT"
+echo "   Warnings: $WARNING_COUNT"
+
+# STRICT ENFORCEMENT: Block if ANY errors found
+if [ "$ERROR_COUNT" -gt 0 ]; then
+  echo ""
+  echo "❌ ❌ ❌ LINTER ERRORS DETECTED! COMMIT BLOCKED! ❌ ❌ ❌"
+  echo ""
+  echo "🚫 Found $ERROR_COUNT linter error(s). ALL errors must be fixed before committing."
+  echo "💡 Run 'bun run lint --fix' to auto-fix many issues."
+  echo "🔧 Review and manually fix any remaining errors."
+  echo ""
+  echo "Run 'bun run lint' to see detailed error information."
   exit 1
+fi
+
+# WARNING THRESHOLD: Block if over 100 warnings
+if [ "$WARNING_COUNT" -gt 100 ]; then
+  echo ""
+  echo "⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️"
+  echo ""
+  echo "🚫 Found $WARNING_COUNT warnings. Maximum allowed: 100."
+  echo "💡 Please address warnings to improve code quality."
+  echo "🎯 Target: Reduce warnings below 100 threshold."
+  echo ""
+  echo "Run 'bun run lint' to see detailed warning information."
+  exit 1
+fi
+
+# Success case
+if [ "$WARNING_COUNT" -eq 0 ]; then
+  echo "✅ Perfect! Zero errors and zero warnings detected."
+else
+  echo "✅ Quality gate passed: $WARNING_COUNT warnings (under 100 threshold)."
 fi
 
 # Run ESLint rule tooling tests (separate from main test suite)

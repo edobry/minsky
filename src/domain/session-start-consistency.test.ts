@@ -8,11 +8,11 @@
 import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { startSessionFromParams } from "./session";
 import { MinskyError, ResourceNotFoundError } from "../errors";
+import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import type { SessionProviderInterface } from "./session";
 import type { GitServiceInterface } from "./git";
 import type { TaskServiceInterface } from "./tasks";
 import type { WorkspaceUtilsInterface } from "./workspace";
-import { TEST_PATHS } from "../utils/test-utils/test-constants";
 import {
   createMockSessionProvider,
   createMockGitService,
@@ -82,11 +82,9 @@ describe("Session Start Consistency Tests", () => {
     it("should only add session to database after git operations succeed", async () => {
       // Arrange
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
+        // sessionName will be auto-generated from taskId
       };
 
       // Act
@@ -124,11 +122,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(gitError));
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act & Assert
@@ -156,11 +151,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.branchWithoutSession = mock(() => Promise.reject(gitError));
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act & Assert
@@ -188,11 +180,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(originalError));
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act & Assert
@@ -231,11 +220,8 @@ describe("Session Start Consistency Tests", () => {
       mockSessionDB.getSession = sessionGetSpy;
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act & Assert
@@ -275,11 +261,8 @@ describe("Session Start Consistency Tests", () => {
       mockSessionDB.listSessions = listSessionsSpy;
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act & Assert
@@ -308,11 +291,8 @@ describe("Session Start Consistency Tests", () => {
       mockTaskService.getTask = taskGetSpy;
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act & Assert
@@ -345,11 +325,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(gitError));
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act & Assert
@@ -380,11 +357,8 @@ describe("Session Start Consistency Tests", () => {
       sessionDbMock.addSession = addSessionSpy;
 
       const params = {
-        task: "md#160",
-        repo: "local/minsky",
-        quiet: false,
-        noStatusUpdate: false,
-        skipInstall: true,
+        taskId: "md#160",
+        repositoryPath: "local/minsky",
       };
 
       // Act

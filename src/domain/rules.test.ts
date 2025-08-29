@@ -4,6 +4,7 @@ import type { RuleFormat } from "./rules";
 import path from "path";
 import matter from "gray-matter";
 import { createMockFilesystem } from "../utils/test-utils/filesystem/mock-filesystem";
+import { RULES_TEST_PATTERNS } from "../utils/test-utils/test-constants";
 
 // No global module mocks. Each test creates its own mock filesystem and injects it
 
@@ -54,10 +55,15 @@ describe("RuleService", () => {
   describe("listRules", () => {
     test("lists rules from both formats when no format specified", async () => {
       // Create test rules
-      await createTestRule("test-cursor", "Cursor rule content", { name: "Cursor Rule" }, "cursor");
+      await createTestRule(
+        "test-cursor",
+        RULES_TEST_PATTERNS.CURSOR_RULE_CONTENT,
+        { name: "Cursor Rule" },
+        "cursor"
+      );
       await createTestRule(
         "test-generic",
-        "Generic rule content",
+        RULES_TEST_PATTERNS.GENERIC_RULE_CONTENT,
         { name: "Generic Rule" },
         "generic"
       );
@@ -72,10 +78,15 @@ describe("RuleService", () => {
     });
 
     test("lists only cursor rules when format is cursor", async () => {
-      await createTestRule("test-cursor", "Cursor rule content", { name: "Cursor Rule" }, "cursor");
+      await createTestRule(
+        "test-cursor",
+        RULES_TEST_PATTERNS.CURSOR_RULE_CONTENT,
+        { name: "Cursor Rule" },
+        "cursor"
+      );
       await createTestRule(
         "test-generic",
-        "Generic rule content",
+        RULES_TEST_PATTERNS.GENERIC_RULE_CONTENT,
         { name: "Generic Rule" },
         "generic"
       );
@@ -88,10 +99,15 @@ describe("RuleService", () => {
     });
 
     test("lists only generic rules when format is generic", async () => {
-      await createTestRule("test-cursor", "Cursor rule content", { name: "Cursor Rule" }, "cursor");
+      await createTestRule(
+        "test-cursor",
+        RULES_TEST_PATTERNS.CURSOR_RULE_CONTENT,
+        { name: "Cursor Rule" },
+        "cursor"
+      );
       await createTestRule(
         "test-generic",
-        "Generic rule content",
+        RULES_TEST_PATTERNS.GENERIC_RULE_CONTENT,
         { name: "Generic Rule" },
         "generic"
       );

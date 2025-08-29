@@ -13,7 +13,9 @@ import { initializeConfiguration, CustomConfigFactory } from "../../domain/confi
 describe("Session Approval Error Handling (Task #358 Updated)", () => {
   beforeEach(async () => {
     // Initialize configuration system for each test
-    await initializeConfiguration(new CustomConfigFactory(), { workingDirectory: process.cwd() });
+    await initializeConfiguration(new CustomConfigFactory(), {
+      workingDirectory: "/mock/workspace",
+    });
   });
 
   test("should handle missing session for task", async () => {

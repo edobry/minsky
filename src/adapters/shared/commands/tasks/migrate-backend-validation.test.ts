@@ -16,7 +16,7 @@
  * - Should provide actionable error messages for each failed task
  */
 
-import { describe, it, expect, beforeEach } from "bun:test";
+import { describe, it, expect, beforeEach, mock } from "bun:test";
 import { TasksMigrateBackendCommand } from "./migrate-backend-command";
 import { mockModule, createMock } from "../../../../utils/test-utils/mocking";
 import type { CommandExecutionContext } from "../../command-registry";
@@ -44,13 +44,13 @@ describe("Migration Backend Validation Bug Fix", () => {
 
     it("should call validateMigration after migration is complete", async () => {
       // Mock the validateMigration method to verify it gets called
-      const validateSpy = createMock(() => Promise.resolve({ passed: [], failed: [] }));
+      const validateSpy = mock(() => Promise.resolve({ passed: [], failed: [] }));
       const originalValidate = (command as any).validateMigration;
       (command as any).validateMigration = validateSpy;
 
       // Mock the migrateTasksBetweenBackends method to avoid database calls
       const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = createMock(() =>
+      (command as any).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 0,
           migrated: 0,
@@ -82,7 +82,7 @@ describe("Migration Backend Validation Bug Fix", () => {
     it("should fail migration when validation detects missing tasks in target backend", async () => {
       // Mock migration to report successful migrations
       const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = createMock(() =>
+      (command as any).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 2,
           migrated: 2,
@@ -97,7 +97,7 @@ describe("Migration Backend Validation Bug Fix", () => {
 
       // Mock validation to return failures
       const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = createMock(() =>
+      (command as any).validateMigration = mock(() =>
         Promise.resolve({
           passed: [],
           failed: [
@@ -148,7 +148,7 @@ describe("Migration Backend Validation Bug Fix", () => {
     it("should fail migration when validation detects content mismatches", async () => {
       // Mock migration to report successful migrations
       const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = createMock(() =>
+      (command as any).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 2,
           migrated: 2,
@@ -163,7 +163,7 @@ describe("Migration Backend Validation Bug Fix", () => {
 
       // Mock validation to return mixed results
       const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = createMock(() =>
+      (command as any).validateMigration = mock(() =>
         Promise.resolve({
           passed: [{ taskId: "md#200", targetTaskId: "mt#200", status: "VALIDATED" }],
           failed: [
@@ -208,7 +208,7 @@ describe("Migration Backend Validation Bug Fix", () => {
     it("should succeed when all migrated tasks pass validation", async () => {
       // Mock migration to report successful migrations
       const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = createMock(() =>
+      (command as any).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 2,
           migrated: 2,
@@ -223,7 +223,7 @@ describe("Migration Backend Validation Bug Fix", () => {
 
       // Mock validation to return all passed
       const originalValidate = (command as any).validateMigration;
-      (command as any).validateMigration = createMock(() =>
+      (command as any).validateMigration = mock(() =>
         Promise.resolve({
           passed: [
             { taskId: "md#300", targetTaskId: "mt#300", status: "VALIDATED" },
@@ -259,7 +259,7 @@ describe("Migration Backend Validation Bug Fix", () => {
     it("should skip validation in dry-run mode", async () => {
       // Mock migration for dry run
       const originalMigrate = (command as any).migrateTasksBetweenBackends;
-      (command as any).migrateTasksBetweenBackends = createMock(() =>
+      (command as any).migrateTasksBetweenBackends = mock(() =>
         Promise.resolve({
           total: 1,
           migrated: 0,
@@ -270,7 +270,7 @@ describe("Migration Backend Validation Bug Fix", () => {
       );
 
       // Mock validation (should not be called in dry run)
-      const validateSpy = createMock(() => Promise.resolve({ passed: [], failed: [] }));
+      const validateSpy = mock(() => Promise.resolve({ passed: [], failed: [] }));
       const originalValidate = (command as any).validateMigration;
       (command as any).validateMigration = validateSpy;
 

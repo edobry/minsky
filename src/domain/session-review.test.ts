@@ -15,7 +15,7 @@ const TEST_ARRAY_SIZE = 3;
 describe("sessionReviewFromParams", () => {
   test("reviews session by name", async () => {
     // Create trackable spies for methods we need to verify
-    let getSessionSpy = createMock();
+    let getSessionSpy = mock();
     getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
@@ -27,12 +27,12 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    let getSessionWorkdirSpy = createMock();
+    let getSessionWorkdirSpy = mock();
     getSessionWorkdirSpy = mock((_sessionName: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 
-    let execInRepositorySpy = createMock();
+    let execInRepositorySpy = mock();
     execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
@@ -50,7 +50,7 @@ describe("sessionReviewFromParams", () => {
       return Promise.resolve("");
     });
 
-    let getTaskSpecDataSpy = createMock();
+    let getTaskSpecDataSpy = mock();
     getTaskSpecDataSpy = mock(() =>
       Promise.resolve({ title: "Test Task", description: "Test description" })
     );
@@ -74,7 +74,7 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    let getCurrentSessionSpy = createMock();
+    let getCurrentSessionSpy = mock();
     getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
@@ -100,7 +100,7 @@ describe("sessionReviewFromParams", () => {
 
   test("reviews session by task ID", async () => {
     // Create trackable spies for methods we need to verify
-    let getSessionByTaskIdSpy = createMock();
+    let getSessionByTaskIdSpy = mock();
     getSessionByTaskIdSpy = mock((taskId: unknown) =>
       Promise.resolve({
         session: "task123",
@@ -112,7 +112,7 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    let getSessionSpy = createMock();
+    let getSessionSpy = mock();
     getSessionSpy = mock((name: unknown) =>
       Promise.resolve({
         session: name as string,
@@ -124,12 +124,12 @@ describe("sessionReviewFromParams", () => {
       })
     );
 
-    let getSessionWorkdirSpy = createMock();
+    let getSessionWorkdirSpy = mock();
     getSessionWorkdirSpy = mock((_sessionName: unknown) =>
       Promise.resolve("/fake/path/to/session")
     );
 
-    let execInRepositorySpy = createMock();
+    let execInRepositorySpy = mock();
     execInRepositorySpy = mock((_workdir: unknown, command: unknown) => {
       const cmd = command as string;
       if (cmd.includes("git ls-remote")) {
@@ -161,7 +161,7 @@ describe("sessionReviewFromParams", () => {
     const mockTaskService = createMockTaskService({});
 
     // Add getTaskSpecData method not covered by centralized factory
-    (mockTaskService as any).getTaskSpecData = createMock(() =>
+    (mockTaskService as any).getTaskSpecData = mock(() =>
       Promise.resolve({ title: "Test Task", description: "Test description" })
     );
 
@@ -169,7 +169,7 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    let getCurrentSessionSpy = createMock();
+    let getCurrentSessionSpy = mock();
     getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve("testSession"));
 
     const deps = {
@@ -206,7 +206,7 @@ describe("sessionReviewFromParams", () => {
       isSessionWorkspace: () => false,
     });
 
-    let getCurrentSessionSpy = createMock();
+    let getCurrentSessionSpy = mock();
     getCurrentSessionSpy = mock((_cwd?: unknown) => Promise.resolve(null));
 
     const deps = {
@@ -246,7 +246,7 @@ describe("sessionReviewFromParams", () => {
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
-      getCurrentSession: createMock(() => Promise.resolve("testSession")) as any,
+      getCurrentSession: mock(() => Promise.resolve("testSession")) as any,
     };
 
     // Test with non-existent session

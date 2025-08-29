@@ -25,28 +25,27 @@ import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 
 const sessionRoot = "/Users/edobry/.local/state/minsky/sessions/task-md#423";
 
-// Mock the fs module to prevent actual file operations
-mock.module("fs", () => ({
-  promises: {
+describe("MarkdownTaskBackend - createTask auto-commit", () => {
+  // Mock the fs module to prevent actual file operations
+  mock.module("fs", () => ({
+    promises: {
+      mkdir: mock(async () => {}),
+      writeFile: mock(async () => {}),
+      readFile: mock(async () => "# Tasks\n"),
+      unlink: mock(async () => {}),
+      readdir: mock(async () => []),
+      access: mock(async () => {}),
+    },
+  }));
+
+  mock.module("fs/promises", () => ({
     mkdir: mock(async () => {}),
     writeFile: mock(async () => {}),
     readFile: mock(async () => "# Tasks\n"),
     unlink: mock(async () => {}),
     readdir: mock(async () => []),
     access: mock(async () => {}),
-  },
-}));
-
-mock.module("fs/promises", () => ({
-  mkdir: mock(async () => {}),
-  writeFile: mock(async () => {}),
-  readFile: mock(async () => "# Tasks\n"),
-  unlink: mock(async () => {}),
-  readdir: mock(async () => []),
-  access: mock(async () => {}),
-}));
-
-describe("MarkdownTaskBackend - createTask auto-commit", () => {
+  }));
   const testWorkspace = join(sessionRoot, "tmp", "md-backend-commit-test");
   const tasksDir = join(testWorkspace, "process");
   const tasksFile = join(tasksDir, "tasks.md");

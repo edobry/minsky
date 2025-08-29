@@ -3,6 +3,7 @@
  */
 
 import { describe, it, expect } from "bun:test";
+import { SESSION_TEST_PATTERNS, PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 import {
   addSessionFn,
   deleteSessionFn,
@@ -119,7 +120,7 @@ describe("SessionDB Functional Implementation", () => {
 
     it("should return null if session not found", () => {
       const state = createTestState();
-      const session = getSessionFn(state, "non-existent-session");
+      const session = getSessionFn(state, SESSION_TEST_PATTERNS.NON_EXISTENT_SESSION);
       expect(session).toBeNull();
     });
   });
@@ -183,7 +184,9 @@ describe("SessionDB Functional Implementation", () => {
     it("should not modify state if session not found", () => {
       const state = createTestState();
       const originalSessions = [...state.sessions];
-      const newState = updateSessionFn(state, "non-existent-session", { branch: "new-branch" });
+      const newState = updateSessionFn(state, SESSION_TEST_PATTERNS.NON_EXISTENT_SESSION, {
+        branch: "new-branch",
+      });
       expect(newState.sessions).toEqual(originalSessions);
     });
 
@@ -213,7 +216,7 @@ describe("SessionDB Functional Implementation", () => {
     it("should not modify state if session not found", () => {
       const state = createTestState();
       const originalSessions = [...state.sessions];
-      const newState = deleteSessionFn(state, "non-existent-session");
+      const newState = deleteSessionFn(state, SESSION_TEST_PATTERNS.NON_EXISTENT_SESSION);
       expect(newState.sessions).toEqual(originalSessions);
     });
   });
@@ -223,14 +226,14 @@ describe("SessionDB Functional Implementation", () => {
       const state = createTestState();
       const session = getSessionFn(state, "test-session-1")!;
       const repoPath = getRepoPathFn(state, session);
-      expect(repoPath).toBe("/test/base/dir/sessions/test-session-1");
+      expect(repoPath).toBe(PATH_TEST_PATTERNS.TEST_SESSION_1_PATH);
     });
 
     it("should handle session records with repoPath already set", () => {
       const state = createTestState();
       const session = { ...getSessionFn(state, "test-session-1")!, repoPath: "/custom/path" };
       const repoPath = getRepoPathFn(state, session);
-      expect(repoPath).toBe("/test/base/dir/sessions/test-session-1");
+      expect(repoPath).toBe(PATH_TEST_PATTERNS.TEST_SESSION_1_PATH);
     });
 
     it("should throw error for invalid input", () => {
@@ -243,12 +246,12 @@ describe("SessionDB Functional Implementation", () => {
     it("should return the working directory for a session", () => {
       const state = createTestState();
       const workdir = getSessionWorkdirFn(state, "test-session-1");
-      expect(workdir).toBe("/test/base/dir/sessions/test-session-1");
+      expect(workdir).toBe(PATH_TEST_PATTERNS.TEST_SESSION_1_PATH);
     });
 
     it("should return null if session not found", () => {
       const state = createTestState();
-      const workdir = getSessionWorkdirFn(state, "non-existent-session");
+      const workdir = getSessionWorkdirFn(state, SESSION_TEST_PATTERNS.NON_EXISTENT_SESSION);
       expect(workdir).toBeNull();
     });
   });

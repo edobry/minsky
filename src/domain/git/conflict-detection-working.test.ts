@@ -12,32 +12,31 @@ let mockGitFetchWithTimeout = mock(() => Promise.resolve({ stdout: "", stderr: "
 let mockExecAsyncImpl = () => Promise.resolve({ stdout: "", stderr: "" });
 let mockExecAsync = mock(() => mockExecAsyncImpl());
 
-// Override the imports with mocks
-mock.module("../../utils/git-exec", () => ({
-  execGitWithTimeout: mockExecGitWithTimeout,
-  gitFetchWithTimeout: mockGitFetchWithTimeout,
-}));
-
-// Mock the exec utility that conflict detection actually uses
-mock.module("../../utils/exec", () => ({
-  execAsync: mockExecAsync,
-}));
-
-mock.module("../../utils/logger", () => ({
-  log: {
-    debug: mock(() => {}),
-    info: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-    cli: mock(() => {}), // Fix: Add missing cli function
-    cliWarn: mock(() => {}),
-    cliError: mock(() => {}),
-    cliDebug: mock(() => {}),
-    setLevel: mock(() => {}),
-  },
-}));
-
 describe("ConflictDetectionService", () => {
+  // Override the imports with mocks
+  mock.module("../../utils/git-exec", () => ({
+    execGitWithTimeout: mockExecGitWithTimeout,
+    gitFetchWithTimeout: mockGitFetchWithTimeout,
+  }));
+
+  // Mock the exec utility that conflict detection actually uses
+  mock.module("../../utils/exec", () => ({
+    execAsync: mockExecAsync,
+  }));
+
+  mock.module("../../utils/logger", () => ({
+    log: {
+      debug: mock(() => {}),
+      info: mock(() => {}),
+      warn: mock(() => {}),
+      error: mock(() => {}),
+      cli: mock(() => {}), // Fix: Add missing cli function
+      cliWarn: mock(() => {}),
+      cliError: mock(() => {}),
+      cliDebug: mock(() => {}),
+      setLevel: mock(() => {}),
+    },
+  }));
   const testRepoPath = "/test/repo";
   const sessionBranch = "session-branch";
   const baseBranch = "main";

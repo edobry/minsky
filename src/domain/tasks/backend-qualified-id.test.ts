@@ -1,4 +1,5 @@
 import { describe, it, expect } from "bun:test";
+import { TEST_DATA_PATTERNS } from "../../utils/test-utils/test-constants";
 import {
   type BackendQualifiedId,
   type TaskBackendMeta,
@@ -167,7 +168,7 @@ describe("Git Branch Naming Conversion", () => {
     });
 
     it("should handle complex local IDs", () => {
-      expect(sessionNameToBranchName("task#gh:issue-123")).toBe("task#gh-issue-123");
+      expect(sessionNameToBranchName(TEST_DATA_PATTERNS.TASK_GH_ID)).toBe("task#gh-issue-123");
     });
   });
 
@@ -183,7 +184,7 @@ describe("Git Branch Naming Conversion", () => {
     });
 
     it("should handle complex local IDs", () => {
-      expect(branchNameToSessionName("task#gh-issue-123")).toBe("task#gh:issue-123");
+      expect(branchNameToSessionName("task#gh-issue-123")).toBe(TEST_DATA_PATTERNS.TASK_GH_ID);
     });
   });
 
@@ -194,7 +195,7 @@ describe("Git Branch Naming Conversion", () => {
         "task#gh:456",
         "task#json:789",
         "task#123", // backward compatibility
-        "task#gh:issue-123",
+        TEST_DATA_PATTERNS.TASK_GH_ID,
       ];
 
       for (const sessionName of sessionNames) {

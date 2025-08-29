@@ -7,6 +7,7 @@ const TEST_ARRAY_SIZE = 3;
 
 import { describe, test, expect } from "bun:test";
 import type { TaskData } from "../../types/tasks/taskData";
+import { RULES_TEST_PATTERNS, TEST_DATA_PATTERNS } from "../../utils/test-utils/test-constants";
 import {
   parseTasksFromMarkdown,
   formatTasksToMarkdown,
@@ -332,7 +333,7 @@ This is a test description.
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("Task #TEST_VALUE: Test Task Title");
-      expect(spec.description).toBe("This is a test description.");
+      expect(spec.description).toBe(TEST_DATA_PATTERNS.TEST_DESCRIPTION);
       // The function doesn't extract IDs from titles, so don't expect one
       expect(spec.id).toBeUndefined();
     });
@@ -342,12 +343,12 @@ This is a test description.
 
 ## Context
 
-Description here.
+${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
 `;
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("No ID Task");
-      expect(spec.description).toBe("Description here.");
+      expect(spec.description).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
       expect(spec.id).toBeUndefined();
     });
 
@@ -356,12 +357,12 @@ Description here.
 
 ## Context
 
-Description here.
+${RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER}
 `;
 
       const spec = parseTaskSpecFromMarkdown(markdown);
       expect(spec.title).toBe("Just a general title");
-      expect(spec.description).toBe("Description here.");
+      expect(spec.description).toBe(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
     });
 
     test("should return empty values for invalid input", () => {
@@ -380,24 +381,24 @@ Description here.
     test("should format task spec to markdown with ID", () => {
       const spec = {
         title: "Test Task",
-        description: "This is a test description.",
+        description: TEST_DATA_PATTERNS.TEST_DESCRIPTION,
         id: "#TEST_VALUE",
       };
 
       const markdown = formatTaskSpecToMarkdown(spec);
       expect(markdown).toContain("# Test Task");
-      expect(markdown).toContain("This is a test description.");
+      expect(markdown).toContain(TEST_DATA_PATTERNS.TEST_DESCRIPTION);
     });
 
     test("should format task spec without ID", () => {
       const spec = {
         title: "Test Task Without ID",
-        description: "Description here.",
+        description: RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER,
       };
 
       const markdown = formatTaskSpecToMarkdown(spec);
       expect(markdown).toContain("# Test Task Without ID");
-      expect(markdown).toContain("Description here.");
+      expect(markdown).toContain(RULES_TEST_PATTERNS.DESCRIPTION_PLACEHOLDER);
     });
   });
 

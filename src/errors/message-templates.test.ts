@@ -23,13 +23,14 @@ import {
   type ContextInfo,
   type ErrorTemplate,
 } from "./message-templates";
+import { CLI_COMMANDS, TEST_PATHS } from "../utils/test-utils/test-constants";
 
 // Set up automatic mock cleanup
 setupTestMocks();
 
 describe("Error Message Templates", () => {
   beforeEach(() => {
-    // Mock process.cwd() to return consistent mock directory
+    // Mock TEST_PATHS.MOCK_WORKSPACE to return consistent mock directory
     (process as any).cwd = mock(() => "/mock/projects/minsky");
   });
 
@@ -51,7 +52,7 @@ describe("Error Message Templates", () => {
       const suggestions: CommandSuggestion[] = [
         {
           description: "List all sessions",
-          command: "minsky sessions list",
+          command: CLI_COMMANDS.MINSKY_SESSIONS_LIST,
         },
       ];
 
@@ -63,7 +64,7 @@ describe("Error Message Templates", () => {
       const suggestions: CommandSuggestion[] = [
         {
           description: "List all sessions",
-          command: "minsky sessions list",
+          command: CLI_COMMANDS.MINSKY_SESSIONS_LIST,
           emoji: ErrorEmojis.LIST,
         },
         {
@@ -75,7 +76,7 @@ describe("Error Message Templates", () => {
 
       const result = formatCommandSuggestions(suggestions);
       expect(result).toContain("📋 List all sessions:");
-      expect(result).toContain("minsky sessions list");
+      expect(result).toContain(CLI_COMMANDS.MINSKY_SESSIONS_LIST);
       expect(result).toContain("🆕 Create new session:");
       expect(result).toContain("minsky session start test");
     });
@@ -179,7 +180,7 @@ describe("Error Message Templates", () => {
       const suggestions: CommandSuggestion[] = [
         {
           description: "List sessions",
-          command: "minsky sessions list",
+          command: CLI_COMMANDS.MINSKY_SESSIONS_LIST,
         },
       ];
 
@@ -189,7 +190,7 @@ describe("Error Message Templates", () => {
       expect(result).toContain("The session you're looking for doesn't exist");
       expect(result).toContain("💡 What you can do:");
       expect(result).toContain("List sessions");
-      expect(result).toContain("minsky sessions list");
+      expect(result).toContain(CLI_COMMANDS.MINSKY_SESSIONS_LIST);
     });
   });
 
@@ -339,7 +340,7 @@ describe("Error Message Templates", () => {
 
       expect(context).toHaveLength(1);
       expect(context[0].label).toBe("Current directory");
-      expect(context[0].value).toBe(process.cwd());
+      expect(context[0].value).toBe("/mock/projects/minsky");
     });
 
     test("adds session information", () => {

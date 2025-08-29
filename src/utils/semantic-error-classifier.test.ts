@@ -3,8 +3,10 @@
  * Verifies that filesystem errors are properly converted to semantic errors
  */
 
+import { describe, it, expect } from "bun:test";
 import { SemanticErrorClassifier, ErrorContext } from "./semantic-error-classifier";
 import { SemanticErrorCode } from "../types/semantic-errors";
+import { PATH_TEST_PATTERNS } from "./test-utils/test-constants";
 
 describe("SemanticErrorClassifier", () => {
   describe("classifyError", () => {
@@ -16,7 +18,7 @@ describe("SemanticErrorClassifier", () => {
 
       const context: ErrorContext = {
         operation: "read_file",
-        path: "/path/to/file.txt",
+        path: PATH_TEST_PATTERNS.MOCK_FILE_PATH,
         session: "test-session",
       };
 
@@ -27,7 +29,7 @@ describe("SemanticErrorClassifier", () => {
       expect(result.error).toContain("File not found");
       expect(result.solutions).toContain("Check the file path for typos");
       expect(result.relatedTools).toContain("file_search");
-      expect(result.path).toBe("/path/to/file.txt");
+      expect(result.path).toBe(PATH_TEST_PATTERNS.MOCK_FILE_PATH);
       expect(result.session).toBe("test-session");
     });
 
@@ -160,7 +162,7 @@ describe("SemanticErrorClassifier", () => {
 
       const context: ErrorContext = {
         operation: "write_file",
-        path: "/path/to/file.txt",
+        path: PATH_TEST_PATTERNS.MOCK_FILE_PATH,
         session: "test-session",
         createDirs: false, // This should add extra solution
       };

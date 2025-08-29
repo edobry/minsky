@@ -3,6 +3,8 @@
  * These mocks simulate various HTTP responses from the Morph API
  */
 
+import { NETWORK_CONSTANTS } from "../../../src/utils/test-utils/test-constants";
+
 export interface MockResponse {
   status: number;
   statusText: string;
@@ -17,7 +19,7 @@ export const SUCCESSFUL_EDIT_RESPONSE: MockResponse = {
   status: 200,
   statusText: "OK",
   headers: {
-    "content-type": "application/json",
+    "content-type": NETWORK_CONSTANTS.APPLICATION_JSON,
     "x-ratelimit-remaining": "98",
     "x-ratelimit-limit": "100",
   },
@@ -63,7 +65,7 @@ export const RATE_LIMIT_RESPONSE: MockResponse = {
   status: 429,
   statusText: "Too Many Requests",
   headers: {
-    "content-type": "application/json",
+    "content-type": NETWORK_CONSTANTS.APPLICATION_JSON,
     "retry-after": "60",
     "x-ratelimit-remaining": "0",
     "x-ratelimit-limit": "100",
@@ -82,7 +84,7 @@ export const AUTH_ERROR_RESPONSE: MockResponse = {
   status: 401,
   statusText: "Unauthorized",
   headers: {
-    "content-type": "application/json",
+    "content-type": NETWORK_CONSTANTS.APPLICATION_JSON,
   },
   body: {
     error: {
@@ -100,7 +102,7 @@ export const SERVER_ERROR_RESPONSE: MockResponse = {
   status: 500,
   statusText: "Internal Server Error",
   headers: {
-    "content-type": "application/json",
+    "content-type": NETWORK_CONSTANTS.APPLICATION_JSON,
   },
   body: {
     error: {
@@ -118,7 +120,7 @@ export const BAD_REQUEST_RESPONSE: MockResponse = {
   status: 400,
   statusText: "Bad Request",
   headers: {
-    "content-type": "application/json",
+    "content-type": NETWORK_CONSTANTS.APPLICATION_JSON,
   },
   body: {
     error: {

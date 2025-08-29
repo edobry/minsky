@@ -7,6 +7,12 @@
 const rule = require("./no-unsafe-git-network-operations");
 const { RuleTester } = require("eslint");
 
+// Test constants for consistent string usage
+const GIT_FUNCTIONS = {
+  PUSH_WITH_TIMEOUT: "gitPushWithTimeout",
+  FETCH_WITH_TIMEOUT: "gitFetchWithTimeout",
+};
+
 const ruleTester = new RuleTester({
   languageOptions: {
     ecmaVersion: 2022,
@@ -21,9 +27,9 @@ const ruleTester = new RuleTester({
 ruleTester.run("no-unsafe-git-network-operations", rule, {
   valid: [
     // Safe timeout wrapper functions
-    'await gitPushWithTimeout("origin", "main", { workdir: "/path" });',
+    `await ${GIT_FUNCTIONS.PUSH_WITH_TIMEOUT}("origin", "main", { workdir: "/path" });`,
     'await gitPullWithTimeout("origin", "main", { workdir: "/path" });',
-    'await gitFetchWithTimeout("origin", "main", { workdir: "/path" });',
+    `await ${GIT_FUNCTIONS.FETCH_WITH_TIMEOUT}("origin", "main", { workdir: "/path" });`,
     'await gitCloneWithTimeout("repo", "/path");',
     'await execGitWithTimeout("push", "push origin main", { workdir: "/path" });',
 
@@ -50,7 +56,7 @@ ruleTester.run("no-unsafe-git-network-operations", rule, {
       errors: [
         {
           messageId: "unsafeExecAsync",
-          data: { command: "push", suggestion: "gitPushWithTimeout" },
+          data: { command: "push", suggestion: GIT_FUNCTIONS.PUSH_WITH_TIMEOUT },
         },
       ],
       output: 'await execGitWithTimeout("push", "push origin main", {});',
@@ -70,7 +76,7 @@ ruleTester.run("no-unsafe-git-network-operations", rule, {
       errors: [
         {
           messageId: "unsafeExecAsync",
-          data: { command: "fetch", suggestion: "gitFetchWithTimeout" },
+          data: { command: "fetch", suggestion: GIT_FUNCTIONS.FETCH_WITH_TIMEOUT },
         },
       ],
       output: 'await execGitWithTimeout("fetch", "fetch origin", {});',
@@ -93,7 +99,7 @@ ruleTester.run("no-unsafe-git-network-operations", rule, {
       errors: [
         {
           messageId: "unsafeExecAsync",
-          data: { command: "push", suggestion: "gitPushWithTimeout" },
+          data: { command: "push", suggestion: GIT_FUNCTIONS.PUSH_WITH_TIMEOUT },
         },
       ],
       output: 'await execGitWithTimeout("push", "push origin main", { workdir: "/repo" });',
@@ -103,7 +109,7 @@ ruleTester.run("no-unsafe-git-network-operations", rule, {
       errors: [
         {
           messageId: "unsafeExecAsync",
-          data: { command: "fetch", suggestion: "gitFetchWithTimeout" },
+          data: { command: "fetch", suggestion: GIT_FUNCTIONS.FETCH_WITH_TIMEOUT },
         },
       ],
       output: 'await execGitWithTimeout("fetch", "fetch origin", { workdir: "/repo" });',
@@ -115,7 +121,7 @@ ruleTester.run("no-unsafe-git-network-operations", rule, {
       errors: [
         {
           messageId: "unsafeGitNetworkOp",
-          data: { command: "push", suggestion: "gitPushWithTimeout" },
+          data: { command: "push", suggestion: GIT_FUNCTIONS.PUSH_WITH_TIMEOUT },
         },
       ],
     },
@@ -124,21 +130,21 @@ ruleTester.run("no-unsafe-git-network-operations", rule, {
       errors: [
         {
           messageId: "unsafeGitNetworkOp",
-          data: { command: "fetch", suggestion: "gitFetchWithTimeout" },
+          data: { command: "fetch", suggestion: GIT_FUNCTIONS.FETCH_WITH_TIMEOUT },
         },
       ],
     },
 
     // Missing await on timeout functions
     {
-      code: 'gitPushWithTimeout("origin", "main", { workdir });',
+      code: `${GIT_FUNCTIONS.PUSH_WITH_TIMEOUT}("origin", "main", { workdir });`,
       errors: [
         {
           messageId: "missingAwait",
-          data: { functionName: "gitPushWithTimeout" },
+          data: { functionName: GIT_FUNCTIONS.PUSH_WITH_TIMEOUT },
         },
       ],
-      output: 'await gitPushWithTimeout("origin", "main", { workdir });',
+      output: `await ${GIT_FUNCTIONS.PUSH_WITH_TIMEOUT}("origin", "main", { workdir });`,
     },
     {
       code: 'execGitWithTimeout("fetch", "fetch origin", { workdir });',

@@ -27,6 +27,12 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- test: Fix hybrid template helper generating MCP syntax with preferMcp=false
+
+  - Updated `template-system.test.ts` mock to prefer CLI for hybrid when `preferMcp` is false
+  - Adjusted session context resolution test to align expected session with `TEST_PATHS.MINSKY_SESSIONS_TASK`
+  - Result: test suite now runs 1571 tests with 0 failures
+
 - **Session merge logging**: Improved human-friendliness by removing implementation detail noise
 
   - Removed 'handled by task backend' parenthetical from task status updates

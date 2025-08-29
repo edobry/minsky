@@ -8,11 +8,12 @@ import {
   type MockTaskServiceOptions,
 } from "./dependencies";
 import type { SessionRecord } from "../../domain/session";
+import { TEST_DESC_PATTERNS } from "./test-constants";
 import type { Task } from "../../domain/tasks";
 
 describe("Individual Service Mock Factories", () => {
   describe("createMockSessionProvider", () => {
-    test("creates a mock with default behavior", async () => {
+    test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
       const mockProvider = createMockSessionProvider();
 
       expect(await mockProvider.listSessions()).toEqual([]);
@@ -51,7 +52,7 @@ describe("Individual Service Mock Factories", () => {
       expect(await mockProvider.getSession("nonexistent")).toBeNull();
     });
 
-    test("accepts method overrides", async () => {
+    test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
       const customOptions: MockSessionProviderOptions = {
         getSession: () =>
           Promise.resolve({
@@ -77,7 +78,7 @@ describe("Individual Service Mock Factories", () => {
   });
 
   describe("createMockGitService", () => {
-    test("creates a mock with default behavior", async () => {
+    test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
       const mockService = createMockGitService();
 
       expect(await mockService.clone()).toEqual({
@@ -127,7 +128,7 @@ describe("Individual Service Mock Factories", () => {
       expect((mockService as any).getGitCallCount()).toBe(0);
     });
 
-    test("accepts method overrides", async () => {
+    test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
       const customOptions: MockGitServiceOptions = {
         clone: () =>
           Promise.resolve({
@@ -155,7 +156,7 @@ describe("Individual Service Mock Factories", () => {
   });
 
   describe("createMockTaskService", () => {
-    test("creates a mock with default behavior", async () => {
+    test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
       const mockService = createMockTaskService();
 
       expect(await mockService.getTask("123")).toBeNull();
@@ -198,7 +199,7 @@ describe("Individual Service Mock Factories", () => {
       expect((mockService as any).getWorkspacePath()).toBe("/custom/workspace");
     });
 
-    test("accepts method overrides", async () => {
+    test(TEST_DESC_PATTERNS.ACCEPTS_METHOD_OVERRIDES, async () => {
       const customTask: Task = {
         id: "#custom",
         title: "Custom Task",

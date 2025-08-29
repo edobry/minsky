@@ -129,7 +129,7 @@ describe("Enhanced Test Utilities", () => {
     test("should allow overriding specific methods", () => {
       const deps = createTestDeps({
         sessionDB: {
-          getSession: createMock(() =>
+          getSession: mock(() =>
             Promise.resolve({
               session: "custom-session",
               repoName: "test/repo",
@@ -161,7 +161,7 @@ describe("Enhanced Test Utilities", () => {
         originalDeps,
         {
           sessionDB: {
-            getSession: createMock(() =>
+            getSession: mock(() =>
               Promise.resolve({
                 session: "temp-session",
                 repoName: "temp/repo",

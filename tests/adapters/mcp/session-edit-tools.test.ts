@@ -4,6 +4,11 @@
 import { describe, test, expect, beforeEach, afterEach, spyOn, mock } from "bun:test";
 import { CommandMapper } from "../../../src/mcp/command-mapper";
 import { createMock, setupTestMocks, mockModule } from "../../../src/utils/test-utils/mocking";
+import {
+  DIFF_TEST_CONTENT,
+  UI_TEST_PATTERNS,
+  PATH_TEST_PATTERNS,
+} from "../../../src/utils/test-utils/test-constants";
 // Use mock.module() to mock filesystem operations
 // import { readFile, writeFile } from "fs/promises";
 
@@ -21,7 +26,7 @@ const mockSessionProvider = {
         createdAt: "2024-01-01T00:00:00.000Z",
         taskId: null,
         branch: "main",
-        repoPath: "/tmp/test-session",
+        repoPath: PATH_TEST_PATTERNS.TMP_TEST_SESSION,
         backendType: "local",
         remote: { authMethod: "ssh", depth: 1 },
       });
@@ -50,7 +55,7 @@ mockModule("../../../src/domain/session/session-db-io", () => ({
         createdAt: "2024-01-01T00:00:00.000Z",
         taskId: null,
         branch: "main",
-        repoPath: "/tmp/test-session",
+        repoPath: PATH_TEST_PATTERNS.TMP_TEST_SESSION,
         backendType: "local",
         remote: { authMethod: "ssh", depth: 1 },
       },
@@ -72,7 +77,7 @@ mockModule("../../../src/domain/storage/storage-backend-factory", () => ({
           createdAt: "2024-01-01T00:00:00.000Z",
           taskId: null,
           branch: "main",
-          repoPath: "/tmp/test-session",
+          repoPath: PATH_TEST_PATTERNS.TMP_TEST_SESSION,
           backendType: "local",
           remote: { authMethod: "ssh", depth: 1 },
         });
@@ -208,7 +213,7 @@ describe("Session Edit Tools", () => {
       const result = await mockSessionEditFile({
         sessionName: "test-session",
         path: "new-file.txt",
-        instructions: "Create a new file",
+        instructions: UI_TEST_PATTERNS.CREATE_NEW_FILE,
         content: "Hello world",
       });
 
@@ -217,7 +222,7 @@ describe("Session Edit Tools", () => {
       expect(mockSessionEditFile).toHaveBeenCalledWith({
         sessionName: "test-session",
         path: "new-file.txt",
-        instructions: "Create a new file",
+        instructions: UI_TEST_PATTERNS.CREATE_NEW_FILE,
         content: "Hello world",
       });
     });
@@ -262,13 +267,13 @@ describe("Session Edit Tools", () => {
       test("should return proposed content and diff for existing file in dry-run mode", async () => {
         // Mock existing file content
         mockStat = mock(() => Promise.resolve({ isFile: () => true }));
-        mockReadFile = mock(() => Promise.resolve("line 1\nline 2\nline 3"));
+        mockReadFile = mock(() => Promise.resolve(DIFF_TEST_CONTENT.THREE_LINES));
 
         // Mock the tool handler directly for dry-run testing
         const mockDryRunEditFile = mock(async (args: any) => {
           if (args.dryRun) {
-            const originalContent = "line 1\nline 2\nline 3";
-            const proposedContent = "line 1\nmodified line 2\nline 3";
+            const originalContent = DIFF_TEST_CONTENT.THREE_LINES;
+            const proposedContent = DIFF_TEST_CONTENT.MODIFIED_THREE_LINES;
             return {
               success: true,
               timestamp: new Date().toISOString(),
@@ -295,13 +300,13 @@ describe("Session Edit Tools", () => {
           sessionName: "test-session",
           path: "existing-file.txt",
           instructions: "Modify line 2",
-          content: "line 1\nmodified line 2\nline 3",
+          content: DIFF_TEST_CONTENT.MODIFIED_THREE_LINES,
           dryRun: true,
         });
 
         expect(result.success).toBe(true);
         expect(result.dryRun).toBe(true);
-        expect(result.proposedContent).toBe("line 1\nmodified line 2\nline 3");
+        expect(result.proposedContent).toBe(DIFF_TEST_CONTENT.MODIFIED_THREE_LINES);
         expect(result.diff).toContain("--- file.txt");
         expect(result.diff).toContain("+++ file.txt");
         expect(result.diff).toContain("-line 2");
@@ -322,7 +327,7 @@ describe("Session Edit Tools", () => {
 
         const mockDryRunNewFile = mock(async (args: any) => {
           if (args.dryRun) {
-            const proposedContent = "new file content\nline 2";
+            const proposedContent = UI_TEST_PATTERNS.NEW_FILE_CONTENT;
             return {
               success: true,
               timestamp: new Date().toISOString(),
@@ -348,14 +353,14 @@ describe("Session Edit Tools", () => {
         const result = await mockDryRunNewFile({
           sessionName: "test-session",
           path: "new-file.txt",
-          instructions: "Create a new file",
-          content: "new file content\nline 2",
+          instructions: UI_TEST_PATTERNS.CREATE_NEW_FILE,
+          content: UI_TEST_PATTERNS.NEW_FILE_CONTENT,
           dryRun: true,
         });
 
         expect(result.success).toBe(true);
         expect(result.dryRun).toBe(true);
-        expect(result.proposedContent).toBe("new file content\nline 2");
+        expect(result.proposedContent).toBe(UI_TEST_PATTERNS.NEW_FILE_CONTENT);
         expect(result.diff).toContain("+new file content");
         expect(result.diff).toContain("+line 2");
         expect(result.diffSummary.linesAdded).toBe(2);

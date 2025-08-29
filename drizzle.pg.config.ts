@@ -1,5 +1,6 @@
 import type { Config } from "drizzle-kit";
 import { execSync } from "child_process";
+import { log } from "./src/utils/logger";
 
 // Helper function to get PostgreSQL connection string from Minsky config system
 function getPostgresConnectionString(): string {
@@ -48,6 +49,7 @@ export default {
     "./src/domain/storage/schemas/session-schema.ts",
     "./src/domain/storage/schemas/task-embeddings.ts",
     "./src/domain/storage/schemas/rule-embeddings.ts",
+    "./src/domain/storage/schemas/task-relationships.ts",
   ],
   out: "./src/domain/storage/migrations/pg",
   dialect: "postgresql",

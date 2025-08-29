@@ -1,4 +1,4 @@
-import { describe, test, expect, beforeEach } from "bun:test";
+import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { preparePrFromParams } from "./git";
 import { createMock } from "../utils/test-utils/mocking";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
@@ -16,7 +16,7 @@ describe("Session PR Command Branch Behavior", () => {
     const prBranch = "pr/task#228";
 
     // Mock execAsync to capture all git commands
-    const mockExecAsync = createMock(async (...args: unknown[]) => {
+    const mockExecAsync = mock(async (...args: unknown[]) => {
       const command = args[0] as string;
       gitCommands.push(command);
 
@@ -54,7 +54,7 @@ describe("Session PR Command Branch Behavior", () => {
 
     // Mock session database
     const mockSessionDb = {
-      getSession: createMock(
+      getSession: mock(
         (): Promise<any> =>
           Promise.resolve({
             session: "task#228",
@@ -69,10 +69,10 @@ describe("Session PR Command Branch Behavior", () => {
     const mockDeps = {
       execAsync: mockExecAsync,
       getSession: mockSessionDb.getSession,
-      getSessionWorkdir: createMock(() => "/test/session/workdir"),
-      mkdir: createMock(() => Promise.resolve()),
-      readdir: createMock(() => Promise.resolve(["file1.txt"])),
-      access: createMock(() => Promise.resolve()),
+      getSessionWorkdir: mock(() => "/test/session/workdir"),
+      mkdir: mock(() => Promise.resolve()),
+      readdir: mock(() => Promise.resolve(["file1.txt"])),
+      access: mock(() => Promise.resolve()),
     };
 
     // Execute preparePr which is called by session pr
@@ -134,7 +134,7 @@ describe("Session PR Command Branch Behavior", () => {
     const prBranch = "pr/task#228";
 
     // Mock execAsync to simulate switch-back failure
-    const mockExecAsync = createMock(async (...args: unknown[]) => {
+    const mockExecAsync = mock(async (...args: unknown[]) => {
       const command = args[0] as string;
       // Simulate failure when switching back to session branch
       if (command.includes(`switch ${sessionBranch}`)) {
@@ -154,7 +154,7 @@ describe("Session PR Command Branch Behavior", () => {
 
     // Mock session database
     const mockSessionDb = {
-      getSession: createMock(() =>
+      getSession: mock(() =>
         Promise.resolve({
           session: "task#228",
           repoName: "test-repo",

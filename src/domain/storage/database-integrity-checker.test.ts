@@ -36,10 +36,6 @@ const mockDatabase = {
   })),
 };
 
-mock.module("bun:sqlite", () => ({
-  Database: mock(() => mockDatabase),
-}));
-
 // Test data
 const VALID_JSON_DATA = {
   sessions: [
@@ -120,36 +116,39 @@ const mockFs = {
   }),
 };
 
-// Mock the fs modules
-mock.module("fs", () => ({
-  existsSync: mockFs.existsSync,
-  mkdirSync: mockFs.mkdirSync,
-  rmSync: mockFs.rmSync,
-  writeFileSync: mockFs.writeFileSync,
-  readFileSync: mockFs.readFileSync,
-  statSync: mockFs.statSync,
-  readdirSync: mockFs.readdirSync,
-}));
-
-// Mock os module
-mock.module("os", () => ({
-  tmpdir: mock(() => "/mock/tmp"),
-}));
-
-// Mock path module operations
-mock.module("path", () => ({
-  join: mock((...parts: string[]) => parts.join("/")),
-  dirname: mock((path: string) => {
-    const parts = path.split("/");
-    return parts.slice(0, -1).join("/") || "/";
-  }),
-  basename: mock((path: string) => {
-    const parts = path.split("/");
-    return parts[parts.length - 1] || "";
-  }),
-}));
-
 describe("DatabaseIntegrityChecker", () => {
+  // Mock the fs modules
+  mock.module("fs", () => ({
+    existsSync: mockFs.existsSync,
+    mkdirSync: mockFs.mkdirSync,
+    rmSync: mockFs.rmSync,
+    writeFileSync: mockFs.writeFileSync,
+    readFileSync: mockFs.readFileSync,
+    statSync: mockFs.statSync,
+    readdirSync: mockFs.readdirSync,
+  }));
+
+  // Mock os module
+  mock.module("os", () => ({
+    tmpdir: mock(() => "/mock/tmp"),
+  }));
+
+  // Mock path module operations
+  mock.module("path", () => ({
+    join: mock((...parts: string[]) => parts.join("/")),
+    dirname: mock((path: string) => {
+      const parts = path.split("/");
+      return parts.slice(0, -1).join("/") || "/";
+    }),
+    basename: mock((path: string) => {
+      const parts = path.split("/");
+      return parts[parts.length - 1] || "";
+    }),
+  }));
+  mock.module("bun:sqlite", () => ({
+    Database: mock(() => mockDatabase),
+  }));
+
   let mockDbPath: string;
   let mockBackupDir: string;
 

@@ -17,6 +17,7 @@ import {
 import { TASK_STATUS } from "./taskConstants";
 import type { TaskServiceInterface } from "./taskService";
 import { createMockTaskService } from "../../utils/test-utils/dependencies";
+import { TEST_ENTITIES } from "../../utils/test-utils/test-constants";
 
 import path from "path";
 
@@ -41,7 +42,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
   // Create mock tasks data for dependency injection
   const mockTasks = [
-    { id: "155", title: "Add BLOCKED Status Support", status: TASK_STATUS.BLOCKED },
+    { id: "155", title: TEST_ENTITIES.BLOCKED_TASK_TITLE, status: TASK_STATUS.BLOCKED },
     { id: "156", title: "Some other task", status: TASK_STATUS.TODO },
     { id: "157", title: "In progress task", status: TASK_STATUS.IN_PROGRESS },
     { id: "158", title: "Done task", status: TASK_STATUS.DONE },
@@ -335,7 +336,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockTask = {
         id: "155", // Task 283: Use storage format
-        title: "Add BLOCKED Status Support",
+        title: TEST_ENTITIES.BLOCKED_TASK_TITLE,
         status: TASK_STATUS.BLOCKED,
         description: "This is a test task",
       };
@@ -419,7 +420,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockTask = {
         id: "155", // Task 283: Use storage format
-        title: "Add BLOCKED Status Support",
+        title: TEST_ENTITIES.BLOCKED_TASK_TITLE,
         status: TASK_STATUS.BLOCKED,
       };
 
@@ -468,7 +469,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockTask = {
         id: "155", // Task 283: Use storage format
-        title: "Add BLOCKED Status Support",
+        title: TEST_ENTITIES.BLOCKED_TASK_TITLE,
         status: TASK_STATUS.BLOCKED,
       };
 
@@ -647,7 +648,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockTask = {
         id: "155", // Task 283: Use storage format
-        title: "Add BLOCKED Status Support",
+        title: TEST_ENTITIES.BLOCKED_TASK_TITLE,
         status: TASK_STATUS.BLOCKED,
       };
 
@@ -738,7 +739,7 @@ describe("Interface-Agnostic Task Command Functions", () => {
 
       const mockTask = {
         id: "155", // Task 283: Use storage format
-        title: "Add BLOCKED Status Support",
+        title: TEST_ENTITIES.BLOCKED_TASK_TITLE,
         status: TASK_STATUS.BLOCKED,
       };
 

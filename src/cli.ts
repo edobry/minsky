@@ -14,6 +14,7 @@ import { registerAllSharedCommands } from "./adapters/shared/commands/index";
 import { createMCPCommand } from "./commands/mcp/index";
 import { createGitHubCommand } from "./commands/github/index";
 import { createContextCommand } from "./commands/context/index";
+import { createLintCommand } from "./commands/lint/index";
 import {
   setupCommonCommandCustomizations,
   registerAllCommands,
@@ -49,6 +50,9 @@ export async function createCli(): Promise<Command> {
 
   // Add Context command for AI-powered rule suggestions
   cli.addCommand(createContextCommand());
+
+  // Add Lint command for structured linter issue reporting
+  cli.addCommand(createLintCommand());
 
   // Set error handler
   cli.configureOutput({

@@ -12,6 +12,7 @@
  */
 
 import { describe, test, expect, beforeEach } from "bun:test";
+import { GIT_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 import {
   createPreparedMergeCommitPR,
   type PreparedMergeCommitOptions,
@@ -81,7 +82,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
 
     // Should restore stash at the end
     expect(commandSequence).toContain("stash list");
-    expect(commandSequence).toContain('stash pop "stash@{0}"');
+    expect(commandSequence).toContain(GIT_TEST_PATTERNS.STASH_POP);
   });
 
   test("should skip stashing when no uncommitted changes exist", async () => {
@@ -126,7 +127,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
 
       if (operation === "status") {
         // Simulate uncommitted changes
-        return { stdout: "M  src/file1.ts\n", stderr: "" };
+        return { stdout: GIT_TEST_PATTERNS.GIT_STATUS_MODIFIED, stderr: "" };
       } else if (operation === "merge") {
         // Simulate merge conflict
         throw new Error("CONFLICT (content): Merge conflict in file.txt");
@@ -167,7 +168,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
 
     // Should attempt to restore stash even after error
     expect(commandSequence).toContain("stash list");
-    expect(commandSequence).toContain('stash pop "stash@{0}"');
+    expect(commandSequence).toContain(GIT_TEST_PATTERNS.STASH_POP);
   });
 
   test("should handle stash failures gracefully", async () => {
@@ -176,7 +177,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       gitCommands.push({ operation, command });
 
       if (operation === "status") {
-        return { stdout: "M  src/file1.ts\n", stderr: "" };
+        return { stdout: GIT_TEST_PATTERNS.GIT_STATUS_MODIFIED, stderr: "" };
       } else if (operation === "stash-push") {
         throw new Error("Stash failed - no local changes to save");
       } else {
@@ -206,7 +207,7 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
       gitCommands.push({ operation, command });
 
       if (operation === "status") {
-        return { stdout: "M  src/file1.ts\n", stderr: "" };
+        return { stdout: GIT_TEST_PATTERNS.GIT_STATUS_MODIFIED, stderr: "" };
       } else if (operation === "stash-list") {
         const stashEntries = gitCommands.filter((cmd) => cmd.command.startsWith("stash push -m"));
         if (stashEntries.length > 0) {
@@ -242,6 +243,6 @@ describe("Prepared Merge Commit Workflow - Uncommitted Changes Handling", () => 
 
     // Should have attempted stash restore
     const commandSequence = gitCommands.map((cmd) => cmd.command);
-    expect(commandSequence).toContain('stash pop "stash@{0}"');
+    expect(commandSequence).toContain(GIT_TEST_PATTERNS.STASH_POP);
   });
 });
