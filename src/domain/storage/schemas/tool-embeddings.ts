@@ -7,16 +7,13 @@ const TOOL_EMBEDDINGS_CONFIG = {
   idColumn: "tool_id",
   vectorColumn: "vector",
   indexedAtColumn: "indexed_at",
-  domainColumns: {
-    // Tool-specific columns for server-side filtering
-    category: text("category").notNull(), // CommandCategory enum as text
-    description: text("description").notNull(),
-  },
+  // No domain-specific columns for now - use metadata JSONB for filtering
+  // domainColumns: {},
 };
 
-// Drizzle schema for tool embeddings (vectors + denormalized filter columns)
+// Drizzle schema for tool embeddings (vectors only)
 // Uses standardized embeddings schema factory for consistency with tasks_embeddings and rules_embeddings
-// Includes denormalized category and description columns for server-side filtering
+// Uses metadata JSONB for filtering instead of separate domain columns
 export const toolEmbeddingsTable = createEmbeddingsTable(TOOL_EMBEDDINGS_CONFIG);
 
 // Export configuration for use in services

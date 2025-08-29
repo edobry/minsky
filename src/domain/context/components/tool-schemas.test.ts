@@ -237,6 +237,39 @@ describe("ToolSchemasComponent", () => {
     });
   });
 
+  describe("query-aware filtering behavior", () => {
+    it("should disable query filtering when custom registry is provided (test mode)", async () => {
+      const input: ComponentInput = {
+        ...mockComponentInput,
+        userQuery: "debug failing tests", // Query is provided
+        commandRegistry: testRegistry, // Custom registry disables query filtering
+      };
+
+      const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
+
+      // Should NOT filter by query when custom registry is provided
+      expect(gatheredInputs.filteredBy).not.toBe("user-query");
+      expect(gatheredInputs.filteredBy).toBe("all-tools"); // Shows all tools from registry
+      expect(gatheredInputs.totalTools).toBeGreaterThan(10); // Should have all test registry tools
+      expect(gatheredInputs.reductionPercentage).toBeUndefined(); // No reduction applied
+    });
+
+    it("should include all tools from custom registry regardless of query", async () => {
+      const input: ComponentInput = {
+        ...mockComponentInput,
+        userQuery: "very specific query that wouldn't match test commands",
+        commandRegistry: testRegistry,
+      };
+
+      const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
+
+      // Should include all tools from test registry, not filtered by query
+      expect(gatheredInputs.totalTools).toBeGreaterThan(15); // All test commands + registered rules
+      expect(Object.keys(gatheredInputs.toolSchemas)).toContain("rules.list");
+      expect(Object.keys(gatheredInputs.toolSchemas)).toContain("test.command1");
+    });
+  });
+
   describe("error handling", () => {
     it("should handle component errors gracefully", () => {
       const mockInputs = {

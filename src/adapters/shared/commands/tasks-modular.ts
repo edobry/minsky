@@ -14,17 +14,11 @@ import {
   createTasksDeleteCommand,
 } from "./tasks/crud-commands";
 import { createTasksSpecCommand } from "./tasks/spec-command";
-import {
-  createTasksStatusGetCommand,
-  createTasksStatusSetCommand,
-} from "./tasks/status-commands";
+import { createTasksStatusGetCommand, createTasksStatusSetCommand } from "./tasks/status-commands";
 import { createTasksEditCommand } from "./tasks/edit-commands";
 import { createMigrateTasksCommand } from "./tasks/migrate-command";
 import { createTasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
-import {
-  TasksSimilarCommand,
-  TasksSearchCommand,
-} from "./tasks/similarity-commands";
+import { TasksSimilarCommand, TasksSearchCommand } from "./tasks/similarity-commands";
 import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command";
 import {
   createTasksDepsAddCommand,
