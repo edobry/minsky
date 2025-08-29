@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { DatabaseConnectionManager } from "../../../domain/database/connection-manager";
-import { TaskGraphService } from "../../../domain/tasks/task-graph-service";
+import { DatabaseConnectionManager } from "../../../../domain/database/connection-manager";
+import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 
 const AddParams = z.object({ task: z.string(), dependsOn: z.string() });
 const RmParams = z.object({ task: z.string(), dependsOn: z.string() });

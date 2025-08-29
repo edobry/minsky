@@ -7,6 +7,30 @@
 import { sharedCommandRegistry } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "../../../utils/logger";
+import {
+  createTasksListCommand,
+  createTasksGetCommand,
+  createTasksCreateCommand,
+  createTasksDeleteCommand,
+} from "./tasks/crud-commands";
+import { createTasksSpecCommand } from "./tasks/spec-command";
+import {
+  createTasksStatusGetCommand,
+  createTasksStatusSetCommand,
+} from "./tasks/status-commands";
+import { createTasksEditCommand } from "./tasks/edit-commands";
+import { createMigrateTasksCommand } from "./tasks/migrate-command";
+import { createTasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
+import {
+  TasksSimilarCommand,
+  TasksSearchCommand,
+} from "./tasks/similarity-commands";
+import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command";
+import {
+  createTasksDepsAddCommand,
+  createTasksDepsRmCommand,
+  createTasksDepsListCommand,
+} from "./tasks/deps-commands";
 
 /**
  * Modular Tasks Command Manager
@@ -19,41 +43,9 @@ export class ModularTasksCommandManager {
    * Register all task commands in the shared command registry
    */
   registerAllCommands(): void {
-    // Register a basic tasks command using require to avoid circular dependencies
+    // Register all tasks commands using static imports
     try {
       log.debug("[ModularTasksCommandManager] Starting registerAllCommands");
-
-      log.debug("[ModularTasksCommandManager] Requiring crud-commands");
-      const { createTasksListCommand } = require("./tasks/crud-commands");
-      const { createTasksGetCommand } = require("./tasks/crud-commands");
-      const { createTasksCreateCommand } = require("./tasks/crud-commands");
-      const { createTasksDeleteCommand } = require("./tasks/crud-commands");
-
-      log.debug("[ModularTasksCommandManager] Requiring spec-command");
-      const { createTasksSpecCommand } = require("./tasks/spec-command");
-
-      log.debug("[ModularTasksCommandManager] Requiring status-commands");
-      const { createTasksStatusGetCommand } = require("./tasks/status-commands");
-      const { createTasksStatusSetCommand } = require("./tasks/status-commands");
-
-      log.debug("[ModularTasksCommandManager] Requiring edit-commands");
-      const { createTasksEditCommand } = require("./tasks/edit-commands");
-
-      log.debug("[ModularTasksCommandManager] Requiring migrate-command");
-      const { createMigrateTasksCommand } = require("./tasks/migrate-command");
-
-      log.debug("[ModularTasksCommandManager] Requiring migrate-backend-command");
-      const { createTasksMigrateBackendCommand } = require("./tasks/migrate-backend-command");
-
-      // Similarity + embeddings indexing commands
-      log.debug("[ModularTasksCommandManager] Requiring similarity and index-embeddings commands");
-      const { TasksSimilarCommand, TasksSearchCommand } = require("./tasks/similarity-commands");
-      const { TasksIndexEmbeddingsCommand } = require("./tasks/index-embeddings-command");
-
-      log.debug("[ModularTasksCommandManager] Requiring deps-commands");
-      const { createTasksDepsAddCommand } = require("./tasks/deps-commands");
-      const { createTasksDepsRmCommand } = require("./tasks/deps-commands");
-      const { createTasksDepsListCommand } = require("./tasks/deps-commands");
 
       // Create command instances to get their parameter definitions
       log.debug("[ModularTasksCommandManager] Creating command instances");
