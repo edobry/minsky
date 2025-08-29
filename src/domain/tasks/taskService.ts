@@ -19,6 +19,7 @@ import { createMinskyTaskBackend } from "./minskyTaskBackend";
 import { createGitHubIssuesTaskBackend } from "./githubIssuesTaskBackend";
 import { getGitHubBackendConfig } from "./githubBackendConfig";
 import { createTaskService } from "./multi-backend-service";
+import { TaskBackend } from "../configuration/backend-detection";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
@@ -39,9 +40,9 @@ export async function createConfiguredTaskService(options: {
   // If specific backend requested, only register that backend
   if (options.backend) {
     switch (options.backend) {
-      case "markdown": {
+      case TaskBackend.MARKDOWN: {
         const markdownBackend = createMarkdownTaskBackend({
-          name: "markdown",
+          name: TaskBackend.MARKDOWN,
           workspacePath: options.workspacePath,
         });
         (markdownBackend as any).prefix = "md";
@@ -49,9 +50,9 @@ export async function createConfiguredTaskService(options: {
         break;
       }
 
-      case "json-file": {
+      case TaskBackend.JSON_FILE: {
         const jsonBackend = createJsonFileTaskBackend({
-          name: "json-file",
+          name: TaskBackend.JSON_FILE,
           workspacePath: options.workspacePath,
         });
         (jsonBackend as any).prefix = "json";
@@ -59,7 +60,7 @@ export async function createConfiguredTaskService(options: {
         break;
       }
 
-      case "github": {
+      case TaskBackend.GITHUB: {
         const config = getGitHubBackendConfig(options.workspacePath, { logErrors: true });
         if (!config || !config.githubToken || !config.owner || !config.repo) {
           throw new Error(
@@ -67,7 +68,7 @@ export async function createConfiguredTaskService(options: {
           );
         }
         const githubBackend = createGitHubIssuesTaskBackend({
-          name: "github",
+          name: TaskBackend.GITHUB,
           workspacePath: options.workspacePath,
           githubToken: config.githubToken,
           owner: config.owner,
@@ -80,12 +81,12 @@ export async function createConfiguredTaskService(options: {
         break;
       }
 
-      case "minsky": {
+      case TaskBackend.MINSKY: {
         try {
           const { createDatabaseConnection } = await import("../database/connection-manager");
           const db = await createDatabaseConnection();
           const minskyBackend = createMinskyTaskBackend({
-            name: "minsky",
+            name: TaskBackend.MINSKY,
             workspacePath: options.workspacePath,
             db,
           });
