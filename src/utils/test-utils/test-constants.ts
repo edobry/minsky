@@ -187,6 +187,10 @@ export const RULES_TEST_PATTERNS = {
   GENERIC_ONLY_RULE: "generic-only-rule",
   CURSOR_RULE_CONTENT: "Cursor rule content",
   GENERIC_RULE_CONTENT: "Generic rule content",
+  WORKSPACE_RULES_PATH: "./workspace-rules",
+  ENHANCED_SUGGESTION: "enhanced-suggestion",
+  AGENT_RULE_REACT: "agent-rule-react",
+  AGENT_RULE_SECURITY: "agent-rule-security",
 } as const;
 
 // Test data patterns
@@ -202,6 +206,11 @@ export const CONFIG_TEST_PATTERNS = {
   OPENAI_MODEL_PATH: "ai.providers.openai.model",
 } as const;
 
+// Database patterns
+export const DB_TEST_PATTERNS = {
+  TASKS_EMBEDDINGS_TABLE: "tasks_embeddings",
+} as const;
+
 // File path patterns
 export const PATH_TEST_PATTERNS = {
   TASK_MD_001: "process/tasks/001-test-task.md",
@@ -212,6 +221,8 @@ export const PATH_TEST_PATTERNS = {
   TEST_SESSION_PATH: "/test/minsky/sessions/test-session",
   TEST_SESSION_1_PATH: "/test/base/dir/sessions/test-session-1",
   ETC_PASSWD_PATH: "../../../etc/passwd",
+  BUTTON_COMPONENT_PATH: "src/components/Button.tsx",
+  POSTGRES_VECTOR_PATH: "../../../../src/domain/storage/vector/postgres-vector-storage",
 } as const;
 
 // Code comment patterns
