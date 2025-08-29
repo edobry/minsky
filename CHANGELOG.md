@@ -327,7 +327,7 @@ All notable changes to this project will be documented in this file.
 - **Similarity Threshold Default**: Removed overly strict default threshold that could filter out all results. If no threshold is provided, the search now uses a permissive default so matches are shown.
 - Task md#425: Suppress [DEBUG] logs during `session start` unless debug is explicitly enabled. Replaced unguarded console logs with `log.debug(...)` in `startSessionFromParams` so they are hidden by default.
 - **CLI stdout/stderr routing**: Normal command output now prints to stdout rather than stderr. `minsky tasks list` and similar commands write human-readable output to stdout; warnings/errors remain on stderr. Adjusted logger configuration in `src/utils/logger.ts` and `src/domain/utils/logger.ts` to keep only non-info levels on stderr.
-- **Session PR List Output**: `minsky session pr list` now prints clean, human-friendly lines (no ASCII table). Shows `PR #<num> <status> - <title>` with session/task/updated info; `--verbose` adds branch and URL. `--json` remains structured.
+- **Session PR List Output**: `minsky session pr list` now prints clean, human-friendly lines (no ASCII table). Shows `PR #<num> [status] <title>` with session/task/updated info; `--verbose` adds branch and URL. `--json` remains structured.
   - Refined to a compact, high signal format: `#<num> [status] <title>  (s:<session>, t:<task>, <relative time>)`. `--verbose` adds indented `branch` and `url` lines. `--json` unchanged.
   - Harmonized title line with `session pr get` so both now render: `🟢 [feat] [md#123] Title text [#89]`. Removed redundant `PR #<num>` and `Backend:` labels from list details as they are already evident.
 - tasks: `minsky tasks list` now correctly displays task IDs again. Restored ID rendering by enhancing `formatTaskIdForDisplay` to handle legacy (`#123`) and numeric (`123`) IDs, outputting qualified `md#NNN` in CLI list output. See commit 26d958bf3.
@@ -483,3 +483,16 @@ All notable changes to this project will be documented in this file.
 - similarity(core): Extract generic `SimilaritySearchService` with pluggable backends (embeddings → ai → lexical, fallback only on unavailability). Introduced shared types (`src/domain/similarity/types.ts`), core orchestrator (`similarity-search-service.ts`), and backends (`backends/embeddings-backend.ts`, `backends/lexical-backend.ts`, AI backend scaffold). Wired `TaskSimilarityService` to delegate to the core via resolvers. No behavior change in CLI output; prepares for future md#446 reranking without config changes.
 
 - md#447 (spec): Finalize semantics: embeddings → ai → lexical; fallback only on unavailability; remove thresholds (top-k per backend); reserve rerank hook for md#446 (design only). Kept CLI stable; delegate tasks/rules flows to the core internally.
+
+### Added
+
+- result-handling(utils): Introduced shared filters and sort utilities for list/get commands
+  - New module at `src/utils/result-handling/filters.ts` providing `parseStatusFilter`, `parseBackendFilter`, `parseTime`, `filterByStatus`, `filterByBackend`, and `filterByTimeRange`
+  - New module at `src/utils/result-handling/sort.ts` providing `byUpdated`, `byCreated`, and `byNumber` comparators
+  - Unit tests at `tests/utils/result-handling/filters.test.ts`
+
+### Changed
+
+- session.pr list/get: Refactored to use shared result-handling utilities for consistent filtering semantics
+  - Centralized parsing of status/backend/time filters
+  - No behavior regression; JSON and human outputs unchanged
