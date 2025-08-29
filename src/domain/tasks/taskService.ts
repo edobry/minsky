@@ -109,7 +109,7 @@ export async function createConfiguredTaskService(options: {
     // No specific backend requested - register all available backends for multi-backend mode
     try {
       const markdownBackend = createMarkdownTaskBackend({
-        name: "markdown",
+        name: TaskBackend.MARKDOWN,
         workspacePath: options.workspacePath,
       });
       // Add prefix property for multi-backend routing
@@ -117,7 +117,7 @@ export async function createConfiguredTaskService(options: {
       service.registerBackend(markdownBackend);
 
       const jsonBackend = createJsonFileTaskBackend({
-        name: "json-file",
+        name: TaskBackend.JSON_FILE,
         workspacePath: options.workspacePath,
       });
       (jsonBackend as any).prefix = "json";
@@ -128,7 +128,7 @@ export async function createConfiguredTaskService(options: {
         const config = getGitHubBackendConfig(options.workspacePath, { logErrors: false });
         if (config && config.githubToken && config.owner && config.repo) {
           const githubBackend = createGitHubIssuesTaskBackend({
-            name: "github",
+            name: TaskBackend.GITHUB,
             workspacePath: options.workspacePath,
             githubToken: config.githubToken,
             owner: config.owner,
@@ -150,7 +150,7 @@ export async function createConfiguredTaskService(options: {
         const db = await createDatabaseConnection();
 
         const minskyBackend = createMinskyTaskBackend({
-          name: "minsky",
+          name: TaskBackend.MINSKY,
           workspacePath: options.workspacePath,
           db,
         });
@@ -173,7 +173,7 @@ export async function createConfiguredTaskService(options: {
           error: getErrorMessage(error as any),
         });
         // Fallback to 'minsky' if config system fails
-        (service as any).setDefaultBackend("minsky");
+        (service as any).setDefaultBackend(TaskBackend.MINSKY);
       }
     } catch (error) {
       log.warn("Failed to register some backends", { error: getErrorMessage(error as any) });

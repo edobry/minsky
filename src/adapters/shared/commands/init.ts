@@ -8,6 +8,7 @@ import {
   type CommandParameterMap,
 } from "../command-registry";
 import { initializeProjectFromParams } from "../../../domain/init";
+import { TaskBackend } from "../../../domain/configuration/backend-detection";
 import { log } from "../../../utils/logger";
 import { ValidationError } from "../../../errors/index";
 import { CommonParameters, composeParams } from "../common-parameters";
@@ -89,18 +90,18 @@ export function registerInitCommands() {
           // Check if we're in an interactive environment
           if (!process.stdout.isTTY) {
             throw new ValidationError(
-              "Backend parameter is required in non-interactive mode. Use --backend to specify: markdown, json-file, or github-issues"
+              `Backend parameter is required in non-interactive mode. Use --backend to specify: ${TaskBackend.MARKDOWN}, ${TaskBackend.JSON_FILE}, or ${TaskBackend.GITHUB_ISSUES}`
             );
           }
 
           const selectedBackend = await select({
             message: "Select a task backend:",
             options: [
-              { value: "json-file", label: "JSON File (recommended for new projects)" },
-              { value: "markdown", label: "Markdown (for existing tasks.md workflows)" },
-              { value: "github-issues", label: "GitHub Issues (for GitHub integration)" },
+              { value: TaskBackend.JSON_FILE, label: "JSON File (recommended for new projects)" },
+              { value: TaskBackend.MARKDOWN, label: "Markdown (for existing tasks.md workflows)" },
+              { value: TaskBackend.GITHUB_ISSUES, label: "GitHub Issues (for GitHub integration)" },
             ],
-            initialValue: "json-file",
+            initialValue: TaskBackend.JSON_FILE,
           });
 
           if (isCancel(selectedBackend)) {
@@ -115,7 +116,7 @@ export function registerInitCommands() {
         let githubOwner = params.githubOwner;
         let githubRepo = params.githubRepo;
 
-        if (backend === "github-issues") {
+        if (backend === TaskBackend.GITHUB_ISSUES) {
           if (!githubOwner) {
             if (!process.stdout.isTTY) {
               throw new ValidationError(
@@ -297,7 +298,7 @@ export function registerInitCommands() {
         // TODO: Handle GitHub-specific configuration when github-issues backend is selected
         // This would involve setting up GitHub API configuration, but that's not implemented yet
         // For now, we proceed with the basic initialization
-        if (backend === "github-issues") {
+        if (backend === TaskBackend.GITHUB_ISSUES) {
           log.debug("GitHub Issues backend selected", { githubOwner, githubRepo });
           // Future: Set up GitHub API configuration, webhooks, etc.
         }
