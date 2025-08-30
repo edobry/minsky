@@ -3,7 +3,7 @@
  * @migrated Extracted from cli-command-factory.ts for focused responsibility
  */
 
-import { TaskBackend } from "../../domain/configuration/backend-detection";
+import { TaskBackend } from "../../../domain/configuration/backend-detection";
 
 /**
  * Get display name for backend type
