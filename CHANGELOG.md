@@ -496,3 +496,14 @@ All notable changes to this project will be documented in this file.
 - session.pr list/get: Refactored to use shared result-handling utilities for consistent filtering semantics
   - Centralized parsing of status/backend/time filters
   - No behavior regression; JSON and human outputs unchanged
+
+### Changed
+
+- tasks.list: Added optional `since`/`until` time window filters (absolute YYYY-MM-DD or relative like 7d/24h/30m) using shared utilities
+- session.list/session.get: Added optional `since`/`until` filters evaluated against `createdAt`
+- rules.list: Added optional `since`/`until` filtering using file modification time as proxy for updated timestamp; uses shared utilities
+
+### Notes
+
+- Filtering semantics standardized via `src/utils/result-handling/filters.ts` across list/get commands
+- Where native timestamps are unavailable (rules), mtime is used as a pragmatic proxy

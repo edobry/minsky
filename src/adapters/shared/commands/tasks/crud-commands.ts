@@ -71,13 +71,23 @@ export class TasksListCommand extends BaseTaskCommand {
     this.debug(`Context format: ${ctx.format}, params.json: ${params.json}`);
 
     // List tasks with filters
-    const tasks = await listTasksFromParams({
+    let tasks = await listTasksFromParams({
       ...this.createTaskParams(params),
       all: params.all,
       status: params.status,
       filter: params.filter,
       limit: params.limit,
     });
+
+    // Apply shared filters for backend/time at adapter level (until domain exposes them)
+    try {
+      const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
+      const sinceTs = parseTime((params as any).since);
+      const untilTs = parseTime((params as any).until);
+      tasks = filterByTimeRange(tasks, sinceTs, untilTs);
+    } catch {
+      // If utilities unavailable, skip
+    }
 
     this.debug(`Found ${tasks.length} tasks`);
     const wantJson = params.json || ctx.format === "json";

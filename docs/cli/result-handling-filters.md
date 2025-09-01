@@ -17,12 +17,30 @@ This document standardizes filter and time parsing semantics for list/get style 
   - `byCreated(direction)` — comparator for `createdAt`
   - `byNumber(direction)` — comparator for numeric `number`
 
-## Adoption
+## Adopting Commands
 
-- `sessionPrList` and `sessionPrGet` now use these utilities for consistent behavior:
-  - Status: comma-separated values or `all`
-  - Backend: `github|remote|local`
-  - Time: `YYYY-MM-DD` or relative `d/h/m`
+- session.pr list/get (already adopted)
+- tasks.list: supports `--since`/`--until`
+- session.list/session.get: support `--since`/`--until` (applied to `createdAt`)
+- rules.list: supports `--since`/`--until` (applies to file mtime proxy)
+
+## Examples
+
+```bash
+# Tasks updated in last 7 days (relative)
+minsky tasks list --since 7d --json
+
+# Sessions created in August 2024 (absolute dates)
+minsky session list --since 2024-08-01 --until 2024-08-31 --json
+
+# Rules modified in the last year
+minsky rules list --since 365d --json
+```
+
+Behavior details:
+- `--since/--until` accept YYYY-MM-DD or relative durations (Nd/Nh/Nm)
+- When both provided, items must fall within the inclusive range
+- For rules, mtime is used as `updatedAt` proxy until domain timestamps are available
 
 ## Guidance
 
@@ -33,4 +51,3 @@ This document standardizes filter and time parsing semantics for list/get style 
 ## Tests
 
 - `tests/utils/result-handling/filters.test.ts` covers parsers and predicates
-

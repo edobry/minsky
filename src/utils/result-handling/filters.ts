@@ -63,7 +63,7 @@ export function parseTime(value?: string | null): number | null {
 // Generic item types used by filters
 export interface HasStatus { status?: string }
 export interface HasBackend { backendType?: string }
-export interface HasUpdatedAt { updatedAt?: string }
+export interface HasUpdatedAt { updatedAt?: string | Date }
 
 export function filterByStatus<T extends HasStatus>(items: T[], statuses: Set<string> | null): T[] {
 	if (!statuses) return items;
@@ -83,7 +83,7 @@ export function filterByTimeRange<T extends HasUpdatedAt>(
 	if (sinceTs === null && untilTs === null) return items;
 	return items.filter((item) => {
 		if (!item.updatedAt) return false;
-		const ts = Date.parse(item.updatedAt);
+		const ts = item.updatedAt instanceof Date ? item.updatedAt.getTime() : Date.parse(item.updatedAt as string);
 		if (Number.isNaN(ts)) return false;
 		if (sinceTs !== null && ts < sinceTs) return false;
 		if (untilTs !== null && ts > untilTs) return false;

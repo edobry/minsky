@@ -69,6 +69,16 @@ export const commonSessionParams = {
 export const sessionListCommandParams = {
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  since: {
+    schema: z.string(),
+    description: "Only include sessions created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false,
+  },
+  until: {
+    schema: z.string(),
+    description: "Only include sessions created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false,
+  },
 };
 
 /**
@@ -79,6 +89,16 @@ export const sessionGetCommandParams = {
   task: commonSessionParams.task,
   repo: commonSessionParams.repo,
   json: commonSessionParams.json,
+  since: {
+    schema: z.string(),
+    description: "Only match if session created on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false,
+  },
+  until: {
+    schema: z.string(),
+    description: "Only match if session created on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false,
+  },
 };
 
 /**
