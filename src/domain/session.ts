@@ -221,16 +221,15 @@ export async function startSessionFromParams(
 
   // Map to proper types expected by startSessionImpl
   const sessionStartParams = {
-    name: params.sessionName, // Can be undefined, will be auto-generated
-    task: params.taskId,
-    description: (params as any).description || "", // Support auto-task creation
-    branch: "main", // Default branch
-    packageManager: "bun" as const, // Default package manager
-    skipInstall: true, // Skip by default in tests
-    noStatusUpdate: false,
-    quiet: false,
-    // Add repository path if the schema supports it
-    repositoryPath: params.repositoryPath,
+    name: params.name, // Can be undefined, will be auto-generated
+    task: params.task,
+    description: params.description || "", // Support auto-task creation
+    branch: params.branch, // Use provided branch or let it default to session name
+    packageManager: params.packageManager || "bun", // Default package manager
+    skipInstall: params.skipInstall || false,
+    noStatusUpdate: params.noStatusUpdate || false,
+    quiet: params.quiet || false,
+    repo: params.repo, // Repository path
   };
 
   return startSessionImpl(sessionStartParams, deps);

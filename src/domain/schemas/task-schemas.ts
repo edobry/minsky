@@ -5,6 +5,7 @@
  * across CLI, MCP, and API interfaces.
  */
 import { z } from "zod";
+import { TaskStatus } from "../tasks/taskConstants";
 import {
   TaskIdSchema,
   QualifiedTaskIdSchema,
@@ -28,15 +29,9 @@ import {
 
 /**
  * Task status schema - used across all interfaces
+ * Uses the TaskStatus enum for type safety and consistency
  */
-export const TaskStatusSchema = z.enum([
-  "TODO",
-  "IN-PROGRESS",
-  "IN-REVIEW",
-  "DONE",
-  "BLOCKED",
-  "CLOSED",
-]);
+export const TaskStatusSchema = z.nativeEnum(TaskStatus);
 
 /**
  * Task priority schema - used across all interfaces
@@ -356,7 +351,6 @@ export const TaskStatusResponseSchema = z.union([
 // TYPE EXPORTS
 // ========================
 
-export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 export type TaskPriority = z.infer<typeof TaskPrioritySchema>;
 export type TaskTitle = z.infer<typeof TaskTitleSchema>;
 export type TaskDescription = z.infer<typeof TaskDescriptionSchema>;

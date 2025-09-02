@@ -2,7 +2,9 @@ import type { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput
 import type { Rule } from "../../rules/types";
 import { suggestRules, groupRulesByType } from "../../rules/rule-suggestion-enhanced";
 import { createRuleSimilarityService } from "../../rules/rule-similarity-service";
-import { log } from "../../../utils/logger";
+import { createLogger } from "../../../utils/logger";
+
+const log = createLogger("workspace-rules");
 
 /**
  * Workspace Rules Component

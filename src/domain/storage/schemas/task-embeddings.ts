@@ -1,17 +1,14 @@
 import { pgTable, text, integer, timestamp, index, pgEnum } from "drizzle-orm/pg-core";
 import { vector } from "drizzle-orm/pg-core";
+import { TaskStatus } from "../../tasks/taskConstants";
 import { enumSchemas } from "../../configuration/schemas/base";
 import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
 
-// Enumerated task status matching markdown backend
-export const taskStatusEnum = pgEnum("task_status", [
-  "TODO",
-  "IN-PROGRESS",
-  "IN-REVIEW",
-  "DONE",
-  "BLOCKED",
-  "CLOSED",
-]);
+// Enumerated task status using centralized TaskStatus enum
+export const taskStatusEnum = pgEnum(
+  "task_status",
+  Object.values(TaskStatus) as [string, ...string[]]
+);
 
 // Enumerated backend type (reuse centralized backend type values)
 const BACKEND_VALUES = enumSchemas.backendType.options as [string, ...string[]];

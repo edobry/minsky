@@ -21,7 +21,7 @@ export function createContextCommand(): Command {
       `
 Context Management:
   suggest-rules    Get AI-powered rule suggestions for your current task
-  generate         Generate AI context using modular components with optional analysis
+  generate         Generate AI context using modular components with optional analysis and visualization
 
 Examples:
   minsky context suggest-rules "I need to fix a bug"
@@ -31,6 +31,13 @@ Examples:
   minsky context generate --compare-models gpt-4,claude-3-5-sonnet  # Cross-model comparison
   minsky context generate --output /tmp/test-context.txt
 
+  # Visualization examples (integrated into generate command)
+  minsky context generate --visualize                  # Generate context with bar chart
+  minsky context generate --visualize-only --chart-type pie  # Only show pie chart
+  minsky context generate --visualize --show-details   # Visualization with detailed breakdown
+  minsky context generate --compare-models gpt-4,claude-3-5-sonnet --visualize  # Compare with charts
+  minsky context generate --csv                        # CSV output for spreadsheets
+
 The context command helps you understand and optimize the information
 available to AI assistants for better collaboration.
 `
@@ -39,9 +46,6 @@ available to AI assistants for better collaboration.
   // Add subcommands
   contextCmd.addCommand(createSuggestRulesCommand());
   contextCmd.addCommand(createGenerateCommand());
-
-  // Future: Add visualize command from Task 082
-  // contextCmd.addCommand(createVisualizeCommand());
 
   return contextCmd;
 }

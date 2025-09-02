@@ -13,12 +13,23 @@ import {
   createConfiguredTaskService,
   TaskServiceInterface,
 } from "../../../../domain/tasks/taskService";
-import { _backendDetectionService } from "../../../../domain/configuration/backend-detection";
+import {
+  _backendDetectionService,
+  TaskBackend,
+} from "../../../../domain/configuration/backend-detection";
 import { updateSessionTaskAssociation } from "../../../../domain/session/session-task-association";
 
+// Supported backends for migration (subset of TaskBackend)
+const MIGRATION_BACKENDS = [
+  TaskBackend.MARKDOWN,
+  TaskBackend.MINSKY,
+  TaskBackend.GITHUB,
+  TaskBackend.JSON_FILE,
+] as const;
+
 const migrateBackendParamsSchema = z.object({
-  from: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
-  to: z.enum(["markdown", "minsky", "github", "json-file"]),
+  from: z.enum(MIGRATION_BACKENDS).optional(),
+  to: z.enum(MIGRATION_BACKENDS),
   execute: z.boolean().optional().default(false),
   limit: z.number().int().positive().optional(),
   filterStatus: z.string().optional(),
@@ -32,16 +43,15 @@ export type MigrateBackendParams = z.infer<typeof migrateBackendParamsSchema>;
 export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendParams, any> {
   readonly id = "tasks.migrate-backend";
   readonly name = "migrate-backend";
-  readonly description =
-    "Migrate tasks between different backends (markdown, minsky, github, json-file)";
+  readonly description = `Migrate tasks between different backends (${MIGRATION_BACKENDS.join(", ")})`;
   readonly parameters = {
     from: {
-      schema: z.enum(["markdown", "minsky", "github", "json-file"]).optional(),
+      schema: z.enum(MIGRATION_BACKENDS).optional(),
       description: "Source backend (auto-detect if not provided)",
       required: false,
     },
     to: {
-      schema: z.enum(["markdown", "minsky", "github", "json-file"]),
+      schema: z.enum(MIGRATION_BACKENDS),
       description: "Target backend",
       required: true,
     },
@@ -374,7 +384,7 @@ export class TasksMigrateBackendCommand extends BaseTaskCommand<MigrateBackendPa
 
         // In verbose mode, show more context but never raw stack traces
         if (process.env.MINSKY_VERBOSE === "true") {
-          console.error(`❌ ${task.id}: ${errorMessage}`);
+          log.error(`❌ ${task.id}: ${errorMessage}`);
         }
 
         result.details.push({

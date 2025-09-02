@@ -9,6 +9,8 @@
 import { readFileSync } from "fs";
 import { validatePrContent } from "../domain/session/pr-validation";
 
+import { log } from "../utils/logger";
+
 /**
  * Main function to check commit message using imported validation
  */
@@ -16,7 +18,7 @@ function main(): void {
   const commitMsgFile = Bun.argv[2];
 
   if (!commitMsgFile) {
-    console.error("Usage: bun check-title-duplication.ts <commit-msg-file>");
+    log.error("Usage: bun check-title-duplication.ts <commit-msg-file>");
     Bun.exit(1);
   }
 
@@ -25,12 +27,12 @@ function main(): void {
     const content = readFileSync(commitMsgFile, "utf-8");
     commitMessage = typeof content === "string" ? content.trim() : content.toString().trim();
   } catch (error) {
-    console.error(`Error reading commit message file: ${error}`);
+    log.error(`Error reading commit message file: ${error}`);
     Bun.exit(1);
   }
 
   if (!commitMessage) {
-    console.log("✅ Empty commit message, skipping title duplication check");
+    log.info("✅ Empty commit message, skipping title duplication check");
     Bun.exit(0);
   }
 
@@ -47,12 +49,12 @@ function main(): void {
   const body = lines.slice(bodyStartIndex).join("\n").trim();
 
   if (!title) {
-    console.log("✅ No title found, skipping title duplication check");
+    log.info("✅ No title found, skipping title duplication check");
     Bun.exit(0);
   }
 
   if (!body) {
-    console.log("✅ No body found, skipping title duplication check");
+    log.info("✅ No body found, skipping title duplication check");
     Bun.exit(0);
   }
 
@@ -60,27 +62,27 @@ function main(): void {
   const validation = validatePrContent(title, body);
 
   if (validation.isValid) {
-    console.log("✅ No title duplication found in commit message");
+    log.info("✅ No title duplication found in commit message");
     Bun.exit(0);
   }
 
-  console.log("❌ Title duplication detected in commit message:");
-  console.log("");
+  log.info("❌ Title duplication detected in commit message:");
+  log.info("");
 
   for (const error of validation.errors) {
-    console.log(`   • ${error}`);
+    log.info(`   • ${error}`);
   }
 
-  console.log("");
-  console.log("💡 Please fix the title duplication before committing.");
-  console.log("   Example:");
-  console.log("   Instead of:");
-  console.log("     Title: fix: Fix user authentication bug");
-  console.log("     Body:  Fix user authentication bug");
-  console.log("");
-  console.log("   Use:");
-  console.log("     Title: fix: Fix user authentication bug");
-  console.log("     Body:  Resolves issue where users couldn't log in...");
+  log.info("");
+  log.info("💡 Please fix the title duplication before committing.");
+  log.info("   Example:");
+  log.info("   Instead of:");
+  log.info("     Title: fix: Fix user authentication bug");
+  log.info("     Body:  Fix user authentication bug");
+  log.info("");
+  log.info("   Use:");
+  log.info("     Title: fix: Fix user authentication bug");
+  log.info("     Body:  Resolves issue where users couldn't log in...");
 
   Bun.exit(1);
 }

@@ -3,6 +3,8 @@
  * @migrated Extracted from cli-command-factory.ts for focused responsibility
  */
 
+import { TaskBackend } from "../../../domain/configuration/backend-detection";
+
 /**
  * Get display name for backend type
  * @param backend Backend identifier
@@ -10,13 +12,13 @@
  */
 export function getBackendDisplayName(backend: string): string {
   switch (backend) {
-    case "markdown":
+    case TaskBackend.MARKDOWN:
       return "Markdown files (process/tasks.md)";
-    case "json-file":
+    case TaskBackend.JSON_FILE:
       return "JSON files";
-    case "github-issues":
+    case TaskBackend.GITHUB_ISSUES:
       return "GitHub Issues";
-    case "minsky":
+    case TaskBackend.MINSKY:
       return "Minsky database";
     default:
       return backend;
@@ -161,7 +163,7 @@ export function formatResolvedConfiguration(resolved: any): string {
   } else {
     output += `📁 Task Storage: Auto-detected (multi-backend mode)`;
   }
-  if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
+  if (taskBackend === TaskBackend.GITHUB_ISSUES && resolved.backendConfig?.["github-issues"]) {
     const github = resolved.backendConfig["github-issues"];
     output += ` (${github.owner}/${github.repo})`;
   }

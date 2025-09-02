@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { TaskBackend } from "../backend-detection";
 
 /**
  * Common string validation patterns
@@ -80,9 +81,9 @@ export const enumSchemas = {
   }),
 
   // Backend types
-  backendType: z.enum(["markdown", "json-file", "github-issues", "db", "minsky"], {
+  backendType: z.enum(Object.values(TaskBackend) as [string, ...string[]], {
     errorMap: () => ({
-      message: "Backend must be one of: markdown, json-file, github-issues, db, minsky",
+      message: `Backend must be one of: ${Object.values(TaskBackend).join(", ")}`,
     }),
   }),
 

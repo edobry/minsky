@@ -48,7 +48,7 @@ export async function mergePrImpl(
     workdir = options.repoPath;
   } else {
     // Try to infer from current directory
-    workdir = (process as any).cwd();
+    workdir = process.cwd();
   }
 
   // 2. Make sure we're on the base branch

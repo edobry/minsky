@@ -504,7 +504,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
   }
 
   // Implement required TaskBackend interface methods
-  async listTasks(_options?: TaskListOptions): Promise<Task[]> {
+  async listTasks(options?: TaskListOptions): Promise<Task[]> {
     try {
       const result = await this.getTasksData();
       if (!result.success || !result.content) {
@@ -512,13 +512,25 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
       }
 
       const taskDataList = this.parseTasks(result.content);
-      return taskDataList.map((taskData) => ({
+      let tasks = taskDataList.map((taskData) => ({
         id: taskData.id,
         title: taskData.title,
         status: taskData.status,
         specPath: taskData.specPath,
         description: taskData.description,
       }));
+
+      // Apply status filtering (includes default exclusion of DONE/CLOSED)
+      if (options?.status && options.status !== "all") {
+        tasks = tasks.filter((task) => task.status === options.status);
+      } else if (!options?.all) {
+        // Default: exclude DONE and CLOSED tasks unless --all is specified
+        tasks = tasks.filter((task) => 
+          task.status !== "DONE" && task.status !== "CLOSED"
+        );
+      }
+
+      return tasks;
     } catch (error) {
       log.error("Failed to list tasks", {
         error: getErrorMessage(error),

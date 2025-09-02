@@ -4,6 +4,7 @@ import { Command } from "commander";
 import { MinskyMCPServer } from "../../mcp/server";
 import { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
+
 import { registerDebugTools } from "../../adapters/mcp/debug";
 import { registerGitTools } from "../../adapters/mcp/git";
 import { registerInitTools } from "../../adapters/mcp/init";
@@ -473,7 +474,7 @@ export function createMCPCommand(): Command {
             log.cliError(`Repository path does not exist: ${repositoryPath}`);
             exit(1);
           }
-          if (!(fs.statSync(repositoryPath) as any).isDirectory()) {
+          if (!fs.statSync(repositoryPath).isDirectory()) {
             log.cliError(`Repository path is not a directory: ${repositoryPath}`);
             exit(1);
           }

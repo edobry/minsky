@@ -81,8 +81,8 @@ describe("Session Creation Bug Fix (TDD)", () => {
     try {
       await startSessionFromParams(
         {
-          sessionName: "test-session",
-          repoUrl: "https://github.com/test/repo.git",
+          name: "test-session",
+          repo: "https://github.com/test/repo.git",
           branch: "main",
         },
         {
@@ -132,8 +132,8 @@ describe("Session Creation Bug Fix (TDD)", () => {
     try {
       await startSessionFromParams(
         {
-          sessionName: "test-partial-session",
-          repoUrl: "https://github.com/test/repo.git",
+          name: "test-partial-session",
+          repo: "https://github.com/test/repo.git",
           branch: "main",
         },
         {
