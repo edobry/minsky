@@ -7,7 +7,6 @@ import fs from "fs";
 import path from "path";
 import { log } from "../utils/logger";
 
-
 /**
  * ProjectContext represents the context information for a Minsky project.
  * It currently focuses on repository location but is designed for future expansion.
@@ -33,9 +32,7 @@ export interface ProjectContext {
 export function validateRepositoryPath(repositoryPath: string): boolean {
   try {
     // Check if the path exists and is a directory
-    return (
-      fs.existsSync(repositoryPath) && fs.statSync(repositoryPath).isDirectory()
-    );
+    return fs.existsSync(repositoryPath) && fs.statSync(repositoryPath).isDirectory();
   } catch (error) {
     return false;
   }
