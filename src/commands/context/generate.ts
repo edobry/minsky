@@ -516,6 +516,8 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
     },
     componentBreakdown: componentAnalysis,
     optimizations,
+    // Include full result for sub-component parsing
+    fullResult: result,
   };
 }
 
@@ -740,7 +742,7 @@ function displayTreeView(analysisResult: any, width: number) {
   const components = analysisResult.componentBreakdown;
 
   // Group components by logical categories
-  const groups = groupComponentsByCategory(components);
+  const groups = groupComponentsByCategory(components, analysisResult);
 
   groups.forEach((group, groupIndex) => {
     const isLastGroup = groupIndex === groups.length - 1;
@@ -763,19 +765,144 @@ function displayTreeView(analysisResult: any, width: number) {
       log.cli(
         `${componentConnector}${component.component} (${component.tokens.toLocaleString()} tokens, ${component.percentage}%)`
       );
+
+      // Show sub-components if available
+      if (component.subComponents && component.subComponents.length > 0) {
+        component.subComponents.forEach((subComp: any, subIndex: number) => {
+          const isLastSub = subIndex === component.subComponents.length - 1;
+          const subConnector = isLastGroup
+            ? isLastComponent
+              ? isLastSub
+                ? "        └── "
+                : "        ├── "
+              : isLastSub
+                ? "    │   └── "
+                : "    │   ├── "
+            : isLastComponent
+              ? isLastSub
+                ? "│       └── "
+                : "│       ├── "
+              : isLastSub
+                ? "│   │   └── "
+                : "│   │   ├── ";
+
+          log.cli(
+            `${subConnector}${subComp.name}${subComp.description ? ` - ${subComp.description}` : ""}`
+          );
+        });
+      }
     });
   });
 }
 
-function groupComponentsByCategory(components: any[]) {
+function parseComponentContent(componentId: string, analysisResult?: any): any[] {
+  if (!analysisResult?.fullResult?.components) {
+    return [];
+  }
+
+  // Find the full component content
+  const fullComponent = analysisResult.fullResult.components.find(
+    (comp: any) => comp.component_id === componentId
+  );
+
+  if (!fullComponent?.content) {
+    return [];
+  }
+
+  const content = fullComponent.content;
+  const subComponents: any[] = [];
+
+  try {
+    switch (componentId) {
+      case "tool-schemas": {
+        // Parse JSON tool schemas
+        if (content.includes("Here are the functions available in JSONSchema format:")) {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const toolSchemas = JSON.parse(jsonMatch[0]);
+            Object.keys(toolSchemas).forEach((toolName) => {
+              const tool = toolSchemas[toolName];
+              subComponents.push({
+                name: toolName,
+                description: tool.description
+                  ? tool.description.substring(0, 60) + (tool.description.length > 60 ? "..." : "")
+                  : "No description",
+              });
+            });
+          }
+        }
+        break;
+      }
+
+      case "workspace-rules": {
+        // Parse rule sections
+        const ruleSections = content.split(/^#\s+/m).filter((section) => section.trim());
+        ruleSections.forEach((section) => {
+          const lines = section.split("\n");
+          const title = lines[0]?.trim();
+          if (title && title !== "workspace-rules") {
+            subComponents.push({
+              name: title.replace(/^#+\s*/, ""),
+              description: "Workspace rule",
+            });
+          }
+        });
+        break;
+      }
+
+      case "environment": {
+        // Parse environment details
+        const envLines = content.split("\n").filter((line) => line.includes(":"));
+        envLines.forEach((line) => {
+          const [key, value] = line.split(":");
+          if (key && value) {
+            subComponents.push({
+              name: key.trim(),
+              description: value.trim().substring(0, 30),
+            });
+          }
+        });
+        break;
+      }
+
+      default: {
+        // Generic parsing - look for headers
+        const headers = content.match(/^#+\s+(.+)$/gm);
+        if (headers && headers.length > 1) {
+          headers.slice(1, 6).forEach((header) => {
+            // Limit to 5
+            const title = header.replace(/^#+\s*/, "").trim();
+            subComponents.push({
+              name: title.substring(0, 40) + (title.length > 40 ? "..." : ""),
+              description: "Section",
+            });
+          });
+        }
+        break;
+      }
+    }
+  } catch (error) {
+    // If parsing fails, don't show sub-components
+  }
+
+  return subComponents.slice(0, 8); // Limit to 8 sub-components
+}
+
+function groupComponentsByCategory(components: any[], analysisResult?: any) {
   const totalTokens = components.reduce((sum, comp) => sum + comp.tokens, 0);
 
+  // Parse component content to extract sub-components
+  const enrichedComponents = components.map((comp) => ({
+    ...comp,
+    subComponents: parseComponentContent(comp.component, analysisResult),
+  }));
+
   // Define logical groupings based on component purpose
-  const environmentComponents = components.filter((c) =>
+  const environmentComponents = enrichedComponents.filter((c) =>
     ["environment", "project-context", "session-context"].includes(c.component)
   );
 
-  const rulesComponents = components.filter((c) =>
+  const rulesComponents = enrichedComponents.filter((c) =>
     [
       "workspace-rules",
       "system-instructions",
@@ -789,9 +916,9 @@ function groupComponentsByCategory(components: any[]) {
     ].includes(c.component)
   );
 
-  const toolsComponents = components.filter((c) => ["tool-schemas"].includes(c.component));
+  const toolsComponents = enrichedComponents.filter((c) => ["tool-schemas"].includes(c.component));
 
-  const dataComponents = components.filter((c) =>
+  const dataComponents = enrichedComponents.filter((c) =>
     [
       "file-content",
       "error-context",
@@ -809,7 +936,9 @@ function groupComponentsByCategory(components: any[]) {
     ...dataComponents,
   ].map((comp) => comp.component);
 
-  const otherComponents = components.filter((c) => !categorizedComponents.includes(c.component));
+  const otherComponents = enrichedComponents.filter(
+    (c) => !categorizedComponents.includes(c.component)
+  );
 
   const groups = [];
 
