@@ -3,7 +3,7 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
-import { startSessionFromParams } from "../start-command";
+import { startSessionFromParams } from "../../session";
 import { log } from "../../../../../../utils/logger";
 
 /**

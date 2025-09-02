@@ -82,8 +82,8 @@ describe("Session Start Consistency Tests", () => {
     it("should only add session to database after git operations succeed", async () => {
       // Arrange
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
         // sessionName will be auto-generated from taskId
       };
 
@@ -122,8 +122,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(gitError));
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act & Assert
@@ -151,8 +151,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.branchWithoutSession = mock(() => Promise.reject(gitError));
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act & Assert
@@ -180,8 +180,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(originalError));
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act & Assert
@@ -213,15 +213,15 @@ describe("Session Start Consistency Tests", () => {
           repoUrl: "local/minsky",
           repoName: "local-minsky",
           createdAt: new Date().toISOString(),
-          taskId: "md#160",
+          task: "md#160",
           branch: "task-md#160",
         })
       );
       mockSessionDB.getSession = sessionGetSpy;
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act & Assert
@@ -261,8 +261,8 @@ describe("Session Start Consistency Tests", () => {
       mockSessionDB.listSessions = listSessionsSpy;
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act & Assert
@@ -291,8 +291,8 @@ describe("Session Start Consistency Tests", () => {
       mockTaskService.getTask = taskGetSpy;
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act & Assert
@@ -325,8 +325,8 @@ describe("Session Start Consistency Tests", () => {
       mockGitService.clone = mock(() => Promise.reject(gitError));
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act & Assert
@@ -357,8 +357,8 @@ describe("Session Start Consistency Tests", () => {
       sessionDbMock.addSession = addSessionSpy;
 
       const params = {
-        taskId: "md#160",
-        repositoryPath: "local/minsky",
+        task: "md#160",
+        repo: "local/minsky",
       };
 
       // Act
