@@ -88,14 +88,19 @@ describe("ProjectConfigReader - Dev Tooling", () => {
     });
   });
 
-  describe("Error Handling", () => {
-    test("should throw error when minsky.json missing", async () => {
-      await expect(reader.getConfiguration()).rejects.toThrow("minsky.json not found");
+    describe("Defaults and Error Handling", () => {
+    test("should provide sensible defaults when minsky.json missing", async () => {
+      const result = await reader.getConfiguration();
+      
+      expect(result.workflows.lint?.jsonCommand).toBe("eslint . --format json");
+      expect(result.workflows.lint?.fixCommand).toBe("eslint . --fix");
+      expect(result.workflows.test?.jsonCommand).toBe("bun test --reporter json");
+      expect(result.configSource).toBe("minsky.json");
     });
 
     test("should throw error when minsky.json is invalid JSON", async () => {
       mockFs.writeFileSync(join(testDir, "minsky.json"), "{ invalid json }");
-
+      
       await expect(reader.getConfiguration()).rejects.toThrow("Invalid minsky.json format");
     });
 

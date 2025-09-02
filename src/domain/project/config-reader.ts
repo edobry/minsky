@@ -42,27 +42,40 @@ export class ProjectConfigReader {
   constructor(private projectRoot: string = process.cwd()) {}
 
   /**
-   * Get the complete project configuration from minsky.json
+   * Get the complete project configuration
    */
   async getConfiguration(): Promise<ProjectConfiguration> {
     const configPath = join(this.projectRoot, "minsky.json");
 
-    if (!existsSync(configPath)) {
-      throw new Error(`minsky.json not found at ${configPath}`);
+    if (existsSync(configPath)) {
+      try {
+        const content = readFileSync(configPath, "utf-8");
+        const parsedConfig = JSON.parse(content);
+
+        return {
+          workflows: parsedConfig.workflows || {},
+          runtime: parsedConfig.runtime || {},
+          configSource: "minsky.json",
+        };
+      } catch (error) {
+        throw new Error(`Invalid minsky.json format: ${error}`);
+      }
     }
 
-    try {
-      const content = readFileSync(configPath, "utf-8");
-      const parsedConfig = JSON.parse(content);
-
-      return {
-        workflows: parsedConfig.workflows || {},
-        runtime: parsedConfig.runtime || {},
-        configSource: "minsky.json",
-      };
-    } catch (error) {
-      throw new Error(`Invalid minsky.json format: ${error}`);
-    }
+    // Provide sensible defaults when no minsky.json exists
+    return {
+      workflows: {
+        lint: {
+          jsonCommand: "eslint . --format json",
+          fixCommand: "eslint . --fix",
+        },
+        test: {
+          jsonCommand: "bun test --reporter json",
+        },
+      },
+      runtime: {},
+      configSource: "minsky.json",
+    };
   }
 
   /**
