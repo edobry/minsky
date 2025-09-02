@@ -2,6 +2,8 @@ import { promisify } from "node:util";
 import { exec } from "node:child_process";
 import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
+import { validateGitError } from "../../schemas/error";
+import { validateProcess } from "../../schemas/runtime";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "../session";
 import { sessionNameToTaskId } from "../tasks/task-id";
@@ -127,7 +129,7 @@ export async function preparePrImpl(
       });
 
       // Check if we're currently in a session workspace directory
-      const currentDir = (process as any).cwd();
+      const currentDir = validateProcess(process).cwd();
       const pathParts = currentDir.split("/");
       const sessionsIndex = pathParts.indexOf("sessions");
 
@@ -217,7 +219,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
-Current directory: ${(process as any).cwd()}
+Current directory: ${validateProcess(process).cwd()}
 Session requested: "${(options as any).session}"
 `);
           }
@@ -261,7 +263,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
-Current directory: ${(process as any).cwd()}
+Current directory: ${validateProcess(process).cwd()}
 Session requested: "${(options as any).session}"
 `);
         }
@@ -305,7 +307,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
-Current directory: ${(process as any).cwd()}
+Current directory: ${validateProcess(process).cwd()}
 Session requested: "${(options as any).session}"
 `);
       }
@@ -320,7 +322,7 @@ Session requested: "${(options as any).session}"
     sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   } else {
     // Try to infer from current directory
-    workdir = (process as any).cwd();
+    workdir = validateProcess(process).cwd();
     // Get current branch from cwd
     sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   }
@@ -391,7 +393,7 @@ Session requested: "${(options as any).session}"
     await deps.execInRepository(workdir, `git branch ${prBranch} ${remoteBaseBranch}`);
     log.debug(`Created PR branch ${prBranch} from ${remoteBaseBranch} without checking it out`);
   } catch (err) {
-    throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err as any)}`);
+    throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err)}`);
   }
 
   // Create commit message for merge commit (Task #025)
@@ -545,7 +547,7 @@ After resolving conflicts, re-run the PR creation command to complete the proces
       log.warn("Failed to clean up after non-conflict merge error", { cleanupErr });
     }
 
-    throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err as any)}`);
+    throw new MinskyError(`Failed to create prepared merge commit: ${getErrorMessage(err)}`);
   }
 
   // Push changes to the PR branch with timeout handling
@@ -565,7 +567,7 @@ After resolving conflicts, re-run the PR creation command to complete the proces
     log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
   } catch (err) {
     log.warn(
-      `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err as any)}`
+      `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`
     );
   }
 

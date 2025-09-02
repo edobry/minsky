@@ -248,7 +248,7 @@ export class GitService implements GitServiceInterface {
 
   constructor(baseDir?: string) {
     this.baseDir = baseDir || getMinskyStateDir();
-    this.sessionDb = createSessionProvider({ dbPath: (process as any).cwd() });
+    this.sessionDb = createSessionProvider({ dbPath: validateProcess(process).cwd() });
   }
 
   // Add public method to get session record
@@ -404,7 +404,7 @@ export class GitService implements GitServiceInterface {
   }
 
   async getStatus(repoPath?: string): Promise<GitStatus> {
-    const workdir = repoPath || (process as any).cwd();
+    const workdir = repoPath || validateProcess(process).cwd();
 
     // Get modified files
     const { stdout: modifiedOutput } = await execAsync(`git -C ${workdir} diff --name-only`);
@@ -424,17 +424,17 @@ export class GitService implements GitServiceInterface {
   }
 
   async stageAll(repoPath?: string): Promise<void> {
-    const workdir = repoPath || (process as any).cwd();
+    const workdir = repoPath || validateProcess(process).cwd();
     await execAsync(`git -C ${workdir} add -A`);
   }
 
   async stageModified(repoPath?: string): Promise<void> {
-    const workdir = repoPath || (process as any).cwd();
+    const workdir = repoPath || validateProcess(process).cwd();
     await execAsync(`git -C ${workdir} add .`);
   }
 
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
-    const workdir = repoPath || (process as any).cwd();
+    const workdir = repoPath || validateProcess(process).cwd();
     const amendFlag = amend ? "--amend" : "";
     const { stdout } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
 

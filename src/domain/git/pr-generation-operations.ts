@@ -165,7 +165,7 @@ async function findBaseBranch(
     return baseBranch;
   } catch (err) {
     log.debug("Failed to get remote HEAD", {
-      error: getErrorMessage(err as any),
+      error: getErrorMessage(err),
       branch,
     });
   }
@@ -180,7 +180,7 @@ async function findBaseBranch(
     return baseBranch;
   } catch (err) {
     log.debug("Failed to get upstream branch", {
-      error: getErrorMessage(err as any),
+      error: getErrorMessage(err),
       branch,
     });
   }
@@ -192,7 +192,7 @@ async function findBaseBranch(
     return "main";
   } catch (err) {
     log.debug("Failed to check main branch", {
-      error: getErrorMessage(err as any),
+      error: getErrorMessage(err),
     });
   }
 
@@ -203,7 +203,7 @@ async function findBaseBranch(
     return "master";
   } catch (err) {
     log.debug("Failed to check master branch", {
-      error: getErrorMessage(err as any),
+      error: getErrorMessage(err),
     });
   }
 
@@ -233,7 +233,7 @@ async function determineBaseBranchAndMergeBase(
     log.debug("Found merge base with base branch", { baseBranch, mergeBase });
   } catch (err) {
     log.debug("Failed to find merge base", {
-      error: getErrorMessage(err as any),
+      error: getErrorMessage(err),
       branch,
       baseBranch,
     });
@@ -246,7 +246,7 @@ async function determineBaseBranchAndMergeBase(
       log.debug("Using first commit as base", { mergeBase });
     } catch (err) {
       log.debug("Failed to find first commit", {
-        error: getErrorMessage(err as any),
+        error: getErrorMessage(err),
         branch,
       });
       // If that also fails, use empty tree

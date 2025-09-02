@@ -5,6 +5,7 @@
  */
 import { ensureError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
+import { getErrorMessage } from "../../../schemas/error";
 // Re-export shared options functions needed by other modules
 export {
   normalizeSessionParams,
@@ -87,7 +88,7 @@ export function handleCliError(error: any, options: { debug?: boolean } = {}): v
     }
   } else {
     // Simple error in regular mode
-    log.cliError(`Error: ${(err as any).message}`);
+    log.cliError(`Error: ${getErrorMessage(err)}`);
   }
   // Set appropriate exit code based on error type
   if ((err as any)?.name === "ValidationError") {

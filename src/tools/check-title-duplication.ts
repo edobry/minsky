@@ -8,12 +8,14 @@
 
 import { readFileSync } from "fs";
 import { validatePrContent } from "../domain/session/pr-validation";
+import { validateBunRuntime } from "../schemas/runtime";
 
 /**
  * Main function to check commit message using imported validation
  */
 function main(): void {
-  const commitMsgFile = Bun.argv[2];
+  const bunRuntime = validateBunRuntime(Bun);
+  const commitMsgFile = bunRuntime.argv[2];
 
   if (!commitMsgFile) {
     console.error("Usage: bun check-title-duplication.ts <commit-msg-file>");

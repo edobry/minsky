@@ -157,7 +157,7 @@ export async function createPreparedMergeCommitPR(
         await gitExec("branch", `branch -D ${prBranch}`, { workdir, timeout: 30000 });
         await gitExec("branch", `branch ${prBranch}`, { workdir, timeout: 30000 });
       } catch (deleteErr) {
-        throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err as any)}`);
+        throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err)}`);
       }
     }
 
