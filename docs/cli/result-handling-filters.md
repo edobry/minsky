@@ -5,6 +5,7 @@ This document standardizes filter and time parsing semantics for list/get style 
 ## Modules
 
 - `src/utils/result-handling/filters.ts`
+
   - `parseStatusFilter(input): Set<string> | null` — comma-separated list; `all` disables filtering
   - `parseBackendFilter(input): 'github'|'remote'|'local'|undefined` — normalizes input; invalid returns `undefined`
   - `parseTime(value): number | null` — accepts `YYYY-MM-DD` or relative `7d|24h|30m`; returns epoch ms or `null`
@@ -38,6 +39,7 @@ minsky rules list --since 365d --json
 ```
 
 Behavior details:
+
 - `--since/--until` accept YYYY-MM-DD or relative durations (Nd/Nh/Nm)
 - When both provided, items must fall within the inclusive range
 - For rules, mtime is used as `updatedAt` proxy until domain timestamps are available

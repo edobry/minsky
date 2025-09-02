@@ -70,12 +70,14 @@ const rulesListCommandParams: CommandParameterMap = composeParams(
     tag: RulesParameters.tag,
     since: {
       schema: z.string().optional(),
-      description: "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+      description:
+        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
       required: false,
     },
     until: {
       schema: z.string().optional(),
-      description: "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+      description:
+        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
       required: false,
     },
   },
@@ -457,7 +459,9 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         // Optional time filtering using file modification time as proxy
         let filtered = rules;
         try {
-          const { parseTime, filterByTimeRange } = await import("../../../utils/result-handling/filters");
+          const { parseTime, filterByTimeRange } = await import(
+            "../../../utils/result-handling/filters"
+          );
           const sinceTs = parseTime((params as any).since);
           const untilTs = parseTime((params as any).until);
           if (sinceTs !== null || untilTs !== null) {

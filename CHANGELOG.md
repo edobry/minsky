@@ -507,3 +507,7 @@ All notable changes to this project will be documented in this file.
 
 - Filtering semantics standardized via `src/utils/result-handling/filters.ts` across list/get commands
 - Where native timestamps are unavailable (rules), mtime is used as a pragmatic proxy
+
+### Chore
+
+- Add and enhance `smoke-all.ts` to validate tasks.list/get, session.list/get, rules.list, and session.pr list/get with per-call timeouts to avoid hangs during local verification

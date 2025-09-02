@@ -3,7 +3,10 @@ import { createSessionPrListCommand } from "./src/adapters/shared/commands/sessi
 import type { CommandExecutionContext } from "./src/adapters/shared/commands/command-registry";
 
 async function main() {
-  await initializeConfiguration(new CustomConfigFactory(), { skipValidation: true, enableCache: true });
+  await initializeConfiguration(new CustomConfigFactory(), {
+    skipValidation: true,
+    enableCache: true,
+  });
   const cmd = createSessionPrListCommand();
   const ctx: CommandExecutionContext = {
     interface: "cli",
@@ -15,4 +18,7 @@ async function main() {
   console.log(JSON.stringify(result, null, 2));
 }
 
-main().catch((err) => { console.error(err); process.exit(1); });
+main().catch((err) => {
+  console.error(err);
+  process.exit(1);
+});

@@ -363,7 +363,14 @@ export async function sessionPrList(params: {
     );
 
     // Use shared utilities for filters
-    const { parseStatusFilter, parseBackendFilter, parseTime, filterByStatus, filterByBackend, filterByTimeRange } = require("../../../utils/result-handling/filters");
+    const {
+      parseStatusFilter,
+      parseBackendFilter,
+      parseTime,
+      filterByStatus,
+      filterByBackend,
+      filterByTimeRange,
+    } = require("../../../utils/result-handling/filters");
 
     const statusSet = parseStatusFilter(params.status);
     const backendFilter = parseBackendFilter(params.backend);
@@ -659,7 +666,11 @@ export async function sessionPrGet(params: {
     };
 
     // Use shared utilities for backend/status/time constraints on single PR
-    const { parseStatusFilter, parseBackendFilter, parseTime } = require("../../../utils/result-handling/filters");
+    const {
+      parseStatusFilter,
+      parseBackendFilter,
+      parseTime,
+    } = require("../../../utils/result-handling/filters");
     const statusSet = parseStatusFilter(params.status);
     const backendFilter = parseBackendFilter(params.backend);
     const sinceTs = parseTime(params.since);
