@@ -738,24 +738,28 @@ function displayTreeView(analysisResult: any, width: number) {
   log.cli("━".repeat(Math.min(width, 80)));
 
   const components = analysisResult.componentBreakdown;
-  
+
   // Group components by logical categories
   const groups = groupComponentsByCategory(components);
-  
+
   groups.forEach((group, groupIndex) => {
     const isLastGroup = groupIndex === groups.length - 1;
     const groupConnector = isLastGroup ? "└── " : "├── ";
-    
+
     log.cli(
       `${groupConnector}${group.name} (${group.totalTokens.toLocaleString()} tokens, ${group.percentage.toFixed(1)}%)`
     );
-    
+
     group.components.forEach((component: any, compIndex: number) => {
       const isLastComponent = compIndex === group.components.length - 1;
-      const componentConnector = isLastGroup 
-        ? (isLastComponent ? "    └── " : "    ├── ")
-        : (isLastComponent ? "│   └── " : "│   ├── ");
-        
+      const componentConnector = isLastGroup
+        ? isLastComponent
+          ? "    └── "
+          : "    ├── "
+        : isLastComponent
+          ? "│   └── "
+          : "│   ├── ";
+
       log.cli(
         `${componentConnector}${component.component} (${component.tokens.toLocaleString()} tokens, ${component.percentage}%)`
       );
@@ -765,88 +769,100 @@ function displayTreeView(analysisResult: any, width: number) {
 
 function groupComponentsByCategory(components: any[]) {
   const totalTokens = components.reduce((sum, comp) => sum + comp.tokens, 0);
-  
+
   // Define logical groupings based on component purpose
-  const environmentComponents = components.filter(c => 
-    ['environment', 'project-context', 'session-context'].includes(c.component)
+  const environmentComponents = components.filter((c) =>
+    ["environment", "project-context", "session-context"].includes(c.component)
   );
-  
-  const rulesComponents = components.filter(c => 
-    ['workspace-rules', 'system-instructions', 'communication', 'tool-calling-rules', 
-     'maximize-parallel-tool-calls', 'maximize-context-understanding', 'making-code-changes',
-     'code-citation-format', 'task-management'].includes(c.component)
+
+  const rulesComponents = components.filter((c) =>
+    [
+      "workspace-rules",
+      "system-instructions",
+      "communication",
+      "tool-calling-rules",
+      "maximize-parallel-tool-calls",
+      "maximize-context-understanding",
+      "making-code-changes",
+      "code-citation-format",
+      "task-management",
+    ].includes(c.component)
   );
-  
-  const toolsComponents = components.filter(c => 
-    ['tool-schemas'].includes(c.component)
+
+  const toolsComponents = components.filter((c) => ["tool-schemas"].includes(c.component));
+
+  const dataComponents = components.filter((c) =>
+    [
+      "file-content",
+      "error-context",
+      "test-context",
+      "dependency-context",
+      "conversation-history",
+    ].includes(c.component)
   );
-  
-  const dataComponents = components.filter(c => 
-    ['file-content', 'error-context', 'test-context', 'dependency-context', 
-     'conversation-history'].includes(c.component)
-  );
-  
+
   // Collect any components that don't fit the above categories
   const categorizedComponents = [
-    ...environmentComponents, ...rulesComponents, ...toolsComponents, ...dataComponents
-  ].map(comp => comp.component);
-  
-  const otherComponents = components.filter(c => 
-    !categorizedComponents.includes(c.component)
-  );
-  
+    ...environmentComponents,
+    ...rulesComponents,
+    ...toolsComponents,
+    ...dataComponents,
+  ].map((comp) => comp.component);
+
+  const otherComponents = components.filter((c) => !categorizedComponents.includes(c.component));
+
   const groups = [];
-  
+
   if (environmentComponents.length > 0) {
     const groupTokens = environmentComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Environment & Context",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: environmentComponents.sort((a, b) => b.tokens - a.tokens)
+      components: environmentComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
-  
+
   if (rulesComponents.length > 0) {
     const groupTokens = rulesComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
-      name: "Rules & Guidelines", 
+      name: "Rules & Guidelines",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: rulesComponents.sort((a, b) => b.tokens - a.tokens)
+      components: rulesComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
-  
+
   if (toolsComponents.length > 0) {
     const groupTokens = toolsComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Tools & Schemas",
-      totalTokens: groupTokens, 
+      totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: toolsComponents.sort((a, b) => b.tokens - a.tokens)
+      components: toolsComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
-  
+
   if (dataComponents.length > 0) {
     const groupTokens = dataComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Dynamic Data & Content",
       totalTokens: groupTokens,
       percentage: (groupTokens / totalTokens) * 100,
-      components: dataComponents.sort((a, b) => b.tokens - a.tokens)
+      components: dataComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
-  
+
   if (otherComponents.length > 0) {
     const groupTokens = otherComponents.reduce((sum, comp) => sum + comp.tokens, 0);
     groups.push({
       name: "Other Components",
       totalTokens: groupTokens,
-      percentage: (groupTokens / totalTokens) * 100, 
-      components: otherComponents.sort((a, b) => b.tokens - a.tokens)
+      percentage: (groupTokens / totalTokens) * 100,
+      components: otherComponents.sort((a, b) => b.tokens - a.tokens),
     });
   }
-  
+
   // Sort groups by token count (largest first)
   return groups.sort((a, b) => b.totalTokens - a.totalTokens);
 }
