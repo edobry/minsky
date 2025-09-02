@@ -46,9 +46,15 @@ export class JsonFileTaskBackend implements TaskBackend {
     const tasks = await this.getAllTasks();
 
     let filtered = tasks;
+
+    // Apply status filtering (includes default exclusion of DONE/CLOSED)
     if (options?.status && options.status !== "all") {
       filtered = filtered.filter((task) => task.status === options.status);
+    } else if (!options?.all) {
+      // Default: exclude DONE and CLOSED tasks unless --all is specified
+      filtered = filtered.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
     }
+
     if (options?.backend) {
       filtered = filtered.filter((task) => task.backend === options.backend);
     }
@@ -280,7 +286,7 @@ ${description}
       const data = JSON.parse(content);
       return Array.isArray(data) ? data : [];
     } catch (error) {
-      console.warn(`Failed to read tasks file: ${error}`);
+              log.warn("Failed to read tasks file", { error: getErrorMessage(error as any) });
       return [];
     }
   }
