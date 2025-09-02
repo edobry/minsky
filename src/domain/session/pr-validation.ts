@@ -72,10 +72,15 @@ export function isDuplicateContent(content1: string, content2: string): boolean 
         .replace(/(?:task-)?md[#-](\d+)/g, "#$1")
         // Normalize whitespace
         .replace(/\s+/g, " ")
+        .trim()
     );
   };
 
-  return normalize(content1) === normalize(content2);
+  const norm1 = normalize(content1);
+  const norm2 = normalize(content2);
+
+  // Check if one is a substring of the other (handles "Implement X" vs "X" cases)
+  return norm1.includes(norm2) || norm2.includes(norm1);
 }
 
 /**
