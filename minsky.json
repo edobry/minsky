@@ -1,0 +1,14 @@
+{
+  "workflows": {
+    "lint": {
+      "jsonCommand": "eslint . --format json",
+      "fixCommand": "eslint . --fix"
+    },
+    "test": {
+      "jsonCommand": "bun test --reporter json"
+    },
+    "format": {
+      "jsonCommand": "prettier --check . --list-different"
+    }
+  }
+}

@@ -1,22 +1,28 @@
 /**
- * Project Configuration Reader
+ * Project Configuration Reader - Simplified
  *
- * Detects and loads project-specific workflow configurations from various sources.
- * Supports runtime-independent configuration for linting and other development commands.
+ * Loads project-specific workflow configurations using the new simplified format.
+ * Eliminates legacy conversion complexity by using simplified format directly.
  */
 
 import { readFileSync, existsSync } from "fs";
 import { log } from "../../utils/logger";
 import { resolve, join } from "path";
 
-export interface ProjectWorkflowConfig {
-  lint?: string;
-  lintFix?: string;
-  lintJson?: string;
-  test?: string;
-  build?: string;
-  dev?: string;
-  start?: string;
+// Simplified workflow command definition
+export interface WorkflowCommand {
+  jsonCommand: string;
+  fixCommand?: string;
+}
+
+// Simplified workflow configuration
+export interface SimplifiedWorkflowConfig {
+  lint?: WorkflowCommand;
+  test?: WorkflowCommand;
+  build?: WorkflowCommand;
+  dev?: WorkflowCommand;
+  start?: WorkflowCommand;
+  format?: WorkflowCommand;
 }
 
 export interface ProjectRuntimeConfig {
@@ -25,22 +31,22 @@ export interface ProjectRuntimeConfig {
 }
 
 export interface ProjectConfiguration {
-  workflows: ProjectWorkflowConfig;
+  workflows: SimplifiedWorkflowConfig;
   runtime: ProjectRuntimeConfig;
   configSource: "minsky.json" | "package.json" | "auto-detected" | "defaults";
 }
 
 /**
- * Project configuration reader with automatic detection
+ * Project configuration reader using simplified format directly
  */
 export class ProjectConfigReader {
   constructor(private projectRoot: string = process.cwd()) {}
 
   /**
-   * Get the complete project configuration with automatic detection
+   * Get the complete project configuration
    */
   async getConfiguration(): Promise<ProjectConfiguration> {
-    // 1. Try explicit minsky configuration
+    // 1. Try explicit minsky.json configuration
     const minskyConfig = this.loadMinskyConfig();
     if (minskyConfig) {
       return {
@@ -49,7 +55,7 @@ export class ProjectConfigReader {
       };
     }
 
-    // 2. Try package.json detection
+    // 2. Try package.json detection and convert to simplified format
     const packageConfig = this.detectFromPackageJson();
     if (packageConfig) {
       return {
@@ -72,41 +78,34 @@ export class ProjectConfigReader {
   }
 
   /**
-   * Get the lint command for the current project
-   */
-  async getLintCommand(): Promise<string> {
-    const config = await this.getConfiguration();
-    return config.workflows.lint || "eslint .";
-  }
-
-  /**
-   * Get the lint command that outputs JSON format
+   * Get the lint JSON command (for ESLint output parsing)
    */
   async getLintJsonCommand(): Promise<string> {
     const config = await this.getConfiguration();
-
-    if (config.workflows.lintJson) {
-      return config.workflows.lintJson;
-    }
-
-    // Build JSON command from base lint command
-    const baseLintCommand = config.workflows.lint || "eslint .";
-
-    // Handle different package managers
-    if (baseLintCommand.includes(" run ")) {
-      // Package manager command - append format after the script name
-      return baseLintCommand.replace(" run lint", " run lint -- --format json");
-    }
-
-    // Direct command - append format flag
-    return `${baseLintCommand} --format json`;
+    return config.workflows.lint?.jsonCommand || "eslint . --format json";
   }
 
   /**
-   * Load explicit minsky configuration
+   * Get the lint fix command
+   */
+  async getLintFixCommand(): Promise<string | undefined> {
+    const config = await this.getConfiguration();
+    return config.workflows.lint?.fixCommand;
+  }
+
+  /**
+   * Get the test JSON command
+   */
+  async getTestJsonCommand(): Promise<string> {
+    const config = await this.getConfiguration();
+    return config.workflows.test?.jsonCommand || "bun test --reporter json";
+  }
+
+  /**
+   * Load explicit minsky.json configuration
    */
   private loadMinskyConfig(): {
-    workflows: ProjectWorkflowConfig;
+    workflows: SimplifiedWorkflowConfig;
     runtime: ProjectRuntimeConfig;
   } | null {
     const possiblePaths = [
@@ -126,7 +125,6 @@ export class ProjectConfigReader {
             };
           }
         } catch (error) {
-          // Continue to next file
           log.warn(`Warning: Failed to parse ${configPath}: ${(error as Error).message}`);
         }
       }
@@ -136,10 +134,10 @@ export class ProjectConfigReader {
   }
 
   /**
-   * Detect configuration from package.json scripts
+   * Detect configuration from package.json and convert to simplified format
    */
   private detectFromPackageJson(): {
-    workflows: ProjectWorkflowConfig;
+    workflows: SimplifiedWorkflowConfig;
     runtime: ProjectRuntimeConfig;
   } | null {
     const packageJsonPath = join(this.projectRoot, "package.json");
@@ -152,36 +150,41 @@ export class ProjectConfigReader {
       const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
       const scripts = packageJson.scripts || {};
 
-      // Detect package manager from lockfiles and dependencies
       const packageManager = this.detectPackageManager();
       const language = this.detectLanguageFromPackageJson(packageJson);
 
-      const workflows: ProjectWorkflowConfig = {};
+      const workflows: SimplifiedWorkflowConfig = {};
 
-      // Build commands based on available scripts
+      // Convert package.json scripts to simplified format
       if (scripts.lint) {
-        workflows.lint = `${packageManager} run lint`;
-        workflows.lintJson = `${packageManager} run lint -- --format json`;
-      }
-
-      if (scripts["lint:fix"]) {
-        workflows.lintFix = `${packageManager} run lint:fix`;
+        workflows.lint = {
+          jsonCommand: `${packageManager} run lint --format json`,
+          fixCommand: scripts["lint:fix"] ? `${packageManager} run lint:fix` : undefined,
+        };
       }
 
       if (scripts.test) {
-        workflows.test = `${packageManager} run test`;
+        workflows.test = {
+          jsonCommand: `${packageManager} run test --reporter json`,
+        };
       }
 
       if (scripts.build) {
-        workflows.build = `${packageManager} run build`;
+        workflows.build = {
+          jsonCommand: `${packageManager} run build`,
+        };
       }
 
       if (scripts.dev) {
-        workflows.dev = `${packageManager} run dev`;
+        workflows.dev = {
+          jsonCommand: `${packageManager} run dev`,
+        };
       }
 
       if (scripts.start) {
-        workflows.start = `${packageManager} run start`;
+        workflows.start = {
+          jsonCommand: `${packageManager} run start`,
+        };
       }
 
       // Only return if we found at least a lint command
@@ -202,29 +205,39 @@ export class ProjectConfigReader {
    * Auto-detect configuration based on project language/structure
    */
   private autoDetectFromLanguage(): {
-    workflows: ProjectWorkflowConfig;
+    workflows: SimplifiedWorkflowConfig;
     runtime: ProjectRuntimeConfig;
   } | null {
-    const workflows: ProjectWorkflowConfig = {};
+    const workflows: SimplifiedWorkflowConfig = {};
     const runtime: ProjectRuntimeConfig = {};
 
     // Rust detection
     if (existsSync(join(this.projectRoot, "Cargo.toml"))) {
       runtime.language = "rust";
-      workflows.lint = "cargo clippy";
-      workflows.lintJson = "cargo clippy --message-format=json";
-      workflows.test = "cargo test";
-      workflows.build = "cargo build";
+      workflows.lint = {
+        jsonCommand: "cargo clippy --message-format=json",
+      };
+      workflows.test = {
+        jsonCommand: "cargo test --format json",
+      };
+      workflows.build = {
+        jsonCommand: "cargo build",
+      };
       return { workflows, runtime };
     }
 
     // Go detection
     if (existsSync(join(this.projectRoot, "go.mod"))) {
       runtime.language = "go";
-      workflows.lint = "golangci-lint run";
-      workflows.lintJson = "golangci-lint run --out-format=json";
-      workflows.test = "go test ./...";
-      workflows.build = "go build";
+      workflows.lint = {
+        jsonCommand: "golangci-lint run --out-format=json",
+      };
+      workflows.test = {
+        jsonCommand: "go test -json ./...",
+      };
+      workflows.build = {
+        jsonCommand: "go build",
+      };
       return { workflows, runtime };
     }
 
@@ -235,9 +248,12 @@ export class ProjectConfigReader {
       existsSync(join(this.projectRoot, "setup.py"))
     ) {
       runtime.language = "python";
-      workflows.lint = "flake8";
-      workflows.lintJson = "flake8 --format=json";
-      workflows.test = "pytest";
+      workflows.lint = {
+        jsonCommand: "flake8 --format=json",
+      };
+      workflows.test = {
+        jsonCommand: "pytest --json-report",
+      };
       return { workflows, runtime };
     }
 
@@ -245,15 +261,18 @@ export class ProjectConfigReader {
   }
 
   /**
-   * Get default configuration
+   * Get default configuration in simplified format
    */
   private getDefaultConfiguration(): ProjectConfiguration {
     return {
       workflows: {
-        lint: "eslint .",
-        lintJson: "eslint . --format json",
-        lintFix: "eslint . --fix",
-        test: "npm test",
+        lint: {
+          jsonCommand: "eslint . --format json",
+          fixCommand: "eslint . --fix",
+        },
+        test: {
+          jsonCommand: "bun test --reporter json",
+        },
       },
       runtime: {
         packageManager: "npm",
@@ -302,7 +321,6 @@ export class ProjectConfigReader {
     const root = resolve("/");
 
     while (currentDir !== root) {
-      // Check for common project indicators
       const indicators = [
         "package.json",
         "Cargo.toml",
