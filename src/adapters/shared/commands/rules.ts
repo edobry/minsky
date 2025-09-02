@@ -68,6 +68,18 @@ const rulesListCommandParams: CommandParameterMap = composeParams(
   {
     format: RulesParameters.format,
     tag: RulesParameters.tag,
+    since: {
+      schema: z.string().optional(),
+      description:
+        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+      required: false,
+    },
+    until: {
+      schema: z.string().optional(),
+      description:
+        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+      required: false,
+    },
   },
   {
     json: CommonParameters.json,
@@ -444,8 +456,33 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           debug: params.debug,
         });
 
+        // Optional time filtering using file modification time as proxy
+        let filtered = rules;
+        try {
+          const { parseTime, filterByTimeRange } = await import(
+            "../../../utils/result-handling/filters"
+          );
+          const sinceTs = parseTime((params as any).since);
+          const untilTs = parseTime((params as any).until);
+          if (sinceTs !== null || untilTs !== null) {
+            const withUpdatedAt = await Promise.all(
+              rules.map(async (rule) => {
+                try {
+                  const stat = await fs.stat(rule.path);
+                  return { ...rule, updatedAt: new Date(stat.mtimeMs) } as any;
+                } catch {
+                  return { ...rule } as any;
+                }
+              })
+            );
+            filtered = filterByTimeRange(withUpdatedAt as any[], sinceTs, untilTs) as any[];
+          }
+        } catch {
+          // ignore filtering errors
+        }
+
         // Transform rules to exclude content field for better usability
-        const rulesWithoutContent = rules.map(({ content, ...rule }) => rule);
+        const rulesWithoutContent = filtered.map(({ content, ...rule }) => rule);
 
         return {
           success: true,

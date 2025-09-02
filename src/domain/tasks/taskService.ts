@@ -102,8 +102,12 @@ export async function createConfiguredTaskService(options: {
         break;
       }
 
-      default:
-        throw new Error(`Unknown backend: ${options.backend}`);
+      default: {
+        const { getAvailableBackendsString } = await import("./taskConstants");
+        throw new Error(
+          `Unknown backend: ${options.backend}. Available backends: ${getAvailableBackendsString()}`
+        );
+      }
     }
   } else {
     // No specific backend requested - register all available backends for multi-backend mode
