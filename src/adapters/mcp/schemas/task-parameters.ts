@@ -8,6 +8,7 @@
  */
 
 import { z } from "zod";
+import { TaskStatus } from "../../../domain/tasks/taskConstants";
 import {
   TaskIdSchema,
   BackendSchema,
@@ -28,15 +29,13 @@ export const TaskTitleSchema = z.string().min(1, "Task title cannot be empty");
 
 /**
  * Task status schema
+ * Uses the centralized TaskStatus enum
  */
-export const TaskStatusSchema = z.enum(
-  ["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"],
-  {
-    errorMap: () => ({
-      message: "Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED",
-    }),
-  }
-);
+export const TaskStatusSchema = z.nativeEnum(TaskStatus, {
+  errorMap: () => ({
+    message: "Status must be one of: TODO, IN-PROGRESS, IN-REVIEW, DONE, BLOCKED, CLOSED",
+  }),
+});
 
 /**
  * Task description schema

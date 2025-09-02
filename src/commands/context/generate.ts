@@ -6,6 +6,7 @@
 
 import { Command } from "commander";
 import { log } from "../../utils/logger.js";
+import { TaskStatus } from "../../domain/tasks/taskConstants.js";
 import {
   getContextComponentRegistry,
   registerDefaultComponents,
@@ -172,7 +173,7 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
       task: {
         id: "md#082",
         title: "Add Context Management Commands for Environment-Agnostic AI Collaboration",
-        status: "IN-PROGRESS",
+        status: TaskStatus.IN_PROGRESS,
         description: "Implementing modular context component system for testbench development",
       },
       userQuery:
@@ -782,7 +783,7 @@ async function displayModelComparison(models: string[], options: GenerateOptions
           task: {
             id: "mt#461",
             title: "Context Visualization Redesign",
-            status: "IN-PROGRESS",
+            status: TaskStatus.IN_PROGRESS,
             description: "Implementing context visualization using new component architecture",
           },
           userQuery: options.prompt || "Generating context visualization analysis",

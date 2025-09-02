@@ -1,5 +1,6 @@
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import type { CommandExecutionContext } from "../../command-registry";
+import { TaskStatus } from "../../../../domain/tasks/taskConstants";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 import type { EnhancedSearchResult } from "../similarity-command-factory";
@@ -258,7 +259,7 @@ export class TasksSearchCommand extends BaseTaskCommand {
     } else if (!showAll) {
       // Default: exclude DONE and CLOSED tasks unless --all is specified
       // This matches the behavior of tasks list command (mt#477)
-      filters.statusExclude = ["DONE", "CLOSED"];
+      filters.statusExclude = [TaskStatus.DONE, TaskStatus.CLOSED];
     }
 
     const searchResults = await service.searchByText(query, limit, threshold, filters);
