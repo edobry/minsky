@@ -5,7 +5,10 @@ import { enumSchemas } from "../../configuration/schemas/base";
 import { createEmbeddingsTable, EMBEDDINGS_CONFIGS } from "./embeddings-schema-factory";
 
 // Enumerated task status using centralized TaskStatus enum
-export const taskStatusEnum = pgEnum("task_status", Object.values(TaskStatus) as [string, ...string[]]);
+export const taskStatusEnum = pgEnum(
+  "task_status",
+  Object.values(TaskStatus) as [string, ...string[]]
+);
 
 // Enumerated backend type (reuse centralized backend type values)
 const BACKEND_VALUES = enumSchemas.backendType.options as [string, ...string[]];

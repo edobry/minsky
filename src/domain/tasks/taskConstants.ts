@@ -13,7 +13,7 @@ import { isQualifiedTaskId } from "./task-id";
  */
 export enum TaskStatus {
   TODO = "TODO",
-  IN_PROGRESS = "IN-PROGRESS", 
+  IN_PROGRESS = "IN-PROGRESS",
   IN_REVIEW = "IN-REVIEW",
   DONE = "DONE",
   BLOCKED = "BLOCKED",
