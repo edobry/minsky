@@ -120,6 +120,30 @@ export const TASK_REGEX_PATTERNS = {
   TASK_LIKE: /^- \[.\]/,
 } as const;
 
+// ============================================================================
+// BACKEND UTILITIES FOR CLI UX
+// ============================================================================
+
+/**
+ * Get list of available task backends for CLI help and error messages
+ * This ensures backend lists in help text and errors are always up-to-date
+ */
+export function getAvailableBackends(): string[] {
+  return [
+    "markdown",
+    "json-file", 
+    "github",
+    "minsky"
+  ];
+}
+
+/**
+ * Get available backends as a formatted string for CLI descriptions
+ */
+export function getAvailableBackendsString(): string {
+  return getAvailableBackends().join(", ");
+}
+
 /**
  * Centralized task parsing utilities
  */
