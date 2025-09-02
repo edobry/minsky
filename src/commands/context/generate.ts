@@ -113,7 +113,7 @@ Examples:
   minsky context generate --analyze  # Generate context with token analysis
   minsky context generate --analyze-only  # Show only analysis without full context
   minsky context generate --model claude-3.5-sonnet --analyze  # Analyze with specific model
-  
+
   # Visualization examples
   minsky context generate --visualize  # Generate context with bar chart
   minsky context generate --visualize-only --chart-type pie  # Only show pie chart
