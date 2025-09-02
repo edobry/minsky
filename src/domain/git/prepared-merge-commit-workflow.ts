@@ -75,7 +75,7 @@ export async function createPreparedMergeCommitPR(
       hasUncommittedChanges = statusResult.stdout.trim().length > 0;
     } catch (statusErr) {
       // If we can't check status, proceed cautiously
-      console.warn("Could not check git status, proceeding with potential uncommitted changes");
+      log.warn("Could not check git status, proceeding with potential uncommitted changes");
     }
 
     // Stash uncommitted changes if they exist
@@ -157,7 +157,7 @@ export async function createPreparedMergeCommitPR(
         await gitExec("branch", `branch -D ${prBranch}`, { workdir, timeout: 30000 });
         await gitExec("branch", `branch ${prBranch}`, { workdir, timeout: 30000 });
       } catch (deleteErr) {
-        throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err as any)}`);
+        throw new MinskyError(`Failed to create PR branch: ${getErrorMessage(err)}`);
       }
     }
 

@@ -110,7 +110,7 @@ export async function cloneImpl(
       } catch (err) {
         log.warn("Could not read clone directory", {
           workdir,
-          error: getErrorMessage(err as any),
+          error: getErrorMessage(err),
         });
       }
     } catch (accessErr) {

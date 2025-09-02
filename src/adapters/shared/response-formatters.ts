@@ -7,6 +7,7 @@
 
 import type { CommandExecutionContext } from "./command-registry";
 import chalk from "chalk";
+import { getErrorMessage, getErrorStack } from "../../schemas/error";
 
 /**
  * Supported output formats
@@ -127,11 +128,12 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
    * @returns Formatted error message
    */
   formatText(error: Error, context: CommandExecutionContext): string {
-    let output = `${chalk.red("✗")} Error: ${(error as any).message}`;
+    let output = `${chalk.red("✗")} Error: ${getErrorMessage(error)}`;
 
     // Add stack trace in debug mode
-    if ((context as any).debug && (error as any).stack) {
-      output += `\n\n${(error as any).stack}`;
+    const errorStack = getErrorStack(error);
+    if ((context as any).debug && errorStack) {
+      output += `\n\n${errorStack}`;
     }
 
     return output;
@@ -147,12 +149,13 @@ export class ErrorFormatter extends BaseResponseFormatter<Error> {
   formatJson(error: Error, context: CommandExecutionContext): object {
     const result = {
       success: false,
-      error: (error as any).message as any,
+      error: getErrorMessage(error),
     } as any;
 
     // Add stack trace in debug mode
-    if ((context as any).debug && (error as any).stack) {
-      (result as any).stack = (error as any).stack as any;
+    const errorStack = getErrorStack(error);
+    if ((context as any).debug && errorStack) {
+      (result as any).stack = errorStack;
     }
 
     return result;

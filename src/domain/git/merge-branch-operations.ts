@@ -30,7 +30,7 @@ export async function mergeBranchImpl(
       log.debug("Merge completed successfully");
     } catch (err) {
       log.debug("Merge command failed, checking for conflicts", {
-        error: getErrorMessage(err as any),
+        error: getErrorMessage(err),
       });
 
       // Check if there are merge conflicts
@@ -68,10 +68,10 @@ export async function mergeBranchImpl(
     return { workdir, merged, conflicts: false };
   } catch (err) {
     log.error("mergeBranch failed with error", {
-      error: getErrorMessage(err as any),
+      error: getErrorMessage(err),
       workdir,
       branch,
     });
-    throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
+    throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err)}`);
   }
 }
