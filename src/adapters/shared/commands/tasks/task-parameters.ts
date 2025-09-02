@@ -68,6 +68,17 @@ export const taskFilterParams = {
   status: TaskParameters.status,
   filter: TaskParameters.filter,
   limit: TaskParameters.limit,
+  // Optional time window filters for list/get style commands
+  since: {
+    schema: z.string(),
+    description: "Only include tasks updated on/after this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false,
+  },
+  until: {
+    schema: z.string(),
+    description: "Only include tasks updated on/before this time (YYYY-MM-DD or 7d/24h/30m)",
+    required: false,
+  },
 };
 
 /**
