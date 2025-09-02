@@ -1,6 +1,6 @@
 {
-  "id": "87eb081b-7c34-4edc-878c-5704f5f98c0d",
-  "prevId": "f9db954e-3857-4505-9018-0b3a77fd0b8e",
+  "id": "3cf597a1-123f-40d1-bd31-d06e92ad1edd",
+  "prevId": "da5b3cdf-3641-4712-9c4d-1f4d3256f9e1",
   "version": "7",
   "dialect": "postgresql",
   "tables": {
@@ -349,18 +349,143 @@
       "policies": {},
       "checkConstraints": {},
       "isRLSEnabled": false
+    },
+    "public.task_relationships": {
+      "name": "task_relationships",
+      "schema": "",
+      "columns": {
+        "id": {
+          "name": "id",
+          "type": "uuid",
+          "primaryKey": true,
+          "notNull": true,
+          "default": "gen_random_uuid()"
+        },
+        "from_task_id": {
+          "name": "from_task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        },
+        "to_task_id": {
+          "name": "to_task_id",
+          "type": "text",
+          "primaryKey": false,
+          "notNull": true
+        }
+      },
+      "indexes": {
+        "tr_unique_edge": {
+          "name": "tr_unique_edge",
+          "columns": [
+            {
+              "expression": "from_task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            },
+            {
+              "expression": "to_task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": true,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tr_from_idx": {
+          "name": "tr_from_idx",
+          "columns": [
+            {
+              "expression": "from_task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        },
+        "tr_to_idx": {
+          "name": "tr_to_idx",
+          "columns": [
+            {
+              "expression": "to_task_id",
+              "isExpression": false,
+              "asc": true,
+              "nulls": "last"
+            }
+          ],
+          "isUnique": false,
+          "concurrently": false,
+          "method": "btree",
+          "with": {}
+        }
+      },
+      "foreignKeys": {
+        "task_relationships_from_task_id_tasks_id_fk": {
+          "name": "task_relationships_from_task_id_tasks_id_fk",
+          "tableFrom": "task_relationships",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "from_task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        },
+        "task_relationships_to_task_id_tasks_id_fk": {
+          "name": "task_relationships_to_task_id_tasks_id_fk",
+          "tableFrom": "task_relationships",
+          "tableTo": "tasks",
+          "columnsFrom": [
+            "to_task_id"
+          ],
+          "columnsTo": [
+            "id"
+          ],
+          "onDelete": "cascade",
+          "onUpdate": "no action"
+        }
+      },
+      "compositePrimaryKeys": {},
+      "uniqueConstraints": {},
+      "policies": {},
+      "checkConstraints": {},
+      "isRLSEnabled": false
     }
   },
   "enums": {
     "public.task_backend": {
       "name": "task_backend",
       "schema": "public",
-      "values": ["markdown", "json-file", "github-issues", "db", "minsky"]
+      "values": [
+        "markdown",
+        "json-file",
+        "github-issues",
+        "github",
+        "minsky",
+        "db"
+      ]
     },
     "public.task_status": {
       "name": "task_status",
       "schema": "public",
-      "values": ["TODO", "IN-PROGRESS", "IN-REVIEW", "DONE", "BLOCKED", "CLOSED"]
+      "values": [
+        "TODO",
+        "IN-PROGRESS",
+        "IN-REVIEW",
+        "DONE",
+        "BLOCKED",
+        "CLOSED"
+      ]
     }
   },
   "schemas": {},
