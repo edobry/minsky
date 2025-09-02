@@ -525,9 +525,7 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
         tasks = tasks.filter((task) => task.status === options.status);
       } else if (!options?.all) {
         // Default: exclude DONE and CLOSED tasks unless --all is specified
-        tasks = tasks.filter((task) => 
-          task.status !== "DONE" && task.status !== "CLOSED"
-        );
+        tasks = tasks.filter((task) => task.status !== "DONE" && task.status !== "CLOSED");
       }
 
       return tasks;

@@ -5,7 +5,7 @@ import { PreCommitHook, type ESLintResult } from "../../../src/hooks/pre-commit"
 import { ProjectConfigReader } from "../../../src/domain/project/config-reader";
 
 // Mock external dependencies
-const mockExecAsync = mock();
+let mockExecAsync = mock();
 const mockLog = {
   cli: mock(),
   error: mock(),
@@ -81,10 +81,12 @@ describe("PreCommitHook - Dev Tooling", () => {
         },
       ];
 
-      mockExecAsync.mockResolvedValue({
-        stdout: JSON.stringify(cleanResults),
-        stderr: "",
-      });
+      mockExecAsync = mock(() =>
+        Promise.resolve({
+          stdout: JSON.stringify(cleanResults),
+          stderr: "",
+        })
+      );
 
       const result = await (hook as any).runESLintValidation();
 
@@ -116,10 +118,12 @@ describe("PreCommitHook - Dev Tooling", () => {
         },
       ];
 
-      mockExecAsync.mockResolvedValue({
-        stdout: JSON.stringify(errorResults),
-        stderr: "",
-      });
+      mockExecAsync = mock(() =>
+        Promise.resolve({
+          stdout: JSON.stringify(errorResults),
+          stderr: "",
+        })
+      );
 
       const result = await (hook as any).runESLintValidation();
 
@@ -150,10 +154,12 @@ describe("PreCommitHook - Dev Tooling", () => {
         },
       ];
 
-      mockExecAsync.mockResolvedValue({
-        stdout: JSON.stringify(warningResults),
-        stderr: "",
-      });
+      mockExecAsync = mock(() =>
+        Promise.resolve({
+          stdout: JSON.stringify(warningResults),
+          stderr: "",
+        })
+      );
 
       const result = await (hook as any).runESLintValidation();
 
@@ -167,7 +173,7 @@ describe("PreCommitHook - Dev Tooling", () => {
 
   describe("Console Validation", () => {
     it("should block commits with console violations", async () => {
-      mockExecAsync.mockRejectedValue(new Error("Console violations found"));
+      mockExecAsync = mock(() => Promise.reject(new Error("Console violations found")));
 
       const result = await (hook as any).runConsoleValidation();
 
@@ -179,7 +185,7 @@ describe("PreCommitHook - Dev Tooling", () => {
     });
 
     it("should pass when no console violations", async () => {
-      mockExecAsync.mockResolvedValue({ stdout: "", stderr: "" });
+      mockExecAsync = mock(() => Promise.resolve({ stdout: "", stderr: "" }));
 
       const result = await (hook as any).runConsoleValidation();
 
@@ -191,7 +197,7 @@ describe("PreCommitHook - Dev Tooling", () => {
   describe("Full Hook Integration", () => {
     it("should stop at first failure", async () => {
       // Mock secret scanning to fail (first step)
-      mockExecAsync.mockRejectedValueOnce(new Error("Secrets found"));
+      mockExecAsync.mockImplementationOnce(() => Promise.reject(new Error("Secrets found")));
 
       const result = await hook.run();
 
@@ -213,10 +219,12 @@ describe("PreCommitHook - Dev Tooling", () => {
       mockFs.writeFileSync(join(testDir, ".gitleaks.toml"), "# Mock config");
 
       // Mock all external commands to succeed
-      mockExecAsync.mockResolvedValue({
-        stdout: "[]", // Empty ESLint results
-        stderr: "",
-      });
+      mockExecAsync = mock(() =>
+        Promise.resolve({
+          stdout: "[]", // Empty ESLint results
+          stderr: "",
+        })
+      );
 
       const result = await hook.run();
 

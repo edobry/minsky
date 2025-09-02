@@ -46,15 +46,15 @@ export class ProjectConfigReader {
    */
   async getConfiguration(): Promise<ProjectConfiguration> {
     const configPath = join(this.projectRoot, "minsky.json");
-    
+
     if (!existsSync(configPath)) {
       throw new Error(`minsky.json not found at ${configPath}`);
     }
 
     try {
-      const content = readFileSync(configPath, 'utf-8');
+      const content = readFileSync(configPath, "utf-8");
       const parsedConfig = JSON.parse(content);
-      
+
       return {
         workflows: parsedConfig.workflows || {},
         runtime: parsedConfig.runtime || {},
@@ -106,7 +106,7 @@ export class ProjectConfigReader {
   }
 
   /**
-   * Get the dev command  
+   * Get the dev command
    */
   async getDevCommand(): Promise<string | undefined> {
     const config = await this.getConfiguration();
