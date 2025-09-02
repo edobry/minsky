@@ -8,26 +8,28 @@ import { isQualifiedTaskId } from "./task-id";
  */
 
 /**
- * Valid task status values
+ * Task status types supported by Minsky
+ * Following the same pattern as TaskBackend enum
  */
-export const TASK_STATUS = {
-  TODO: "TODO",
-  IN_PROGRESS: "IN-PROGRESS",
-  IN_REVIEW: "IN-REVIEW",
-  DONE: "DONE",
-  BLOCKED: "BLOCKED",
-  CLOSED: "CLOSED",
-} as const;
+export enum TaskStatus {
+  TODO = "TODO",
+  IN_PROGRESS = "IN-PROGRESS",
+  IN_REVIEW = "IN-REVIEW",
+  DONE = "DONE",
+  BLOCKED = "BLOCKED",
+  CLOSED = "CLOSED",
+}
 
 /**
- * Task status type derived from the constants
+ * Backward compatibility: Export enum values as TASK_STATUS constants
+ * This allows existing code using TASK_STATUS.TODO to continue working
  */
-export type TaskStatus = (typeof TASK_STATUS)[keyof typeof TASK_STATUS];
+export const TASK_STATUS = TaskStatus;
 
 /**
  * Array of all valid task status values for use in schemas
  */
-export const TASK_STATUS_VALUES = Object.values(TASK_STATUS);
+export const TASK_STATUS_VALUES = Object.values(TaskStatus);
 
 /**
  * Mapping from task status to markdown checkbox representation
