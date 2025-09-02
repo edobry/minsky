@@ -236,16 +236,21 @@ async function executeGenerate(options: GenerateOptions): Promise<void> {
   } else {
     // Console output
     if (options.visualizeOnly) {
-      // Only show visualization
+      // Show visualization and analysis (most users want both)
       if (analysisResult) {
+        displayAnalysisResults(analysisResult, options);
         displayContextVisualization(analysisResult, options);
       } else {
         log.cli("No analysis performed. Use --visualize-only to enable visualization.");
       }
     } else if (options.analyzeOnly) {
-      // Only display analysis in human-readable format
+      // Display analysis in human-readable format
       if (analysisResult) {
         displayAnalysisResults(analysisResult, options);
+        // Also show visualization if requested with analyze-only
+        if (options.visualize) {
+          displayContextVisualization(analysisResult, options);
+        }
       } else {
         log.cli("No analysis performed. Use --analyze-only to enable analysis.");
       }
