@@ -36,7 +36,7 @@ export const taskListParamsSchema = commonCommandOptionsSchema.extend({
   backend: z
     .string()
     .optional()
-    .describe("Specify task backend (markdown, json-file, github-issues)"),
+    .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
 });
 
 /**
@@ -57,7 +57,7 @@ export const taskGetParamsSchema = commonCommandOptionsSchema.extend({
   backend: z
     .string()
     .optional()
-    .describe("Specify task backend (markdown, json-file, github-issues)"),
+    .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
 });
 
 /**
@@ -74,7 +74,7 @@ export const taskStatusGetParamsSchema = z
     backend: z
       .string()
       .optional()
-      .describe("Specify task backend (markdown, json-file, github-issues)"),
+      .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
   })
   .merge(commonCommandOptionsSchema);
 
@@ -93,7 +93,7 @@ export const taskStatusSetParamsSchema = z
     backend: z
       .string()
       .optional()
-      .describe("Specify task backend (markdown, json-file, github-issues)"),
+      .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
   })
   .merge(commonCommandOptionsSchema);
 
@@ -115,7 +115,7 @@ export const taskCreateParamsSchema = z
     backend: z
       .string()
       .optional()
-      .describe("Specify task backend (markdown, json-file, github-issues)"),
+      .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
   })
   .merge(commonCommandOptionsSchema)
   .refine(
@@ -152,7 +152,7 @@ export const taskCreateFromTitleAndDescriptionParamsSchema = z
     backend: z
       .string()
       .optional()
-      .describe("Specify task backend (markdown, json-file, github-issues)"),
+      .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
     githubRepo: z
       .string()
       .optional()
@@ -179,7 +179,7 @@ export const taskSpecContentParamsSchema = z
     backend: z
       .string()
       .optional()
-      .describe("Specify task backend (markdown, json-file, github-issues)"),
+      .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
   })
   .merge(commonCommandOptionsSchema);
 
@@ -198,7 +198,7 @@ export const taskDeleteParamsSchema = z
     backend: z
       .string()
       .optional()
-      .describe("Specify task backend (markdown, json-file, github-issues)"),
+      .describe("Specify task backend (available: markdown, json-file, github, minsky)"),
   })
   .merge(commonCommandOptionsSchema);
 

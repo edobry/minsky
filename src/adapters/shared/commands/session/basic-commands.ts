@@ -36,10 +36,24 @@ export class SessionListCommand extends BaseSessionCommand<any, any> {
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
     const { listSessionsFromParams } = await import("../../../../domain/session");
 
-    const sessions = await listSessionsFromParams({
+    let sessions = await listSessionsFromParams({
       repo: params.repo,
       json: params.json,
     });
+
+    // Apply time filtering on createdAt
+    try {
+      const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
+      const sinceTs = parseTime(params.since);
+      const untilTs = parseTime(params.until);
+      sessions = filterByTimeRange(
+        sessions.map((s: any) => ({ ...s, updatedAt: s.createdAt })),
+        sinceTs,
+        untilTs
+      );
+    } catch {
+      // ignore
+    }
 
     return this.createSuccessResult({ sessions });
   }
@@ -78,6 +92,19 @@ export class SessionGetCommand extends BaseSessionCommand<any, any> {
     if (!session) {
       const identifier = params.name || `task #${params.task}`;
       throw new Error(`Session '${identifier}' not found`);
+    }
+
+    // Optional time constraint: createdAt within window
+    try {
+      const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
+      const sinceTs = parseTime(params.since);
+      const untilTs = parseTime(params.until);
+      const [matched] = filterByTimeRange([{ updatedAt: session.createdAt }], sinceTs, untilTs);
+      if ((sinceTs !== null || untilTs !== null) && !matched) {
+        throw new Error("Session does not match time constraints");
+      }
+    } catch {
+      // ignore
     }
 
     return this.createSuccessResult({ session });
