@@ -9,6 +9,7 @@
 import { z } from "zod";
 import { type CommandParameterDefinition } from "./command-registry";
 import { isQualifiedTaskId } from "../../domain/tasks/task-id";
+import { getAvailableBackendsString } from "../../domain/tasks/taskConstants";
 
 /**
  * Core common parameters used across multiple command categories
@@ -95,7 +96,7 @@ export const CommonParameters = {
    */
   backend: {
     schema: z.string(),
-    description: "Backend type",
+    description: `Backend type (available: ${getAvailableBackendsString()})`,
     required: false,
   } as CommandParameterDefinition,
 
@@ -327,7 +328,7 @@ export const TaskParameters = {
    */
   backend: {
     schema: z.string().min(1),
-    description: "Specific backend to use (md, gh, json)",
+    description: `Specific backend to use (available: ${getAvailableBackendsString()})`,
     required: false,
   } as CommandParameterDefinition,
 
@@ -336,7 +337,7 @@ export const TaskParameters = {
    */
   backends: {
     schema: z.array(z.string().min(1)),
-    description: "Multiple backends to operate on (md, gh, json)",
+    description: `Multiple backends to operate on (available: ${getAvailableBackendsString()})`,
     required: false,
   } as CommandParameterDefinition,
 
@@ -345,7 +346,7 @@ export const TaskParameters = {
    */
   targetBackend: {
     schema: z.string().min(1),
-    description: "Target backend for migration (md, gh, json)",
+    description: `Target backend for migration (available: ${getAvailableBackendsString()})`,
     required: false,
   } as CommandParameterDefinition,
 } as const;
