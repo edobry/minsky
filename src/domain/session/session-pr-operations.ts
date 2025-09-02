@@ -105,6 +105,7 @@ export async function sessionPrImpl(
   baseBranch: string;
   title?: string;
   body?: string;
+  url?: string;
 }> {
   // STEP 0: Validate parameters using schema
   try {
@@ -371,6 +372,7 @@ Please provide a title for your pull request:
       baseBranch,
       title: titleToUse,
       body: bodyToUse,
+      url: prInfo.url, // Include PR URL from repository backend
     };
   } catch (error) {
     throw new MinskyError(`Failed to create pull request: ${getErrorMessage(error as any)}`);

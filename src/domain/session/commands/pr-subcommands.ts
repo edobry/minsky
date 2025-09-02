@@ -92,7 +92,7 @@ export async function sessionPrCreate(
   );
 
   return {
-    ...result,
+    ...result, // Includes url field from sessionPrImpl
     pullRequest: undefined, // Will be populated from session record if needed
   };
 }

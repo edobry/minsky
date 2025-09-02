@@ -202,6 +202,7 @@ export interface SessionPrResult {
   baseBranch: string;
   title?: string;
   body?: string;
+  url?: string; // PR URL from repository backend
   // Session information for CLI formatting
   session?: {
     session: string;
