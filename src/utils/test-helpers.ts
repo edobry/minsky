@@ -10,7 +10,6 @@ import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child
 import type { WriteFileOptions } from "fs";
 import { log } from "./logger";
 
-
 // Create a virtual filesystem for testing
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
 

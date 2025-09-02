@@ -1,7 +1,6 @@
 import { normalizeRepoName } from "../repo-utils";
 import type { SessionProviderInterface } from "../session";
 
-
 export interface MergePrOptions {
   prBranch: string;
   repoPath?: string;
