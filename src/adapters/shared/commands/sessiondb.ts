@@ -1418,7 +1418,9 @@ sharedCommandRegistry.registerCommand({
         validationResult = await validatePostgresBackend();
       } else {
         const { getAvailableBackendsString } = await import("../../../domain/tasks/taskConstants");
-        throw new Error(`Unknown backend: ${targetBackend}. Available backends: ${getAvailableBackendsString()}`);
+        throw new Error(
+          `Unknown backend: ${targetBackend}. Available backends: ${getAvailableBackendsString()}`
+        );
       }
 
       // Show results

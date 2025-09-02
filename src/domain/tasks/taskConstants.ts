@@ -129,12 +129,7 @@ export const TASK_REGEX_PATTERNS = {
  * This ensures backend lists in help text and errors are always up-to-date
  */
 export function getAvailableBackends(): string[] {
-  return [
-    "markdown",
-    "json-file", 
-    "github",
-    "minsky"
-  ];
+  return ["markdown", "json-file", "github", "minsky"];
 }
 
 /**
