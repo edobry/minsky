@@ -516,6 +516,8 @@ async function analyzeGeneratedContext(result: GenerateResult, options: Generate
     },
     componentBreakdown: componentAnalysis,
     optimizations,
+    // Include full result for sub-component parsing
+    fullResult: result,
   };
 }
 
@@ -734,20 +736,264 @@ function displayPieChart(analysisResult: any, width: number) {
 }
 
 function displayTreeView(analysisResult: any, width: number) {
-  log.cli("\n🌳 Context Hierarchy (Tree View)");
+  log.cli("\n🌳 Context Component Hierarchy");
   log.cli("━".repeat(Math.min(width, 80)));
 
   const components = analysisResult.componentBreakdown;
 
-  log.cli(`├── Context (${analysisResult.summary.totalTokens.toLocaleString()} tokens total)`);
+  // Group components by logical categories
+  const groups = groupComponentsByCategory(components, analysisResult);
 
-  components.forEach((component: any, index: number) => {
-    const isLast = index === components.length - 1;
-    const connector = isLast ? "└── " : "├── ";
+  groups.forEach((group, groupIndex) => {
+    const isLastGroup = groupIndex === groups.length - 1;
+    const groupConnector = isLastGroup ? "└── " : "├── ";
+
     log.cli(
-      `${connector}${component.component} (${component.tokens.toLocaleString()} tokens, ${component.percentage}%)`
+      `${groupConnector}${group.name} (${group.totalTokens.toLocaleString()} tokens, ${group.percentage.toFixed(1)}%)`
     );
+
+    group.components.forEach((component: any, compIndex: number) => {
+      const isLastComponent = compIndex === group.components.length - 1;
+      const componentConnector = isLastGroup
+        ? isLastComponent
+          ? "    └── "
+          : "    ├── "
+        : isLastComponent
+          ? "│   └── "
+          : "│   ├── ";
+
+      log.cli(
+        `${componentConnector}${component.component} (${component.tokens.toLocaleString()} tokens, ${component.percentage}%)`
+      );
+
+      // Show sub-components if available
+      if (component.subComponents && component.subComponents.length > 0) {
+        component.subComponents.forEach((subComp: any, subIndex: number) => {
+          const isLastSub = subIndex === component.subComponents.length - 1;
+          const subConnector = isLastGroup
+            ? isLastComponent
+              ? isLastSub
+                ? "        └── "
+                : "        ├── "
+              : isLastSub
+                ? "    │   └── "
+                : "    │   ├── "
+            : isLastComponent
+              ? isLastSub
+                ? "│       └── "
+                : "│       ├── "
+              : isLastSub
+                ? "│   │   └── "
+                : "│   │   ├── ";
+
+          log.cli(
+            `${subConnector}${subComp.name}${subComp.description ? ` - ${subComp.description}` : ""}`
+          );
+        });
+      }
+    });
   });
+}
+
+function parseComponentContent(componentId: string, analysisResult?: any): any[] {
+  if (!analysisResult?.fullResult?.components) {
+    return [];
+  }
+
+  // Find the full component content
+  const fullComponent = analysisResult.fullResult.components.find(
+    (comp: any) => comp.component_id === componentId
+  );
+
+  if (!fullComponent?.content) {
+    return [];
+  }
+
+  const content = fullComponent.content;
+  const subComponents: any[] = [];
+
+  try {
+    switch (componentId) {
+      case "tool-schemas": {
+        // Parse JSON tool schemas
+        if (content.includes("Here are the functions available in JSONSchema format:")) {
+          const jsonMatch = content.match(/\{[\s\S]*\}/);
+          if (jsonMatch) {
+            const toolSchemas = JSON.parse(jsonMatch[0]);
+            Object.keys(toolSchemas).forEach((toolName) => {
+              const tool = toolSchemas[toolName];
+              subComponents.push({
+                name: toolName,
+                description: tool.description
+                  ? tool.description.substring(0, 60) + (tool.description.length > 60 ? "..." : "")
+                  : "No description",
+              });
+            });
+          }
+        }
+        break;
+      }
+
+      case "workspace-rules": {
+        // Parse rule sections
+        const ruleSections = content.split(/^#\s+/m).filter((section) => section.trim());
+        ruleSections.forEach((section) => {
+          const lines = section.split("\n");
+          const title = lines[0]?.trim();
+          if (title && title !== "workspace-rules") {
+            subComponents.push({
+              name: title.replace(/^#+\s*/, ""),
+              description: "Workspace rule",
+            });
+          }
+        });
+        break;
+      }
+
+      case "environment": {
+        // Parse environment details
+        const envLines = content.split("\n").filter((line) => line.includes(":"));
+        envLines.forEach((line) => {
+          const [key, value] = line.split(":");
+          if (key && value) {
+            subComponents.push({
+              name: key.trim(),
+              description: value.trim().substring(0, 30),
+            });
+          }
+        });
+        break;
+      }
+
+      default: {
+        // Generic parsing - look for headers
+        const headers = content.match(/^#+\s+(.+)$/gm);
+        if (headers && headers.length > 1) {
+          headers.slice(1, 6).forEach((header) => {
+            // Limit to 5
+            const title = header.replace(/^#+\s*/, "").trim();
+            subComponents.push({
+              name: title.substring(0, 40) + (title.length > 40 ? "..." : ""),
+              description: "Section",
+            });
+          });
+        }
+        break;
+      }
+    }
+  } catch (error) {
+    // If parsing fails, don't show sub-components
+  }
+
+  return subComponents.slice(0, 8); // Limit to 8 sub-components
+}
+
+function groupComponentsByCategory(components: any[], analysisResult?: any) {
+  const totalTokens = components.reduce((sum, comp) => sum + comp.tokens, 0);
+
+  // Parse component content to extract sub-components
+  const enrichedComponents = components.map((comp) => ({
+    ...comp,
+    subComponents: parseComponentContent(comp.component, analysisResult),
+  }));
+
+  // Define logical groupings based on component purpose
+  const environmentComponents = enrichedComponents.filter((c) =>
+    ["environment", "project-context", "session-context"].includes(c.component)
+  );
+
+  const rulesComponents = enrichedComponents.filter((c) =>
+    [
+      "workspace-rules",
+      "system-instructions",
+      "communication",
+      "tool-calling-rules",
+      "maximize-parallel-tool-calls",
+      "maximize-context-understanding",
+      "making-code-changes",
+      "code-citation-format",
+      "task-management",
+    ].includes(c.component)
+  );
+
+  const toolsComponents = enrichedComponents.filter((c) => ["tool-schemas"].includes(c.component));
+
+  const dataComponents = enrichedComponents.filter((c) =>
+    [
+      "file-content",
+      "error-context",
+      "test-context",
+      "dependency-context",
+      "conversation-history",
+    ].includes(c.component)
+  );
+
+  // Collect any components that don't fit the above categories
+  const categorizedComponents = [
+    ...environmentComponents,
+    ...rulesComponents,
+    ...toolsComponents,
+    ...dataComponents,
+  ].map((comp) => comp.component);
+
+  const otherComponents = enrichedComponents.filter(
+    (c) => !categorizedComponents.includes(c.component)
+  );
+
+  const groups = [];
+
+  if (environmentComponents.length > 0) {
+    const groupTokens = environmentComponents.reduce((sum, comp) => sum + comp.tokens, 0);
+    groups.push({
+      name: "Environment & Context",
+      totalTokens: groupTokens,
+      percentage: (groupTokens / totalTokens) * 100,
+      components: environmentComponents.sort((a, b) => b.tokens - a.tokens),
+    });
+  }
+
+  if (rulesComponents.length > 0) {
+    const groupTokens = rulesComponents.reduce((sum, comp) => sum + comp.tokens, 0);
+    groups.push({
+      name: "Rules & Guidelines",
+      totalTokens: groupTokens,
+      percentage: (groupTokens / totalTokens) * 100,
+      components: rulesComponents.sort((a, b) => b.tokens - a.tokens),
+    });
+  }
+
+  if (toolsComponents.length > 0) {
+    const groupTokens = toolsComponents.reduce((sum, comp) => sum + comp.tokens, 0);
+    groups.push({
+      name: "Tools & Schemas",
+      totalTokens: groupTokens,
+      percentage: (groupTokens / totalTokens) * 100,
+      components: toolsComponents.sort((a, b) => b.tokens - a.tokens),
+    });
+  }
+
+  if (dataComponents.length > 0) {
+    const groupTokens = dataComponents.reduce((sum, comp) => sum + comp.tokens, 0);
+    groups.push({
+      name: "Dynamic Data & Content",
+      totalTokens: groupTokens,
+      percentage: (groupTokens / totalTokens) * 100,
+      components: dataComponents.sort((a, b) => b.tokens - a.tokens),
+    });
+  }
+
+  if (otherComponents.length > 0) {
+    const groupTokens = otherComponents.reduce((sum, comp) => sum + comp.tokens, 0);
+    groups.push({
+      name: "Other Components",
+      totalTokens: groupTokens,
+      percentage: (groupTokens / totalTokens) * 100,
+      components: otherComponents.sort((a, b) => b.tokens - a.tokens),
+    });
+  }
+
+  // Sort groups by token count (largest first)
+  return groups.sort((a, b) => b.totalTokens - a.totalTokens);
 }
 
 function displayDetailedBreakdown(analysisResult: any) {
