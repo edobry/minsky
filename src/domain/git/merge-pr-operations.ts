@@ -1,6 +1,6 @@
 import { normalizeRepoName } from "../repo-utils";
 import type { SessionProviderInterface } from "../session";
-import { validateProcess } from "../../schemas/runtime";
+
 
 export interface MergePrOptions {
   prBranch: string;
@@ -49,7 +49,7 @@ export async function mergePrImpl(
     workdir = options.repoPath;
   } else {
     // Try to infer from current directory
-    workdir = validateProcess(process).cwd();
+    workdir = process.cwd();
   }
 
   // 2. Make sure we're on the base branch

@@ -5,7 +5,7 @@
  */
 import { ensureError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../schemas/error";
+
 // Re-export shared options functions needed by other modules
 export {
   normalizeSessionParams,
@@ -68,7 +68,7 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
     }
   } catch (e) {
     try {
-      console.log(options.json ? JSON.stringify(result, null, 2) : String(result));
+      log.cli(options.json ? JSON.stringify(result, null, 2) : String(result));
     } catch {
       // ignore fallback errors
     }

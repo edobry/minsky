@@ -272,11 +272,11 @@ export function validateFileStats(stats: unknown): FileStats {
   // Fallback for test environments and simplified stat objects
   if (typeof stats === "object" && stats !== null) {
     const obj = stats as Record<string, any>;
-    
+
     // Extract available functions, creating no-op functions if not available
     const isFile = typeof obj.isFile === "function" ? obj.isFile : () => false;
     const isDirectory = typeof obj.isDirectory === "function" ? obj.isDirectory : () => false;
-    
+
     // Create a minimal stats object that satisfies the interface
     return {
       isFile,

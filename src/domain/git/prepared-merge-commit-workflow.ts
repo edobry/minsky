@@ -75,7 +75,7 @@ export async function createPreparedMergeCommitPR(
       hasUncommittedChanges = statusResult.stdout.trim().length > 0;
     } catch (statusErr) {
       // If we can't check status, proceed cautiously
-      console.warn("Could not check git status, proceeding with potential uncommitted changes");
+      log.warn("Could not check git status, proceeding with potential uncommitted changes");
     }
 
     // Stash uncommitted changes if they exist

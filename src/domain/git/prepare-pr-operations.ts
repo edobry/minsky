@@ -3,7 +3,6 @@ import { exec } from "node:child_process";
 import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { validateGitError } from "../../schemas/error";
-import { validateProcess } from "../../schemas/runtime";
 import { log } from "../../utils/logger";
 import type { SessionRecord, SessionProviderInterface } from "../session";
 import { sessionNameToTaskId } from "../tasks/task-id";
@@ -129,7 +128,7 @@ export async function preparePrImpl(
       });
 
       // Check if we're currently in a session workspace directory
-      const currentDir = validateProcess(process).cwd();
+      const currentDir = process.cwd();
       const pathParts = currentDir.split("/");
       const sessionsIndex = pathParts.indexOf("sessions");
 
@@ -219,7 +218,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
-Current directory: ${validateProcess(process).cwd()}
+Current directory: ${process.cwd()}
 Session requested: "${(options as any).session}"
 `);
           }
@@ -263,7 +262,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
-Current directory: ${validateProcess(process).cwd()}
+Current directory: ${process.cwd()}
 Session requested: "${(options as any).session}"
 `);
         }
@@ -307,7 +306,7 @@ This can happen when sessions are created outside of Minsky or the database gets
 
 ⚠️  Note: Session PR commands should be run from within the session directory to enable automatic session self-repair.
 
-Current directory: ${validateProcess(process).cwd()}
+Current directory: ${process.cwd()}
 Session requested: "${(options as any).session}"
 `);
       }
@@ -322,7 +321,7 @@ Session requested: "${(options as any).session}"
     sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   } else {
     // Try to infer from current directory
-    workdir = validateProcess(process).cwd();
+    workdir = process.cwd();
     // Get current branch from cwd
     sourceBranch = await deps.execInRepository(workdir, "git rev-parse --abbrev-ref HEAD");
   }
@@ -566,9 +565,7 @@ After resolving conflicts, re-run the PR creation command to complete the proces
     await deps.execInRepository(workdir, `git switch ${sourceBranch}`);
     log.debug(`✅ Switched back to session branch ${sourceBranch} after creating PR branch`);
   } catch (err) {
-    log.warn(
-      `Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`
-    );
+    log.warn(`Failed to switch back to original branch ${sourceBranch}: ${getErrorMessage(err)}`);
   }
 
   return {

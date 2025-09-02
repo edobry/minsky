@@ -9,7 +9,7 @@ import { join, dirname } from "path";
 import type { SpawnSyncReturns, SpawnSyncOptionsWithStringEncoding } from "child_process";
 import type { WriteFileOptions } from "fs";
 import { log } from "./logger";
-import { validateProcess } from "../schemas/runtime";
+
 
 // Create a virtual filesystem for testing
 const virtualFS = new Map<string, { isDirectory: boolean; content?: string }>();
@@ -96,7 +96,7 @@ export interface MinskyTestEnv {
  * Creates a unique test directory name
  */
 export function createUniqueTestDir(prefix: string): string {
-  return `/tmp/${prefix}-${validateProcess(process).pid || 0}-${Date.now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
+  return `/tmp/${prefix}-${process.pid || 0}-${Date.now()}-${Math.random().toString(UUID_LENGTH).substring(2, SHORT_ID_LENGTH)}`;
 }
 
 /**
@@ -142,7 +142,7 @@ export function createTestEnv(
   additionalEnv: Record<string, string> = {}
 ): Record<string, string> {
   return {
-    ...validateProcess(process).env,
+    ...process.env,
     XDG_STATE_HOME: stateHome,
     ...additionalEnv,
   };
