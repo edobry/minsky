@@ -9,21 +9,24 @@ Systematically find, extract, and formalize task dependency references from free
 Based on initial analysis, I need to look for these patterns:
 
 ### Direct Task References
+
 - `Task #123` (legacy format)
 - `mt#123` (database backend tasks)
-- `md#123` (markdown backend tasks) 
+- `md#123` (markdown backend tasks)
 - `gh#123` (GitHub issues backend)
 - `json#123` (JSON file backend)
 
 ### Dependency Language
+
 - "depends on Task #123"
-- "requires Task #123" 
+- "requires Task #123"
 - "blocked by Task #123"
 - "prerequisite: Task #123"
 - "building on Task #123"
 - "based on Task #123"
 
 ### Section Contexts
+
 - "Dependencies" sections
 - "Prerequisites" sections
 - "Related Tasks" sections
