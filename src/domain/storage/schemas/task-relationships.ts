@@ -11,8 +11,12 @@ export const taskRelationshipsTable = pgTable(
   "task_relationships",
   {
     id: uuid("id").defaultRandom().primaryKey(),
-    fromTaskId: text("from_task_id").notNull().references(() => tasksTable.id, { onDelete: "cascade" }),
-    toTaskId: text("to_task_id").notNull().references(() => tasksTable.id, { onDelete: "cascade" }),
+    fromTaskId: text("from_task_id")
+      .notNull()
+      .references(() => tasksTable.id, { onDelete: "cascade" }),
+    toTaskId: text("to_task_id")
+      .notNull()
+      .references(() => tasksTable.id, { onDelete: "cascade" }),
   },
   (table) => ({
     // Prevent duplicate edges
