@@ -17,36 +17,11 @@ describe("Backend CLOSED task filtering regression test", () => {
     // Test data with mixed statuses including CLOSED tasks
     mockTasks = [
       { id: "test#001", title: "Todo Task", status: TASK_STATUS.TODO, description: "A todo task" },
-      {
-        id: "test#002",
-        title: "In Progress Task",
-        status: TASK_STATUS.IN_PROGRESS,
-        description: "An in-progress task",
-      },
-      {
-        id: "test#003",
-        title: "Done Task",
-        status: TASK_STATUS.DONE,
-        description: "A completed task",
-      },
-      {
-        id: "test#004",
-        title: "Closed Task",
-        status: TASK_STATUS.CLOSED,
-        description: "A closed task",
-      },
-      {
-        id: "test#005",
-        title: "Blocked Task",
-        status: TASK_STATUS.BLOCKED,
-        description: "A blocked task",
-      },
-      {
-        id: "test#006",
-        title: "Another Done Task",
-        status: TASK_STATUS.DONE,
-        description: "Another completed task",
-      },
+      { id: "test#002", title: "In Progress Task", status: TASK_STATUS.IN_PROGRESS, description: "An in-progress task" },
+      { id: "test#003", title: "Done Task", status: TASK_STATUS.DONE, description: "A completed task" },
+      { id: "test#004", title: "Closed Task", status: TASK_STATUS.CLOSED, description: "A closed task" },
+      { id: "test#005", title: "Blocked Task", status: TASK_STATUS.BLOCKED, description: "A blocked task" },
+      { id: "test#006", title: "Another Done Task", status: TASK_STATUS.DONE, description: "Another completed task" }
     ];
   });
 
