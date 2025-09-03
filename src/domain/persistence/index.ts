@@ -10,9 +10,11 @@ export {
   PersistenceCapabilities,
   PersistenceConfig,
   DatabaseStorage,
-  VectorStorage,
   CapabilityNotSupportedError,
 } from "./types";
+
+// Re-export VectorStorage from the storage module for convenience
+export type { VectorStorage } from "../storage/vector/types";
 
 // Export providers
 export { PostgresPersistenceProvider } from "./providers/postgres-provider";

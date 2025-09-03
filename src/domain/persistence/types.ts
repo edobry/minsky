@@ -6,6 +6,7 @@
  */
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
+import type { VectorStorage } from "../storage/vector/types";
 
 /**
  * Capabilities exposed by different persistence providers
@@ -47,20 +48,6 @@ export interface DatabaseStorage<T, S> {
   update(id: string, updates: Partial<T>): Promise<void>;
   delete(id: string): Promise<void>;
   search(criteria: S): Promise<T[]>;
-}
-
-/**
- * Vector storage interface for embeddings
- */
-export interface VectorStorage {
-  store(id: string, embedding: number[], metadata?: Record<string, any>): Promise<void>;
-  search(embedding: number[], limit: number): Promise<Array<{
-    id: string;
-    distance: number;
-    metadata?: Record<string, any>;
-  }>>;
-  delete(id: string): Promise<void>;
-  clear(): Promise<void>;
 }
 
 /**
