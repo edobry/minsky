@@ -484,11 +484,20 @@ export async function createTaskFromTitleAndDescription(
     backend: validParams.backend, // Let service determine backend via detection/config
   });
 
-  // Create the task from title and description
-  const task = await taskService.createTaskFromTitleAndDescription(
-    validParams.title,
-    validParams.description || ""
-  );
+  // Handle spec content - either from spec string or specPath file
+  let specContent = validParams.spec || "";
+
+  if (validParams.specPath) {
+    const fs = await import("fs/promises");
+    try {
+      specContent = await fs.readFile(validParams.specPath, "utf-8");
+    } catch (error) {
+      throw new Error(`Failed to read spec from file ${validParams.specPath}: ${error.message}`);
+    }
+  }
+
+  // Create the task from title and spec
+  const task = await taskService.createTaskFromTitleAndDescription(validParams.title, specContent);
 
   return task;
 }

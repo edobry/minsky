@@ -13,6 +13,7 @@ import { log } from "../../../../utils/logger";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
 import { promisify } from "util";
+import chalk from "chalk";
 
 /**
  * Parameters for tasks edit command
@@ -23,6 +24,8 @@ interface TasksEditParams extends BaseTaskParams {
   spec?: boolean;
   specFile?: string;
   specContent?: string;
+  force?: boolean;
+  verbose?: boolean;
 }
 
 /**
@@ -41,25 +44,42 @@ export class TasksEditCommand extends BaseTaskCommand {
   async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.edit execution");
 
+    // Log verbose information if requested
+    if (params.verbose) {
+      this.debug("🔍 Starting task edit operation...");
+    }
+
     // Validate required parameters
     const taskId = this.validateRequired(params.taskId, "taskId");
     const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
+
+    if (params.verbose) {
+      this.debug(`📝 Editing task: ${validatedTaskId}`);
+    }
 
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
 
     if (!params.title && !hasSpecOperation) {
       throw new ValidationError(
-        "At least one edit operation must be specified:\n" +
-          "  --title <text>       Update task title\n" +
-          "  --spec               Edit specification content interactively\n" +
-          "  --spec-file <path>   Update specification from file\n" +
-          "  --spec-content <text> Replace specification content\n\n" +
-          "For advanced editing with patterns, use: minsky tasks spec edit\n\n" +
-          "Examples:\n" +
-          '  minsky tasks edit mt#123 --title "New Title"\n' +
-          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\n" +
-          '  minsky tasks edit mt#123 --spec-content "New spec content"'
+        `${
+          chalk.red("❌ At least one edit operation must be specified:\n") +
+          chalk.gray("  --title <text>       ")
+        }Update task title\n${chalk.gray(
+          "  --spec               "
+        )}Edit specification content interactively\n${chalk.gray(
+          "  --spec-file <path>   "
+        )}Update specification from file\n${chalk.gray(
+          "  --spec-content <text>"
+        )} Replace specification content\n\n${chalk.yellow(
+          "💡 Tip: "
+        )}For advanced editing with patterns, use: ${chalk.cyan(
+          "minsky tasks spec edit"
+        )}\n\n${chalk.bold("Examples:\n")}${chalk.gray(
+          '  minsky tasks edit mt#123 --title "New Title"\n'
+        )}${chalk.gray(
+          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\n"
+        )}${chalk.gray('  minsky tasks edit mt#123 --spec-content "New spec content"')}`
       );
     }
 
@@ -77,6 +97,11 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Verify the task exists and get current data
     this.debug("Verifying task exists");
+
+    if (params.verbose) {
+      this.debug("⏳ Fetching current task data...");
+    }
+
     const currentTask = await getTaskFromParams({
       ...this.createTaskParams(params),
       taskId: validatedTaskId,
@@ -84,10 +109,18 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     if (!currentTask) {
       throw new ResourceNotFoundError(
-        `Task "${validatedTaskId}" not found`,
+        `${
+          chalk.red(`❌ Task "${validatedTaskId}" not found.\n`) + chalk.yellow("💡 Tip: ")
+        }Use ${chalk.cyan("minsky tasks list")} to see available tasks`,
         "task",
         validatedTaskId
       );
+    }
+
+    if (params.verbose) {
+      this.debug("✓ Task found");
+      this.debug(`  Current title: ${currentTask.title}`);
+      this.debug(`  Status: ${currentTask.status}`);
     }
 
     this.debug("Task found, preparing updates");
@@ -126,6 +159,21 @@ export class TasksEditCommand extends BaseTaskCommand {
       }
 
       updates.spec = newSpecContent!;
+    }
+
+    // Confirm changes if not forced
+    if (!params.force && (updates.title || updates.spec)) {
+      const shouldProceed = await this.confirmChanges(currentTask, updates, validatedTaskId);
+      if (!shouldProceed) {
+        return this.formatResult(
+          this.createErrorResult("Edit cancelled by user", validatedTaskId),
+          params.json
+        );
+      }
+    }
+
+    if (params.verbose) {
+      this.debug("⏳ Applying changes...");
     }
 
     // Apply the updates using the backend's setTaskMetadata method
@@ -178,8 +226,28 @@ export class TasksEditCommand extends BaseTaskCommand {
       const message = this.buildUpdateMessage(updates, validatedTaskId);
       this.debug("Task edit completed successfully");
 
+      // Build detailed success message
+      let detailedMessage = message;
+      if (!params.json) {
+        if (updates.spec) {
+          detailedMessage = chalk.green("✅ Task specification updated successfully");
+        } else if (updates.title) {
+          detailedMessage = chalk.green("✅ Task title updated successfully");
+        }
+
+        // Show what was changed
+        if (updates.title) {
+          detailedMessage += `\n${chalk.gray("  Previous: ")}${currentTask.title}`;
+          detailedMessage += `\n${chalk.gray("  Updated:  ")}${updates.title}`;
+        }
+        if (updates.spec) {
+          const specLines = updates.spec.split("\n").length;
+          detailedMessage += `\n${chalk.gray(`  Specification: ${specLines} lines`)}`;
+        }
+      }
+
       return this.formatResult(
-        this.createSuccessResult(validatedTaskId, message, {
+        this.createSuccessResult(validatedTaskId, params.json ? message : detailedMessage, {
           updates,
           task: {
             id: validatedTaskId,
@@ -187,11 +255,42 @@ export class TasksEditCommand extends BaseTaskCommand {
             status: currentTask.status,
             backend: currentTask.backend,
           },
+          previousValues: {
+            title: currentTask.title,
+            spec: currentTask.spec,
+          },
         }),
         params.json
       );
     } catch (error) {
       this.debug(`Task edit failed: ${error.message}`);
+
+      // Ensure non-zero exit code
+      process.exitCode = 1;
+
+      // Build actionable error message for non-JSON output
+      if (!params.json) {
+        let errorMessage = "";
+        if (error.message.includes("Backend") && error.message.includes("does not support")) {
+          errorMessage = chalk.red(
+            `❌ Failed to update task specification: Backend does not support specification editing`
+          );
+          errorMessage += `\n${chalk.yellow(
+            "   Tip: Some backends may have limited editing capabilities. Check backend documentation."
+          )}`;
+        } else if (error.message.includes("Failed to read spec file")) {
+          errorMessage = chalk.red(`❌ Failed to update task specification: ${error.message}`);
+          errorMessage += `\n${chalk.yellow("   Tip: Ensure the file exists and you have read permissions.")}`;
+        } else {
+          errorMessage = chalk.red(`❌ Failed to update task: ${error.message}`);
+        }
+
+        // Create a new error with the formatted message
+        const formattedError = new Error(errorMessage);
+        formattedError.stack = error.stack;
+        throw formattedError;
+      }
+
       throw error;
     }
   }
@@ -276,6 +375,62 @@ export class TasksEditCommand extends BaseTaskCommand {
     }
 
     return `Task ${taskId} ${parts.join(" and ")} updated successfully`;
+  }
+
+  /**
+   * Confirm changes with the user
+   */
+  private async confirmChanges(
+    currentTask: any,
+    updates: { title?: string; spec?: string },
+    taskId: string
+  ): Promise<boolean> {
+    const { confirm, isCancel } = await import("@clack/prompts");
+
+    // Build confirmation message
+    let message = `Apply the following changes to task ${taskId}?\n`;
+
+    if (updates.title) {
+      message += `\n  Title: "${currentTask.title}" → "${updates.title}"`;
+    }
+
+    if (updates.spec) {
+      const currentLines = (currentTask.spec || "").split("\n").length;
+      const newLines = updates.spec.split("\n").length;
+      message += `\n  Specification: ${currentLines} lines → ${newLines} lines`;
+    }
+
+    const shouldProceed = await confirm({
+      message,
+      initialValue: true,
+    });
+
+    return !isCancel(shouldProceed) && shouldProceed;
+  }
+
+  /**
+   * Show detailed change summary
+   */
+  private showChangeSummary(currentTask: any, updates: { title?: string; spec?: string }): void {
+    this.debug("📊 Change Summary:");
+
+    if (updates.title) {
+      this.debug("  Title:");
+      this.debug(`    From: ${currentTask.title}`);
+      this.debug(`    To:   ${updates.title}`);
+    }
+
+    if (updates.spec) {
+      const currentLines = (currentTask.spec || "").split("\n").length;
+      const newLines = updates.spec.split("\n").length;
+      const diff = newLines - currentLines;
+
+      this.debug("  Specification:");
+      this.debug(
+        `    Lines changed: ${Math.abs(diff)} ${diff > 0 ? "added" : diff < 0 ? "removed" : "modified"}`
+      );
+      this.debug(`    Total lines: ${newLines}`);
+    }
   }
 }
 
