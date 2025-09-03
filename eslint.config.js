@@ -139,7 +139,8 @@ export default [
         "warn",
         {
           allowInFiles: [
-            "**/tests/setup.ts", // Allow global logger mock in test setup
+            "**/tests/setup.ts",                      // Global test setup  
+            "**/tests/adapters/cli/session*.test.ts"  // Session CLI tests with global mocks
           ],
         },
       ], // Prevent cross-test interference from global mocking
