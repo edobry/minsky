@@ -43,18 +43,16 @@ export class TaskRoutingService {
   /**
    * Find all tasks that are currently available to work on (unblocked by dependencies)
    */
-  async findAvailableTasks(options: {
-    statusFilter?: string[];
-    backendFilter?: string;
-    limit?: number;
-    showEffort?: boolean;
-    showPriority?: boolean;
-  } = {}): Promise<AvailableTask[]> {
-    const {
-      statusFilter = ["TODO", "IN-PROGRESS"],
-      backendFilter,
-      limit = 50,
-    } = options;
+  async findAvailableTasks(
+    options: {
+      statusFilter?: string[];
+      backendFilter?: string;
+      limit?: number;
+      showEffort?: boolean;
+      showPriority?: boolean;
+    } = {}
+  ): Promise<AvailableTask[]> {
+    const { statusFilter = ["TODO", "IN-PROGRESS"], backendFilter, limit = 50 } = options;
 
     // Get all tasks
     const allTasks = await this.taskService.listTasks({
@@ -67,9 +65,10 @@ export class TaskRoutingService {
       : allTasks;
 
     // Filter by status if multiple statuses specified
-    const statusFilteredTasks = statusFilter.length > 1
-      ? filteredTasks.filter((task) => statusFilter.includes(task.status))
-      : filteredTasks;
+    const statusFilteredTasks =
+      statusFilter.length > 1
+        ? filteredTasks.filter((task) => statusFilter.includes(task.status))
+        : filteredTasks;
 
     if (statusFilteredTasks.length === 0) {
       return [];
@@ -99,7 +98,7 @@ export class TaskRoutingService {
 
     for (const task of statusFilteredTasks) {
       const blockedBy = dependencyMap.get(task.id) || [];
-      
+
       // Get status of blocking dependencies
       const blockingTasks = await Promise.all(
         blockedBy.map(async (depId) => {
@@ -161,7 +160,7 @@ export class TaskRoutingService {
 
     // Find all dependencies leading to target (breadth-first traversal)
     const allDependencies = await this._findAllDependencies(targetTaskId, new Set());
-    
+
     // Get task details for all dependencies
     const taskDetails = await Promise.all(
       Array.from(allDependencies).map(async (taskId) => {
@@ -185,7 +184,7 @@ export class TaskRoutingService {
 
     for (const task of validTasks) {
       const dependencies = await this.taskGraphService.listDependencies(task.id);
-      
+
       steps.push({
         taskId: task.id,
         title: task.title || "Unknown",
@@ -200,26 +199,26 @@ export class TaskRoutingService {
     if (strategy === "ready-first") {
       steps.sort((a, b) => {
         // Prioritize tasks with all dependencies completed
-        const aReady = a.dependencies.every(depId => {
-          const depTask = validTasks.find(t => t.id === depId);
+        const aReady = a.dependencies.every((depId) => {
+          const depTask = validTasks.find((t) => t.id === depId);
           return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
         });
-        const bReady = b.dependencies.every(depId => {
-          const depTask = validTasks.find(t => t.id === depId);
+        const bReady = b.dependencies.every((depId) => {
+          const depTask = validTasks.find((t) => t.id === depId);
           return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
         });
-        
+
         if (aReady !== bReady) return bReady ? 1 : -1;
-        
+
         // Then by depth (foundation tasks first)
         return b.depth - a.depth;
       });
     }
 
     // Calculate summary statistics
-    const readyTasks = steps.filter(step => 
-      step.dependencies.every(depId => {
-        const depTask = validTasks.find(t => t.id === depId);
+    const readyTasks = steps.filter((step) =>
+      step.dependencies.every((depId) => {
+        const depTask = validTasks.find((t) => t.id === depId);
         return depTask?.status === "DONE" || depTask?.status === "CANCELLED";
       })
     ).length;
@@ -248,7 +247,7 @@ export class TaskRoutingService {
 
     visited.add(taskId);
     const dependencies = await this.taskGraphService.listDependencies(taskId);
-    
+
     for (const depId of dependencies) {
       await this._findAllDependencies(depId, visited);
     }
@@ -259,14 +258,18 @@ export class TaskRoutingService {
   /**
    * Calculate depth of each task from target (reverse BFS)
    */
-  private async _calculateDepths(taskId: string, depth: number, depths: Map<string, number>): Promise<void> {
+  private async _calculateDepths(
+    taskId: string,
+    depth: number,
+    depths: Map<string, number>
+  ): Promise<void> {
     if (depths.has(taskId) && depths.get(taskId)! <= depth) {
       return; // Already processed with shorter or equal depth
     }
 
     depths.set(taskId, depth);
     const dependencies = await this.taskGraphService.listDependencies(taskId);
-    
+
     for (const depId of dependencies) {
       await this._calculateDepths(depId, depth + 1, depths);
     }

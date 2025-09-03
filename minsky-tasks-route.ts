@@ -104,7 +104,7 @@ async function main() {
     // Generate human-readable route plan
     console.log(`🎯 Route to ${route.targetTaskId}: ${route.targetTitle}`);
     console.log(`📊 Strategy: ${route.strategy} | Tasks: ${route.totalTasks} | Ready: ${route.readyTasks} | Blocked: ${route.blockedTasks}`);
-    console.log("━".repeat(80) + "\n");
+    console.log(`${"━".repeat(80)}\n`);
 
     if (route.steps.length === 0) {
       console.log("✅ Target task has no dependencies - ready to start immediately!");

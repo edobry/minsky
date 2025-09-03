@@ -29,10 +29,7 @@ import {
   createTasksDepsTreeCommand,
   createTasksDepsGraphCommand,
 } from "./tasks/deps-visualization-commands";
-import {
-  createTasksAvailableCommand,
-  createTasksRouteCommand,
-} from "./tasks/routing-commands";
+import { createTasksAvailableCommand, createTasksRouteCommand } from "./tasks/routing-commands";
 
 /**
  * Modular Tasks Command Manager
@@ -71,7 +68,7 @@ export class ModularTasksCommandManager {
       const depsListCommand = createTasksDepsListCommand();
       const depsTreeCommand = createTasksDepsTreeCommand();
       const depsGraphCommand = createTasksDepsGraphCommand();
-      
+
       const availableCommand = createTasksAvailableCommand();
       const routeCommand = createTasksRouteCommand();
 

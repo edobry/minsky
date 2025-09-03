@@ -30,7 +30,7 @@ const tasksAvailableParams: CommandParameterMap = {
   },
   showPriority: {
     schema: z.boolean().default(false),
-    description: "Include priority information if available", 
+    description: "Include priority information if available",
     required: false,
   },
   json: {
@@ -45,7 +45,7 @@ const tasksAvailableParams: CommandParameterMap = {
   },
 };
 
-// Parameter definitions for route command  
+// Parameter definitions for route command
 const tasksRouteParams: CommandParameterMap = {
   target: {
     schema: z.string(),
@@ -54,7 +54,8 @@ const tasksRouteParams: CommandParameterMap = {
   },
   strategy: {
     schema: z.enum(["shortest-path", "value-first", "ready-first"]).default("ready-first"),
-    description: "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)",
+    description:
+      "Routing strategy: ready-first (actionable), shortest-path (minimal), value-first (value optimized)",
     required: false,
   },
   parallel: {
@@ -75,7 +76,7 @@ const tasksRouteParams: CommandParameterMap = {
 export function createTasksAvailableCommand() {
   return {
     id: "tasks.available",
-    name: "available", 
+    name: "available",
     description: "Show tasks currently available to work on (unblocked by dependencies)",
     parameters: tasksAvailableParams,
     execute: async (params: any) => {
@@ -87,7 +88,7 @@ export function createTasksAvailableCommand() {
       const routingService = new TaskRoutingService(graphService, taskService);
 
       // Parse status filter
-      const statusFilter = params.status 
+      const statusFilter = params.status
         ? params.status.split(",").map((s: string) => s.trim())
         : ["TODO", "IN-PROGRESS"];
 
@@ -100,7 +101,9 @@ export function createTasksAvailableCommand() {
       });
 
       // Filter by readiness score
-      const readyTasks = availableTasks.filter(task => task.readinessScore >= params.minReadiness);
+      const readyTasks = availableTasks.filter(
+        (task) => task.readinessScore >= params.minReadiness
+      );
 
       if (params.json) {
         return {
@@ -111,7 +114,7 @@ export function createTasksAvailableCommand() {
 
       // Generate human-readable output
       let output = `📋 Available Tasks (${readyTasks.length} unblocked)\\n`;
-      output += "━".repeat(60) + "\\n\\n";
+      output += `${"━".repeat(60)}\\n\\n`;
 
       if (readyTasks.length === 0) {
         output += "No tasks available with current filters.\\n";
@@ -120,9 +123,13 @@ export function createTasksAvailableCommand() {
       }
 
       // Group by readiness level
-      const fullyReady = readyTasks.filter(t => t.readinessScore === 1.0);
-      const partiallyReady = readyTasks.filter(t => t.readinessScore > 0.5 && t.readinessScore < 1.0);
-      const lowReadiness = readyTasks.filter(t => t.readinessScore <= 0.5 && t.readinessScore >= params.minReadiness);
+      const fullyReady = readyTasks.filter((t) => t.readinessScore === 1.0);
+      const partiallyReady = readyTasks.filter(
+        (t) => t.readinessScore > 0.5 && t.readinessScore < 1.0
+      );
+      const lowReadiness = readyTasks.filter(
+        (t) => t.readinessScore <= 0.5 && t.readinessScore >= params.minReadiness
+      );
 
       if (fullyReady.length > 0) {
         output += "🟢 **Fully Ready** (0 blockers)\\n";
@@ -188,7 +195,7 @@ export function createTasksRouteCommand() {
       // Generate human-readable route plan
       let output = `🎯 Route to ${route.targetTaskId}: ${route.targetTitle}\\n`;
       output += `📊 Strategy: ${route.strategy} | Tasks: ${route.totalTasks} | Ready: ${route.readyTasks} | Blocked: ${route.blockedTasks}\\n`;
-      output += "━".repeat(80) + "\\n\\n";
+      output += `${"━".repeat(80)}\\n\\n`;
 
       if (route.steps.length === 0) {
         output += "✅ Target task has no dependencies - ready to start immediately!";
@@ -205,7 +212,7 @@ export function createTasksRouteCommand() {
       }
 
       const maxDepth = Math.max(...Array.from(stepsByDepth.keys()));
-      
+
       for (let depth = maxDepth; depth >= 0; depth--) {
         const stepsAtDepth = stepsByDepth.get(depth);
         if (!stepsAtDepth || stepsAtDepth.length === 0) continue;
@@ -217,12 +224,17 @@ export function createTasksRouteCommand() {
         }
 
         for (const step of stepsAtDepth) {
-          const statusIcon = step.status === "DONE" ? "✅" : 
-                           step.status === "IN-PROGRESS" ? "🟡" : 
-                           step.status === "BLOCKED" ? "🔴" : "⚪";
+          const statusIcon =
+            step.status === "DONE"
+              ? "✅"
+              : step.status === "IN-PROGRESS"
+                ? "🟡"
+                : step.status === "BLOCKED"
+                  ? "🔴"
+                  : "⚪";
           const depCount = step.dependencies.length;
           const depText = depCount > 0 ? ` (${depCount} deps)` : "";
-          
+
           output += `   ${statusIcon} ${step.taskId}: ${step.title.substring(0, 60)}...${depText}\\n`;
         }
         output += "\\n";

@@ -109,7 +109,7 @@ async function main() {
 
     // Generate human-readable output
     console.log(`📋 Available Tasks (${readyTasks.length} unblocked)`);
-    console.log("━".repeat(60) + "\n");
+          console.log(`${"━".repeat(60)}\n`);
 
     if (readyTasks.length === 0) {
       console.log("No tasks available with current filters.");
