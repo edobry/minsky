@@ -203,7 +203,6 @@ export class TasksCreateCommand extends BaseTaskCommand {
       });
 
       this.debug("Task created successfully");
-
       // Handle dependencies if provided
       const dependencyResults: string[] = [];
       if (params.dependencies) {
@@ -219,7 +218,7 @@ export class TasksCreateCommand extends BaseTaskCommand {
             : params.dependencies.split(",").map((d) => d.trim());
 
           if (deps.length > 0) {
-            this.debug(`Adding ${deps.length} dependencies to task ${result.taskId}`);
+            this.debug(`Adding ${deps.length} dependencies to task ${result.id}`);
             const db = await DatabaseConnectionManager.getInstance().getConnection();
             const graphService = new TaskGraphService(db);
 
@@ -230,15 +229,16 @@ export class TasksCreateCommand extends BaseTaskCommand {
                   ? dep.split(":").map((s) => s.trim())
                   : [dep.trim(), "prerequisite"];
 
-                const addResult = await graphService.addDependency(result.taskId, depTaskId);
+
+                const addResult = await graphService.addDependency(result.id, depTaskId);
 
                 if (addResult.created) {
                   dependencyResults.push(
-                    `✅ Added dependency: ${result.taskId} depends on ${depTaskId}`
+                    `✅ Added dependency: ${result.id} depends on ${depTaskId}`
                   );
                 } else {
                   dependencyResults.push(
-                    `ℹ️  Dependency already exists: ${result.taskId} depends on ${depTaskId}`
+                    `ℹ️  Dependency already exists: ${result.id} depends on ${depTaskId}`
                   );
                 }
               } catch (depError) {
