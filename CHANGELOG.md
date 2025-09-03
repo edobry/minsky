@@ -6,6 +6,12 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
+  - Comprehensive spec for capturing engineering journey during task work
+  - Defined 10 entry types: note, decision, progress, blocker, resolution, question, todo, command, context, learning
+  - Designed integration points with conversation history, task specs, agent memory, and sessions
+  - Proposed CLI interface and MCP tools for agent access
+  - Phased implementation approach from core infrastructure to AI-powered features
 - **AI Readiness Rubric System Task (mt#499)**: Created comprehensive task specification for assessing project readiness for autonomous AI development
 
   - Defined 7 assessment categories with weighted scoring (Code Quality, Testing, Task Management, Version Control, Security, AI Rules, Configuration)

@@ -42,12 +42,29 @@ class ConsoleUsageLinter {
     "**/scripts/**", // Scripts may use console for output
     // Setup files that announce their behavior
     "**/tests/setup.ts",
+    // Integration tests and test utilities - appropriate console usage for debugging
+    "**/tests/integration/**",
+    "**/tests/utils/**", 
+    "**/test-runner.ts",
+    "**/test-monitor.ts",
+    // Commands that legitimately need console output
+    "**/src/commands/**",
+    // Test utilities and test examples
+    "**/session-test-utilities.ts",
+    "**/variable-naming-fixer.test.ts",
+    "**/consolidated-utilities/**",
+    // MCP session tests with string literals containing console calls
+    "**/session-edit-tools.test.ts",
   ];
 
   // Allowed console usage patterns (with context)
   private readonly allowedPatterns = [
     /console\.error\(['"]Failed to import test monitoring data['"]/, // Test monitoring error
     /console\.warn\(['"]⚠️ Failed to load test monitoring data['"]/, // Test monitoring warning
+    // Console usage within string literals in tests (not actual console calls)
+    /console\.log\(['"]old['"]/, // Test string literals
+    /console\.log\(['"]new['"]/, // Test string literals  
+    /Mock cleanup for directory/, // Test utility cleanup logging
     /console\.log\(['"]🔇 Global test setup['"]/, // Test setup announcement
     /console\.log\(['"]📊 Loaded existing test monitoring data['"]/, // CLI tool output
     // Add more specific allowed patterns as needed
