@@ -1,14 +1,13 @@
 {
   "workflows": {
-    "lint": {
-      "jsonCommand": "eslint . --format json",
-      "fixCommand": "eslint . --fix"
-    },
+    "lint": "eslint",
     "test": {
-      "jsonCommand": "bun test --reporter json"
+      "tool": "jest",
+      "args": "--bail"
     },
-    "format": {
-      "jsonCommand": "prettier --check . --list-different"
-    }
+    "format": "prettier",
+    "typecheck": "tsc",
+    "security": "gitleaks",
+    "deps": "npm"
   }
 }

@@ -19,6 +19,7 @@ export const commandCategorySchema = z.enum([
   "DEBUG",
   "AI",
   "TOOLS",
+  "WORKFLOW",
 ]);
 
 /**

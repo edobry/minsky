@@ -12,6 +12,7 @@ import {
   getSessiondbCustomizations,
 } from "../customizations/config-customizations";
 import { getToolsCustomizations } from "../customizations/tools-customizations";
+import { getWorkflowCustomizations } from "../customizations/workflow-customizations";
 
 /**
  * Helper function to setup common CLI command customizations
@@ -41,6 +42,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 
   const toolsConfig = getToolsCustomizations();
   cliFactory.customizeCategory(toolsConfig.category, toolsConfig.options);
+
+  const workflowConfig = getWorkflowCustomizations();
+  cliFactory.customizeCategory(workflowConfig.category, workflowConfig.options);
 }
 
 /**
