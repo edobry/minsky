@@ -42,6 +42,20 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Task Routing System for Automated Implementation Planning**: Implemented comprehensive task routing and pathfinding
+  
+  - **Available Task Discovery**: Show tasks ready to work on with `bun run minsky-tasks-available.ts`
+  - **Route Generation**: Generate implementation paths with `bun run minsky-tasks-route.ts <target>`
+  - **Readiness Scoring**: Calculate task readiness (0.0-1.0) based on dependency completion
+  - **Multi-Strategy Routing**: Support ready-first, shortest-path, and value-first strategies
+  - **Phase-Based Visualization**: Display routes as phases with depth-based organization
+  - **Bulk Query Optimization**: Leverage TaskGraphService bulk operations for performance
+  - **Comprehensive Filtering**: Filter by status, backend, readiness score, and limits
+  - **Visual Indicators**: Human-readable output with status icons and progress tracking
+  - **JSON Output**: Machine-readable format for tooling integration
+  - **Edge Case Handling**: Robust handling of missing dependencies and circular references
+  - **17 Comprehensive Tests**: Full test coverage for routing service and command structures
+
 - **Task Dependency Cycle Detection and Elimination**: Implemented comprehensive cycle detection for task dependencies
 
   - Created DFS-based cycle detection algorithm to identify circular dependencies in task graph
