@@ -135,11 +135,14 @@ export default [
           allowDynamicImports: false, // whether dynamic imports are allowed
         },
       ], // Filesystem interference prevention
-      "custom/no-global-module-mocks": ["warn", {
-        allowInFiles: [
-          "**/tests/setup.ts"  // Allow global logger mock in test setup
-        ]
-      }], // Prevent cross-test interference from global mocking
+      "custom/no-global-module-mocks": [
+        "warn",
+        {
+          allowInFiles: [
+            "**/tests/setup.ts", // Allow global logger mock in test setup
+          ],
+        },
+      ], // Prevent cross-test interference from global mocking
       "custom/no-unreliable-factory-mocks": "warn", // Prevent race conditions from async factory patterns
       "custom/no-cli-execution-in-tests": "warn", // Warn about architectural violations
       "custom/no-magic-string-duplication": [

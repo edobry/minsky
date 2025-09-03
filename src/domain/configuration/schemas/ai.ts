@@ -25,11 +25,9 @@ const detectAndWarnUnknownFields = (data: any, schema: z.ZodObject<any>, context
     const warning = {
       context,
       unknownFields: unknownKeys,
-      message: `Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`
+      message: `Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`,
     };
     queuedConfigWarnings.push(warning);
-    
-
   }
 
   return data;
@@ -47,7 +45,7 @@ const queuedConfigWarnings: Array<{
  */
 export function flushConfigurationWarnings() {
   if (queuedConfigWarnings.length === 0) return;
-  
+
   try {
     const { log } = require("../../../utils/logger");
     for (const warning of queuedConfigWarnings) {

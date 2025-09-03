@@ -23,11 +23,11 @@ export default {
           allowInFiles: {
             type: "array",
             items: { type: "string" },
-            description: "Glob patterns for files where global mocks are allowed"
-          }
+            description: "Glob patterns for files where global mocks are allowed",
+          },
         },
-        additionalProperties: false
-      }
+        additionalProperties: false,
+      },
     ],
     messages: {
       globalModuleMock:
@@ -38,7 +38,7 @@ export default {
   create(context) {
     const options = context.options[0] || {};
     const allowInFiles = options.allowInFiles || [];
-    
+
     // Check if current file is a test file
     const filename = context.getFilename();
     const isTestFile =
@@ -50,12 +50,12 @@ export default {
     }
 
     // Check if file is in allowInFiles patterns
-    const isAllowedFile = allowInFiles.some(pattern => {
+    const isAllowedFile = allowInFiles.some((pattern) => {
       // Simple glob pattern matching
       const regexPattern = pattern
-        .replace(/\*\*/g, '.*')
-        .replace(/\*/g, '[^/]*')
-        .replace(/\?/g, '[^/]');
+        .replace(/\*\*/g, ".*")
+        .replace(/\*/g, "[^/]*")
+        .replace(/\?/g, "[^/]");
       return new RegExp(regexPattern).test(filename);
     });
 

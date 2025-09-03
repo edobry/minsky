@@ -251,7 +251,7 @@ async function generateDependencyGraph(
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
     const taskIds = tasks.map((t) => t.id);
     const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
-    
+
     // Build dependency maps in memory from single query result
     const dependenciesMap = new Map<string, string[]>();
     const dependentsMap = new Map<string, string[]>();
@@ -262,7 +262,7 @@ async function generateDependencyGraph(
         dependenciesMap.set(fromTaskId, []);
       }
       dependenciesMap.get(fromTaskId)!.push(toTaskId);
-      
+
       // Track dependents: toTaskId has fromTaskId as dependent
       if (!dependentsMap.has(toTaskId)) {
         dependentsMap.set(toTaskId, []);
@@ -455,7 +455,7 @@ async function generateGraphvizDot(
     // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
     const taskIds = tasks.map((t) => t.id);
     const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
-    
+
     // Build dependency maps in memory from single query result
     const dependenciesMap = new Map<string, string[]>();
     const dependentsMap = new Map<string, string[]>();
@@ -466,13 +466,13 @@ async function generateGraphvizDot(
         dependenciesMap.set(fromTaskId, []);
       }
       dependenciesMap.get(fromTaskId)!.push(toTaskId);
-      
+
       // Track dependents: toTaskId has fromTaskId as dependent
       if (!dependentsMap.has(toTaskId)) {
         dependentsMap.set(toTaskId, []);
       }
       dependentsMap.get(toTaskId)!.push(fromTaskId);
-      
+
       allTaskIds.add(fromTaskId);
       allTaskIds.add(toTaskId);
     });
@@ -481,7 +481,7 @@ async function generateGraphvizDot(
     for (const task of tasks) {
       const dependencies = dependenciesMap.get(task.id) || [];
       const dependents = dependentsMap.get(task.id) || [];
-      
+
       if (dependencies.length > 0 || dependents.length > 0) {
         tasksWithDeps.push({
           ...task,

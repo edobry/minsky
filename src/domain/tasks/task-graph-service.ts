@@ -140,7 +140,9 @@ export class TaskGraphService {
   /**
    * Get relationships for a specific set of tasks - efficient for filtered graphs
    */
-  async getRelationshipsForTasks(taskIds: string[]): Promise<{ fromTaskId: string; toTaskId: string }[]> {
+  async getRelationshipsForTasks(
+    taskIds: string[]
+  ): Promise<{ fromTaskId: string; toTaskId: string }[]> {
     return this.repo.getRelationshipsForTasks(taskIds);
   }
 }

@@ -74,7 +74,7 @@ Services must provide bulk operations:
 interface TaskRelationshipsRepository {
   // ❌ Single-item methods (keep for specific use cases)
   listFrom(taskId: string): Promise<string[]>;
-  
+
   // ✅ Bulk methods (use for graph/list operations)
   getAllRelationships(): Promise<{ fromTaskId: string; toTaskId: string }[]>;
   getRelationshipsForTasks(taskIds: string[]): Promise<{ fromTaskId: string; toTaskId: string }[]>;
@@ -87,8 +87,8 @@ Use SQL `IN` clauses or `ANY` arrays for bulk queries:
 
 ```sql
 -- ✅ Single query for multiple task relationships
-SELECT from_task_id, to_task_id 
-FROM task_relationships 
+SELECT from_task_id, to_task_id
+FROM task_relationships
 WHERE from_task_id = ANY($1) OR to_task_id = ANY($1)
 ```
 
@@ -118,7 +118,7 @@ tasks.forEach(task => {
 ### Query Count Targets
 
 - **Single item operations**: 1 query
-- **List operations**: 1-3 queries maximum  
+- **List operations**: 1-3 queries maximum
 - **Graph operations**: 2-3 queries maximum
 - **Never**: O(N) queries where N is result set size
 
@@ -161,7 +161,7 @@ Before implementing any database-backed feature:
 ```typescript
 const tasks = await getTasks(); // 1 query
 for (task of tasks) {
-  await getDeps(task.id);       // N queries  
+  await getDeps(task.id);       // N queries
   await getDependent(task.id);  // N queries
 }
 for (id of uniqueIds) {
@@ -172,7 +172,7 @@ for (id of uniqueIds) {
 **✅ Optimized**: 3 queries total
 ```typescript
 const tasks = await getTasks();                           // 1 query
-const relationships = await getRelationshipsForTasks();   // 1 query  
+const relationships = await getRelationshipsForTasks();   // 1 query
 const taskDetails = await Promise.allSettled(getByIds()); // 1 query equivalent
 ```
 
@@ -190,6 +190,6 @@ When encountering N+1 patterns:
 
 1. **Stop immediately** - Do not ship N+1 query code
 2. **Add bulk methods** to the service layer
-3. **Refactor to use bulk operations** 
+3. **Refactor to use bulk operations**
 4. **Test performance improvement** with realistic data volumes
 5. **Update this rule** if new patterns are discovered
