@@ -43,7 +43,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Task Routing System for Automated Implementation Planning**: Implemented comprehensive task routing and pathfinding
-  
+
   - **Available Task Discovery**: Show tasks ready to work on with `bun run minsky-tasks-available.ts`
   - **Route Generation**: Generate implementation paths with `bun run minsky-tasks-route.ts <target>`
   - **Readiness Scoring**: Calculate task readiness (0.0-1.0) based on dependency completion
