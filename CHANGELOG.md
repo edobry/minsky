@@ -4,6 +4,14 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- **BREAKING**: `tasks edit` and `tasks spec edit` commands now default to dry-run preview instead of requiring confirmation
+  - Shows actual content changes instead of useless line count summaries
+  - Use `--execute` flag to apply changes (replaces `--force`)
+  - Fixes non-interactive workflow compatibility
+  - Follows workspace operational safety rules (dry-run first)
+
 ### Fixed
 
 - **Test Logger Mock Setup**: Fixed log.info error in session update tests by correcting mock logger configuration

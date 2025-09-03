@@ -1,17 +1,20 @@
 echo "Running tests before push..."
 
-# Run tests and capture output
-TEST_OUTPUT=$(AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain 2>&1)
-TEST_EXIT_CODE=$?
+# Run tests quietly - capture output and only show failures
+# Note: AGENT=1 was supposed to enable quiet mode (commit 6421d2c50) but doesn't actually work with Bun
+TEST_OUTPUT=$(bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain 2>&1)
+TEST_EXIT=$?
 
-# Show only failures and summary
-echo "$TEST_OUTPUT" | grep -E "^(✗|[0-9]+ tests? failed|[0-9]+ pass|[0-9]+ fail|Ran [0-9]+ tests)" || true
-
-if [ $TEST_EXIT_CODE -ne 0 ]; then
+# Only show output if tests failed
+if [ $TEST_EXIT -ne 0 ]; then
+  echo "$TEST_OUTPUT" | grep -E "^✗" || true
+  echo "$TEST_OUTPUT" | tail -n 5
   echo ""
   echo "❌ Tests must pass before pushing"
   echo "💡 Run 'bun test' locally to see detailed failure information"
   exit 1
 fi
 
-echo "✅ Tests passed! Proceeding with push."
+# For success, just show minimal summary
+echo "$TEST_OUTPUT" | tail -n 1
+echo "✅ All tests passed! Proceeding with push."
