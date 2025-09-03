@@ -429,22 +429,31 @@ async function generateGraphvizDot(
     const tasksWithDeps = [];
     const allTaskIds = new Set<string>();
 
-    // Find tasks that have dependencies or dependents
-    for (const task of tasks) {
-      const dependencies = await graphService.listDependencies(task.id);
-      const dependents = await graphService.listDependents(task.id);
-
-      if (dependencies.length > 0 || dependents.length > 0) {
-        tasksWithDeps.push({
-          ...task,
-          dependencies,
-          dependents,
-        });
-        allTaskIds.add(task.id);
-        dependencies.forEach((dep) => allTaskIds.add(dep));
-        dependents.forEach((dep) => allTaskIds.add(dep));
-      }
-    }
+    // PERFORMANCE FIX: Batch all dependency queries to avoid N+1 problem
+    const taskDependencyMap = new Map<string, { dependencies: string[]; dependents: string[] }>();
+    
+    // Batch collect all dependency relationships
+    await Promise.all(
+      tasks.map(async (task) => {
+        const [dependencies, dependents] = await Promise.all([
+          graphService.listDependencies(task.id),
+          graphService.listDependents(task.id),
+        ]);
+        
+        taskDependencyMap.set(task.id, { dependencies, dependents });
+        
+        if (dependencies.length > 0 || dependents.length > 0) {
+          tasksWithDeps.push({
+            ...task,
+            dependencies,
+            dependents,
+          });
+          allTaskIds.add(task.id);
+          dependencies.forEach((dep) => allTaskIds.add(dep));
+          dependents.forEach((dep) => allTaskIds.add(dep));
+        }
+      })
+    );
 
     if (tasksWithDeps.length === 0) {
       lines.push("  // No tasks with dependencies found");
@@ -452,17 +461,34 @@ async function generateGraphvizDot(
       return lines.join("\n");
     }
 
-    // Define nodes with labels and colors based on status
-    for (const taskId of allTaskIds) {
-      try {
+    // PERFORMANCE FIX: Batch all task detail queries
+    const taskDetailsMap = new Map<string, any>();
+    const taskDetailsResults = await Promise.allSettled(
+      Array.from(allTaskIds).map(async (taskId) => {
         const task = await taskService.getTask(taskId);
-        const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
-        const title = (task?.title?.substring(0, 30) || "Unknown")
+        return { taskId, task };
+      })
+    );
+
+    // Process results from batch query
+    taskDetailsResults.forEach((result) => {
+      if (result.status === "fulfilled") {
+        taskDetailsMap.set(result.value.taskId, result.value.task);
+      }
+    });
+
+    // Define nodes with labels and colors based on cached task details
+    for (const taskId of allTaskIds) {
+      const task = taskDetailsMap.get(taskId);
+      const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
+      
+      if (task) {
+        const title = (task.title?.substring(0, 30) || "Unknown")
           .replace(/\\/g, "\\\\") // Escape backslashes first
           .replace(/"/g, '\\"') // Then escape quotes
           .replace(/\n/g, "\\n") // Then escape newlines
           .replace(/\r/g, "\\r"); // And carriage returns
-        const status = task?.status || "Unknown";
+        const status = task.status || "Unknown";
 
         let color = "lightgray";
         if (status === "TODO") color = "lightblue";
@@ -473,9 +499,8 @@ async function generateGraphvizDot(
         lines.push(
           `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", style=filled];`
         );
-      } catch {
-        // Handle tasks that can't be loaded
-        const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
+      } else {
+        // Handle tasks that couldn't be loaded
         const safeTaskId = taskId.replace(/"/g, '\\"');
         lines.push(`  ${safeId} [label="${safeTaskId}", fillcolor="lightgray", style=filled];`);
       }
