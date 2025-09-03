@@ -6,16 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Implemented PersistenceProvider Architecture (mt#407)**: Created abstract persistence provider system per specification
-  - Implemented `PersistenceProvider` abstract base class with capabilities detection
-  - Created `PostgresPersistenceProvider` with full SQL and vector storage support
-  - Created `SqlitePersistenceProvider` (stub) for local SQL database support
-  - Created `JsonPersistenceProvider` for simple file-based storage
-  - Implemented `PersistenceProviderFactory` for creating providers based on configuration
-  - Implemented `PersistenceService` singleton for lifecycle management
-  - Added backward compatibility through `connection-manager` wrapper
-  - Migrated `vector-storage-factory` to use PersistenceProvider
-  - Created example factory for `TaskSimilarityService` showing dependency injection pattern
+- **Completed PersistenceProvider Architecture (mt#407)**: Fully migrated all database services to unified persistence provider system
+  - Migrated `PostgresStorage`, `TasksImporterService`, and `PostgresVectorStorage` to use PersistenceService
+  - Migrated `TaskSimilarityService` and `RuleSimilarityService` to accept PersistenceProvider via dependency injection
+  - Migrated `SessionDbAdapter` to use PersistenceProvider with backward compatibility fallback
+  - Added `getRawSqlConnection` method to provider interface for direct SQL access
+  - Fixed test hanging issues caused by constructor interface mismatches in similarity services
+  - All database operations now centralized through PersistenceProvider abstraction
+  - Complete separation between main workspace and session workspace database usage
+  - Enhanced configuration schema and defaults with modern `persistence:` block replacing legacy `sessiondb:`
 - Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
 
 ### Fixed
