@@ -8,7 +8,7 @@
  */
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { getPersistenceProvider } from "../persistence";
+import { PersistenceService } from "../persistence/service";
 import { log } from "../../utils/logger";
 
 /**
@@ -20,7 +20,12 @@ export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
   try {
     log.warn("createDatabaseConnection is deprecated. Use PersistenceService instead.");
     
-    const provider = await getPersistenceProvider();
+    // Ensure PersistenceService is initialized
+    if (!PersistenceService.isInitialized()) {
+      await PersistenceService.initialize();
+    }
+    
+    const provider = PersistenceService.getProvider();
     
     if (!provider.capabilities.sql) {
       throw new Error("Current persistence backend does not support SQL");

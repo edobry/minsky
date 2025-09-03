@@ -17,7 +17,7 @@ export class PersistenceProviderFactory {
   /**
    * Create a persistence provider based on configuration
    */
-  static async create(config: PersistenceConfig): Promise<PersistenceProvider> {
+  static create(config: PersistenceConfig): PersistenceProvider {
     log.debug(`Creating persistence provider for backend: ${config.backend}`);
 
     let provider: PersistenceProvider;
@@ -48,10 +48,7 @@ export class PersistenceProviderFactory {
         throw new Error(`Unsupported persistence backend: ${config.backend}`);
     }
 
-    // Initialize the provider
-    await provider.initialize();
-
-    log.info(`Persistence provider initialized: ${provider.getConnectionInfo()}`);
+    log.info(`Persistence provider created: ${provider.constructor.name}`);
     return provider;
   }
 

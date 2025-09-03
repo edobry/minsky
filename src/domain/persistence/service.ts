@@ -44,7 +44,10 @@ export class PersistenceService {
       const persistenceConfig = config || PersistenceService.loadConfiguration();
       
       // Create provider using factory
-      PersistenceService.provider = await PersistenceProviderFactory.create(persistenceConfig);
+      PersistenceService.provider = PersistenceProviderFactory.create(persistenceConfig);
+      
+      // Initialize the provider
+      await PersistenceService.provider.initialize();
       
       log.info("PersistenceService initialized successfully");
     } catch (error) {
@@ -100,13 +103,20 @@ export class PersistenceService {
   }
 
   /**
-   * Reset the service (mainly for testing)
+   * Close the persistence service
    */
-  static async reset(): Promise<void> {
+  static async close(): Promise<void> {
     if (PersistenceService.provider) {
       await PersistenceService.provider.close();
       PersistenceService.provider = null;
     }
+  }
+
+  /**
+   * Reset the service (alias for close, mainly for testing)
+   */
+  static async reset(): Promise<void> {
+    return PersistenceService.close();
   }
 
   /**

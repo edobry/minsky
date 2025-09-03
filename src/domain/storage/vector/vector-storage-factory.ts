@@ -7,14 +7,18 @@
 
 import type { VectorStorage } from "./types";
 import { MemoryVectorStorage } from "./memory-vector-storage";
-import { getPersistenceProvider } from "../../persistence";
+import { PersistenceService } from "../../persistence/service";
 import { log } from "../../../utils/logger";
 
 /**
  * Create vector storage using persistence provider
  */
 export async function createVectorStorageFromConfig(dimension: number): Promise<VectorStorage> {
-  const provider = await getPersistenceProvider();
+  // Ensure PersistenceService is initialized and get provider
+  if (!PersistenceService.isInitialized()) {
+    await PersistenceService.initialize();
+  }
+  const provider = PersistenceService.getProvider();
   
   // Check if provider supports vector storage
   if (!provider.capabilities.vectorStorage) {
