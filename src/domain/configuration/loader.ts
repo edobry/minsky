@@ -218,7 +218,7 @@ export class ConfigurationLoader {
         });
 
         if (this.options.logDebugInfo) {
-          console.log(`✓ Loaded ${source.metadata.name} configuration`);
+          log.debug(`✓ Loaded ${source.metadata.name} configuration`);
         }
       } catch (error) {
         const errorObj = error instanceof Error ? error : new Error(String(error));
@@ -240,9 +240,7 @@ export class ConfigurationLoader {
         }
 
         if (this.options.logDebugInfo) {
-          console.warn(
-            `⚠ Failed to load ${source.metadata.name} configuration: ${errorObj.message}`
-          );
+          log.warn(`⚠ Failed to load ${source.metadata.name} configuration: ${errorObj.message}`);
         }
       }
     }
@@ -265,7 +263,7 @@ export class ConfigurationLoader {
       mergedConfig = this.deepMerge(mergedConfig, sourceResult.config);
 
       if (this.options.logDebugInfo) {
-        console.log(
+        log.debug(
           `📥 Merged ${sourceResult.source.name} (priority: ${sourceResult.source.priority})`
         );
       }

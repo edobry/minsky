@@ -16,7 +16,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import { log } from "../../utils/logger";
+import { log } from "../../../utils/logger";
 
 /**
  * Session PR Create implementation
@@ -144,7 +144,7 @@ export async function sessionPrEdit(
   const hasLocalPr = sessionRecord.prState && sessionRecord.prBranch;
   const hasGitHubPr = sessionRecord.pullRequest && sessionRecord.backendType === "github";
 
-  console.log(
+  log.debug(
     `Debug: hasLocalPr=${hasLocalPr}, hasGitHubPr=${hasGitHubPr}, backendType=${sessionRecord.backendType}`
   );
 

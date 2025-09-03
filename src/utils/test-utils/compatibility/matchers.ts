@@ -437,10 +437,10 @@ export function setupAsymmetricMatchers(): void {
       };
     } else {
       // If no equals method was found, just log a warning
-      console.warn("Could not find expect.equals method to override for matcher support.");
+      log.warn("Could not find expect.equals method to override for matcher support.");
     }
   } catch (error) {
     // Fail gracefully if bun:test is not available
-    console.warn("Failed to set up asymmetric matchers:", error);
+    log.warn("Failed to set up asymmetric matchers:", error);
   }
 }

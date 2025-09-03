@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from "fs";
 import { join, resolve } from "path";
 import { homedir } from "os";
 import { parse } from "yaml";
+import { log } from "../../../utils/logger";
 
 /**
  * User configuration file locations
@@ -52,7 +53,7 @@ export function loadUserConfiguration(): any {
         }
       } catch (error) {
         // Log warning but continue to next file
-        console.warn(`Warning: Failed to load user config from ${configPath}:`, error);
+        log.warn(`Warning: Failed to load user config from ${configPath}:`, error);
       }
     }
   }
@@ -77,11 +78,11 @@ function loadConfigFile(filePath: string): any {
         return parse(content);
 
       default:
-        console.warn(`Warning: Unsupported config file format: ${extension}`);
+        log.warn(`Warning: Unsupported config file format: ${extension}`);
         return null;
     }
   } catch (error) {
-    console.warn(`Warning: Failed to parse config file ${filePath}:`, error);
+    log.warn(`Warning: Failed to parse config file ${filePath}:`, error);
     return null;
   }
 }
@@ -190,7 +191,7 @@ export function ensureUserConfigDir(): string {
     const fs = require("fs");
     fs.mkdirSync(configDir, { recursive: true });
   } catch (error) {
-    console.warn(`Warning: Failed to create user config directory ${configDir}:`, error);
+    log.warn(`Warning: Failed to create user config directory ${configDir}:`, error);
   }
 
   return configDir;

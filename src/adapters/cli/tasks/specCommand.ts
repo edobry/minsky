@@ -72,7 +72,7 @@ export function createSpecCommand(): Command {
         });
       } else {
         // For non-JSON output, just print the content with proper newlines
-        console.log(result.content);
+        log.debug(result.content);
       }
     } catch (error) {
       handleCliError(error);

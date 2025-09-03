@@ -7,6 +7,7 @@ import type { AICompletionService, AIObjectGenerationRequest } from "../ai/types
 import type { RulesService } from "../rules/types";
 import type { RuleSuggestionRequest, RuleSuggestionResponse, RuleSuggestionConfig } from "./types";
 import { RuleSuggestionError } from "./types";
+import { log } from "../../utils/logger";
 
 export class DefaultRuleSuggestionService {
   constructor(
@@ -74,7 +75,7 @@ export class DefaultRuleSuggestionService {
     // Build prompt for AI analysis
     const prompt = this.buildAnalysisPrompt(request);
 
-    console.log("🤔 Thinking...");
+    log.debug("🤔 Thinking...");
 
     try {
       // Use AI service to analyze query and suggest rules
@@ -110,7 +111,7 @@ export class DefaultRuleSuggestionService {
       };
     } catch (error) {
       // Fallback to keyword-based matching when AI is unavailable
-      console.log("⚠️  AI unavailable, using keyword-based fallback");
+      log.debug("⚠️  AI unavailable, using keyword-based fallback");
       const fallbackSuggestions = this.generateFallbackSuggestions(request);
       return {
         suggestions: fallbackSuggestions,

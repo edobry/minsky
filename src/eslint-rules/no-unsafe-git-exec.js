@@ -144,7 +144,7 @@ export default {
       CallExpression(node) {
         // Debug: Log what we're seeing
         if (context.options[0]?.debug) {
-          console.log("Checking node:", {
+          log.debug("Checking node:", {
             type: node.callee.type,
             name: node.callee.name,
             property: node.callee.property?.name,
@@ -163,7 +163,7 @@ export default {
           node.callee.name === "gitCloneWithTimeout"
         ) {
           if (context.options[0]?.debug) {
-            console.log(
+            log.debug(
               "Skipping safe timeout-aware utility:",
               context.getSourceCode().getText(node)
             );

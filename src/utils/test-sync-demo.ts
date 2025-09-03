@@ -8,41 +8,41 @@ import { syncTaskDatabases } from "./task-database-sync";
 import { log } from "./logger";
 
 async function main() {
-  console.log("🔄 Testing Task Database Synchronization...\n");
+  log.debug("🔄 Testing Task Database Synchronization...\n");
 
   try {
     // First, do a dry run to see what would happen
-    console.log("📋 Dry run to analyze sync requirements:");
+    log.debug("📋 Dry run to analyze sync requirements:");
     const dryResult = await syncTaskDatabases({
       direction: "bidirectional",
       dryRun: true,
     });
 
-    console.log("Dry run result:", JSON.stringify(dryResult, null, 2));
+    log.debug("Dry run result:", JSON.stringify(dryResult, null, 2));
 
     if (dryResult.success && dryResult.action !== "no-sync-needed") {
-      console.log("\n🚀 Performing actual synchronization:");
+      log.debug("\n🚀 Performing actual synchronization:");
 
       const syncResult = await syncTaskDatabases({
         direction: "bidirectional",
         dryRun: false,
       });
 
-      console.log("Sync result:", JSON.stringify(syncResult, null, 2));
+      log.debug("Sync result:", JSON.stringify(syncResult, null, 2));
 
       if (syncResult.success) {
-        console.log("\n✅ Synchronization completed successfully!");
-        console.log(`Direction: ${syncResult.syncDirection}`);
-        console.log(`Content size: ${syncResult.contentLength} bytes`);
+        log.debug("\n✅ Synchronization completed successfully!");
+        log.debug(`Direction: ${syncResult.syncDirection}`);
+        log.debug(`Content size: ${syncResult.contentLength} bytes`);
       } else {
-        console.log("\n❌ Synchronization failed:");
-        console.log(`Error: ${syncResult.error}`);
+        log.debug("\n❌ Synchronization failed:");
+        log.debug(`Error: ${syncResult.error}`);
       }
     } else {
-      console.log("\n✅ No synchronization needed - databases already in sync");
+      log.debug("\n✅ No synchronization needed - databases already in sync");
     }
   } catch (error) {
-    console.error("\n💥 Sync test failed:", error);
+    log.error("\n💥 Sync test failed:", error);
     process.exit(1);
   }
 }

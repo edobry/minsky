@@ -15,7 +15,7 @@ import { randomUUID } from "crypto";
 import { createJsonFileStorage } from "./json-file-storage";
 import type { DatabaseStorage } from "./database-storage";
 import { expectToHaveLength } from "../../utils/test-utils/assertions";
-// import { log } from "../../utils/logger"; // Replaced with console.log due to mocking issues
+import { log } from "../../utils/logger";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 
 describe("JsonFileStorage Core Tests", () => {
@@ -74,7 +74,7 @@ describe("JsonFileStorage Core Tests", () => {
       entitiesField: "entities",
     });
 
-    console.log(`Setting up test with mock storage path: ${testDirPath}`);
+    log.debug(`Setting up test with mock storage path: ${testDirPath}`);
 
     // Initialize test state
     const initialState: TestState = {
@@ -91,9 +91,9 @@ describe("JsonFileStorage Core Tests", () => {
     try {
       // Clean up using mock filesystem
       mockFs.cleanup();
-      console.log("Test cleanup completed");
+      log.debug("Test cleanup completed");
     } catch (error) {
-      console.log("Error during test cleanup", error);
+      log.debug("Error during test cleanup", error);
     }
   });
 

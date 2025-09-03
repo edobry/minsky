@@ -3,6 +3,7 @@ import { createSessionProvider } from "../../session";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionProviderInterface, SessionDependencies } from "../types";
 import { cleanupSessionImpl } from "../session-lifecycle-operations";
+import { log } from "../../../utils/logger";
 
 /**
  * Deletes a session based on parameters
@@ -35,7 +36,7 @@ export async function sessionDelete(
     return await deps.sessionDB.deleteSession(resolvedContext.sessionName);
   } catch (error) {
     // Fall back to database-only deletion if cleanup fails
-    console.warn(`Session cleanup failed, falling back to database-only deletion: ${error}`);
+    log.warn(`Session cleanup failed, falling back to database-only deletion: ${error}`);
     try {
       const resolved = await resolveSessionContextWithFeedback({
         session: name,

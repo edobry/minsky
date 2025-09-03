@@ -5,14 +5,14 @@
  */
 
 import { Command } from "commander";
-import { log } from "../../utils/logger.js";
-import { TaskStatus } from "../../domain/tasks/taskConstants.js";
+import { log } from "../../utils/logger";
+import { TaskStatus } from "../../domain/tasks/taskConstants";
 import {
   getContextComponentRegistry,
   registerDefaultComponents,
   getComponentHelp,
-} from "../../domain/context/components/index.js";
-import { DefaultTokenizationService } from "../../domain/ai/tokenization/index.js";
+} from "../../domain/context/components/index";
+import { DefaultTokenizationService } from "../../domain/ai/tokenization/index";
 
 // Re-export types for backward compatibility
 interface GenerateRequest {

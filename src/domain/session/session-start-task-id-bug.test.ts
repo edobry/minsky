@@ -1,6 +1,7 @@
 import { describe, it, expect } from "bun:test";
 import { getNextTaskId } from "../tasks/taskFunctions";
 import { TaskData } from "../../types/tasks/taskData";
+import { log } from "../../utils/logger";
 
 // Constants to avoid repetition
 const TEST_CONSTANTS = {
@@ -27,8 +28,8 @@ describe("Task ID Generation Bug Reproduction", () => {
     // Call the CORRECT function that should be used
     const nextId = getNextTaskId(existingTasks);
 
-    console.log("getNextTaskId result:", nextId);
-    console.log("Expected next ID:", TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT);
+    log.debug("getNextTaskId result:", nextId);
+    log.debug("Expected next ID:", TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT);
 
     // This should PASS - getNextTaskId works correctly
     expect(nextId).toBe(TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT);
@@ -52,8 +53,8 @@ describe("Task ID Generation Bug Reproduction", () => {
 
     const buggyNextId = String(existingTasks.length + 1);
 
-    console.log("Buggy approach (tasks.length + 1):", buggyNextId);
-    console.log("Should be:", TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT);
+    log.debug("Buggy approach (tasks.length + 1):", buggyNextId);
+    log.debug("Should be:", TEST_CONSTANTS.TASK_IDS.EXPECTED_NEXT);
 
     // This test documents the BUG - should FAIL until JsonFileTaskBackend is fixed
     expect(buggyNextId).toBe(TEST_CONSTANTS.TASK_IDS.BUGGY_SEQUENCE); // Shows the bug
@@ -71,8 +72,8 @@ describe("Task ID Generation Bug Reproduction", () => {
     const correctNext = getNextTaskId(tasksWithGaps);
     const buggyNext = String(tasksWithGaps.length + 1);
 
-    console.log("Correct approach (max ID + 1):", correctNext);
-    console.log("Buggy approach (array.length + 1):", buggyNext);
+    log.debug("Correct approach (max ID + 1):", correctNext);
+    log.debug("Buggy approach (array.length + 1):", buggyNext);
 
     // Correct approach: finds max ID (371) + 1 = 372
     expect(correctNext).toBe("372");

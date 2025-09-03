@@ -5,6 +5,8 @@
  * Extracted from rules.ts as part of modularization effort.
  */
 import { ValidationError } from "../../../errors/index";
+import { promises as nodeFsPromises } from "fs";
+import { existsSync as nodeExistsSync } from "fs";
 import { log } from "../../../utils/logger";
 import { join } from "path";
 import { type RuleFormat, type RuleMeta } from "../types";
@@ -15,6 +17,11 @@ import { type RuleFormat, type RuleMeta } from "../types";
 export interface RuleOperationDependencies {
   workspacePath: string;
   // Additional dependencies can be injected here
+  fsPromises?: Pick<
+    typeof nodeFsPromises,
+    "readdir" | "access" | "readFile" | "mkdir" | "writeFile"
+  >;
+  existsSyncFn?: (path: string) => boolean;
 }
 
 /**

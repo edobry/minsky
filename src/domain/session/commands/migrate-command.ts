@@ -1,3 +1,4 @@
+import { log } from "../utils/logger";
 import {
   SessionMigrationService,
   type SessionMigrationOptions,
@@ -36,7 +37,7 @@ export interface SessionMigrateParameters {
 function createProgressReporter(verbose: boolean) {
   return (progress: any) => {
     if (verbose) {
-      console.log(
+      log.debug(
         `\r⚡ Batch ${progress.currentBatch}/${progress.totalBatches} | ` +
           `Processed: ${progress.processed} | ` +
           `Migrated: ${progress.migrated} | ` +
@@ -97,11 +98,11 @@ function formatMigrationReport(report: MigrationReport, json: boolean): string {
  */
 async function askConfirmation(message: string): Promise<boolean> {
   // In a real implementation, this would use a proper CLI prompt library
-  console.log(`\n${message}`);
-  console.log(`⚠️  This will modify your session database.`);
-  console.log(`📋 Use --dry-run to preview changes first.`);
-  console.log(`💾 A backup will be created automatically (unless --backup=false).`);
-  console.log(`\nProceed? (y/N)`);
+  log.debug(`\n${message}`);
+  log.debug(`⚠️  This will modify your session database.`);
+  log.debug(`📋 Use --dry-run to preview changes first.`);
+  log.debug(`💾 A backup will be created automatically (unless --backup=false).`);
+  log.debug(`\nProceed? (y/N)`);
 
   // For now, return true if --force was used (this would be handled by CLI framework)
   return true; // Placeholder - in real implementation would read from stdin
@@ -134,17 +135,15 @@ export async function sessionMigrate(
 
   try {
     // Step 1: Analyze current state
-    console.log("🔍 Analyzing session database...");
+    log.debug("🔍 Analyzing session database...");
     const analysis = await migrationService.analyzeMigrationNeeds();
 
     if (analysis.needsMigration === 0) {
-      console.log(
-        "✅ No sessions need migration. All sessions are already using the modern format!"
-      );
+      log.debug("✅ No sessions need migration. All sessions are already using the modern format!");
       return;
     }
 
-    console.log(
+    log.debug(
       `📊 Found ${analysis.needsMigration} sessions that need migration (${analysis.total} total)`
     );
 
@@ -162,64 +161,62 @@ export async function sessionMigrate(
 
     // Step 3: Dry run or confirmation
     if (dryRun) {
-      console.log("\n🔍 **DRY RUN** - Previewing migration (no changes will be made)");
+      log.debug("\n🔍 **DRY RUN** - Previewing migration (no changes will be made)");
     } else if (!force) {
       const confirmed = await askConfirmation(
         `Migrate ${analysis.needsMigration} sessions to multi-backend format?`
       );
       if (!confirmed) {
-        console.log("❌ Migration cancelled by user");
+        log.debug("❌ Migration cancelled by user");
         return;
       }
     }
 
     // Step 4: Execute migration
-    console.log(`\n🚀 ${dryRun ? "Previewing" : "Executing"} migration...`);
+    log.debug(`\n🚀 ${dryRun ? "Previewing" : "Executing"} migration...`);
 
     const progressReporter = createProgressReporter(verbose);
     const report = await migrationService.migrate(migrationOptions, progressReporter);
 
     // Step 5: Display results
     if (verbose || json) {
-      console.log(formatMigrationReport(report, json));
+      log.debug(formatMigrationReport(report, json));
     } else {
       // Concise summary
       if (dryRun) {
-        console.log(`\n📋 **PREVIEW COMPLETE**`);
-        console.log(`  Would migrate: ${report.progress.needsMigration} sessions`);
-        console.log(`  Task IDs upgraded: ${report.summary.taskIdsUpgraded}`);
-        console.log(`  Backends added: ${report.summary.backendsAdded}`);
+        log.debug(`\n📋 **PREVIEW COMPLETE**`);
+        log.debug(`  Would migrate: ${report.progress.needsMigration} sessions`);
+        log.debug(`  Task IDs upgraded: ${report.summary.taskIdsUpgraded}`);
+        log.debug(`  Backends added: ${report.summary.backendsAdded}`);
       } else {
-        console.log(`\n✅ **MIGRATION COMPLETE**`);
-        console.log(`  Migrated: ${report.progress.migrated} sessions`);
-        console.log(`  Failed: ${report.progress.failed} sessions`);
-        console.log(`  Time: ${report.executionTime}ms`);
+        log.debug(`\n✅ **MIGRATION COMPLETE**`);
+        log.debug(`  Migrated: ${report.progress.migrated} sessions`);
+        log.debug(`  Failed: ${report.progress.failed} sessions`);
+        log.debug(`  Time: ${report.executionTime}ms`);
 
         if (report.backupPath) {
-          console.log(`  Backup: ${report.backupPath}`);
+          log.debug(`  Backup: ${report.backupPath}`);
         }
 
         if (report.progress.failed > 0) {
-          console.log(`\n⚠️  Some sessions failed to migrate. Use --verbose for details.`);
+          log.debug(`\n⚠️  Some sessions failed to migrate. Use --verbose for details.`);
         }
       }
     }
 
     // Step 6: Success guidance
     if (!dryRun && report.progress.migrated > 0) {
-      console.log(`\n🎉 **MIGRATION SUCCESSFUL**`);
-      console.log(`Your sessions now support multi-backend task system!`);
-      console.log(`New sessions will use format: task-md#123, task-gh#456, etc.`);
+      log.debug(`\n🎉 **MIGRATION SUCCESSFUL**`);
+      log.debug(`Your sessions now support multi-backend task system!`);
+      log.debug(`New sessions will use format: task-md#123, task-gh#456, etc.`);
 
       if (report.backupPath) {
-        console.log(`\n💾 Backup saved to: ${report.backupPath}`);
-        console.log(`To rollback: minsky session migrate-rollback ${report.backupPath}`);
+        log.debug(`\n💾 Backup saved to: ${report.backupPath}`);
+        log.debug(`To rollback: minsky session migrate-rollback ${report.backupPath}`);
       }
     }
   } catch (error) {
-    console.error(
-      `\n❌ Migration failed: ${error instanceof Error ? error.message : String(error)}`
-    );
+    log.error(`\n❌ Migration failed: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   }
 }
@@ -237,18 +234,18 @@ export async function sessionMigrateRollback(
   const migrationService = new SessionMigrationService(sessionDB);
 
   try {
-    console.log(`🔄 Rolling back migration from backup: ${backupPath}`);
+    log.debug(`🔄 Rolling back migration from backup: ${backupPath}`);
 
     const success = await migrationService.rollback(backupPath);
 
     if (success) {
-      console.log(`✅ Rollback successful! Sessions restored from backup.`);
+      log.debug(`✅ Rollback successful! Sessions restored from backup.`);
     } else {
-      console.error(`❌ Rollback failed. Please check the backup file path.`);
+      log.error(`❌ Rollback failed. Please check the backup file path.`);
       throw new Error("Rollback failed: invalid backup file path");
     }
   } catch (error) {
-    console.error(`❌ Rollback failed: ${error instanceof Error ? error.message : String(error)}`);
+    log.error(`❌ Rollback failed: ${error instanceof Error ? error.message : String(error)}`);
     throw error;
   }
 }

@@ -10,7 +10,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import { log } from "../../utils/logger";
+import { log } from "../../../utils/logger";
 import { extractPrDescription } from "../session-update-operations";
 import { readFile } from "fs/promises";
 

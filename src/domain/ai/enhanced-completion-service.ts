@@ -7,7 +7,7 @@ import {
   ServerError,
   NetworkError,
 } from "./enhanced-error-types";
-import { log } from "../../utils/logger.js";
+import { log } from "../../utils/logger";
 
 export class EnhancedAICompletionService implements AICompletionService {
   private defaultCompletionService: DefaultAICompletionService;

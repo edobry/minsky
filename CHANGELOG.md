@@ -511,3 +511,10 @@ All notable changes to this project will be documented in this file.
 ### Chore
 
 - Add and enhance `smoke-all.ts` to validate tasks.list/get, session.list/get, rules.list, and session.pr list/get with per-call timeouts to avoid hangs during local verification
+
+<!-- Link definitions for markdown references -->
+
+[Unreleased]: https://github.com/edobry/minsky/compare/HEAD
+[0]: https://github.com/edobry/minsky/releases/tag/v0.0.0
+[DEBUG]: https://github.com/edobry/minsky/search?q=DEBUG
+[Task #357]: https://github.com/edobry/minsky/issues/357

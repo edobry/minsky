@@ -2,6 +2,7 @@ import { describe, test, expect, mock } from "bun:test";
 import { approveSessionFromParams } from "./session";
 import { ResourceNotFoundError, ValidationError } from "../errors/index";
 import { createMock, createPartialMock } from "../utils/test-utils/mocking";
+import { log } from "../utils/logger";
 import {
   createMockSessionProvider,
   createMockGitService,
@@ -96,7 +97,7 @@ describe("Session Approve", () => {
       const result = await approveSessionFromParams({ session: TEST_SESSION_NAME }, simpleDeps);
       expect(result.sessionName).toBe(TEST_SESSION_NAME);
     } catch (error) {
-      console.log("Error details:", error);
+      log.debug("Error details:", error);
       throw error;
     }
   });

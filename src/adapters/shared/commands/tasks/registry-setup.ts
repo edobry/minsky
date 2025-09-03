@@ -38,6 +38,15 @@ export function createAllTaskCommands() {
   const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
   const { TasksSimilarCommand, TasksSearchCommand } = require("./similarity-commands");
   const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command");
+  const {
+    createTasksDepsAddCommand,
+    createTasksDepsRmCommand,
+    createTasksDepsListCommand,
+  } = require("./deps-commands");
+  const {
+    createTasksDepsTreeCommand,
+    createTasksDepsGraphCommand,
+  } = require("./deps-visualization-commands");
 
   return [
     createTasksStatusGetCommand(),
@@ -53,5 +62,11 @@ export function createAllTaskCommands() {
     new TasksIndexEmbeddingsCommand(),
     createMigrateTasksCommand(),
     createTasksMigrateBackendCommand(),
+    // Dependency management commands
+    createTasksDepsAddCommand(),
+    createTasksDepsRmCommand(),
+    createTasksDepsListCommand(),
+    createTasksDepsTreeCommand(),
+    createTasksDepsGraphCommand(),
   ];
 }

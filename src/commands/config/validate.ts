@@ -30,7 +30,7 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
     const hasWarnings = validationResult.errors.some((error) => error.severity === "warning");
 
     if (options.json) {
-      console.log(
+      log.debug(
         JSON.stringify(
           {
             valid: validationResult.valid,
@@ -45,10 +45,10 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
       );
     } else {
       if (validationResult.valid && validationResult.errors.length === 0) {
-        console.log("✅ Configuration is valid");
+        log.debug("✅ Configuration is valid");
         if (options.verbose) {
-          console.log("   No issues found");
-          console.log(
+          log.debug("   No issues found");
+          log.debug(
             `   Configuration loaded from: ${provider
               .getMetadata()
               .sources.map((s) => s.path)
@@ -58,22 +58,22 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
         }
       } else {
         if (hasErrors) {
-          console.log("❌ Configuration has errors");
+          log.debug("❌ Configuration has errors");
         } else if (hasWarnings) {
-          console.log("⚠️  Configuration has warnings");
+          log.debug("⚠️  Configuration has warnings");
         }
 
-        console.log(`   Total issues: ${validationResult.errors.length}`);
+        log.debug(`   Total issues: ${validationResult.errors.length}`);
 
         if (options.verbose || validationResult.errors.length <= 10) {
-          console.log("");
+          log.debug("");
           for (const error of validationResult.errors) {
             const icon =
               error.severity === "error" ? "❌" : error.severity === "warning" ? "⚠️" : "ℹ️";
-            console.log(`${icon} ${error.path}: ${error.message}`);
+            log.debug(`${icon} ${error.path}: ${error.message}`);
           }
         } else {
-          console.log("   Use --verbose to see all issues");
+          log.debug("   Use --verbose to see all issues");
         }
       }
     }
@@ -86,7 +86,7 @@ export async function executeConfigValidate(options: ValidateOptions): Promise<v
     const message = error instanceof Error ? error.message : String(error);
 
     if (options.json) {
-      console.log(
+      log.debug(
         JSON.stringify(
           {
             valid: false,

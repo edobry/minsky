@@ -6,6 +6,7 @@
  */
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { setupTestMocks } from "../../utils/test-utils/mocking";
+import { log } from "../utils/logger";
 import {
   createMockTaskService,
   createMockSessionProvider,
@@ -245,7 +246,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       const sessionCreated = true; // Simplified for this test
       expect(sessionCreated).toBe(true);
 
-      console.log("✅ VERIFIED: Full qualified ID workflow works with domain functions");
+      log.debug("✅ VERIFIED: Full qualified ID workflow works with domain functions");
     });
   });
 });

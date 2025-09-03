@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
+import { log } from "../../../utils/logger";
 
 export interface FileContentInputs extends ComponentInputs {
   relevantFiles: Array<{
@@ -55,7 +56,7 @@ export const FileContentComponent: ContextComponent = {
         fileCount: filesWithContent.length,
       };
     } catch (error) {
-      console.error("Error gathering file content inputs:", error);
+      log.error("Error gathering file content inputs:", error);
       return {
         relevantFiles: [],
         totalSize: 0,
@@ -168,7 +169,7 @@ async function discoverFiles(workspacePath: string, patterns: string[]): Promise
       const matchedFiles = await simpleGlob(workspacePath, pattern);
       matchedFiles.forEach((file) => files.add(file));
     } catch (error) {
-      console.warn(`Failed to match pattern ${pattern}:`, error);
+      log.warn(`Failed to match pattern ${pattern}:`, error);
     }
   }
 
@@ -329,7 +330,7 @@ async function readFileContents(filePaths: string[]): Promise<
         type,
       });
     } catch (error) {
-      console.warn(`Failed to read file ${filePath}:`, error);
+      log.warn(`Failed to read file ${filePath}:`, error);
     }
   }
 

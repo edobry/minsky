@@ -25,6 +25,10 @@ import {
   createTasksDepsRmCommand,
   createTasksDepsListCommand,
 } from "./tasks/deps-commands";
+import {
+  createTasksDepsTreeCommand,
+  createTasksDepsGraphCommand,
+} from "./tasks/deps-visualization-commands";
 
 /**
  * Modular Tasks Command Manager
@@ -61,6 +65,8 @@ export class ModularTasksCommandManager {
       const depsAddCommand = createTasksDepsAddCommand();
       const depsRmCommand = createTasksDepsRmCommand();
       const depsListCommand = createTasksDepsListCommand();
+      const depsTreeCommand = createTasksDepsTreeCommand();
+      const depsGraphCommand = createTasksDepsGraphCommand();
 
       // Register list command
       sharedCommandRegistry.registerCommand({
@@ -247,6 +253,7 @@ export class ModularTasksCommandManager {
         execute: depsRmCommand.execute.bind(depsRmCommand),
       });
 
+      // Register deps list command
       sharedCommandRegistry.registerCommand({
         id: depsListCommand.id,
         category: CommandCategory.TASKS,
@@ -254,6 +261,87 @@ export class ModularTasksCommandManager {
         description: depsListCommand.description,
         parameters: (depsListCommand as any).parameters,
         execute: depsListCommand.execute.bind(depsListCommand),
+      });
+
+      // Register deps tree command
+      sharedCommandRegistry.registerCommand({
+        id: depsTreeCommand.id,
+        category: CommandCategory.TASKS,
+        name: depsTreeCommand.name,
+        description: depsTreeCommand.description,
+        parameters: (depsTreeCommand as any).parameters,
+        execute: depsTreeCommand.execute.bind(depsTreeCommand),
+      });
+
+      // Register deps graph command
+      sharedCommandRegistry.registerCommand({
+        id: depsGraphCommand.id,
+        category: CommandCategory.TASKS,
+        name: depsGraphCommand.name,
+        description: depsGraphCommand.description,
+        parameters: (depsGraphCommand as any).parameters,
+        execute: depsGraphCommand.execute.bind(depsGraphCommand),
+              });
+
+      // Register deps commands manually with dot notation
+      // Register deps add command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.deps.add",
+        category: CommandCategory.TASKS,
+        name: "add",
+        description: "Add a dependency relationship between tasks",
+        parameters: depsAddCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await depsAddCommand.execute(params, context);
+        },
+      });
+
+      // Register deps rm command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.deps.rm",
+        category: CommandCategory.TASKS,
+        name: "rm",
+        description: "Remove a dependency relationship between tasks",
+        parameters: depsRmCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await depsRmCommand.execute(params, context);
+        },
+      });
+
+      // Register deps list command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.deps.list",
+        category: CommandCategory.TASKS,
+        name: "list",
+        description: "List dependencies for a specific task",
+        parameters: depsListCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await depsListCommand.execute(params, context);
+        },
+      });
+
+      // Register deps tree command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.deps.tree",
+        category: CommandCategory.TASKS,
+        name: "tree",
+        description: "Show dependency tree for a specific task",
+        parameters: depsTreeCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await depsTreeCommand.execute(params, context);
+        },
+      });
+
+      // Register deps graph command
+      sharedCommandRegistry.registerCommand({
+        id: "tasks.deps.graph",
+        category: CommandCategory.TASKS,
+        name: "graph",
+        description: "Show ASCII graph of all task dependencies",
+        parameters: depsGraphCommand.parameters,
+        execute: async (params: any, context: any) => {
+          return await depsGraphCommand.execute(params, context);
+        },
       });
     } catch (error) {
       log.warn("Failed to register task commands:", error);

@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
+import { log } from "../../../utils/logger";
 
 export interface TestContextInputs extends ComponentInputs {
   framework: {
@@ -82,7 +83,7 @@ export const TestContextComponent: ContextComponent = {
         issues,
       };
     } catch (error) {
-      console.error("Error gathering test context inputs:", error);
+      log.error("Error gathering test context inputs:", error);
       return {
         framework: { name: "unknown" },
         testFiles: { total: 0, byType: {}, patterns: [] },
@@ -367,7 +368,7 @@ async function discoverTestFiles(workspacePath: string): Promise<TestContextInpu
     // Check for coverage configuration
     testFiles.coverage = await detectCoverageConfig(workspacePath);
   } catch (error) {
-    console.warn("Error discovering test files:", error);
+    log.warn("Error discovering test files:", error);
   }
 
   return testFiles;

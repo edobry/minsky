@@ -9,6 +9,7 @@ import { tmpdir } from "os";
 import { join, dirname } from "path";
 import { mkdirSync, rmSync, existsSync, writeFileSync } from "fs";
 import { randomUUID } from "crypto";
+import { log } from "../logger";
 
 /**
  * Working Directory Cleanup Pattern
@@ -137,7 +138,7 @@ export class FileSystemTestCleanup {
           rmSync(file, { force: true });
         }
       } catch (error) {
-        console.warn(`Failed to clean up test file ${file}:`, error);
+        log.warn(`Failed to clean up test file ${file}:`, error);
       }
     }
 
@@ -148,7 +149,7 @@ export class FileSystemTestCleanup {
           rmSync(dir, { recursive: true, force: true });
         }
       } catch (error) {
-        console.warn(`Failed to clean up test directory ${dir}:`, error);
+        log.warn(`Failed to clean up test directory ${dir}:`, error);
       }
     }
 

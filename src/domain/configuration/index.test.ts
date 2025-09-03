@@ -8,6 +8,7 @@ import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import type { ConfigurationProvider, ConfigurationFactory, ConfigurationOverrides } from "./index";
 import { CustomConfigFactory, createTestProvider, CustomConfigurationProvider } from "./index";
 import { GIT_TEST_PATTERNS, CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { log } from "../../utils/logger";
 
 // Mock the configuration loader to prevent infinite loops
 const mockLoadConfiguration = mock(() =>
@@ -98,7 +99,7 @@ class TestConfigurationProvider implements ConfigurationProvider {
         };
       }
     } catch (error) {
-      console.error("Configuration loading failed:", error);
+      log.error("Configuration loading failed:", error);
       throw error;
     }
   }
@@ -268,7 +269,7 @@ describe("Custom Configuration System", () => {
       const endTime = Date.now();
 
       const loadTime = endTime - startTime;
-      console.log(`Custom config load time: ${loadTime}ms`);
+      log.debug(`Custom config load time: ${loadTime}ms`);
 
       // Should load quickly (less than 1 second)
       expect(loadTime).toBeLessThan(1000);
@@ -288,7 +289,7 @@ describe("Custom Configuration System", () => {
       const totalTime = endTime - startTime;
       const avgTime = totalTime / iterations;
 
-      console.log(`Average access time: ${avgTime.toFixed(3)}ms per operation`);
+      log.debug(`Average access time: ${avgTime.toFixed(3)}ms per operation`);
 
       // Should be very fast (less than 1ms per operation on average)
       expect(avgTime).toBeLessThan(1);

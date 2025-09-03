@@ -6,6 +6,7 @@
  */
 
 import { z } from "zod";
+import { log } from "../utils/logger";
 
 /**
  * Session database backend types
@@ -98,7 +99,7 @@ export function validateNodeConfig(nodeConfig: unknown): SessionDbConfig {
     return sessionDbConfigSchema.parse(nodeConfig);
   } catch (error) {
     // Log validation failure and return defaults
-    console.warn("Session database configuration validation failed, using defaults:", error);
+    log.warn("Session database configuration validation failed, using defaults:", error);
     return defaultSessionDbConfig;
   }
 }

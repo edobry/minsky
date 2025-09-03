@@ -5,19 +5,11 @@
  * This provides the registration function using the new modular architecture.
  */
 import { SessionCommandRegistry } from "./session/base-session-command";
+import { log } from "../../../utils/logger";
 import {
   setupSessionCommandRegistry,
   createAllSessionCommands,
   type SessionCommandDependencies,
-  createSessionListCommand,
-  createSessionGetCommand,
-  createSessionStartCommand,
-  createSessionDirCommand,
-  createSessionDeleteCommand,
-  createSessionUpdateCommand,
-  createSessionApproveCommand,
-  createSessionPrCommand,
-  createSessionInspectCommand,
 } from "./session/";
 import { sharedCommandRegistry } from "../command-registry";
 
@@ -60,7 +52,7 @@ export class ModularSessionCommandsManager {
       this.initialized = true;
     } catch (error) {
       // Log error but don't throw to avoid breaking the constructor
-      console.error("Failed to initialize session commands:", error);
+      log.error("Failed to initialize session commands:", error);
     }
   }
 

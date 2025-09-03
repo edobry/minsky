@@ -1,4 +1,5 @@
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
+import { log } from "../../utils/logger";
 // Removed tmpdir import - using mock paths instead
 // Use mock.module() to mock filesystem operations
 // import { promises as fs } from "fs";
@@ -217,7 +218,7 @@ describe("RuleTemplateService", () => {
       });
 
       if (!result.success) {
-        console.error("Generation failed with errors:", result.errors);
+        log.error("Generation failed with errors:", result.errors);
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
@@ -342,7 +343,7 @@ describe("RuleTemplateService", () => {
       });
 
       if (!result.success) {
-        console.error("Default template generation failed:", result.errors);
+        log.error("Default template generation failed:", result.errors);
       }
       expect(result.success).toBe(true);
       expect(result.rules.length).toBeGreaterThan(3); // Should include 3 default templates + additional
@@ -415,7 +416,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       if (!cliResult.success) {
-        console.error("Helper test failed:", cliResult.errors);
+        log.error("Helper test failed:", cliResult.errors);
       }
       expect(cliResult.success).toBe(true);
       const cliContent = cliResult.rules[0]!.content;
@@ -567,7 +568,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       if (!result.success) {
-        console.error("generateRulesWithConfig failed:", result.errors);
+        log.error("generateRulesWithConfig failed:", result.errors);
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
@@ -590,7 +591,7 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       });
 
       if (!result.success) {
-        console.error("File system integration test failed:", result.errors);
+        log.error("File system integration test failed:", result.errors);
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);

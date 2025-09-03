@@ -7,13 +7,14 @@
 
 import { z } from "zod";
 import { baseSchemas, enumSchemas } from "./base";
+import { log } from "../../../utils/logger";
 
 /**
  * Logger for configuration warnings - we'll import this from the logging system
  */
 const logConfigWarning = (message: string) => {
-  // For now, use console.warn - this should be replaced with proper logging
-  console.warn(`Configuration Warning: ${message}`);
+  // Use structured logging for configuration warnings
+  log.warn(`Configuration Warning: ${message}`);
 };
 
 /**

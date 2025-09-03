@@ -22,6 +22,7 @@ import { join } from "path";
 import { startSessionFromParams, listSessionsFromParams } from "./session";
 import { createMock } from "../utils/test-utils/mocking";
 import { SESSION_TEST_PATTERNS } from "../utils/test-utils/test-constants";
+import { log } from "../utils/logger";
 import {
   createMockSessionProvider,
   createMockGitService,
@@ -239,9 +240,9 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
         const sessionExists = await mockSessionDB.getSession(scenario.name);
         const directoryExists = mockFs.existsSync(`/mock/sessions/${scenario.name}`);
 
-        console.log(`Scenario: ${scenario.name}`);
-        console.log(`  Database: ${sessionExists ? "✓" : "✗"}`);
-        console.log(`  Directory: ${directoryExists ? "✓" : "✗"}`);
+        log.debug(`Scenario: ${scenario.name}`);
+        log.debug(`  Database: ${sessionExists ? "✓" : "✗"}`);
+        log.debug(`  Directory: ${directoryExists ? "✓" : "✗"}`);
 
         // Verify the expected inconsistencies
         if (scenario.name === SESSION_TEST_PATTERNS.ORPHANED_SESSION) {

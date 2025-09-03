@@ -16,7 +16,7 @@ import {
   ValidationError,
   getErrorMessage,
 } from "../../errors/index";
-import { log } from "../../utils/logger";
+import { log } from "../../../utils/logger";
 import * as WorkspaceUtils from "../../workspace";
 import { formatTaskIdForDisplay } from "../../tasks/task-id-utils";
 

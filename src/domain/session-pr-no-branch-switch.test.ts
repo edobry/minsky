@@ -2,6 +2,7 @@ import { describe, test, expect, beforeEach, mock } from "bun:test";
 import { preparePrFromParams } from "./git";
 import { createMock } from "../utils/test-utils/mocking";
 import { initializeConfiguration, CustomConfigFactory } from "./configuration";
+import { log } from "../utils/logger";
 
 describe("Session PR Command Branch Behavior", () => {
   beforeEach(async () => {
@@ -89,7 +90,7 @@ describe("Session PR Command Branch Behavior", () => {
         (cmd) => cmd.includes("branch ") || cmd.includes("switch ") || cmd.includes("checkout ")
       );
 
-      console.log("Git branch/switch commands executed:", relevantCommands);
+      log.debug("Git branch/switch commands executed:", relevantCommands);
     } catch (error) {
       // The test currently fails with session not found, which is expected
       // since we're using mocked functions without proper session setup

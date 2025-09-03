@@ -117,6 +117,57 @@ export function getTasksCustomizations(): {
             },
           },
         },
+        "tasks.deps.add": {
+          parameters: {
+            fromTaskId: {
+              asArgument: true,
+              description: "Task that will depend on another task",
+            },
+            toTaskId: {
+              asArgument: true,
+              description: "Task that is the dependency",
+            },
+          },
+        },
+        "tasks.deps.rm": {
+          parameters: {
+            fromTaskId: {
+              asArgument: true,
+              description: "Task that depends on another task",
+            },
+            toTaskId: {
+              asArgument: true,
+              description: "Task that is the dependency",
+            },
+          },
+        },
+        "tasks.deps.list": {
+          parameters: {
+            taskId: {
+              asArgument: true,
+              description: "ID of the task to list dependencies for",
+            },
+          },
+        },
+        "tasks.deps.tree": {
+          parameters: {
+            task: {
+              asArgument: true,
+              description: "ID of the task to show dependency tree for",
+            },
+          },
+        },
+        "tasks.deps.graph": {
+          useFirstRequiredParamAsArgument: false,
+          parameters: {
+            limit: {
+              description: "Maximum number of tasks to include",
+            },
+            status: {
+              description: "Filter tasks by status",
+            },
+          },
+        },
       },
     },
   };

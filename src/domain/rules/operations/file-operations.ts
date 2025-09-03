@@ -11,6 +11,7 @@ import * as jsYaml from "js-yaml";
 import { HTTP_OK } from "../../../utils/constants";
 import { getErrorMessage } from "../../../errors/index";
 import { BaseRuleOperation, type RuleOperationDependencies } from "./base-rule-operation";
+import { log } from "../../../utils/logger";
 import {
   type Rule,
   type RuleMeta,
@@ -70,14 +71,15 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
     }
 
     // Check if file exists
-    await fs.access(filePath);
+    const fsp = this.deps.fsPromises || fs;
+    await fsp.access(filePath);
 
     if (params.debug) {
       this.logDebug("File exists", { filePath });
     }
 
     // Read and parse the file
-    const content = await fs.readFile(filePath, "utf-8");
+    const content = await (this.deps.fsPromises || fs).readFile(filePath, "utf-8");
 
     try {
       // Parse frontmatter
@@ -126,7 +128,7 @@ export class ReadRuleFileOperation extends BaseRuleOperation<
   }
 
   private logDebug(message: string, context: Record<string, any>): void {
-    console.log(`[DEBUG] ${message}`, context);
+    log.debug(`[DEBUG] ${message}`, context);
   }
 
   protected getAdditionalLogContext(params: {
@@ -168,10 +170,11 @@ export class WriteRuleFileOperation extends BaseRuleOperation<
     const filePath = this.getRuleFilePath(params.id, format);
 
     // Ensure directory exists
-    await fs.mkdir(dirPath, { recursive: true });
+    await (this.deps.fsPromises || fs).mkdir(dirPath, { recursive: true });
 
     // Check if rule already exists
-    if (existsSync(filePath) && !params.options.overwrite) {
+    const existsSyncFn = this.deps.existsSyncFn || existsSync;
+    if (existsSyncFn(filePath) && !params.options.overwrite) {
       throw new Error(`Rule already exists: ${params.id}. Use --overwrite to replace it.`);
     }
 
@@ -182,9 +185,9 @@ export class WriteRuleFileOperation extends BaseRuleOperation<
     const fileContent = customMatterStringify(params.content, cleanMeta);
 
     // Write the file
-    await fs.writeFile(filePath, fileContent, "utf-8");
+    await (this.deps.fsPromises || fs).writeFile(filePath, fileContent, "utf-8");
 
-    console.log("Rule created/updated", {
+    log.debug("Rule created/updated", {
       _path: filePath,
       id: params.id,
       format,
@@ -231,11 +234,11 @@ export class ListRulesDirectoryOperation extends BaseRuleOperation<
     const dirPath = this.getRuleDirPath(params.format);
 
     if (params.debug) {
-      console.log("Listing rules directory", { directory: dirPath, format: params.format });
+      log.debug("Listing rules directory", { directory: dirPath, format: params.format });
     }
 
     try {
-      const files = await fs.readdir(dirPath);
+      const files = await (this.deps.fsPromises || fs).readdir(dirPath);
       return files.filter((file) => file.endsWith(".mdc"));
     } catch (error) {
       // Directory might not exist, which is fine

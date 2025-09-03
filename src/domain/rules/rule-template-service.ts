@@ -10,6 +10,7 @@ import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
 import { createTemplateContext, type RuleGenerationConfig } from "./template-system";
 import * as grayMatterNamespace from "gray-matter";
 import * as jsYaml from "js-yaml";
+import { log } from "../../utils/logger";
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
 
@@ -418,7 +419,7 @@ export class RuleTemplateService {
         this.registerTemplate(template);
       }
     } catch (error) {
-      console.error("Error registering init templates:", error);
+      log.error("Error registering init templates:", error);
 
       // Register a minimal init template
       this.registerTemplate({

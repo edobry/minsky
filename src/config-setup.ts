@@ -7,6 +7,7 @@
 
 import { initializeConfiguration, CustomConfigFactory } from "./domain/configuration";
 import { exit } from "./utils/process";
+import { log } from "./utils/logger";
 
 /**
  * Initialize the custom configuration system
@@ -22,7 +23,7 @@ export async function setupConfiguration(): Promise<void> {
       enableCache: true,
     });
   } catch (error) {
-    console.error("✗ Failed to initialize configuration system:", error);
+    log.error("✗ Failed to initialize configuration system:", error);
     throw error;
   }
 }

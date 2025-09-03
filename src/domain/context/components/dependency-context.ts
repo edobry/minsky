@@ -1,6 +1,7 @@
 import * as fs from "fs/promises";
 import * as path from "path";
 import { ContextComponent, ComponentInput, ComponentInputs, ComponentOutput } from "./types";
+import { log } from "../../../utils/logger";
 
 export interface DependencyContextInputs extends ComponentInputs {
   packageJson?: {
@@ -64,7 +65,7 @@ export const DependencyContextComponent: ContextComponent = {
         analysis,
       };
     } catch (error) {
-      console.error("Error gathering dependency context inputs:", error);
+      log.error("Error gathering dependency context inputs:", error);
       return {
         analysis: {
           totalDependencies: 0,

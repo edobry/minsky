@@ -4,7 +4,7 @@
  * Validates PR titles to prevent body content from being accidentally placed in titles
  */
 
-import { ValidationError } from "../../../errors/index.js";
+import { ValidationError } from "../../../errors/index";
 
 export interface TitleValidationResult {
   isValid: boolean;

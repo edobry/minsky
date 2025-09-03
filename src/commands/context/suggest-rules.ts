@@ -85,7 +85,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
   if (workspaceRules.length === 0) {
     log.cliWarn("No rules found in workspace. Consider adding some rules first.");
     if (options.json) {
-      console.log(JSON.stringify({ suggestions: [], message: "No rules found" }, null, 2));
+      log.debug(JSON.stringify({ suggestions: [], message: "No rules found" }, null, 2));
     }
     return;
   }
@@ -107,15 +107,15 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
       top.forEach((r, i) => {
         const rule = byId.get(r.id);
         const title = rule?.name || r.id;
-        console.log(`${i + 1}. ${title} [${r.id}]`);
+        log.debug(`${i + 1}. ${title} [${r.id}]`);
         if (rule?.path) {
-          console.log(`Spec: ${rule.path}`);
+          log.debug(`Spec: ${rule.path}`);
         }
         const score = typeof r.score === "number" ? r.score.toFixed(3) : String(r.score ?? "n/a");
-        console.log(`Score: ${score}`);
-        console.log("");
+        log.debug(`Score: ${score}`);
+        log.debug("");
       });
-      console.log(`${top.length} results found`);
+      log.debug(`${top.length} results found`);
       return;
     }
 
@@ -213,7 +213,7 @@ async function gatherContextHints(
  * Output results in JSON format
  */
 function outputJsonResults(response: RuleSuggestionResponse): void {
-  console.log(JSON.stringify(response, null, 2));
+  log.debug(JSON.stringify(response, null, 2));
 }
 
 /**
@@ -224,25 +224,25 @@ function outputHumanReadableResults(
   query: string,
   totalTime: number
 ): void {
-  console.log(`\n🔍 Rule suggestions for: "${query}"\n`);
+  log.debug(`\n🔍 Rule suggestions for: "${query}"\n`);
 
   // Query analysis
-  console.log(`📝 Analysis:`);
-  console.log(`   Intent: ${response.queryAnalysis.intent}`);
-  console.log(`   Keywords: ${response.queryAnalysis.keywords.join(", ")}`);
+  log.debug(`📝 Analysis:`);
+  log.debug(`   Intent: ${response.queryAnalysis.intent}`);
+  log.debug(`   Keywords: ${response.queryAnalysis.keywords.join(", ")}`);
   if (response.queryAnalysis.suggestedCategories.length > 0) {
-    console.log(`   Categories: ${response.queryAnalysis.suggestedCategories.join(", ")}`);
+    log.debug(`   Categories: ${response.queryAnalysis.suggestedCategories.join(", ")}`);
   }
-  console.log();
+  log.debug();
 
   // Suggestions
   if (response.suggestions.length === 0) {
-    console.log("❌ No relevant rules found for your query.");
-    console.log(
+    log.debug("❌ No relevant rules found for your query.");
+    log.debug(
       "   Try rephrasing your query or check if you have applicable rules in your workspace."
     );
   } else {
-    console.log(
+    log.debug(
       `✨ Found ${response.suggestions.length} relevant rule${response.suggestions.length > 1 ? "s" : ""}:\n`
     );
 
@@ -250,23 +250,23 @@ function outputHumanReadableResults(
       const confidenceEmoji = getConfidenceEmoji(suggestion.confidenceLevel);
       const scoreFormatted = (suggestion.relevanceScore * 100).toFixed(0);
 
-      console.log(`${index + 1}. ${suggestion.ruleName || suggestion.ruleId} ${confidenceEmoji}`);
-      console.log(`   Relevance: ${scoreFormatted}% (${suggestion.confidenceLevel} confidence)`);
-      console.log(`   Reasoning: ${suggestion.reasoning}`);
-      console.log();
+      log.debug(`${index + 1}. ${suggestion.ruleName || suggestion.ruleId} ${confidenceEmoji}`);
+      log.debug(`   Relevance: ${scoreFormatted}% (${suggestion.confidenceLevel} confidence)`);
+      log.debug(`   Reasoning: ${suggestion.reasoning}`);
+      log.debug();
     });
   }
 
   // Performance info
-  console.log(`📊 Performance:`);
-  console.log(`   Analyzed ${response.totalRulesAnalyzed} rules in ${response.processingTimeMs}ms`);
-  console.log(`   Total time: ${totalTime}ms`);
-  console.log();
+  log.debug(`📊 Performance:`);
+  log.debug(`   Analyzed ${response.totalRulesAnalyzed} rules in ${response.processingTimeMs}ms`);
+  log.debug(`   Total time: ${totalTime}ms`);
+  log.debug();
 
   // Usage hints
   if (response.suggestions.length > 0) {
-    console.log(`💡 To use a rule: Add it to your Cursor Rules or check its content with:`);
-    console.log(`   minsky rules get ${response.suggestions[0].ruleId}`);
+    log.debug(`💡 To use a rule: Add it to your Cursor Rules or check its content with:`);
+    log.debug(`   minsky rules get ${response.suggestions[0].ruleId}`);
   }
 }
 

@@ -5,6 +5,7 @@
  */
 import { describe, test, expect, beforeEach } from "bun:test";
 import { setupTestMocks } from "../utils/test-utils/mocking";
+import { log } from "../utils/logger";
 
 describe("MCP Server", () => {
   beforeEach(() => {
@@ -32,7 +33,7 @@ describe("MCP Server", () => {
       expect(typeof MinskyMCPServer).toBe("function");
       importSucceeded = true;
     } catch (error) {
-      console.error("Import failed:", error);
+      log.error("Import failed:", error);
       importSucceeded = false;
     }
     expect(importSucceeded).toBe(true);

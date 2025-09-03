@@ -9,6 +9,7 @@ import { ConfigWriter, createConfigWriter } from "./config-writer";
 import matter from "gray-matter";
 import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-filesystem";
 import { CONFIG_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
+import { log } from "../../utils/logger";
 
 describe("ConfigWriter", () => {
   let writer: ConfigWriter;
@@ -333,7 +334,7 @@ describe("ConfigWriter", () => {
 
       // Debug the actual result if the test fails
       if (!result.success) {
-        console.log("Test failure debug:", result);
+        log.debug("Test failure debug:", result);
       }
 
       expect(result.success).toBe(true);

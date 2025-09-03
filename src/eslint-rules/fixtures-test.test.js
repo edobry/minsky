@@ -6,6 +6,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
+import { log } from "../utils/logger";
 
 describe("ESLint Rule Fixtures", () => {
   test("pathological fixture contains forbidden patterns", () => {
@@ -23,7 +24,7 @@ describe("ESLint Rule Fixtures", () => {
     expect(pathologicalCode).toContain("writeFileSync(");
 
     // This validates the fixtures are correctly defined
-    console.log("✅ Pathological fixture contains expected forbidden patterns");
+    log.debug("✅ Pathological fixture contains expected forbidden patterns");
   });
 
   test("good fixture contains approved patterns", () => {
@@ -40,6 +41,6 @@ describe("ESLint Rule Fixtures", () => {
     expect(goodCode).not.toContain("process.cwd()");
     expect(goodCode).not.toContain('require("fs")');
 
-    console.log("✅ Good fixture contains only approved patterns");
+    log.debug("✅ Good fixture contains only approved patterns");
   });
 });

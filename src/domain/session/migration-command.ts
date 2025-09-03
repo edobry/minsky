@@ -1,4 +1,5 @@
 import type { SessionProviderInterface, SessionRecord } from "./types";
+import { log } from "../../utils/logger";
 import {
   SessionMultiBackendIntegration,
   SessionBackwardCompatibility,
@@ -148,8 +149,8 @@ export class SessionMigrationService {
     };
 
     // TODO: Write to actual file system
-    console.log(`Would create backup at: ${backupPath}`);
-    console.log(`Backup would contain ${allSessions.length} sessions`);
+    log.debug(`Would create backup at: ${backupPath}`);
+    log.debug(`Backup would contain ${allSessions.length} sessions`);
 
     return backupPath;
   }
@@ -403,10 +404,10 @@ export class SessionMigrationService {
   async rollback(backupPath: string): Promise<boolean> {
     try {
       // TODO: Implement actual backup restoration
-      console.log(`Would restore from backup: ${backupPath}`);
+      log.debug(`Would restore from backup: ${backupPath}`);
       return true;
     } catch (error) {
-      console.error("Rollback failed:", error);
+      log.error("Rollback failed:", error);
       return false;
     }
   }

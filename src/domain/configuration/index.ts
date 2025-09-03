@@ -7,6 +7,7 @@
  */
 
 import type { Configuration, PartialConfiguration } from "./schemas";
+import { log } from "../../utils/logger";
 export type { Configuration, PartialConfiguration } from "./schemas";
 export { configurationSchema } from "./schemas";
 
@@ -138,7 +139,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       }
       this.configResult.config = cfg;
     } catch (error) {
-      console.error("Configuration loading failed:", error);
+      log.error("Configuration loading failed:", error);
       throw error;
     }
   }
@@ -177,7 +178,7 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       await this.initialize();
     } catch (error) {
       // If initialization fails, log but don't throw
-      console.warn("Warning: CustomConfigurationProvider reload had issues:", error);
+      log.warn("Warning: CustomConfigurationProvider reload had issues:", error);
     }
     // Explicit return to ensure promise resolves
     return Promise.resolve();

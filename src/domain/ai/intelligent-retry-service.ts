@@ -3,7 +3,7 @@
  * Provides enterprise-grade reliability for AI completion requests.
  */
 
-import { log } from "../../utils/logger.js";
+import { log } from "../../utils/logger";
 import {
   RateLimitError,
   AuthenticationError,

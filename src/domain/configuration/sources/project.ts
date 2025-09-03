@@ -9,6 +9,7 @@ import { readFileSync, existsSync } from "fs";
 import { resolve, join } from "path";
 import { parse } from "yaml";
 import type { PartialConfiguration } from "../schemas";
+import { log } from "../../../utils/logger";
 
 /**
  * Project configuration file locations (relative to project root)
@@ -46,7 +47,7 @@ export function loadProjectConfiguration(workingDir?: string): Partial<PartialCo
         }
       } catch (error) {
         // Log warning but continue to next file
-        console.warn(`Warning: Failed to load project config from ${configPath}:`, error);
+        log.warn(`Warning: Failed to load project config from ${configPath}:`, error);
       }
     }
   }
@@ -71,11 +72,11 @@ function loadConfigFile(filePath: string): any {
         return parse(content);
 
       default:
-        console.warn(`Warning: Unsupported config file format: ${extension}`);
+        log.warn(`Warning: Unsupported config file format: ${extension}`);
         return null;
     }
   } catch (error) {
-    console.warn(`Warning: Failed to parse config file ${filePath}:`, error);
+    log.warn(`Warning: Failed to parse config file ${filePath}:`, error);
     return null;
   }
 }

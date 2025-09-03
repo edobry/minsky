@@ -127,21 +127,23 @@ export interface MultiBackendLogger {
   debug(message: string, context?: Record<string, unknown>): void;
 }
 
+import { log } from "../../utils/logger";
+
 export class ConsoleMultiBackendLogger implements MultiBackendLogger {
   info(message: string, context?: Record<string, unknown>): void {
-    console.log(`[INFO] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.info(`[INFO] ${message}`, context ? JSON.stringify(context, null, 2) : "");
   }
 
   warn(message: string, context?: Record<string, unknown>): void {
-    console.warn(`[WARN] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.warn(`[WARN] ${message}`, context ? JSON.stringify(context, null, 2) : "");
   }
 
   error(message: string, context?: Record<string, unknown>): void {
-    console.error(`[ERROR] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.error(`[ERROR] ${message}`, context ? JSON.stringify(context, null, 2) : "");
   }
 
   debug(message: string, context?: Record<string, unknown>): void {
-    console.debug(`[DEBUG] ${message}`, context ? JSON.stringify(context, null, 2) : "");
+    log.debug(`[DEBUG] ${message}`, context ? JSON.stringify(context, null, 2) : "");
   }
 }
 

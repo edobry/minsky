@@ -43,7 +43,7 @@ export async function executeConfigDoctor(options: DoctorOptions): Promise<void>
     const passes = diagnostics.filter((d) => d.status === "pass");
 
     if (options.json) {
-      console.log(
+      log.debug(
         JSON.stringify(
           {
             summary: {
@@ -62,32 +62,32 @@ export async function executeConfigDoctor(options: DoctorOptions): Promise<void>
     } else {
       // Display summary
       if (errors.length === 0 && warnings.length === 0) {
-        console.log("✅ Configuration is healthy");
+        log.debug("✅ Configuration is healthy");
       } else if (errors.length === 0) {
-        console.log("⚠️  Configuration has some warnings");
+        log.debug("⚠️  Configuration has some warnings");
       } else {
-        console.log("❌ Configuration has issues that need attention");
+        log.debug("❌ Configuration has issues that need attention");
       }
 
-      console.log(`   Checks run: ${diagnostics.length}`);
-      console.log(
+      log.debug(`   Checks run: ${diagnostics.length}`);
+      log.debug(
         `   Passed: ${passes.length}, Warnings: ${warnings.length}, Errors: ${errors.length}`
       );
-      console.log("");
+      log.debug("");
 
       // Display detailed results
       for (const diagnostic of diagnostics) {
         const icon =
           diagnostic.status === "pass" ? "✅" : diagnostic.status === "warning" ? "⚠️" : "❌";
 
-        console.log(`${icon} ${diagnostic.check}`);
+        log.debug(`${icon} ${diagnostic.check}`);
         if (diagnostic.status !== "pass" || options.verbose) {
-          console.log(`   ${diagnostic.message}`);
+          log.debug(`   ${diagnostic.message}`);
           if (diagnostic.suggestion) {
-            console.log(`   💡 ${diagnostic.suggestion}`);
+            log.debug(`   💡 ${diagnostic.suggestion}`);
           }
         }
-        console.log("");
+        log.debug("");
       }
     }
 
@@ -99,7 +99,7 @@ export async function executeConfigDoctor(options: DoctorOptions): Promise<void>
     const message = error instanceof Error ? error.message : String(error);
 
     if (options.json) {
-      console.log(
+      log.debug(
         JSON.stringify(
           {
             healthy: false,
