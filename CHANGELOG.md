@@ -6,21 +6,28 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **README with Philosophical Foundation**: Created comprehensive README articulating Minsky's core philosophy
+  - Framed Minsky as a development workflow orchestration platform
+  - Explained organizational cybernetics principles and feedback loops
+  - Documented agent equivalence: how same mechanisms guide humans and AI
+  - Described incentive landscape design through control structures
+  - Positioned orchestration role: conductor of existing tools, not reinventing them
+
 - Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
   - Comprehensive spec for capturing engineering journey during task work
   - Defined 10 entry types: note, decision, progress, blocker, resolution, question, todo, command, context, learning
   - Designed integration points with conversation history, task specs, agent memory, and sessions
   - Proposed CLI interface and MCP tools for agent access
   - Phased implementation approach from core infrastructure to AI-powered features
-- **AI Readiness Rubric System Task (mt#499)**: Created comprehensive task specification for assessing project readiness for autonomous AI development
+- **Development Workflow Maturity Assessment System (mt#499)**: Designed orchestration system for evaluating and improving development workflow maturity
 
-  - Defined 7 assessment categories with weighted scoring (Code Quality, Testing, Task Management, Version Control, Security, AI Rules, Configuration)
-  - Established readiness levels from Manual to Fully Autonomous (score-based)
-  - Designed command structure: `minsky readiness assess/check/score`
-  - Created detection logic for auto-discovering project configurations
-  - Specified recommendations engine for actionable improvement suggestions
-  - Analyzed existing Minsky guardrails to inform rubric design
-  - Documented implementation roadmap with 4 phases
+  - Reframed as workflow orchestration platform based on organizational cybernetics principles
+  - Defined 7 maturity categories: Code Quality, Testing, Dependency Management, Security, Task Management, Dev Workflow, Documentation
+  - Established industry-standard maturity levels (Ad Hoc → Initial → Managed → Defined → Optimized)
+  - Designed `minsky workflow` command family for assessment, initialization, and management
+  - Configuration-driven approach using simple command specifications (workflows.lint.json, workflows.lint.fix)
+  - Applied agent equivalence principle: same incentive structures guide human and AI developers
+  - Created task mt#502 to clarify confusing `backends.default` configuration naming
 
 - **Context-Aware Rules Filtering**: Enhanced rules system with intelligent filtering based on Cursor's rule type system
 
