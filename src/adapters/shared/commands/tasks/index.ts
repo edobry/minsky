@@ -47,3 +47,15 @@ export { TasksSimilarCommand, TasksSearchCommand } from "./similarity-commands";
 
 // Index embeddings command
 export { TasksIndexEmbeddingsCommand } from "./index-embeddings-command";
+
+// Dependency management commands
+export {
+  createTasksDepsAddCommand,
+  createTasksDepsRmCommand,
+  createTasksDepsListCommand,
+} from "./deps-commands";
+
+export {
+  createTasksDepsTreeCommand,
+  createTasksDepsGraphCommand,
+} from "./deps-visualization-commands";

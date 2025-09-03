@@ -13,7 +13,8 @@ const tasksDepsAddParams: CommandParameterMap = {
   },
   dependsOn: {
     schema: z.union([z.string(), z.array(z.string())]),
-    description: "Task that is the dependency, or comma-separated list of task IDs. Supports typed format: taskId:type",
+    description:
+      "Task that is the dependency, or comma-separated list of task IDs. Supports typed format: taskId:type",
     required: true,
   },
 };
@@ -57,9 +58,9 @@ export function createTasksDepsAddCommand() {
       // Parse dependencies (handle both string and array formats)
       const dependencies = Array.isArray(params.dependsOn)
         ? params.dependsOn
-        : typeof params.dependsOn === 'string'
-        ? params.dependsOn.split(',').map(d => d.trim())
-        : [params.dependsOn];
+        : typeof params.dependsOn === "string"
+          ? params.dependsOn.split(",").map((d) => d.trim())
+          : [params.dependsOn];
 
       const results: string[] = [];
       let allSuccessful = true;
@@ -67,12 +68,12 @@ export function createTasksDepsAddCommand() {
       for (const dep of dependencies) {
         try {
           // Parse dependency format: "taskId" or "taskId:type"
-          const [depTaskId, depType] = dep.includes(':') 
-            ? dep.split(':').map(s => s.trim())
-            : [dep.trim(), 'prerequisite'];
+          const [depTaskId, depType] = dep.includes(":")
+            ? dep.split(":").map((s) => s.trim())
+            : [dep.trim(), "prerequisite"];
 
           const result = await service.addDependency(params.task, depTaskId);
-          
+
           if (result.created) {
             results.push(`✅ Added dependency: ${params.task} depends on ${depTaskId}`);
           } else {
@@ -84,7 +85,7 @@ export function createTasksDepsAddCommand() {
         }
       }
 
-      const output = results.join('\n');
+      const output = results.join("\n");
       return { success: allSuccessful, output };
     },
   };

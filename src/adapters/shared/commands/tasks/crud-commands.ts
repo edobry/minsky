@@ -209,12 +209,14 @@ export class TasksCreateCommand extends BaseTaskCommand {
       if (params.dependencies) {
         try {
           const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
-          const { DatabaseConnectionManager } = await import("../../../../domain/database/connection-manager");
-          
+          const { DatabaseConnectionManager } = await import(
+            "../../../../domain/database/connection-manager"
+          );
+
           // Parse dependencies (handle both string and array formats)
-          const deps = Array.isArray(params.dependencies) 
-            ? params.dependencies 
-            : params.dependencies.split(',').map(d => d.trim());
+          const deps = Array.isArray(params.dependencies)
+            ? params.dependencies
+            : params.dependencies.split(",").map((d) => d.trim());
 
           if (deps.length > 0) {
             this.debug(`Adding ${deps.length} dependencies to task ${result.taskId}`);
@@ -224,16 +226,20 @@ export class TasksCreateCommand extends BaseTaskCommand {
             for (const dep of deps) {
               try {
                 // Parse dependency format: "taskId" or "taskId:type"
-                const [depTaskId, depType] = dep.includes(':') 
-                  ? dep.split(':').map(s => s.trim())
-                  : [dep.trim(), 'prerequisite'];
+                const [depTaskId, depType] = dep.includes(":")
+                  ? dep.split(":").map((s) => s.trim())
+                  : [dep.trim(), "prerequisite"];
 
                 const addResult = await graphService.addDependency(result.taskId, depTaskId);
-                
+
                 if (addResult.created) {
-                  dependencyResults.push(`✅ Added dependency: ${result.taskId} depends on ${depTaskId}`);
+                  dependencyResults.push(
+                    `✅ Added dependency: ${result.taskId} depends on ${depTaskId}`
+                  );
                 } else {
-                  dependencyResults.push(`ℹ️  Dependency already exists: ${result.taskId} depends on ${depTaskId}`);
+                  dependencyResults.push(
+                    `ℹ️  Dependency already exists: ${result.taskId} depends on ${depTaskId}`
+                  );
                 }
               } catch (depError) {
                 dependencyResults.push(`❌ Failed to add dependency ${dep}: ${depError.message}`);
@@ -258,11 +264,11 @@ export class TasksCreateCommand extends BaseTaskCommand {
         }
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
         message += `\n${chalk.gray("  ID: ")}${result.taskId}`;
-        
+
         // Add dependency results to message
         if (dependencyResults.length > 0) {
           message += `\n${chalk.gray("  Dependencies:")}`;
-          dependencyResults.forEach(depResult => {
+          dependencyResults.forEach((depResult) => {
             message += `\n    ${depResult}`;
           });
         }
