@@ -172,44 +172,80 @@ export class TasksCreateCommand extends BaseTaskCommand {
   async execute(params: TasksCreateParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.create execution");
 
-    // Validate required parameters
-    const title = this.validateRequired(params.title, "title");
+    try {
+      // Validate required parameters
+      const title = this.validateRequired(params.title, "title");
 
-    // Validate that either description or specPath is provided
-    if (!params.description && !params.specPath) {
-      throw new ValidationError("Either --description or --spec-path must be provided");
-    }
+      // Validate that either description or specPath is provided
+      if (!params.description && !params.specPath) {
+        throw new ValidationError("Either --description or --spec-path must be provided");
+      }
 
-    // Both description and specPath provided is an error
-    if (params.description && params.specPath) {
-      throw new ValidationError(
-        "Cannot provide both --description and --spec-path - use one or the other"
+      // Both description and specPath provided is an error
+      if (params.description && params.specPath) {
+        throw new ValidationError(
+          "Cannot provide both --description and --spec-path - use one or the other"
+        );
+      }
+
+      // Create the task using the same function as main branch
+      const result = await createTaskFromTitleAndSpec({
+        title: params.title,
+        spec: params.description, // Map description to spec
+        specPath: params.specPath,
+        force: params.force ?? false,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+        githubRepo: params.githubRepo,
+      });
+
+      this.debug("Task created successfully");
+
+      // Build success message
+      let message = `Task ${result.taskId} created: "${result.title}"`;
+      if (!params.json) {
+        const { default: chalk } = await import("chalk");
+        if (params.specPath) {
+          message = chalk.green(`✅ Task ${result.taskId} created successfully with specification`);
+        } else {
+          message = chalk.green(`✅ Task ${result.taskId} created successfully`);
+        }
+        message += `\n${chalk.gray("  Title: ")}${result.title}`;
+        message += `\n${chalk.gray("  ID: ")}${result.taskId}`;
+      }
+
+      return this.formatResult(
+        this.createSuccessResult(result.taskId, message, {
+          task: result,
+        }),
+        params.json
       );
+    } catch (error) {
+      this.debug(`Task creation failed: ${error.message}`);
+
+      // Ensure non-zero exit code
+      process.exitCode = 1;
+
+      // Build actionable error message
+      if (!params.json) {
+        const { default: chalk } = await import("chalk");
+        let errorMessage = chalk.red(`❌ Failed to create task: ${error.message}`);
+
+        if (error.message.includes("spec from file")) {
+          errorMessage += `\n${chalk.yellow(
+            "   Tip: Check that the file exists and you have read permissions."
+          )}`;
+        }
+
+        const formattedError = new Error(errorMessage);
+        formattedError.stack = error.stack;
+        throw formattedError;
+      }
+
+      throw error;
     }
-
-    // Create the task using the same function as main branch
-    const result = await createTaskFromTitleAndSpec({
-      title: params.title,
-      description: params.description,
-      specPath: params.specPath,
-      force: params.force ?? false,
-      backend: params.backend,
-      repo: params.repo,
-      workspace: params.workspace,
-      session: params.session,
-      githubRepo: params.githubRepo,
-    });
-
-    this.debug("Task created successfully");
-
-    const message = `Task ${result.taskId} created: "${result.title}"`;
-
-    return this.formatResult(
-      this.createSuccessResult(result.taskId, message, {
-        task: result,
-      }),
-      params.json
-    );
   }
 }
 

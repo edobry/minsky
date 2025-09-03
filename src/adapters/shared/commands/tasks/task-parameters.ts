@@ -123,6 +123,11 @@ export const taskEditParams = {
     description: "New specification content (completely replaces existing)",
     required: false,
   },
+  force: {
+    schema: z.boolean().default(false),
+    description: "Skip confirmation prompts",
+    required: false,
+  },
 };
 
 /**

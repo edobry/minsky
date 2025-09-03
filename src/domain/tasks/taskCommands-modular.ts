@@ -72,7 +72,7 @@ export class ModularTaskCommandsManager {
   }
 
   /**
-   * Create task from title and description
+   * Create task from title and spec
    */
   async createTaskFromTitleAndSpec(
     title: string,
@@ -81,7 +81,7 @@ export class ModularTaskCommandsManager {
   ): Promise<any> {
     const params: TaskCreateFromTitleAndDescriptionParams = {
       title,
-      description,
+      spec,
       ...options,
     };
     return await this.operations.createTaskFromTitleAndSpec.execute(params);
@@ -214,7 +214,7 @@ export async function createTaskFromTitleAndSpec(
   deps?: TaskOperationDependencies
 ): Promise<any> {
   const manager = deps ? createModularTaskCommandsManager(deps) : modularTaskCommandsManager;
-  return await manager.createTaskFromTitleAndSpec(title, description, options);
+  return await manager.createTaskFromTitleAndSpec(title, spec, options);
 }
 
 /**
