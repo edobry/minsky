@@ -6,6 +6,13 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Extracted Shared Database Service (mt#407)**: Created centralized database service for sessions, tasks, and embeddings
+  - Implemented `SharedDatabaseService` with singleton pattern for connection pooling
+  - Created domain-specific database adapters for sessions, tasks, and embeddings
+  - Centralized migration handling and connection lifecycle management
+  - Refactored `connection-manager` to use shared service for backward compatibility
+  - Improved connection reuse across different domains
+  - Enhanced database configuration through unified service
 - Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
   - Comprehensive spec for capturing engineering journey during task work
   - Defined 10 entry types: note, decision, progress, blocker, resolution, question, todo, command, context, learning
