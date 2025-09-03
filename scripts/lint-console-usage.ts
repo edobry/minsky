@@ -44,7 +44,7 @@ class ConsoleUsageLinter {
     "**/tests/setup.ts",
     // Integration tests and test utilities - appropriate console usage for debugging
     "**/tests/integration/**",
-    "**/tests/utils/**", 
+    "**/tests/utils/**",
     "**/test-runner.ts",
     "**/test-monitor.ts",
     // Commands that legitimately need console output
@@ -63,7 +63,7 @@ class ConsoleUsageLinter {
     /console\.warn\(['"]⚠️ Failed to load test monitoring data['"]/, // Test monitoring warning
     // Console usage within string literals in tests (not actual console calls)
     /console\.log\(['"]old['"]/, // Test string literals
-    /console\.log\(['"]new['"]/, // Test string literals  
+    /console\.log\(['"]new['"]/, // Test string literals
     /Mock cleanup for directory/, // Test utility cleanup logging
     /console\.log\(['"]🔇 Global test setup['"]/, // Test setup announcement
     /console\.log\(['"]📊 Loaded existing test monitoring data['"]/, // CLI tool output
