@@ -13,9 +13,9 @@ import {
   PersistenceCapabilities, 
   PersistenceConfig,
   DatabaseStorage,
-  VectorStorage,
   CapabilityNotSupportedError
 } from "../types";
+import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 
