@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **AI Readiness Rubric System Task (mt#499)**: Created comprehensive task specification for assessing project readiness for autonomous AI development
+
   - Defined 7 assessment categories with weighted scoring (Code Quality, Testing, Task Management, Version Control, Security, AI Rules, Configuration)
   - Established readiness levels from Manual to Fully Autonomous (score-based)
   - Designed command structure: `minsky readiness assess/check/score`
