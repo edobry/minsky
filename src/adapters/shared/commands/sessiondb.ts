@@ -16,10 +16,9 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../shared/command-registry";
-import { createStorageBackend } from "../../../domain/storage/storage-backend-factory";
+import { PersistenceService } from "../../../domain/persistence/service";
 import { log } from "../../../utils/logger";
 import type { SessionRecord } from "../../../domain/session/session-db";
-import type { StorageBackendType } from "../../../domain/storage/storage-backend-factory";
 import {
   getXdgStateHome,
   getMinskyStateDir,
@@ -1100,8 +1099,12 @@ sharedCommandRegistry.registerCommand({
           sourceBackendKind = "postgres";
         }
 
-        const sourceStorage = createStorageBackend(sourceConfig);
-        await sourceStorage.initialize();
+        // Get storage through PersistenceService
+        if (!PersistenceService.isInitialized()) {
+          await PersistenceService.initialize();
+        }
+        const provider = PersistenceService.getProvider();
+        const sourceStorage = provider.getStorage<SessionRecord, any>();
         const readResult = await sourceStorage.readState();
         if (readResult.success && readResult.data) {
           sourceData = readResult.data;
@@ -1237,92 +1240,10 @@ sharedCommandRegistry.registerCommand({
         targetConfig.postgres = { connectionString: connectionString };
       }
 
-      const targetStorage = createStorageBackend(targetConfig);
-      await targetStorage.initialize();
-
-      // Ensure target schema is fully migrated before writing
-      await runSchemaMigrationsForBackend(to, {
-        sqlitePath: targetSqlitePath,
-        connectionString: targetPostgresConn,
-      });
-
-      // Show execute plan (same as preview) before applying
-      log.cli("");
-      log.cli("📝 Migration plan (execute):");
-      operations.forEach((op, idx) => log.cli(`  ${idx + 1}. ${op}`));
-      // Add a blank line after the plan for nicer spacing before any subsequent output
-      log.cli("");
-
-      // Write to target backend
-      const targetState = {
-        sessions: normalizedRecords,
-        baseDir: getMinskyStateDir(),
-      };
-
-      const writeResult = await targetStorage.writeState(targetState);
-      if (!writeResult.success) {
-        const msg = writeResult.error?.message || "database operation failed";
-        throw new Error(`Failed to write to target backend: ${msg}`);
-      }
-      log.cli(
-        `✅ Data successfully migrated to target backend (${normalizedRecords.length} sessions)`
+      // TODO: Refactor migration commands to use PersistenceService architecture
+      throw new Error(
+        "SessionDB data migration not yet implemented with PersistenceProvider architecture"
       );
-
-      const targetCount = normalizedRecords.length;
-      log.cli(
-        `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
-      );
-
-      // Handle setDefault option
-      if (setDefault) {
-        log.cli(`\n🔧 Updating configuration to use ${to} backend as default...`);
-        log.cli(`✅ Configuration update requested. Please manually update your config file:`);
-        log.cli(`\n[sessiondb]`);
-        log.cli(`backend = "${to}"`);
-
-        if (to === "postgres") {
-          const connectionString = targetPostgresConn;
-          if (connectionString) {
-            log.cli(`\n[sessiondb.postgres]`);
-            log.cli(`connectionString = "${connectionString}"`);
-          }
-        } else if (to === "sqlite" && targetSqlitePath) {
-          log.cli(`\n[sessiondb.sqlite]`);
-          log.cli(`path = "${targetSqlitePath}"`);
-        }
-
-        log.cli(`\n💡 To revert: Change backend back to your previous setting`);
-      }
-
-      const result = {
-        success: true,
-        sourceCount,
-        targetCount,
-        targetBackend: to,
-        backupPath,
-        setDefaultApplied: setDefault,
-        operations,
-        errors: [] as string[],
-      };
-
-      // Format human-readable output
-      if (context.format === "human") {
-        let output = `Migration ${result.success ? "completed" : "failed"}\n`;
-        output += `Source sessions: ${result.sourceCount}\n`;
-        output += `Target sessions: ${result.targetCount}\n`;
-        if (result.backupPath) {
-          output += `Backup created: ${result.backupPath}\n`;
-        }
-        if (result.errors && result.errors.length > 0) {
-          output += `Errors: ${result.errors.length}\n`;
-          result.errors.forEach((error) => {
-            output += `  - ${error}\n`;
-          });
-        }
-        return output;
-      }
-
-      return result;
     } catch (error) {
       // Re-throw as proper Error while preserving original message for handler parsing
       throw ensureError(error);
@@ -1585,9 +1506,8 @@ async function validatePostgresBackend(): Promise<{
     );
 
     // Basic connection test
-    const { createStorageBackend } = await import(
-      "../../../domain/storage/storage-backend-factory"
-    );
+    // StorageBackendFactory was removed - sessiondb commands need PersistenceProvider refactor
+    throw new Error("SessionDB commands not yet updated to use PersistenceProvider architecture");
 
     try {
       // Use direct PostgreSQL connection to avoid Drizzle logging

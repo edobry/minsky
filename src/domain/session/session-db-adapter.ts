@@ -2,8 +2,7 @@
  * SessionDbAdapter
  *
  * This adapter implements the SessionProviderInterface using the
- * configuration-based storage backend system with integrity checking.
- * It provides seamless integration with JSON, SQLite, and PostgreSQL storage backends.
+ * PersistenceProvider system for unified database access.
  */
 
 import type { SessionProviderInterface, SessionRecord } from "./types";
@@ -12,6 +11,7 @@ import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provi
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
 import type { PersistenceProvider } from "../persistence/types";
+import { PersistenceService } from "../persistence/service";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import {
@@ -23,216 +23,209 @@ import { initializeSessionDbState, getRepoPathFn } from "./session-db";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 
-import { getConfiguration } from "../configuration/index";
-import { homedir } from "os";
-import { join } from "path";
-
 export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
-  private storageWarnings: string[] = [];
 
-  constructor(private readonly persistence?: PersistenceProvider) {
-    // No longer taking workingDir parameter - use global configuration instead
-  }
-
-  /**
-   * @deprecated Use constructor with PersistenceProvider instead
-   */
-  static createWithDefaults(): SessionDbAdapter {
-    return new SessionDbAdapter();
-  }
+  constructor(private readonly persistence: PersistenceProvider) {}
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
-      // Use PersistenceProvider if available
-      if (this.persistence) {
-        this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
-        return this.storage;
-      }
-
-      // Fall back to legacy storage backend factory for backward compatibility
-      const { createStorageBackendWithIntegrity } = await import(
-        "../storage/storage-backend-factory"
-      );
-
-      // Get configuration using the custom configuration system
-      // Configuration should already be initialized by the CLI entry point
-      const config = getConfiguration();
-      const sessionDbConfig = config.sessiondb || {};
-
-      // Build storage configuration using values from config system (already defaulted)
-      const storageConfig: Partial<any> = {
-        backend: sessionDbConfig.backend, // No fallback - config system provides defaults
-        enableIntegrityCheck: sessionDbConfig.enableIntegrityCheck ?? true,
-        autoMigrate: sessionDbConfig.autoMigrate ?? false,
-        promptOnIntegrityIssues: sessionDbConfig.promptOnIntegrityIssues ?? false,
-      };
-
-      // Add backend-specific configuration
-      if (storageConfig.backend === "sqlite") {
-        storageConfig.sqlite = {
-          dbPath: sessionDbConfig.dbPath ? this.expandPath(sessionDbConfig.dbPath) : undefined,
-        };
-      } else if (storageConfig.backend === "postgres") {
-        // Use the effective configuration (handles both new nested and legacy flat structure)
-        const connectionString =
-          sessionDbConfig.postgres?.connectionString || sessionDbConfig.connectionString;
-        storageConfig.postgres = {
-          connectionString: connectionString,
-        };
-      }
-
-      // Create storage backend with integrity checking
-      try {
-        const result: any = await createStorageBackendWithIntegrity(storageConfig);
-        this.storage = result.storage;
-        this.storageWarnings = result.warnings || [];
-
-        // Log integrity check results
-        if (result.integrityResult) {
-          if (result.integrityResult.isValid) {
-            log.debug("Database integrity check passed", {
-              backend: storageConfig.backend,
-              issues: result.integrityResult.issues.length,
-              warnings: result.integrityResult.warnings.length,
-            });
-          } else {
-            log.warn("Database integrity issues detected but continuing", {
-              backend: storageConfig.backend,
-              issues: result.integrityResult.issues.length,
-              warnings: result.integrityResult.warnings.length,
-            });
-          }
-        }
-
-        // Log warnings
-        if (this.storageWarnings.length > 0) {
-          log.warn("Storage backend created with warnings", {
-            warnings: this.storageWarnings,
-          });
-        }
-
-        // Log auto-migration
-        if (result.autoMigrationPerformed) {
-          log.info("Database auto-migration was performed during initialization");
-        }
-      } catch (error) {
-        log.error("Failed to create storage backend with integrity checking", {
-          error: getErrorMessage(error as any),
-          backend: storageConfig.backend,
-        });
-        throw error;
-      }
+      this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
     }
-
     return this.storage;
   }
 
-  private expandPath(filePath: string): string {
-    // Handle tilde expansion for home directory
-    if (filePath.startsWith("~")) {
-      return join(homedir(), filePath.slice(1));
+  // Implementation of the SessionProviderInterface
+  async getSession(sessionName: string): Promise<SessionRecord | null> {
+    log.debug(`Getting session: ${sessionName}`);
+    try {
+      const storage = await this.getStorage();
+      const result = await storage.get(sessionName);
+      return result.success ? result.data : null;
+    } catch (error) {
+      log.error(`Failed to get session '${sessionName}':`, getErrorMessage(error as any));
+      return null;
     }
-    return filePath;
   }
 
   async listSessions(): Promise<SessionRecord[]> {
-    const storage = await this.getStorage();
-    return await storage.getEntities();
-  }
-
-  async getSession(session: string): Promise<SessionRecord | null> {
-    const storage = await this.getStorage();
-    return await storage.getEntity(session);
-  }
-
-  async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
-    const storage = await this.getStorage();
-    const sessions = await storage.getEntities();
-
-    // Log sessions and task IDs for debugging
-    log.debug("Searching for session by task ID", {
-      taskId,
-      availableSessions: sessions.map((s) => ({ session: s.session, taskId: s.taskId })),
-    });
-
-    // STRICT QUALIFIED IDs ONLY: Validate input task ID
-    const validatedTaskId = validateQualifiedTaskId(taskId);
-    if (!validatedTaskId) {
-      log.debug("Invalid task ID format", { taskId });
-      return null;
+    log.debug("Listing all sessions");
+    try {
+      const storage = await this.getStorage();
+      const state = await this.getState();
+      return state.sessions || [];
+    } catch (error) {
+      log.error("Failed to list sessions:", getErrorMessage(error as any));
+      return [];
     }
+  }
 
-    log.debug("Validated task ID for lookup", { original: taskId, validated: validatedTaskId });
+  async createSession(sessionRecord: SessionRecord): Promise<void> {
+    log.debug(`Creating session: ${sessionRecord.session}`);
+    try {
+      const storage = await this.getStorage();
+      await storage.save(sessionRecord.session, sessionRecord);
+      log.debug(`Session created successfully: ${sessionRecord.session}`);
+    } catch (error) {
+      log.error(
+        `Failed to create session '${sessionRecord.session}':`,
+        getErrorMessage(error as any)
+      );
+      throw error;
+    }
+  }
 
-    // Find session where stored task ID matches validated input
-    const matchingSession =
-      sessions.find((s) => {
-        if (!s.taskId) return false;
-        // Validate the stored task ID for comparison
-        const storedValidated = validateQualifiedTaskId(s.taskId);
-        log.debug("Comparing task IDs", {
-          session: s.session,
-          sessionTaskId: s.taskId,
-          storedValidated,
-          lookingFor: validatedTaskId,
-          matches: storedValidated === validatedTaskId,
-        });
-        return storedValidated === validatedTaskId;
-      }) || null;
+  async updateSession(sessionName: string, updates: Partial<SessionRecord>): Promise<void> {
+    log.debug(`Updating session: ${sessionName}`);
+    try {
+      const storage = await this.getStorage();
+      await storage.update(sessionName, updates);
+      log.debug(`Session updated successfully: ${sessionName}`);
+    } catch (error) {
+      log.error(`Failed to update session '${sessionName}':`, getErrorMessage(error as any));
+      throw error;
+    }
+  }
 
-    if (matchingSession) {
-      log.debug("Found matching session", {
-        session: matchingSession.session,
-        taskId: matchingSession.taskId,
+  async deleteSession(sessionName: string): Promise<void> {
+    log.debug(`Deleting session: ${sessionName}`);
+    try {
+      const storage = await this.getStorage();
+      await storage.delete(sessionName);
+      log.debug(`Session deleted successfully: ${sessionName}`);
+    } catch (error) {
+      log.error(`Failed to delete session '${sessionName}':`, getErrorMessage(error as any));
+      throw error;
+    }
+  }
+
+  async doesSessionExist(sessionName: string): Promise<boolean> {
+    try {
+      const session = await this.getSession(sessionName);
+      return session !== null;
+    } catch (error) {
+      log.error(
+        `Error checking if session exists '${sessionName}':`,
+        getErrorMessage(error as any)
+      );
+      return false;
+    }
+  }
+
+  async addTaskToSession(sessionName: string, taskId: string): Promise<boolean> {
+    try {
+      // Validate task ID format
+      if (!isValidTaskIdInput(taskId)) {
+        log.error(`Invalid task ID format: ${taskId}. Must be either mt#123, md#123, or 123`);
+        return false;
+      }
+
+      // Normalize task ID to qualified format (mt#123 or md#123)
+      let validatedTaskId: string;
+      try {
+        validatedTaskId = validateQualifiedTaskId(taskId);
+      } catch (error) {
+        log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
+        return false;
+      }
+
+      // Get current session
+      const session = await this.getSession(sessionName);
+      if (!session) {
+        log.error(`Session not found: ${sessionName}`);
+        return false;
+      }
+
+      // Update session with new task ID
+      await this.updateSession(sessionName, {
+        taskId: validatedTaskId,
       });
-    } else {
-      log.debug("No matching session found", {
-        taskId,
-        validatedTaskId,
+
+      log.debug(`Task ${formatTaskIdForDisplay(validatedTaskId)} added to session ${sessionName}`);
+      return true;
+    } catch (error) {
+      log.error(`Failed to add task to session '${sessionName}':`, getErrorMessage(error as any));
+      return false;
+    }
+  }
+
+  async setSessionRepo(
+    sessionName: string,
+    repoPath: string,
+    repoName?: string,
+    repoUrl?: string
+  ): Promise<boolean> {
+    try {
+      const updates: Partial<SessionRecord> = { repoPath };
+
+      if (repoName !== undefined) {
+        updates.repoName = repoName;
+      }
+      if (repoUrl !== undefined) {
+        updates.repoUrl = repoUrl;
+      }
+
+      await this.updateSession(sessionName, updates);
+
+      log.debug(
+        `Repository set for session ${sessionName}: ${repoPath}${repoName ? ` (${repoName})` : ""}`
+      );
+      return true;
+    } catch (error) {
+      log.error(`Failed to set repo for session '${sessionName}':`, getErrorMessage(error as any));
+      return false;
+    }
+  }
+
+  async findSessionsForRepo(repoPath: string): Promise<SessionRecord[]> {
+    try {
+      const sessions = await this.listSessions();
+      const repoPathFn = await getRepoPathFn();
+
+      return sessions.filter((session) => {
+        const sessionRepoPath = repoPathFn(session);
+        return sessionRepoPath === repoPath;
       });
-    }
-
-    return matchingSession;
-  }
-
-  async addSession(record: SessionRecord): Promise<void> {
-    const storage = await this.getStorage();
-    await storage.createEntity(record);
-  }
-
-  async updateSession(
-    session: string,
-    updates: Partial<Omit<SessionRecord, "session">>
-  ): Promise<void> {
-    const storage = await this.getStorage();
-    const result = await storage.updateEntity(session, updates);
-    if (!result) {
-      throw new Error(`Session '${session}' not found`);
+    } catch (error) {
+      log.error(`Failed to find sessions for repo '${repoPath}':`, getErrorMessage(error as any));
+      return [];
     }
   }
 
-  async deleteSession(session: string): Promise<boolean> {
-    const storage = await this.getStorage();
-    return await storage.deleteEntity(session);
-  }
+  async getSessionsForTask(taskId: string): Promise<SessionRecord[]> {
+    try {
+      // Validate and normalize task ID
+      let validatedTaskId: string;
+      try {
+        validatedTaskId = validateQualifiedTaskId(taskId);
+      } catch (error) {
+        log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
+        return [];
+      }
 
-  async getRepoPath(record: SessionRecord | any): Promise<string> {
-    // This method maintains backward compatibility while using the updated storage
-    const state = await this.getState();
-    return getRepoPathFn(state, record);
-  }
-
-  async getSessionWorkdir(sessionName: string): Promise<string> {
-    const session = await this.getSession(sessionName);
-    if (!session) {
-      throw new Error(`Session '${sessionName}' not found`);
+      const sessions = await this.listSessions();
+      return sessions.filter((session) => session.taskId === validatedTaskId);
+    } catch (error) {
+      log.error(`Failed to find sessions for task '${taskId}':`, getErrorMessage(error as any));
+      return [];
     }
-
-    const state = await this.getState();
-    return getRepoPathFn(state, session as any);
   }
 
+  async clearSessionTask(sessionName: string): Promise<boolean> {
+    try {
+      await this.updateSession(sessionName, { taskId: undefined });
+      log.debug(`Task cleared from session: ${sessionName}`);
+      return true;
+    } catch (error) {
+      log.error(
+        `Failed to clear task from session '${sessionName}':`,
+        getErrorMessage(error as any)
+      );
+      return false;
+    }
+  }
+
+  // Internal helper methods
   private async getState(): Promise<SessionDbState> {
     // Initialize default state when needed
     return initializeSessionDbState();
@@ -248,10 +241,10 @@ export class SessionDbAdapter implements SessionProviderInterface {
     const location = storage.getStorageLocation();
 
     return {
-      backend: storage.constructor.name,
-      location: location,
-      integrityEnabled: true, // Always enabled in merged factory
-      warnings: this.storageWarnings,
+      backend: this.persistence.constructor.name,
+      location: this.persistence.getConnectionInfo(),
+      integrityEnabled: false, // No integrity checking in new architecture
+      warnings: [],
     };
   }
 }
@@ -266,8 +259,9 @@ export function createSessionProvider(_options?: {
 }): SessionProviderInterface {
   log.debug("Creating session provider with auto-repair support");
 
-  // Always use the new configuration-based backend
-  const baseProvider = new SessionDbAdapter();
+  // Get PersistenceProvider from PersistenceService
+  const provider = PersistenceService.getProvider();
+  const baseProvider = new SessionDbAdapter(provider);
 
   // Wrap with auto-repair functionality for universal session auto-repair
   const wrappedProvider = wrapWithAutoRepair(baseProvider);
@@ -277,6 +271,5 @@ export function createSessionProvider(_options?: {
 
 // Helper function to wrap base provider with auto-repair functionality
 function wrapWithAutoRepair(baseProvider: SessionProviderInterface): SessionProviderInterface {
-  log.debug("Wrapping session provider with auto-repair functionality");
   return createSessionProviderWithAutoRepair(baseProvider);
 }

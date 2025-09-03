@@ -15,13 +15,13 @@ import { log } from "../../utils/logger";
 
 /**
  * Creates a configured PostgreSQL database connection
- * 
+ *
  * @deprecated Use getPersistenceProvider().getDatabaseConnection() instead
  */
 export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
   try {
     log.warn("createDatabaseConnection is deprecated. Use PersistenceService instead.");
-    
+
     // Use original implementation for compatibility
     const runtimeConfig = getConfiguration();
     const connectionString = runtimeConfig?.sessiondb?.postgres?.connectionString;

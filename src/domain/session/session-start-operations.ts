@@ -1,34 +1,21 @@
 import { existsSync, rmSync } from "fs";
-import {
-  getMinskyStateDir,
-  getSessionDir,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/paths";
+import { getMinskyStateDir, getSessionDir } from "../../utils/paths";
 import {
   MinskyError,
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
+} from "../../errors/index";
 import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import type { SessionStartParameters } from "../../domain/schemas";
-import { log } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/utils/logger";
+import { log } from "../../utils/logger";
 import { installDependencies } from "../../utils/package-manager";
-import { type GitServiceInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/git";
-import {
-  normalizeRepoName,
-  resolveRepoPath,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/repo-utils";
-import {
-  TASK_STATUS,
-  type TaskServiceInterface,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/tasks";
-import { type WorkspaceUtilsInterface } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
-import { createTaskFromDescription } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/templates/session-templates";
-import type {
-  SessionProviderInterface,
-  SessionRecord,
-  Session,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
+import { type GitServiceInterface } from "../git";
+import { normalizeRepoName, resolveRepoPath } from "../repo-utils";
+import { TASK_STATUS, type TaskServiceInterface } from "../tasks";
+import { type WorkspaceUtilsInterface } from "../workspace";
+import { createTaskFromDescription } from "../templates/session-templates";
+import type { SessionProviderInterface, SessionRecord, Session } from "./";
 import { validateQualifiedTaskId, formatTaskIdForDisplay } from "../tasks/task-id-utils";
 import {
   SessionMultiBackendIntegration,

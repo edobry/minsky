@@ -83,6 +83,13 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
   }
 
   /**
+   * Get provider capabilities
+   */
+  getCapabilities(): PersistenceCapabilities {
+    return this.capabilities;
+  }
+
+  /**
    * Get storage instance for domain entities
    */
   getStorage<T, S>(): DatabaseStorage<T, S> {

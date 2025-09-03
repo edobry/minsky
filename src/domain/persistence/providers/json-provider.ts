@@ -1,11 +1,9 @@
 /**
- * JSON Persistence Provider
+ * JSON File Persistence Provider
  *
- * File-based storage provider for simple use cases.
+ * Provides full file-based JSON storage through the persistence provider interface.
  */
 
-import { promises as fs } from "fs";
-import path from "path";
 import {
   PersistenceProvider,
   PersistenceCapabilities,
@@ -14,15 +12,19 @@ import {
   CapabilityNotSupportedError,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
+import { JsonFileStorage } from "../../storage/json-file-storage";
+import type { JsonFileStorageOptions } from "../../storage/json-file-storage";
 import { log } from "../../../utils/logger";
+import { mkdirSync, existsSync } from "fs";
+import { dirname } from "path";
 
 /**
  * JSON persistence provider implementation
  */
 export class JsonPersistenceProvider extends PersistenceProvider {
   private config: PersistenceConfig;
+  private storage: JsonFileStorage<any, any> | null = null;
   private isInitialized = false;
-  private data: Record<string, any> = {};
 
   /**
    * Capabilities of JSON provider
@@ -51,29 +53,34 @@ export class JsonPersistenceProvider extends PersistenceProvider {
       return;
     }
 
-    const filePath = this.config.json!.filePath;
-
     try {
+      if (!this.config.json) {
+        throw new Error("JSON configuration required for json backend");
+      }
+
+      const filePath = this.config.json.filePath;
       log.debug(`Initializing JSON persistence provider at ${filePath}`);
 
       // Ensure directory exists
-      await fs.mkdir(path.dirname(filePath), { recursive: true });
-
-      // Load existing data or create empty file
-      try {
-        const content = await fs.readFile(filePath, "utf-8");
-        this.data = JSON.parse(content);
-      } catch (error: any) {
-        if (error.code === "ENOENT") {
-          // File doesn't exist, create it
-          await this.saveData();
-        } else {
-          throw error;
-        }
+      const fileDir = dirname(filePath);
+      if (!existsSync(fileDir)) {
+        mkdirSync(fileDir, { recursive: true });
       }
 
+      // Create storage instance with session-compatible configuration
+      const storageOptions: JsonFileStorageOptions<any> = {
+        filePath,
+        initializeState: () => ({ sessions: [] }),
+        entitiesField: "sessions",
+        idField: "session",
+        prettyPrint: true,
+      };
+
+      this.storage = new JsonFileStorage(storageOptions);
+      await this.storage.initialize();
+
       this.isInitialized = true;
-      log.debug("JSON persistence provider initialized");
+      log.info(`JSON file storage initialized: ${filePath}`);
     } catch (error) {
       log.error("Failed to initialize JSON provider:", error);
       throw error;
@@ -81,45 +88,20 @@ export class JsonPersistenceProvider extends PersistenceProvider {
   }
 
   /**
-   * Save data to file
+   * Get provider capabilities
    */
-  private async saveData(): Promise<void> {
-    const filePath = this.config.json!.filePath;
-    await fs.writeFile(filePath, JSON.stringify(this.data, null, 2));
+  getCapabilities(): PersistenceCapabilities {
+    return this.capabilities;
   }
 
   /**
    * Get storage instance for domain entities
    */
   getStorage<T, S>(): DatabaseStorage<T, S> {
-    if (!this.isInitialized) {
+    if (!this.storage) {
       throw new Error("JsonPersistenceProvider not initialized");
     }
-
-    return {
-      get: async (id: string) => {
-        return (this.data[id] as T) || null;
-      },
-      save: async (id: string, data: T) => {
-        this.data[id] = data;
-        await this.saveData();
-      },
-      update: async (id: string, updates: Partial<T>) => {
-        if (this.data[id]) {
-          this.data[id] = { ...this.data[id], ...updates };
-          await this.saveData();
-        }
-      },
-      delete: async (id: string) => {
-        delete this.data[id];
-        await this.saveData();
-      },
-      search: async (criteria: S) => {
-        // Simple search - return all values
-        // In practice, would implement filtering based on criteria
-        return Object.values(this.data) as T[];
-      },
-    };
+    return this.storage as DatabaseStorage<T, S>;
   }
 
   /**
@@ -147,11 +129,12 @@ export class JsonPersistenceProvider extends PersistenceProvider {
    * Close (save) JSON file
    */
   async close(): Promise<void> {
-    if (this.isInitialized) {
-      await this.saveData();
-      this.isInitialized = false;
-      log.debug("JSON persistence provider closed");
+    if (this.storage) {
+      await this.storage.close();
+      this.storage = null;
     }
+    this.isInitialized = false;
+    log.debug("JSON persistence provider closed");
   }
 
   /**

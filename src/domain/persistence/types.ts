@@ -60,6 +60,11 @@ export abstract class PersistenceProvider {
   abstract readonly capabilities: PersistenceCapabilities;
 
   /**
+   * Get provider capabilities
+   */
+  abstract getCapabilities(): PersistenceCapabilities;
+
+  /**
    * Get storage instance for domain entities
    */
   abstract getStorage<T, S>(): DatabaseStorage<T, S>;
