@@ -33,13 +33,14 @@ interface TasksEditParams extends BaseTaskParams {
  * Supports editing both task title and specification content with multiple input methods:
  * - Title: Direct string input via --title
  * - Spec: Interactive editor via --spec, file input via --spec-file, or direct content via --spec-content
- * 
+ *
  * By default shows a preview of changes. Use --execute to apply the changes.
  */
 export class TasksEditCommand extends BaseTaskCommand {
   readonly id = "tasks.edit";
   readonly name = "edit";
-  readonly description = "Edit task title and/or specification content (dry-run by default, use --execute to apply)";
+  readonly description =
+    "Edit task title and/or specification content (dry-run by default, use --execute to apply)";
   readonly parameters = tasksEditParams;
 
   async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
@@ -151,8 +152,8 @@ export class TasksEditCommand extends BaseTaskCommand {
     if (!params.execute && (updates.title || updates.spec)) {
       return this.formatResult(
         this.createSuccessResult(
-          this.buildPreviewMessage(currentTask, updates, validatedTaskId),
-          validatedTaskId
+          validatedTaskId,
+          this.buildPreviewMessage(currentTask, updates, validatedTaskId)
         ),
         params.json
       );

@@ -7,10 +7,12 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Test Logger Mock Setup**: Fixed log.info error in session update tests by correcting mock logger configuration
+
   - Removed incorrect override of info method in tests/setup.ts
   - All session update tests now pass correctly
 
 - **Pre-push Hook Output**: Reduced verbosity of pre-push hook test output
+
   - Now shows only test failures and summary statistics
   - No longer displays hundreds of passing test lines
   - Makes push output cleaner and more actionable
