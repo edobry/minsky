@@ -68,25 +68,25 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     // Get connection from PersistenceService
     const { PersistenceService } = await import("../../persistence/service");
-    
+
     if (!PersistenceService.isInitialized()) {
       await PersistenceService.initialize();
     }
-    
+
     const provider = PersistenceService.getProvider();
-    
+
     if (!provider.capabilities.sql) {
       throw new Error("Current persistence provider does not support SQL operations");
     }
-    
+
     // Get both drizzle and raw SQL connections from the provider
     this.drizzle = await provider.getDatabaseConnection?.();
     this.sql = await provider.getRawSqlConnection?.();
-    
+
     if (!this.drizzle) {
       throw new Error("Failed to get database connection from persistence provider");
     }
-    
+
     if (!this.sql) {
       throw new Error("Failed to get raw SQL connection from persistence provider");
     }
@@ -118,7 +118,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     fileCount: number;
   }> {
     await this.ensureConnection();
-    
+
     // Count migration files in folder
     const migrationsFolder = "./src/domain/storage/migrations/pg";
     let fileCount = 0;
@@ -277,8 +277,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {
     try {
       await this.ensureConnection();
-      const result = (await this.drizzle!
-        .select()
+      const result = (await this.drizzle!.select()
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))
         .limit(1)) as any;
@@ -337,8 +336,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       // Merge updates
       const updated = { ...existing, ...updates };
       const insertData = toPostgresInsert(updated);
-      await this.drizzle!
-        .update(postgresSessions)
+      await this.drizzle!.update(postgresSessions)
         .set(insertData)
         .where(eq(postgresSessions.session, id));
       return updated;
@@ -370,8 +368,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async entityExists(id: string): Promise<boolean> {
     try {
       await this.ensureConnection();
-      const result = (await this.drizzle!
-        .select({ session: postgresSessions.session })
+      const result = (await this.drizzle!.select({ session: postgresSessions.session })
         .from(postgresSessions)
         .where(eq(postgresSessions.session, id))
         .limit(1)) as any;

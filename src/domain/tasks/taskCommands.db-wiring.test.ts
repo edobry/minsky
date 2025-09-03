@@ -4,24 +4,22 @@ import { listTasksFromParams } from "./taskCommands";
 describe("DB wiring for minsky backend", () => {
   beforeAll(async () => {
     // Initialize configuration for persistence tests
-    const { initializeConfiguration, CustomConfigFactory } = await import(
-      "../configuration/index"
-    );
-    
+    const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");
+
     // Create a test configuration that uses PostgreSQL for database connection testing
     const testConfig = {
       persistence: {
         backend: "postgres" as const,
         postgres: {
-          connectionString: "postgresql://localhost:5432/testdb"
-        }
+          connectionString: "postgresql://localhost:5432/testdb",
+        },
       },
       sessiondb: {
         backend: "postgres" as const,
-        connectionString: "postgresql://localhost:5432/testdb"
-      }
+        connectionString: "postgresql://localhost:5432/testdb",
+      },
     };
-    
+
     const factory = new CustomConfigFactory();
     await initializeConfiguration(factory, {
       overrides: testConfig,

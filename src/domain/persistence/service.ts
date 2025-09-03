@@ -68,7 +68,10 @@ export class PersistenceService {
     }
 
     // Fall back to legacy sessiondb config for backward compatibility
-    if (runtimeConfig.sessiondb?.connectionString && runtimeConfig.sessiondb.backend === "postgres") {
+    if (
+      runtimeConfig.sessiondb?.connectionString &&
+      runtimeConfig.sessiondb.backend === "postgres"
+    ) {
       log.warn(
         "Using legacy sessiondb configuration. Please migrate to persistence: configuration."
       );
@@ -92,8 +95,8 @@ export class PersistenceService {
       return {
         backend: "sqlite",
         sqlite: {
-          dbPath: runtimeConfig.sessiondb.dbPath || "~/.local/state/minsky/minsky.db"
-        }
+          dbPath: runtimeConfig.sessiondb.dbPath || "~/.local/state/minsky/minsky.db",
+        },
       };
     }
 

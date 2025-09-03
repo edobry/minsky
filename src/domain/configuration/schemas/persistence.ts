@@ -14,7 +14,7 @@ const postgresConfigSchema = z.object({
   connectionString: z.string(),
   maxConnections: z.number().min(1).max(100).optional(),
   connectTimeout: z.number().min(1000).max(300000).optional(), // 1s - 5min
-  idleTimeout: z.number().min(1000).max(600000).optional(),   // 1s - 10min
+  idleTimeout: z.number().min(1000).max(600000).optional(), // 1s - 10min
   prepareStatements: z.boolean().optional(),
 });
 

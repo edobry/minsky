@@ -269,6 +269,7 @@ export class EnhancedStorageBackendFactory {
           );
           throw new Error(errorMessage);
         }
+        // Use the migrated PostgresStorage which now uses PersistenceProvider
         return createPostgresStorage(config.postgres);
       }
 

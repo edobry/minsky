@@ -74,7 +74,7 @@ export interface RepositoryConfig {
     };
     base_dir?: string;
   };
-  persistence?: PersistenceConfig;  // New persistence configuration
+  persistence?: PersistenceConfig; // New persistence configuration
   ai?: AIConfig;
   github?: GitHubConfig;
   logger?: LoggerConfig;
@@ -89,7 +89,7 @@ export interface GlobalUserConfig {
     };
     base_dir?: string;
   };
-  persistence?: PersistenceConfig;  // New persistence configuration
+  persistence?: PersistenceConfig; // New persistence configuration
   ai?: AIConfig;
   postgres?: PostgresConfig;
   logger?: LoggerConfig;
@@ -101,7 +101,7 @@ export interface ResolvedConfig {
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfig;
   sessiondb: SessionDbConfig;
-  persistence?: PersistenceConfig;  // New persistence configuration
+  persistence?: PersistenceConfig; // New persistence configuration
   github?: GitHubConfig;
   ai?: AIConfig;
   postgres?: PostgresConfig;

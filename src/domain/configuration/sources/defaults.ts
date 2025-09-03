@@ -38,7 +38,7 @@ export const defaultConfiguration: PartialConfiguration = {
   persistence: {
     backend: "sqlite",
     sqlite: {
-      dbPath: "~/.local/state/minsky/minsky.db"
+      dbPath: "~/.local/state/minsky/minsky.db",
     },
     postgres: undefined,
     json: undefined,

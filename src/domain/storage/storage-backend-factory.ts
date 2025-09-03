@@ -135,7 +135,9 @@ export function loadStorageConfig(overrides?: Partial<StorageConfig>): StorageCo
 }
 
 /**
- * Create storage backend (basic interface without integrity checking)
+ * Create storage backend using PersistenceProvider (basic interface without integrity checking)
+ * 
+ * @deprecated Use PersistenceService.getProvider().getStorage() directly for new code
  */
 export function createStorageBackend(
   config?: Partial<StorageConfig>
@@ -143,6 +145,7 @@ export function createStorageBackend(
   const storageConfig = loadStorageConfig(config);
 
   log.debug(`Creating storage backend: ${storageConfig.backend}`);
+  log.warn("createStorageBackend is deprecated. Use PersistenceService.getProvider().getStorage() instead.");
 
   switch (storageConfig.backend) {
     case "sqlite": {
@@ -165,6 +168,7 @@ export function createStorageBackend(
         );
         throw new Error(errorMessage);
       }
+      // Use the migrated PostgresStorage which now uses PersistenceProvider
       return createPostgresStorage(storageConfig.postgres);
     }
 
