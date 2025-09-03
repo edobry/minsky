@@ -157,36 +157,6 @@ The rules section has a number of possible rules/memories/context that you shoul
     content += `
 </agent_requestable_workspace_rules>
 <always_applied_workspace_rules description="These are workspace-level rules that the agent must always follow.">
-- # Changelog Rule
-
-## Rule Name: changelog
-
-## Description
-
-For any code change, **record it in the \`CHANGELOG.md\` file in the nearest ancestor directory that contains a \`CHANGELOG.md\`**.
-
-- If the file you changed is in a subdirectory with its own \`CHANGELOG.md\`, use that changelog.
-- If there is no \`CHANGELOG.md\` in the current or any parent directory, use the root \`CHANGELOG.md\`.
-- Never update more than one changelog for a single change. Always use the most specific (deepest) changelog file in the directory tree.
-
-
-
-## Additional Guidance
-- Only update the \`CHANGELOG.md\` at the end of an editing session, after testing whether the change worked.
-- If a change affects multiple directories with their own changelogs, split the changelog entries accordingly, but never duplicate the same entry in multiple changelogs.
-- For documentation-only changes, use the root changelog unless the documentation is scoped to a subproject with its own changelog.
-
-## Rationale
-This ensures that changelog entries are always relevant to the part of the codebase they affect, and provides traceability and context by linking to the exact SpecStory conversation(s) where the change was discussed and implemented.
-
-### Examples
-
-| File Changed                              | Changelog to Update         |
-|----|----|
-| \`project/src/commands/tools/constants.ts\`| \`project/CHANGELOG.md\`    |
-| \`project/src/utils/tools.ts\`             | \`project/CHANGELOG.md\`    |
-| \`README.md\` (root)                        | \`CHANGELOG.md\`             |
-| \`docs/usage.md\`                           | \`CHANGELOG.md\`             |
 - # Commit All Changes Rule
 
 ## Core Principle
