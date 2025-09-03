@@ -24,7 +24,7 @@ function parseArgs(args: string[]): CliArgs {
     limit: 20,
     minReadiness: 0.5,
   };
-  
+
   for (let i = 0; i < args.length; i++) {
     const arg = args[i];
     switch (arg) {
@@ -65,21 +65,21 @@ Examples:
         process.exit(0);
     }
   }
-  
+
   return result;
 }
 
 async function main() {
   try {
     const args = parseArgs(process.argv.slice(2));
-    
+
     // Initialize configuration
     await initializeConfiguration(new CustomConfigFactory(), {
       workingDirectory: process.cwd(),
       enableCache: true,
       skipValidation: true,
     });
-    
+
     // Initialize services
     const db = await DatabaseConnectionManager.getInstance().getConnection();
     const graphService = new TaskGraphService(db);
@@ -87,9 +87,9 @@ async function main() {
       workspacePath: process.cwd(),
     });
     const routingService = new TaskRoutingService(graphService, taskService);
-    
+
     // Parse status filter
-    const statusFilter = args.status 
+    const statusFilter = args.status
       ? args.status.split(",").map((s: string) => s.trim())
       : ["TODO", "IN-PROGRESS"];
 
@@ -100,16 +100,18 @@ async function main() {
     });
 
     // Filter by readiness score
-    const readyTasks = availableTasks.filter(task => task.readinessScore >= args.minReadiness!);
+    const readyTasks = availableTasks.filter((task) => task.readinessScore >= args.minReadiness!);
 
     if (args.json) {
-      console.log(JSON.stringify({ availableTasks: readyTasks, count: readyTasks.length }, null, 2));
+      console.log(
+        JSON.stringify({ availableTasks: readyTasks, count: readyTasks.length }, null, 2)
+      );
       process.exit(0);
     }
 
     // Generate human-readable output
     console.log(`📋 Available Tasks (${readyTasks.length} unblocked)`);
-          console.log(`${"━".repeat(60)}\n`);
+    console.log(`${"━".repeat(60)}\n`);
 
     if (readyTasks.length === 0) {
       console.log("No tasks available with current filters.");
@@ -118,15 +120,21 @@ async function main() {
     }
 
     // Group by readiness level
-    const fullyReady = readyTasks.filter(t => t.readinessScore === 1.0);
-    const partiallyReady = readyTasks.filter(t => t.readinessScore > 0.5 && t.readinessScore < 1.0);
-    const lowReadiness = readyTasks.filter(t => t.readinessScore <= 0.5 && t.readinessScore >= args.minReadiness!);
+    const fullyReady = readyTasks.filter((t) => t.readinessScore === 1.0);
+    const partiallyReady = readyTasks.filter(
+      (t) => t.readinessScore > 0.5 && t.readinessScore < 1.0
+    );
+    const lowReadiness = readyTasks.filter(
+      (t) => t.readinessScore <= 0.5 && t.readinessScore >= args.minReadiness!
+    );
 
     if (fullyReady.length > 0) {
       console.log("🟢 **Fully Ready** (0 blockers)");
       for (const task of fullyReady.slice(0, 10)) {
         const readinessPercent = Math.round(task.readinessScore * 100);
-        console.log(`   ${task.taskId}: ${task.title.substring(0, 50)}... (${task.status}, ${readinessPercent}%)`);
+        console.log(
+          `   ${task.taskId}: ${task.title.substring(0, 50)}... (${task.status}, ${readinessPercent}%)`
+        );
       }
       console.log();
     }
@@ -136,7 +144,9 @@ async function main() {
       for (const task of partiallyReady.slice(0, 5)) {
         const readinessPercent = Math.round(task.readinessScore * 100);
         const blockerCount = task.blockedBy.length;
-        console.log(`   ${task.taskId}: ${task.title.substring(0, 50)}... (${task.status}, ${readinessPercent}%, ${blockerCount} blockers)`);
+        console.log(
+          `   ${task.taskId}: ${task.title.substring(0, 50)}... (${task.status}, ${readinessPercent}%, ${blockerCount} blockers)`
+        );
       }
       console.log();
     }
@@ -146,17 +156,20 @@ async function main() {
       for (const task of lowReadiness.slice(0, 3)) {
         const readinessPercent = Math.round(task.readinessScore * 100);
         const blockerCount = task.blockedBy.length;
-        console.log(`   ${task.taskId}: ${task.title.substring(0, 50)}... (${task.status}, ${readinessPercent}%, ${blockerCount} blockers)`);
+        console.log(
+          `   ${task.taskId}: ${task.title.substring(0, 50)}... (${task.status}, ${readinessPercent}%, ${blockerCount} blockers)`
+        );
       }
     }
 
-    console.log("\n💡 Use 'bun run minsky-tasks-route.ts <task-id>' to see implementation path to any task");
-
+    console.log(
+      "\n💡 Use 'bun run minsky-tasks-route.ts <task-id>' to see implementation path to any task"
+    );
   } catch (error) {
     console.error("❌ Error:", error.message);
     process.exit(1);
   }
-  
+
   process.exit(0);
 }
 
