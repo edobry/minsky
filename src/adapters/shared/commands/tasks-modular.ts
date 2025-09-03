@@ -253,36 +253,6 @@ export class ModularTasksCommandManager {
         execute: depsRmCommand.execute.bind(depsRmCommand),
       });
 
-      // Register deps list command
-      sharedCommandRegistry.registerCommand({
-        id: depsListCommand.id,
-        category: CommandCategory.TASKS,
-        name: depsListCommand.name,
-        description: depsListCommand.description,
-        parameters: (depsListCommand as any).parameters,
-        execute: depsListCommand.execute.bind(depsListCommand),
-      });
-
-      // Register deps tree command
-      sharedCommandRegistry.registerCommand({
-        id: depsTreeCommand.id,
-        category: CommandCategory.TASKS,
-        name: depsTreeCommand.name,
-        description: depsTreeCommand.description,
-        parameters: (depsTreeCommand as any).parameters,
-        execute: depsTreeCommand.execute.bind(depsTreeCommand),
-      });
-
-      // Register deps graph command
-      sharedCommandRegistry.registerCommand({
-        id: depsGraphCommand.id,
-        category: CommandCategory.TASKS,
-        name: depsGraphCommand.name,
-        description: depsGraphCommand.description,
-        parameters: (depsGraphCommand as any).parameters,
-        execute: depsGraphCommand.execute.bind(depsGraphCommand),
-              });
-
       // Register deps commands manually with dot notation
       // Register deps add command
       sharedCommandRegistry.registerCommand({
