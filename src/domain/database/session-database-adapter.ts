@@ -6,7 +6,7 @@
  */
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { sharedDatabaseService, type ISharedDatabaseService } from "./shared-database-service";
+import { getSharedDatabaseService, type ISharedDatabaseService } from "./shared-database-service";
 import { log } from "../../utils/logger";
 
 /**
@@ -36,7 +36,7 @@ export class SessionDatabaseAdapter implements ISessionDatabaseAdapter {
   private readonly databaseService: ISharedDatabaseService;
 
   constructor(databaseService?: ISharedDatabaseService) {
-    this.databaseService = databaseService || sharedDatabaseService;
+    this.databaseService = databaseService || getSharedDatabaseService();
   }
 
   /**

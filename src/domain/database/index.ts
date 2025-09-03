@@ -8,6 +8,7 @@
 // Export shared database service
 export {
   SharedDatabaseService,
+  getSharedDatabaseService,
   sharedDatabaseService,
   type ISharedDatabaseService,
   type DatabaseConfig,

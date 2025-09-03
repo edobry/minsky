@@ -8,17 +8,17 @@
  */
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { sharedDatabaseService } from "./shared-database-service";
+import { getSharedDatabaseService } from "./shared-database-service";
 
 /**
  * Creates a configured PostgreSQL database connection
  * Handles configuration loading and connection creation
- *
- * @deprecated Use sharedDatabaseService.getDatabase() instead
+ * 
+ * @deprecated Use getSharedDatabaseService().getDatabase() instead
  */
 export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
   try {
-    return await sharedDatabaseService.getDatabase();
+    return await getSharedDatabaseService().getDatabase();
   } catch (error) {
     throw new Error(`Failed to create database connection: ${error}`);
   }
@@ -42,7 +42,7 @@ export class DatabaseConnectionManager {
   }
 
   async getConnection(): Promise<PostgresJsDatabase> {
-    return await sharedDatabaseService.getDatabase();
+    return await getSharedDatabaseService().getDatabase();
   }
 
   async closeConnection(): Promise<void> {

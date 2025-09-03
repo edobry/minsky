@@ -352,6 +352,23 @@ export class SharedDatabaseService implements ISharedDatabaseService {
 }
 
 /**
- * Default export for convenient access
+ * Get the shared database service instance
+ * Using a getter function to avoid immediate initialization
  */
-export const sharedDatabaseService = SharedDatabaseService.getInstance();
+export function getSharedDatabaseService(): ISharedDatabaseService {
+  return SharedDatabaseService.getInstance();
+}
+
+/**
+ * Convenience export for backward compatibility
+ * @deprecated Use getSharedDatabaseService() instead
+ */
+export const sharedDatabaseService = {
+  getDatabase: () => getSharedDatabaseService().getDatabase(),
+  getSql: () => getSharedDatabaseService().getSql(),
+  runMigrations: () => getSharedDatabaseService().runMigrations(),
+  hasPendingMigrations: () => getSharedDatabaseService().hasPendingMigrations(),
+  getConnectionInfo: () => getSharedDatabaseService().getConnectionInfo(),
+  close: () => getSharedDatabaseService().close(),
+  testConnection: () => getSharedDatabaseService().testConnection(),
+};
