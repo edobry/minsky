@@ -19,6 +19,23 @@ mock.module("../src/utils/logger", () => ({
   isHumanMode: () => true,
 }));
 
+// Mock additional relative paths to the logger
+mock.module("../../utils/logger", () => ({
+  log: mockLogger,
+  createConfigurableLogger: () => mockLogger,
+  createLogger: () => mockLogger,
+  isStructuredMode: () => false,
+  isHumanMode: () => true,
+}));
+
+mock.module("../../../utils/logger", () => ({
+  log: mockLogger,
+  createConfigurableLogger: () => mockLogger,
+  createLogger: () => mockLogger,
+  isStructuredMode: () => false,
+  isHumanMode: () => true,
+}));
+
 // Also mock the domain logger if it exists
 mock.module("../src/domain/utils/logger", () => ({
   log: mockLogger,

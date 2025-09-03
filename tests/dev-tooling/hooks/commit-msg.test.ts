@@ -10,30 +10,16 @@ const DUPLICATION_ERROR = "appears to be duplicated";
 
 // Global test state
 let testCommitContent = "";
-let mockExecSync = mock((command: string) => {
+let currentExecSyncBehavior = (command: string) => {
   if (command.includes(GIT_BRANCH_COMMAND)) {
     return TEST_BRANCH;
   }
   return "unknown";
+};
+
+const mockExecSync = mock((command: string) => {
+  return currentExecSyncBehavior(command);
 });
-
-// Mock modules within describe block to prevent global mocking
-mock.module("../../../src/utils/logger", () => ({
-  log: {
-    cli: mock(() => {}),
-    error: mock(() => {}),
-    warn: mock(() => {}),
-    debug: mock(() => {}),
-  },
-}));
-
-mock.module("child_process", () => ({
-  execSync: mockExecSync,
-}));
-
-mock.module("fs", () => ({
-  readFileSync: mock(() => testCommitContent),
-}));
 
 async function testCommit(message: string): Promise<CommitMsgResult> {
   testCommitContent = message;
@@ -45,13 +31,36 @@ describe("CommitMsgHook", () => {
   beforeEach(() => {
     testCommitContent = "";
 
-    // Reset git command mock
-    mockExecSync = mock((command: string) => {
+    // Set up module mocks within describe block
+    mock.module("../../../src/utils/logger", () => ({
+      log: {
+        cli: mock(() => {}),
+        error: mock(() => {}),
+        warn: mock(() => {}),
+        debug: mock(() => {}),
+      },
+    }));
+
+    mock.module("child_process", () => ({
+      execSync: mockExecSync,
+    }));
+
+    mock.module("fs", () => ({
+      readFileSync: mock((path: string) => {
+        if (path === "/nonexistent/file") {
+          throw new Error("ENOENT: no such file or directory");
+        }
+        return testCommitContent;
+      }),
+    }));
+
+    // Reset git command behavior
+    currentExecSyncBehavior = (command: string) => {
       if (command.includes(GIT_BRANCH_COMMAND)) {
         return TEST_BRANCH;
       }
       return "unknown";
-    });
+    };
   });
 
   describe("Basic Functionality", () => {
@@ -163,12 +172,12 @@ describe("CommitMsgHook", () => {
 
   describe("Merge Commit Handling", () => {
     it("should allow merge commits on feature branches", async () => {
-      mockExecSync = mock((command: string) => {
+      currentExecSyncBehavior = (command: string) => {
         if (command.includes(GIT_BRANCH_COMMAND)) {
           return TEST_BRANCH;
         }
         return TEST_BRANCH;
-      });
+      };
 
       const result = await testCommit("Merge branch 'main' into feature/test-branch");
 
@@ -176,12 +185,12 @@ describe("CommitMsgHook", () => {
     });
 
     it("should reject merge commits on main branch", async () => {
-      mockExecSync = mock((command: string) => {
+      currentExecSyncBehavior = (command: string) => {
         if (command.includes(GIT_BRANCH_COMMAND)) {
           return "main";
         }
         return "main";
-      });
+      };
 
       const result = await testCommit("Merge branch 'feature' into main");
 
@@ -192,12 +201,12 @@ describe("CommitMsgHook", () => {
     });
 
     it("should reject merge commits on master branch", async () => {
-      mockExecSync = mock((command: string) => {
+      currentExecSyncBehavior = (command: string) => {
         if (command.includes(GIT_BRANCH_COMMAND)) {
           return "master";
         }
         return "master";
-      });
+      };
 
       const result = await testCommit("Merge branch 'feature' into master");
 
@@ -208,9 +217,9 @@ describe("CommitMsgHook", () => {
     });
 
     it("should handle git command failures gracefully", async () => {
-      mockExecSync = mock(() => {
+      currentExecSyncBehavior = () => {
         throw new Error("Git command failed");
-      });
+      };
 
       const result = await testCommit("Merge branch 'feature'");
 

@@ -4,6 +4,7 @@
  */
 import { CommandCategory } from "../../shared/command-registry";
 import type { CategoryCommandOptions } from "../../shared/bridges/cli-bridge";
+import { log } from "../../../utils/logger";
 
 /**
  * Get task command customizations configuration
@@ -124,9 +125,20 @@ export function getTasksCustomizations(): {
               description: "Task that will depend on another task",
             },
             dependsOn: {
-              asArgument: true,
+              asArgument: false,
               description: "Task that is the dependency",
             },
+          },
+          outputFormatter: (result: any) => {
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
+              return;
+            }
+            if (result.success) {
+              log.cli(result.output || "✅ Dependency added successfully");
+            } else {
+              log.cli(result.error || "❌ Failed to add dependency");
+            }
           },
         },
         "tasks.deps.rm": {
@@ -136,9 +148,20 @@ export function getTasksCustomizations(): {
               description: "Task that depends on another task",
             },
             dependsOn: {
-              asArgument: true,
+              asArgument: false,
               description: "Task that is the dependency",
             },
+          },
+          outputFormatter: (result: any) => {
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
+              return;
+            }
+            if (result.success) {
+              log.cli(result.output || "✅ Dependency removed successfully");
+            } else {
+              log.cli(result.error || "❌ Failed to remove dependency");
+            }
           },
         },
         "tasks.deps.list": {
@@ -148,6 +171,19 @@ export function getTasksCustomizations(): {
               description: "ID of the task to list dependencies for",
             },
           },
+          outputFormatter: (result: any) => {
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
+              return;
+            }
+            if (result.success && result.output) {
+              log.cli(result.output);
+            } else if (result.error) {
+              log.cli(result.error);
+            } else {
+              log.cli("❌ No dependency information available");
+            }
+          },
         },
         "tasks.deps.tree": {
           parameters: {
@@ -155,6 +191,19 @@ export function getTasksCustomizations(): {
               asArgument: true,
               description: "ID of the task to show dependency tree for",
             },
+          },
+          outputFormatter: (result: any) => {
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
+              return;
+            }
+            if (result.success && result.output) {
+              log.cli(result.output);
+            } else if (result.error) {
+              log.cli(result.error);
+            } else {
+              log.cli("❌ No dependency tree available");
+            }
           },
         },
         "tasks.deps.graph": {
@@ -166,6 +215,19 @@ export function getTasksCustomizations(): {
             status: {
               description: "Filter tasks by status",
             },
+          },
+          outputFormatter: (result: any) => {
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
+              return;
+            }
+            if (result.success && result.output) {
+              log.cli(result.output);
+            } else if (result.error) {
+              log.cli(result.error);
+            } else {
+              log.cli("❌ No dependency graph available");
+            }
           },
         },
       },
