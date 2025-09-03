@@ -1,7 +1,7 @@
 echo "Running tests before push..."
 
 # Run tests with output suppressed, only show summary
-# The setup.ts mocks console but doesn't affect bun test's own output  
+# The setup.ts mocks console but doesn't affect bun test's own output
 # So we pipe through tail to only show the summary line
 bun test --preload ./tests/setup.ts src tests/adapters tests/domain 2>&1 | tail -n 1
 
