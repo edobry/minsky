@@ -248,7 +248,7 @@ describe("CommitMsgHook", () => {
     });
 
     it("should handle very long commit messages", async () => {
-      const longTitle = "feat: " + "x".repeat(100);
+      const longTitle = `feat: ${"x".repeat(100)}`;
       const result = await testCommit(longTitle);
 
       // The regex pattern allows up to 50 characters AFTER the colon, so this actually passes

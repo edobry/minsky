@@ -7,16 +7,17 @@ import {
 
 describe("Session PR Body Validation", () => {
   describe("title duplication detection", () => {
+    const TEST_TITLE = "feat(mt#478): Implement Context-Aware Rules Filtering";
+
     it("should detect duplicate content with different formatting", () => {
-      const title = "feat(mt#478): Implement Context-Aware Rules Filtering";
       const duplicatedLine =
         "# feat(#478): Implement Context-Aware Rules Filtering for Workspace Rules Component";
 
-      expect(isDuplicateContent(title, duplicatedLine)).toBe(true);
+      expect(isDuplicateContent(TEST_TITLE, duplicatedLine)).toBe(true);
     });
 
     it("should reject PR body that starts with the same title as PR", () => {
-      const prTitle = "feat(mt#478): Implement Context-Aware Rules Filtering";
+      const prTitle = TEST_TITLE;
       const prBody = `# feat(#478): Implement Context-Aware Rules Filtering for Workspace Rules Component
 
 ## Summary
@@ -32,7 +33,7 @@ This is the actual content...`;
     });
 
     it("should accept PR body that starts with proper content", () => {
-      const prTitle = "feat(mt#478): Implement Context-Aware Rules Filtering";
+      const prTitle = TEST_TITLE;
       const prBody = `## Summary
 
 Implemented an enhanced rules system...`;
