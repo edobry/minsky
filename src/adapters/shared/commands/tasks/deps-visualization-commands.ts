@@ -393,7 +393,7 @@ async function generateGraphvizDot(
   statusFilter?: string
 ): Promise<string> {
   const lines: string[] = [];
-  
+
   try {
     // Get tasks with dependencies
     const tasks = await taskService.listTasks({
@@ -410,7 +410,7 @@ async function generateGraphvizDot(
     const tasksWithDeps = [];
     const allTaskIds = new Set<string>();
 
-    // Find tasks that have dependencies or dependents  
+    // Find tasks that have dependencies or dependents
     for (const task of tasks) {
       const dependencies = await graphService.listDependencies(task.id);
       const dependents = await graphService.listDependents(task.id);
@@ -422,8 +422,8 @@ async function generateGraphvizDot(
           dependents,
         });
         allTaskIds.add(task.id);
-        dependencies.forEach(dep => allTaskIds.add(dep));
-        dependents.forEach(dep => allTaskIds.add(dep));
+        dependencies.forEach((dep) => allTaskIds.add(dep));
+        dependents.forEach((dep) => allTaskIds.add(dep));
       }
     }
 
@@ -440,14 +440,16 @@ async function generateGraphvizDot(
         const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
         const title = task?.title?.substring(0, 30) || "Unknown";
         const status = task?.status || "Unknown";
-        
+
         let color = "lightgray";
         if (status === "TODO") color = "lightblue";
-        else if (status === "IN-PROGRESS") color = "yellow"; 
+        else if (status === "IN-PROGRESS") color = "yellow";
         else if (status === "DONE") color = "lightgreen";
         else if (status === "BLOCKED") color = "lightcoral";
 
-        lines.push(`  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", style=filled];`);
+        lines.push(
+          `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", style=filled];`
+        );
       } catch {
         // Handle tasks that can't be loaded
         const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
@@ -468,7 +470,6 @@ async function generateGraphvizDot(
 
     lines.push("}");
     return lines.join("\n");
-
   } catch (error) {
     lines.push("digraph TaskDependencies {");
     lines.push(`  error [label="Error: ${error.message}", color=red];`);

@@ -215,7 +215,7 @@ function addDepsGraphCommand(parent: Command): void {
   addOutputOptions(graphCommand);
   addBackendOptions(graphCommand);
 
-  graphCommand.action(async (options: DepsCommandOptions & { limit?: string }) => {
+  graphCommand.action(async (options: DepsCommandOptions & { limit?: string; format?: string }) => {
     try {
       const command = sharedCommandRegistry.getCommand("tasks.deps.graph");
       if (!command) {
@@ -225,6 +225,7 @@ function addDepsGraphCommand(parent: Command): void {
       const result = await command.execute({
         limit: options.limit ? parseInt(options.limit, 10) : 20,
         status: options.status,
+        format: options.format || "ascii",
       });
 
       if (options.json) {
