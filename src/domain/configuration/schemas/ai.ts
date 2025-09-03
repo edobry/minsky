@@ -22,7 +22,9 @@ const detectAndWarnUnknownFields = (data: any, schema: z.ZodObject<any>, context
   const unknownKeys = dataKeys.filter((key) => !knownKeys.has(key));
 
   if (unknownKeys.length > 0) {
-    log.warn(`Configuration Warning: Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`);
+    log.warn(
+      `Configuration Warning: Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`
+    );
   }
 
   return data;

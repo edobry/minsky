@@ -17,8 +17,6 @@ import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-consta
 import type { SessionRecord } from "../../../src/domain/session";
 import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
 
-
-
 describe("session update command", () => {
   let testData: SessionTestData;
   let mockGitService: any;

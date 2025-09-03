@@ -27,16 +27,17 @@ Minsky applies principles from organizational cybernetics—the study of control
 
 ### Agent Equivalence
 
-The same incentive structures that guide human behavior guide AI behavior. This isn't coincidence—it's design. 
+The same incentive structures that guide human behavior guide AI behavior. This isn't coincidence—it's design.
 
 **We don't need to teach AI to follow best practices.** We create an environment where following best practices is the only way to succeed, just like for humans. This is the key insight: alignment isn't achieved through training or instruction, but through environmental design.
 
 Consider how this works in practice:
+
 - A human developer can't commit code with linting errors—the pre-commit hook blocks it
 - An AI agent can't commit code with linting errors—the same hook blocks it
 - Neither needs to be "taught" to value clean code; the environment enforces it
 
-This is mechanism design at work. By shaping the incentive landscape through tooling and automation, we make good practices inevitable rather than aspirational. The AI doesn't need to understand *why* formatting matters—it just needs to operate in an environment where unformatted code literally cannot be committed.
+This is mechanism design at work. By shaping the incentive landscape through tooling and automation, we make good practices inevitable rather than aspirational. The AI doesn't need to understand _why_ formatting matters—it just needs to operate in an environment where unformatted code literally cannot be committed.
 
 The beauty of this approach is that it's already proven. These are the same organizational cybernetic structures that have guided human teams to quality for decades. We're not inventing new constraints for AI; we're applying the same time-tested control mechanisms that work for any intelligent agent operating in the system.
 

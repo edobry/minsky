@@ -43,12 +43,9 @@ export class TasksEditCommand extends BaseTaskCommand {
   async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.edit execution");
 
-
-
     // Validate required parameters
     const taskId = this.validateRequired(params.taskId, "taskId");
     const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
-
 
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
@@ -91,7 +88,6 @@ export class TasksEditCommand extends BaseTaskCommand {
     // Verify the task exists and get current data
     this.debug("Verifying task exists");
 
-
     const currentTask = await getTaskFromParams({
       ...this.createTaskParams(params),
       taskId: validatedTaskId,
@@ -106,7 +102,6 @@ export class TasksEditCommand extends BaseTaskCommand {
         validatedTaskId
       );
     }
-
 
     this.debug("Task found, preparing updates");
 
@@ -156,7 +151,6 @@ export class TasksEditCommand extends BaseTaskCommand {
         );
       }
     }
-
 
     // Apply the updates using the backend's setTaskMetadata method
     this.debug("Applying updates to task");
@@ -389,8 +383,6 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     return !isCancel(shouldProceed) && shouldProceed;
   }
-
-
 }
 
 /**

@@ -14,7 +14,6 @@ import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mockin
 import { initializeConfiguration } from "../../../src/domain/configuration";
 import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
 
-
 import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,

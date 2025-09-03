@@ -51,9 +51,13 @@ const tasksDepsGraphParams: CommandParameterMap = {
     required: false,
   },
   direction: {
-    schema: z.enum(["TB", "BT", "LR", "RL"]).default("TB"),
+    schema: z.string().default("TB").transform(val => {
+      const upper = val.toUpperCase();
+      if (upper === "TB" || upper === "BT") return upper as "TB" | "BT";
+      throw new Error(`Invalid direction "${val}". Use TB (top-bottom) or BT (bottom-top)`);
+    }),
     description:
-      "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style), LR (left-right), RL (right-left)",
+      "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style) - case insensitive",
     required: false,
   },
   spacing: {
@@ -519,19 +523,25 @@ async function generateGraphvizDot(
       lines.push(`  concentrate=true;`); // Merge multiple edges
     } else if (style === "kanban") {
       // Optimized for kanban board integration - narrow, column-friendly
-      lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=9, width=1.5, height=0.8];`);
+      lines.push(
+        `  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=9, width=1.5, height=0.8];`
+      );
       lines.push(`  edge [color="#6b7280", arrowsize=0.6];`);
       lines.push(`  bgcolor="white";`);
       lines.push(`  margin="0.1";`);
     } else if (style === "mobile") {
       // Optimized for mobile/narrow screens
-      lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=8, width=1.2];`);
+      lines.push(
+        `  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=8, width=1.2];`
+      );
       lines.push(`  edge [color="#374151", arrowsize=0.5];`);
       lines.push(`  bgcolor="transparent";`);
       lines.push(`  margin="0.05";`);
     } else if (style === "compact") {
       // Dense layout for IDE panels/terminals
-      lines.push(`  node [shape=box, style="filled", fontname=Consolas, fontsize=8, width=1.0, height=0.6];`);
+      lines.push(
+        `  node [shape=box, style="filled", fontname=Consolas, fontsize=8, width=1.0, height=0.6];`
+      );
       lines.push(`  edge [color="#6b7280", arrowsize=0.4];`);
       lines.push(`  margin="0";`);
     } else {
@@ -642,7 +652,7 @@ async function generateGraphvizDot(
             color = "#f1f5f9"; // Light gray
             borderColor = "#64748b";
           } else if (status === "IN-PROGRESS") {
-            color = "#fef3c7"; // Soft yellow  
+            color = "#fef3c7"; // Soft yellow
             borderColor = "#d97706";
           } else if (status === "DONE") {
             color = "#d1fae5"; // Soft green
@@ -674,7 +684,12 @@ async function generateGraphvizDot(
           else if (status === "BLOCKED") color = "lightcoral";
         }
 
-        if (style === "tech-tree" || style === "kanban" || style === "mobile" || style === "compact") {
+        if (
+          style === "tech-tree" ||
+          style === "kanban" ||
+          style === "mobile" ||
+          style === "compact"
+        ) {
           lines.push(
             `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", color="${borderColor}", penwidth=${style === "compact" ? "1" : "2"}];`
           );
