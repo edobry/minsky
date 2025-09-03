@@ -97,7 +97,7 @@ export function createTasksDepsListCommand() {
       const dependents = await service.listDependents(params.task);
 
       const lines: string[] = [];
-      
+
       // Use concise format by default
       if (params.verbose) {
         // Original verbose format for users who prefer it
@@ -124,17 +124,17 @@ export function createTasksDepsListCommand() {
       } else {
         // New concise format
         lines.push(`${params.task}:`);
-        
+
         if (dependencies.length > 0) {
           const depList = dependencies.join(", ");
           lines.push(`  depends on: ${depList}`);
         }
-        
+
         if (dependents.length > 0) {
           const depList = dependents.join(", ");
           lines.push(`  required by: ${depList}`);
         }
-        
+
         if (dependencies.length === 0 && dependents.length === 0) {
           lines.push(`  no dependencies`);
         }
