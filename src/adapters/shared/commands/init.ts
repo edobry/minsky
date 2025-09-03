@@ -328,7 +328,10 @@ export function registerInitCommands() {
           // Future: Set up GitHub API configuration, webhooks, etc.
         }
 
-        return { success: true, message: "Project initialized successfully with workflow configuration." };
+        return {
+          success: true,
+          message: "Project initialized successfully with workflow configuration.",
+        };
       } catch (error: any) {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
