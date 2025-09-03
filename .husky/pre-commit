@@ -21,5 +21,5 @@ fi
 echo ""
 echo "✅ ✅ ✅ ALL VALIDATIONS PASSED! ✅ ✅ ✅"
 echo ""
-echo "🎉 TypeScript pre-commit hook completed successfully!"
+echo "🎉 Pre-commit validation completed successfully!"
 echo "📦 Your changes are ready to be committed."
