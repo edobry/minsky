@@ -1,53 +1,55 @@
 /**
- * Database Connection Manager (Legacy)
+ * Database Connection Manager (Compatibility Layer)
  *
- * This module provides backward compatibility for existing code that uses
- * the old connection manager. It now delegates to the new SharedDatabaseService.
- *
- * @deprecated Use SharedDatabaseService and domain-specific adapters instead
+ * Provides backward compatibility for code that expects the old connection-manager interface.
+ * Delegates to the new PersistenceService.
+ * 
+ * @deprecated Use PersistenceService directly for new code
  */
 
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { getSharedDatabaseService } from "./shared-database-service";
+import { getPersistenceProvider } from "../persistence";
+import { log } from "../../utils/logger";
 
 /**
  * Creates a configured PostgreSQL database connection
- * Handles configuration loading and connection creation
  * 
- * @deprecated Use getSharedDatabaseService().getDatabase() instead
+ * @deprecated Use getPersistenceProvider().getDatabaseConnection() instead
  */
 export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
   try {
-    return await getSharedDatabaseService().getDatabase();
+    log.warn("createDatabaseConnection is deprecated. Use PersistenceService instead.");
+    
+    const provider = await getPersistenceProvider();
+    
+    if (!provider.capabilities.sql) {
+      throw new Error("Current persistence backend does not support SQL");
+    }
+    
+    const connection = await provider.getDatabaseConnection?.();
+    if (!connection) {
+      throw new Error("Database connection not available from persistence provider");
+    }
+    
+    return connection;
   } catch (error) {
-    throw new Error(`Failed to create database connection: ${error}`);
+    log.error("Failed to create database connection:", error);
+    throw error;
   }
 }
 
 /**
- * Database Connection Manager for centralized connection handling
- *
- * @deprecated Use SharedDatabaseService.getInstance() instead
+ * Database connection manager for dependency injection
+ * 
+ * @deprecated Use PersistenceService for dependency injection
  */
 export class DatabaseConnectionManager {
-  private static instance: DatabaseConnectionManager | null = null;
-
-  private constructor() {}
-
-  static getInstance(): DatabaseConnectionManager {
-    if (!DatabaseConnectionManager.instance) {
-      DatabaseConnectionManager.instance = new DatabaseConnectionManager();
-    }
-    return DatabaseConnectionManager.instance;
-  }
-
+  /**
+   * Get database connection instance
+   * 
+   * @deprecated Use PersistenceService.getProvider().getDatabaseConnection() instead
+   */
   async getConnection(): Promise<PostgresJsDatabase> {
-    return await getSharedDatabaseService().getDatabase();
-  }
-
-  async closeConnection(): Promise<void> {
-    // Delegate to shared service
-    // Note: We don't actually close the shared connection here
-    // as it might be used by other components
+    return await createDatabaseConnection();
   }
 }

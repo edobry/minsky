@@ -6,14 +6,24 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Extracted Shared Database Service (mt#407)**: Created centralized database service for sessions, tasks, and embeddings
-  - Implemented `SharedDatabaseService` with singleton pattern for connection pooling
-  - Created domain-specific database adapters for sessions, tasks, and embeddings
-  - Centralized migration handling and connection lifecycle management
-  - Refactored `connection-manager` to use shared service for backward compatibility
-  - Improved connection reuse across different domains
-  - Enhanced database configuration through unified service
+- **Implemented PersistenceProvider Architecture (mt#407)**: Created abstract persistence provider system per specification
+  - Implemented `PersistenceProvider` abstract base class with capabilities detection
+  - Created `PostgresPersistenceProvider` with full SQL and vector storage support
+  - Created `SqlitePersistenceProvider` (stub) for local SQL database support
+  - Created `JsonPersistenceProvider` for simple file-based storage
+  - Implemented `PersistenceProviderFactory` for creating providers based on configuration
+  - Implemented `PersistenceService` singleton for lifecycle management
+  - Added backward compatibility through `connection-manager` wrapper
+  - Migrated `vector-storage-factory` to use PersistenceProvider
+  - Created example factory for `TaskSimilarityService` showing dependency injection pattern
 - Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
+
+### Fixed
+
+- **Fixed codemod test pollution**: Refactored `fix-import-extensions.test.ts` to use in-memory filesystem
+  - Eliminated console output during test runs ("Import Extension Fixer Report" messages)
+  - Aligned test pattern with other codemod tests using in-memory Project
+  - Removed real temp directory creation and file I/O during tests
   - Comprehensive spec for capturing engineering journey during task work
   - Defined 10 entry types: note, decision, progress, blocker, resolution, question, todo, command, context, learning
   - Designed integration points with conversation history, task specs, agent memory, and sessions
