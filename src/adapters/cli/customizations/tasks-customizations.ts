@@ -235,6 +235,9 @@ export function getTasksCustomizations(): {
             style: {
               description: "Visual style (default, tech-tree, kanban, mobile, compact)",
             },
+            open: {
+              description: "Automatically open the rendered file in the default application",
+            },
           },
           outputFormatter: (result: any) => {
             if (result.json) {

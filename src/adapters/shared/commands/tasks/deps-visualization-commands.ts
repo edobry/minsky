@@ -4,7 +4,10 @@ import { DatabaseConnectionManager } from "../../../../domain/database/connectio
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
-import { execSync } from "child_process";
+import { execSync, exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { Graphviz } from "@hpcc-js/wasm/graphviz";
@@ -69,6 +72,11 @@ const tasksDepsGraphParams: CommandParameterMap = {
     schema: z.enum(["default", "tech-tree", "kanban", "mobile", "compact"]).default("default"),
     description:
       "Visual style: default (basic), tech-tree (game-style), kanban (board-compatible), mobile (narrow), compact (dense)",
+    required: false,
+  },
+  open: {
+    schema: z.boolean().default(false),
+    description: "Automatically open the rendered file in the default application",
     required: false,
   },
 };
@@ -152,7 +160,8 @@ export function createTasksDepsGraphCommand() {
             direction: params.direction,
             spacing: params.spacing,
             style: params.style,
-          }
+          },
+          params.open
         );
         return { success: true, output: result.message, filePath: result.filePath };
       } else {
@@ -749,7 +758,8 @@ async function renderGraphvizFormat(
   statusFilter: string | undefined,
   format: "svg" | "png" | "pdf",
   outputPath?: string,
-  layoutOptions: LayoutOptions = {}
+  layoutOptions: LayoutOptions = {},
+  openFile: boolean = false
 ): Promise<{ message: string; filePath: string }> {
   try {
     // Generate DOT content with layout options
@@ -797,6 +807,25 @@ async function renderGraphvizFormat(
 
       // Write output file
       writeFileSync(finalOutputPath, outputBuffer);
+
+      // Optionally open the file
+      if (openFile) {
+        try {
+          // Determine the appropriate open command based on OS
+          const openCommand = process.platform === "darwin" ? "open" : 
+                             process.platform === "win32" ? "start" : "xdg-open";
+          await execAsync(`${openCommand} "${finalOutputPath}"`);
+          return {
+            message: `✅ Rendered task dependency graph to: ${finalOutputPath} (opened in default application)`,
+            filePath: finalOutputPath,
+          };
+        } catch (error) {
+          return {
+            message: `✅ Rendered task dependency graph to: ${finalOutputPath} (failed to open: ${error})`,
+            filePath: finalOutputPath,
+          };
+        }
+      }
 
       return {
         message: `✅ Rendered task dependency graph to: ${finalOutputPath}`,
