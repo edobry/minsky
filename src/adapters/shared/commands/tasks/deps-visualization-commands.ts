@@ -530,19 +530,19 @@ async function generateGraphvizDot(
       lines.push(`  bgcolor="white";`);
       lines.push(`  margin="0.1";`);
     } else if (style === "mobile") {
-      // Optimized for mobile/narrow screens
+      // Optimized for mobile/narrow screens - bold and thick for touch
       lines.push(
-        `  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=8, width=1.2];`
+        `  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=8, width=1.2, penwidth=3];`
       );
-      lines.push(`  edge [color="#374151", arrowsize=0.5];`);
+      lines.push(`  edge [color="#374151", arrowsize=0.7, penwidth=2];`);
       lines.push(`  bgcolor="transparent";`);
       lines.push(`  margin="0.05";`);
     } else if (style === "compact") {
-      // Dense layout for IDE panels/terminals
+      // Dense layout for IDE panels/terminals - minimal and monospace
       lines.push(
-        `  node [shape=box, style="filled", fontname=Consolas, fontsize=8, width=1.0, height=0.6];`
+        `  node [shape=rectangle, style="filled", fontname=monospace, fontsize=7, width=1.0, height=0.5];`
       );
-      lines.push(`  edge [color="#6b7280", arrowsize=0.4];`);
+      lines.push(`  edge [color="#6b7280", arrowsize=0.4, style=dotted];`);
       lines.push(`  margin="0";`);
     } else {
       lines.push(`  node [shape=box, style=rounded];`);
@@ -661,19 +661,34 @@ async function generateGraphvizDot(
             color = "#fee2e2"; // Soft red
             borderColor = "#dc2626";
           }
-        } else if (style === "mobile" || style === "compact") {
-          // High contrast for small screens
+        } else if (style === "mobile") {
+          // High contrast, touch-friendly colors for mobile
           if (status === "TODO") {
-            color = "#e5e7eb";
-            borderColor = "#374151";
+            color = "#1e40af"; // Dark blue for visibility
+            borderColor = "#1e3a8a";
           } else if (status === "IN-PROGRESS") {
-            color = "#fed7aa";
-            borderColor = "#ea580c";
+            color = "#d97706"; // Dark orange for attention
+            borderColor = "#92400e";
           } else if (status === "DONE") {
-            color = "#bbf7d0";
+            color = "#15803d"; // Dark green for success
+            borderColor = "#166534";
+          } else if (status === "BLOCKED") {
+            color = "#dc2626"; // Bright red for urgency
+            borderColor = "#991b1b";
+          }
+        } else if (style === "compact") {
+          // Minimal, monochromatic for IDE panels
+          if (status === "TODO") {
+            color = "#f8fafc"; // Almost white
+            borderColor = "#cbd5e1";
+          } else if (status === "IN-PROGRESS") {
+            color = "#fffbeb"; // Barely yellow tint
+            borderColor = "#d97706";
+          } else if (status === "DONE") {
+            color = "#f0fdf4"; // Barely green tint
             borderColor = "#16a34a";
           } else if (status === "BLOCKED") {
-            color = "#fecaca";
+            color = "#fef2f2"; // Barely red tint
             borderColor = "#dc2626";
           }
         } else {
@@ -746,9 +761,10 @@ async function renderGraphvizFormat(
       layoutOptions
     );
 
-    // Generate output filename if not provided
-    const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
-    const defaultFilename = `task-deps-${timestamp}.${format}`;
+    // Generate unique output filename if not provided
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "").replace(/T/, "T");
+    const randomSuffix = Math.random().toString(36).substring(2, 5);
+    const defaultFilename = `task-deps-${timestamp}-${randomSuffix}.${format}`;
     const finalOutputPath = outputPath || join(process.cwd(), defaultFilename);
 
     try {
