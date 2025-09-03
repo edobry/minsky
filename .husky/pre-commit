@@ -1,7 +1,7 @@
 #!/usr/bin/env sh
 
 # Pre-commit validation hook
-# 
+#
 # This replaces the complex bash logic with a clean implementation
 # that leverages Minsky's own infrastructure for configuration and error handling.
 
