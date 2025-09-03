@@ -16,7 +16,19 @@ export default {
       recommended: true,
     },
     fixable: null,
-    schema: [],
+    schema: [
+      {
+        type: "object",
+        properties: {
+          allowInFiles: {
+            type: "array",
+            items: { type: "string" },
+            description: "Glob patterns for files where global mocks are allowed"
+          }
+        },
+        additionalProperties: false
+      }
+    ],
     messages: {
       globalModuleMock:
         "Global mock.module() detected. Use test-scoped mocking in test-utils or within describe blocks to prevent cross-test interference.",
@@ -24,6 +36,9 @@ export default {
   },
 
   create(context) {
+    const options = context.options[0] || {};
+    const allowInFiles = options.allowInFiles || [];
+    
     // Check if current file is a test file
     const filename = context.getFilename();
     const isTestFile =
@@ -32,6 +47,20 @@ export default {
 
     if (!isTestFile) {
       return {}; // Only apply to test files
+    }
+
+    // Check if file is in allowInFiles patterns
+    const isAllowedFile = allowInFiles.some(pattern => {
+      // Simple glob pattern matching
+      const regexPattern = pattern
+        .replace(/\*\*/g, '.*')
+        .replace(/\*/g, '[^/]*')
+        .replace(/\?/g, '[^/]');
+      return new RegExp(regexPattern).test(filename);
+    });
+
+    if (isAllowedFile) {
+      return {}; // Skip checking for allowed files
     }
 
     return {

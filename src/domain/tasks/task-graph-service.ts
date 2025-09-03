@@ -1,4 +1,4 @@
-import { and, eq } from "drizzle-orm";
+import { and, eq, sql } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
 
@@ -17,6 +17,9 @@ interface TaskRelationshipsRepository {
   deleteEdge(fromId: string, toId: string): Promise<number>;
   listFrom(taskId: string): Promise<string[]>;
   listTo(taskId: string): Promise<string[]>;
+  // Bulk operations for efficient graph building
+  getAllRelationships(): Promise<{ fromTaskId: string; toTaskId: string }[]>;
+  getRelationshipsForTasks(taskIds: string[]): Promise<{ fromTaskId: string; toTaskId: string }[]>;
 }
 
 function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository {
@@ -62,6 +65,28 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
         .where(eq(taskRelationshipsTable.toTaskId, taskId));
       return rows.map((r) => r.from);
     },
+    async getAllRelationships() {
+      const rows = await db
+        .select({
+          fromTaskId: taskRelationshipsTable.fromTaskId,
+          toTaskId: taskRelationshipsTable.toTaskId,
+        })
+        .from(taskRelationshipsTable);
+      return rows;
+    },
+    async getRelationshipsForTasks(taskIds) {
+      if (taskIds.length === 0) return [];
+      const rows = await db
+        .select({
+          fromTaskId: taskRelationshipsTable.fromTaskId,
+          toTaskId: taskRelationshipsTable.toTaskId,
+        })
+        .from(taskRelationshipsTable)
+        .where(
+          sql`${taskRelationshipsTable.fromTaskId} = ANY(${sql.raw(`ARRAY['${taskIds.join("','")}']`)}) OR ${taskRelationshipsTable.toTaskId} = ANY(${sql.raw(`ARRAY['${taskIds.join("',')")}']`)})`
+        );
+      return rows;
+    },
   };
 }
 
@@ -103,5 +128,19 @@ export class TaskGraphService {
 
   async listDependents(taskId: string): Promise<string[]> {
     return this.repo.listTo(taskId);
+  }
+
+  /**
+   * Get all relationships at once - efficient for graph visualization
+   */
+  async getAllRelationships(): Promise<{ fromTaskId: string; toTaskId: string }[]> {
+    return this.repo.getAllRelationships();
+  }
+
+  /**
+   * Get relationships for a specific set of tasks - efficient for filtered graphs
+   */
+  async getRelationshipsForTasks(taskIds: string[]): Promise<{ fromTaskId: string; toTaskId: string }[]> {
+    return this.repo.getRelationshipsForTasks(taskIds);
   }
 }

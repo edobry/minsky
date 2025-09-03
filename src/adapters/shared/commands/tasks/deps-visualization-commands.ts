@@ -248,10 +248,32 @@ async function generateDependencyGraph(
 
     const tasksWithDeps = [];
 
-    // Find tasks that have dependencies or dependents
+    // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
+    const taskIds = tasks.map((t) => t.id);
+    const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
+    
+    // Build dependency maps in memory from single query result
+    const dependenciesMap = new Map<string, string[]>();
+    const dependentsMap = new Map<string, string[]>();
+
+    allRelationships.forEach(({ fromTaskId, toTaskId }) => {
+      // Track dependencies: fromTaskId depends on toTaskId
+      if (!dependenciesMap.has(fromTaskId)) {
+        dependenciesMap.set(fromTaskId, []);
+      }
+      dependenciesMap.get(fromTaskId)!.push(toTaskId);
+      
+      // Track dependents: toTaskId has fromTaskId as dependent
+      if (!dependentsMap.has(toTaskId)) {
+        dependentsMap.set(toTaskId, []);
+      }
+      dependentsMap.get(toTaskId)!.push(fromTaskId);
+    });
+
+    // Filter tasks to only those with actual relationships
     for (const task of tasks) {
-      const dependencies = await graphService.listDependencies(task.id);
-      const dependents = await graphService.listDependents(task.id);
+      const dependencies = dependenciesMap.get(task.id) || [];
+      const dependents = dependentsMap.get(task.id) || [];
 
       if (dependencies.length > 0 || dependents.length > 0) {
         tasksWithDeps.push({
@@ -430,31 +452,44 @@ async function generateGraphvizDot(
     const tasksWithDeps = [];
     const allTaskIds = new Set<string>();
 
-    // PERFORMANCE FIX: Batch all dependency queries to avoid N+1 problem
-    const taskDependencyMap = new Map<string, { dependencies: string[]; dependents: string[] }>();
+    // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
+    const taskIds = tasks.map((t) => t.id);
+    const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
+    
+    // Build dependency maps in memory from single query result
+    const dependenciesMap = new Map<string, string[]>();
+    const dependentsMap = new Map<string, string[]>();
 
-    // Batch collect all dependency relationships
-    await Promise.all(
-      tasks.map(async (task) => {
-        const [dependencies, dependents] = await Promise.all([
-          graphService.listDependencies(task.id),
-          graphService.listDependents(task.id),
-        ]);
+    allRelationships.forEach(({ fromTaskId, toTaskId }) => {
+      // Track dependencies: fromTaskId depends on toTaskId
+      if (!dependenciesMap.has(fromTaskId)) {
+        dependenciesMap.set(fromTaskId, []);
+      }
+      dependenciesMap.get(fromTaskId)!.push(toTaskId);
+      
+      // Track dependents: toTaskId has fromTaskId as dependent
+      if (!dependentsMap.has(toTaskId)) {
+        dependentsMap.set(toTaskId, []);
+      }
+      dependentsMap.get(toTaskId)!.push(fromTaskId);
+      
+      allTaskIds.add(fromTaskId);
+      allTaskIds.add(toTaskId);
+    });
 
-        taskDependencyMap.set(task.id, { dependencies, dependents });
-
-        if (dependencies.length > 0 || dependents.length > 0) {
-          tasksWithDeps.push({
-            ...task,
-            dependencies,
-            dependents,
-          });
-          allTaskIds.add(task.id);
-          dependencies.forEach((dep) => allTaskIds.add(dep));
-          dependents.forEach((dep) => allTaskIds.add(dep));
-        }
-      })
-    );
+    // Filter tasks to only those with actual relationships
+    for (const task of tasks) {
+      const dependencies = dependenciesMap.get(task.id) || [];
+      const dependents = dependentsMap.get(task.id) || [];
+      
+      if (dependencies.length > 0 || dependents.length > 0) {
+        tasksWithDeps.push({
+          ...task,
+          dependencies,
+          dependents,
+        });
+      }
+    }
 
     if (tasksWithDeps.length === 0) {
       lines.push("  // No tasks with dependencies found");
@@ -485,9 +520,9 @@ async function generateGraphvizDot(
 
       if (task) {
         const title = (task.title?.substring(0, 30) || "Unknown")
-          .replace(/"/g, "'")         // Replace double quotes with single quotes
-          .replace(/\n/g, " ")        // Replace newlines with spaces
-          .replace(/\r/g, " ");       // Replace carriage returns with spaces
+          .replace(/"/g, "'") // Replace double quotes with single quotes
+          .replace(/\n/g, " ") // Replace newlines with spaces
+          .replace(/\r/g, " "); // Replace carriage returns with spaces
         const status = task.status || "Unknown";
 
         let color = "lightgray";
@@ -508,14 +543,12 @@ async function generateGraphvizDot(
 
     lines.push("");
 
-    // Define edges
-    for (const task of tasksWithDeps) {
-      const fromId = task.id.replace(/[^a-zA-Z0-9]/g, "_");
-      for (const depId of task.dependencies) {
-        const toId = depId.replace(/[^a-zA-Z0-9]/g, "_");
-        lines.push(`  ${toId} -> ${fromId};`);
-      }
-    }
+    // Define edges from cached relationship data
+    allRelationships.forEach(({ fromTaskId, toTaskId }) => {
+      const fromId = fromTaskId.replace(/[^a-zA-Z0-9]/g, "_");
+      const toId = toTaskId.replace(/[^a-zA-Z0-9]/g, "_");
+      lines.push(`  ${toId} -> ${fromId};`);
+    });
 
     lines.push("}");
     return lines.join("\n");
@@ -551,7 +584,7 @@ async function renderGraphvizFormat(
       // Render using pure JS/WASM (no external CLI dependency)
       const graphviz = await Graphviz.load();
       let outputBuffer: Buffer;
-      
+
       switch (format) {
         case "svg":
           outputBuffer = Buffer.from(await graphviz.dot(dotContent, "svg"), "utf8");
