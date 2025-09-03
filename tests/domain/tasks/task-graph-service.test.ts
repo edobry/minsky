@@ -31,6 +31,22 @@ function createInMemoryRepo(initial: Array<[string, string]> = []) {
       }
       return res;
     },
+    async getAllRelationships() {
+      return Array.from(edges).map((key) => {
+        const [fromTaskId, toTaskId] = key.split("→");
+        return { fromTaskId, toTaskId };
+      });
+    },
+    async getRelationshipsForTasks(taskIds: string[]) {
+      const result: { fromTaskId: string; toTaskId: string }[] = [];
+      for (const key of edges) {
+        const [f, t] = key.split("→");
+        if (taskIds.includes(f) || taskIds.includes(t)) {
+          result.push({ fromTaskId: f, toTaskId: t });
+        }
+      }
+      return result;
+    },
   };
 }
 
@@ -65,5 +81,73 @@ describe("TaskGraphService (in-memory)", () => {
     const r = await svc.removeDependency("md#1", "db#2");
     expect(r.removed).toBe(true);
     expect(await svc.listDependents("db#2")).toEqual(["md#3"]);
+  });
+
+  describe("Bulk query operations", () => {
+    it("getAllRelationships returns all edges", async () => {
+      const repo = createInMemoryRepo([
+        ["md#1", "db#2"],
+        ["mt#3", "gh#4"],
+        ["db#2", "mt#5"],
+      ]);
+      const svc = new TaskGraphService(repo as any);
+      
+      const relationships = await svc.getAllRelationships();
+      expect(relationships).toHaveLength(3);
+      expect(relationships).toContainEqual({ fromTaskId: "md#1", toTaskId: "db#2" });
+      expect(relationships).toContainEqual({ fromTaskId: "mt#3", toTaskId: "gh#4" });
+      expect(relationships).toContainEqual({ fromTaskId: "db#2", toTaskId: "mt#5" });
+    });
+
+    it("getRelationshipsForTasks filters by task IDs", async () => {
+      const repo = createInMemoryRepo([
+        ["md#1", "db#2"],
+        ["mt#3", "gh#4"],
+        ["db#2", "mt#5"],
+        ["gh#6", "mt#7"], // Should not be included
+      ]);
+      const svc = new TaskGraphService(repo as any);
+      
+      // Get relationships involving md#1 or mt#3
+      const relationships = await svc.getRelationshipsForTasks(["md#1", "mt#3"]);
+      expect(relationships).toHaveLength(2);
+      expect(relationships).toContainEqual({ fromTaskId: "md#1", toTaskId: "db#2" });
+      expect(relationships).toContainEqual({ fromTaskId: "mt#3", toTaskId: "gh#4" });
+      expect(relationships).not.toContainEqual({ fromTaskId: "gh#6", toTaskId: "mt#7" });
+    });
+
+    it("getRelationshipsForTasks includes relationships where task is dependent", async () => {
+      const repo = createInMemoryRepo([
+        ["md#1", "db#2"],
+        ["mt#3", "db#2"], // db#2 is dependency of both md#1 and mt#3
+      ]);
+      const svc = new TaskGraphService(repo as any);
+      
+      // Get relationships involving db#2 (as dependency)
+      const relationships = await svc.getRelationshipsForTasks(["db#2"]);
+      expect(relationships).toHaveLength(2);
+      expect(relationships).toContainEqual({ fromTaskId: "md#1", toTaskId: "db#2" });
+      expect(relationships).toContainEqual({ fromTaskId: "mt#3", toTaskId: "db#2" });
+    });
+
+    it("getRelationshipsForTasks returns empty array for unknown task IDs", async () => {
+      const repo = createInMemoryRepo([
+        ["md#1", "db#2"],
+      ]);
+      const svc = new TaskGraphService(repo as any);
+      
+      const relationships = await svc.getRelationshipsForTasks(["unknown#1", "unknown#2"]);
+      expect(relationships).toHaveLength(0);
+    });
+
+    it("getRelationshipsForTasks handles empty task ID array", async () => {
+      const repo = createInMemoryRepo([
+        ["md#1", "db#2"],
+      ]);
+      const svc = new TaskGraphService(repo as any);
+      
+      const relationships = await svc.getRelationshipsForTasks([]);
+      expect(relationships).toHaveLength(0);
+    });
   });
 });
