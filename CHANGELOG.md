@@ -19,12 +19,12 @@ All notable changes to this project will be documented in this file.
   - Removed incorrect override of info method in tests/setup.ts
   - All session update tests now pass correctly
 
-- **Pre-push Hook Output**: Properly minimized pre-push hook test output
+- **Pre-push Hook Output**: Fixed verbose test output in pre-push hook
 
-  - AGENT=1 environment variable doesn't actually enable quiet mode in Bun (was a misunderstanding from commit 6421d2c50)
-  - Now captures test output and only shows the summary line for successful runs
-  - Shows only failed tests and last 5 lines for failures
-  - Output reduced from 1000+ lines to just "Ran X tests across Y files"
+  - Bun test doesn't have a quiet mode flag, so we pipe through `tail -n 1` to show only summary
+  - Uses PIPESTATUS[0] to check actual test exit code while piping output
+  - Output reduced from 1861 lines to just "Ran X tests across Y files"
+  - Clean, minimal output that matches the ideal behavior
 
 - **ESLint Pre-commit Validation**: Fixed ESLint validation in pre-commit hook
   - Properly handles ESLint's non-zero exit codes when warnings exist
