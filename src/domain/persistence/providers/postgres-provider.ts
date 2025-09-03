@@ -8,12 +8,12 @@ import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
-import { 
-  PersistenceProvider, 
-  PersistenceCapabilities, 
+import {
+  PersistenceProvider,
+  PersistenceCapabilities,
   PersistenceConfig,
   DatabaseStorage,
-  CapabilityNotSupportedError
+  CapabilityNotSupportedError,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
@@ -41,8 +41,8 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
 
   constructor(config: PersistenceConfig) {
     super();
-    if (config.backend !== 'postgres' || !config.postgres) {
-      throw new Error('PostgresPersistenceProvider requires postgres configuration');
+    if (config.backend !== "postgres" || !config.postgres) {
+      throw new Error("PostgresPersistenceProvider requires postgres configuration");
     }
     this.config = config;
   }
@@ -56,10 +56,10 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     }
 
     const pgConfig = this.config.postgres!;
-    
+
     try {
       log.debug("Initializing PostgreSQL persistence provider");
-      
+
       // Create PostgreSQL connection
       this.sql = postgres(pgConfig.connectionString, {
         max: pgConfig.maxConnections || 10,
@@ -73,7 +73,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
 
       // Verify connection
       await this.sql`SELECT 1`;
-      
+
       this.isInitialized = true;
       log.debug("PostgreSQL persistence provider initialized");
     } catch (error) {
@@ -87,7 +87,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    */
   getStorage<T, S>(): DatabaseStorage<T, S> {
     if (!this.isInitialized) {
-      throw new Error('PostgresPersistenceProvider not initialized');
+      throw new Error("PostgresPersistenceProvider not initialized");
     }
 
     // Return a generic storage implementation
@@ -95,19 +95,19 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     return {
       get: async (id: string) => {
         // Implementation would query the appropriate table
-        throw new Error('Storage implementation not yet complete');
+        throw new Error("Storage implementation not yet complete");
       },
       save: async (id: string, data: T) => {
-        throw new Error('Storage implementation not yet complete');
+        throw new Error("Storage implementation not yet complete");
       },
       update: async (id: string, updates: Partial<T>) => {
-        throw new Error('Storage implementation not yet complete');
+        throw new Error("Storage implementation not yet complete");
       },
       delete: async (id: string) => {
-        throw new Error('Storage implementation not yet complete');
+        throw new Error("Storage implementation not yet complete");
       },
       search: async (criteria: S) => {
-        throw new Error('Storage implementation not yet complete');
+        throw new Error("Storage implementation not yet complete");
       },
     };
   }
@@ -117,11 +117,11 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    */
   async getVectorStorage(dimension: number): Promise<VectorStorage> {
     if (!this.isInitialized) {
-      throw new Error('PostgresPersistenceProvider not initialized');
+      throw new Error("PostgresPersistenceProvider not initialized");
     }
 
     if (!this.sql) {
-      throw new Error('SQL connection not available');
+      throw new Error("SQL connection not available");
     }
 
     // Check if pgvector extension is installed
@@ -132,12 +132,12 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     `;
 
     if (!result[0].exists) {
-      throw new Error('pgvector extension not installed');
+      throw new Error("pgvector extension not installed");
     }
 
     // Return PostgresVectorStorage instance
     return new PostgresVectorStorage({
-      tableName: 'embeddings',
+      tableName: "embeddings",
       dimension,
       sql: this.sql,
       createTableIfNotExists: true,
@@ -149,14 +149,29 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    */
   async getDatabaseConnection(): Promise<PostgresJsDatabase> {
     if (!this.isInitialized) {
-      throw new Error('PostgresPersistenceProvider not initialized');
+      throw new Error("PostgresPersistenceProvider not initialized");
     }
 
     if (!this.db) {
-      throw new Error('Database connection not available');
+      throw new Error("Database connection not available");
     }
 
     return this.db;
+  }
+
+  /**
+   * Get raw SQL connection for migrations and low-level operations
+   */
+  async getRawSqlConnection(): Promise<ReturnType<typeof postgres>> {
+    if (!this.isInitialized) {
+      throw new Error("PostgresPersistenceProvider not initialized");
+    }
+
+    if (!this.sql) {
+      throw new Error("Raw SQL connection not available");
+    }
+
+    return this.sql;
   }
 
   /**
@@ -164,7 +179,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    */
   async runMigrations(migrationsFolder: string): Promise<void> {
     if (!this.db) {
-      throw new Error('Database connection not available');
+      throw new Error("Database connection not available");
     }
 
     try {
@@ -205,8 +220,8 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
 
     const connectionString = this.config.postgres.connectionString;
     // Remove credentials for display
-    const displayString = connectionString.replace(/\/\/[^@]+@/, '//***@');
-    
-    return `PostgreSQL: ${displayString} (${this.isInitialized ? 'connected' : 'disconnected'})`;
+    const displayString = connectionString.replace(/\/\/[^@]+@/, "//***@");
+
+    return `PostgreSQL: ${displayString} (${this.isInitialized ? "connected" : "disconnected"})`;
   }
 }

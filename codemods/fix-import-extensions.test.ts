@@ -33,19 +33,15 @@ describe("ImportExtensionFixer", () => {
   /**
    * Helper to test import transformations
    */
-  function testImportTransformation(
-    sourceCode: string,
-    expectedCode: string,
-    description: string
-  ) {
+  function testImportTransformation(sourceCode: string, expectedCode: string, description: string) {
     const sourceFile = project.createSourceFile("test.ts", sourceCode);
-    
+
     // Manually apply the transformation logic
     // (extracting the core logic from ImportExtensionFixer)
     const importDeclarations = sourceFile.getImportDeclarations();
     for (const importDecl of importDeclarations) {
       const moduleSpecifier = importDecl.getModuleSpecifierValue();
-      
+
       // Only process local imports
       if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
         // Remove .js or .ts extensions
@@ -60,8 +56,11 @@ describe("ImportExtensionFixer", () => {
     const exportDeclarations = sourceFile.getExportDeclarations();
     for (const exportDecl of exportDeclarations) {
       const moduleSpecifier = exportDecl.getModuleSpecifierValue();
-      
-      if (moduleSpecifier && (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../"))) {
+
+      if (
+        moduleSpecifier &&
+        (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../"))
+      ) {
         if (moduleSpecifier.endsWith(".js") || moduleSpecifier.endsWith(".ts")) {
           const newSpecifier = moduleSpecifier.replace(/\.(js|ts)$/, "");
           exportDecl.setModuleSpecifier(newSpecifier);
@@ -91,11 +90,8 @@ describe("ImportExtensionFixer", () => {
     });
 
     test("should preserve external npm package imports", () => {
-      const sourceFile = project.createSourceFile(
-        "test.ts",
-        `import { Project } from "ts-morph";`
-      );
-      
+      const sourceFile = project.createSourceFile("test.ts", `import { Project } from "ts-morph";`);
+
       const importDecls = sourceFile.getImportDeclarations();
       for (const importDecl of importDecls) {
         const moduleSpecifier = importDecl.getModuleSpecifierValue();
@@ -110,9 +106,9 @@ describe("ImportExtensionFixer", () => {
         `import styles from "./styles.css";
 import data from "./data.json";`
       );
-      
+
       const importDecls = sourceFile.getImportDeclarations();
-      const specifiers = importDecls.map(d => d.getModuleSpecifierValue());
+      const specifiers = importDecls.map((d) => d.getModuleSpecifierValue());
       expect(specifiers).toContain("./styles.css");
       expect(specifiers).toContain("./data.json");
     });
@@ -125,11 +121,11 @@ import { b } from "../b.ts";
 import { c } from "external-package";
 import { d } from "./d";`
       );
-      
+
       const importDecls = sourceFile.getImportDeclarations();
       for (const importDecl of importDecls) {
         const moduleSpecifier = importDecl.getModuleSpecifierValue();
-        
+
         if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
           if (moduleSpecifier.endsWith(".js") || moduleSpecifier.endsWith(".ts")) {
             const newSpecifier = moduleSpecifier.replace(/\.(js|ts)$/, "");
@@ -137,8 +133,8 @@ import { d } from "./d";`
           }
         }
       }
-      
-      const specifiers = importDecls.map(d => d.getModuleSpecifierValue());
+
+      const specifiers = importDecls.map((d) => d.getModuleSpecifierValue());
       expect(specifiers).toContain("./a");
       expect(specifiers).toContain("../b");
       expect(specifiers).toContain("external-package");
@@ -153,20 +149,23 @@ import { d } from "./d";`
         `export { helper } from "./utils.js";
 export * from "../shared.ts";`
       );
-      
+
       const exportDecls = sourceFile.getExportDeclarations();
       for (const exportDecl of exportDecls) {
         const moduleSpecifier = exportDecl.getModuleSpecifierValue();
-        
-        if (moduleSpecifier && (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../"))) {
+
+        if (
+          moduleSpecifier &&
+          (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../"))
+        ) {
           if (moduleSpecifier.endsWith(".js") || moduleSpecifier.endsWith(".ts")) {
             const newSpecifier = moduleSpecifier.replace(/\.(js|ts)$/, "");
             exportDecl.setModuleSpecifier(newSpecifier);
           }
         }
       }
-      
-      const specifiers = exportDecls.map(d => d.getModuleSpecifierValue()).filter(Boolean);
+
+      const specifiers = exportDecls.map((d) => d.getModuleSpecifierValue()).filter(Boolean);
       expect(specifiers).toContain("./utils");
       expect(specifiers).toContain("../shared");
     });
@@ -177,7 +176,7 @@ export * from "../shared.ts";`
         `export const value = 42;
 export function helper() {}`
       );
-      
+
       // These exports don't have module specifiers, so nothing to transform
       const exportDecls = sourceFile.getExportDeclarations();
       expect(exportDecls.length).toBe(0);
@@ -202,14 +201,11 @@ export function helper() {}`
     });
 
     test("should handle imports without extensions", () => {
-      const sourceFile = project.createSourceFile(
-        "test.ts",
-        `import { helper } from "./utils";`
-      );
-      
+      const sourceFile = project.createSourceFile("test.ts", `import { helper } from "./utils";`);
+
       const importDecl = sourceFile.getImportDeclarations()[0];
       const originalSpecifier = importDecl.getModuleSpecifierValue();
-      
+
       // Should not modify imports that already don't have extensions
       expect(originalSpecifier).toBe("./utils");
     });
@@ -221,11 +217,11 @@ export function helper() {}`
 import { default as Component } from "./component.js";
 import * as utils from "../utils.js";`
       );
-      
+
       const importDecls = sourceFile.getImportDeclarations();
       for (const importDecl of importDecls) {
         const moduleSpecifier = importDecl.getModuleSpecifierValue();
-        
+
         if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
           if (moduleSpecifier.endsWith(".js") || moduleSpecifier.endsWith(".ts")) {
             const newSpecifier = moduleSpecifier.replace(/\.(js|ts)$/, "");
@@ -233,8 +229,8 @@ import * as utils from "../utils.js";`
           }
         }
       }
-      
-      const specifiers = importDecls.map(d => d.getModuleSpecifierValue());
+
+      const specifiers = importDecls.map((d) => d.getModuleSpecifierValue());
       expect(specifiers).toContain("./types");
       expect(specifiers).toContain("./component");
       expect(specifiers).toContain("../utils");
@@ -248,11 +244,11 @@ import * as utils from "../utils.js";`
         `import type { Type } from "./types.ts";
 import { type AnotherType, value } from "./mixed.js";`
       );
-      
+
       const importDecls = sourceFile.getImportDeclarations();
       for (const importDecl of importDecls) {
         const moduleSpecifier = importDecl.getModuleSpecifierValue();
-        
+
         if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
           if (moduleSpecifier.endsWith(".js") || moduleSpecifier.endsWith(".ts")) {
             const newSpecifier = moduleSpecifier.replace(/\.(js|ts)$/, "");
@@ -260,8 +256,8 @@ import { type AnotherType, value } from "./mixed.js";`
           }
         }
       }
-      
-      const specifiers = importDecls.map(d => d.getModuleSpecifierValue());
+
+      const specifiers = importDecls.map((d) => d.getModuleSpecifierValue());
       expect(specifiers).toContain("./types");
       expect(specifiers).toContain("./mixed");
     });
@@ -273,12 +269,12 @@ import { type AnotherType, value } from "./mixed.js";`
 import Component from "./Component.tsx";
 import styles from "./styles.module.css";`
       );
-      
+
       // Note: .tsx extension handling might be different
       // For now, we don't transform .tsx extensions in this simplified test
       const importDecls = sourceFile.getImportDeclarations();
-      const specifiers = importDecls.map(d => d.getModuleSpecifierValue());
-      
+      const specifiers = importDecls.map((d) => d.getModuleSpecifierValue());
+
       expect(specifiers).toContain("react");
       expect(specifiers).toContain("./Component.tsx"); // TSX preserved for now
       expect(specifiers).toContain("./styles.module.css");
@@ -293,11 +289,11 @@ import styles from "./styles.module.css";`
 import { readFile } from "node:fs";
 import { helper } from "./utils.js";`
       );
-      
+
       const importDecls = sourceFile.getImportDeclarations();
       for (const importDecl of importDecls) {
         const moduleSpecifier = importDecl.getModuleSpecifierValue();
-        
+
         // Only process local imports, not bun: or node: imports
         if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
           if (moduleSpecifier.endsWith(".js") || moduleSpecifier.endsWith(".ts")) {
@@ -306,8 +302,8 @@ import { helper } from "./utils.js";`
           }
         }
       }
-      
-      const specifiers = importDecls.map(d => d.getModuleSpecifierValue());
+
+      const specifiers = importDecls.map((d) => d.getModuleSpecifierValue());
       expect(specifiers).toContain("bun:test");
       expect(specifiers).toContain("node:fs");
       expect(specifiers).toContain("./utils");
@@ -319,11 +315,11 @@ import { helper } from "./utils.js";`
         `import { service } from "../../services/auth/auth-service.js";
 import { Component } from "./components/ui/Button.ts";`
       );
-      
+
       const importDecls = sourceFile.getImportDeclarations();
       for (const importDecl of importDecls) {
         const moduleSpecifier = importDecl.getModuleSpecifierValue();
-        
+
         if (moduleSpecifier.startsWith("./") || moduleSpecifier.startsWith("../")) {
           if (moduleSpecifier.endsWith(".js") || moduleSpecifier.endsWith(".ts")) {
             const newSpecifier = moduleSpecifier.replace(/\.(js|ts)$/, "");
@@ -331,8 +327,8 @@ import { Component } from "./components/ui/Button.ts";`
           }
         }
       }
-      
-      const specifiers = importDecls.map(d => d.getModuleSpecifierValue());
+
+      const specifiers = importDecls.map((d) => d.getModuleSpecifierValue());
       expect(specifiers).toContain("../../services/auth/auth-service");
       expect(specifiers).toContain("./components/ui/Button");
     });

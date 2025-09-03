@@ -12,18 +12,18 @@ import type { VectorStorage } from "../storage/vector/types";
  * Capabilities exposed by different persistence providers
  */
 export interface PersistenceCapabilities {
-  sql: boolean;              // Supports SQL queries
-  transactions: boolean;     // ACID transaction support
-  jsonb: boolean;           // JSONB column type and operators
-  vectorStorage: boolean;   // pgvector extension available
-  migrations: boolean;      // Can run Drizzle migrations
+  sql: boolean; // Supports SQL queries
+  transactions: boolean; // ACID transaction support
+  jsonb: boolean; // JSONB column type and operators
+  vectorStorage: boolean; // pgvector extension available
+  migrations: boolean; // Can run Drizzle migrations
 }
 
 /**
  * Configuration for different persistence backends
  */
 export interface PersistenceConfig {
-  backend: 'postgres' | 'sqlite' | 'json';
+  backend: "postgres" | "sqlite" | "json";
   postgres?: {
     connectionString: string;
     maxConnections?: number;
@@ -75,6 +75,11 @@ export abstract class PersistenceProvider {
   abstract getDatabaseConnection?(): Promise<PostgresJsDatabase | null>;
 
   /**
+   * Get raw SQL connection for migrations and low-level operations (if SQL-based)
+   */
+  abstract getRawSqlConnection?(): Promise<ReturnType<typeof import("postgres")> | null>;
+
+  /**
    * Initialize the provider
    */
   abstract initialize(): Promise<void>;
@@ -96,6 +101,6 @@ export abstract class PersistenceProvider {
 export class CapabilityNotSupportedError extends Error {
   constructor(capability: keyof PersistenceCapabilities, provider: string) {
     super(`Capability '${capability}' is not supported by ${provider} provider`);
-    this.name = 'CapabilityNotSupportedError';
+    this.name = "CapabilityNotSupportedError";
   }
 }

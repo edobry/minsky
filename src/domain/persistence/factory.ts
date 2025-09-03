@@ -23,23 +23,23 @@ export class PersistenceProviderFactory {
     let provider: PersistenceProvider;
 
     switch (config.backend) {
-      case 'postgres':
+      case "postgres":
         if (!config.postgres) {
-          throw new Error('PostgreSQL configuration required for postgres backend');
+          throw new Error("PostgreSQL configuration required for postgres backend");
         }
         provider = new PostgresPersistenceProvider(config);
         break;
 
-      case 'sqlite':
+      case "sqlite":
         if (!config.sqlite) {
-          throw new Error('SQLite configuration required for sqlite backend');
+          throw new Error("SQLite configuration required for sqlite backend");
         }
         provider = new SqlitePersistenceProvider(config);
         break;
 
-      case 'json':
+      case "json":
         if (!config.json) {
-          throw new Error('JSON configuration required for json backend');
+          throw new Error("JSON configuration required for json backend");
         }
         provider = new JsonPersistenceProvider(config);
         break;
@@ -55,7 +55,9 @@ export class PersistenceProviderFactory {
   /**
    * Create a mock provider for testing
    */
-  static createMock(capabilities?: Partial<PersistenceProvider['capabilities']>): PersistenceProvider {
+  static createMock(
+    capabilities?: Partial<PersistenceProvider["capabilities"]>
+  ): PersistenceProvider {
     return new MockPersistenceProvider(capabilities);
   }
 }
@@ -73,7 +75,7 @@ class MockPersistenceProvider extends PersistenceProvider {
     ...this.customCapabilities,
   };
 
-  constructor(private customCapabilities?: Partial<PersistenceProvider['capabilities']>) {
+  constructor(private customCapabilities?: Partial<PersistenceProvider["capabilities"]>) {
     super();
   }
 
@@ -85,14 +87,18 @@ class MockPersistenceProvider extends PersistenceProvider {
     const storage: any = {
       data: new Map<string, T>(),
       get: async (id: string) => storage.data.get(id) || null,
-      save: async (id: string, data: T) => { storage.data.set(id, data); },
+      save: async (id: string, data: T) => {
+        storage.data.set(id, data);
+      },
       update: async (id: string, updates: Partial<T>) => {
         const existing = storage.data.get(id);
         if (existing) {
           storage.data.set(id, { ...existing, ...updates });
         }
       },
-      delete: async (id: string) => { storage.data.delete(id); },
+      delete: async (id: string) => {
+        storage.data.delete(id);
+      },
       search: async () => Array.from(storage.data.values()),
     };
     return storage;

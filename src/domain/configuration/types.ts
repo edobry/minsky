@@ -74,6 +74,7 @@ export interface RepositoryConfig {
     };
     base_dir?: string;
   };
+  persistence?: PersistenceConfig;  // New persistence configuration
   ai?: AIConfig;
   github?: GitHubConfig;
   logger?: LoggerConfig;
@@ -88,6 +89,7 @@ export interface GlobalUserConfig {
     };
     base_dir?: string;
   };
+  persistence?: PersistenceConfig;  // New persistence configuration
   ai?: AIConfig;
   postgres?: PostgresConfig;
   logger?: LoggerConfig;
@@ -99,6 +101,7 @@ export interface ResolvedConfig {
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfig;
   sessiondb: SessionDbConfig;
+  persistence?: PersistenceConfig;  // New persistence configuration
   github?: GitHubConfig;
   ai?: AIConfig;
   postgres?: PostgresConfig;
@@ -120,6 +123,23 @@ export interface SessionDbConfig {
   dbPath?: string;
   baseDir?: string;
   connectionString?: string;
+}
+
+export interface PersistenceConfig {
+  backend: "postgres" | "sqlite" | "json";
+  postgres?: {
+    connectionString: string;
+    maxConnections?: number;
+    connectTimeout?: number;
+    idleTimeout?: number;
+    prepareStatements?: boolean;
+  };
+  sqlite?: {
+    dbPath: string;
+  };
+  json?: {
+    filePath: string;
+  };
 }
 
 // Configuration Management Types

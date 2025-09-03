@@ -19,21 +19,21 @@ export async function createVectorStorageFromConfig(dimension: number): Promise<
     await PersistenceService.initialize();
   }
   const provider = PersistenceService.getProvider();
-  
+
   // Check if provider supports vector storage
   if (!provider.capabilities.vectorStorage) {
     log.warn("Current persistence provider does not support vector storage, using memory backend");
     return new MemoryVectorStorage(dimension);
   }
-  
+
   // Get vector storage from provider
   const vectorStorage = await provider.getVectorStorage?.(dimension);
-  
+
   if (!vectorStorage) {
     log.warn("Provider returned null for vector storage, using memory backend");
     return new MemoryVectorStorage(dimension);
   }
-  
+
   return vectorStorage;
 }
 
@@ -74,7 +74,7 @@ export async function createVectorStorage(
   if (!provider.capabilities?.vectorStorage) {
     return new MemoryVectorStorage(dimension);
   }
-  
+
   const vectorStorage = await provider.getVectorStorage?.(dimension);
   return vectorStorage || new MemoryVectorStorage(dimension);
 }

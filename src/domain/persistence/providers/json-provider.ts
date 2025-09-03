@@ -6,12 +6,12 @@
 
 import { promises as fs } from "fs";
 import path from "path";
-import { 
-  PersistenceProvider, 
-  PersistenceCapabilities, 
+import {
+  PersistenceProvider,
+  PersistenceCapabilities,
   PersistenceConfig,
   DatabaseStorage,
-  CapabilityNotSupportedError
+  CapabilityNotSupportedError,
 } from "../types";
 import type { VectorStorage } from "../../storage/vector/types";
 import { log } from "../../../utils/logger";
@@ -37,8 +37,8 @@ export class JsonPersistenceProvider extends PersistenceProvider {
 
   constructor(config: PersistenceConfig) {
     super();
-    if (config.backend !== 'json' || !config.json) {
-      throw new Error('JsonPersistenceProvider requires json configuration');
+    if (config.backend !== "json" || !config.json) {
+      throw new Error("JsonPersistenceProvider requires json configuration");
     }
     this.config = config;
   }
@@ -52,26 +52,26 @@ export class JsonPersistenceProvider extends PersistenceProvider {
     }
 
     const filePath = this.config.json!.filePath;
-    
+
     try {
       log.debug(`Initializing JSON persistence provider at ${filePath}`);
-      
+
       // Ensure directory exists
       await fs.mkdir(path.dirname(filePath), { recursive: true });
-      
+
       // Load existing data or create empty file
       try {
-        const content = await fs.readFile(filePath, 'utf-8');
+        const content = await fs.readFile(filePath, "utf-8");
         this.data = JSON.parse(content);
       } catch (error: any) {
-        if (error.code === 'ENOENT') {
+        if (error.code === "ENOENT") {
           // File doesn't exist, create it
           await this.saveData();
         } else {
           throw error;
         }
       }
-      
+
       this.isInitialized = true;
       log.debug("JSON persistence provider initialized");
     } catch (error) {
@@ -93,12 +93,12 @@ export class JsonPersistenceProvider extends PersistenceProvider {
    */
   getStorage<T, S>(): DatabaseStorage<T, S> {
     if (!this.isInitialized) {
-      throw new Error('JsonPersistenceProvider not initialized');
+      throw new Error("JsonPersistenceProvider not initialized");
     }
 
     return {
       get: async (id: string) => {
-        return this.data[id] as T || null;
+        return (this.data[id] as T) || null;
       },
       save: async (id: string, data: T) => {
         this.data[id] = data;
@@ -126,13 +126,20 @@ export class JsonPersistenceProvider extends PersistenceProvider {
    * Vector storage not supported by JSON provider
    */
   async getVectorStorage(dimension: number): Promise<VectorStorage | null> {
-    throw new CapabilityNotSupportedError('vectorStorage', 'JSON');
+    throw new CapabilityNotSupportedError("vectorStorage", "JSON");
   }
 
   /**
    * No database connection for JSON provider
    */
   async getDatabaseConnection(): Promise<null> {
+    return null;
+  }
+
+  /**
+   * No raw SQL connection for JSON provider
+   */
+  async getRawSqlConnection(): Promise<null> {
     return null;
   }
 
@@ -155,6 +162,6 @@ export class JsonPersistenceProvider extends PersistenceProvider {
       return "JSON: Not configured";
     }
 
-    return `JSON: ${this.config.json.filePath} (${this.isInitialized ? 'loaded' : 'not loaded'})`;
+    return `JSON: ${this.config.json.filePath} (${this.isInitialized ? "loaded" : "not loaded"})`;
   }
 }

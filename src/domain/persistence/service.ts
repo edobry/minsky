@@ -27,7 +27,7 @@ export class PersistenceService {
     }
 
     PersistenceService.initPromise = PersistenceService.performInitialization(config);
-    
+
     try {
       await PersistenceService.initPromise;
     } finally {
@@ -42,13 +42,13 @@ export class PersistenceService {
     try {
       // Use provided config or load from configuration
       const persistenceConfig = config || PersistenceService.loadConfiguration();
-      
+
       // Create provider using factory
       PersistenceService.provider = PersistenceProviderFactory.create(persistenceConfig);
-      
+
       // Initialize the provider
       await PersistenceService.provider.initialize();
-      
+
       log.info("PersistenceService initialized successfully");
     } catch (error) {
       log.error("Failed to initialize PersistenceService:", error);
@@ -61,28 +61,45 @@ export class PersistenceService {
    */
   private static loadConfiguration(): PersistenceConfig {
     const runtimeConfig = getConfiguration();
-    
+
     // Check for new persistence config structure
     if (runtimeConfig.persistence) {
       return runtimeConfig.persistence;
     }
-    
+
     // Fall back to legacy sessiondb config for backward compatibility
-    if (runtimeConfig.sessiondb?.postgres?.connectionString) {
-      log.warn("Using legacy sessiondb configuration. Please migrate to persistence: configuration.");
+    if (runtimeConfig.sessiondb?.connectionString && runtimeConfig.sessiondb.backend === "postgres") {
+      log.warn(
+        "Using legacy sessiondb configuration. Please migrate to persistence: configuration."
+      );
       return {
-        backend: 'postgres',
+        backend: "postgres",
         postgres: {
-          connectionString: runtimeConfig.sessiondb.postgres.connectionString,
-          maxConnections: runtimeConfig.sessiondb.postgres.maxConnections,
-          connectTimeout: runtimeConfig.sessiondb.postgres.connectTimeout,
-          idleTimeout: runtimeConfig.sessiondb.postgres.idleTimeout,
-          prepareStatements: runtimeConfig.sessiondb.postgres.prepareStatements,
+          connectionString: runtimeConfig.sessiondb.connectionString,
+          maxConnections: 10,
+          connectTimeout: 30000,
+          idleTimeout: 10000,
+          prepareStatements: true,
         },
       };
     }
-    
-    throw new Error("No persistence configuration found. Please configure 'persistence:' in your configuration.");
+
+    // SQLite fallback from sessiondb
+    if (runtimeConfig.sessiondb?.backend === "sqlite") {
+      log.warn(
+        "Using legacy sessiondb configuration. Please migrate to persistence: configuration."
+      );
+      return {
+        backend: "sqlite",
+        sqlite: {
+          dbPath: runtimeConfig.sessiondb.dbPath || "~/.local/state/minsky/minsky.db"
+        }
+      };
+    }
+
+    throw new Error(
+      "No persistence configuration found. Please configure 'persistence:' in your configuration."
+    );
   }
 
   /**
@@ -90,7 +107,9 @@ export class PersistenceService {
    */
   static getProvider(): PersistenceProvider {
     if (!PersistenceService.provider) {
-      throw new Error('PersistenceService not initialized. Call PersistenceService.initialize() first.');
+      throw new Error(
+        "PersistenceService not initialized. Call PersistenceService.initialize() first."
+      );
     }
     return PersistenceService.provider;
   }
