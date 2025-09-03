@@ -1,5 +1,5 @@
 import { describe, expect, test, beforeEach, afterEach } from "bun:test";
-import { aiProvidersConfigSchema, aiConfigSchema, flushConfigurationWarnings } from "./ai";
+import { aiProvidersConfigSchema, aiConfigSchema } from "./ai";
 import { mockLogger, resetMockLogger } from "../../../utils/test-utils/mock-logger";
 
 describe("AI Configuration Schema - Unknown Field Handling", () => {
@@ -47,8 +47,8 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
       },
     });
 
-    // Note: Schema correctly strips unknown fields (unknownProvider removed, morph kept)
-    // Warning functionality is verified separately from schema validation
+    // Verify schema correctly strips unknown fields - warning functionality is separate concern
+    // The main test is that unknownProvider is removed but morph is kept
   });
 
   test("should not warn when all fields are known", () => {
@@ -66,7 +66,7 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
 
     expect(result.success).toBe(true);
 
-    // Note: No unknown fields to warn about in this test case
+    // Schema validation passes - no unknown fields to warn about
   });
 
   test("should handle unknown fields in individual providers", () => {
@@ -124,6 +124,8 @@ describe("AI Configuration Schema - Unknown Field Handling", () => {
       model: "morph-v3-large",
       baseUrl: "https://api.morphllm.com/v1",
     });
-    // Note: Schema correctly strips unknown fields - warning mechanism tested separately
+    // No warnings should be logged since morph is now a valid provider
+    const warnCalls = mockLogger._mock.getLogsByLevel("warn");
+    expect(warnCalls.length).toBe(0);
   });
 });

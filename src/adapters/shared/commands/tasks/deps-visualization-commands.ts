@@ -46,12 +46,14 @@ const tasksDepsGraphParams: CommandParameterMap = {
   },
   layout: {
     schema: z.enum(["dot", "neato", "fdp", "circo", "twopi"]).default("dot"),
-    description: "Graph layout engine: dot (hierarchical), neato (spring), fdp (force), circo (circular), twopi (radial)",
+    description:
+      "Graph layout engine: dot (hierarchical), neato (spring), fdp (force), circo (circular), twopi (radial)",
     required: false,
   },
   direction: {
     schema: z.enum(["TB", "BT", "LR", "RL"]).default("TB"),
-    description: "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style), LR (left-right), RL (right-left)",
+    description:
+      "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style), LR (left-right), RL (right-left)",
     required: false,
   },
   spacing: {
@@ -60,8 +62,9 @@ const tasksDepsGraphParams: CommandParameterMap = {
     required: false,
   },
   style: {
-    schema: z.enum(["default", "tech-tree", "flowchart", "network"]).default("default"),
-    description: "Visual style: default (basic), tech-tree (game-style), flowchart (process), network (connected)",
+    schema: z.enum(["default", "tech-tree", "kanban", "mobile", "compact"]).default("default"),
+    description:
+      "Visual style: default (basic), tech-tree (game-style), kanban (board-compatible), mobile (narrow), compact (dense)",
     required: false,
   },
 };
@@ -484,17 +487,17 @@ async function generateGraphvizDot(
     });
 
     const { layout = "dot", direction = "TB", spacing = "normal", style = "default" } = options;
-    
+
     lines.push("digraph TaskDependencies {");
-    
+
     // Layout engine (for rendering, not DOT syntax)
     if (layout !== "dot") {
       lines.push(`  layout="${layout}";`);
     }
-    
+
     // Direction
     lines.push(`  rankdir=${direction};`);
-    
+
     // Spacing configuration
     let ranksep = "0.75";
     let nodesep = "0.5";
@@ -507,24 +510,35 @@ async function generateGraphvizDot(
     }
     lines.push(`  ranksep=${ranksep};`);
     lines.push(`  nodesep=${nodesep};`);
-    
-    // Style configuration
+
+    // Style configuration optimized for vertical layouts
     if (style === "tech-tree") {
       lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=10];`);
       lines.push(`  edge [color="#4a5568", arrowsize=0.8, style=bold];`);
       lines.push(`  bgcolor="transparent";`);
       lines.push(`  concentrate=true;`); // Merge multiple edges
-    } else if (style === "flowchart") {
-      lines.push(`  node [shape=rectangle, style=filled, fontname="Helvetica"];`);
-      lines.push(`  edge [color=black, arrowhead=vee];`);
-    } else if (style === "network") {
-      lines.push(`  node [shape=ellipse, style=filled];`);
-      lines.push(`  edge [color=blue, dir=both, arrowhead=dot, arrowtail=dot];`);
+    } else if (style === "kanban") {
+      // Optimized for kanban board integration - narrow, column-friendly
+      lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=9, width=1.5, height=0.8];`);
+      lines.push(`  edge [color="#6b7280", arrowsize=0.6];`);
+      lines.push(`  bgcolor="white";`);
+      lines.push(`  margin="0.1";`);
+    } else if (style === "mobile") {
+      // Optimized for mobile/narrow screens
+      lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=8, width=1.2];`);
+      lines.push(`  edge [color="#374151", arrowsize=0.5];`);
+      lines.push(`  bgcolor="transparent";`);
+      lines.push(`  margin="0.05";`);
+    } else if (style === "compact") {
+      // Dense layout for IDE panels/terminals
+      lines.push(`  node [shape=box, style="filled", fontname=Consolas, fontsize=8, width=1.0, height=0.6];`);
+      lines.push(`  edge [color="#6b7280", arrowsize=0.4];`);
+      lines.push(`  margin="0";`);
     } else {
       lines.push(`  node [shape=box, style=rounded];`);
       lines.push(`  edge [color=gray];`);
     }
-    
+
     lines.push("");
 
     const tasksWithDeps = [];
@@ -606,7 +620,7 @@ async function generateGraphvizDot(
         let color = "lightgray";
         let shape = "box";
         let borderColor = "black";
-        
+
         if (style === "tech-tree") {
           // Tech tree styling with game-like colors
           if (status === "TODO") {
@@ -622,18 +636,47 @@ async function generateGraphvizDot(
             color = "#f87171"; // Red for blocked
             borderColor = "#dc2626";
           }
-          shape = "box";
+        } else if (style === "kanban") {
+          // Kanban-compatible colors that work with column layouts
+          if (status === "TODO") {
+            color = "#f1f5f9"; // Light gray
+            borderColor = "#64748b";
+          } else if (status === "IN-PROGRESS") {
+            color = "#fef3c7"; // Soft yellow  
+            borderColor = "#d97706";
+          } else if (status === "DONE") {
+            color = "#d1fae5"; // Soft green
+            borderColor = "#059669";
+          } else if (status === "BLOCKED") {
+            color = "#fee2e2"; // Soft red
+            borderColor = "#dc2626";
+          }
+        } else if (style === "mobile" || style === "compact") {
+          // High contrast for small screens
+          if (status === "TODO") {
+            color = "#e5e7eb";
+            borderColor = "#374151";
+          } else if (status === "IN-PROGRESS") {
+            color = "#fed7aa";
+            borderColor = "#ea580c";
+          } else if (status === "DONE") {
+            color = "#bbf7d0";
+            borderColor = "#16a34a";
+          } else if (status === "BLOCKED") {
+            color = "#fecaca";
+            borderColor = "#dc2626";
+          }
         } else {
-          // Original colors for other styles
+          // Original colors for default style
           if (status === "TODO") color = "lightblue";
           else if (status === "IN-PROGRESS") color = "yellow";
           else if (status === "DONE") color = "lightgreen";
           else if (status === "BLOCKED") color = "lightcoral";
         }
 
-        if (style === "tech-tree") {
+        if (style === "tech-tree" || style === "kanban" || style === "mobile" || style === "compact") {
           lines.push(
-            `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", color="${borderColor}", penwidth=2];`
+            `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", color="${borderColor}", penwidth=${style === "compact" ? "1" : "2"}];`
           );
         } else {
           lines.push(
@@ -678,9 +721,15 @@ async function renderGraphvizFormat(
   outputPath?: string,
   layoutOptions: LayoutOptions = {}
 ): Promise<{ message: string; filePath: string }> {
-      try {
-      // Generate DOT content with layout options
-      const dotContent = await generateGraphvizDot(graphService, taskService, limit, statusFilter, layoutOptions);
+  try {
+    // Generate DOT content with layout options
+    const dotContent = await generateGraphvizDot(
+      graphService,
+      taskService,
+      limit,
+      statusFilter,
+      layoutOptions
+    );
 
     // Generate output filename if not provided
     const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
@@ -691,18 +740,25 @@ async function renderGraphvizFormat(
       // Render using pure JS/WASM with layout engine
       const graphviz = await Graphviz.load();
       let outputBuffer: Buffer;
-      
+
       const layoutEngine = layoutOptions.layout || "dot";
 
       switch (format) {
         case "svg":
-          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "svg"), "utf8");
+          outputBuffer = Buffer.from(
+            await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "svg"),
+            "utf8"
+          );
           break;
         case "png":
-          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "png"));
+          outputBuffer = Buffer.from(
+            await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "png")
+          );
           break;
         case "pdf":
-          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "pdf"));
+          outputBuffer = Buffer.from(
+            await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "pdf")
+          );
           break;
         default:
           throw new Error(`Unsupported format: ${format}`);

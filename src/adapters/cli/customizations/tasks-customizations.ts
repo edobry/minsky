@@ -227,13 +227,13 @@ export function getTasksCustomizations(): {
               description: "Layout engine (dot, neato, fdp, circo, twopi)",
             },
             direction: {
-              description: "Direction (TB, BT, LR, RL)",
+              description: "Direction (TB, BT) - vertical layouts only",
             },
             spacing: {
               description: "Spacing (compact, normal, wide)",
             },
             style: {
-              description: "Visual style (default, tech-tree, flowchart, network)",
+              description: "Visual style (default, tech-tree, kanban, mobile, compact)",
             },
           },
           outputFormatter: (result: any) => {

@@ -7,8 +7,10 @@
 
 import { z } from "zod";
 import { baseSchemas, enumSchemas } from "./base";
+import { log } from "../../../utils/logger";
+
 /**
- * Detect unknown fields in an object and collect warnings (no immediate logging to avoid circular deps)
+ * Detect unknown fields in an object and log warnings
  */
 const detectAndWarnUnknownFields = (data: any, schema: z.ZodObject<any>, context: string): any => {
   if (!data || typeof data !== "object") {
@@ -20,42 +22,11 @@ const detectAndWarnUnknownFields = (data: any, schema: z.ZodObject<any>, context
   const unknownKeys = dataKeys.filter((key) => !knownKeys.has(key));
 
   if (unknownKeys.length > 0) {
-    // Store warning for later logging to avoid circular dependency during module initialization
-    // Warning will be logged when the schema is actually used for parsing
-    const warning = {
-      context,
-      unknownFields: unknownKeys,
-      message: `Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`,
-    };
-    queuedConfigWarnings.push(warning);
+    log.warn(`Configuration Warning: Unknown fields in ${context}: ${unknownKeys.join(", ")}. These fields will be ignored.`);
   }
 
   return data;
 };
-
-// Queue for configuration warnings to avoid circular dependency during module loading
-const queuedConfigWarnings: Array<{
-  context: string;
-  unknownFields: string[];
-  message: string;
-}> = [];
-
-/**
- * Flush queued configuration warnings - call this after logger is available
- */
-export function flushConfigurationWarnings() {
-  if (queuedConfigWarnings.length === 0) return;
-
-  try {
-    const { log } = require("../../../utils/logger");
-    for (const warning of queuedConfigWarnings) {
-      log.warn(warning.message);
-    }
-    queuedConfigWarnings.length = 0; // Clear the queue
-  } catch (error) {
-    // Logger not available, keep warnings queued
-  }
-}
 
 /**
  * Individual AI provider configuration
