@@ -42,6 +42,7 @@ describe("Init System Backend Selection", () => {
           mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
           mcpOnly: false,
           overwrite: false,
+          workflows: false, // Disable workflows to avoid initialization errors
         },
         mockFileSystem
       );
@@ -71,6 +72,7 @@ describe("Init System Backend Selection", () => {
         mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
         mcpOnly: false,
         overwrite: false,
+        workflows: false, // Disable workflows to avoid initialization errors
       },
       mockFileSystem
     );
@@ -89,6 +91,7 @@ describe("Init System Backend Selection", () => {
         mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
         mcpOnly: false,
         overwrite: false,
+        workflows: false, // Disable workflows to avoid initialization errors
       },
       mockFileSystem
     );
@@ -108,6 +111,7 @@ describe("Init System Backend Selection", () => {
         mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
         mcpOnly: false,
         overwrite: false,
+        workflows: false, // Disable workflows to avoid initialization errors
       },
       mockFileSystem
     );
@@ -131,6 +135,7 @@ describe("Init System Backend Selection", () => {
         mcp: { enabled: false }, // Disable MCP to avoid rule generation issues
         mcpOnly: false,
         overwrite: false,
+        workflows: false, // Disable workflows to avoid initialization errors
       },
       mockFileSystem
     );

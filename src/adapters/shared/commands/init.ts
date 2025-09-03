@@ -44,6 +44,11 @@ const initParams: CommandParameterMap = composeParams(
       description: "Rule format (cursor or generic)",
       required: false,
     },
+    workflows: {
+      schema: z.boolean().optional(),
+      description: "Enable workflow configuration (default: true)",
+      required: false,
+    },
     mcp: {
       schema: z.union([z.string(), z.boolean()]).optional(),
       description: "Enable/disable MCP configuration (default: true)",
@@ -195,6 +200,25 @@ export function registerInitCommands() {
           }
         }
 
+        // Interactive workflow configuration if not provided
+        let workflows = params.workflows;
+        if (workflows === undefined && process.stdout.isTTY && !params.mcpOnly) {
+          const enableWorkflows = await confirm({
+            message: "Auto-configure development workflows (lint, test, format)?",
+            initialValue: true,
+          });
+
+          if (isCancel(enableWorkflows)) {
+            cancel("Initialization cancelled.");
+            return { success: false, message: "Initialization cancelled by user." };
+          }
+
+          workflows = enableWorkflows;
+        } else if (workflows === undefined) {
+          // Default to true if not specified
+          workflows = true;
+        }
+
         // Interactive MCP configuration if not provided
         let mcp:
           | {
@@ -293,6 +317,7 @@ export function registerInitCommands() {
           mcp,
           mcpOnly,
           overwrite,
+          workflows,
         });
 
         // TODO: Handle GitHub-specific configuration when github-issues backend is selected
@@ -303,7 +328,7 @@ export function registerInitCommands() {
           // Future: Set up GitHub API configuration, webhooks, etc.
         }
 
-        return { success: true, message: "Project initialized successfully." };
+        return { success: true, message: "Project initialized successfully with workflow configuration." };
       } catch (error: any) {
         log.error("Error initializing project", { error });
         throw error instanceof ValidationError
