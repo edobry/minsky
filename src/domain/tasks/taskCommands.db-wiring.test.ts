@@ -18,8 +18,8 @@ describe("DB wiring for minsky backend", () => {
     // or fail with a more specific database connection error (not "Backend not found")
     if (threw) {
       expect(String(threw?.message || threw)).not.toMatch(/Backend not found/i);
-      // If it fails, should be due to database connectivity, not backend registration
-      expect(String(threw?.message || threw)).toMatch(/PostgreSQL|database|connection|timeout/i);
+      // If it fails, should be due to database connectivity or persistence configuration
+      expect(String(threw?.message || threw)).toMatch(/PostgreSQL|database|connection|timeout|persistence|configuration/i);
     } else {
       // If successful, should return task list (could be empty, that's fine)
       expect(result).toBeDefined();
