@@ -29,6 +29,10 @@ import {
   createTasksDepsTreeCommand,
   createTasksDepsGraphCommand,
 } from "./tasks/deps-visualization-commands";
+import {
+  createTasksAvailableCommand,
+  createTasksRouteCommand,
+} from "./tasks/routing-commands";
 
 /**
  * Modular Tasks Command Manager
@@ -67,6 +71,9 @@ export class ModularTasksCommandManager {
       const depsListCommand = createTasksDepsListCommand();
       const depsTreeCommand = createTasksDepsTreeCommand();
       const depsGraphCommand = createTasksDepsGraphCommand();
+      
+      const availableCommand = createTasksAvailableCommand();
+      const routeCommand = createTasksRouteCommand();
 
       // Register list command
       sharedCommandRegistry.registerCommand({
@@ -279,6 +286,25 @@ export class ModularTasksCommandManager {
         description: depsGraphCommand.description,
         parameters: depsGraphCommand.parameters,
         execute: depsGraphCommand.execute,
+      });
+
+      // Register routing commands
+      sharedCommandRegistry.registerCommand({
+        id: availableCommand.id,
+        category: CommandCategory.TASKS,
+        name: availableCommand.name,
+        description: availableCommand.description,
+        parameters: availableCommand.parameters,
+        execute: availableCommand.execute,
+      });
+
+      sharedCommandRegistry.registerCommand({
+        id: routeCommand.id,
+        category: CommandCategory.TASKS,
+        name: routeCommand.name,
+        description: routeCommand.description,
+        parameters: routeCommand.parameters,
+        execute: routeCommand.execute,
       });
     } catch (error) {
       log.warn("Failed to register task commands:", error);
