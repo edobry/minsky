@@ -105,10 +105,21 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
     // Setup workspace and service
     const { taskService } = await this.setupWorkspaceAndService(params);
 
-    // Create the task with title and description
+    let spec = params.spec;
+
+    // If specPath is provided, read from file
+    if (params.specPath) {
+      try {
+        spec = await readFile(params.specPath, "utf-8");
+      } catch (error) {
+        throw new Error(`Failed to read spec from file: ${params.specPath}`);
+      }
+    }
+
+    // Create the task with title and spec
     const result = await taskService.createTask({
       title: params.title,
-      description: params.description,
+      description: spec,
     });
 
     return result;
