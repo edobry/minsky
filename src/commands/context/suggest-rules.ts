@@ -96,7 +96,7 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
   const startTime = Date.now();
   let totalTime = 0;
   if (useEmbeddings) {
-    const sim = new RuleSimilarityService(workspacePath, {});
+    const sim = RuleSimilarityService.createWithWorkspacePath(workspacePath, {});
     const limit = parseInt(String(options.limit || 5), 10);
     const results = await sim.searchByText(query, limit);
 

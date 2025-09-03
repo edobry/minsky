@@ -288,7 +288,6 @@ export class TasksSearchCommand extends BaseTaskCommand {
 }
 
 import { createEmbeddingServiceFromConfig } from "../../../../domain/ai/embedding-service-factory";
-import { createVectorStorageFromConfig } from "../../../../domain/storage/vector/vector-storage-factory";
 import { getConfiguration } from "../../../../domain/configuration";
 import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
 
@@ -298,7 +297,15 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   const dimension = getEmbeddingDimension(model, 1536);
 
   const embedding = await createEmbeddingServiceFromConfig();
-  const storage = await createVectorStorageFromConfig(dimension);
+  
+  // Use PersistenceService instead of direct vector storage creation
+  const { PersistenceService } = await import("../../../../domain/persistence/service");
+  
+  if (!PersistenceService.isInitialized()) {
+    await PersistenceService.initialize();
+  }
+  
+  const persistence = PersistenceService.getProvider();
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
@@ -307,9 +314,9 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
 
-  return new TaskSimilarityService(
+  const service = new TaskSimilarityService(
     embedding,
-    storage,
+    persistence,
     findTaskById,
     searchTasks,
     getTaskSpecContent,
@@ -319,6 +326,11 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
       dimension,
     }
   );
+  
+  // Initialize the service to set up vector storage
+  await service.initialize();
+  
+  return service;
 }
 
 // Helper on BaseTaskCommand to create service

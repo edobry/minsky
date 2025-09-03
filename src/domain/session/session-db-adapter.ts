@@ -11,11 +11,7 @@ import { createSessionProviderWithAutoRepair } from "./session-auto-repair-provi
 
 // Re-export the interface for use in extracted modules
 export type { SessionProviderInterface };
-import {
-  createStorageBackendWithIntegrity,
-  type StorageConfig,
-  type StorageResult,
-} from "../storage/storage-backend-factory";
+import type { PersistenceProvider } from "../persistence/types";
 import type { DatabaseStorage } from "../storage/database-storage";
 import type { SessionDbState } from "./session-db";
 import {
@@ -35,19 +31,35 @@ export class SessionDbAdapter implements SessionProviderInterface {
   private storage: DatabaseStorage<SessionRecord, SessionDbState> | null = null;
   private storageWarnings: string[] = [];
 
-  constructor() {
+  constructor(private readonly persistence?: PersistenceProvider) {
     // No longer taking workingDir parameter - use global configuration instead
+  }
+
+  /**
+   * @deprecated Use constructor with PersistenceProvider instead
+   */
+  static createWithDefaults(): SessionDbAdapter {
+    return new SessionDbAdapter();
   }
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
     if (!this.storage) {
+      // Use PersistenceProvider if available
+      if (this.persistence) {
+        this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
+        return this.storage;
+      }
+      
+      // Fall back to legacy storage backend factory for backward compatibility
+      const { createStorageBackendWithIntegrity } = await import("../storage/storage-backend-factory");
+      
       // Get configuration using the custom configuration system
       // Configuration should already be initialized by the CLI entry point
       const config = getConfiguration();
       const sessionDbConfig = config.sessiondb || {};
 
       // Build storage configuration using values from config system (already defaulted)
-      const storageConfig: Partial<StorageConfig> = {
+      const storageConfig: Partial<any> = {
         backend: sessionDbConfig.backend, // No fallback - config system provides defaults
         enableIntegrityCheck: sessionDbConfig.enableIntegrityCheck ?? true,
         autoMigrate: sessionDbConfig.autoMigrate ?? false,
@@ -70,7 +82,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
       // Create storage backend with integrity checking
       try {
-        const result: StorageResult = await createStorageBackendWithIntegrity(storageConfig);
+        const result: any = await createStorageBackendWithIntegrity(storageConfig);
         this.storage = result.storage;
         this.storageWarnings = result.warnings || [];
 
