@@ -15,6 +15,10 @@ mock.module("../src/utils/logger", () => ({
   log: {
     ...mockLogger,
     info: mock(() => {}),
+    cli: mock(() => {}),
+    debug: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
   },
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,
@@ -27,6 +31,10 @@ mock.module("../../utils/logger", () => ({
   log: {
     ...mockLogger,
     info: mock(() => {}),
+    cli: mock(() => {}),
+    debug: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
   },
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,
@@ -38,6 +46,10 @@ mock.module("../../../utils/logger", () => ({
   log: {
     ...mockLogger,
     info: mock(() => {}),
+    cli: mock(() => {}),
+    debug: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
   },
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,
@@ -45,11 +57,15 @@ mock.module("../../../utils/logger", () => ({
   isHumanMode: () => true,
 }));
 
-// Also mock the domain logger if it exists
-mock.module("../src/domain/utils/logger", () => ({
+// Mock utils/logger from different directory levels
+mock.module("../../src/utils/logger", () => ({
   log: {
     ...mockLogger,
     info: mock(() => {}),
+    cli: mock(() => {}),
+    debug: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
   },
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,

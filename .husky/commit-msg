@@ -1,5 +1,2 @@
-#!/usr/bin/env sh
-. "$(dirname -- "$0")/_/husky.sh"
-
 # Unified commit message validation using TypeScript hook
 bun src/hooks/commit-msg.ts "$1"

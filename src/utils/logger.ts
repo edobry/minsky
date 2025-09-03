@@ -3,7 +3,7 @@ import * as winston from "winston";
 const { format, transports } = winston;
 import type {} from "logform";
 
-import { has, get } from "../domain/configuration/index";
+// Removed config dependency to avoid circular imports - logger should be independently configurable
 
 // Logger configuration interface
 interface LoggerConfig {
@@ -26,56 +26,19 @@ export enum LogMode {
 }
 
 /**
- * Get logger configuration from environment variables first, then config system
- * This prevents early initialization of node-config which can cause warnings
+ * Get logger configuration from environment variables and CLI options only
+ * No dependency on application config system to avoid circular imports
  */
 function getLoggerConfig(): LoggerConfig {
-  // First try environment variables to avoid early node-config initialization
-  const envMode = process.env.MINSKY_LOG_MODE || null;
-  const envLevel = process.env.LOGLEVEL || null;
+  const envMode = process.env.MINSKY_LOG_MODE || "auto";
+  const envLevel = process.env.LOGLEVEL || "info";
   const envAgentLogs = process.env.ENABLE_AGENT_LOGS === "true";
 
-  // If we have all config from environment, use it
-  if (envMode && envLevel) {
-    return {
-      mode: envMode as "HUMAN" | "STRUCTURED" | "auto",
-      level: envLevel as "debug" | "info" | "warn" | "error",
-      enableAgentLogs: envAgentLogs,
-    };
-  }
-
-  // Otherwise try config system with fallback to environment/defaults
-  let loggerConfig: LoggerConfig;
-
-  try {
-    // Try to get configuration from the config system
-    const configMode = has("logger.mode") ? get("logger.mode") : null;
-    const configLevel = has("logger.level") ? get("logger.level") : null;
-    const configAgentLogs = has("logger.enableAgentLogs") ? get("logger.enableAgentLogs") : null;
-
-    loggerConfig = {
-      mode: (typeof configMode === "string" ? configMode : envMode || "auto") as
-        | "HUMAN"
-        | "STRUCTURED"
-        | "auto",
-      level: (typeof configLevel === "string" ? configLevel : envLevel || "info") as
-        | "debug"
-        | "info"
-        | "warn"
-        | "error",
-      enableAgentLogs: typeof configAgentLogs === "boolean" ? configAgentLogs : envAgentLogs,
-    };
-  } catch (error) {
-    // Fallback to environment variables if config system is unavailable
-    // This ensures the logger works even during early initialization
-    loggerConfig = {
-      mode: (envMode || "auto") as "HUMAN" | "STRUCTURED" | "auto",
-      level: (envLevel || "info") as "debug" | "info" | "warn" | "error",
-      enableAgentLogs: envAgentLogs,
-    };
-  }
-
-  return loggerConfig;
+  return {
+    mode: envMode as "HUMAN" | "STRUCTURED" | "auto",
+    level: envLevel as "debug" | "info" | "warn" | "error",
+    enableAgentLogs: envAgentLogs,
+  };
 }
 
 /**

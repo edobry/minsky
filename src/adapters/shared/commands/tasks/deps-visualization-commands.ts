@@ -4,7 +4,10 @@ import { DatabaseConnectionManager } from "../../../../domain/database/connectio
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
-import { execSync } from "child_process";
+import { execSync, exec } from "child_process";
+import { promisify } from "util";
+
+const execAsync = promisify(exec);
 import { writeFileSync } from "fs";
 import { join } from "path";
 import { Graphviz } from "@hpcc-js/wasm/graphviz";
@@ -51,9 +54,16 @@ const tasksDepsGraphParams: CommandParameterMap = {
     required: false,
   },
   direction: {
-    schema: z.enum(["TB", "BT", "LR", "RL"]).default("TB"),
+    schema: z
+      .string()
+      .default("TB")
+      .transform((val) => {
+        const upper = val.toUpperCase();
+        if (upper === "TB" || upper === "BT") return upper as "TB" | "BT";
+        throw new Error(`Invalid direction "${val}". Use TB (top-bottom) or BT (bottom-top)`);
+      }),
     description:
-      "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style), LR (left-right), RL (right-left)",
+      "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style) - case insensitive",
     required: false,
   },
   spacing: {
@@ -62,9 +72,14 @@ const tasksDepsGraphParams: CommandParameterMap = {
     required: false,
   },
   style: {
-    schema: z.enum(["default", "tech-tree", "flowchart", "network"]).default("default"),
+    schema: z.enum(["default", "tech-tree", "kanban", "mobile", "compact"]).default("default"),
     description:
-      "Visual style: default (basic), tech-tree (game-style), flowchart (process), network (connected)",
+      "Visual style: default (basic), tech-tree (game-style), kanban (board-compatible), mobile (narrow), compact (dense)",
+    required: false,
+  },
+  open: {
+    schema: z.boolean().default(false),
+    description: "Automatically open the rendered file in the default application",
     required: false,
   },
 };
@@ -148,7 +163,8 @@ export function createTasksDepsGraphCommand() {
             direction: params.direction,
             spacing: params.spacing,
             style: params.style,
-          }
+          },
+          params.open
         );
         return { success: true, output: result.message, filePath: result.filePath };
       } else {
@@ -511,18 +527,35 @@ async function generateGraphvizDot(
     lines.push(`  ranksep=${ranksep};`);
     lines.push(`  nodesep=${nodesep};`);
 
-    // Style configuration
+    // Style configuration optimized for vertical layouts
     if (style === "tech-tree") {
       lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=10];`);
       lines.push(`  edge [color="#4a5568", arrowsize=0.8, style=bold];`);
       lines.push(`  bgcolor="transparent";`);
       lines.push(`  concentrate=true;`); // Merge multiple edges
-    } else if (style === "flowchart") {
-      lines.push(`  node [shape=rectangle, style=filled, fontname="Helvetica"];`);
-      lines.push(`  edge [color=black, arrowhead=vee];`);
-    } else if (style === "network") {
-      lines.push(`  node [shape=ellipse, style=filled];`);
-      lines.push(`  edge [color=blue, dir=both, arrowhead=dot, arrowtail=dot];`);
+    } else if (style === "kanban") {
+      // Optimized for kanban board integration - narrow, column-friendly
+      lines.push(
+        `  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=9, width=1.5, height=0.8];`
+      );
+      lines.push(`  edge [color="#6b7280", arrowsize=0.6];`);
+      lines.push(`  bgcolor="white";`);
+      lines.push(`  margin="0.1";`);
+    } else if (style === "mobile") {
+      // Optimized for mobile/narrow screens - bold and thick for touch
+      lines.push(
+        `  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=8, width=1.2, penwidth=3];`
+      );
+      lines.push(`  edge [color="#374151", arrowsize=0.7, penwidth=2];`);
+      lines.push(`  bgcolor="transparent";`);
+      lines.push(`  margin="0.05";`);
+    } else if (style === "compact") {
+      // Dense layout for IDE panels/terminals - minimal and monospace
+      lines.push(
+        `  node [shape=rectangle, style="filled", fontname=monospace, fontsize=7, width=1.0, height=0.5];`
+      );
+      lines.push(`  edge [color="#6b7280", arrowsize=0.4, style=dotted];`);
+      lines.push(`  margin="0";`);
     } else {
       lines.push(`  node [shape=box, style=rounded];`);
       lines.push(`  edge [color=gray];`);
@@ -625,18 +658,67 @@ async function generateGraphvizDot(
             color = "#f87171"; // Red for blocked
             borderColor = "#dc2626";
           }
-          shape = "box";
+        } else if (style === "kanban") {
+          // Kanban-compatible colors that work with column layouts
+          if (status === "TODO") {
+            color = "#f1f5f9"; // Light gray
+            borderColor = "#64748b";
+          } else if (status === "IN-PROGRESS") {
+            color = "#fef3c7"; // Soft yellow
+            borderColor = "#d97706";
+          } else if (status === "DONE") {
+            color = "#d1fae5"; // Soft green
+            borderColor = "#059669";
+          } else if (status === "BLOCKED") {
+            color = "#fee2e2"; // Soft red
+            borderColor = "#dc2626";
+          }
+        } else if (style === "mobile") {
+          // High contrast, touch-friendly colors for mobile
+          if (status === "TODO") {
+            color = "#1e40af"; // Dark blue for visibility
+            borderColor = "#1e3a8a";
+          } else if (status === "IN-PROGRESS") {
+            color = "#d97706"; // Dark orange for attention
+            borderColor = "#92400e";
+          } else if (status === "DONE") {
+            color = "#15803d"; // Dark green for success
+            borderColor = "#166534";
+          } else if (status === "BLOCKED") {
+            color = "#dc2626"; // Bright red for urgency
+            borderColor = "#991b1b";
+          }
+        } else if (style === "compact") {
+          // Minimal, monochromatic for IDE panels
+          if (status === "TODO") {
+            color = "#f8fafc"; // Almost white
+            borderColor = "#cbd5e1";
+          } else if (status === "IN-PROGRESS") {
+            color = "#fffbeb"; // Barely yellow tint
+            borderColor = "#d97706";
+          } else if (status === "DONE") {
+            color = "#f0fdf4"; // Barely green tint
+            borderColor = "#16a34a";
+          } else if (status === "BLOCKED") {
+            color = "#fef2f2"; // Barely red tint
+            borderColor = "#dc2626";
+          }
         } else {
-          // Original colors for other styles
+          // Original colors for default style
           if (status === "TODO") color = "lightblue";
           else if (status === "IN-PROGRESS") color = "yellow";
           else if (status === "DONE") color = "lightgreen";
           else if (status === "BLOCKED") color = "lightcoral";
         }
 
-        if (style === "tech-tree") {
+        if (
+          style === "tech-tree" ||
+          style === "kanban" ||
+          style === "mobile" ||
+          style === "compact"
+        ) {
           lines.push(
-            `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", color="${borderColor}", penwidth=2];`
+            `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", color="${borderColor}", penwidth=${style === "compact" ? "1" : "2"}];`
           );
         } else {
           lines.push(
@@ -679,7 +761,8 @@ async function renderGraphvizFormat(
   statusFilter: string | undefined,
   format: "svg" | "png" | "pdf",
   outputPath?: string,
-  layoutOptions: LayoutOptions = {}
+  layoutOptions: LayoutOptions = {},
+  openFile: boolean = false
 ): Promise<{ message: string; filePath: string }> {
   try {
     // Generate DOT content with layout options
@@ -691,9 +774,10 @@ async function renderGraphvizFormat(
       layoutOptions
     );
 
-    // Generate output filename if not provided
-    const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
-    const defaultFilename = `task-deps-${timestamp}.${format}`;
+    // Generate unique output filename if not provided
+    const timestamp = new Date().toISOString().slice(0, 19).replace(/[:-]/g, "").replace(/T/, "T");
+    const randomSuffix = Math.random().toString(36).substring(2, 5);
+    const defaultFilename = `task-deps-${timestamp}-${randomSuffix}.${format}`;
     const finalOutputPath = outputPath || join(process.cwd(), defaultFilename);
 
     try {
@@ -726,6 +810,29 @@ async function renderGraphvizFormat(
 
       // Write output file
       writeFileSync(finalOutputPath, outputBuffer);
+
+      // Optionally open the file
+      if (openFile) {
+        try {
+          // Determine the appropriate open command based on OS
+          const openCommand =
+            process.platform === "darwin"
+              ? "open"
+              : process.platform === "win32"
+                ? "start"
+                : "xdg-open";
+          await execAsync(`${openCommand} "${finalOutputPath}"`);
+          return {
+            message: `✅ Rendered task dependency graph to: ${finalOutputPath} (opened in default application)`,
+            filePath: finalOutputPath,
+          };
+        } catch (error) {
+          return {
+            message: `✅ Rendered task dependency graph to: ${finalOutputPath} (failed to open: ${error})`,
+            filePath: finalOutputPath,
+          };
+        }
+      }
 
       return {
         message: `✅ Rendered task dependency graph to: ${finalOutputPath}`,

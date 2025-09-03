@@ -40,7 +40,7 @@ export class PreCommitHook {
    * Run all pre-commit validation steps
    */
   async run(): Promise<HookResult> {
-    log.cli("🔍 Running TypeScript pre-commit validation...\n");
+    log.cli("🔍 Running pre-commit validation...\n");
 
     try {
       // Step 1: Secret scanning (still use external gitleaks)
@@ -79,7 +79,7 @@ export class PreCommitHook {
         return consoleResult;
       }
 
-      // Step 7: ESLint validation (TypeScript implementation)
+      // Step 7: ESLint validation
       const lintResult = await this.runESLintValidation();
       if (!lintResult.success) {
         return lintResult;
@@ -109,7 +109,7 @@ export class PreCommitHook {
   }
 
   /**
-   * Run ESLint validation using TypeScript and proper JSON parsing
+   * Run ESLint validation with proper JSON parsing
    */
   private async runESLintValidation(): Promise<HookResult> {
     log.cli("🔍 Running ESLint with strict quality gates...");
@@ -122,10 +122,25 @@ export class PreCommitHook {
       log.cli(`📋 Using lint command: ${lintJsonCommand}`);
 
       // Execute the lint command and get JSON output
-      const { stdout, stderr } = await execAsync(lintJsonCommand, {
-        cwd: this.projectRoot,
-        timeout: 30000, // 30 second timeout
-      });
+      // ESLint exits with non-zero when there are errors/warnings, but still produces valid JSON
+      let stdout = "";
+      let stderr = "";
+      try {
+        const result = await execAsync(lintJsonCommand, {
+          cwd: this.projectRoot,
+          timeout: 30000, // 30 second timeout
+        });
+        stdout = result.stdout;
+        stderr = result.stderr;
+      } catch (execError: any) {
+        // ESLint exits with non-zero on errors/warnings but still produces valid output
+        if (execError.stdout) {
+          stdout = execError.stdout;
+          stderr = execError.stderr || "";
+        } else {
+          throw execError;
+        }
+      }
 
       // Parse ESLint JSON output with proper error handling
       let lintResults: ESLintResult[] = [];
@@ -147,7 +162,7 @@ export class PreCommitHook {
         lintResults = [];
       }
 
-      // Calculate totals using proper TypeScript logic
+      // Calculate totals
       const summary = this.calculateESLintSummary(lintResults);
 
       // Log the current state
@@ -215,7 +230,7 @@ export class PreCommitHook {
   }
 
   /**
-   * Calculate ESLint summary with proper TypeScript logic (no grep/awk/cut)
+   * Calculate ESLint summary with reliable aggregation
    */
   private calculateESLintSummary(results: ESLintResult[]): ESLintSummary {
     const summary: ESLintSummary = {
@@ -224,7 +239,7 @@ export class PreCommitHook {
       results,
     };
 
-    // Use TypeScript reduce for safe and reliable aggregation
+    // Use reduce for safe and reliable aggregation
     summary.errorCount = results.reduce((total, result) => total + result.errorCount, 0);
     summary.warningCount = results.reduce((total, result) => total + result.warningCount, 0);
 

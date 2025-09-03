@@ -24,7 +24,7 @@ interface TasksEditParams extends BaseTaskParams {
   spec?: boolean;
   specFile?: string;
   specContent?: string;
-  force?: boolean;
+  execute?: boolean;
 }
 
 /**
@@ -33,11 +33,14 @@ interface TasksEditParams extends BaseTaskParams {
  * Supports editing both task title and specification content with multiple input methods:
  * - Title: Direct string input via --title
  * - Spec: Interactive editor via --spec, file input via --spec-file, or direct content via --spec-content
+ *
+ * By default shows a preview of changes. Use --execute to apply the changes.
  */
 export class TasksEditCommand extends BaseTaskCommand {
   readonly id = "tasks.edit";
   readonly name = "edit";
-  readonly description = "Edit task title and/or specification content";
+  readonly description =
+    "Edit task title and/or specification content (dry-run by default, use --execute to apply)";
   readonly parameters = tasksEditParams;
 
   async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
@@ -66,10 +69,14 @@ export class TasksEditCommand extends BaseTaskCommand {
         )}For advanced editing with patterns, use: ${chalk.cyan(
           "minsky tasks spec edit"
         )}\n\n${chalk.bold("Examples:\n")}${chalk.gray(
-          '  minsky tasks edit mt#123 --title "New Title"\n'
+          "  # Preview changes (default)\n"
+        )}${chalk.gray('  minsky tasks edit mt#123 --title "New Title"\n')}${chalk.gray(
+          "  # Apply changes\n"
+        )}${chalk.gray('  minsky tasks edit mt#123 --title "New Title" --execute\n')}${chalk.gray(
+          "  # Edit from file\n"
         )}${chalk.gray(
-          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md\n"
-        )}${chalk.gray('  minsky tasks edit mt#123 --spec-content "New spec content"')}`
+          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md --execute\n"
+        )}${chalk.gray('  minsky tasks edit mt#123 --spec-content "New spec content" --execute')}`
       );
     }
 
@@ -141,15 +148,15 @@ export class TasksEditCommand extends BaseTaskCommand {
       updates.spec = newSpecContent!;
     }
 
-    // Confirm changes if not forced
-    if (!params.force && (updates.title || updates.spec)) {
-      const shouldProceed = await this.confirmChanges(currentTask, updates, validatedTaskId);
-      if (!shouldProceed) {
-        return this.formatResult(
-          this.createErrorResult("Edit cancelled by user", validatedTaskId),
-          params.json
-        );
-      }
+    // Show preview if not executing
+    if (!params.execute && (updates.title || updates.spec)) {
+      return this.formatResult(
+        this.createSuccessResult(
+          validatedTaskId,
+          this.buildPreviewMessage(currentTask, updates, validatedTaskId)
+        ),
+        params.json
+      );
     }
 
     // Apply the updates using the backend's setTaskMetadata method
@@ -354,34 +361,49 @@ export class TasksEditCommand extends BaseTaskCommand {
   }
 
   /**
-   * Confirm changes with the user
+   * Build preview message showing actual changes
    */
-  private async confirmChanges(
+  private buildPreviewMessage(
     currentTask: any,
     updates: { title?: string; spec?: string },
     taskId: string
-  ): Promise<boolean> {
-    const { confirm, isCancel } = await import("@clack/prompts");
-
-    // Build confirmation message
-    let message = `Apply the following changes to task ${taskId}?\n`;
+  ): string {
+    let message = `${chalk.blue("Preview of changes for task")} ${taskId}:\n\n`;
 
     if (updates.title) {
-      message += `\n  Title: "${currentTask.title}" → "${updates.title}"`;
+      message += `${chalk.bold("Title change:")}\n`;
+      message += `  ${chalk.red("- ")}${currentTask.title}\n`;
+      message += `  ${chalk.green("+ ")}${updates.title}\n\n`;
     }
 
     if (updates.spec) {
-      const currentLines = (currentTask.spec || "").split("\n").length;
-      const newLines = updates.spec.split("\n").length;
-      message += `\n  Specification: ${currentLines} lines → ${newLines} lines`;
+      message += `${chalk.bold("Specification change:")}\n`;
+
+      const currentSpec = currentTask.spec || "";
+      const newSpec = updates.spec;
+
+      // Show first few lines of each for preview
+      const currentPreview = currentSpec.split("\n").slice(0, 5).join("\n");
+      const newPreview = newSpec.split("\n").slice(0, 5).join("\n");
+
+      if (currentSpec.split("\n").length > 5) {
+        const remainingLines = currentSpec.split("\n").length - 5;
+        message += `  ${chalk.red("- ")}${currentPreview}\n  ${chalk.gray(`... (${remainingLines} more lines)`)}\n`;
+      } else {
+        message += `  ${chalk.red("- ")}${currentPreview}\n`;
+      }
+
+      if (newSpec.split("\n").length > 5) {
+        const remainingLines = newSpec.split("\n").length - 5;
+        message += `  ${chalk.green("+ ")}${newPreview}\n  ${chalk.gray(`... (${remainingLines} more lines)`)}\n\n`;
+      } else {
+        message += `  ${chalk.green("+ ")}${newPreview}\n\n`;
+      }
     }
 
-    const shouldProceed = await confirm({
-      message,
-      initialValue: true,
-    });
+    message += `${chalk.yellow("To apply these changes, run with")} ${chalk.cyan("--execute")}`;
 
-    return !isCancel(shouldProceed) && shouldProceed;
+    return message;
   }
 }
 

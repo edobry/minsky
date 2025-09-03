@@ -17,22 +17,6 @@ import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-consta
 import type { SessionRecord } from "../../../src/domain/session";
 import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
 
-// Mock logger specifically for update command module
-mock.module("../../../src/utils/logger", () => ({
-  log: {
-    ...mockLogger,
-    info: mock(() => {}),
-    cli: mock(() => {}),
-    debug: mock(() => {}),
-    warn: mock(() => {}),
-    error: mock(() => {}),
-  },
-  createConfigurableLogger: () => mockLogger,
-  createLogger: () => mockLogger,
-  isStructuredMode: () => false,
-  isHumanMode: () => true,
-}));
-
 describe("session update command", () => {
   let testData: SessionTestData;
   let mockGitService: any;

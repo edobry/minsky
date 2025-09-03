@@ -227,13 +227,16 @@ export function getTasksCustomizations(): {
               description: "Layout engine (dot, neato, fdp, circo, twopi)",
             },
             direction: {
-              description: "Direction (TB, BT, LR, RL)",
+              description: "Direction (TB, BT) - vertical layouts only",
             },
             spacing: {
               description: "Spacing (compact, normal, wide)",
             },
             style: {
-              description: "Visual style (default, tech-tree, flowchart, network)",
+              description: "Visual style (default, tech-tree, kanban, mobile, compact)",
+            },
+            open: {
+              description: "Automatically open the rendered file in the default application",
             },
           },
           outputFormatter: (result: any) => {
@@ -250,6 +253,74 @@ export function getTasksCustomizations(): {
             }
           },
         },
+      },
+    },
+    available: {
+      parameters: {
+        status: {
+          description: "Filter by task status (default: TODO,IN-PROGRESS)",
+        },
+        backend: {
+          description: "Filter by specific backend (mt, md, gh, etc.)",
+        },
+        limit: {
+          description: "Maximum number of tasks to show",
+        },
+        showEffort: {
+          description: "Include effort estimates if available",
+        },
+        showPriority: {
+          description: "Include priority information if available",
+        },
+        json: {
+          description: "Output in JSON format",
+        },
+        minReadiness: {
+          description: "Minimum readiness score (0.0-1.0) to include task",
+        },
+      },
+      outputFormatter: (result: any) => {
+        if (result.json) {
+          log.cli(JSON.stringify(result, null, 2));
+          return;
+        }
+        if (result.output) {
+          log.cli(result.output);
+        } else if (result.error) {
+          log.cli(result.error);
+        } else {
+          log.cli("❌ No available tasks found");
+        }
+      },
+    },
+    route: {
+      parameters: {
+        target: {
+          asArgument: true,
+          description: "Target task ID to generate route for",
+        },
+        strategy: {
+          description: "Routing strategy (ready-first, shortest-path, value-first)",
+        },
+        parallel: {
+          description: "Show parallel execution opportunities",
+        },
+        json: {
+          description: "Output in JSON format",
+        },
+      },
+      outputFormatter: (result: any) => {
+        if (result.json) {
+          log.cli(JSON.stringify(result, null, 2));
+          return;
+        }
+        if (result.output) {
+          log.cli(result.output);
+        } else if (result.error) {
+          log.cli(result.error);
+        } else {
+          log.cli("❌ No route available");
+        }
       },
     },
   };

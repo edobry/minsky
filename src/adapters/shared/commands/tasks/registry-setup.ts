@@ -47,6 +47,7 @@ export function createAllTaskCommands() {
     createTasksDepsTreeCommand,
     createTasksDepsGraphCommand,
   } = require("./deps-visualization-commands");
+  const { createTasksAvailableCommand, createTasksRouteCommand } = require("./routing-commands");
 
   return [
     createTasksStatusGetCommand(),
@@ -68,5 +69,8 @@ export function createAllTaskCommands() {
     createTasksDepsListCommand(),
     createTasksDepsTreeCommand(),
     createTasksDepsGraphCommand(),
+    // Routing commands
+    createTasksAvailableCommand(),
+    createTasksRouteCommand(),
   ];
 }

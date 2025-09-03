@@ -7,6 +7,7 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **Completed PersistenceProvider Architecture (mt#407)**: Fully migrated all database services to unified persistence provider system
+
   - Migrated `PostgresStorage`, `TasksImporterService`, and `PostgresVectorStorage` to use PersistenceService
   - Migrated `TaskSimilarityService` and `RuleSimilarityService` to accept PersistenceProvider via dependency injection
   - Migrated `SessionDbAdapter` to use PersistenceProvider with backward compatibility fallback
@@ -15,6 +16,92 @@ All notable changes to this project will be documented in this file.
   - All database operations now centralized through PersistenceProvider abstraction
   - Complete separation between main workspace and session workspace database usage
   - Enhanced configuration schema and defaults with modern `persistence:` block replacing legacy `sessiondb:`
+
+- Created task mt#505: Implement codebase indexing feature for enhanced AI context
+  - Comprehensive specification for codebase indexing similar to Cursor's feature
+  - Research plan for existing tools (Sourcegraph, OpenGrok, Glean, Roo Code, CocoIndex)
+  - Backend-swappable architecture design following existing patterns
+  - Initial native implementation using chunking and embeddings
+  - Future plans for AST-based structural chunking with tree-sitter
+  - CLI/MCP tools for codebase search, analysis, and summarization
+  - Build vs buy analysis with recommendations
+
+### Changed
+
+- Simplified `minsky tasks deps list` output to be more concise by default
+  - New format: `mt#506: depends on: mt#505` instead of verbose decorative output
+  - Added `--verbose` flag to access the original detailed format with emojis and separators
+  - Follows meaningful output principles by reducing noise and focusing on actionable information
+- **BREAKING**: `tasks edit` and `tasks spec edit` commands now default to dry-run preview instead of requiring confirmation
+  - Shows actual content changes instead of useless line count summaries
+  - Use `--execute` flag to apply changes (replaces `--force`)
+  - Fixes non-interactive workflow compatibility
+  - Follows workspace operational safety rules (dry-run first)
+
+### Fixed
+
+- **Test Logger Mock Setup**: Fixed log.info error in session update tests by correcting mock logger configuration
+
+  - Removed incorrect override of info method in tests/setup.ts
+  - All session update tests now pass correctly
+
+- **Pre-push Hook Output**: Fixed verbose test output in pre-push hook
+
+  - Bun test doesn't have a quiet mode flag, so we pipe through `tail -n 1` to show only summary
+  - Uses PIPESTATUS[0] to check actual test exit code while piping output
+  - Output reduced from 1861 lines to just "Ran X tests across Y files"
+  - Clean, minimal output that matches the ideal behavior
+
+- **ESLint Pre-commit Validation**: Fixed ESLint validation in pre-commit hook
+  - Properly handles ESLint's non-zero exit codes when warnings exist
+  - Now correctly parses and displays ESLint results even with warnings
+
+### Changed
+
+- **mt#499 Task Specification**: Updated Development Workflow Maturity Assessment design
+  - Introduced built-in tool profiles for common development tools (ESLint, Prettier, Jest, Ruff, etc)
+  - Added `args` field for CLI customization of built-in tools (only applies to `tool`, not `custom`)
+  - Switched from format-based to semantic action-based command naming (scan, check, fix instead of json)
+  - Simplified configuration with zero-config defaults for standard tools
+  - Maintained escape hatch to fully custom commands for flexibility
+  - Enhanced `minsky init` integration with tool detection and suggestions
+
+### Added
+
+- **Task Routing System for Automated Implementation Planning**: Implemented comprehensive task routing and pathfinding
+
+  - **Available Task Discovery**: Show tasks ready to work on with `bun run minsky-tasks-available.ts`
+  - **Route Generation**: Generate implementation paths with `bun run minsky-tasks-route.ts <target>`
+  - **Readiness Scoring**: Calculate task readiness (0.0-1.0) based on dependency completion
+  - **Multi-Strategy Routing**: Support ready-first, shortest-path, and value-first strategies
+  - **Phase-Based Visualization**: Display routes as phases with depth-based organization
+  - **Bulk Query Optimization**: Leverage TaskGraphService bulk operations for performance
+  - **Comprehensive Filtering**: Filter by status, backend, readiness score, and limits
+  - **Visual Indicators**: Human-readable output with status icons and progress tracking
+  - **JSON Output**: Machine-readable format for tooling integration
+  - **Edge Case Handling**: Robust handling of missing dependencies and circular references
+  - **17 Comprehensive Tests**: Full test coverage for routing service and command structures
+
+- **Task Dependency Cycle Detection and Elimination**: Implemented comprehensive cycle detection for task dependencies
+
+  - Created DFS-based cycle detection algorithm to identify circular dependencies in task graph
+  - Analyzed 4 detected cycles: mt#237↔mt#239, mt#237↔mt#240, mt#251↔mt#252, mt#284↔mt#260
+  - Established logical dependency flow: Basic Dependencies → Hierarchical System → Enhanced Planning
+  - Verified cycles eliminated (99→95 relationships, 4→0 cycles)
+  - Ensured dependency graph maintains proper hierarchical structure without circular references
+
+- **README with Philosophical Foundation**: Created comprehensive README articulating Minsky's core philosophy
+
+  - Framed Minsky as a development workflow orchestration platform
+  - Explained organizational cybernetics principles and feedback loops
+  - Documented agent equivalence: how same mechanisms guide humans and AI
+  - **Emphasized key principle**: We don't need to teach AI best practices—we create environments where following them is the only way to succeed
+  - Described incentive landscape design through mechanism design and control structures
+  - Positioned orchestration role: conductor of existing tools, not reinventing them
+  - Showed how alignment is achieved through environmental design, not instruction
+
+> > > > > > > origin/main
+
 - Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
 
 ### Fixed
@@ -28,15 +115,15 @@ All notable changes to this project will be documented in this file.
   - Designed integration points with conversation history, task specs, agent memory, and sessions
   - Proposed CLI interface and MCP tools for agent access
   - Phased implementation approach from core infrastructure to AI-powered features
-- **AI Readiness Rubric System Task (mt#499)**: Created comprehensive task specification for assessing project readiness for autonomous AI development
+- **Development Workflow Maturity Assessment System (mt#499)**: Designed orchestration system for evaluating and improving development workflow maturity
 
-  - Defined 7 assessment categories with weighted scoring (Code Quality, Testing, Task Management, Version Control, Security, AI Rules, Configuration)
-  - Established readiness levels from Manual to Fully Autonomous (score-based)
-  - Designed command structure: `minsky readiness assess/check/score`
-  - Created detection logic for auto-discovering project configurations
-  - Specified recommendations engine for actionable improvement suggestions
-  - Analyzed existing Minsky guardrails to inform rubric design
-  - Documented implementation roadmap with 4 phases
+  - Reframed as workflow orchestration platform based on organizational cybernetics principles
+  - Defined 7 maturity categories: Code Quality, Testing, Dependency Management, Security, Task Management, Dev Workflow, Documentation
+  - Established industry-standard maturity levels (Ad Hoc → Initial → Managed → Defined → Optimized)
+  - Designed `minsky workflow` command family for assessment, initialization, and management
+  - Configuration-driven approach using simple command specifications (workflows.lint.json, workflows.lint.fix)
+  - Applied agent equivalence principle: same incentive structures guide human and AI developers
+  - Created task mt#502 to clarify confusing `backends.default` configuration naming
 
 - **Context-Aware Rules Filtering**: Enhanced rules system with intelligent filtering based on Cursor's rule type system
 

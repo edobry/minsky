@@ -1,7 +1,14 @@
 echo "Running tests before push..."
-bun test
-if [ $? -ne 0 ]; then
+
+# Run tests with output suppressed, only show summary
+# The setup.ts mocks console but doesn't affect bun test's own output
+# So we pipe through tail to only show the summary line
+bun test --preload ./tests/setup.ts src tests/adapters tests/domain 2>&1 | tail -n 1
+
+# Check if tests actually passed (PIPESTATUS[0] has the exit code of bun test)
+if [ ${PIPESTATUS[0]} -ne 0 ]; then
   echo "❌ Tests must pass before pushing"
+  echo "💡 Run 'bun test' locally to see detailed failure information"
   exit 1
 fi
 

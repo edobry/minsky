@@ -37,6 +37,11 @@ const tasksDepsListParams: CommandParameterMap = {
     description: "ID of the task to list dependencies for",
     required: true,
   },
+  verbose: {
+    schema: z.boolean().optional(),
+    description: "Use more detailed output format",
+    required: false,
+  },
 };
 
 export function createTasksDepsAddCommand() {
@@ -92,25 +97,47 @@ export function createTasksDepsListCommand() {
       const dependents = await service.listDependents(params.task);
 
       const lines: string[] = [];
-      lines.push(`📋 Dependencies for ${params.task}`);
-      lines.push(`━`.repeat(40));
 
-      if (dependencies.length > 0) {
-        lines.push(`\n⬅️  Dependencies (${params.task} depends on):`);
-        dependencies.forEach((dep) => {
-          lines.push(`   • ${dep}`);
-        });
-      }
+      // Use concise format by default
+      if (params.verbose) {
+        // Original verbose format for users who prefer it
+        lines.push(`📋 Dependencies for ${params.task}`);
+        lines.push(`━`.repeat(40));
 
-      if (dependents.length > 0) {
-        lines.push(`\n➡️  Dependents (tasks that depend on ${params.task}):`);
-        dependents.forEach((dep) => {
-          lines.push(`   • ${dep}`);
-        });
-      }
+        if (dependencies.length > 0) {
+          lines.push(`\n⬅️  Dependencies (${params.task} depends on):`);
+          dependencies.forEach((dep) => {
+            lines.push(`   • ${dep}`);
+          });
+        }
 
-      if (dependencies.length === 0 && dependents.length === 0) {
-        lines.push(`\n🔍 No dependencies or dependents found`);
+        if (dependents.length > 0) {
+          lines.push(`\n➡️  Dependents (tasks that depend on ${params.task}):`);
+          dependents.forEach((dep) => {
+            lines.push(`   • ${dep}`);
+          });
+        }
+
+        if (dependencies.length === 0 && dependents.length === 0) {
+          lines.push(`\n🔍 No dependencies or dependents found`);
+        }
+      } else {
+        // New concise format
+        lines.push(`${params.task}:`);
+
+        if (dependencies.length > 0) {
+          const depList = dependencies.join(", ");
+          lines.push(`  depends on: ${depList}`);
+        }
+
+        if (dependents.length > 0) {
+          const depList = dependents.join(", ");
+          lines.push(`  required by: ${depList}`);
+        }
+
+        if (dependencies.length === 0 && dependents.length === 0) {
+          lines.push(`  no dependencies`);
+        }
       }
 
       return { success: true, output: lines.join("\n") };
