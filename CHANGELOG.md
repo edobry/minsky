@@ -44,9 +44,8 @@ All notable changes to this project will be documented in this file.
 ### Fixed
 
 - **Task Edit and Create CLI Feedback (mt#501)**: Improved user feedback for task modification commands
-
   - Added explicit success messages with ✅ checkmarks for successful operations
-  - Added explicit failure messages with ❌ crosses for failed operations
+  - Added explicit failure messages with ❌ crosses for failed operations  
   - Fixed `tasks create --spec-path` to actually read and save specification content in a single operation
   - Enhanced error messages with actionable tips and suggestions
   - Added proper exit codes (0 for success, non-zero for failure)
