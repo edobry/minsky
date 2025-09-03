@@ -25,7 +25,6 @@ interface TasksEditParams extends BaseTaskParams {
   specFile?: string;
   specContent?: string;
   force?: boolean;
-  verbose?: boolean;
 }
 
 /**
@@ -44,18 +43,12 @@ export class TasksEditCommand extends BaseTaskCommand {
   async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
     this.debug("Starting tasks.edit execution");
 
-    // Log verbose information if requested
-    if (params.verbose) {
-      this.debug("🔍 Starting task edit operation...");
-    }
+
 
     // Validate required parameters
     const taskId = this.validateRequired(params.taskId, "taskId");
     const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
 
-    if (params.verbose) {
-      this.debug(`📝 Editing task: ${validatedTaskId}`);
-    }
 
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
@@ -98,9 +91,6 @@ export class TasksEditCommand extends BaseTaskCommand {
     // Verify the task exists and get current data
     this.debug("Verifying task exists");
 
-    if (params.verbose) {
-      this.debug("⏳ Fetching current task data...");
-    }
 
     const currentTask = await getTaskFromParams({
       ...this.createTaskParams(params),
@@ -117,11 +107,6 @@ export class TasksEditCommand extends BaseTaskCommand {
       );
     }
 
-    if (params.verbose) {
-      this.debug("✓ Task found");
-      this.debug(`  Current title: ${currentTask.title}`);
-      this.debug(`  Status: ${currentTask.status}`);
-    }
 
     this.debug("Task found, preparing updates");
 
@@ -172,9 +157,6 @@ export class TasksEditCommand extends BaseTaskCommand {
       }
     }
 
-    if (params.verbose) {
-      this.debug("⏳ Applying changes...");
-    }
 
     // Apply the updates using the backend's setTaskMetadata method
     this.debug("Applying updates to task");
@@ -408,30 +390,7 @@ export class TasksEditCommand extends BaseTaskCommand {
     return !isCancel(shouldProceed) && shouldProceed;
   }
 
-  /**
-   * Show detailed change summary
-   */
-  private showChangeSummary(currentTask: any, updates: { title?: string; spec?: string }): void {
-    this.debug("📊 Change Summary:");
 
-    if (updates.title) {
-      this.debug("  Title:");
-      this.debug(`    From: ${currentTask.title}`);
-      this.debug(`    To:   ${updates.title}`);
-    }
-
-    if (updates.spec) {
-      const currentLines = (currentTask.spec || "").split("\n").length;
-      const newLines = updates.spec.split("\n").length;
-      const diff = newLines - currentLines;
-
-      this.debug("  Specification:");
-      this.debug(
-        `    Lines changed: ${Math.abs(diff)} ${diff > 0 ? "added" : diff < 0 ? "removed" : "modified"}`
-      );
-      this.debug(`    Total lines: ${newLines}`);
-    }
-  }
 }
 
 /**

@@ -128,11 +128,6 @@ export const taskEditParams = {
     description: "Skip confirmation prompts",
     required: false,
   },
-  verbose: {
-    schema: z.boolean().default(false),
-    description: "Show detailed progress and change information",
-    required: false,
-  },
 };
 
 /**

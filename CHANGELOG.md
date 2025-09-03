@@ -50,7 +50,6 @@ All notable changes to this project will be documented in this file.
   - Fixed `tasks create --spec-path` to actually read and save specification content in a single operation
   - Enhanced error messages with actionable tips and suggestions
   - Added proper exit codes (0 for success, non-zero for failure)
-  - Added verbose mode (`--verbose`) for detailed progress information
   - Improved success confirmations showing what was changed (old vs new values)
 
 - logger imports: Normalized all logger imports to the canonical `src/utils/logger` module and corrected relative
