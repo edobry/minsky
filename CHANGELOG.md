@@ -4,6 +4,21 @@ All notable changes to this project will be documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- **Test Logger Mock Setup**: Fixed log.info error in session update tests by correcting mock logger configuration
+  - Removed incorrect override of info method in tests/setup.ts
+  - All session update tests now pass correctly
+
+- **Pre-push Hook Output**: Reduced verbosity of pre-push hook test output
+  - Now shows only test failures and summary statistics
+  - No longer displays hundreds of passing test lines
+  - Makes push output cleaner and more actionable
+
+- **ESLint Pre-commit Validation**: Fixed ESLint validation in pre-commit hook
+  - Properly handles ESLint's non-zero exit codes when warnings exist
+  - Now correctly parses and displays ESLint results even with warnings
+
 ### Changed
 
 - **mt#499 Task Specification**: Updated Development Workflow Maturity Assessment design
