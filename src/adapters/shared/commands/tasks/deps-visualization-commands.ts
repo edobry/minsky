@@ -3,6 +3,10 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DatabaseConnectionManager } from "../../../../domain/database/connection-manager";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
+import { type CommandParameterMap } from "../../command-registry";
+import { execSync } from "child_process";
+import { writeFileSync } from "fs";
+import { join } from "path";
 
 // Parameter definitions matching the CommandParameterMap interface
 const tasksDepsTreeParams: CommandParameterMap = {
@@ -30,8 +34,13 @@ const tasksDepsGraphParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["ascii", "dot"]).default("ascii"),
-    description: "Output format: ascii for terminal display, dot for Graphviz",
+    schema: z.enum(["ascii", "dot", "svg", "png", "pdf"]).default("ascii"),
+    description: "Output format: ascii (terminal), dot (Graphviz), svg/png/pdf (rendered)",
+    required: false,
+  },
+  output: {
+    schema: z.string().optional(),
+    description: "Output file path (auto-generated if not specified for rendered formats)",
     required: false,
   },
 };
@@ -96,6 +105,16 @@ export function createTasksDepsGraphCommand() {
           params.status
         );
         return { success: true, output };
+      } else if (params.format === "svg" || params.format === "png" || params.format === "pdf") {
+        const result = await renderGraphvizFormat(
+          graphService,
+          taskService,
+          params.limit || 20,
+          params.status,
+          params.format,
+          params.output
+        );
+        return { success: true, output: result.message, filePath: result.filePath };
       } else {
         const output = await generateDependencyGraph(
           graphService,
@@ -438,7 +457,11 @@ async function generateGraphvizDot(
       try {
         const task = await taskService.getTask(taskId);
         const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
-        const title = task?.title?.substring(0, 30) || "Unknown";
+        const title = (task?.title?.substring(0, 30) || "Unknown")
+          .replace(/\\/g, "\\\\")  // Escape backslashes first
+          .replace(/"/g, '\\"')    // Then escape quotes
+          .replace(/\n/g, "\\n")   // Then escape newlines
+          .replace(/\r/g, "\\r");  // And carriage returns
         const status = task?.status || "Unknown";
 
         let color = "lightgray";
@@ -453,7 +476,8 @@ async function generateGraphvizDot(
       } catch {
         // Handle tasks that can't be loaded
         const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
-        lines.push(`  ${safeId} [label="${taskId}", fillcolor="lightgray", style=filled];`);
+        const safeTaskId = taskId.replace(/"/g, '\\"');
+        lines.push(`  ${safeId} [label="${safeTaskId}", fillcolor="lightgray", style=filled];`);
       }
     }
 
@@ -475,5 +499,76 @@ async function generateGraphvizDot(
     lines.push(`  error [label="Error: ${error.message}", color=red];`);
     lines.push("}");
     return lines.join("\n");
+  }
+}
+
+/**
+ * Render Graphviz DOT format to SVG, PNG, or PDF using dot command
+ */
+async function renderGraphvizFormat(
+  graphService: TaskGraphService,
+  taskService: any,
+  limit: number,
+  statusFilter: string | undefined,
+  format: "svg" | "png" | "pdf",
+  outputPath?: string
+): Promise<{ message: string; filePath: string }> {
+  try {
+    // Check if Graphviz is available
+    try {
+      execSync("dot -V", { stdio: "ignore" });
+    } catch {
+      return {
+        message: `❌ Graphviz not found. Install with: brew install graphviz`,
+        filePath: "",
+      };
+    }
+
+    // Generate DOT content
+    const dotContent = await generateGraphvizDot(
+      graphService,
+      taskService,
+      limit,
+      statusFilter
+    );
+
+    // Generate output filename if not provided
+    const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
+    const defaultFilename = `task-deps-${timestamp}.${format}`;
+    const finalOutputPath = outputPath || join(process.cwd(), defaultFilename);
+
+    // Write DOT to temporary file
+    const tempDotFile = join(process.cwd(), `temp-${timestamp}.dot`);
+    writeFileSync(tempDotFile, dotContent);
+
+    try {
+      // Render using Graphviz
+      execSync(`dot -T${format} "${tempDotFile}" -o "${finalOutputPath}"`, {
+        stdio: "inherit",
+      });
+
+      // Clean up temp file
+      execSync(`rm "${tempDotFile}"`);
+
+      return {
+        message: `✅ Rendered task dependency graph to: ${finalOutputPath}`,
+        filePath: finalOutputPath,
+      };
+    } catch (error) {
+      // Clean up temp file on error
+      try {
+        execSync(`rm "${tempDotFile}"`);
+      } catch {}
+
+      return {
+        message: `❌ Failed to render graph: ${error.message}`,
+        filePath: "",
+      };
+    }
+  } catch (error) {
+    return {
+      message: `❌ Error generating graph: ${error.message}`,
+      filePath: "",
+    };
   }
 }

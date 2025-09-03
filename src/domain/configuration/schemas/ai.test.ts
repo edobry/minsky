@@ -2,7 +2,7 @@ import { describe, expect, test, beforeEach, afterEach } from "bun:test";
 import { aiProvidersConfigSchema, aiConfigSchema } from "./ai";
 import { mockLogger, resetMockLogger } from "../../../utils/test-utils/mock-logger";
 
-describe.skip("AI Configuration Schema - Unknown Field Handling", () => {
+describe("AI Configuration Schema - Unknown Field Handling", () => {
   beforeEach(() => {
     resetMockLogger();
   });

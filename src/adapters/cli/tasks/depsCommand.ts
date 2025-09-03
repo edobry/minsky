@@ -209,13 +209,14 @@ function addDepsGraphCommand(parent: Command): void {
     .description("Show task dependency graph")
     .option("--limit <limit>", "Maximum number of tasks to include", "20")
     .option("--status <status>", "Filter tasks by status", "TODO")
-    .option("--format <format>", "Output format: ascii or dot", "ascii");
+    .option("--format <format>", "Output format: ascii, dot, svg, png, pdf", "ascii")
+    .option("--output <file>", "Output file path (auto-generated for rendered formats)");
 
   addRepoOptions(graphCommand);
   addOutputOptions(graphCommand);
   addBackendOptions(graphCommand);
 
-  graphCommand.action(async (options: DepsCommandOptions & { limit?: string; format?: string }) => {
+  graphCommand.action(async (options: DepsCommandOptions & { limit?: string; format?: string; output?: string }) => {
     try {
       const command = sharedCommandRegistry.getCommand("tasks.deps.graph");
       if (!command) {
@@ -226,6 +227,7 @@ function addDepsGraphCommand(parent: Command): void {
         limit: options.limit ? parseInt(options.limit, 10) : 20,
         status: options.status,
         format: options.format || "ascii",
+        output: options.output,
       });
 
       if (options.json) {
