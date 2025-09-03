@@ -458,10 +458,10 @@ async function generateGraphvizDot(
         const task = await taskService.getTask(taskId);
         const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
         const title = (task?.title?.substring(0, 30) || "Unknown")
-          .replace(/\\/g, "\\\\")  // Escape backslashes first
-          .replace(/"/g, '\\"')    // Then escape quotes
-          .replace(/\n/g, "\\n")   // Then escape newlines
-          .replace(/\r/g, "\\r");  // And carriage returns
+          .replace(/\\/g, "\\\\") // Escape backslashes first
+          .replace(/"/g, '\\"') // Then escape quotes
+          .replace(/\n/g, "\\n") // Then escape newlines
+          .replace(/\r/g, "\\r"); // And carriage returns
         const status = task?.status || "Unknown";
 
         let color = "lightgray";
@@ -525,12 +525,7 @@ async function renderGraphvizFormat(
     }
 
     // Generate DOT content
-    const dotContent = await generateGraphvizDot(
-      graphService,
-      taskService,
-      limit,
-      statusFilter
-    );
+    const dotContent = await generateGraphvizDot(graphService, taskService, limit, statusFilter);
 
     // Generate output filename if not provided
     const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
@@ -558,7 +553,9 @@ async function renderGraphvizFormat(
       // Clean up temp file on error
       try {
         execSync(`rm "${tempDotFile}"`);
-      } catch {}
+      } catch {
+        // Ignore cleanup errors
+      }
 
       return {
         message: `❌ Failed to render graph: ${error.message}`,

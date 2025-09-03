@@ -216,30 +216,32 @@ function addDepsGraphCommand(parent: Command): void {
   addOutputOptions(graphCommand);
   addBackendOptions(graphCommand);
 
-  graphCommand.action(async (options: DepsCommandOptions & { limit?: string; format?: string; output?: string }) => {
-    try {
-      const command = sharedCommandRegistry.getCommand("tasks.deps.graph");
-      if (!command) {
-        throw new Error("Dependencies graph command not available");
-      }
+  graphCommand.action(
+    async (options: DepsCommandOptions & { limit?: string; format?: string; output?: string }) => {
+      try {
+        const command = sharedCommandRegistry.getCommand("tasks.deps.graph");
+        if (!command) {
+          throw new Error("Dependencies graph command not available");
+        }
 
-      const result = await command.execute({
-        limit: options.limit ? parseInt(options.limit, 10) : 20,
-        status: options.status,
-        format: options.format || "ascii",
-        output: options.output,
-      });
+        const result = await command.execute({
+          limit: options.limit ? parseInt(options.limit, 10) : 20,
+          status: options.status,
+          format: options.format || "ascii",
+          output: options.output,
+        });
 
-      if (options.json) {
-        outputResult(result, { json: true });
-      } else {
-        // Display the graph output directly
-        log.info(result.output || "No dependency graph available");
+        if (options.json) {
+          outputResult(result, { json: true });
+        } else {
+          // Display the graph output directly
+          log.info(result.output || "No dependency graph available");
+        }
+      } catch (error) {
+        handleCliError(error);
       }
-    } catch (error) {
-      handleCliError(error);
     }
-  });
+  );
 
   parent.addCommand(graphCommand);
 }

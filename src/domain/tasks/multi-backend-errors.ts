@@ -184,7 +184,7 @@ export class ErrorRecovery {
         error: f.error?.message,
       }));
 
-      logger.warn(
+      log.warn(
         `Partial failure in ${operation}: ${failures.length}/${results.length} backends failed`,
         { failures: failureContext }
       );

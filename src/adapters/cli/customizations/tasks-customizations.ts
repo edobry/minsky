@@ -216,10 +216,12 @@ export function getTasksCustomizations(): {
               description: "Filter tasks by status",
             },
             format: {
-              description: "Output format: ascii (terminal), dot (Graphviz), svg/png/pdf (rendered)",
+              description:
+                "Output format: ascii (terminal), dot (Graphviz), svg/png/pdf (rendered)",
             },
             output: {
-              description: "Output file path (auto-generated if not specified for rendered formats)",
+              description:
+                "Output file path (auto-generated if not specified for rendered formats)",
             },
           },
           outputFormatter: (result: any) => {
