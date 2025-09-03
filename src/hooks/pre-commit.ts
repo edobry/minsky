@@ -122,10 +122,25 @@ export class PreCommitHook {
       log.cli(`📋 Using lint command: ${lintJsonCommand}`);
 
       // Execute the lint command and get JSON output
-      const { stdout, stderr } = await execAsync(lintJsonCommand, {
-        cwd: this.projectRoot,
-        timeout: 30000, // 30 second timeout
-      });
+      // ESLint exits with non-zero when there are errors/warnings, but still produces valid JSON
+      let stdout = "";
+      let stderr = "";
+      try {
+        const result = await execAsync(lintJsonCommand, {
+          cwd: this.projectRoot,
+          timeout: 30000, // 30 second timeout
+        });
+        stdout = result.stdout;
+        stderr = result.stderr;
+      } catch (execError: any) {
+        // ESLint exits with non-zero on errors/warnings but still produces valid output
+        if (execError.stdout) {
+          stdout = execError.stdout;
+          stderr = execError.stderr || "";
+        } else {
+          throw execError;
+        }
+      }
 
       // Parse ESLint JSON output with proper error handling
       let lintResults: ESLintResult[] = [];

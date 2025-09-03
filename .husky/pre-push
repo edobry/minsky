@@ -1,7 +1,16 @@
 echo "Running tests before push..."
-bun test
-if [ $? -ne 0 ]; then
+
+# Run tests and capture output
+TEST_OUTPUT=$(AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain 2>&1)
+TEST_EXIT_CODE=$?
+
+# Show only failures and summary
+echo "$TEST_OUTPUT" | grep -E "^(✗|[0-9]+ tests? failed|[0-9]+ pass|[0-9]+ fail|Ran [0-9]+ tests)" || true
+
+if [ $TEST_EXIT_CODE -ne 0 ]; then
+  echo ""
   echo "❌ Tests must pass before pushing"
+  echo "💡 Run 'bun test' locally to see detailed failure information"
   exit 1
 fi
 

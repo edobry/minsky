@@ -12,10 +12,7 @@ import { mockLogger, resetMockLogger } from "../src/utils/test-utils/mock-logger
 // Use Bun's mock system to replace the logger module
 // This prevents any console output during tests while preserving logging functionality
 mock.module("../src/utils/logger", () => ({
-  log: {
-    ...mockLogger,
-    info: mock(() => {}),
-  },
+  log: mockLogger,
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,
   isStructuredMode: () => false,
@@ -24,10 +21,7 @@ mock.module("../src/utils/logger", () => ({
 
 // Mock additional relative paths to the logger
 mock.module("../../utils/logger", () => ({
-  log: {
-    ...mockLogger,
-    info: mock(() => {}),
-  },
+  log: mockLogger,
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,
   isStructuredMode: () => false,
@@ -35,10 +29,7 @@ mock.module("../../utils/logger", () => ({
 }));
 
 mock.module("../../../utils/logger", () => ({
-  log: {
-    ...mockLogger,
-    info: mock(() => {}),
-  },
+  log: mockLogger,
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,
   isStructuredMode: () => false,
@@ -47,10 +38,7 @@ mock.module("../../../utils/logger", () => ({
 
 // Also mock the domain logger if it exists
 mock.module("../src/domain/utils/logger", () => ({
-  log: {
-    ...mockLogger,
-    info: mock(() => {}),
-  },
+  log: mockLogger,
   createConfigurableLogger: () => mockLogger,
   createLogger: () => mockLogger,
   isStructuredMode: () => false,

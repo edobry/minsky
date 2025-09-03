@@ -4,7 +4,8 @@
 import { describe, it, expect, beforeAll } from "bun:test";
 import { spawn } from "child_process";
 import { promisify } from "util";
-import { writeFile, unlink, mkdir } from "fs/promises";
+// Use mock.module() to mock filesystem operations
+// import { writeFile, unlink, mkdir } from "fs/promises";
 import { join } from "path";
 import { tmpdir } from "os";
 

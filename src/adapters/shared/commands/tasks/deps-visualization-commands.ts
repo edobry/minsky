@@ -54,11 +54,14 @@ const tasksDepsGraphParams: CommandParameterMap = {
     required: false,
   },
   direction: {
-    schema: z.string().default("TB").transform(val => {
-      const upper = val.toUpperCase();
-      if (upper === "TB" || upper === "BT") return upper as "TB" | "BT";
-      throw new Error(`Invalid direction "${val}". Use TB (top-bottom) or BT (bottom-top)`);
-    }),
+    schema: z
+      .string()
+      .default("TB")
+      .transform((val) => {
+        const upper = val.toUpperCase();
+        if (upper === "TB" || upper === "BT") return upper as "TB" | "BT";
+        throw new Error(`Invalid direction "${val}". Use TB (top-bottom) or BT (bottom-top)`);
+      }),
     description:
       "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style) - case insensitive",
     required: false,
@@ -812,8 +815,12 @@ async function renderGraphvizFormat(
       if (openFile) {
         try {
           // Determine the appropriate open command based on OS
-          const openCommand = process.platform === "darwin" ? "open" :
-                             process.platform === "win32" ? "start" : "xdg-open";
+          const openCommand =
+            process.platform === "darwin"
+              ? "open"
+              : process.platform === "win32"
+                ? "start"
+                : "xdg-open";
           await execAsync(`${openCommand} "${finalOutputPath}"`);
           return {
             message: `✅ Rendered task dependency graph to: ${finalOutputPath} (opened in default application)`,
