@@ -129,7 +129,8 @@ function addDepsRmCommand(parent: Command): void {
 function addDepsListCommand(parent: Command): void {
   const listCommand = new Command("list")
     .description("List dependencies for a specific task")
-    .argument("<task-id>", "ID of the task to list dependencies for");
+    .argument("<task-id>", "ID of the task to list dependencies for")
+    .option("--verbose", "Use more detailed output format", false);
 
   addRepoOptions(listCommand);
   addOutputOptions(listCommand);
@@ -144,6 +145,7 @@ function addDepsListCommand(parent: Command): void {
 
       const result = await command.execute({
         task: taskId,
+        verbose: options.verbose,
       });
 
       if (options.json) {

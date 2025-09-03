@@ -17,6 +17,10 @@ All notable changes to this project will be documented in this file.
 
 ### Changed
 
+- Simplified `minsky tasks deps list` output to be more concise by default
+  - New format: `mt#506: depends on: mt#505` instead of verbose decorative output
+  - Added `--verbose` flag to access the original detailed format with emojis and separators
+  - Follows meaningful output principles by reducing noise and focusing on actionable information
 - **BREAKING**: `tasks edit` and `tasks spec edit` commands now default to dry-run preview instead of requiring confirmation
   - Shows actual content changes instead of useless line count summaries
   - Use `--execute` flag to apply changes (replaces `--force`)
