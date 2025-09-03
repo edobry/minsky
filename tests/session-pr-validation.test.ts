@@ -1,10 +1,20 @@
 import { describe, it, expect } from "bun:test";
-
-// TODO: This validation should be implemented but currently fails
-// Bug: PR body validation doesn't catch title duplication
+import {
+  validatePrContent,
+  isDuplicateContent,
+  preparePrContent,
+} from "../src/domain/session/pr-validation";
 
 describe("Session PR Body Validation", () => {
   describe("title duplication detection", () => {
+    it("should detect duplicate content with different formatting", () => {
+      const title = "feat(mt#478): Implement Context-Aware Rules Filtering";
+      const duplicatedLine =
+        "# feat(#478): Implement Context-Aware Rules Filtering for Workspace Rules Component";
+
+      expect(isDuplicateContent(title, duplicatedLine)).toBe(true);
+    });
+
     it("should reject PR body that starts with the same title as PR", () => {
       const prTitle = "feat(mt#478): Implement Context-Aware Rules Filtering";
       const prBody = `# feat(#478): Implement Context-Aware Rules Filtering for Workspace Rules Component
@@ -13,14 +23,11 @@ describe("Session PR Body Validation", () => {
 
 This is the actual content...`;
 
-      // This test should FAIL until the validation is fixed
-      // The validation should detect that the body starts with a duplicate title
-      const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
+      const validationResult = validatePrContent(prTitle, prBody);
 
       expect(validationResult.isValid).toBe(false);
-      expect(validationResult.error).toContain("Title duplication detected");
-      expect(validationResult.error).toContain(
-        "PR description body should NOT start with the same title"
+      expect(validationResult.errors).toContain(
+        "PR body must not repeat the title as the first line"
       );
     });
 
@@ -30,10 +37,10 @@ This is the actual content...`;
 
 Implemented an enhanced rules system...`;
 
-      const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
+      const validationResult = validatePrContent(prTitle, prBody);
 
       expect(validationResult.isValid).toBe(true);
-      expect(validationResult.error).toBeUndefined();
+      expect(validationResult.errors).toEqual([]);
     });
 
     it("should handle case variations in title duplication", () => {
@@ -42,10 +49,12 @@ Implemented an enhanced rules system...`;
 
 Content here...`;
 
-      const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
+      const validationResult = validatePrContent(prTitle, prBody);
 
       expect(validationResult.isValid).toBe(false);
-      expect(validationResult.error).toContain("Title duplication detected");
+      expect(validationResult.errors).toContain(
+        "PR body must not repeat the title as the first line"
+      );
     });
 
     it("should allow similar but not duplicate titles", () => {
@@ -56,62 +65,41 @@ Content here...`;
 
 Content about rules...`;
 
-      const validationResult = validatePRBodyForTitleDuplication(prTitle, prBody);
+      const validationResult = validatePrContent(prTitle, prBody);
 
       expect(validationResult.isValid).toBe(true);
+      expect(validationResult.errors).toEqual([]);
+    });
+  });
+
+  describe("PR content preparation", () => {
+    it("should sanitize duplicate title content from body", () => {
+      const title = "feat: Add new feature";
+      const body = `# feat: Add new feature
+
+## Summary
+Content here`;
+
+      const result = preparePrContent(title, body);
+
+      expect(result.title).toBe(title);
+      expect(result.body).toBe("## Summary\nContent here");
+      expect(result.warnings).toContain("Removed duplicate title content from PR body");
+    });
+
+    it("should handle empty body gracefully", () => {
+      const title = "feat: Add feature";
+      const result = preparePrContent(title, "");
+
+      expect(result.title).toBe(title);
+      expect(result.body).toBe("");
+      expect(result.warnings).toEqual([]);
+    });
+
+    it("should throw error for empty title", () => {
+      expect(() => preparePrContent("", "body")).toThrow(
+        "PR title is required and cannot be empty"
+      );
     });
   });
 });
-
-// Validation function to prevent title duplication in PR body
-function validatePRBodyForTitleDuplication(
-  title: string,
-  body: string
-): { isValid: boolean; error?: string } {
-  if (!body || !title) {
-    return { isValid: true }; // Empty body/title is valid
-  }
-
-  // Extract the first line of the body (typically a markdown header)
-  const firstLine = body.split("\n")[0].trim();
-
-  // Skip if first line is not a header
-  if (!firstLine.startsWith("#")) {
-    return { isValid: true };
-  }
-
-  // Remove markdown header prefix and normalize for comparison
-  const bodyTitle = firstLine.replace(/^#+\s*/, "").trim();
-  const normalizedBodyTitle = bodyTitle
-    .toLowerCase()
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ");
-  const normalizedPRTitle = title
-    .toLowerCase()
-    .replace(/[^\w\s]/g, " ")
-    .replace(/\s+/g, " ");
-
-  // Check if the normalized titles are substantially similar
-  // Use a simple approach: check if one title contains most words of the other
-  const bodyWords = normalizedBodyTitle.split(" ").filter((w) => w.length > 3); // Ignore short words
-  const titleWords = normalizedPRTitle.split(" ").filter((w) => w.length > 3);
-
-  if (bodyWords.length === 0 || titleWords.length === 0) {
-    return { isValid: true };
-  }
-
-  // Count how many significant words from the title appear in the body title
-  const matchingWords = titleWords.filter((word) => normalizedBodyTitle.includes(word));
-  const similarityRatio = matchingWords.length / titleWords.length;
-
-  // If more than 70% of significant words match, consider it title duplication
-  if (similarityRatio > 0.7) {
-    return {
-      isValid: false,
-      error:
-        "PR description body should NOT start with the same title as the PR. Title duplication detected in first line.",
-    };
-  }
-
-  return { isValid: true };
-}

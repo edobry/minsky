@@ -27,6 +27,14 @@ All notable changes to this project will be documented in this file.
 
 ### Fixed
 
+- logger imports: Normalized all logger imports to the canonical `src/utils/logger` module and corrected relative
+  import paths across domain/adapters. Removed `.js` extensions where necessary to align with project import
+  conventions. Fixed malformed import blocks discovered during normalization.
+
+- rules operations filesystem DI: Injected filesystem dependencies into modular rule operations and refactored
+  `file-operations` to use injected `fsPromises`/`existsSyncFn` instead of direct imports. Improves testability and
+  eliminated remaining readdir-related test failures.
+
 - test: Fix hybrid template helper generating MCP syntax with preferMcp=false
 
   - Updated `template-system.test.ts` mock to prefer CLI for hybrid when `preferMcp` is false

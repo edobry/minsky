@@ -5,6 +5,10 @@ import { RuleType } from "./rule-classifier";
 // TODO: This enhanced suggest function should be implemented
 import { suggestRules, type RuleSuggestOptions } from "./rule-suggestion-enhanced";
 
+// Test constants to avoid magic string duplication
+const AGENT_RULE_REACT = "agent-rule-react";
+const AGENT_RULE_SECURITY = "agent-rule-security";
+
 describe("Enhanced Rule Suggestion with Type Awareness", () => {
   // Mock rules for testing
   const mockRules: Rule[] = [
@@ -34,20 +38,20 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
       path: ".cursor/rules/glob-rule-test.mdc",
     },
     {
-      id: "agent-rule-react",
+      id: AGENT_RULE_REACT,
       name: "React Best Practices",
       description: "React component patterns and hooks usage",
       content: "Use functional components",
       format: "cursor",
-      path: ".cursor/rules/agent-rule-react.mdc",
+      path: `.cursor/rules/${AGENT_RULE_REACT}.mdc`,
     },
     {
-      id: "agent-rule-security",
+      id: AGENT_RULE_SECURITY,
       name: "Security Guidelines",
       description: "Security best practices for authentication and data handling",
       content: "Always validate inputs",
       format: "cursor",
-      path: ".cursor/rules/agent-rule-security.mdc",
+      path: `.cursor/rules/${AGENT_RULE_SECURITY}.mdc`,
     },
     {
       id: "manual-rule-1",
@@ -60,8 +64,8 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
 
   // Mock similarity search results
   const mockSimilarityResults = [
-    { id: "agent-rule-react", score: 0.9 },
-    { id: "agent-rule-security", score: 0.7 },
+    { id: AGENT_RULE_REACT, score: 0.9 },
+    { id: AGENT_RULE_SECURITY, score: 0.7 },
     { id: "glob-rule-ts", score: 0.3 }, // Should be filtered out - wrong type
   ];
 
@@ -114,11 +118,11 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
       const suggestions = await suggestRules(options, mockRules, mockSimilarityService);
 
       // Should include React rule (high similarity)
-      const reactRule = suggestions.find((r) => r.id === "agent-rule-react");
+      const reactRule = suggestions.find((r) => r.id === AGENT_RULE_REACT);
       expect(reactRule).toBeDefined();
 
       // Should include Security rule (lower but acceptable similarity)
-      const securityRule = suggestions.find((r) => r.id === "agent-rule-security");
+      const securityRule = suggestions.find((r) => r.id === AGENT_RULE_SECURITY);
       expect(securityRule).toBeDefined();
 
       // Should NOT include the TypeScript glob rule (wrong type for similarity)
@@ -215,7 +219,7 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
       expect(suggestions.find((r) => r.id === "glob-rule-test")).toBeDefined();
 
       // 4. React agent rule (similarity match)
-      expect(suggestions.find((r) => r.id === "agent-rule-react")).toBeDefined();
+      expect(suggestions.find((r) => r.id === AGENT_RULE_REACT)).toBeDefined();
 
       // Should NOT include:
       // - Manual rule (not requested)
@@ -289,14 +293,14 @@ describe("Enhanced Rule Suggestion with Type Awareness", () => {
       expect(suggestions.find((r) => r.id === "glob-rule-ts")).toBeDefined();
 
       // But no agent-requested rules (similarity failed)
-      expect(suggestions.find((r) => r.id === "agent-rule-react")).toBeUndefined();
+      expect(suggestions.find((r) => r.id === AGENT_RULE_REACT)).toBeUndefined();
     });
   });
 
   describe("Rule Ordering", () => {
     it("should maintain consistent ordering: always-apply, auto-attached, agent-requested, manual", async () => {
       const mockSimilarityService = {
-        searchByText: mock(() => Promise.resolve([{ id: "agent-rule-react", score: 0.9 }])),
+        searchByText: mock(() => Promise.resolve([{ id: AGENT_RULE_REACT, score: 0.9 }])),
       };
 
       const options: RuleSuggestOptions = {

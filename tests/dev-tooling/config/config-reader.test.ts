@@ -6,6 +6,9 @@ import {
   type SimplifiedWorkflowConfig,
 } from "../../../src/domain/project/config-reader";
 
+// Test constants to avoid magic string duplication
+const ESLINT_JSON_COMMAND = "eslint . --format json";
+
 describe("ProjectConfigReader - Dev Tooling", () => {
   let mockFs: ReturnType<typeof createMockFilesystem>;
   let reader: ProjectConfigReader;
@@ -42,7 +45,7 @@ describe("ProjectConfigReader - Dev Tooling", () => {
       const simplifiedConfig = {
         workflows: {
           lint: {
-            jsonCommand: "eslint . --format json",
+            jsonCommand: ESLINT_JSON_COMMAND,
             fixCommand: "eslint . --fix",
           },
           test: {
@@ -57,7 +60,7 @@ describe("ProjectConfigReader - Dev Tooling", () => {
 
       expect(config.configSource).toBe("minsky.json");
       // Should use simplified format directly - NO CONVERSION!
-      expect(config.workflows.lint?.jsonCommand).toBe("eslint . --format json");
+      expect(config.workflows.lint?.jsonCommand).toBe(ESLINT_JSON_COMMAND);
       expect(config.workflows.lint?.fixCommand).toBe("eslint . --fix");
       expect(config.workflows.test?.jsonCommand).toBe("bun test --reporter json");
     });
@@ -88,7 +91,7 @@ describe("ProjectConfigReader - Dev Tooling", () => {
       const config = {
         workflows: {
           lint: {
-            jsonCommand: "eslint . --format json",
+            jsonCommand: ESLINT_JSON_COMMAND,
             // No fixCommand
           },
         },
@@ -99,7 +102,7 @@ describe("ProjectConfigReader - Dev Tooling", () => {
       const lintJsonCommand = await reader.getLintJsonCommand();
       const lintFixCommand = await reader.getLintFixCommand();
 
-      expect(lintJsonCommand).toBe("eslint . --format json");
+      expect(lintJsonCommand).toBe(ESLINT_JSON_COMMAND);
       expect(lintFixCommand).toBeUndefined();
     });
   });
@@ -132,7 +135,7 @@ describe("ProjectConfigReader - Dev Tooling", () => {
       const config = await reader.getConfiguration();
 
       expect(config.configSource).toBe("defaults");
-      expect(config.workflows.lint?.jsonCommand).toBe("eslint . --format json");
+      expect(config.workflows.lint?.jsonCommand).toBe(ESLINT_JSON_COMMAND);
       expect(config.workflows.lint?.fixCommand).toBe("eslint . --fix");
       expect(config.runtime.packageManager).toBe("npm");
       expect(config.runtime.language).toBe("javascript");

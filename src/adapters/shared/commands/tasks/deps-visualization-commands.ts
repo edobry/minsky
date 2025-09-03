@@ -4,15 +4,32 @@ import { DatabaseConnectionManager } from "../../../../domain/database/connectio
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 
-const TreeParams = z.object({
-  task: z.string(),
-  maxDepth: z.number().optional().default(3),
-});
+// Parameter definitions matching the CommandParameterMap interface
+const tasksDepsTreeParams: CommandParameterMap = {
+  task: {
+    schema: z.string(),
+    description: "ID of the task to show dependency tree for",
+    required: true,
+  },
+  maxDepth: {
+    schema: z.number().default(3),
+    description: "Maximum depth to show in the tree",
+    required: false,
+  },
+};
 
-const GraphParams = z.object({
-  limit: z.number().optional().default(20),
-  status: z.string().optional(),
-});
+const tasksDepsGraphParams: CommandParameterMap = {
+  limit: {
+    schema: z.number().default(20),
+    description: "Maximum number of tasks to include",
+    required: false,
+  },
+  status: {
+    schema: z.string(),
+    description: "Filter tasks by status",
+    required: false,
+  },
+};
 
 interface TaskNode {
   id: string;
@@ -28,10 +45,10 @@ interface TaskNode {
 export function createTasksDepsTreeCommand() {
   return {
     id: "tasks.deps.tree",
-    name: "deps tree",
+    name: "tree",
     description: "Show dependency tree for a specific task",
-    parameters: TreeParams,
-    execute: async (params: z.infer<typeof TreeParams>) => {
+    parameters: tasksDepsTreeParams,
+    execute: async (params: any) => {
       const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
@@ -56,10 +73,10 @@ export function createTasksDepsTreeCommand() {
 export function createTasksDepsGraphCommand() {
   return {
     id: "tasks.deps.graph",
-    name: "deps graph",
+    name: "graph",
     description: "Show ASCII graph of all task dependencies",
-    parameters: GraphParams,
-    execute: async (params: z.infer<typeof GraphParams>) => {
+    parameters: tasksDepsGraphParams,
+    execute: async (params: any) => {
       const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({

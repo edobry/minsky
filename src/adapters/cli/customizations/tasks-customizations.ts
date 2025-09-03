@@ -119,11 +119,11 @@ export function getTasksCustomizations(): {
         },
         "tasks.deps.add": {
           parameters: {
-            fromTaskId: {
+            task: {
               asArgument: true,
               description: "Task that will depend on another task",
             },
-            toTaskId: {
+            dependsOn: {
               asArgument: true,
               description: "Task that is the dependency",
             },
@@ -131,11 +131,11 @@ export function getTasksCustomizations(): {
         },
         "tasks.deps.rm": {
           parameters: {
-            fromTaskId: {
+            task: {
               asArgument: true,
               description: "Task that depends on another task",
             },
-            toTaskId: {
+            dependsOn: {
               asArgument: true,
               description: "Task that is the dependency",
             },
@@ -143,7 +143,7 @@ export function getTasksCustomizations(): {
         },
         "tasks.deps.list": {
           parameters: {
-            taskId: {
+            task: {
               asArgument: true,
               description: "ID of the task to list dependencies for",
             },

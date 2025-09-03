@@ -3,6 +3,9 @@ import { describe, it, expect } from "bun:test";
 // TODO: This function should be implemented in glob-matcher.ts
 import { matchesGlobPatterns, parseGlobsField } from "./glob-matcher";
 
+// Test constants to avoid magic string duplication
+const BUTTON_COMPONENT_PATH = "src/components/Button.tsx";
+
 describe("Glob Matching for Rules", () => {
   describe("parseGlobsField", () => {
     it("should parse array-style globs", () => {
@@ -49,14 +52,14 @@ describe("Glob Matching for Rules", () => {
   describe("matchesGlobPatterns", () => {
     it("should match files against simple glob patterns", () => {
       const patterns = ["**/*.ts", "**/*.tsx"];
-      const files = ["src/index.ts", "src/components/Button.tsx", "README.md"];
+      const files = ["src/index.ts", BUTTON_COMPONENT_PATH, "README.md"];
 
       expect(matchesGlobPatterns(patterns, files)).toBe(true);
     });
 
     it("should return false when no files match", () => {
       const patterns = ["**/*.py"];
-      const files = ["src/index.ts", "src/components/Button.tsx", "README.md"];
+      const files = ["src/index.ts", BUTTON_COMPONENT_PATH, "README.md"];
 
       expect(matchesGlobPatterns(patterns, files)).toBe(false);
     });
@@ -74,7 +77,7 @@ describe("Glob Matching for Rules", () => {
     it("should match specific directory patterns", () => {
       const patterns = ["src/components/**/*.tsx"];
 
-      expect(matchesGlobPatterns(patterns, ["src/components/Button.tsx"])).toBe(true);
+      expect(matchesGlobPatterns(patterns, [BUTTON_COMPONENT_PATH])).toBe(true);
       expect(matchesGlobPatterns(patterns, ["src/components/forms/Input.tsx"])).toBe(true);
       expect(matchesGlobPatterns(patterns, ["src/utils/helper.tsx"])).toBe(false);
     });

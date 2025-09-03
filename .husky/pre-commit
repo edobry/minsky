@@ -1,175 +1,25 @@
 #!/usr/bin/env sh
 
-echo "🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)..."
+# TypeScript-based pre-commit hook
+# 
+# This replaces the complex bash logic with a clean TypeScript implementation
+# that leverages Minsky's own infrastructure for configuration and error handling.
 
-# SECURITY: Secret scanning with enhanced gitleaks configuration
-echo "🔍 Running enhanced gitleaks scan (includes database credentials)..."
-if command -v gitleaks >/dev/null 2>&1; then
-    if ! gitleaks protect --staged --source . --config .gitleaks.toml --verbose; then
-        echo "❌ 🚨 SECRETS DETECTED BY GITLEAKS! Commit blocked for security."
-        echo "📋 Review the findings above and sanitize any real credentials."
-        echo "💡 Database URLs: Use placeholder values (avoid real credentials)"
-        echo "💡 API Keys: Use placeholder values like 'sk-proj-xxx...xxxxx'"
-        echo "💡 Real credentials detected in: PostgreSQL, MySQL, MongoDB, Redis URLs, or API keys"
-        exit 1
-    fi
-    echo "✅ Gitleaks: No secrets detected in staged changes (enhanced scan complete)."
-else
-    echo "⚠️  gitleaks not found. Please install via:"
-    echo "   macOS: brew install gitleaks"
-    echo "   Linux: apt install gitleaks (or check: https://github.com/gitleaks/gitleaks)"
-    echo "⚠️  Skipping secret scanning - SECURITY RISK!"
-fi
+echo "🚀 Running TypeScript-based pre-commit validation..."
 
-echo "✅ SECURITY: Secret scanning completed."
-
-echo "🔍 Checking for variable naming issues..."
-
-# Run the variable naming checker
-if ! bun run scripts/check-variable-naming.ts; then
-  echo "❌ Variable naming issues found! Please fix them before committing."
-  echo "💡 You can run 'bun run scripts/fix-variable-naming.ts' to auto-fix many issues."
-  exit 1
-fi
-
-echo "✅ No variable naming issues found."
-
-echo "🧪 MANDATORY: Running unit test suite..."
-
-# Run the unit test suite (excluding integration tests) - ANY failure blocks the commit
-echo "  → Executing unit tests with timeout (excluding integration tests)..."
-if ! AGENT=1 bun test --preload ./tests/setup.ts --timeout=15000 --bail src tests/adapters tests/domain; then
+# Execute the TypeScript pre-commit hook
+if ! bun run src/hooks/pre-commit.ts; then
   echo ""
-  echo "❌ ❌ ❌ TESTS FAILED! COMMIT BLOCKED! ❌ ❌ ❌"
+  echo "❌ ❌ ❌ PRE-COMMIT VALIDATION FAILED! ❌ ❌ ❌"
   echo ""
-  echo "🚫 One or more tests are failing. Fix ALL test failures before committing."
-  echo "💡 Run 'bun run test' locally to see detailed failure information."
-  echo "🔧 Ensure your changes don't break existing functionality."
-  echo ""
-  echo "📋 Common fixes:"
-  echo "   • Update test expectations if behavior intentionally changed"
-  echo "   • Fix bugs in your code that break existing tests"
-  echo "   • Add missing mocks or dependencies"
-  echo "   • Check for import/export issues"
+  echo "🚫 One or more validation steps failed. Please review the output above."
+  echo "💡 The TypeScript implementation provides better error messages and debugging."
   echo ""
   exit 1
 fi
 
-echo "✅ All tests passing! Test suite validation completed."
-
-echo "🔍 Checking for test anti-patterns..."
-
-# NEW: Test Pattern Validation (Task #332 extension)
-# Check for global mock.module() usage outside describe blocks
-echo "  → Checking for global module mocks..."
-STAGED_TEST_FILES=$(git diff --cached --name-only | grep -E '\.(test|spec)\.(ts|js)$' || true)
-if [ -n "$STAGED_TEST_FILES" ]; then
-  if echo "$STAGED_TEST_FILES" | xargs grep -l "mock\.module" 2>/dev/null | xargs grep -n "mock\.module" 2>/dev/null | grep -v "describe\|it\|test\|beforeEach\|afterEach" | grep -q "mock\.module"; then
-    echo "⚠️  Global mock.module() usage detected outside test blocks!"
-    echo "💡 Move mock.module() calls inside describe/it blocks or to test-utils."
-    echo "$STAGED_TEST_FILES" | xargs grep -n "mock\.module" 2>/dev/null | grep -v "describe\|it\|test\|beforeEach\|afterEach" | head -5 || true
-    echo "   (Showing first 5 matches - there may be more)"
-    echo "   Continuing commit with WARNING..."
-  fi
-fi
-
-# Check for unreliable factory mock patterns
-echo "  → Checking for unreliable factory mock patterns..."
-if [ -n "$STAGED_TEST_FILES" ]; then
-  if echo "$STAGED_TEST_FILES" | xargs grep -l "createMockTaskService" 2>/dev/null | xargs grep -n "createMockTaskService.*async" 2>/dev/null | grep -q .; then
-    echo "⚠️  Unreliable factory mock patterns detected!"
-    echo "💡 Use explicit mock patterns with fixed return values instead of async factories."
-    echo "$STAGED_TEST_FILES" | xargs grep -n "createMockTaskService.*async" 2>/dev/null | head -3 || true
-    echo "   (Showing first 3 matches - there may be more)"
-    echo "   Continuing commit with WARNING..."
-  fi
-fi
-
-# Check for CLI execution in test files
-echo "  → Checking for CLI execution in tests..."
-if [ -n "$STAGED_TEST_FILES" ]; then
-  if echo "$STAGED_TEST_FILES" | xargs grep -l "execAsync\|spawn" 2>/dev/null | xargs grep -n "execAsync.*cli\.ts\|spawn.*cli\.ts" 2>/dev/null | grep -q .; then
-    echo "⚠️  CLI execution detected in test files!"
-    echo "💡 Tests should call domain functions directly, not CLI interfaces."
-    echo "$STAGED_TEST_FILES" | xargs grep -n "execAsync.*cli\.ts\|spawn.*cli\.ts" 2>/dev/null | head -3 || true
-    echo "   (Showing first 3 matches - there may be more)"
-    echo "   Continuing commit with WARNING..."
-  fi
-fi
-
-echo "✅ Test pattern validation completed."
-
-# Run code formatting (fixes many linting issues automatically)
-echo "🎨 Running code formatter..."
-if ! bun run format; then
-  echo "❌ Code formatting failed! Please check for syntax errors."
-  exit 1
-fi
-echo "✅ Code formatting completed."
-
-# Check for console usage violations (prevents test noise pollution)
-echo "🔇 Checking for console usage violations..."
-if ! bun run lint:console:strict; then
-  echo "❌ Console usage violations found! These cause test output pollution."
-  echo "💡 Replace console.* calls with logger.* or mock logger utilities"
-  echo "📖 See docs/testing/global-test-setup.md for guidance"
-  exit 1
-fi
-echo "✅ No console usage violations found."
-
-# Run linting with strict error and warning thresholds
-echo "🔍 Running ESLint with strict quality gates..."
-
-# Use JSON output for reliable parsing
-LINT_JSON=$(bun run lint -- --format json 2>/dev/null || echo "[]")
-
-# Extract total error and warning counts using simple arithmetic
-ERROR_COUNT=$(echo "$LINT_JSON" | grep -o '"errorCount":[0-9]*' | cut -d: -f2 | awk '{sum+=$1} END {print sum+0}')
-WARNING_COUNT=$(echo "$LINT_JSON" | grep -o '"warningCount":[0-9]*' | cut -d: -f2 | awk '{sum+=$1} END {print sum+0}')
-
-# Log the current state
-echo "📊 ESLint Results:"
-echo "   Errors: $ERROR_COUNT"
-echo "   Warnings: $WARNING_COUNT"
-
-# STRICT ENFORCEMENT: Block if ANY errors found
-if [ "$ERROR_COUNT" -gt 0 ]; then
-  echo ""
-  echo "❌ ❌ ❌ LINTER ERRORS DETECTED! COMMIT BLOCKED! ❌ ❌ ❌"
-  echo ""
-  echo "🚫 Found $ERROR_COUNT linter error(s). ALL errors must be fixed before committing."
-  echo "💡 Run 'bun run lint --fix' to auto-fix many issues."
-  echo "🔧 Review and manually fix any remaining errors."
-  echo ""
-  echo "Run 'bun run lint' to see detailed error information."
-  exit 1
-fi
-
-# WARNING THRESHOLD: Block if over 100 warnings
-if [ "$WARNING_COUNT" -gt 100 ]; then
-  echo ""
-  echo "⚠️ ⚠️ ⚠️ TOO MANY WARNINGS! COMMIT BLOCKED! ⚠️ ⚠️ ⚠️"
-  echo ""
-  echo "🚫 Found $WARNING_COUNT warnings. Maximum allowed: 100."
-  echo "💡 Please address warnings to improve code quality."
-  echo "🎯 Target: Reduce warnings below 100 threshold."
-  echo ""
-  echo "Run 'bun run lint' to see detailed warning information."
-  exit 1
-fi
-
-# Success case
-if [ "$WARNING_COUNT" -eq 0 ]; then
-  echo "✅ Perfect! Zero errors and zero warnings detected."
-else
-  echo "✅ Quality gate passed: $WARNING_COUNT warnings (under 100 threshold)."
-fi
-
-# Run ESLint rule tooling tests (separate from main test suite)
-echo "🔧 Running ESLint rule tooling tests..."
-if ! AGENT=1 bun test src/eslint-rules/fixtures-test.test.js --timeout=5000; then
-  echo "❌ ESLint rule tooling tests failed! Please fix the fixture validation."
-  exit 1
-fi
-
-echo "✅ All checks passed! Commit proceeding..."
+echo ""
+echo "✅ ✅ ✅ ALL VALIDATIONS PASSED! ✅ ✅ ✅"
+echo ""
+echo "🎉 TypeScript pre-commit hook completed successfully!"
+echo "📦 Your changes are ready to be committed."

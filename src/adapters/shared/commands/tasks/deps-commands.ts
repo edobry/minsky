@@ -2,18 +2,50 @@ import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DatabaseConnectionManager } from "../../../../domain/database/connection-manager";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
+import { type CommandParameterMap } from "../../command-registry";
 
-const AddParams = z.object({ task: z.string(), dependsOn: z.string() });
-const RmParams = z.object({ task: z.string(), dependsOn: z.string() });
-const ListParams = z.object({ task: z.string() });
+// Parameter definitions matching the CommandParameterMap interface
+const tasksDepsAddParams: CommandParameterMap = {
+  task: {
+    schema: z.string(),
+    description: "Task that will depend on another task",
+    required: true,
+  },
+  dependsOn: {
+    schema: z.string(),
+    description: "Task that is the dependency",
+    required: true,
+  },
+};
+
+const tasksDepsRmParams: CommandParameterMap = {
+  task: {
+    schema: z.string(),
+    description: "Task that depends on another task",
+    required: true,
+  },
+  dependsOn: {
+    schema: z.string(),
+    description: "Task that is the dependency",
+    required: true,
+  },
+};
+
+const tasksDepsListParams: CommandParameterMap = {
+  task: {
+    schema: z.string(),
+    description: "ID of the task to list dependencies for",
+    required: true,
+  },
+};
 
 export function createTasksDepsAddCommand() {
   return {
     id: "tasks.deps.add",
-    name: "deps add",
+    name: "add",
     description: "Add a dependency edge (task depends on prerequisite)",
-    parameters: AddParams,
-    execute: async (params: z.infer<typeof AddParams>) => {
+    parameters: tasksDepsAddParams,
+    execute: async (params: any) => {
       const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
       const service = new TaskGraphService(db);
       const result = await service.addDependency(params.task, params.dependsOn);
@@ -25,10 +57,10 @@ export function createTasksDepsAddCommand() {
 export function createTasksDepsRmCommand() {
   return {
     id: "tasks.deps.rm",
-    name: "deps rm",
+    name: "rm",
     description: "Remove a dependency edge",
-    parameters: RmParams,
-    execute: async (params: z.infer<typeof RmParams>) => {
+    parameters: tasksDepsRmParams,
+    execute: async (params: any) => {
       const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(params.task, params.dependsOn);
@@ -40,10 +72,10 @@ export function createTasksDepsRmCommand() {
 export function createTasksDepsListCommand() {
   return {
     id: "tasks.deps.list",
-    name: "deps list",
+    name: "list",
     description: "List dependencies for a task",
-    parameters: ListParams,
-    execute: async (params: z.infer<typeof ListParams>) => {
+    parameters: tasksDepsListParams,
+    execute: async (params: any) => {
       const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
       const service = new TaskGraphService(db);
       const items = await service.listDependencies(params.task);

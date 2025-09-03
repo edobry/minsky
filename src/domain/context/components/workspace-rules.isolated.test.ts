@@ -3,6 +3,10 @@ import type { ComponentInput } from "./types";
 import type { Rule } from "../../rules/types";
 import { RuleType } from "../../rules/rule-classifier";
 
+// Test constants to avoid magic string duplication
+const WORKSPACE_RULES_MODULE = "./workspace-rules";
+const ENHANCED_SUGGESTION_FILTER = "enhanced-suggestion";
+
 describe("Workspace Rules Component - Isolated Unit Tests", () => {
   // Mock rules for testing - avoid real resources
   const mockRules: Rule[] = [
@@ -80,13 +84,13 @@ describe("Workspace Rules Component - Isolated Unit Tests", () => {
 
   describe("Output Format Validation", () => {
     it("should generate proper XML structure in output", async () => {
-      const { WorkspaceRulesComponent } = await import("./workspace-rules");
+      const { WorkspaceRulesComponent } = await import(WORKSPACE_RULES_MODULE);
 
       const inputs = {
         requestableRules: [mockRules[0], mockRules[1], mockRules[2]], // Always, auto, agent
         totalRules: mockRules.length,
         filteredCount: 3,
-        filteredBy: "enhanced-suggestion",
+        filteredBy: ENHANCED_SUGGESTION_FILTER,
         rulesByType: {
           [RuleType.ALWAYS_APPLY]: [mockRules[0]],
           [RuleType.AUTO_ATTACHED]: [mockRules[1]],
@@ -114,13 +118,13 @@ describe("Workspace Rules Component - Isolated Unit Tests", () => {
     });
 
     it("should include metadata when filtering applied", async () => {
-      const { WorkspaceRulesComponent } = await import("./workspace-rules");
+      const { WorkspaceRulesComponent } = await import(WORKSPACE_RULES_MODULE);
 
       const inputs = {
         requestableRules: mockRules.slice(0, 2),
         totalRules: mockRules.length,
         filteredCount: 2,
-        filteredBy: "enhanced-suggestion",
+        filteredBy: ENHANCED_SUGGESTION_FILTER,
         queryUsed: "testing",
         reductionPercentage: 50,
       };
@@ -128,7 +132,7 @@ describe("Workspace Rules Component - Isolated Unit Tests", () => {
       const output = WorkspaceRulesComponent.render(inputs, {});
 
       // Should include filtering metadata
-      expect(output.metadata?.filteredBy).toBe("enhanced-suggestion");
+      expect(output.metadata?.filteredBy).toBe(ENHANCED_SUGGESTION_FILTER);
       expect(output.metadata?.queryUsed).toBe("testing");
       expect(output.metadata?.reductionPercentage).toBe(50);
     });
@@ -137,7 +141,7 @@ describe("Workspace Rules Component - Isolated Unit Tests", () => {
   describe("Component Function Testing", () => {
     it("should have proper render function behavior", () => {
       // Test the render function directly without calling gatherInputs
-      const { WorkspaceRulesComponent } = require("./workspace-rules");
+      const { WorkspaceRulesComponent } = require(WORKSPACE_RULES_MODULE);
 
       const inputs = {
         requestableRules: [mockRules[0], mockRules[1]], // always and auto-attached rules
@@ -158,7 +162,7 @@ describe("Workspace Rules Component - Isolated Unit Tests", () => {
     });
 
     it("should handle legacy generate function for backward compatibility", () => {
-      const { WorkspaceRulesComponent } = require("./workspace-rules");
+      const { WorkspaceRulesComponent } = require(WORKSPACE_RULES_MODULE);
 
       const context = {
         userPrompt: "test prompt",

@@ -235,13 +235,14 @@ export class ModularTasksCommandManager {
         execute: indexEmbeddingsCommand.execute.bind(indexEmbeddingsCommand),
       });
 
+      // Register deps commands using the command objects directly
       sharedCommandRegistry.registerCommand({
         id: depsAddCommand.id,
         category: CommandCategory.TASKS,
         name: depsAddCommand.name,
         description: depsAddCommand.description,
-        parameters: (depsAddCommand as any).parameters,
-        execute: depsAddCommand.execute.bind(depsAddCommand),
+        parameters: depsAddCommand.parameters,
+        execute: depsAddCommand.execute,
       });
 
       sharedCommandRegistry.registerCommand({
@@ -249,69 +250,35 @@ export class ModularTasksCommandManager {
         category: CommandCategory.TASKS,
         name: depsRmCommand.name,
         description: depsRmCommand.description,
-        parameters: (depsRmCommand as any).parameters,
-        execute: depsRmCommand.execute.bind(depsRmCommand),
-      });
-
-      // Register deps commands manually with dot notation
-      // Register deps add command
-      sharedCommandRegistry.registerCommand({
-        id: "tasks.deps.add",
-        category: CommandCategory.TASKS,
-        name: "add",
-        description: "Add a dependency relationship between tasks",
-        parameters: depsAddCommand.parameters,
-        execute: async (params: any, context: any) => {
-          return await depsAddCommand.execute(params, context);
-        },
-      });
-
-      // Register deps rm command
-      sharedCommandRegistry.registerCommand({
-        id: "tasks.deps.rm",
-        category: CommandCategory.TASKS,
-        name: "rm",
-        description: "Remove a dependency relationship between tasks",
         parameters: depsRmCommand.parameters,
-        execute: async (params: any, context: any) => {
-          return await depsRmCommand.execute(params, context);
-        },
+        execute: depsRmCommand.execute,
       });
 
-      // Register deps list command
       sharedCommandRegistry.registerCommand({
-        id: "tasks.deps.list",
+        id: depsListCommand.id,
         category: CommandCategory.TASKS,
-        name: "list",
-        description: "List dependencies for a specific task",
+        name: depsListCommand.name,
+        description: depsListCommand.description,
         parameters: depsListCommand.parameters,
-        execute: async (params: any, context: any) => {
-          return await depsListCommand.execute(params, context);
-        },
+        execute: depsListCommand.execute,
       });
 
-      // Register deps tree command
       sharedCommandRegistry.registerCommand({
-        id: "tasks.deps.tree",
+        id: depsTreeCommand.id,
         category: CommandCategory.TASKS,
-        name: "tree",
-        description: "Show dependency tree for a specific task",
+        name: depsTreeCommand.name,
+        description: depsTreeCommand.description,
         parameters: depsTreeCommand.parameters,
-        execute: async (params: any, context: any) => {
-          return await depsTreeCommand.execute(params, context);
-        },
+        execute: depsTreeCommand.execute,
       });
 
-      // Register deps graph command
       sharedCommandRegistry.registerCommand({
-        id: "tasks.deps.graph",
+        id: depsGraphCommand.id,
         category: CommandCategory.TASKS,
-        name: "graph",
-        description: "Show ASCII graph of all task dependencies",
+        name: depsGraphCommand.name,
+        description: depsGraphCommand.description,
         parameters: depsGraphCommand.parameters,
-        execute: async (params: any, context: any) => {
-          return await depsGraphCommand.execute(params, context);
-        },
+        execute: depsGraphCommand.execute,
       });
     } catch (error) {
       log.warn("Failed to register task commands:", error);

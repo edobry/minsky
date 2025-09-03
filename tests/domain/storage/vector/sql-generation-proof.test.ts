@@ -5,6 +5,10 @@
 
 import { describe, test, expect, beforeEach, mock } from "bun:test";
 
+// Test constants to avoid magic string duplication
+const POSTGRES_VEC_MODULE_PATH = "../../../../src/domain/storage/vector/postgres-vector-storage";
+const TASKS_EMBEDDINGS_TABLE = "tasks_embeddings";
+
 describe("SQL Generation Proof for Server-Side Filtering", () => {
   let capturedQueries: Array<{ query: string; params: any[] }> = [];
   let mockSql: any;
@@ -27,15 +31,13 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
 
   test("generates WHERE clause for single filter", async () => {
     // Import and create a PostgresVectorStorage instance with mock SQL
-    const { PostgresVectorStorage } = await import(
-      "../../../../src/domain/storage/vector/postgres-vector-storage"
-    );
+    const { PostgresVectorStorage } = await import(POSTGRES_VEC_MODULE_PATH);
 
     // Manually set internal properties to avoid constructor database connection
     const storage = Object.create(PostgresVectorStorage.prototype);
     storage.sql = mockSql;
     storage.config = {
-      tableName: "tasks_embeddings",
+      tableName: TASKS_EMBEDDINGS_TABLE,
       idColumn: "task_id",
       embeddingColumn: "vector",
     };
@@ -64,14 +66,12 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
   });
 
   test("generates WHERE clause with multiple filters", async () => {
-    const { PostgresVectorStorage } = await import(
-      "../../../../src/domain/storage/vector/postgres-vector-storage"
-    );
+    const { PostgresVectorStorage } = await import(POSTGRES_VEC_MODULE_PATH);
 
     const storage = Object.create(PostgresVectorStorage.prototype);
     storage.sql = mockSql;
     storage.config = {
-      tableName: "tasks_embeddings",
+      tableName: TASKS_EMBEDDINGS_TABLE,
       idColumn: "task_id",
       embeddingColumn: "vector",
     };
@@ -101,14 +101,12 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
   });
 
   test("skips WHERE clause when no filters provided", async () => {
-    const { PostgresVectorStorage } = await import(
-      "../../../../src/domain/storage/vector/postgres-vector-storage"
-    );
+    const { PostgresVectorStorage } = await import(POSTGRES_VEC_MODULE_PATH);
 
     const storage = Object.create(PostgresVectorStorage.prototype);
     storage.sql = mockSql;
     storage.config = {
-      tableName: "tasks_embeddings",
+      tableName: TASKS_EMBEDDINGS_TABLE,
       idColumn: "task_id",
       embeddingColumn: "vector",
     };
@@ -128,14 +126,12 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
   });
 
   test("ignores null/undefined filter values", async () => {
-    const { PostgresVectorStorage } = await import(
-      "../../../../src/domain/storage/vector/postgres-vector-storage"
-    );
+    const { PostgresVectorStorage } = await import(POSTGRES_VEC_MODULE_PATH);
 
     const storage = Object.create(PostgresVectorStorage.prototype);
     storage.sql = mockSql;
     storage.config = {
-      tableName: "tasks_embeddings",
+      tableName: TASKS_EMBEDDINGS_TABLE,
       idColumn: "task_id",
       embeddingColumn: "vector",
     };
@@ -167,14 +163,12 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
   });
 
   test("PERFORMANCE PROOF: proves database-level filtering", async () => {
-    const { PostgresVectorStorage } = await import(
-      "../../../../src/domain/storage/vector/postgres-vector-storage"
-    );
+    const { PostgresVectorStorage } = await import(POSTGRES_VEC_MODULE_PATH);
 
     const storage = Object.create(PostgresVectorStorage.prototype);
     storage.sql = mockSql;
     storage.config = {
-      tableName: "tasks_embeddings",
+      tableName: TASKS_EMBEDDINGS_TABLE,
       idColumn: "task_id",
       embeddingColumn: "vector",
     };
