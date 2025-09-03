@@ -7,11 +7,14 @@ All notable changes to this project will be documented in this file.
 ### Added
 
 - **README with Philosophical Foundation**: Created comprehensive README articulating Minsky's core philosophy
+
   - Framed Minsky as a development workflow orchestration platform
   - Explained organizational cybernetics principles and feedback loops
   - Documented agent equivalence: how same mechanisms guide humans and AI
-  - Described incentive landscape design through control structures
+  - **Emphasized key principle**: We don't need to teach AI best practices—we create environments where following them is the only way to succeed
+  - Described incentive landscape design through mechanism design and control structures
   - Positioned orchestration role: conductor of existing tools, not reinventing them
+  - Showed how alignment is achieved through environmental design, not instruction
 
 - Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
   - Comprehensive spec for capturing engineering journey during task work

@@ -21,17 +21,24 @@ Rather than building yet another linter, test runner, or task tracker, Minsky or
 Minsky applies principles from organizational cybernetics—the study of control and communication in complex systems. By creating the right feedback loops and control structures, we shape an environment where good practices become the path of least resistance:
 
 - **Fast feedback loops** (pre-commit hooks) catch issues immediately
-- **Progressive gates** (pre-push, CI/CD) balance thoroughness with productivity  
+- **Progressive gates** (pre-push, CI/CD) balance thoroughness with productivity
 - **Visibility mechanisms** (workflow maturity scores) make quality tangible
 - **Automation** makes good practices easier than bad ones
 
 ### Agent Equivalence
 
-The same incentive structures that guide human behavior guide AI behavior. This isn't coincidence—it's design. By creating environments with clear constraints and feedback, we achieve alignment through mechanism design rather than instruction:
+The same incentive structures that guide human behavior guide AI behavior. This isn't coincidence—it's design. 
 
-- Humans fix linting errors because commits are blocked otherwise
-- AI agents fix linting errors for exactly the same reason
-- Both follow the path of least resistance toward quality
+**We don't need to teach AI to follow best practices.** We create an environment where following best practices is the only way to succeed, just like for humans. This is the key insight: alignment isn't achieved through training or instruction, but through environmental design.
+
+Consider how this works in practice:
+- A human developer can't commit code with linting errors—the pre-commit hook blocks it
+- An AI agent can't commit code with linting errors—the same hook blocks it
+- Neither needs to be "taught" to value clean code; the environment enforces it
+
+This is mechanism design at work. By shaping the incentive landscape through tooling and automation, we make good practices inevitable rather than aspirational. The AI doesn't need to understand *why* formatting matters—it just needs to operate in an environment where unformatted code literally cannot be committed.
+
+The beauty of this approach is that it's already proven. These are the same organizational cybernetic structures that have guided human teams to quality for decades. We're not inventing new constraints for AI; we're applying the same time-tested control mechanisms that work for any intelligent agent operating in the system.
 
 ## What Minsky Provides
 
@@ -46,7 +53,7 @@ minsky init --tasks-backend markdown
 # GitHub Issues for open source
 minsky init --tasks-backend github
 
-# Database for complex workflows  
+# Database for complex workflows
 minsky init --tasks-backend minsky
 ```
 
@@ -91,7 +98,7 @@ minsky workflow assess
 
 # Development Workflow Maturity Assessment
 # Overall Score: 72/100 (Level 3 - DEFINED)
-# 
+#
 # ✅ Code Quality        ████████░░  80%
 # ⚠️  Testing            ██████░░░░  60%
 # ❌ Security            ░░░░░░░░░░   0%
@@ -215,7 +222,7 @@ Minsky uses a flexible configuration system supporting both YAML and JSON:
 ```yaml
 # minsky.yaml
 tasks:
-  backend: markdown  # or: github, json-file, minsky
+  backend: markdown # or: github, json-file, minsky
 
 workflows:
   lint:
@@ -224,7 +231,7 @@ workflows:
     json: "jest --json"
 
 rules:
-  format: cursor  # or: generic
+  format: cursor # or: generic
 ```
 
 ## Contributing
