@@ -77,20 +77,20 @@ export class TasksImporterService {
 
     // Get connection from PersistenceService
     const { PersistenceService } = await import("../persistence/service");
-    
+
     if (!PersistenceService.isInitialized()) {
       await PersistenceService.initialize();
     }
-    
+
     const provider = PersistenceService.getProvider();
-    
+
     if (!provider.capabilities.sql) {
       throw new Error("Current persistence provider does not support SQL operations");
     }
-    
+
     const sql = await provider.getRawSqlConnection?.();
     const db = await provider.getDatabaseConnection?.();
-    
+
     if (!sql) {
       throw new Error("Failed to get raw SQL connection from persistence provider");
     }
