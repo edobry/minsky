@@ -5,7 +5,7 @@
 # This replaces the complex bash logic with a clean TypeScript implementation
 # that leverages Minsky's own infrastructure for configuration and error handling.
 
-echo "🚀 Running TypeScript-based pre-commit validation..."
+echo "🚀 Running pre-commit validation..."
 
 # Execute the TypeScript pre-commit hook
 if ! bun run src/hooks/pre-commit.ts; then
@@ -13,7 +13,7 @@ if ! bun run src/hooks/pre-commit.ts; then
   echo "❌ ❌ ❌ PRE-COMMIT VALIDATION FAILED! ❌ ❌ ❌"
   echo ""
   echo "🚫 One or more validation steps failed. Please review the output above."
-  echo "💡 The TypeScript implementation provides better error messages and debugging."
+  echo "💡 The validation system provides detailed error messages and debugging."
   echo ""
   exit 1
 fi
