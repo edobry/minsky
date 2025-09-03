@@ -29,6 +29,11 @@ const tasksDepsGraphParams: CommandParameterMap = {
     description: "Filter tasks by status",
     required: false,
   },
+  format: {
+    schema: z.enum(["ascii", "dot"]).default("ascii"),
+    description: "Output format: ascii for terminal display, dot for Graphviz",
+    required: false,
+  },
 };
 
 interface TaskNode {
@@ -83,14 +88,23 @@ export function createTasksDepsGraphCommand() {
         workspacePath: process.cwd(),
       });
 
-      const output = await generateDependencyGraph(
-        graphService,
-        taskService,
-        params.limit || 20,
-        params.status
-      );
-
-      return { success: true, output };
+      if (params.format === "dot") {
+        const output = await generateGraphvizDot(
+          graphService,
+          taskService,
+          params.limit || 20,
+          params.status
+        );
+        return { success: true, output };
+      } else {
+        const output = await generateDependencyGraph(
+          graphService,
+          taskService,
+          params.limit || 20,
+          params.status
+        );
+        return { success: true, output };
+      }
     },
   };
 }
@@ -366,5 +380,99 @@ async function renderDependencyChain(
         lines.push(`${moreConnector}   ... +${otherDependents.length - 2} more`);
       }
     }
+  }
+}
+
+/**
+ * Generate Graphviz DOT format for task dependencies
+ */
+async function generateGraphvizDot(
+  graphService: TaskGraphService,
+  taskService: any,
+  limit: number,
+  statusFilter?: string
+): Promise<string> {
+  const lines: string[] = [];
+  
+  try {
+    // Get tasks with dependencies
+    const tasks = await taskService.listTasks({
+      status: statusFilter || "TODO",
+      limit: Math.min(limit, 100), // Higher limit for DOT since it's for external processing
+    });
+
+    lines.push("digraph TaskDependencies {");
+    lines.push("  rankdir=TB;");
+    lines.push("  node [shape=box, style=rounded];");
+    lines.push("  edge [color=gray];");
+    lines.push("");
+
+    const tasksWithDeps = [];
+    const allTaskIds = new Set<string>();
+
+    // Find tasks that have dependencies or dependents  
+    for (const task of tasks) {
+      const dependencies = await graphService.listDependencies(task.id);
+      const dependents = await graphService.listDependents(task.id);
+
+      if (dependencies.length > 0 || dependents.length > 0) {
+        tasksWithDeps.push({
+          ...task,
+          dependencies,
+          dependents,
+        });
+        allTaskIds.add(task.id);
+        dependencies.forEach(dep => allTaskIds.add(dep));
+        dependents.forEach(dep => allTaskIds.add(dep));
+      }
+    }
+
+    if (tasksWithDeps.length === 0) {
+      lines.push("  // No tasks with dependencies found");
+      lines.push("}");
+      return lines.join("\n");
+    }
+
+    // Define nodes with labels and colors based on status
+    for (const taskId of allTaskIds) {
+      try {
+        const task = await taskService.getTask(taskId);
+        const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
+        const title = task?.title?.substring(0, 30) || "Unknown";
+        const status = task?.status || "Unknown";
+        
+        let color = "lightgray";
+        if (status === "TODO") color = "lightblue";
+        else if (status === "IN-PROGRESS") color = "yellow"; 
+        else if (status === "DONE") color = "lightgreen";
+        else if (status === "BLOCKED") color = "lightcoral";
+
+        lines.push(`  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", style=filled];`);
+      } catch {
+        // Handle tasks that can't be loaded
+        const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
+        lines.push(`  ${safeId} [label="${taskId}", fillcolor="lightgray", style=filled];`);
+      }
+    }
+
+    lines.push("");
+
+    // Define edges
+    for (const task of tasksWithDeps) {
+      const fromId = task.id.replace(/[^a-zA-Z0-9]/g, "_");
+      for (const depId of task.dependencies) {
+        const toId = depId.replace(/[^a-zA-Z0-9]/g, "_");
+        lines.push(`  ${toId} -> ${fromId};`);
+      }
+    }
+
+    lines.push("}");
+    return lines.join("\n");
+
+  } catch (error) {
+    lines.push("digraph TaskDependencies {");
+    lines.push(`  error [label="Error: ${error.message}", color=red];`);
+    lines.push("}");
+    return lines.join("\n");
   }
 }

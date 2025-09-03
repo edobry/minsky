@@ -215,6 +215,9 @@ export function getTasksCustomizations(): {
             status: {
               description: "Filter tasks by status",
             },
+            format: {
+              description: "Output format: ascii for terminal display, dot for Graphviz",
+            },
           },
           outputFormatter: (result: any) => {
             if (result.json) {

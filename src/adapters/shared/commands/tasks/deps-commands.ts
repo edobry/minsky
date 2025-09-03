@@ -48,12 +48,12 @@ export function createTasksDepsAddCommand() {
     execute: async (params: any) => {
       const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
       const service = new TaskGraphService(db);
-            const result = await service.addDependency(params.task, params.dependsOn);
-      
-      const output = result.created 
+      const result = await service.addDependency(params.task, params.dependsOn);
+
+      const output = result.created
         ? `✅ Added dependency: ${params.task} depends on ${params.dependsOn}`
         : `ℹ️  Dependency already exists: ${params.task} depends on ${params.dependsOn}`;
-      
+
       return { success: true, output };
     },
   };

@@ -206,9 +206,10 @@ function addDepsTreeCommand(parent: Command): void {
  */
 function addDepsGraphCommand(parent: Command): void {
   const graphCommand = new Command("graph")
-    .description("Show ASCII graph of all task dependencies")
+    .description("Show task dependency graph")
     .option("--limit <limit>", "Maximum number of tasks to include", "20")
-    .option("--status <status>", "Filter tasks by status", "TODO");
+    .option("--status <status>", "Filter tasks by status", "TODO")
+    .option("--format <format>", "Output format: ascii or dot", "ascii");
 
   addRepoOptions(graphCommand);
   addOutputOptions(graphCommand);
