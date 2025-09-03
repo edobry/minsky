@@ -52,6 +52,11 @@ export const taskCreationParams = {
     description: "Path to file containing task description",
     required: false,
   },
+  dependencies: {
+    schema: z.union([z.string(), z.array(z.string())]),
+    description: "Comma-separated list of task IDs this task depends on, or array of task IDs. Supports typed format: taskId:type",
+    required: false,
+  },
   githubRepo: {
     schema: z.string(),
     description:
