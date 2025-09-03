@@ -6,6 +6,15 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **AI Readiness Rubric System Task (mt#499)**: Created comprehensive task specification for assessing project readiness for autonomous AI development
+  - Defined 7 assessment categories with weighted scoring (Code Quality, Testing, Task Management, Version Control, Security, AI Rules, Configuration)
+  - Established readiness levels from Manual to Fully Autonomous (score-based)
+  - Designed command structure: `minsky readiness assess/check/score`
+  - Created detection logic for auto-discovering project configurations
+  - Specified recommendations engine for actionable improvement suggestions
+  - Analyzed existing Minsky guardrails to inform rubric design
+  - Documented implementation roadmap with 4 phases
+
 - **Context-Aware Rules Filtering**: Enhanced rules system with intelligent filtering based on Cursor's rule type system
 
   - Implemented rule type classification (Always Apply, Auto Attached, Agent Requested, Manual)
