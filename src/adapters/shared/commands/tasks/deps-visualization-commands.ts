@@ -46,12 +46,14 @@ const tasksDepsGraphParams: CommandParameterMap = {
   },
   layout: {
     schema: z.enum(["dot", "neato", "fdp", "circo", "twopi"]).default("dot"),
-    description: "Graph layout engine: dot (hierarchical), neato (spring), fdp (force), circo (circular), twopi (radial)",
+    description:
+      "Graph layout engine: dot (hierarchical), neato (spring), fdp (force), circo (circular), twopi (radial)",
     required: false,
   },
   direction: {
     schema: z.enum(["TB", "BT", "LR", "RL"]).default("TB"),
-    description: "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style), LR (left-right), RL (right-left)",
+    description:
+      "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style), LR (left-right), RL (right-left)",
     required: false,
   },
   spacing: {
@@ -61,7 +63,8 @@ const tasksDepsGraphParams: CommandParameterMap = {
   },
   style: {
     schema: z.enum(["default", "tech-tree", "flowchart", "network"]).default("default"),
-    description: "Visual style: default (basic), tech-tree (game-style), flowchart (process), network (connected)",
+    description:
+      "Visual style: default (basic), tech-tree (game-style), flowchart (process), network (connected)",
     required: false,
   },
 };
@@ -484,17 +487,17 @@ async function generateGraphvizDot(
     });
 
     const { layout = "dot", direction = "TB", spacing = "normal", style = "default" } = options;
-    
+
     lines.push("digraph TaskDependencies {");
-    
+
     // Layout engine (for rendering, not DOT syntax)
     if (layout !== "dot") {
       lines.push(`  layout="${layout}";`);
     }
-    
+
     // Direction
     lines.push(`  rankdir=${direction};`);
-    
+
     // Spacing configuration
     let ranksep = "0.75";
     let nodesep = "0.5";
@@ -507,7 +510,7 @@ async function generateGraphvizDot(
     }
     lines.push(`  ranksep=${ranksep};`);
     lines.push(`  nodesep=${nodesep};`);
-    
+
     // Style configuration
     if (style === "tech-tree") {
       lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=10];`);
@@ -524,7 +527,7 @@ async function generateGraphvizDot(
       lines.push(`  node [shape=box, style=rounded];`);
       lines.push(`  edge [color=gray];`);
     }
-    
+
     lines.push("");
 
     const tasksWithDeps = [];
@@ -606,7 +609,7 @@ async function generateGraphvizDot(
         let color = "lightgray";
         let shape = "box";
         let borderColor = "black";
-        
+
         if (style === "tech-tree") {
           // Tech tree styling with game-like colors
           if (status === "TODO") {
@@ -678,9 +681,15 @@ async function renderGraphvizFormat(
   outputPath?: string,
   layoutOptions: LayoutOptions = {}
 ): Promise<{ message: string; filePath: string }> {
-      try {
-      // Generate DOT content with layout options
-      const dotContent = await generateGraphvizDot(graphService, taskService, limit, statusFilter, layoutOptions);
+  try {
+    // Generate DOT content with layout options
+    const dotContent = await generateGraphvizDot(
+      graphService,
+      taskService,
+      limit,
+      statusFilter,
+      layoutOptions
+    );
 
     // Generate output filename if not provided
     const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
@@ -691,18 +700,25 @@ async function renderGraphvizFormat(
       // Render using pure JS/WASM with layout engine
       const graphviz = await Graphviz.load();
       let outputBuffer: Buffer;
-      
+
       const layoutEngine = layoutOptions.layout || "dot";
 
       switch (format) {
         case "svg":
-          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "svg"), "utf8");
+          outputBuffer = Buffer.from(
+            await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "svg"),
+            "utf8"
+          );
           break;
         case "png":
-          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "png"));
+          outputBuffer = Buffer.from(
+            await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "png")
+          );
           break;
         case "pdf":
-          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "pdf"));
+          outputBuffer = Buffer.from(
+            await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "pdf")
+          );
           break;
         default:
           throw new Error(`Unsupported format: ${format}`);

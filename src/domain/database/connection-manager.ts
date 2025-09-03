@@ -1,36 +1,24 @@
 /**
- * Database Connection Manager
+ * Database Connection Manager (Legacy)
  *
- * Handles configuration loading and database connection creation
- * for dependency injection into backends that need database access.
+ * This module provides backward compatibility for existing code that uses
+ * the old connection manager. It now delegates to the new SharedDatabaseService.
+ *
+ * @deprecated Use SharedDatabaseService and domain-specific adapters instead
  */
 
-import { drizzle } from "drizzle-orm/postgres-js";
-import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { getConfiguration } from "../configuration";
+import { sharedDatabaseService } from "./shared-database-service";
 
 /**
  * Creates a configured PostgreSQL database connection
  * Handles configuration loading and connection creation
+ *
+ * @deprecated Use sharedDatabaseService.getDatabase() instead
  */
 export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
   try {
-    const runtimeConfig = getConfiguration();
-    const connectionString = runtimeConfig?.sessiondb?.postgres?.connectionString;
-
-    if (!connectionString) {
-      throw new Error(
-        "PostgreSQL connection string not configured (sessiondb.postgres.connectionString)"
-      );
-    }
-
-    const sql = postgres(connectionString, {
-      prepare: false,
-      onnotice: () => {},
-    });
-
-    return drizzle(sql);
+    return await sharedDatabaseService.getDatabase();
   } catch (error) {
     throw new Error(`Failed to create database connection: ${error}`);
   }
@@ -38,10 +26,11 @@ export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
 
 /**
  * Database Connection Manager for centralized connection handling
+ *
+ * @deprecated Use SharedDatabaseService.getInstance() instead
  */
 export class DatabaseConnectionManager {
   private static instance: DatabaseConnectionManager | null = null;
-  private connection: PostgresJsDatabase | null = null;
 
   private constructor() {}
 
@@ -53,17 +42,12 @@ export class DatabaseConnectionManager {
   }
 
   async getConnection(): Promise<PostgresJsDatabase> {
-    if (!this.connection) {
-      this.connection = await createDatabaseConnection();
-    }
-    return this.connection;
+    return await sharedDatabaseService.getDatabase();
   }
 
   async closeConnection(): Promise<void> {
-    if (this.connection) {
-      // Note: postgres-js doesn't expose a direct close method on the drizzle instance
-      // The underlying connection will be closed when the process exits
-      this.connection = null;
-    }
+    // Delegate to shared service
+    // Note: We don't actually close the shared connection here
+    // as it might be used by other components
   }
 }
