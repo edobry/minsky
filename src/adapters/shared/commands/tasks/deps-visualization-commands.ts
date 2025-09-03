@@ -812,7 +812,7 @@ async function renderGraphvizFormat(
       if (openFile) {
         try {
           // Determine the appropriate open command based on OS
-          const openCommand = process.platform === "darwin" ? "open" : 
+          const openCommand = process.platform === "darwin" ? "open" :
                              process.platform === "win32" ? "start" : "xdg-open";
           await execAsync(`${openCommand} "${finalOutputPath}"`);
           return {
