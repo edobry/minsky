@@ -28,16 +28,24 @@ export class RuleSimilarityService {
   ): RuleSimilarityService {
     // Create a mock persistence provider for backward compatibility
     const mockPersistence = {
-      capabilities: { vectorStorage: true, sql: true, transactions: true, jsonb: true, migrations: true },
-      async getVectorStorage() { return null; },
+      capabilities: {
+        vectorStorage: true,
+        sql: true,
+        transactions: true,
+        jsonb: true,
+        migrations: true,
+      },
+      async getVectorStorage() {
+        return null;
+      },
     } as PersistenceProvider;
-    
+
     return new RuleSimilarityService(mockPersistence, workspacePath, config);
   }
 
   async initialize(): Promise<void> {
     if (!this.persistence.capabilities.vectorStorage) {
-      log.warn('Vector storage not supported by current backend, falling back to lexical search');
+      log.warn("Vector storage not supported by current backend, falling back to lexical search");
     }
   }
 
@@ -125,18 +133,18 @@ export class RuleSimilarityService {
  */
 export async function createRuleSimilarityService(): Promise<RuleSimilarityService> {
   const workspacePath = await resolveWorkspacePath({});
-  
+
   // Use PersistenceService instead of direct dependencies
   const { PersistenceService } = await import("../persistence/service");
-  
+
   if (!PersistenceService.isInitialized()) {
     await PersistenceService.initialize();
   }
-  
+
   const persistence = PersistenceService.getProvider();
-  
+
   const service = new RuleSimilarityService(persistence, workspacePath);
   await service.initialize();
-  
+
   return service;
 }

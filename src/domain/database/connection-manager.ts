@@ -1,42 +1,43 @@
 /**
- * Database Connection Manager (Compatibility Layer)
+ * Database Connection Manager (Legacy Compatibility)
  *
  * Provides backward compatibility for code that expects the old connection-manager interface.
- * Delegates to the new PersistenceService.
+ * Uses original implementation for reliability.
  *
  * @deprecated Use PersistenceService directly for new code
  */
 
+import { drizzle } from "drizzle-orm/postgres-js";
+import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { PersistenceService } from "../persistence/service";
+import { getConfiguration } from "../configuration";
 import { log } from "../../utils/logger";
 
 /**
  * Creates a configured PostgreSQL database connection
- *
+ * 
  * @deprecated Use getPersistenceProvider().getDatabaseConnection() instead
  */
 export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
   try {
     log.warn("createDatabaseConnection is deprecated. Use PersistenceService instead.");
+    
+    // Use original implementation for compatibility
+    const runtimeConfig = getConfiguration();
+    const connectionString = runtimeConfig?.sessiondb?.postgres?.connectionString;
 
-    // Ensure PersistenceService is initialized
-    if (!PersistenceService.isInitialized()) {
-      await PersistenceService.initialize();
+    if (!connectionString) {
+      throw new Error(
+        "PostgreSQL connection string not configured (sessiondb.postgres.connectionString)"
+      );
     }
 
-    const provider = PersistenceService.getProvider();
+    const sql = postgres(connectionString, {
+      prepare: false,
+      onnotice: () => {},
+    });
 
-    if (!provider.capabilities.sql) {
-      throw new Error("Current persistence backend does not support SQL");
-    }
-
-    const connection = await provider.getDatabaseConnection?.();
-    if (!connection) {
-      throw new Error("Database connection not available from persistence provider");
-    }
-
-    return connection;
+    return drizzle(sql);
   } catch (error) {
     log.error("Failed to create database connection:", error);
     throw error;

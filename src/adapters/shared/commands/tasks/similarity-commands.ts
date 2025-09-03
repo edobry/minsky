@@ -297,14 +297,14 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
   const dimension = getEmbeddingDimension(model, 1536);
 
   const embedding = await createEmbeddingServiceFromConfig();
-  
+
   // Use PersistenceService instead of direct vector storage creation
   const { PersistenceService } = await import("../../../../domain/persistence/service");
-  
+
   if (!PersistenceService.isInitialized()) {
     await PersistenceService.initialize();
   }
-  
+
   const persistence = PersistenceService.getProvider();
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
@@ -326,10 +326,10 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
       dimension,
     }
   );
-  
+
   // Initialize the service to set up vector storage
   await service.initialize();
-  
+
   return service;
 }
 

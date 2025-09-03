@@ -32,24 +32,24 @@ export class PostgresVectorStorage implements VectorStorage {
     config: PostgresVectorStorageConfig
   ): Promise<PostgresVectorStorage> {
     const { PersistenceService } = await import("../../persistence/service");
-    
+
     if (!PersistenceService.isInitialized()) {
       await PersistenceService.initialize();
     }
-    
+
     const provider = PersistenceService.getProvider();
-    
+
     if (!provider.capabilities.sql || !provider.capabilities.vectorStorage) {
       throw new Error("Current persistence provider does not support SQL or vector storage");
     }
-    
+
     const sql = await provider.getRawSqlConnection?.();
     const db = await provider.getDatabaseConnection?.();
-    
+
     if (!sql || !db) {
       throw new Error("Failed to get database connections from persistence provider");
     }
-    
+
     const storage = new PostgresVectorStorage(sql, db, dimension, config);
     await storage.initialize();
     return storage;

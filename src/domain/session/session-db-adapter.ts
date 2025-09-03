@@ -49,10 +49,12 @@ export class SessionDbAdapter implements SessionProviderInterface {
         this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
         return this.storage;
       }
-      
+
       // Fall back to legacy storage backend factory for backward compatibility
-      const { createStorageBackendWithIntegrity } = await import("../storage/storage-backend-factory");
-      
+      const { createStorageBackendWithIntegrity } = await import(
+        "../storage/storage-backend-factory"
+      );
+
       // Get configuration using the custom configuration system
       // Configuration should already be initialized by the CLI entry point
       const config = getConfiguration();
