@@ -5,6 +5,7 @@ All notable changes to this project will be documented in this file.
 ## [Unreleased]
 
 ### Added
+
 - Created task mt#505: Implement codebase indexing feature for enhanced AI context
   - Comprehensive specification for codebase indexing similar to Cursor's feature
   - Research plan for existing tools (Sourcegraph, OpenGrok, Glean, Roo Code, CocoIndex)
