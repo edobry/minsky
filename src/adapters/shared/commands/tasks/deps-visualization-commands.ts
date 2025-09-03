@@ -3,6 +3,11 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { DatabaseConnectionManager } from "../../../../domain/database/connection-manager";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
+import { type CommandParameterMap } from "../../command-registry";
+import { execSync } from "child_process";
+import { writeFileSync } from "fs";
+import { join } from "path";
+import { Graphviz } from "@hpcc-js/wasm/graphviz";
 
 // Parameter definitions matching the CommandParameterMap interface
 const tasksDepsTreeParams: CommandParameterMap = {
@@ -30,8 +35,13 @@ const tasksDepsGraphParams: CommandParameterMap = {
     required: false,
   },
   format: {
-    schema: z.enum(["ascii", "dot"]).default("ascii"),
-    description: "Output format: ascii for terminal display, dot for Graphviz",
+    schema: z.enum(["ascii", "dot", "svg", "png", "pdf"]).default("ascii"),
+    description: "Output format: ascii (terminal), dot (Graphviz), svg/png/pdf (rendered)",
+    required: false,
+  },
+  output: {
+    schema: z.string().optional(),
+    description: "Output file path (auto-generated if not specified for rendered formats)",
     required: false,
   },
 };
@@ -96,6 +106,16 @@ export function createTasksDepsGraphCommand() {
           params.status
         );
         return { success: true, output };
+      } else if (params.format === "svg" || params.format === "png" || params.format === "pdf") {
+        const result = await renderGraphvizFormat(
+          graphService,
+          taskService,
+          params.limit || 20,
+          params.status,
+          params.format,
+          params.output
+        );
+        return { success: true, output: result.message, filePath: result.filePath };
       } else {
         const output = await generateDependencyGraph(
           graphService,
@@ -228,10 +248,32 @@ async function generateDependencyGraph(
 
     const tasksWithDeps = [];
 
-    // Find tasks that have dependencies or dependents
+    // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
+    const taskIds = tasks.map((t) => t.id);
+    const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
+
+    // Build dependency maps in memory from single query result
+    const dependenciesMap = new Map<string, string[]>();
+    const dependentsMap = new Map<string, string[]>();
+
+    allRelationships.forEach(({ fromTaskId, toTaskId }) => {
+      // Track dependencies: fromTaskId depends on toTaskId
+      if (!dependenciesMap.has(fromTaskId)) {
+        dependenciesMap.set(fromTaskId, []);
+      }
+      dependenciesMap.get(fromTaskId)!.push(toTaskId);
+
+      // Track dependents: toTaskId has fromTaskId as dependent
+      if (!dependentsMap.has(toTaskId)) {
+        dependentsMap.set(toTaskId, []);
+      }
+      dependentsMap.get(toTaskId)!.push(fromTaskId);
+    });
+
+    // Filter tasks to only those with actual relationships
     for (const task of tasks) {
-      const dependencies = await graphService.listDependencies(task.id);
-      const dependents = await graphService.listDependents(task.id);
+      const dependencies = dependenciesMap.get(task.id) || [];
+      const dependents = dependentsMap.get(task.id) || [];
 
       if (dependencies.length > 0 || dependents.length > 0) {
         tasksWithDeps.push({
@@ -410,10 +452,35 @@ async function generateGraphvizDot(
     const tasksWithDeps = [];
     const allTaskIds = new Set<string>();
 
-    // Find tasks that have dependencies or dependents
+    // PERFORMANCE OPTIMIZATION: Single bulk query instead of N individual queries
+    const taskIds = tasks.map((t) => t.id);
+    const allRelationships = await graphService.getRelationshipsForTasks(taskIds);
+
+    // Build dependency maps in memory from single query result
+    const dependenciesMap = new Map<string, string[]>();
+    const dependentsMap = new Map<string, string[]>();
+
+    allRelationships.forEach(({ fromTaskId, toTaskId }) => {
+      // Track dependencies: fromTaskId depends on toTaskId
+      if (!dependenciesMap.has(fromTaskId)) {
+        dependenciesMap.set(fromTaskId, []);
+      }
+      dependenciesMap.get(fromTaskId)!.push(toTaskId);
+
+      // Track dependents: toTaskId has fromTaskId as dependent
+      if (!dependentsMap.has(toTaskId)) {
+        dependentsMap.set(toTaskId, []);
+      }
+      dependentsMap.get(toTaskId)!.push(fromTaskId);
+
+      allTaskIds.add(fromTaskId);
+      allTaskIds.add(toTaskId);
+    });
+
+    // Filter tasks to only those with actual relationships
     for (const task of tasks) {
-      const dependencies = await graphService.listDependencies(task.id);
-      const dependents = await graphService.listDependents(task.id);
+      const dependencies = dependenciesMap.get(task.id) || [];
+      const dependents = dependentsMap.get(task.id) || [];
 
       if (dependencies.length > 0 || dependents.length > 0) {
         tasksWithDeps.push({
@@ -421,9 +488,6 @@ async function generateGraphvizDot(
           dependencies,
           dependents,
         });
-        allTaskIds.add(task.id);
-        dependencies.forEach((dep) => allTaskIds.add(dep));
-        dependents.forEach((dep) => allTaskIds.add(dep));
       }
     }
 
@@ -433,13 +497,33 @@ async function generateGraphvizDot(
       return lines.join("\n");
     }
 
-    // Define nodes with labels and colors based on status
-    for (const taskId of allTaskIds) {
-      try {
+    // PERFORMANCE FIX: Batch all task detail queries
+    const taskDetailsMap = new Map<string, any>();
+    const taskDetailsResults = await Promise.allSettled(
+      Array.from(allTaskIds).map(async (taskId) => {
         const task = await taskService.getTask(taskId);
-        const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
-        const title = task?.title?.substring(0, 30) || "Unknown";
-        const status = task?.status || "Unknown";
+        return { taskId, task };
+      })
+    );
+
+    // Process results from batch query
+    taskDetailsResults.forEach((result) => {
+      if (result.status === "fulfilled") {
+        taskDetailsMap.set(result.value.taskId, result.value.task);
+      }
+    });
+
+    // Define nodes with labels and colors based on cached task details
+    for (const taskId of allTaskIds) {
+      const task = taskDetailsMap.get(taskId);
+      const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
+
+      if (task) {
+        const title = (task.title?.substring(0, 30) || "Unknown")
+          .replace(/"/g, "'") // Replace double quotes with single quotes
+          .replace(/\n/g, " ") // Replace newlines with spaces
+          .replace(/\r/g, " "); // Replace carriage returns with spaces
+        const status = task.status || "Unknown";
 
         let color = "lightgray";
         if (status === "TODO") color = "lightblue";
@@ -450,23 +534,21 @@ async function generateGraphvizDot(
         lines.push(
           `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", style=filled];`
         );
-      } catch {
-        // Handle tasks that can't be loaded
-        const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
-        lines.push(`  ${safeId} [label="${taskId}", fillcolor="lightgray", style=filled];`);
+      } else {
+        // Handle tasks that couldn't be loaded
+        const safeTaskId = taskId.replace(/"/g, "'");
+        lines.push(`  ${safeId} [label="${safeTaskId}", fillcolor="lightgray", style=filled];`);
       }
     }
 
     lines.push("");
 
-    // Define edges
-    for (const task of tasksWithDeps) {
-      const fromId = task.id.replace(/[^a-zA-Z0-9]/g, "_");
-      for (const depId of task.dependencies) {
-        const toId = depId.replace(/[^a-zA-Z0-9]/g, "_");
-        lines.push(`  ${toId} -> ${fromId};`);
-      }
-    }
+    // Define edges from cached relationship data
+    allRelationships.forEach(({ fromTaskId, toTaskId }) => {
+      const fromId = fromTaskId.replace(/[^a-zA-Z0-9]/g, "_");
+      const toId = toTaskId.replace(/[^a-zA-Z0-9]/g, "_");
+      lines.push(`  ${toId} -> ${fromId};`);
+    });
 
     lines.push("}");
     return lines.join("\n");
@@ -475,5 +557,65 @@ async function generateGraphvizDot(
     lines.push(`  error [label="Error: ${error.message}", color=red];`);
     lines.push("}");
     return lines.join("\n");
+  }
+}
+
+/**
+ * Render Graphviz DOT format to SVG, PNG, or PDF using pure JS/WASM
+ */
+async function renderGraphvizFormat(
+  graphService: TaskGraphService,
+  taskService: any,
+  limit: number,
+  statusFilter: string | undefined,
+  format: "svg" | "png" | "pdf",
+  outputPath?: string
+): Promise<{ message: string; filePath: string }> {
+  try {
+    // Generate DOT content
+    const dotContent = await generateGraphvizDot(graphService, taskService, limit, statusFilter);
+
+    // Generate output filename if not provided
+    const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
+    const defaultFilename = `task-deps-${timestamp}.${format}`;
+    const finalOutputPath = outputPath || join(process.cwd(), defaultFilename);
+
+    try {
+      // Render using pure JS/WASM (no external CLI dependency)
+      const graphviz = await Graphviz.load();
+      let outputBuffer: Buffer;
+
+      switch (format) {
+        case "svg":
+          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "svg"), "utf8");
+          break;
+        case "png":
+          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "png"));
+          break;
+        case "pdf":
+          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "pdf"));
+          break;
+        default:
+          throw new Error(`Unsupported format: ${format}`);
+      }
+
+      // Write output file
+      writeFileSync(finalOutputPath, outputBuffer);
+
+      return {
+        message: `✅ Rendered task dependency graph to: ${finalOutputPath}`,
+        filePath: finalOutputPath,
+      };
+    } catch (error) {
+      return {
+        message: `❌ Failed to render graph: ${error.message}`,
+        filePath: "",
+      };
+    }
+  } catch (error) {
+    return {
+      message: `❌ Error generating graph: ${error.message}`,
+      filePath: "",
+    };
   }
 }

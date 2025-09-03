@@ -147,7 +147,7 @@ export class ConsoleMultiBackendLogger implements MultiBackendLogger {
   }
 }
 
-// Default logger instance
+// Default logger instance for multi-backend operations
 export const logger = new ConsoleMultiBackendLogger();
 
 // Error recovery utilities
@@ -202,7 +202,7 @@ export class ErrorRecovery {
         error: f.error?.message,
       }));
 
-      logger.warn(
+      log.warn(
         `Partial failure in ${operation}: ${failures.length}/${results.length} backends failed`,
         { failures: failureContext }
       );

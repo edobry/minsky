@@ -1,0 +1,195 @@
+---
+description: Best practices for efficient database queries, avoiding N+1 problems and I/O in hot loops
+---
+
+# Efficient Database Queries
+
+## Core Principle
+
+**NEVER perform database I/O in loops.** Always use bulk operations, batch queries, or load data into memory first.
+
+## ⚠️ Anti-Pattern: N+1 Query Problem
+
+### Problem Examples
+
+**❌ WRONG: I/O in hot loop**
+```typescript
+// This creates N+1 queries (1 + N individual queries)
+const tasks = await getTasks(); // 1 query
+for (const task of tasks) {
+  const deps = await getDependencies(task.id); // N queries
+}
+```
+
+**❌ WRONG: Promise.all still does N queries**
+```typescript
+// Better than sequential, but still N parallel queries
+await Promise.all(
+  tasks.map(async (task) => {
+    return await getDependencies(task.id); // Still N queries
+  })
+);
+```
+
+### ✅ Correct Solutions
+
+**Option 1: Single bulk query**
+```typescript
+// Get all relationships in one query
+const allRelationships = await getRelationshipsForTasks(taskIds);
+
+// Build maps in memory
+const depsMap = new Map();
+allRelationships.forEach(({ fromId, toId }) => {
+  if (!depsMap.has(fromId)) depsMap.set(fromId, []);
+  depsMap.get(fromId).push(toId);
+});
+
+// Use cached data
+tasks.forEach(task => {
+  const deps = depsMap.get(task.id) || [];
+  // ... use deps
+});
+```
+
+**Option 2: Load all data into memory first**
+```typescript
+// Load all needed data upfront
+const [tasks, allRelationships, allTaskDetails] = await Promise.all([
+  taskService.listTasks(filter),
+  graphService.getAllRelationships(),
+  taskService.getAllTasksMap(), // bulk method
+]);
+
+// Process in memory
+```
+
+## Required Implementation Pattern
+
+### 1. Add Bulk Query Methods
+
+Services must provide bulk operations:
+
+```typescript
+interface TaskRelationshipsRepository {
+  // ❌ Single-item methods (keep for specific use cases)
+  listFrom(taskId: string): Promise<string[]>;
+
+  // ✅ Bulk methods (use for graph/list operations)
+  getAllRelationships(): Promise<{ fromTaskId: string; toTaskId: string }[]>;
+  getRelationshipsForTasks(taskIds: string[]): Promise<{ fromTaskId: string; toTaskId: string }[]>;
+}
+```
+
+### 2. Database Query Implementation
+
+Use SQL `IN` clauses or `ANY` arrays for bulk queries:
+
+```sql
+-- ✅ Single query for multiple task relationships
+SELECT from_task_id, to_task_id
+FROM task_relationships
+WHERE from_task_id = ANY($1) OR to_task_id = ANY($1)
+```
+
+### 3. Memory Processing Pattern
+
+```typescript
+// Step 1: Single bulk query (3 total queries max)
+const tasks = await taskService.listTasks(filter);
+const relationships = await graphService.getRelationshipsForTasks(taskIds);
+const taskDetails = await taskService.getTasksByIds(allTaskIds);
+
+// Step 2: Build maps in memory (O(n) processing)
+const depsMap = new Map();
+relationships.forEach(rel => {
+  // Build dependency maps
+});
+
+// Step 3: Use cached data (no more DB queries)
+tasks.forEach(task => {
+  const deps = depsMap.get(task.id) || [];
+  // Process with cached data
+});
+```
+
+## Performance Guidelines
+
+### Query Count Targets
+
+- **Single item operations**: 1 query
+- **List operations**: 1-3 queries maximum
+- **Graph operations**: 2-3 queries maximum
+- **Never**: O(N) queries where N is result set size
+
+### Memory vs Database Trade-offs
+
+**Use memory processing when:**
+- Working with graph/tree structures
+- Building visualization data
+- Processing relationships between entities
+- Result set < 10K items
+
+**Use streaming/pagination when:**
+- Large result sets (>10K items)
+- Limited memory environments
+- Real-time processing requirements
+
+## Enforcement
+
+### Code Review Checklist
+
+Before implementing any database-backed feature:
+
+- [ ] **Query count analysis**: How many DB queries will this make?
+- [ ] **Loop analysis**: Are there any `await` calls inside loops?
+- [ ] **Bulk operation availability**: Does the service provide bulk methods?
+- [ ] **Memory processing**: Can relationships be built in memory?
+
+### Common Violations
+
+1. **Sequential processing**: `for` loops with `await`
+2. **Promise.all with individual queries**: Still N queries, just parallel
+3. **Nested query patterns**: Queries inside query result processing
+4. **Missing bulk methods**: Not providing `getByIds()`, `getAllRelationships()`, etc.
+
+## Real-World Example
+
+**Task #239 Dependency Graph Visualization**
+
+**❌ Original**: 240+ queries (1 + 2×70 + 100)
+```typescript
+const tasks = await getTasks(); // 1 query
+for (task of tasks) {
+  await getDeps(task.id);       // N queries
+  await getDependent(task.id);  // N queries
+}
+for (id of uniqueIds) {
+  await getTask(id);           // M queries
+}
+```
+
+**✅ Optimized**: 3 queries total
+```typescript
+const tasks = await getTasks();                           // 1 query
+const relationships = await getRelationshipsForTasks();   // 1 query
+const taskDetails = await Promise.allSettled(getByIds()); // 1 query equivalent
+```
+
+**Result**: 80x performance improvement (4+ seconds → <100ms)
+
+## Integration with Existing Rules
+
+- Cross-reference with `robust-error-handling` for database error handling
+- See `testable-design` for mocking bulk operations in tests
+- Follow `meaningful-output-principles` for progress reporting during bulk operations
+
+## Violations Response
+
+When encountering N+1 patterns:
+
+1. **Stop immediately** - Do not ship N+1 query code
+2. **Add bulk methods** to the service layer
+3. **Refactor to use bulk operations**
+4. **Test performance improvement** with realistic data volumes
+5. **Update this rule** if new patterns are discovered
