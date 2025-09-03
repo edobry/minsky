@@ -7,6 +7,7 @@ import { type CommandParameterMap } from "../../command-registry";
 import { execSync } from "child_process";
 import { writeFileSync } from "fs";
 import { join } from "path";
+import { Graphviz } from "@hpcc-js/wasm/graphviz";
 
 // Parameter definitions matching the CommandParameterMap interface
 const tasksDepsTreeParams: CommandParameterMap = {
@@ -431,7 +432,7 @@ async function generateGraphvizDot(
 
     // PERFORMANCE FIX: Batch all dependency queries to avoid N+1 problem
     const taskDependencyMap = new Map<string, { dependencies: string[]; dependents: string[] }>();
-    
+
     // Batch collect all dependency relationships
     await Promise.all(
       tasks.map(async (task) => {
@@ -439,9 +440,9 @@ async function generateGraphvizDot(
           graphService.listDependencies(task.id),
           graphService.listDependents(task.id),
         ]);
-        
+
         taskDependencyMap.set(task.id, { dependencies, dependents });
-        
+
         if (dependencies.length > 0 || dependents.length > 0) {
           tasksWithDeps.push({
             ...task,
@@ -481,13 +482,12 @@ async function generateGraphvizDot(
     for (const taskId of allTaskIds) {
       const task = taskDetailsMap.get(taskId);
       const safeId = taskId.replace(/[^a-zA-Z0-9]/g, "_");
-      
+
       if (task) {
         const title = (task.title?.substring(0, 30) || "Unknown")
-          .replace(/\\/g, "\\\\") // Escape backslashes first
-          .replace(/"/g, '\\"') // Then escape quotes
-          .replace(/\n/g, "\\n") // Then escape newlines
-          .replace(/\r/g, "\\r"); // And carriage returns
+          .replace(/"/g, "'")         // Replace double quotes with single quotes
+          .replace(/\n/g, " ")        // Replace newlines with spaces
+          .replace(/\r/g, " ");       // Replace carriage returns with spaces
         const status = task.status || "Unknown";
 
         let color = "lightgray";
@@ -501,7 +501,7 @@ async function generateGraphvizDot(
         );
       } else {
         // Handle tasks that couldn't be loaded
-        const safeTaskId = taskId.replace(/"/g, '\\"');
+        const safeTaskId = taskId.replace(/"/g, "'");
         lines.push(`  ${safeId} [label="${safeTaskId}", fillcolor="lightgray", style=filled];`);
       }
     }
@@ -528,7 +528,7 @@ async function generateGraphvizDot(
 }
 
 /**
- * Render Graphviz DOT format to SVG, PNG, or PDF using dot command
+ * Render Graphviz DOT format to SVG, PNG, or PDF using pure JS/WASM
  */
 async function renderGraphvizFormat(
   graphService: TaskGraphService,
@@ -539,16 +539,6 @@ async function renderGraphvizFormat(
   outputPath?: string
 ): Promise<{ message: string; filePath: string }> {
   try {
-    // Check if Graphviz is available
-    try {
-      execSync("dot -V", { stdio: "ignore" });
-    } catch {
-      return {
-        message: `❌ Graphviz not found. Install with: brew install graphviz`,
-        filePath: "",
-      };
-    }
-
     // Generate DOT content
     const dotContent = await generateGraphvizDot(graphService, taskService, limit, statusFilter);
 
@@ -557,31 +547,33 @@ async function renderGraphvizFormat(
     const defaultFilename = `task-deps-${timestamp}.${format}`;
     const finalOutputPath = outputPath || join(process.cwd(), defaultFilename);
 
-    // Write DOT to temporary file
-    const tempDotFile = join(process.cwd(), `temp-${timestamp}.dot`);
-    writeFileSync(tempDotFile, dotContent);
-
     try {
-      // Render using Graphviz
-      execSync(`dot -T${format} "${tempDotFile}" -o "${finalOutputPath}"`, {
-        stdio: "inherit",
-      });
+      // Render using pure JS/WASM (no external CLI dependency)
+      const graphviz = await Graphviz.load();
+      let outputBuffer: Buffer;
+      
+      switch (format) {
+        case "svg":
+          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "svg"), "utf8");
+          break;
+        case "png":
+          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "png"));
+          break;
+        case "pdf":
+          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "pdf"));
+          break;
+        default:
+          throw new Error(`Unsupported format: ${format}`);
+      }
 
-      // Clean up temp file
-      execSync(`rm "${tempDotFile}"`);
+      // Write output file
+      writeFileSync(finalOutputPath, outputBuffer);
 
       return {
         message: `✅ Rendered task dependency graph to: ${finalOutputPath}`,
         filePath: finalOutputPath,
       };
     } catch (error) {
-      // Clean up temp file on error
-      try {
-        execSync(`rm "${tempDotFile}"`);
-      } catch {
-        // Ignore cleanup errors
-      }
-
       return {
         message: `❌ Failed to render graph: ${error.message}`,
         filePath: "",
