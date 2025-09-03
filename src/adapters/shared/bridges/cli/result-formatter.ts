@@ -367,7 +367,12 @@ export class DefaultCommandResultFormatter implements CommandResultFormatter {
       log.cli(result.message);
       return;
     } else if (result.success !== undefined) {
-      log.cli(result.success ? "✅ Success" : "❌ Failed");
+      // Check for formatted output first before using generic success message
+      if (result.output) {
+        log.cli(result.output);
+      } else {
+        log.cli(result.success ? "✅ Success" : "❌ Failed");
+      }
 
       // Handle single error
       if (result.error) {

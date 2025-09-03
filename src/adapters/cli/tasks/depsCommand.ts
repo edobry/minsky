@@ -74,7 +74,7 @@ function addDepsAddCommand(parent: Command): void {
         outputResult(result, { json: true });
       } else {
         // Use the output field from the shared command result
-        log.info(result.output || "✅ Success");
+        log.cli(result.output || "✅ Success");
       }
     } catch (error) {
       handleCliError(error);
