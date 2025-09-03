@@ -91,7 +91,7 @@ describe("TaskGraphService (in-memory)", () => {
         ["db#2", "mt#5"],
       ]);
       const svc = new TaskGraphService(repo as any);
-      
+
       const relationships = await svc.getAllRelationships();
       expect(relationships).toHaveLength(3);
       expect(relationships).toContainEqual({ fromTaskId: "md#1", toTaskId: "db#2" });
@@ -107,7 +107,7 @@ describe("TaskGraphService (in-memory)", () => {
         ["gh#6", "mt#7"], // Should not be included
       ]);
       const svc = new TaskGraphService(repo as any);
-      
+
       // Get relationships involving md#1 or mt#3
       const relationships = await svc.getRelationshipsForTasks(["md#1", "mt#3"]);
       expect(relationships).toHaveLength(2);
@@ -122,7 +122,7 @@ describe("TaskGraphService (in-memory)", () => {
         ["mt#3", "db#2"], // db#2 is dependency of both md#1 and mt#3
       ]);
       const svc = new TaskGraphService(repo as any);
-      
+
       // Get relationships involving db#2 (as dependency)
       const relationships = await svc.getRelationshipsForTasks(["db#2"]);
       expect(relationships).toHaveLength(2);
@@ -131,21 +131,17 @@ describe("TaskGraphService (in-memory)", () => {
     });
 
     it("getRelationshipsForTasks returns empty array for unknown task IDs", async () => {
-      const repo = createInMemoryRepo([
-        ["md#1", "db#2"],
-      ]);
+      const repo = createInMemoryRepo([["md#1", "db#2"]]);
       const svc = new TaskGraphService(repo as any);
-      
+
       const relationships = await svc.getRelationshipsForTasks(["unknown#1", "unknown#2"]);
       expect(relationships).toHaveLength(0);
     });
 
     it("getRelationshipsForTasks handles empty task ID array", async () => {
-      const repo = createInMemoryRepo([
-        ["md#1", "db#2"],
-      ]);
+      const repo = createInMemoryRepo([["md#1", "db#2"]]);
       const svc = new TaskGraphService(repo as any);
-      
+
       const relationships = await svc.getRelationshipsForTasks([]);
       expect(relationships).toHaveLength(0);
     });

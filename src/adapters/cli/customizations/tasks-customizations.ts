@@ -223,6 +223,18 @@ export function getTasksCustomizations(): {
               description:
                 "Output file path (auto-generated if not specified for rendered formats)",
             },
+            layout: {
+              description: "Layout engine (dot, neato, fdp, circo, twopi)",
+            },
+            direction: {
+              description: "Direction (TB, BT, LR, RL)",
+            },
+            spacing: {
+              description: "Spacing (compact, normal, wide)",
+            },
+            style: {
+              description: "Visual style (default, tech-tree, flowchart, network)",
+            },
           },
           outputFormatter: (result: any) => {
             if (result.json) {

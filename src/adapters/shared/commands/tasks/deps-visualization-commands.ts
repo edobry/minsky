@@ -44,6 +44,26 @@ const tasksDepsGraphParams: CommandParameterMap = {
     description: "Output file path (auto-generated if not specified for rendered formats)",
     required: false,
   },
+  layout: {
+    schema: z.enum(["dot", "neato", "fdp", "circo", "twopi"]).default("dot"),
+    description: "Graph layout engine: dot (hierarchical), neato (spring), fdp (force), circo (circular), twopi (radial)",
+    required: false,
+  },
+  direction: {
+    schema: z.enum(["TB", "BT", "LR", "RL"]).default("TB"),
+    description: "Graph direction: TB (top-bottom), BT (bottom-top, tech-tree style), LR (left-right), RL (right-left)",
+    required: false,
+  },
+  spacing: {
+    schema: z.enum(["compact", "normal", "wide"]).default("normal"),
+    description: "Node spacing: compact (dense), normal (balanced), wide (spread out)",
+    required: false,
+  },
+  style: {
+    schema: z.enum(["default", "tech-tree", "flowchart", "network"]).default("default"),
+    description: "Visual style: default (basic), tech-tree (game-style), flowchart (process), network (connected)",
+    required: false,
+  },
 };
 
 interface TaskNode {
@@ -103,7 +123,13 @@ export function createTasksDepsGraphCommand() {
           graphService,
           taskService,
           params.limit || 20,
-          params.status
+          params.status,
+          {
+            layout: params.layout,
+            direction: params.direction,
+            spacing: params.spacing,
+            style: params.style,
+          }
         );
         return { success: true, output };
       } else if (params.format === "svg" || params.format === "png" || params.format === "pdf") {
@@ -113,7 +139,13 @@ export function createTasksDepsGraphCommand() {
           params.limit || 20,
           params.status,
           params.format,
-          params.output
+          params.output,
+          {
+            layout: params.layout,
+            direction: params.direction,
+            spacing: params.spacing,
+            style: params.style,
+          }
         );
         return { success: true, output: result.message, filePath: result.filePath };
       } else {
@@ -425,6 +457,13 @@ async function renderDependencyChain(
   }
 }
 
+interface LayoutOptions {
+  layout?: string;
+  direction?: string;
+  spacing?: string;
+  style?: string;
+}
+
 /**
  * Generate Graphviz DOT format for task dependencies
  */
@@ -432,7 +471,8 @@ async function generateGraphvizDot(
   graphService: TaskGraphService,
   taskService: any,
   limit: number,
-  statusFilter?: string
+  statusFilter?: string,
+  options: LayoutOptions = {}
 ): Promise<string> {
   const lines: string[] = [];
 
@@ -443,10 +483,48 @@ async function generateGraphvizDot(
       limit: Math.min(limit, 100), // Higher limit for DOT since it's for external processing
     });
 
+    const { layout = "dot", direction = "TB", spacing = "normal", style = "default" } = options;
+    
     lines.push("digraph TaskDependencies {");
-    lines.push("  rankdir=TB;");
-    lines.push("  node [shape=box, style=rounded];");
-    lines.push("  edge [color=gray];");
+    
+    // Layout engine (for rendering, not DOT syntax)
+    if (layout !== "dot") {
+      lines.push(`  layout="${layout}";`);
+    }
+    
+    // Direction
+    lines.push(`  rankdir=${direction};`);
+    
+    // Spacing configuration
+    let ranksep = "0.75";
+    let nodesep = "0.5";
+    if (spacing === "compact") {
+      ranksep = "0.5";
+      nodesep = "0.3";
+    } else if (spacing === "wide") {
+      ranksep = "1.2";
+      nodesep = "0.8";
+    }
+    lines.push(`  ranksep=${ranksep};`);
+    lines.push(`  nodesep=${nodesep};`);
+    
+    // Style configuration
+    if (style === "tech-tree") {
+      lines.push(`  node [shape=box, style="rounded,filled", fontname=Arial, fontsize=10];`);
+      lines.push(`  edge [color="#4a5568", arrowsize=0.8, style=bold];`);
+      lines.push(`  bgcolor="transparent";`);
+      lines.push(`  concentrate=true;`); // Merge multiple edges
+    } else if (style === "flowchart") {
+      lines.push(`  node [shape=rectangle, style=filled, fontname="Helvetica"];`);
+      lines.push(`  edge [color=black, arrowhead=vee];`);
+    } else if (style === "network") {
+      lines.push(`  node [shape=ellipse, style=filled];`);
+      lines.push(`  edge [color=blue, dir=both, arrowhead=dot, arrowtail=dot];`);
+    } else {
+      lines.push(`  node [shape=box, style=rounded];`);
+      lines.push(`  edge [color=gray];`);
+    }
+    
     lines.push("");
 
     const tasksWithDeps = [];
@@ -526,14 +604,42 @@ async function generateGraphvizDot(
         const status = task.status || "Unknown";
 
         let color = "lightgray";
-        if (status === "TODO") color = "lightblue";
-        else if (status === "IN-PROGRESS") color = "yellow";
-        else if (status === "DONE") color = "lightgreen";
-        else if (status === "BLOCKED") color = "lightcoral";
+        let shape = "box";
+        let borderColor = "black";
+        
+        if (style === "tech-tree") {
+          // Tech tree styling with game-like colors
+          if (status === "TODO") {
+            color = "#e2e8f0"; // Cool gray for unresearched
+            borderColor = "#64748b";
+          } else if (status === "IN-PROGRESS") {
+            color = "#fbbf24"; // Bright yellow for researching
+            borderColor = "#d97706";
+          } else if (status === "DONE") {
+            color = "#34d399"; // Bright green for completed
+            borderColor = "#059669";
+          } else if (status === "BLOCKED") {
+            color = "#f87171"; // Red for blocked
+            borderColor = "#dc2626";
+          }
+          shape = "box";
+        } else {
+          // Original colors for other styles
+          if (status === "TODO") color = "lightblue";
+          else if (status === "IN-PROGRESS") color = "yellow";
+          else if (status === "DONE") color = "lightgreen";
+          else if (status === "BLOCKED") color = "lightcoral";
+        }
 
-        lines.push(
-          `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", style=filled];`
-        );
+        if (style === "tech-tree") {
+          lines.push(
+            `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", color="${borderColor}", penwidth=2];`
+          );
+        } else {
+          lines.push(
+            `  ${safeId} [label="${taskId}\\n${title}", fillcolor="${color}", style=filled];`
+          );
+        }
       } else {
         // Handle tasks that couldn't be loaded
         const safeTaskId = taskId.replace(/"/g, "'");
@@ -569,11 +675,12 @@ async function renderGraphvizFormat(
   limit: number,
   statusFilter: string | undefined,
   format: "svg" | "png" | "pdf",
-  outputPath?: string
+  outputPath?: string,
+  layoutOptions: LayoutOptions = {}
 ): Promise<{ message: string; filePath: string }> {
-  try {
-    // Generate DOT content
-    const dotContent = await generateGraphvizDot(graphService, taskService, limit, statusFilter);
+      try {
+      // Generate DOT content with layout options
+      const dotContent = await generateGraphvizDot(graphService, taskService, limit, statusFilter, layoutOptions);
 
     // Generate output filename if not provided
     const timestamp = new Date().toISOString().slice(0, 16).replace(/[:-]/g, "");
@@ -581,19 +688,21 @@ async function renderGraphvizFormat(
     const finalOutputPath = outputPath || join(process.cwd(), defaultFilename);
 
     try {
-      // Render using pure JS/WASM (no external CLI dependency)
+      // Render using pure JS/WASM with layout engine
       const graphviz = await Graphviz.load();
       let outputBuffer: Buffer;
+      
+      const layoutEngine = layoutOptions.layout || "dot";
 
       switch (format) {
         case "svg":
-          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "svg"), "utf8");
+          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "svg"), "utf8");
           break;
         case "png":
-          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "png"));
+          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "png"));
           break;
         case "pdf":
-          outputBuffer = Buffer.from(await graphviz.dot(dotContent, "pdf"));
+          outputBuffer = Buffer.from(await graphviz[layoutEngine as keyof typeof graphviz](dotContent, "pdf"));
           break;
         default:
           throw new Error(`Unsupported format: ${format}`);
