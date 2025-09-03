@@ -12,6 +12,23 @@ import { updateSessionFromParams } from "../../../src/domain/session/commands/up
 import { getCurrentSession, getSessionFromWorkspace } from "../../../src/domain/workspace";
 import { createMock, setupTestMocks } from "../../../src/utils/test-utils/mocking";
 import { initializeConfiguration } from "../../../src/domain/configuration";
+import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
+
+// Mock logger specifically for update command module
+mock.module("../../../src/utils/logger", () => ({
+  log: {
+    ...mockLogger,
+    info: mock(() => {}),
+    cli: mock(() => {}),
+    debug: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
+  },
+  createConfigurableLogger: () => mockLogger,
+  createLogger: () => mockLogger,
+  isStructuredMode: () => false,
+  isHumanMode: () => true,
+}));
 import {
   SESSION_TEST_PATTERNS,
   PATH_TEST_PATTERNS,

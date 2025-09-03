@@ -65,12 +65,17 @@ function addDepsAddCommand(parent: Command): void {
       }
 
       const result = await command.execute({
-        fromTaskId: fromTask,
-        toTaskId: toTask,
+        task: fromTask,
+        dependsOn: toTask,
         type: (options as any).type || "prerequisite",
       });
 
-      outputResult(result, { json: options.json });
+      if (options.json) {
+        outputResult(result, { json: true });
+      } else {
+        // Use the output field from the shared command result
+        log.info(result.output || "✅ Success");
+      }
     } catch (error) {
       handleCliError(error);
     }
@@ -100,11 +105,16 @@ function addDepsRmCommand(parent: Command): void {
       }
 
       const result = await command.execute({
-        fromTaskId: fromTask,
-        toTaskId: toTask,
+        task: fromTask,
+        dependsOn: toTask,
       });
 
-      outputResult(result, { json: options.json });
+      if (options.json) {
+        outputResult(result, { json: true });
+      } else {
+        // Use the output field from the shared command result
+        log.info(result.output || "✅ Success");
+      }
     } catch (error) {
       handleCliError(error);
     }
@@ -133,7 +143,7 @@ function addDepsListCommand(parent: Command): void {
       }
 
       const result = await command.execute({
-        taskId,
+        task: taskId,
       });
 
       if (options.json) {
