@@ -229,7 +229,6 @@ export class TasksCreateCommand extends BaseTaskCommand {
                   ? dep.split(":").map((s) => s.trim())
                   : [dep.trim(), "prerequisite"];
 
-
                 const addResult = await graphService.addDependency(result.id, depTaskId);
 
                 if (addResult.created) {
