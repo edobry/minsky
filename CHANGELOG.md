@@ -6,6 +6,16 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
+- **Completed PersistenceProvider Architecture (mt#407)**: Fully migrated all database services to unified persistence provider system
+  - Migrated `PostgresStorage`, `TasksImporterService`, and `PostgresVectorStorage` to use PersistenceService
+  - Migrated `TaskSimilarityService` and `RuleSimilarityService` to accept PersistenceProvider via dependency injection
+  - Migrated `SessionDbAdapter` to use PersistenceProvider with backward compatibility fallback
+  - Added `getRawSqlConnection` method to provider interface for direct SQL access
+  - Fixed test hanging issues caused by constructor interface mismatches in similarity services
+  - All database operations now centralized through PersistenceProvider abstraction
+  - Complete separation between main workspace and session workspace database usage
+  - Enhanced configuration schema and defaults with modern `persistence:` block replacing legacy `sessiondb:`
+
 - Created task mt#505: Implement codebase indexing feature for enhanced AI context
   - Comprehensive specification for codebase indexing similar to Cursor's feature
   - Research plan for existing tools (Sourcegraph, OpenGrok, Glean, Roo Code, CocoIndex)
@@ -89,7 +99,15 @@ All notable changes to this project will be documented in this file.
   - Positioned orchestration role: conductor of existing tools, not reinventing them
   - Showed how alignment is achieved through environmental design, not instruction
 
+>>>>>>> origin/main
 - Created task mt#500: Implement Task Worklog System for Engineering Notes and Progress Tracking
+
+### Fixed
+
+- **Fixed codemod test pollution**: Refactored `fix-import-extensions.test.ts` to use in-memory filesystem
+  - Eliminated console output during test runs ("Import Extension Fixer Report" messages)
+  - Aligned test pattern with other codemod tests using in-memory Project
+  - Removed real temp directory creation and file I/O during tests
   - Comprehensive spec for capturing engineering journey during task work
   - Defined 10 entry types: note, decision, progress, blocker, resolution, question, todo, command, context, learning
   - Designed integration points with conversation history, task specs, agent memory, and sessions

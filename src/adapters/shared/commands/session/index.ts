@@ -112,6 +112,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     createSessionGetCommand,
     createSessionStartCommand,
     createSessionDirCommand,
+    createSessionSearchCommand,
   } = basicCommands;
 
   const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
@@ -142,6 +143,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
     get: createSessionGetCommand(deps),
     start: createSessionStartCommand(deps),
     dir: createSessionDirCommand(deps),
+    search: createSessionSearchCommand(deps),
 
     // Management commands
     delete: createSessionDeleteCommand(deps),
@@ -184,6 +186,7 @@ export async function setupSessionCommandRegistry(
   registry.register("session.get", commands.get);
   registry.register("session.start", commands.start);
   registry.register("session.dir", commands.dir);
+  registry.register("session.search", commands.search);
   registry.register("session.delete", commands.delete);
   registry.register("session.update", commands.update);
   registry.register("session.migrate-backend", commands.migrateBackend);

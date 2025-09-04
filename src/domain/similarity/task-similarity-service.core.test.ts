@@ -42,7 +42,7 @@ describe("TaskSimilarityService → SimilaritySearchService (lexical fallback)",
     // Force embeddings backend to be unavailable so core uses lexical backend
     (EmbeddingsSimilarityBackend as any).prototype.isAvailable = async () => false;
 
-    service = new TaskSimilarityService(
+    service = TaskSimilarityService.createWithVectorStorage(
       dummyEmbedding,
       dummyVector,
       async (id: string) => tasks.find((t) => t.id === id) || null,

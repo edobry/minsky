@@ -1,21 +1,28 @@
 /**
- * Database Connection Manager
+ * Database Connection Manager (Legacy Compatibility)
  *
- * Handles configuration loading and database connection creation
- * for dependency injection into backends that need database access.
+ * Provides backward compatibility for code that expects the old connection-manager interface.
+ * Uses original implementation for reliability.
+ *
+ * @deprecated Use PersistenceService directly for new code
  */
 
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { getConfiguration } from "../configuration";
+import { log } from "../../utils/logger";
 
 /**
  * Creates a configured PostgreSQL database connection
- * Handles configuration loading and connection creation
+ *
+ * @deprecated Use getPersistenceProvider().getDatabaseConnection() instead
  */
 export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
   try {
+    log.warn("createDatabaseConnection is deprecated. Use PersistenceService instead.");
+
+    // Use original implementation for compatibility
     const runtimeConfig = getConfiguration();
     const connectionString = runtimeConfig?.sessiondb?.postgres?.connectionString;
 
@@ -32,38 +39,23 @@ export async function createDatabaseConnection(): Promise<PostgresJsDatabase> {
 
     return drizzle(sql);
   } catch (error) {
-    throw new Error(`Failed to create database connection: ${error}`);
+    log.error("Failed to create database connection:", error);
+    throw error;
   }
 }
 
 /**
- * Database Connection Manager for centralized connection handling
+ * Database connection manager for dependency injection
+ *
+ * @deprecated Use PersistenceService for dependency injection
  */
 export class DatabaseConnectionManager {
-  private static instance: DatabaseConnectionManager | null = null;
-  private connection: PostgresJsDatabase | null = null;
-
-  private constructor() {}
-
-  static getInstance(): DatabaseConnectionManager {
-    if (!DatabaseConnectionManager.instance) {
-      DatabaseConnectionManager.instance = new DatabaseConnectionManager();
-    }
-    return DatabaseConnectionManager.instance;
-  }
-
+  /**
+   * Get database connection instance
+   *
+   * @deprecated Use PersistenceService.getProvider().getDatabaseConnection() instead
+   */
   async getConnection(): Promise<PostgresJsDatabase> {
-    if (!this.connection) {
-      this.connection = await createDatabaseConnection();
-    }
-    return this.connection;
-  }
-
-  async closeConnection(): Promise<void> {
-    if (this.connection) {
-      // Note: postgres-js doesn't expose a direct close method on the drizzle instance
-      // The underlying connection will be closed when the process exits
-      this.connection = null;
-    }
+    return await createDatabaseConnection();
   }
 }

@@ -45,6 +45,14 @@ export function createSessionDB() {
   return createSessionProviderInternal();
 }
 
-// For backward compatibility and convenience, export a default instance
+// For backward compatibility and convenience, export a lazily-initialized default instance
 // However, tests should use createSessionDB() for isolation
-export const _SessionDB = createSessionProviderInternal();
+let _lazySessionDB: SessionProviderInterface | null = null;
+export const _SessionDB = {
+  get instance() {
+    if (!_lazySessionDB) {
+      _lazySessionDB = createSessionProviderInternal();
+    }
+    return _lazySessionDB;
+  }
+};

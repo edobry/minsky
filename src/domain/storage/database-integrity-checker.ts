@@ -10,7 +10,8 @@ import { join, dirname, basename } from "path";
 import { Database } from "bun:sqlite";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
-import type { StorageBackendType } from "./storage-backend-factory";
+
+type StorageBackendType = "sqlite" | "postgres" | "json";
 
 export interface DatabaseIntegrityResult {
   isValid: boolean;

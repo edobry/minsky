@@ -12,6 +12,8 @@ import { backendSchema, backendConfigSchema, type Backend, type BackendConfig } 
 
 import { sessionDbConfigSchema, type SessionDbConfig } from "./sessiondb";
 
+import { persistenceConfigSchema, type PersistenceConfig } from "./persistence";
+
 import { githubConfigSchema, type GitHubConfig } from "./github";
 
 import { aiConfigSchema, type AIConfig } from "./ai";
@@ -34,8 +36,11 @@ export const configurationSchema = z
     // Note: Deprecated root 'backend' property removed - use tasks.backend instead
     backendConfig: backendConfigSchema,
 
-    // Session database configuration
+    // Session database configuration (legacy)
     sessiondb: sessionDbConfigSchema,
+
+    // Modern persistence configuration
+    persistence: persistenceConfigSchema.optional(),
 
     // GitHub integration configuration
     github: githubConfigSchema,
@@ -238,6 +243,7 @@ export type {
   Backend,
   BackendConfig,
   SessionDbConfig,
+  PersistenceConfig,
   GitHubConfig,
   AIConfig,
   LoggerConfig,
@@ -251,6 +257,7 @@ export {
   backendSchema,
   backendConfigSchema,
   sessionDbConfigSchema,
+  persistenceConfigSchema,
   githubConfigSchema,
   aiConfigSchema,
   loggerConfigSchema,

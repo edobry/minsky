@@ -295,16 +295,27 @@ export function registerDebugCommandsWithMcp(
 }
 
 /**
- * Register sessiondb commands with MCP
+ * Register persistence commands with MCP
+ */
+export function registerPersistenceCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.PERSISTENCE],
+    ...config,
+  });
+}
+
+/**
+ * Register sessiondb commands with MCP (legacy compatibility)
  */
 export function registerSessiondbCommandsWithMcp(
   commandMapper: CommandMapper,
   config: Omit<McpSharedCommandConfig, "categories"> = {}
 ): void {
-  registerSharedCommandsWithMcp(commandMapper, {
-    categories: [CommandCategory.SESSIONDB],
-    ...config,
-  });
+  // Forward to persistence commands for backward compatibility
+  registerPersistenceCommandsWithMcp(commandMapper, config);
 }
 
 /**
@@ -323,7 +334,7 @@ export function registerAllMainCommandsWithMcp(
       CommandCategory.CONFIG,
       CommandCategory.INIT,
       CommandCategory.DEBUG,
-      CommandCategory.SESSIONDB,
+      CommandCategory.PERSISTENCE,
     ],
     ...config,
   });

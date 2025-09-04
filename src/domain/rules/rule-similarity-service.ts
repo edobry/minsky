@@ -1,4 +1,5 @@
 import type { SearchResult } from "../storage/vector/types";
+import type { PersistenceProvider } from "../persistence/types";
 import { createRuleSimilarityCore } from "../similarity/create-rule-similarity-core";
 import { createHash } from "crypto";
 import { log } from "../../utils/logger";
@@ -13,9 +14,40 @@ export interface RuleSimilarityServiceConfig {
  */
 export class RuleSimilarityService {
   constructor(
+    private readonly persistence: PersistenceProvider,
     private readonly workspacePath: string,
     private readonly config: RuleSimilarityServiceConfig = {}
   ) {}
+
+  /**
+   * @deprecated Use constructor with PersistenceProvider instead
+   */
+  static createWithWorkspacePath(
+    workspacePath: string,
+    config: RuleSimilarityServiceConfig = {}
+  ): RuleSimilarityService {
+    // Create a mock persistence provider for backward compatibility
+    const mockPersistence = {
+      capabilities: {
+        vectorStorage: true,
+        sql: true,
+        transactions: true,
+        jsonb: true,
+        migrations: true,
+      },
+      async getVectorStorage() {
+        return null;
+      },
+    } as PersistenceProvider;
+
+    return new RuleSimilarityService(mockPersistence, workspacePath, config);
+  }
+
+  async initialize(): Promise<void> {
+    if (!this.persistence.capabilities.vectorStorage) {
+      log.warn("Vector storage not supported by current backend, falling back to lexical search");
+    }
+  }
 
   /**
    * Search rules by natural language query using embeddings
@@ -97,9 +129,22 @@ export class RuleSimilarityService {
 }
 
 /**
- * Create a configured RuleSimilarityService instance
+ * Create a configured RuleSimilarityService instance with PersistenceProvider
  */
 export async function createRuleSimilarityService(): Promise<RuleSimilarityService> {
   const workspacePath = await resolveWorkspacePath({});
-  return new RuleSimilarityService(workspacePath);
+
+  // Use PersistenceService instead of direct dependencies
+  const { PersistenceService } = await import("../persistence/service");
+
+  if (!PersistenceService.isInitialized()) {
+    await PersistenceService.initialize();
+  }
+
+  const persistence = PersistenceService.getProvider();
+
+  const service = new RuleSimilarityService(persistence, workspacePath);
+  await service.initialize();
+
+  return service;
 }

@@ -10,6 +10,7 @@ import { getSessionCustomizations } from "../customizations/session-customizatio
 import {
   getConfigCustomizations,
   getSessiondbCustomizations,
+  getPersistenceCustomizations,
 } from "../customizations/config-customizations";
 import { getToolsCustomizations } from "../customizations/tools-customizations";
 
@@ -38,6 +39,9 @@ export function setupCommonCommandCustomizations(program?: Command): void {
 
   const sessiondbConfig = getSessiondbCustomizations();
   cliFactory.customizeCategory(sessiondbConfig.category, sessiondbConfig.options);
+
+  const persistenceConfig = getPersistenceCustomizations();
+  cliFactory.customizeCategory(persistenceConfig.category, persistenceConfig.options);
 
   const toolsConfig = getToolsCustomizations();
   cliFactory.customizeCategory(toolsConfig.category, toolsConfig.options);

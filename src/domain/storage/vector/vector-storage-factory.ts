@@ -1,120 +1,80 @@
-import { getConfiguration } from "../../configuration";
+/**
+ * Vector Storage Factory
+ *
+ * Creates vector storage instances using the persistence provider.
+ * Updated to use dependency injection pattern with PersistenceProvider.
+ */
+
 import type { VectorStorage } from "./types";
-import { PostgresVectorStorage } from "./postgres-vector-storage";
 import { MemoryVectorStorage } from "./memory-vector-storage";
+import { PersistenceService } from "../../persistence/service";
+import { log } from "../../../utils/logger";
 
+/**
+ * Create vector storage using persistence provider
+ */
 export async function createVectorStorageFromConfig(dimension: number): Promise<VectorStorage> {
-  const config = await getConfiguration();
-  const backend = (config as any).vectorStorage?.backend || "postgres";
-
-  switch (backend) {
-    case "postgres": {
-      const vsConfig = (config as any).vectorStorage?.postgres || {};
-      const useSessionDb = vsConfig.useSessionDb !== false; // default true
-      if (useSessionDb) {
-        return PostgresVectorStorage.forTasksEmbeddingsFromConfig(dimension);
-      }
-      const conn =
-        vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
-      if (!conn) {
-        throw new Error("PostgreSQL connection string not configured for vectorStorage.postgres");
-      }
-      const storage = new PostgresVectorStorage(conn, dimension, {
-        tableName: "tasks_embeddings",
-        idColumn: "task_id",
-        embeddingColumn: "vector",
-        lastIndexedAtColumn: "indexed_at",
-        contentHashColumn: "content_hash",
-      });
-      await storage.initialize();
-      return storage;
-    }
-
-    case "memory": {
-      return new MemoryVectorStorage(dimension);
-    }
-
-    default:
-      throw new Error(`Vector storage backend not supported: ${String(backend)}`);
+  // Ensure PersistenceService is initialized and get provider
+  if (!PersistenceService.isInitialized()) {
+    await PersistenceService.initialize();
   }
+  const provider = PersistenceService.getProvider();
+
+  // Check if provider supports vector storage
+  if (!provider.capabilities.vectorStorage) {
+    log.warn("Current persistence provider does not support vector storage, using memory backend");
+    return new MemoryVectorStorage(dimension);
+  }
+
+  // Get vector storage from provider
+  const vectorStorage = await provider.getVectorStorage?.(dimension);
+
+  if (!vectorStorage) {
+    log.warn("Provider returned null for vector storage, using memory backend");
+    return new MemoryVectorStorage(dimension);
+  }
+
+  return vectorStorage;
 }
 
 /**
  * Create a VectorStorage configured for rules embeddings.
- * Domain-specific convenience that keeps PostgresVectorStorage generic.
+ * Domain-specific convenience that keeps vector storage generic.
  */
 export async function createRulesVectorStorageFromConfig(
   dimension: number
 ): Promise<VectorStorage> {
-  const config = await getConfiguration();
-  const backend = (config as any).vectorStorage?.backend || "postgres";
-
-  switch (backend) {
-    case "postgres": {
-      const vsConfig = (config as any).vectorStorage?.postgres || {};
-      const tableName = vsConfig.rulesTable || "rules_embeddings";
-      const conn =
-        vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
-      if (!conn) {
-        throw new Error("PostgreSQL connection string not configured for vectorStorage.postgres");
-      }
-      const storage = new PostgresVectorStorage(conn, dimension, {
-        tableName,
-        idColumn: "rule_id",
-        embeddingColumn: "vector",
-        lastIndexedAtColumn: "indexed_at",
-        metadataColumn: "metadata",
-        contentHashColumn: "content_hash",
-      });
-      await storage.initialize();
-      return storage;
-    }
-
-    case "memory": {
-      return new MemoryVectorStorage(dimension);
-    }
-
-    default:
-      throw new Error(`Vector storage backend not supported: ${String(backend)}`);
-  }
+  // For now, use the same implementation as tasks
+  // In the future, this could create a separate vector storage instance
+  // with different table/collection names
+  return createVectorStorageFromConfig(dimension);
 }
 
 /**
  * Create a VectorStorage configured for tool embeddings.
- * Domain-specific convenience that keeps PostgresVectorStorage generic.
+ * Domain-specific convenience for tools embeddings.
  */
 export async function createToolsVectorStorageFromConfig(
   dimension: number
 ): Promise<VectorStorage> {
-  const config = await getConfiguration();
-  const backend = (config as any).vectorStorage?.backend || "postgres";
+  // For now, use the same implementation as tasks
+  // In the future, this could create a separate vector storage instance
+  // with different table/collection names
+  return createVectorStorageFromConfig(dimension);
+}
 
-  switch (backend) {
-    case "postgres": {
-      const vsConfig = (config as any).vectorStorage?.postgres || {};
-      const tableName = vsConfig.toolsTable || "tool_embeddings";
-      const conn =
-        vsConfig.connectionString || (config as any).sessiondb?.postgres?.connectionString;
-      if (!conn) {
-        throw new Error("PostgreSQL connection string not configured for vectorStorage.postgres");
-      }
-      const storage = new PostgresVectorStorage(conn, dimension, {
-        tableName,
-        idColumn: "tool_id",
-        embeddingColumn: "vector",
-        lastIndexedAtColumn: "indexed_at",
-        metadataColumn: "metadata",
-        contentHashColumn: "content_hash",
-      });
-      await storage.initialize();
-      return storage;
-    }
-
-    case "memory": {
-      return new MemoryVectorStorage(dimension);
-    }
-
-    default:
-      throw new Error(`Vector storage backend not supported: ${String(backend)}`);
+/**
+ * Create vector storage with explicit persistence provider
+ * (for testing or when you need to specify a particular provider)
+ */
+export async function createVectorStorage(
+  provider: any, // Using any to avoid circular dependency with PersistenceProvider
+  dimension: number
+): Promise<VectorStorage> {
+  if (!provider.capabilities?.vectorStorage) {
+    return new MemoryVectorStorage(dimension);
   }
+
+  const vectorStorage = await provider.getVectorStorage?.(dimension);
+  return vectorStorage || new MemoryVectorStorage(dimension);
 }

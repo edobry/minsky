@@ -1,8 +1,6 @@
 import { promises as fs } from "fs";
 import { join } from "path";
-import postgres from "postgres";
 import { drizzle } from "drizzle-orm/postgres-js";
-import { getConfiguration } from "../configuration";
 import { log } from "../../utils/logger";
 import { getTasksFilePath, getTaskSpecFilePath } from "./taskIO";
 import { parseTasksFromMarkdown } from "./taskFunctions";
@@ -77,14 +75,28 @@ export class TasksImporterService {
       taskList = taskList.slice(0, limit);
     }
 
-    const cfg = await getConfiguration();
-    const conn = (cfg as any)?.sessiondb?.postgres?.connectionString;
-    if (!conn) throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
+    // Get connection from PersistenceService
+    const { PersistenceService } = await import("../persistence/service");
 
-    // Prepare DB connection
-    const sql = postgres(conn, { prepare: false, onnotice: () => {} });
-    const db = drizzle(sql);
-    void db; // keep drizzle import for future typed work; using raw SQL below
+    if (!PersistenceService.isInitialized()) {
+      await PersistenceService.initialize();
+    }
+
+    const provider = PersistenceService.getProvider();
+
+    if (!provider.capabilities.sql) {
+      throw new Error("Current persistence provider does not support SQL operations");
+    }
+
+    const sql = await provider.getRawSqlConnection?.();
+    const db = await provider.getDatabaseConnection?.();
+
+    if (!sql) {
+      throw new Error("Failed to get raw SQL connection from persistence provider");
+    }
+    if (!db) {
+      throw new Error("Failed to get database connection from persistence provider");
+    }
 
     const result: ImportResult = {
       total: taskList.length,
@@ -192,11 +204,7 @@ export class TasksImporterService {
       }
     }
 
-    try {
-      await sql.end({});
-    } catch {
-      // ignore
-    }
+    // Connection is managed by PersistenceProvider, don't close it directly
 
     return result;
   }

@@ -8,7 +8,7 @@
 
 import { describe, test, expect, beforeEach, afterEach, mock } from "bun:test";
 import { DatabaseIntegrityChecker } from "./database-integrity-checker";
-import type { StorageBackendType } from "./storage-backend-factory";
+type StorageBackendType = "sqlite" | "postgres" | "json";
 
 // Mock bun:sqlite Database
 const mockDatabase = {

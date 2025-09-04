@@ -24,7 +24,7 @@ export const defaultConfiguration: PartialConfiguration = {
     "json-file": {},
   },
 
-  // Session database configuration
+  // Session database configuration (legacy - use persistence instead)
   sessiondb: {
     backend: "sqlite",
     sqlite: {
@@ -32,6 +32,16 @@ export const defaultConfiguration: PartialConfiguration = {
       baseDir: undefined, // Will use XDG standard
     },
     postgres: undefined,
+  },
+
+  // Modern persistence configuration
+  persistence: {
+    backend: "sqlite",
+    sqlite: {
+      dbPath: "~/.local/state/minsky/minsky.db",
+    },
+    postgres: undefined,
+    json: undefined,
   },
 
   // GitHub configuration (all optional)

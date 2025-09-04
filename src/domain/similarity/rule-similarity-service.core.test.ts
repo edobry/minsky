@@ -21,7 +21,7 @@ describe("RuleSimilarityService → SimilaritySearchService (lexical fallback)",
   });
 
   it("searchByText returns top-k ordered results via core", async () => {
-    const sim = new RuleSimilarityService(workspacePath, {});
+    const sim = RuleSimilarityService.createWithWorkspacePath(workspacePath, {});
     const results = await sim.searchByText("refactor modules", 3);
     expect(Array.isArray(results)).toBe(true);
     // Not asserting exact IDs since rules are workspace-dependent; ensure shape

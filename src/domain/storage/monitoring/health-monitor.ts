@@ -6,7 +6,7 @@
  */
 
 import { log } from "../../../utils/logger";
-import { StorageBackendFactory } from "../storage-backend-factory";
+import { PersistenceService } from "../../persistence/service";
 import { SessionDbConfig } from "../../configuration/types";
 
 import { getConfiguration } from "../../configuration/index";

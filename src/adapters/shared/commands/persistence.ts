@@ -1,9 +1,9 @@
 /**
- * Shared SessionDB Commands
+ * Shared Persistence Commands
  *
- * This module contains shared sessiondb command implementations for
+ * This module contains shared persistence command implementations for
  * database migration and management operations, as well as low-level query operations
- * for MCP agents to inspect raw session database records.
+ * for MCP agents to inspect database records across all persistence backends.
  */
 
 import { z } from "zod";
@@ -16,10 +16,10 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../shared/command-registry";
-import { createStorageBackend } from "../../../domain/storage/storage-backend-factory";
+import { PersistenceService } from "../../../domain/persistence/service";
+import { PersistenceProviderFactory } from "../../../domain/persistence/factory";
 import { log } from "../../../utils/logger";
 import type { SessionRecord } from "../../../domain/session/session-db";
-import type { StorageBackendType } from "../../../domain/storage/storage-backend-factory";
 import {
   getXdgStateHome,
   getMinskyStateDir,
@@ -124,12 +124,12 @@ async function runMigrationsWithDrizzleKit(options: {
       // Prepare database configuration for drizzle-kit
       const dbConfig = {
         postgres: {
-          connectionString: config.sessiondb?.postgres?.connectionString || null,
+          connectionString: config.persistence?.postgres?.connectionString || config.sessiondb?.postgres?.connectionString || null,
         },
         sqlite: {
-          path: config.sessiondb?.sqlite?.path || null,
+          path: config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || null,
         },
-        backend: config.sessiondb?.backend || "sqlite",
+        backend: config.persistence?.backend || config.sessiondb?.backend || "sqlite",
       };
 
       // Set environment variable that drizzle config will read
@@ -158,6 +158,7 @@ async function runMigrationsWithDrizzleKit(options: {
       const rawConfig = await loadConfiguration();
       const conf = rawConfig.config;
       const connectionString =
+        conf.persistence?.postgres?.connectionString ||
         conf.sessiondb?.postgres?.connectionString ||
         conf.sessiondb?.connectionString ||
         (process.env as any).MINSKY_POSTGRES_URL;
@@ -266,12 +267,12 @@ async function checkAndGenerateMigrations(): Promise<{ nothingToDo?: boolean }> 
       // Prepare database configuration for drizzle-kit
       const dbConfig = {
         postgres: {
-          connectionString: config.sessiondb?.postgres?.connectionString || null,
+          connectionString: config.persistence?.postgres?.connectionString || config.sessiondb?.postgres?.connectionString || null,
         },
         sqlite: {
-          path: config.sessiondb?.sqlite?.path || null,
+          path: config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || null,
         },
-        backend: config.sessiondb?.backend || "sqlite",
+        backend: config.persistence?.backend || config.sessiondb?.backend || "sqlite",
       };
 
       // Set environment variable that drizzle config will read
@@ -351,89 +352,9 @@ async function checkAndGenerateMigrations(): Promise<{ nothingToDo?: boolean }> 
 }
 
 /**
- * Parameters for the sessiondb search command
+ * Parameters for the persistence migrate command
  */
-const sessiondbSearchCommandParams: CommandParameterMap = {
-  query: {
-    schema: z.string().min(1),
-    description: "Search query (searches in session name, repo name, branch, task ID)",
-    required: true,
-  },
-  limit: {
-    schema: z.number().int().positive(),
-    description: "Maximum number of results to return",
-    required: false,
-    defaultValue: 10,
-  },
-};
-
-// (Removed) PG-specific migrate wrapper; unified under sessiondb.migrate
-
-// Register sessiondb search command
-sharedCommandRegistry.registerCommand({
-  id: "sessiondb.search",
-  category: CommandCategory.SESSIONDB,
-  name: "search",
-  description:
-    "Search sessions by query string across multiple fields (returns raw SessionRecord objects from database)",
-  parameters: sessiondbSearchCommandParams,
-  async execute(params: any, _context: CommandExecutionContext) {
-    const { query, limit } = params;
-
-    try {
-      const sessionProvider = createSessionProvider();
-      const sessions = await sessionProvider.listSessions();
-
-      const lowerQuery = query.toLowerCase();
-
-      // Search across multiple fields
-      const matchingSessions = sessions.filter((session) => {
-        return (
-          session.session?.toLowerCase().includes(lowerQuery) ||
-          session.repoName?.toLowerCase().includes(lowerQuery) ||
-          session.repoUrl?.toLowerCase().includes(lowerQuery) ||
-          session.taskId?.toLowerCase().includes(lowerQuery) ||
-          session.prBranch?.toLowerCase().includes(lowerQuery) ||
-          session.prState?.branchName?.toLowerCase().includes(lowerQuery)
-        );
-      });
-
-      // Apply limit
-      const limitedResults = matchingSessions.slice(0, limit);
-
-      log.debug(`SessionDB search found ${matchingSessions.length} matches for query: ${query}`, {
-        totalSessions: sessions.length,
-        matchCount: matchingSessions.length,
-        limitedCount: limitedResults.length,
-        limit,
-      });
-
-      return {
-        success: true,
-        sessions: limitedResults,
-        query,
-        totalMatches: matchingSessions.length,
-        limitedCount: limitedResults.length,
-        totalSessions: sessions.length,
-        limit,
-        note: "Returns raw SessionRecord objects from database. Use 'session list' or 'session get' commands for mapped Session objects.",
-      };
-    } catch (error) {
-      log.error("SessionDB search failed", {
-        query,
-        error: getErrorMessage(error),
-      });
-      throw error;
-    }
-  },
-});
-
-// (Removed) see unified 'sessiondb.migrate'
-
-/**
- * Parameters for the sessiondb migrate command
- */
-const sessiondbMigrateCommandParams: CommandParameterMap = {
+const persistenceMigrateCommandParams: CommandParameterMap = {
   to: {
     schema: z.enum(["sqlite", "postgres"]).optional(),
     description: "Target backend type (if omitted, run schema migrations for current backend)",
@@ -487,12 +408,12 @@ async function runSchemaMigrationsForConfiguredBackend(
   const { dryRun = false } = options;
   const { getConfiguration } = await import("../../../domain/configuration/index");
   const config = getConfiguration();
-  const backend = (config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
+  const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
 
   if (backend === "sqlite") {
     // SQLite: bun:sqlite + drizzle migrator
     const dbPath =
-      config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+      config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
     if (dryRun) {
       // Build preview plan
       const migrationsFolder = "./src/domain/storage/migrations";
@@ -569,7 +490,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       }
 
       {
-        log.cli("=== SessionDB Schema Migration (sqlite) — DRY RUN ===");
+        log.cli("=== Persistence Schema Migration (sqlite) — DRY RUN ===");
         log.cli("");
         log.cli(`Database: ${dbPath}`);
         log.cli(`Migrations: ${migrationsFolder}`);
@@ -635,7 +556,7 @@ async function runSchemaMigrationsForConfiguredBackend(
             latestAt = last?.created_at ? String(last.created_at) : undefined;
           }
 
-          log.cli("=== SessionDB Schema Migration (sqlite) ===");
+          log.cli("=== Persistence Schema Migration (sqlite) ===");
           log.cli("");
           log.cli(`Database: ${dbPath}`);
           log.cli(`Migrations: ${migrationsFolder}`);
@@ -700,13 +621,14 @@ async function runSchemaMigrationsForConfiguredBackend(
 
   if (backend === "postgres") {
     const connectionString =
+      config.persistence?.postgres?.connectionString ||
       config.sessiondb?.postgres?.connectionString ||
       config.sessiondb?.connectionString ||
       (process.env as any).MINSKY_POSTGRES_URL;
 
     if (!connectionString) {
       throw new Error(
-        "PostgreSQL connection string not found. Configure sessiondb.postgres.connectionString or set MINSKY_POSTGRES_URL."
+        "PostgreSQL connection string not found. Configure persistence.postgres.connectionString, sessiondb.postgres.connectionString, or set MINSKY_POSTGRES_URL."
       );
     }
 
@@ -763,7 +685,7 @@ async function runSchemaMigrationsForConfiguredBackend(
         // Mark plan metadata
         (plan as any).nothingToDo = pendingCount === 0;
 
-        log.cli("=== SessionDB Schema Migration (postgres) — DRY RUN ===");
+        log.cli("=== Persistence Schema Migration (postgres) — DRY RUN ===");
         log.cli("");
         log.cli(`Database: ${maskedConn}`);
         log.cli(`Migrations: ${migrationsFolder}`);
@@ -862,7 +784,7 @@ async function runSchemaMigrationsForConfiguredBackend(
       }
 
       {
-        log.cli("=== SessionDB Schema Migration (postgres) ===");
+        log.cli("=== Persistence Schema Migration (postgres) ===");
         log.cli("");
         log.cli(`Database: ${masked}`);
         log.cli(`Migrations: ${migrationsFolder}`);
@@ -976,14 +898,14 @@ async function runSchemaMigrationsForBackend(
   }
 }
 
-// Register sessiondb migrate command
+// Register persistence migrate command
 sharedCommandRegistry.registerCommand({
-  id: "sessiondb.migrate",
-  category: CommandCategory.SESSIONDB,
+  id: "persistence.migrate",
+  category: CommandCategory.PERSISTENCE,
   name: "migrate",
   description:
     "Migrate session database between backends, or run schema migrations when no target is provided",
-  parameters: sessiondbMigrateCommandParams,
+  parameters: persistenceMigrateCommandParams,
   async execute(params: any, context: CommandExecutionContext) {
     const { to, from, sqlitePath, backup = true, execute, setDefault, dryRun = false } = params;
 
@@ -993,7 +915,7 @@ sharedCommandRegistry.registerCommand({
         // Auto-detect backend and run appropriate migration flow
         const { getConfiguration } = await import("../../../domain/configuration/index");
         const config = getConfiguration();
-        const backend = (config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
+        const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
 
         const shouldApply = Boolean(execute);
 
@@ -1045,11 +967,11 @@ sharedCommandRegistry.registerCommand({
       const config = getConfiguration();
 
       // Check for drift in current configuration
-      const configuredBackend = config.sessiondb?.backend;
+      const configuredBackend = config.persistence?.backend || config.sessiondb?.backend;
       // JSON backend has been removed; retain guardrails without impossible comparisons
       // (no action needed here)
 
-      log.cli(`🚀 SessionDB Migration - Target: ${to}`);
+      log.cli(`🚀 Persistence Migration - Target: ${to}`);
       log.cli("");
       log.cli(`Mode: ${isPreviewMode ? "PREVIEW" : "EXECUTE"}`);
       log.cli(`Backup: ${backup ? "YES" : "NO"}`);
@@ -1071,16 +993,16 @@ sharedCommandRegistry.registerCommand({
         log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
         // Read from CURRENT configured backend (no JSON fallback)
-        const configuredBackend = config.sessiondb?.backend as "sqlite" | "postgres";
+        const configuredBackend = (config.persistence?.backend || config.sessiondb?.backend) as "sqlite" | "postgres";
         if (!configuredBackend) {
-          throw new Error("No sessiondb backend configured. Configure sqlite or postgres.");
+          throw new Error("No persistence backend configured. Configure sqlite or postgres in persistence or sessiondb config.");
         }
 
         const sourceConfig: any = { backend: configuredBackend };
         if (configuredBackend === "sqlite") {
           // Use configured path or default
           const dbPath =
-            config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+            config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
           sourceConfig.sqlite = { dbPath };
           sourceDescription = `SQLite backend: ${dbPath}`;
           sourceBackendKind = "sqlite";
@@ -1100,8 +1022,12 @@ sharedCommandRegistry.registerCommand({
           sourceBackendKind = "postgres";
         }
 
-        const sourceStorage = createStorageBackend(sourceConfig);
-        await sourceStorage.initialize();
+        // Get storage through PersistenceService
+        if (!PersistenceService.isInitialized()) {
+          await PersistenceService.initialize();
+        }
+        const provider = PersistenceService.getProvider();
+        const sourceStorage = provider.getStorage<SessionRecord, any>();
         const readResult = await sourceStorage.readState();
         if (readResult.success && readResult.data) {
           sourceData = readResult.data;
@@ -1226,7 +1152,7 @@ sharedCommandRegistry.registerCommand({
         if (!connectionString) {
           throw new Error(
             "PostgreSQL connection string not found. " +
-              "Please configure sessiondb.postgres.connectionString in config file or set MINSKY_POSTGRES_URL environment variable."
+              "Please configure persistence.postgres.connectionString (or sessiondb.postgres.connectionString) in config file or set MINSKY_POSTGRES_URL environment variable."
           );
         }
 
@@ -1237,92 +1163,31 @@ sharedCommandRegistry.registerCommand({
         targetConfig.postgres = { connectionString: connectionString };
       }
 
-      const targetStorage = createStorageBackend(targetConfig);
-      await targetStorage.initialize();
-
-      // Ensure target schema is fully migrated before writing
-      await runSchemaMigrationsForBackend(to, {
-        sqlitePath: targetSqlitePath,
-        connectionString: targetPostgresConn,
-      });
-
-      // Show execute plan (same as preview) before applying
-      log.cli("");
-      log.cli("📝 Migration plan (execute):");
-      operations.forEach((op, idx) => log.cli(`  ${idx + 1}. ${op}`));
-      // Add a blank line after the plan for nicer spacing before any subsequent output
-      log.cli("");
-
-      // Write to target backend
-      const targetState = {
-        sessions: normalizedRecords,
-        baseDir: getMinskyStateDir(),
-      };
-
-      const writeResult = await targetStorage.writeState(targetState);
+      // Use PersistenceService for data migration
+      await PersistenceService.initialize();
+      const sourceProvider = PersistenceService.getProvider();
+      
+      // Read all sessions from source
+      const sourceStorage = sourceProvider.getStorage();
+      const sourceState = await sourceStorage.readState();
+      if (!sourceState.success) {
+        throw new Error(`Failed to read from source: ${sourceState.error?.message}`);
+      }
+      
+      log.cli(`✅ Read ${sourceState.data.sessions.length} sessions from source ${sourceProvider.getCapabilities().backend} backend`);
+      
+      // Create target provider with new backend  
+      const newTargetConfig = { ...targetConfig, backend: to };
+      const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
+      await targetProvider.initialize();
+      
+      const targetStorage = targetProvider.getStorage();
+      const writeResult = await targetStorage.writeState(sourceState.data);
       if (!writeResult.success) {
-        const msg = writeResult.error?.message || "database operation failed";
-        throw new Error(`Failed to write to target backend: ${msg}`);
+        throw new Error(`Failed to write to target: ${writeResult.error?.message}`);
       }
-      log.cli(
-        `✅ Data successfully migrated to target backend (${normalizedRecords.length} sessions)`
-      );
-
-      const targetCount = normalizedRecords.length;
-      log.cli(
-        `Migration completed: ${sourceCount} source sessions -> ${targetCount} target sessions`
-      );
-
-      // Handle setDefault option
-      if (setDefault) {
-        log.cli(`\n🔧 Updating configuration to use ${to} backend as default...`);
-        log.cli(`✅ Configuration update requested. Please manually update your config file:`);
-        log.cli(`\n[sessiondb]`);
-        log.cli(`backend = "${to}"`);
-
-        if (to === "postgres") {
-          const connectionString = targetPostgresConn;
-          if (connectionString) {
-            log.cli(`\n[sessiondb.postgres]`);
-            log.cli(`connectionString = "${connectionString}"`);
-          }
-        } else if (to === "sqlite" && targetSqlitePath) {
-          log.cli(`\n[sessiondb.sqlite]`);
-          log.cli(`path = "${targetSqlitePath}"`);
-        }
-
-        log.cli(`\n💡 To revert: Change backend back to your previous setting`);
-      }
-
-      const result = {
-        success: true,
-        sourceCount,
-        targetCount,
-        targetBackend: to,
-        backupPath,
-        setDefaultApplied: setDefault,
-        operations,
-        errors: [] as string[],
-      };
-
-      // Format human-readable output
-      if (context.format === "human") {
-        let output = `Migration ${result.success ? "completed" : "failed"}\n`;
-        output += `Source sessions: ${result.sourceCount}\n`;
-        output += `Target sessions: ${result.targetCount}\n`;
-        if (result.backupPath) {
-          output += `Backup created: ${result.backupPath}\n`;
-        }
-        if (result.errors && result.errors.length > 0) {
-          output += `Errors: ${result.errors.length}\n`;
-          result.errors.forEach((error) => {
-            output += `  - ${error}\n`;
-          });
-        }
-        return output;
-      }
-
-      return result;
+      
+      log.cli(`✅ Data successfully migrated to ${to} backend (${sourceState.data.sessions.length} sessions)`);
     } catch (error) {
       // Re-throw as proper Error while preserving original message for handler parsing
       throw ensureError(error);
@@ -1331,9 +1196,9 @@ sharedCommandRegistry.registerCommand({
 });
 
 /**
- * Parameters for the sessiondb check command
+ * Parameters for the persistence check command
  */
-const sessiondbCheckCommandParams: CommandParameterMap = {
+const persistenceCheckCommandParams: CommandParameterMap = {
   file: {
     schema: z.string(),
     description: "Path to database file to check (SQLite only)",
@@ -1356,13 +1221,13 @@ const sessiondbCheckCommandParams: CommandParameterMap = {
   },
 };
 
-// Register sessiondb check command
+// Register persistence check command
 sharedCommandRegistry.registerCommand({
-  id: "sessiondb.check",
-  category: CommandCategory.SESSIONDB,
+  id: "persistence.check",
+  category: CommandCategory.PERSISTENCE,
   name: "check",
   description: "Check database integrity and detect issues",
-  parameters: sessiondbCheckCommandParams,
+  parameters: persistenceCheckCommandParams,
   async execute(params: any, _context: CommandExecutionContext) {
     const { file, backend, fix, report } = params;
 
@@ -1381,7 +1246,7 @@ sharedCommandRegistry.registerCommand({
       } else {
         // Auto-detect from configuration
         const config = getConfiguration();
-        const configuredBackend = config.sessiondb?.backend;
+        const configuredBackend = config.persistence?.backend || config.sessiondb?.backend;
 
         // Guard against unsupported historical backends
         if (configuredBackend && !["sqlite", "postgres"].includes(configuredBackend as string)) {
@@ -1402,7 +1267,7 @@ sharedCommandRegistry.registerCommand({
         sourceInfo = `Backend auto-detected from configuration: ${targetBackend}`;
       }
 
-      log.cli(`🔍 SessionDB Check - ${sourceInfo}`);
+      log.cli(`🔍 Persistence Check - ${sourceInfo}`);
 
       // Perform backend-specific validation
       let validationResult: {
@@ -1491,7 +1356,7 @@ async function validateSqliteBackend(
     } else {
       // Use configured path or default
       dbPath =
-        config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+        config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
       log.cli(`Using configured/default file: ${dbPath}`);
     }
 
@@ -1563,6 +1428,7 @@ async function validatePostgresBackend(): Promise<{
 
     // Get PostgreSQL connection string
     const connectionString =
+      config.persistence?.postgres?.connectionString ||
       config.sessiondb?.postgres?.connectionString ||
       config.sessiondb?.connectionString ||
       process.env.MINSKY_POSTGRES_URL;
@@ -1570,7 +1436,7 @@ async function validatePostgresBackend(): Promise<{
     if (!connectionString) {
       issues.push("No PostgreSQL connection string configured");
       suggestions.push(
-        "Set sessiondb.postgres.connectionString in config or MINSKY_POSTGRES_URL env var"
+        "Set persistence.postgres.connectionString (or sessiondb.postgres.connectionString) in config or MINSKY_POSTGRES_URL env var"
       );
       return {
         success: false,
@@ -1585,81 +1451,23 @@ async function validatePostgresBackend(): Promise<{
     );
 
     // Basic connection test
-    const { createStorageBackend } = await import(
-      "../../../domain/storage/storage-backend-factory"
-    );
-
-    try {
-      // Use direct PostgreSQL connection to avoid Drizzle logging
-      const { Pool } = require("pg");
-      const pool = new Pool({ connectionString });
-
-      try {
-        const client = await pool.connect();
-
-        try {
-          // Test basic connectivity
-          await client.query("SELECT 1");
-
-          // Test if sessions table exists (schema validation)
-          const tableResult = await client.query(`
-            SELECT EXISTS (
-              SELECT FROM information_schema.tables
-              WHERE table_schema = 'public'
-              AND table_name = 'sessions'
-            );
-          `);
-
-          const tableExists = tableResult.rows[0].exists;
-          if (!tableExists) {
-            throw new Error("sessions table does not exist");
-          }
-        } finally {
-          client.release();
-        }
-      } finally {
-        await pool.end();
+    // Use PersistenceService for connection testing
+    await PersistenceService.initialize();
+    const provider = PersistenceService.getProvider();
+    
+    // Test basic connectivity
+    if (provider.getCapabilities().sql) {
+      const rawConnection = provider.getRawSqlConnection();
+      if (rawConnection) {
+        // Test SQL query
+        await rawConnection`SELECT 1 as test`;
+        log.cli("✅ Database connection successful");
       }
-
-      return {
-        success: true,
-        details: `PostgreSQL connection and schema validated successfully`,
-      };
-    } catch (error) {
-      const errorMessage = getErrorMessage(error);
-
-      // Check if this is a schema/table issue vs connection issue
-      if (
-        errorMessage.includes("sessions table does not exist") ||
-        errorMessage.includes('relation "sessions" does not exist') ||
-        errorMessage.includes('table "sessions"') ||
-        errorMessage.includes('select "session"')
-      ) {
-        issues.push("PostgreSQL connection successful, but schema is missing or incorrect");
-        suggestions.push("Run database migrations to create the required 'sessions' table");
-        suggestions.push("Verify the database has been properly initialized for Minsky");
-
-        return {
-          success: false,
-          details: "PostgreSQL connection successful but schema validation failed",
-          issues,
-          suggestions,
-        };
-      } else {
-        // This is likely a connection issue
-        issues.push(`PostgreSQL connection failed: ${errorMessage}`);
-        suggestions.push(
-          "Check connection string, network connectivity, and PostgreSQL service status"
-        );
-
-        return {
-          success: false,
-          details: "PostgreSQL connection test failed",
-          issues,
-          suggestions,
-        };
-      }
+    } else {
+      log.cli("✅ Non-SQL backend initialized successfully");
     }
+    
+    return { success: true, details: "Connection test passed" };
   } catch (error) {
     issues.push(`PostgreSQL validation error: ${getErrorMessage(error)}`);
     return {
@@ -1672,9 +1480,9 @@ async function validatePostgresBackend(): Promise<{
 }
 
 /**
- * Register all sessiondb commands
+ * Register all persistence commands
  */
-export function registerSessiondbCommands(): void {
+export function registerPersistenceCommands(): void {
   // Commands are registered above when this module is imported
-  log.debug("SessionDB commands registered");
+  log.debug("Persistence commands registered");
 }

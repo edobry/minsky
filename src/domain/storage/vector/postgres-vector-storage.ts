@@ -1,6 +1,5 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
-import { getConfiguration } from "../../configuration";
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
 import { log } from "../../../utils/logger";
 
@@ -19,31 +18,56 @@ export class PostgresVectorStorage implements VectorStorage {
   private readonly db: ReturnType<typeof drizzle>;
 
   constructor(
-    private readonly connectionString: string,
+    sql: ReturnType<typeof postgres>,
+    db: ReturnType<typeof drizzle>,
     private readonly dimension: number,
     private readonly config: PostgresVectorStorageConfig
   ) {
-    this.sql = postgres(connectionString, { prepare: false, onnotice: () => {} });
-    this.db = drizzle(this.sql);
+    this.sql = sql;
+    this.db = db;
   }
 
-  static async fromSessionDbConfig(
+  static async fromPersistenceProvider(
     dimension: number,
     config: PostgresVectorStorageConfig
   ): Promise<PostgresVectorStorage> {
-    const runtimeConfig = await getConfiguration();
-    const conn = runtimeConfig.sessiondb?.postgres?.connectionString;
-    if (!conn) {
-      throw new Error("PostgreSQL connection string not configured (sessiondb.postgres)");
+    const { PersistenceService } = await import("../../persistence/service");
+
+    if (!PersistenceService.isInitialized()) {
+      await PersistenceService.initialize();
     }
-    const storage = new PostgresVectorStorage(conn, dimension, config);
+
+    const provider = PersistenceService.getProvider();
+
+    if (!provider.capabilities.sql || !provider.capabilities.vectorStorage) {
+      throw new Error("Current persistence provider does not support SQL or vector storage");
+    }
+
+    const sql = await provider.getRawSqlConnection?.();
+    const db = await provider.getDatabaseConnection?.();
+
+    if (!sql || !db) {
+      throw new Error("Failed to get database connections from persistence provider");
+    }
+
+    const storage = new PostgresVectorStorage(sql, db, dimension, config);
     await storage.initialize();
     return storage;
   }
 
+  /**
+   * @deprecated Use fromPersistenceProvider() instead
+   */
+  static async fromSessionDbConfig(
+    dimension: number,
+    config: PostgresVectorStorageConfig
+  ): Promise<PostgresVectorStorage> {
+    return PostgresVectorStorage.fromPersistenceProvider(dimension, config);
+  }
+
   // Convenience for task embeddings
   static async forTasksEmbeddingsFromConfig(dimension: number): Promise<PostgresVectorStorage> {
-    return PostgresVectorStorage.fromSessionDbConfig(dimension, {
+    return PostgresVectorStorage.fromPersistenceProvider(dimension, {
       tableName: "tasks_embeddings",
       idColumn: "task_id",
       embeddingColumn: "vector",

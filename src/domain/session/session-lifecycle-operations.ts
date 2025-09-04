@@ -1,20 +1,14 @@
-import {
-  ResourceNotFoundError,
-  ValidationError,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/errors/index";
+import { ResourceNotFoundError, ValidationError } from "../../errors/index";
 import { taskIdSchema as TaskIdSchema } from "../../schemas/common";
 import type {
   SessionGetParams,
   SessionListParams,
   SessionDeleteParams,
   SessionDirParams,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/schemas/session";
-import { resolveSessionContextWithFeedback } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session/session-context-resolver";
-import { getCurrentSessionContext } from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/workspace";
-import type {
-  SessionProviderInterface,
-  Session,
-} from "/Users/edobry/.local/state/minsky/sessions/task#171/src/domain/session";
+} from "../../schemas/session";
+import { resolveSessionContextWithFeedback } from "./session-context-resolver";
+import { getCurrentSessionContext } from "../workspace";
+import type { SessionProviderInterface, Session } from "./";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors";
 import { rmSync, existsSync } from "node:fs";

@@ -12,7 +12,7 @@ import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
-import { registerSessiondbCommands } from "./sessiondb";
+import { registerPersistenceCommands } from "./persistence";
 import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
 
@@ -41,8 +41,8 @@ export async function registerAllSharedCommands(): Promise<void> {
   // Register debug commands
   registerDebugCommands();
 
-  // Register sessiondb commands
-  registerSessiondbCommands();
+  // Register persistence commands
+  registerPersistenceCommands();
 
   // Register AI commands
   registerAiCommands();
@@ -63,7 +63,7 @@ export {
   registerInitCommands,
   registerConfigCommands,
   registerDebugCommands,
-  registerSessiondbCommands,
+  registerPersistenceCommands,
   registerAiCommands,
   registerToolsCommands,
 };
