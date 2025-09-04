@@ -1484,7 +1484,7 @@ async function validatePostgresBackend(): Promise<{
 
     // Test basic connectivity
     if (provider.getCapabilities().sql) {
-      const rawConnection = provider.getRawSqlConnection();
+      const rawConnection = await provider.getRawSqlConnection();
       if (rawConnection) {
         // Test SQL query
         await rawConnection`SELECT 1 as test`;
