@@ -45,6 +45,7 @@ interface TasksCreateParams extends BaseTaskParams {
   title: string;
   spec?: string;
   specPath?: string;
+  dependencies?: string | string[];
   force?: boolean;
   githubRepo?: string;
 }
@@ -202,6 +203,52 @@ export class TasksCreateCommand extends BaseTaskCommand {
       });
 
       this.debug("Task created successfully");
+      // Handle dependencies if provided
+      const dependencyResults: string[] = [];
+      if (params.dependencies) {
+        try {
+          const { TaskGraphService } = await import("../../../../domain/tasks/task-graph-service");
+          const { DatabaseConnectionManager } = await import(
+            "../../../../domain/database/connection-manager"
+          );
+
+          // Parse dependencies (handle both string and array formats)
+          const deps = Array.isArray(params.dependencies)
+            ? params.dependencies
+            : params.dependencies.split(",").map((d) => d.trim());
+
+          if (deps.length > 0) {
+            this.debug(`Adding ${deps.length} dependencies to task ${result.id}`);
+            const db = await DatabaseConnectionManager.getInstance().getConnection();
+            const graphService = new TaskGraphService(db);
+
+            for (const dep of deps) {
+              try {
+                // Just use the dependency task ID directly - no type parsing needed
+                const depTaskId = dep.trim();
+
+                const addResult = await graphService.addDependency(result.id, depTaskId);
+
+                if (addResult.created) {
+                  dependencyResults.push(
+                    `✅ Added dependency: ${result.id} depends on ${depTaskId}`
+                  );
+                } else {
+                  dependencyResults.push(
+                    `ℹ️  Dependency already exists: ${result.id} depends on ${depTaskId}`
+                  );
+                }
+              } catch (depError) {
+                dependencyResults.push(`❌ Failed to add dependency ${dep}: ${depError.message}`);
+                this.debug(`Dependency addition failed for ${dep}: ${depError.message}`);
+              }
+            }
+          }
+        } catch (error) {
+          dependencyResults.push(`❌ Failed to process dependencies: ${error.message}`);
+          this.debug(`Dependencies processing failed: ${error.message}`);
+        }
+      }
 
       // Build success message
       let message = `Task ${result.taskId} created: "${result.title}"`;
@@ -214,6 +261,14 @@ export class TasksCreateCommand extends BaseTaskCommand {
         }
         message += `\n${chalk.gray("  Title: ")}${result.title}`;
         message += `\n${chalk.gray("  ID: ")}${result.taskId}`;
+
+        // Add dependency results to message
+        if (dependencyResults.length > 0) {
+          message += `\n${chalk.gray("  Dependencies:")}`;
+          dependencyResults.forEach((depResult) => {
+            message += `\n    ${depResult}`;
+          });
+        }
       }
 
       return this.formatResult(

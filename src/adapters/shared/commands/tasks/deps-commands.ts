@@ -12,8 +12,8 @@ const tasksDepsAddParams: CommandParameterMap = {
     required: true,
   },
   dependsOn: {
-    schema: z.string(),
-    description: "Task that is the dependency",
+    schema: z.union([z.string(), z.array(z.string())]),
+    description: "Task that is the dependency, or comma-separated list of task IDs",
     required: true,
   },
 };
@@ -53,13 +53,37 @@ export function createTasksDepsAddCommand() {
     execute: async (params: any) => {
       const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
       const service = new TaskGraphService(db);
-      const result = await service.addDependency(params.task, params.dependsOn);
 
-      const output = result.created
-        ? `✅ Added dependency: ${params.task} depends on ${params.dependsOn}`
-        : `ℹ️  Dependency already exists: ${params.task} depends on ${params.dependsOn}`;
+      // Parse dependencies (handle both string and array formats)
+      const dependencies = Array.isArray(params.dependsOn)
+        ? params.dependsOn
+        : typeof params.dependsOn === "string"
+          ? params.dependsOn.split(",").map((d) => d.trim())
+          : [params.dependsOn];
 
-      return { success: true, output };
+      const results: string[] = [];
+      let allSuccessful = true;
+
+      for (const dep of dependencies) {
+        try {
+          // Just use the dependency task ID directly - no type parsing needed
+          const depTaskId = dep.trim();
+
+          const result = await service.addDependency(params.task, depTaskId);
+
+          if (result.created) {
+            results.push(`✅ Added dependency: ${params.task} depends on ${depTaskId}`);
+          } else {
+            results.push(`ℹ️  Dependency already exists: ${params.task} depends on ${depTaskId}`);
+          }
+        } catch (error) {
+          results.push(`❌ Failed to add dependency ${dep}: ${error.message}`);
+          allSuccessful = false;
+        }
+      }
+
+      const output = results.join("\n");
+      return { success: allSuccessful, output };
     },
   };
 }

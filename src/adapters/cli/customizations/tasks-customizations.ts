@@ -51,6 +51,10 @@ export function getTasksCustomizations(): {
             specPath: {
               description: "Path to file containing task description",
             },
+            dependencies: {
+              alias: "deps",
+              description: "Comma-separated task IDs this task depends on (e.g., mt#123,mt#124)",
+            },
           },
         },
         "tasks.edit": {
@@ -126,7 +130,8 @@ export function getTasksCustomizations(): {
             },
             dependsOn: {
               asArgument: false,
-              description: "Task that is the dependency",
+              description:
+                "Task that is the dependency, or comma-separated list (e.g., mt#123,mt#124)",
             },
           },
           outputFormatter: (result: any) => {
