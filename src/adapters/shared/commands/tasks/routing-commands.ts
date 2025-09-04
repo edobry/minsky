@@ -80,7 +80,7 @@ export function createTasksAvailableCommand() {
     description: "Show tasks currently available to work on (unblocked by dependencies)",
     parameters: tasksAvailableParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      const db: PostgresJsDatabase = await new DatabaseConnectionManager().getConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
@@ -176,7 +176,7 @@ export function createTasksRouteCommand() {
     description: "Generate implementation route to target task",
     parameters: tasksRouteParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      const db: PostgresJsDatabase = await new DatabaseConnectionManager().getConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),

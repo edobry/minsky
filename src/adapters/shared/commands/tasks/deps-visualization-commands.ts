@@ -102,7 +102,7 @@ export function createTasksDepsTreeCommand() {
     description: "Show dependency tree for a specific task",
     parameters: tasksDepsTreeParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      const db: PostgresJsDatabase = await new DatabaseConnectionManager().getConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
@@ -130,7 +130,7 @@ export function createTasksDepsGraphCommand() {
     description: "Show ASCII graph of all task dependencies",
     parameters: tasksDepsGraphParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      const db: PostgresJsDatabase = await new DatabaseConnectionManager().getConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),

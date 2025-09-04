@@ -219,7 +219,7 @@ export class TasksCreateCommand extends BaseTaskCommand {
 
           if (deps.length > 0) {
             this.debug(`Adding ${deps.length} dependencies to task ${result.id}`);
-            const db = await DatabaseConnectionManager.getInstance().getConnection();
+            const db = await new DatabaseConnectionManager().getConnection();
             const graphService = new TaskGraphService(db);
 
             for (const dep of deps) {

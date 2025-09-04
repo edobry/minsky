@@ -16,7 +16,7 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     description: "Add a dependency edge (task depends on prerequisite)",
     parameters: AddSchema,
     handler: async (args) => {
-      const db = await DatabaseConnectionManager.getInstance().getConnection();
+      const db = await new DatabaseConnectionManager().getConnection();
       const service = new TaskGraphService(db);
       const result = await service.addDependency(args.fromTaskId, args.toTaskId);
       return { success: true, created: result.created };
@@ -28,7 +28,7 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     description: "Remove a dependency edge",
     parameters: RemoveSchema,
     handler: async (args) => {
-      const db = await DatabaseConnectionManager.getInstance().getConnection();
+      const db = await new DatabaseConnectionManager().getConnection();
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(args.fromTaskId, args.toTaskId);
       return { success: true, removed: result.removed };
@@ -40,7 +40,7 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     description: "List dependencies or dependents for a task",
     parameters: ListSchema,
     handler: async (args) => {
-      const db = await DatabaseConnectionManager.getInstance().getConnection();
+      const db = await new DatabaseConnectionManager().getConnection();
       const service = new TaskGraphService(db);
       if (args.direction === "dependents") {
         const list = await service.listDependents(args.taskId);

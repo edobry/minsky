@@ -51,7 +51,7 @@ export function createTasksDepsAddCommand() {
     description: "Add a dependency edge (task depends on prerequisite)",
     parameters: tasksDepsAddParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      const db: PostgresJsDatabase = await new DatabaseConnectionManager().getConnection();
       const service = new TaskGraphService(db);
 
       // Parse dependencies (handle both string and array formats)
@@ -95,7 +95,7 @@ export function createTasksDepsRmCommand() {
     description: "Remove a dependency edge",
     parameters: tasksDepsRmParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      const db: PostgresJsDatabase = await new DatabaseConnectionManager().getConnection();
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(params.task, params.dependsOn);
 
@@ -115,7 +115,7 @@ export function createTasksDepsListCommand() {
     description: "List dependencies for a task",
     parameters: tasksDepsListParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      const db: PostgresJsDatabase = await new DatabaseConnectionManager().getConnection();
       const service = new TaskGraphService(db);
       const dependencies = await service.listDependencies(params.task);
       const dependents = await service.listDependents(params.task);
