@@ -1175,22 +1175,20 @@ sharedCommandRegistry.registerCommand({
         targetConfig.postgres = { connectionString: connectionString };
       }
 
-      // Use SessionProviderInterface for data migration  
+      // Use SessionProviderInterface for data migration
       await PersistenceService.initialize();
       const { createSessionProvider } = await import("../../../domain/session/index");
       const sessionProvider = createSessionProvider();
       const sessions = await sessionProvider.listSessions();
-      
+
       const sourceState = {
         data: {
           sessions,
-          baseDir: getMinskyStateDir()
-        }
+          baseDir: getMinskyStateDir(),
+        },
       };
 
-      log.cli(
-        `✅ Read ${sourceState.data.sessions.length} sessions from source backend`
-      );
+      log.cli(`✅ Read ${sourceState.data.sessions.length} sessions from source backend`);
 
       // Create target provider with new backend
       const newTargetConfig = { ...targetConfig, backend: to };
@@ -1509,7 +1507,9 @@ async function validatePostgresBackend(): Promise<{
           } catch (error) {
             // Vector storage issues are warnings, not critical failures
             log.cli(`⚠️ Vector storage test failed: ${getErrorMessage(error)}`);
-            suggestions.push("Vector storage may need initialization - this is optional for basic functionality");
+            suggestions.push(
+              "Vector storage may need initialization - this is optional for basic functionality"
+            );
           }
         }
       } catch (error) {
@@ -1518,11 +1518,11 @@ async function validatePostgresBackend(): Promise<{
       }
     }
 
-    return { 
-      success: issues.length === 0, 
+    return {
+      success: issues.length === 0,
       details: issues.length === 0 ? "All checks passed" : "Some checks failed",
       issues: issues.length > 0 ? issues : undefined,
-      suggestions: suggestions.length > 0 ? suggestions : undefined
+      suggestions: suggestions.length > 0 ? suggestions : undefined,
     };
   } catch (error) {
     issues.push(`PostgreSQL validation error: ${getErrorMessage(error)}`);
