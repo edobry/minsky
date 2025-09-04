@@ -18,10 +18,7 @@ import { resolveRepositoryAndBackend } from "../../../../domain/session/reposito
 import { createChangesetService } from "../../../../domain/changeset/index";
 import { log } from "../../../../utils/logger";
 import { getErrorMessage } from "../../../../errors/index";
-import {
-  sessionPrCreateCommandParams,
-  sessionPrEditCommandParams,
-} from "./session-parameters";
+import { sessionPrCreateCommandParams, sessionPrEditCommandParams } from "./session-parameters";
 
 /**
  * Session changeset list parameters (simplified, session-focused)
@@ -312,7 +309,7 @@ export function registerSessionChangesetCommands(): void {
   });
 
   // Delegation aliases for other session pr commands
-  
+
   // session.changeset.create → session.pr.create
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.create",
@@ -329,8 +326,8 @@ export function registerSessionChangesetCommands(): void {
       throw new Error("session.pr.create command not available");
     },
   });
-  
-  // session.changeset.approve → session.pr.approve  
+
+  // session.changeset.approve → session.pr.approve
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.approve",
     name: "changeset approve",
@@ -345,7 +342,7 @@ export function registerSessionChangesetCommands(): void {
       throw new Error("session.pr.approve command not available");
     },
   });
-  
+
   // session.changeset.merge → session.pr.merge
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.merge",
@@ -361,11 +358,11 @@ export function registerSessionChangesetCommands(): void {
       throw new Error("session.pr.merge command not available");
     },
   });
-  
+
   // session.changeset.edit → session.pr.edit
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.edit",
-    name: "changeset edit", 
+    name: "changeset edit",
     description: "Edit current session's changeset (alias for session pr edit)",
     category: CommandCategory.SESSION,
     parameters: sessionPrEditCommandParams,
@@ -377,11 +374,11 @@ export function registerSessionChangesetCommands(): void {
       throw new Error("session.pr.edit command not available");
     },
   });
-  
+
   // Short aliases for create/approve/merge
   sharedCommandRegistry.registerCommand({
     id: "session.cs.create",
-    name: "cs create", 
+    name: "cs create",
     description: "Create changeset for current session (short alias)",
     category: CommandCategory.SESSION,
     parameters: sessionPrCreateCommandParams,
@@ -393,7 +390,7 @@ export function registerSessionChangesetCommands(): void {
       throw new Error("session.pr.create command not available");
     },
   });
-  
+
   sharedCommandRegistry.registerCommand({
     id: "session.cs.approve",
     name: "cs approve",
@@ -408,7 +405,7 @@ export function registerSessionChangesetCommands(): void {
       throw new Error("session.pr.approve command not available");
     },
   });
-  
+
   sharedCommandRegistry.registerCommand({
     id: "session.cs.merge",
     name: "cs merge",

@@ -13,6 +13,7 @@ import { registerSessionTools } from "../../adapters/mcp/session";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
 import { registerSessiondbTools } from "../../adapters/mcp/sessiondb";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
+import { registerChangesetTools } from "../../adapters/mcp/changeset";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
 // Remove network error imports since stdio doesn't have network errors
@@ -551,6 +552,7 @@ export function createMCPCommand(): Command {
 
         registerInitTools(commandMapper);
         registerRulesTools(commandMapper);
+        registerChangesetTools(commandMapper);
 
         // Launch inspector if requested (inspector will start its own server instance)
         if (options.withInspector) {

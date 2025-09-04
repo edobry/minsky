@@ -308,6 +308,19 @@ export function registerSessiondbCommandsWithMcp(
 }
 
 /**
+ * Register changeset commands with MCP (repository changesets and session aliases)
+ */
+export function registerChangesetCommandsWithMcp(
+  commandMapper: CommandMapper,
+  config: Omit<McpSharedCommandConfig, "categories"> = {}
+): void {
+  registerSharedCommandsWithMcp(commandMapper, {
+    categories: [CommandCategory.REPO],
+    ...config,
+  });
+}
+
+/**
  * Register all main command categories with MCP
  */
 export function registerAllMainCommandsWithMcp(
@@ -318,6 +331,7 @@ export function registerAllMainCommandsWithMcp(
     categories: [
       CommandCategory.TASKS,
       CommandCategory.GIT,
+      CommandCategory.REPO,
       CommandCategory.SESSION,
       CommandCategory.RULES,
       CommandCategory.CONFIG,
