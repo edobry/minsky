@@ -40,7 +40,7 @@ export async function sessionReview(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || await createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
     taskService: depsInput?.taskService || (await createConfiguredTaskService()),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,

@@ -31,7 +31,7 @@ export async function sessionPr(
   const branchName = undefined; // Will be generated automatically
 
   // Set up dependencies with defaults
-  const sessionDB = createSessionProvider();
+  const sessionDB = await createSessionProvider();
   const gitService = createGitService();
 
   try {

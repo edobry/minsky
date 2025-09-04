@@ -130,7 +130,7 @@ export async function sessionMigrate(
   } = params;
 
   // Initialize dependencies
-  const sessionDB = depsInput?.sessionDB || createSessionProvider();
+  const sessionDB = depsInput?.sessionDB || await createSessionProvider();
   const migrationService = new SessionMigrationService(sessionDB);
 
   try {
@@ -230,7 +230,7 @@ export async function sessionMigrateRollback(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<void> {
-  const sessionDB = depsInput?.sessionDB || createSessionProvider();
+  const sessionDB = depsInput?.sessionDB || await createSessionProvider();
   const migrationService = new SessionMigrationService(sessionDB);
 
   try {
