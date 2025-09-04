@@ -28,7 +28,7 @@ export async function updateSessionFromParams(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || await createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     gitService: depsInput?.gitService || createGitService(),
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };

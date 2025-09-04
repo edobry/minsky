@@ -19,7 +19,7 @@ export async function sessionDelete(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || await createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
   };
 
   try {

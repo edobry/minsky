@@ -1178,17 +1178,15 @@ sharedCommandRegistry.registerCommand({
       // Use SessionProviderInterface for data migration
       await PersistenceService.initialize();
       const { createSessionProvider } = await import("../../../domain/session/index");
-      const sessionProvider = createSessionProvider();
+      const sessionProvider = await createSessionProvider();
       const sessions = await sessionProvider.listSessions();
 
       const sourceState = {
-        data: {
-          sessions,
-          baseDir: getMinskyStateDir(),
-        },
+        sessions,
+        baseDir: getMinskyStateDir(),
       };
 
-      log.cli(`✅ Read ${sourceState.data.sessions.length} sessions from source backend`);
+      log.cli(`✅ Read ${sourceState.sessions.length} sessions from source backend`);
 
       // Create target provider with new backend
       const newTargetConfig = { ...targetConfig, backend: to };
@@ -1500,8 +1498,9 @@ async function validatePostgresBackend(): Promise<{
           try {
             const vectorStorage = await provider.getVectorStorage!(1536); // OpenAI embedding dimension
             if (vectorStorage) {
-              // Try a simple vector operation - use the correct method name
-              const testResults = await vectorStorage.search("test", { limit: 1 });
+              // Try a simple vector operation with a dummy vector (all zeros)
+              const dummyVector = new Array(1536).fill(0);
+              const testResults = await vectorStorage.search(dummyVector, { limit: 1 });
               log.cli("✅ Vector storage accessible and functional");
             }
           } catch (error) {
