@@ -50,7 +50,7 @@ export async function registerAllSharedCommands(): Promise<void> {
 
   // Register tools commands
   registerToolsCommands();
-  
+
   // Register changeset commands
   registerChangesetCommands();
 

@@ -907,6 +907,28 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
     },
   });
 
+  // Repo commands customization  
+  cliFactory.customizeCategory(CommandCategory.REPO, {
+    commandOptions: {
+      "changeset.get": {
+        parameters: {
+          id: {
+            asArgument: true,
+            description: "Changeset ID (PR number, branch name, etc.)",
+          },
+        },
+      },
+      "changeset.search": {
+        parameters: {
+          query: {
+            asArgument: true,
+            description: "Search query",
+          },
+        },
+      },
+    },
+  });
+
   // SessionDB commands customization
   cliFactory.customizeCategory(CommandCategory.SESSIONDB, {
     commandOptions: {

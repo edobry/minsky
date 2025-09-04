@@ -1,6 +1,6 @@
 /**
  * Unified Changeset Abstraction Types
- * 
+ *
  * Provides platform-agnostic interfaces for different VCS changeset concepts
  * (GitHub PRs, GitLab MRs, Bitbucket PRs, Gerrit Changes, local git prepared merge commits)
  */
@@ -8,22 +8,22 @@
 /**
  * Platform identifier for different VCS systems
  */
-export type ChangesetPlatform = 
-  | 'github-pr'
-  | 'gitlab-mr' 
-  | 'bitbucket-pr'
-  | 'gerrit-change'
-  | 'local-git';
+export type ChangesetPlatform =
+  | "github-pr"
+  | "gitlab-mr"
+  | "bitbucket-pr"
+  | "gerrit-change"
+  | "local-git";
 
 /**
  * Unified changeset status across all platforms
  */
-export type ChangesetStatus = 'open' | 'merged' | 'closed' | 'draft';
+export type ChangesetStatus = "open" | "merged" | "closed" | "draft";
 
 /**
  * Unified review status across all platforms
  */
-export type ReviewStatus = 'pending' | 'approved' | 'changes_requested' | 'dismissed';
+export type ReviewStatus = "pending" | "approved" | "changes_requested" | "dismissed";
 
 /**
  * Core changeset interface - platform-agnostic representation
@@ -31,53 +31,53 @@ export type ReviewStatus = 'pending' | 'approved' | 'changes_requested' | 'dismi
 export interface Changeset {
   /** Unique identifier within the platform */
   id: string;
-  
+
   /** Platform this changeset belongs to */
   platform: ChangesetPlatform;
-  
+
   /** Changeset title/summary */
   title: string;
-  
+
   /** Detailed description */
   description: string;
-  
+
   /** Author information */
   author: {
     username: string;
     displayName?: string;
     email?: string;
   };
-  
+
   /** Current status */
   status: ChangesetStatus;
-  
+
   /** Target branch (destination) */
   targetBranch: string;
-  
+
   /** Source branch (origin) - may be null for some platforms */
   sourceBranch?: string;
-  
+
   /** Associated commits */
   commits: ChangesetCommit[];
-  
+
   /** Review information */
   reviews: ChangesetReview[];
-  
+
   /** Discussion comments */
   comments: ChangesetComment[];
-  
+
   /** Creation timestamp */
   createdAt: Date;
-  
+
   /** Last update timestamp */
   updatedAt: Date;
-  
+
   /** Platform-specific metadata */
   metadata: ChangesetMetadata;
-  
+
   /** Optional associated session (for local git workflow) */
   sessionName?: string;
-  
+
   /** Optional associated task ID */
   taskId?: string;
 }
@@ -159,7 +159,7 @@ export interface ChangesetMetadata {
     headSha: string;
     baseSha: string;
   };
-  
+
   /** GitLab-specific data */
   gitlab?: {
     iid: number;
@@ -169,7 +169,7 @@ export interface ChangesetMetadata {
     targetProjectId: number;
     sourceProjectId: number;
   };
-  
+
   /** Bitbucket-specific data */
   bitbucket?: {
     id: number;
@@ -177,7 +177,7 @@ export interface ChangesetMetadata {
     state: string;
     reviewers: string[];
   };
-  
+
   /** Gerrit-specific data */
   gerrit?: {
     number: number;
@@ -186,7 +186,7 @@ export interface ChangesetMetadata {
     project: string;
     branch: string;
   };
-  
+
   /** Local git workflow data */
   local?: {
     prBranch: string;
@@ -203,23 +203,23 @@ export interface ChangesetMetadata {
 export interface ChangesetListOptions {
   /** Filter by status */
   status?: ChangesetStatus | ChangesetStatus[];
-  
+
   /** Filter by author */
   author?: string;
-  
+
   /** Filter by target branch */
   targetBranch?: string;
-  
+
   /** Maximum number of results */
   limit?: number;
-  
+
   /** Include closed/merged changesets */
   includeClosed?: boolean;
-  
+
   /** Date range filter */
   since?: Date;
   until?: Date;
-  
+
   /** Platform-specific filters */
   platformFilters?: Record<string, any>;
 }
@@ -230,16 +230,16 @@ export interface ChangesetListOptions {
 export interface ChangesetSearchOptions extends ChangesetListOptions {
   /** Search query string */
   query: string;
-  
+
   /** Search in title */
   searchTitle?: boolean;
-  
+
   /** Search in description */
   searchDescription?: boolean;
-  
+
   /** Search in comments */
   searchComments?: boolean;
-  
+
   /** Search in commit messages */
   searchCommits?: boolean;
 }

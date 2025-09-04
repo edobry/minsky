@@ -21,6 +21,7 @@ import {
 export enum CommandCategory {
   CORE = "CORE",
   GIT = "GIT",
+  REPO = "REPO",
   TASKS = "TASKS",
   SESSION = "SESSION",
   SESSIONDB = "SESSIONDB",
