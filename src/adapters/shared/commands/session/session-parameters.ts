@@ -622,3 +622,23 @@ export const sessionEditFileCommandParams = {
   json: commonSessionParams.json,
   debug: commonSessionParams.debug,
 };
+
+/**
+ * Session review command parameters
+ */
+export const sessionReviewCommandParams = {
+  session: commonSessionParams.name,
+  task: commonSessionParams.task,
+  repo: commonSessionParams.repo,
+  json: commonSessionParams.json,
+  output: {
+    schema: z.string(),
+    description: "Output format (json, text)",
+    required: false,
+  },
+  prBranch: {
+    schema: z.string(),
+    description: "PR branch name (defaults to pr/<session-name>)",
+    required: false,
+  },
+};

@@ -10,7 +10,7 @@ import { z } from "zod";
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
-import { sessionApproveCommandParams, sessionInspectCommandParams } from "./session-parameters";
+import { sessionApproveCommandParams, sessionInspectCommandParams, sessionReviewCommandParams } from "./session-parameters";
 import { sessionCommitCommandParams } from "../session-parameters";
 
 // Import the new PR subcommand classes
@@ -143,6 +143,42 @@ export class SessionInspectCommand extends BaseSessionCommand<any, any> {
 }
 
 /**
+ * Session Review Command
+ */
+export class SessionReviewCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.review";
+  }
+
+  getCommandName(): string {
+    return "review";
+  }
+
+  getCommandDescription(): string {
+    return "Review a session PR by gathering and displaying relevant information";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionReviewCommandParams;
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    const { sessionReviewImpl } = await import("../../../../domain/session/session-review-operations");
+
+    const result = await sessionReviewImpl({
+      session: params.session || params.name,
+      task: params.task,
+      repo: params.repo,
+      json: params.json,
+      output: params.output,
+      prBranch: params.prBranch,
+    });
+
+    return this.createSuccessResult(result);
+  }
+}
+
+/**
  * Session PR Approve Command (Task #358 - New Structure)
  */
 export class SessionPrApproveCommand extends BaseSessionCommand<any, any> {
@@ -235,6 +271,9 @@ export const createSessionApproveCommand = (deps?: SessionCommandDependencies) =
 
 export const createSessionInspectCommand = (deps?: SessionCommandDependencies) =>
   new SessionInspectCommand(deps);
+
+export const createSessionReviewCommand = (deps?: SessionCommandDependencies) =>
+  new SessionReviewCommand(deps);
 
 export const createSessionPrApproveCommand = (deps?: SessionCommandDependencies) =>
   new SessionPrApproveCommand(deps);
