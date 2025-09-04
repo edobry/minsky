@@ -1042,22 +1042,14 @@ sharedCommandRegistry.registerCommand({
           sourceBackendKind = "postgres";
         }
 
-        // Get storage through PersistenceService
-        if (!PersistenceService.isInitialized()) {
-          await PersistenceService.initialize();
-        }
-        const provider = PersistenceService.getProvider();
-        const sourceStorage = provider.getStorage<SessionRecord, any>();
-        const readResult = await sourceStorage.readState();
-        if (readResult.success && readResult.data) {
-          sourceData = readResult.data;
-          sourceCount = readResult.data.sessions?.length || 0;
-          log.cli(`Reading from ${sourceDescription} (${sourceCount} sessions)`);
-        } else {
-          log.warn("Failed to read from configured session backend; proceeding with 0 sessions");
-          sourceData = { sessions: [], baseDir: getMinskyStateDir() };
-          sourceCount = 0;
-        }
+        // Get sessions through SessionProviderInterface
+        await PersistenceService.initialize();
+        const { createSessionProvider } = await import("../../../domain/session/index");
+        const sessionProvider = createSessionProvider();
+        const sessions = await sessionProvider.listSessions();
+        sourceData = { sessions, baseDir: getMinskyStateDir() };
+        sourceCount = sessions.length;
+        log.cli(`Reading from ${sourceDescription} (${sourceCount} sessions)`);
       }
 
       // Build normalized list of session records
@@ -1183,19 +1175,21 @@ sharedCommandRegistry.registerCommand({
         targetConfig.postgres = { connectionString: connectionString };
       }
 
-      // Use PersistenceService for data migration
+      // Use SessionProviderInterface for data migration  
       await PersistenceService.initialize();
-      const sourceProvider = PersistenceService.getProvider();
-
-      // Read all sessions from source
-      const sourceStorage = sourceProvider.getStorage();
-      const sourceState = await sourceStorage.readState();
-      if (!sourceState.success) {
-        throw new Error(`Failed to read from source: ${sourceState.error?.message}`);
-      }
+      const { createSessionProvider } = await import("../../../domain/session/index");
+      const sessionProvider = createSessionProvider();
+      const sessions = await sessionProvider.listSessions();
+      
+      const sourceState = {
+        data: {
+          sessions,
+          baseDir: getMinskyStateDir()
+        }
+      };
 
       log.cli(
-        `✅ Read ${sourceState.data.sessions.length} sessions from source ${sourceProvider.getCapabilities().backend} backend`
+        `✅ Read ${sourceState.data.sessions.length} sessions from source backend`
       );
 
       // Create target provider with new backend
@@ -1494,7 +1488,42 @@ async function validatePostgresBackend(): Promise<{
       log.cli("✅ Non-SQL backend initialized successfully");
     }
 
-    return { success: true, details: "Connection test passed" };
+    // Additional checks for PostgreSQL
+    if (provider.getCapabilities().sql) {
+      try {
+        // Test session table access
+        const { createSessionProvider } = await import("../../../domain/session/index");
+        const sessionProvider = createSessionProvider();
+        const sessions = await sessionProvider.listSessions();
+        log.cli(`✅ Session table accessible (${sessions.length} sessions found)`);
+
+        // Test vector storage if supported
+        if (provider.getCapabilities().vectorStorage) {
+          try {
+            const vectorStorage = await provider.getVectorStorage!(1536); // OpenAI embedding dimension
+            if (vectorStorage) {
+              // Try a simple vector operation - use the correct method name
+              const testResults = await vectorStorage.search("test", { limit: 1 });
+              log.cli("✅ Vector storage accessible and functional");
+            }
+          } catch (error) {
+            // Vector storage issues are warnings, not critical failures
+            log.cli(`⚠️ Vector storage test failed: ${getErrorMessage(error)}`);
+            suggestions.push("Vector storage may need initialization - this is optional for basic functionality");
+          }
+        }
+      } catch (error) {
+        issues.push(`Database functionality error: ${getErrorMessage(error)}`);
+        suggestions.push("Check database schema and permissions");
+      }
+    }
+
+    return { 
+      success: issues.length === 0, 
+      details: issues.length === 0 ? "All checks passed" : "Some checks failed",
+      issues: issues.length > 0 ? issues : undefined,
+      suggestions: suggestions.length > 0 ? suggestions : undefined
+    };
   } catch (error) {
     issues.push(`PostgreSQL validation error: ${getErrorMessage(error)}`);
     return {
