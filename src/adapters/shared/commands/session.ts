@@ -17,4 +17,8 @@ import { ModularSessionCommandsManager } from "./session-modular";
 export async function registerSessionCommands(deps?: SessionCommandDependencies): Promise<void> {
   const manager = new ModularSessionCommandsManager(deps);
   await manager.registerSessionCommands();
+  
+  // Register changeset aliases
+  const { registerSessionChangesetCommands } = await import("./session/changeset-aliases");
+  registerSessionChangesetCommands();
 }

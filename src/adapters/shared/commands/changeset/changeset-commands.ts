@@ -29,6 +29,7 @@ import { CommonParameters, composeParams } from "../../common-parameters";
 const changesetListParams: CommandParameterMap = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
     json: CommonParameters.json,
   },
   {
@@ -66,6 +67,7 @@ const changesetListParams: CommandParameterMap = composeParams(
 const changesetSearchParams: CommandParameterMap = composeParams(
   {
     repo: CommonParameters.repo,
+    session: CommonParameters.session,
     json: CommonParameters.json,
   },
   {
@@ -165,7 +167,18 @@ async function executeChangesetList(params: any, ctx?: CommandExecutionContext):
     };
 
     // Get changesets
-    const changesets = await changesetService.list(listOptions);
+    let changesets = await changesetService.list(listOptions);
+    
+    // Filter by session if specified
+    if (params.session) {
+      changesets = changesets.filter(changeset => 
+        changeset.sessionName === params.session ||
+        changeset.sourceBranch === `pr/${params.session}` ||
+        changeset.sourceBranch === params.session
+      );
+    }
+
+    // Changesets already filtered above
 
     if (params.json || ctx?.format === "json") {
       return {
@@ -241,7 +254,16 @@ async function executeChangesetSearch(params: any, ctx?: CommandExecutionContext
     };
 
     // Perform search
-    const changesets = await changesetService.search(searchOptions);
+    let changesets = await changesetService.search(searchOptions);
+    
+    // Filter by session if specified
+    if (params.session) {
+      changesets = changesets.filter(changeset => 
+        changeset.sessionName === params.session ||
+        changeset.sourceBranch === `pr/${params.session}` ||
+        changeset.sourceBranch === params.session
+      );
+    }
 
     if (params.json || ctx?.format === "json") {
       return {
@@ -446,7 +468,7 @@ export function registerChangesetCommands(): void {
   // Register changeset list command
   sharedCommandRegistry.registerCommand({
     id: "changeset.list",
-    name: "list", 
+    name: "list",
     description: "List changesets (PRs/MRs/changes) across all VCS platforms",
     category: CommandCategory.REPO,
     parameters: changesetListParams,

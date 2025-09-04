@@ -907,7 +907,7 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
     },
   });
 
-  // Repo commands customization  
+  // Repo commands customization
   cliFactory.customizeCategory(CommandCategory.REPO, {
     commandOptions: {
       "changeset.get": {
