@@ -11,7 +11,7 @@ import { registerInitTools } from "../../adapters/mcp/init";
 import { registerRulesTools } from "../../adapters/mcp/rules";
 import { registerSessionTools } from "../../adapters/mcp/session";
 import { registerSessionWorkspaceTools } from "../../adapters/mcp/session-workspace";
-import { registerSessiondbTools } from "../../adapters/mcp/sessiondb";
+import { registerPersistenceTools } from "../../adapters/mcp/persistence";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
 import { getErrorMessage } from "../../errors/index";
@@ -540,9 +540,9 @@ export function createMCPCommand(): Command {
         registerSessionFileTools(commandMapper);
         registerSessionEditTools(commandMapper);
 
-        // Register sessiondb tools for agent querying
-        log.debug("[MCP] About to register sessiondb tools");
-        registerSessiondbTools(commandMapper);
+        // Register persistence tools for agent querying
+        log.debug("[MCP] About to register persistence tools");
+        registerPersistenceTools(commandMapper);
 
         // TEMPORARILY DISABLE git tools during MCP startup to fix hanging issue
         // The git command registration causes circular dependency hangs during MCP startup

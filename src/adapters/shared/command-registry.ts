@@ -23,7 +23,8 @@ export enum CommandCategory {
   GIT = "GIT",
   TASKS = "TASKS",
   SESSION = "SESSION",
-  SESSIONDB = "SESSIONDB",
+  SESSIONDB = "SESSIONDB", // Legacy - use PERSISTENCE for new commands
+  PERSISTENCE = "PERSISTENCE",
   RULES = "RULES",
   INIT = "INIT",
   CONFIG = "CONFIG",

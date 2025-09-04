@@ -72,7 +72,7 @@ export async function updateSessionFromParams(
         session.branch = branch;
       }
 
-      log.info(`Session '${resolvedContext.sessionName}' updated successfully`);
+      log.cli(`Session '${resolvedContext.sessionName}' updated successfully`);
 
       // Call backend hook for extensible post-update operations
       // Future: This will support work item generation and AI-powered automation

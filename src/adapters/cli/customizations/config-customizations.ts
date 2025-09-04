@@ -186,18 +186,18 @@ export function getConfigCustomizations(): {
 }
 
 /**
- * Get sessiondb command customizations configuration
- * @returns SessionDB category customization options
+ * Get persistence command customizations configuration
+ * @returns Persistence category customization options
  */
-export function getSessiondbCustomizations(): {
+export function getPersistenceCustomizations(): {
   category: CommandCategory;
   options: CategoryCommandOptions;
 } {
   return {
-    category: CommandCategory.SESSIONDB,
+    category: CommandCategory.PERSISTENCE,
     options: {
       commandOptions: {
-        "sessiondb.migrate": {
+        "persistence.migrate": {
           useFirstRequiredParamAsArgument: true,
           parameters: {
             to: {
@@ -228,5 +228,21 @@ export function getSessiondbCustomizations(): {
         },
       },
     },
+  };
+}
+
+/**
+ * Legacy sessiondb customizations (for backward compatibility)
+ * @deprecated Use getPersistenceCustomizations() instead
+ */
+export function getSessiondbCustomizations(): {
+  category: CommandCategory;
+  options: CategoryCommandOptions;
+} {
+  // Forward to persistence customizations for compatibility
+  const persistenceConfig = getPersistenceCustomizations();
+  return {
+    category: CommandCategory.SESSIONDB, // Keep legacy category for existing registration
+    options: persistenceConfig.options,
   };
 }

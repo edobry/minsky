@@ -15,10 +15,6 @@ export function registerPersistenceTools(commandMapper: CommandMapper): void {
   registerPersistenceCommandsWithMcp(commandMapper, {
     debug: true,
     commandOverrides: {
-      "persistence.search": {
-        description:
-          "Search sessions by query string across multiple fields (returns raw SessionRecord objects from database)",
-      },
       "persistence.migrate": {
         description: "Migrate session database between backends",
       },

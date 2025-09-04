@@ -159,6 +159,23 @@ export const sessionDirCommandParams = {
 };
 
 /**
+ * Session search command parameters
+ */
+export const sessionSearchCommandParams = {
+  query: {
+    schema: z.string().min(1),
+    description: "Search query (searches in session name, repo name, branch, task ID)",
+    required: true,
+  },
+  limit: {
+    schema: z.number().int().positive(),
+    description: "Maximum number of results to return",
+    required: false,
+    defaultValue: 10,
+  },
+};
+
+/**
  * Session delete command parameters
  */
 export const sessionDeleteCommandParams = {

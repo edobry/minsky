@@ -11,6 +11,7 @@ import {
   sessionGetCommandParams,
   sessionStartCommandParams,
   sessionDirCommandParams,
+  sessionSearchCommandParams,
 } from "./session-parameters";
 
 /**
@@ -213,3 +214,71 @@ export const createSessionStartCommand = (deps?: SessionCommandDependencies) =>
 
 export const createSessionDirCommand = (deps?: SessionCommandDependencies) =>
   new SessionDirCommand(deps);
+
+
+
+/**
+ * Session search command for finding sessions by query
+ */
+export class SessionSearchCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.search";
+  }
+
+  getCommandName(): string {
+    return "search";
+  }
+
+  getCommandDescription(): string {
+    return "Search sessions by query string across multiple fields";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionSearchCommandParams;
+  }
+
+  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
+    const { query, limit } = params;
+
+    const { createSessionProvider } = await import("../../../../domain/session");
+    const { log } = await import("../../../../utils/logger");
+    const sessionProvider = createSessionProvider();
+    const sessions = await sessionProvider.listSessions();
+
+    const lowerQuery = query.toLowerCase();
+
+    // Search across multiple fields
+    const matchingSessions = sessions.filter((session) => {
+      return (
+        session.session?.toLowerCase().includes(lowerQuery) ||
+        session.repoName?.toLowerCase().includes(lowerQuery) ||
+        session.repoUrl?.toLowerCase().includes(lowerQuery) ||
+        session.taskId?.toLowerCase().includes(lowerQuery) ||
+        session.prBranch?.toLowerCase().includes(lowerQuery) ||
+        session.prState?.branchName?.toLowerCase().includes(lowerQuery)
+      );
+    });
+
+    // Apply limit
+    const limitedResults = matchingSessions.slice(0, limit);
+
+    log.debug(`Session search found ${matchingSessions.length} matches for query: ${query}`, {
+      totalSessions: sessions.length,
+      matchCount: matchingSessions.length,
+      limitedCount: limitedResults.length,
+      limit,
+    });
+
+    return this.createSuccessResult({ 
+      sessions: limitedResults,
+      query,
+      totalMatches: matchingSessions.length,
+      limitedCount: limitedResults.length,
+      totalSessions: sessions.length,
+      limit,
+    });
+  }
+}
+
+export const createSessionSearchCommand = (deps?: SessionCommandDependencies) =>
+  new SessionSearchCommand(deps);
