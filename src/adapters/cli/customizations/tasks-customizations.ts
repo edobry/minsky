@@ -130,7 +130,8 @@ export function getTasksCustomizations(): {
             },
             dependsOn: {
               asArgument: false,
-              description: "Task that is the dependency, or comma-separated list (e.g., mt#123,mt#124)",
+              description:
+                "Task that is the dependency, or comma-separated list (e.g., mt#123,mt#124)",
             },
           },
           outputFormatter: (result: any) => {

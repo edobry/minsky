@@ -13,8 +13,7 @@ const tasksDepsAddParams: CommandParameterMap = {
   },
   dependsOn: {
     schema: z.union([z.string(), z.array(z.string())]),
-    description:
-      "Task that is the dependency, or comma-separated list of task IDs",
+    description: "Task that is the dependency, or comma-separated list of task IDs",
     required: true,
   },
 };

@@ -111,7 +111,10 @@ export const taskCreateParamsSchema = z
     spec: z.string().optional().describe("Spec text for the task"),
     description: z.string().optional().describe("Description text for the task (alias for spec)"),
     specPath: z.string().optional().describe("Path to file containing task spec"),
-    dependencies: z.union([z.string(), z.array(z.string())]).optional().describe("Comma-separated list of task IDs this task depends on, or array of task IDs"),
+    dependencies: z
+      .union([z.string(), z.array(z.string())])
+      .optional()
+      .describe("Comma-separated list of task IDs this task depends on, or array of task IDs"),
     force: flagSchema("Force creation even if task already exists"),
     backend: z
       .string()
