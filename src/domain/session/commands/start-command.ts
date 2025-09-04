@@ -23,7 +23,7 @@ export async function sessionStart(
   // Delegate to domain implementation; adapter remains thin
   const taskService = depsInput?.taskService || (await createConfiguredTaskService());
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || await createSessionProvider(),
     gitService: depsInput?.gitService || createGitService(),
     taskService,
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,

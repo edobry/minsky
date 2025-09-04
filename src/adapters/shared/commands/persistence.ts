@@ -1045,7 +1045,7 @@ sharedCommandRegistry.registerCommand({
         // Get sessions through SessionProviderInterface
         await PersistenceService.initialize();
         const { createSessionProvider } = await import("../../../domain/session/index");
-        const sessionProvider = createSessionProvider();
+        const sessionProvider = await createSessionProvider();
         const sessions = await sessionProvider.listSessions();
         sourceData = { sessions, baseDir: getMinskyStateDir() };
         sourceCount = sessions.length;
@@ -1491,7 +1491,7 @@ async function validatePostgresBackend(): Promise<{
       try {
         // Test session table access
         const { createSessionProvider } = await import("../../../domain/session/index");
-        const sessionProvider = createSessionProvider();
+        const sessionProvider = await createSessionProvider();
         const sessions = await sessionProvider.listSessions();
         log.cli(`✅ Session table accessible (${sessions.length} sessions found)`);
 

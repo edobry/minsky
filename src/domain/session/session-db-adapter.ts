@@ -192,6 +192,25 @@ export class SessionDbAdapter implements SessionProviderInterface {
     }
   }
 
+  async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
+    try {
+      // Validate and normalize task ID
+      let validatedTaskId: string;
+      try {
+        validatedTaskId = validateQualifiedTaskId(taskId);
+      } catch (error) {
+        log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
+        return null;
+      }
+
+      const sessions = await this.listSessions();
+      return sessions.find((session) => session.taskId === validatedTaskId) || null;
+    } catch (error) {
+      log.error(`Failed to find session for task '${taskId}':`, getErrorMessage(error as any));
+      return null;
+    }
+  }
+
   async getSessionsForTask(taskId: string): Promise<SessionRecord[]> {
     try {
       // Validate and normalize task ID
@@ -253,13 +272,16 @@ export class SessionDbAdapter implements SessionProviderInterface {
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(_options?: {
+export async function createSessionProvider(_options?: {
   dbPath?: string;
   useNewBackend?: boolean;
-}): SessionProviderInterface {
+}): Promise<SessionProviderInterface> {
   log.debug("Creating session provider with auto-repair support");
 
   // Get PersistenceProvider from PersistenceService
+  if (!PersistenceService.isInitialized()) {
+    await PersistenceService.initialize();
+  }
   const provider = PersistenceService.getProvider();
   const baseProvider = new SessionDbAdapter(provider);
 

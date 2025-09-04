@@ -240,7 +240,7 @@ export class SessionSearchCommand extends BaseSessionCommand<any, any> {
 
     const { createSessionProvider } = await import("../../../../domain/session");
     const { log } = await import("../../../../utils/logger");
-    const sessionProvider = createSessionProvider();
+    const sessionProvider = await createSessionProvider();
     const sessions = await sessionProvider.listSessions();
 
     const lowerQuery = query.toLowerCase();

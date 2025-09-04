@@ -124,7 +124,7 @@ export async function mergeSessionPr(
   // Removed noise padding - operation speaks for itself
 
   // Set up session provider
-  const sessionDB = deps?.sessionDB || createSessionProvider();
+  const sessionDB = deps?.sessionDB || await createSessionProvider();
 
   // Resolve session name
   let sessionNameToUse = params.session;
