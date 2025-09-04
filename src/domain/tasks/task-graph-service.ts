@@ -1,4 +1,4 @@
-import { and, eq, sql } from "drizzle-orm";
+import { and, eq, sql, inArray, or } from "drizzle-orm";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { taskRelationshipsTable } from "../storage/schemas/task-relationships";
 
@@ -83,7 +83,10 @@ function createDrizzleRepo(db: PostgresJsDatabase): TaskRelationshipsRepository 
         })
         .from(taskRelationshipsTable)
         .where(
-          sql`${taskRelationshipsTable.fromTaskId} = ANY(${sql.raw(`ARRAY['${taskIds.join("','")}']`)}) OR ${taskRelationshipsTable.toTaskId} = ANY(${sql.raw(`ARRAY['${taskIds.join("',')")}']`)})`
+          or(
+            inArray(taskRelationshipsTable.fromTaskId, taskIds),
+            inArray(taskRelationshipsTable.toTaskId, taskIds)
+          )
         );
       return rows;
     },

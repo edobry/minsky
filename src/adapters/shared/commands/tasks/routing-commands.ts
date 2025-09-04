@@ -1,6 +1,5 @@
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { DatabaseConnectionManager } from "../../../../domain/database/connection-manager";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { TaskRoutingService } from "../../../../domain/tasks/task-routing-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
@@ -39,8 +38,8 @@ const tasksAvailableParams: CommandParameterMap = {
     required: false,
   },
   minReadiness: {
-    schema: z.number().min(0).max(1).default(0.0),
-    description: "Minimum readiness score (0.0-1.0) to include task",
+    schema: z.number().min(0).max(1).default(1.0),
+    description: "Minimum readiness score (0.0-1.0) - use 1.0 for truly available tasks only",
     required: false,
   },
 };
@@ -74,13 +73,31 @@ const tasksRouteParams: CommandParameterMap = {
  * Command to show all tasks currently available to work on (unblocked)
  */
 export function createTasksAvailableCommand() {
-  return {
+    return {
     id: "tasks.available",
-    name: "available",
+    name: "available", 
     description: "Show tasks currently available to work on (unblocked by dependencies)",
     parameters: tasksAvailableParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      // Get database connection using PersistenceService
+      const { PersistenceService } = await import("../../../../domain/persistence/service");
+      
+      if (!PersistenceService.isInitialized()) {
+        await PersistenceService.initialize();
+      }
+
+      const provider = PersistenceService.getProvider();
+      
+      if (!provider.capabilities.sql) {
+        throw new Error("Current persistence provider does not support SQL operations");
+      }
+
+      const db = await provider.getDatabaseConnection?.();
+      
+      if (!db) {
+        throw new Error("Failed to get database connection from persistence provider");
+      }
+
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
@@ -100,7 +117,7 @@ export function createTasksAvailableCommand() {
         showPriority: params.showPriority,
       });
 
-      // Filter by readiness score
+      // Filter by readiness score (default 1.0 = only truly available tasks)
       const readyTasks = availableTasks.filter(
         (task) => task.readinessScore >= params.minReadiness
       );
@@ -132,10 +149,9 @@ export function createTasksAvailableCommand() {
       );
 
       if (fullyReady.length > 0) {
-        output += "🟢 **Fully Ready** (0 blockers)\n";
+        output += "✅ **Ready to Start**\n";
         for (const task of fullyReady.slice(0, 10)) {
-          const readinessPercent = Math.round(task.readinessScore * 100);
-          output += `   ${task.taskId}: ${task.title.substring(0, 50)}... (${task.status}, ${readinessPercent}%)\n`;
+          output += `   ${task.taskId}: ${task.title.substring(0, 60)}... (${task.status})\n`;
         }
         output += "\n";
       }
@@ -176,7 +192,25 @@ export function createTasksRouteCommand() {
     description: "Generate implementation route to target task",
     parameters: tasksRouteParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      // Get database connection using PersistenceService
+      const { PersistenceService } = await import("../../../../domain/persistence/service");
+      
+      if (!PersistenceService.isInitialized()) {
+        await PersistenceService.initialize();
+      }
+
+      const provider = PersistenceService.getProvider();
+      
+      if (!provider.capabilities.sql) {
+        throw new Error("Current persistence provider does not support SQL operations");
+      }
+
+      const db = await provider.getDatabaseConnection?.();
+      
+      if (!db) {
+        throw new Error("Failed to get database connection from persistence provider");
+      }
+
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),

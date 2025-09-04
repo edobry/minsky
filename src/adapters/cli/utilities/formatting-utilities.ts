@@ -201,15 +201,16 @@ export function formatResolvedConfiguration(resolved: any): string {
     }
   }
 
-  // Session Storage
-  if (resolved.sessiondb) {
-    output += "💾 Session Storage:\n";
-    const sessionBackend = resolved.sessiondb.backend || "sqlite";
-    output += `   • Backend: ${getSessionBackendDisplayName(sessionBackend)}\n`;
+  // Persistence Storage (unified for sessions, tasks, embeddings)
+  const persistenceConfig = resolved.persistence || resolved.sessiondb; // fallback to legacy
+  if (persistenceConfig) {
+    output += "💾 Persistence Storage:\n";
+    const persistenceBackend = persistenceConfig.backend || "sqlite";
+    output += `   • Backend: ${getSessionBackendDisplayName(persistenceBackend)}\n`;
 
-    if (sessionBackend === "sqlite" && resolved.sessiondb.sqlite?.path) {
-      output += `   • Database: ${resolved.sessiondb.sqlite.path}\n`;
-    } else if (sessionBackend === "postgres" && resolved.sessiondb.postgres?.connectionString) {
+    if (persistenceBackend === "sqlite" && persistenceConfig.sqlite?.dbPath) {
+      output += `   • Database: ${persistenceConfig.sqlite.dbPath}\n`;
+    } else if (persistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
       output += "   • Connection: configured\n";
     }
   }

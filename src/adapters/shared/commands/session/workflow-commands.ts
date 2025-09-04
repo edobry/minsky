@@ -10,7 +10,11 @@ import { z } from "zod";
 import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
 import { type CommandExecutionContext } from "../../command-registry";
 import { MinskyError, getErrorMessage } from "../../../../errors/index";
-import { sessionApproveCommandParams, sessionInspectCommandParams, sessionReviewCommandParams } from "./session-parameters";
+import {
+  sessionApproveCommandParams,
+  sessionInspectCommandParams,
+  sessionReviewCommandParams,
+} from "./session-parameters";
 import { sessionCommitCommandParams } from "../session-parameters";
 
 // Import the new PR subcommand classes
@@ -163,7 +167,9 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
   }
 
   async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
-    const { sessionReviewImpl } = await import("../../../../domain/session/session-review-operations");
+    const { sessionReviewImpl } = await import(
+      "../../../../domain/session/session-review-operations"
+    );
 
     const result = await sessionReviewImpl({
       session: params.session || params.name,
