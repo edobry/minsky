@@ -73,27 +73,27 @@ const tasksRouteParams: CommandParameterMap = {
  * Command to show all tasks currently available to work on (unblocked)
  */
 export function createTasksAvailableCommand() {
-    return {
+  return {
     id: "tasks.available",
-    name: "available", 
+    name: "available",
     description: "Show tasks currently available to work on (unblocked by dependencies)",
     parameters: tasksAvailableParams,
     execute: async (params: any) => {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
-      
+
       if (!PersistenceService.isInitialized()) {
         await PersistenceService.initialize();
       }
 
       const provider = PersistenceService.getProvider();
-      
+
       if (!provider.capabilities.sql) {
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
       const db = await provider.getDatabaseConnection?.();
-      
+
       if (!db) {
         throw new Error("Failed to get database connection from persistence provider");
       }
@@ -109,13 +109,24 @@ export function createTasksAvailableCommand() {
         ? params.status.split(",").map((s: string) => s.trim())
         : ["TODO", "IN-PROGRESS"];
 
-      const availableTasks = await routingService.findAvailableTasks({
-        statusFilter,
-        backendFilter: params.backend,
-        limit: params.limit,
-        showEffort: params.showEffort,
-        showPriority: params.showPriority,
-      });
+      let availableTasks;
+      try {
+        availableTasks = await routingService.findAvailableTasks({
+          statusFilter,
+          backendFilter: params.backend,
+          limit: params.limit,
+          showEffort: params.showEffort,
+          showPriority: params.showPriority,
+        });
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("no such table: task_relationships")) {
+          return {
+            success: false,
+            error: "Task relationships table not found. This feature requires PostgreSQL backend or database migration.",
+          };
+        }
+        throw error;
+      }
 
       // Filter by readiness score (default 1.0 = only truly available tasks)
       const readyTasks = availableTasks.filter(
@@ -194,19 +205,19 @@ export function createTasksRouteCommand() {
     execute: async (params: any) => {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
-      
+
       if (!PersistenceService.isInitialized()) {
         await PersistenceService.initialize();
       }
 
       const provider = PersistenceService.getProvider();
-      
+
       if (!provider.capabilities.sql) {
         throw new Error("Current persistence provider does not support SQL operations");
       }
 
       const db = await provider.getDatabaseConnection?.();
-      
+
       if (!db) {
         throw new Error("Failed to get database connection from persistence provider");
       }
@@ -217,7 +228,18 @@ export function createTasksRouteCommand() {
       });
       const routingService = new TaskRoutingService(graphService, taskService);
 
-      const route = await routingService.generateRoute(params.target, params.strategy);
+      let route;
+      try {
+        route = await routingService.generateRoute(params.target, params.strategy);
+      } catch (error) {
+        if (error instanceof Error && error.message.includes("no such table: task_relationships")) {
+          return {
+            success: false,
+            error: "Task relationships table not found. This feature requires PostgreSQL backend or database migration.",
+          };
+        }
+        throw error;
+      }
 
       if (params.json) {
         return {

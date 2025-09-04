@@ -54,5 +54,5 @@ export const _SessionDB = {
       _lazySessionDB = createSessionProviderInternal();
     }
     return _lazySessionDB;
-  }
+  },
 };

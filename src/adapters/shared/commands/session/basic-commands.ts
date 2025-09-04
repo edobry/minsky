@@ -215,8 +215,6 @@ export const createSessionStartCommand = (deps?: SessionCommandDependencies) =>
 export const createSessionDirCommand = (deps?: SessionCommandDependencies) =>
   new SessionDirCommand(deps);
 
-
-
 /**
  * Session search command for finding sessions by query
  */
@@ -269,7 +267,7 @@ export class SessionSearchCommand extends BaseSessionCommand<any, any> {
       limit,
     });
 
-    return this.createSuccessResult({ 
+    return this.createSuccessResult({
       sessions: limitedResults,
       query,
       totalMatches: matchingSessions.length,

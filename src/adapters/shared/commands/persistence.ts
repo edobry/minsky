@@ -124,7 +124,10 @@ async function runMigrationsWithDrizzleKit(options: {
       // Prepare database configuration for drizzle-kit
       const dbConfig = {
         postgres: {
-          connectionString: config.persistence?.postgres?.connectionString || config.sessiondb?.postgres?.connectionString || null,
+          connectionString:
+            config.persistence?.postgres?.connectionString ||
+            config.sessiondb?.postgres?.connectionString ||
+            null,
         },
         sqlite: {
           path: config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || null,
@@ -267,7 +270,10 @@ async function checkAndGenerateMigrations(): Promise<{ nothingToDo?: boolean }> 
       // Prepare database configuration for drizzle-kit
       const dbConfig = {
         postgres: {
-          connectionString: config.persistence?.postgres?.connectionString || config.sessiondb?.postgres?.connectionString || null,
+          connectionString:
+            config.persistence?.postgres?.connectionString ||
+            config.sessiondb?.postgres?.connectionString ||
+            null,
         },
         sqlite: {
           path: config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || null,
@@ -408,12 +414,17 @@ async function runSchemaMigrationsForConfiguredBackend(
   const { dryRun = false } = options;
   const { getConfiguration } = await import("../../../domain/configuration/index");
   const config = getConfiguration();
-  const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
+  const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as
+    | "sqlite"
+    | "postgres";
 
   if (backend === "sqlite") {
     // SQLite: bun:sqlite + drizzle migrator
     const dbPath =
-      config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+      config.persistence?.sqlite?.dbPath ||
+      config.sessiondb?.sqlite?.path ||
+      config.sessiondb?.dbPath ||
+      getDefaultSqliteDbPath();
     if (dryRun) {
       // Build preview plan
       const migrationsFolder = "./src/domain/storage/migrations";
@@ -915,7 +926,9 @@ sharedCommandRegistry.registerCommand({
         // Auto-detect backend and run appropriate migration flow
         const { getConfiguration } = await import("../../../domain/configuration/index");
         const config = getConfiguration();
-        const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as "sqlite" | "postgres";
+        const backend = (config.persistence?.backend || config.sessiondb?.backend || "sqlite") as
+          | "sqlite"
+          | "postgres";
 
         const shouldApply = Boolean(execute);
 
@@ -993,16 +1006,23 @@ sharedCommandRegistry.registerCommand({
         log.cli(`Reading from backup file: ${from} (${sourceCount} sessions)`);
       } else {
         // Read from CURRENT configured backend (no JSON fallback)
-        const configuredBackend = (config.persistence?.backend || config.sessiondb?.backend) as "sqlite" | "postgres";
+        const configuredBackend = (config.persistence?.backend || config.sessiondb?.backend) as
+          | "sqlite"
+          | "postgres";
         if (!configuredBackend) {
-          throw new Error("No persistence backend configured. Configure sqlite or postgres in persistence or sessiondb config.");
+          throw new Error(
+            "No persistence backend configured. Configure sqlite or postgres in persistence or sessiondb config."
+          );
         }
 
         const sourceConfig: any = { backend: configuredBackend };
         if (configuredBackend === "sqlite") {
           // Use configured path or default
           const dbPath =
-            config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+            config.persistence?.sqlite?.dbPath ||
+            config.sessiondb?.sqlite?.path ||
+            config.sessiondb?.dbPath ||
+            getDefaultSqliteDbPath();
           sourceConfig.sqlite = { dbPath };
           sourceDescription = `SQLite backend: ${dbPath}`;
           sourceBackendKind = "sqlite";
@@ -1166,28 +1186,32 @@ sharedCommandRegistry.registerCommand({
       // Use PersistenceService for data migration
       await PersistenceService.initialize();
       const sourceProvider = PersistenceService.getProvider();
-      
+
       // Read all sessions from source
       const sourceStorage = sourceProvider.getStorage();
       const sourceState = await sourceStorage.readState();
       if (!sourceState.success) {
         throw new Error(`Failed to read from source: ${sourceState.error?.message}`);
       }
-      
-      log.cli(`✅ Read ${sourceState.data.sessions.length} sessions from source ${sourceProvider.getCapabilities().backend} backend`);
-      
-      // Create target provider with new backend  
+
+      log.cli(
+        `✅ Read ${sourceState.data.sessions.length} sessions from source ${sourceProvider.getCapabilities().backend} backend`
+      );
+
+      // Create target provider with new backend
       const newTargetConfig = { ...targetConfig, backend: to };
       const targetProvider = await PersistenceProviderFactory.create(newTargetConfig);
       await targetProvider.initialize();
-      
+
       const targetStorage = targetProvider.getStorage();
       const writeResult = await targetStorage.writeState(sourceState.data);
       if (!writeResult.success) {
         throw new Error(`Failed to write to target: ${writeResult.error?.message}`);
       }
-      
-      log.cli(`✅ Data successfully migrated to ${to} backend (${sourceState.data.sessions.length} sessions)`);
+
+      log.cli(
+        `✅ Data successfully migrated to ${to} backend (${sourceState.data.sessions.length} sessions)`
+      );
     } catch (error) {
       // Re-throw as proper Error while preserving original message for handler parsing
       throw ensureError(error);
@@ -1356,7 +1380,10 @@ async function validateSqliteBackend(
     } else {
       // Use configured path or default
       dbPath =
-        config.persistence?.sqlite?.dbPath || config.sessiondb?.sqlite?.path || config.sessiondb?.dbPath || getDefaultSqliteDbPath();
+        config.persistence?.sqlite?.dbPath ||
+        config.sessiondb?.sqlite?.path ||
+        config.sessiondb?.dbPath ||
+        getDefaultSqliteDbPath();
       log.cli(`Using configured/default file: ${dbPath}`);
     }
 
@@ -1454,7 +1481,7 @@ async function validatePostgresBackend(): Promise<{
     // Use PersistenceService for connection testing
     await PersistenceService.initialize();
     const provider = PersistenceService.getProvider();
-    
+
     // Test basic connectivity
     if (provider.getCapabilities().sql) {
       const rawConnection = provider.getRawSqlConnection();
@@ -1466,7 +1493,7 @@ async function validatePostgresBackend(): Promise<{
     } else {
       log.cli("✅ Non-SQL backend initialized successfully");
     }
-    
+
     return { success: true, details: "Connection test passed" };
   } catch (error) {
     issues.push(`PostgreSQL validation error: ${getErrorMessage(error)}`);
