@@ -34,7 +34,7 @@ describe("ChangesetService", () => {
         Promise.resolve({
           changeset: createMockChangeset(),
           platformId: "123",
-          url: "https://example.com/test/repo/pull/123",
+          url: "https://github.com/test/repo/pull/123",
         })
       ),
       update: mock(() => Promise.resolve(createMockChangeset())),
@@ -64,7 +64,7 @@ describe("ChangesetService", () => {
     };
 
     // Create service instance
-    service = new ChangesetService("https://example.com/test/repo.git");
+    service = new ChangesetService("https://github.com/test/repo.git");
     service.registerAdapterFactory(mockFactory);
   });
 
@@ -74,7 +74,7 @@ describe("ChangesetService", () => {
   });
 
   test("detects platform from repository URL", async () => {
-    const githubService = new ChangesetService("https://example.com/test/repo.git");
+    const githubService = new ChangesetService("https://github.com/test/repo.git");
     githubService.registerAdapterFactory(mockFactory);
 
     await githubService.list(); // Trigger adapter creation
@@ -196,7 +196,7 @@ describe("ChangesetService", () => {
 
     const url = await service.getChangesetUrl("123");
 
-    expect(url).toBe("https://example.com/test/repo/pull/123");
+    expect(url).toBe("https://github.com/test/repo/pull/123");
   });
 
   test("throws error when adapter is not available", async () => {
@@ -208,7 +208,7 @@ describe("ChangesetService", () => {
   });
 
   test("throws error when no adapter factory is registered", () => {
-    const serviceWithoutAdapter = new ChangesetService("https://example.org/repo.git");
+    const serviceWithoutAdapter = new ChangesetService("https://unknown-platform.com/repo.git");
 
     expect(async () => {
       await serviceWithoutAdapter.list();
@@ -251,9 +251,9 @@ function createMockChangeset(): Changeset {
     metadata: {
       github: {
         number: 123,
-        url: "https://api.example.com/repos/test/repo/pulls/123",
-        htmlUrl: "https://example.com/test/repo/pull/123",
-        apiUrl: "https://api.example.com/repos/test/repo/pulls/123",
+        url: "https://api.github.com/repos/test/repo/pulls/123",
+        htmlUrl: "https://github.com/test/repo/pull/123",
+        apiUrl: "https://api.github.com/repos/test/repo/pulls/123",
         isDraft: false,
         isMergeable: true,
         mergeableState: "clean",
