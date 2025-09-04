@@ -168,13 +168,14 @@ async function executeChangesetList(params: any, ctx?: CommandExecutionContext):
 
     // Get changesets
     let changesets = await changesetService.list(listOptions);
-    
+
     // Filter by session if specified
     if (params.session) {
-      changesets = changesets.filter(changeset => 
-        changeset.sessionName === params.session ||
-        changeset.sourceBranch === `pr/${params.session}` ||
-        changeset.sourceBranch === params.session
+      changesets = changesets.filter(
+        (changeset) =>
+          changeset.sessionName === params.session ||
+          changeset.sourceBranch === `pr/${params.session}` ||
+          changeset.sourceBranch === params.session
       );
     }
 
@@ -255,13 +256,14 @@ async function executeChangesetSearch(params: any, ctx?: CommandExecutionContext
 
     // Perform search
     let changesets = await changesetService.search(searchOptions);
-    
+
     // Filter by session if specified
     if (params.session) {
-      changesets = changesets.filter(changeset => 
-        changeset.sessionName === params.session ||
-        changeset.sourceBranch === `pr/${params.session}` ||
-        changeset.sourceBranch === params.session
+      changesets = changesets.filter(
+        (changeset) =>
+          changeset.sessionName === params.session ||
+          changeset.sourceBranch === `pr/${params.session}` ||
+          changeset.sourceBranch === params.session
       );
     }
 
