@@ -14,7 +14,7 @@ const tasksDepsAddParams: CommandParameterMap = {
   dependsOn: {
     schema: z.union([z.string(), z.array(z.string())]),
     description:
-      "Task that is the dependency, or comma-separated list of task IDs. Supports typed format: taskId:type",
+      "Task that is the dependency, or comma-separated list of task IDs",
     required: true,
   },
 };
@@ -67,10 +67,8 @@ export function createTasksDepsAddCommand() {
 
       for (const dep of dependencies) {
         try {
-          // Parse dependency format: "taskId" or "taskId:type"
-          const [depTaskId, depType] = dep.includes(":")
-            ? dep.split(":").map((s) => s.trim())
-            : [dep.trim(), "prerequisite"];
+          // Just use the dependency task ID directly - no type parsing needed
+          const depTaskId = dep.trim();
 
           const result = await service.addDependency(params.task, depTaskId);
 

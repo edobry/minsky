@@ -224,10 +224,8 @@ export class TasksCreateCommand extends BaseTaskCommand {
 
             for (const dep of deps) {
               try {
-                // Parse dependency format: "taskId" or "taskId:type"
-                const [depTaskId, depType] = dep.includes(":")
-                  ? dep.split(":").map((s) => s.trim())
-                  : [dep.trim(), "prerequisite"];
+                // Just use the dependency task ID directly - no type parsing needed
+                const depTaskId = dep.trim();
 
                 const addResult = await graphService.addDependency(result.id, depTaskId);
 
