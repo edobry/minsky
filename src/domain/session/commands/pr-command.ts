@@ -1,5 +1,5 @@
 import type { SessionPRParameters } from "../../../domain/schemas";
-import { createSessionProvider } from "../../session";
+import { createSessionProvider } from "../session-db-adapter";
 import { createGitService } from "../../git";
 import { sessionPrImpl } from "../session-pr-operations";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";

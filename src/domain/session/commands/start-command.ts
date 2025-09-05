@@ -1,7 +1,7 @@
 import type { SessionStartParameters } from "../../../domain/schemas";
 import { startSessionImpl } from "../start-session-operations";
 import * as WorkspaceUtils from "../../workspace";
-import { createSessionProvider } from "../../session";
+import { createSessionProvider } from "../session-db-adapter";
 import { createGitService } from "../../git";
 import { createConfiguredTaskService } from "../../tasks/taskService";
 import { normalizeRepoName, resolveRepoPath } from "../../repo-utils";

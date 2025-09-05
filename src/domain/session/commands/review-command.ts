@@ -1,4 +1,4 @@
-import { createSessionProvider } from "../../session";
+import { createSessionProvider } from "../session-db-adapter";
 import { createGitService } from "../../git";
 import { TaskServiceInterface } from "../../tasks";
 import { createConfiguredTaskService } from "../../tasks/taskService";

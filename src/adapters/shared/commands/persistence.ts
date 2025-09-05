@@ -26,7 +26,7 @@ import {
   getDefaultSqliteDbPath,
   getDefaultJsonDbPath,
 } from "../../../utils/paths";
-import { createSessionProvider } from "../../../domain/session";
+// createSessionProvider is imported dynamically where needed
 
 // Shared: compute Postgres migration status (reused by dry-run and execute paths)
 async function getPostgresMigrationsStatus(connectionString: string): Promise<{

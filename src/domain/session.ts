@@ -130,7 +130,7 @@ export async function getSessionFromParams(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
   };
 
   try {
@@ -168,7 +168,7 @@ export async function listSessionsFromParams(
 ): Promise<Session[]> {
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
   };
 
   return deps.sessionDB.listSessions();
@@ -198,7 +198,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
@@ -249,7 +249,7 @@ export async function deleteSessionFromParams(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
   };
 
   try {
@@ -286,7 +286,7 @@ export async function getSessionDirFromParams(
   }
 ): Promise<string> {
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
   };
 
   let sessionName: string;
@@ -381,7 +381,7 @@ export async function updateSessionFromParams(
   // Set up dependencies with defaults
   const deps = {
     gitService: depsInput?.gitService || createGitService(),
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
@@ -1337,7 +1337,7 @@ export async function inspectSessionFromParams(params: {
     throw new ResourceNotFoundError("No session detected for the current workspace");
   }
 
-  const session = await createSessionProvider().getSession(context.sessionId);
+  const session = await (await createSessionProvider()).getSession(context.sessionId);
 
   return session;
 }
@@ -1389,7 +1389,7 @@ export async function sessionReviewFromParams(
 ): Promise<SessionReviewResult> {
   // Set up default dependencies if not provided
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
