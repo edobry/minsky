@@ -280,7 +280,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async get(id: string): Promise<DatabaseReadResult<SessionRecord>> {
     try {
       const entity = await this.getEntity(id);
-
+      
       if (entity) {
         return { success: true, data: entity };
       } else {
@@ -289,6 +289,19 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
       return { success: false, error: typedError };
+    }
+  }
+
+  /**
+   * Delete a single session by ID (compatibility method for SessionDbAdapter)
+   */
+  async delete(id: string): Promise<boolean> {
+    try {
+      return await this.deleteEntity(id);
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      log.warn(`Failed to delete session from PostgreSQL: ${typedError.message}`);
+      return false;
     }
   }
 

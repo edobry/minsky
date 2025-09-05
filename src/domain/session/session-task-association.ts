@@ -41,7 +41,7 @@ export async function updateSessionTaskAssociation(
   newTaskId: string,
   options: SessionAssociationUpdateOptions = {}
 ): Promise<SessionAssociationUpdateResult> {
-  const { dryRun = false, sessionProvider = createSessionProvider() } = options;
+  const { dryRun = false, sessionProvider = await createSessionProvider() } = options;
 
   const result: SessionAssociationUpdateResult = {
     sessionsFound: 0,
@@ -146,8 +146,10 @@ export async function updateSessionTaskAssociation(
  */
 export async function findSessionsByTaskId(
   taskId: string,
-  sessionProvider: SessionProviderInterface = createSessionProvider()
+  sessionProvider?: SessionProviderInterface
 ): Promise<string[]> {
+  // Lazy-initialize session provider if not provided
+  const provider = sessionProvider || (await createSessionProvider());
   const localId = isQualifiedTaskId(taskId) ? extractLocalId(taskId) : taskId;
 
   if (!localId) {
@@ -170,7 +172,7 @@ export async function findSessionsByTaskId(
  */
 export async function hasSessionsForTask(
   taskId: string,
-  sessionProvider: SessionProviderInterface = createSessionProvider()
+  sessionProvider?: SessionProviderInterface
 ): Promise<boolean> {
   const sessions = await findSessionsByTaskId(taskId, sessionProvider);
   return sessions.length > 0;

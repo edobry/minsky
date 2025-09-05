@@ -7,7 +7,7 @@ const promisifiedExec = promisify(exec);
  * Execute a command with proper cleanup to prevent hanging
  * Ensures child processes and their stdio streams are properly closed
  */
-export async function execAsync(command: string, options: any = {}) {
+export async function executeCommand(command: string, options: any = {}) {
   // Add explicit cleanup options to prevent hanging
   const execOptions = {
     ...options,
@@ -33,4 +33,5 @@ export async function execAsync(command: string, options: any = {}) {
   }
 }
 
-export { execAsync as _execAsync }; // Alias for backward compatibility
+// Legacy export for backward compatibility (deprecated: use executeCommand)
+export { executeCommand as execAsync };

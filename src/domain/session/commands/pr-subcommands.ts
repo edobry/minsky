@@ -51,7 +51,7 @@ export async function sessionPrCreate(
   // Validate draft mode requirements
   if (params.draft) {
     // Validate backend type for draft mode
-    const sessionProvider = createSessionProvider();
+    const sessionProvider = await createSessionProvider();
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: params.name,
       task: params.task,

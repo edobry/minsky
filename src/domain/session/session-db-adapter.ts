@@ -264,18 +264,18 @@ export class SessionDbAdapter implements SessionProviderInterface {
     try {
       const storage = await this.getStorage();
       const stateResult = await storage.readState();
-      
+
       if (!stateResult.success || !stateResult.data) {
         throw new Error("Failed to read session state");
       }
-      
+
       const { getSessionWorkdirFn } = await import("./session-db");
       const workdir = getSessionWorkdirFn(stateResult.data, sessionName);
-      
+
       if (!workdir) {
         throw new Error(`Session '${sessionName}' not found or has no working directory`);
       }
-      
+
       return workdir;
     } catch (error) {
       log.error(`Failed to get session workdir for '${sessionName}':`, getErrorMessage(error as any));
