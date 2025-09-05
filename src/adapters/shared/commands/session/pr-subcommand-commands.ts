@@ -163,7 +163,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       if (interfaceType === "mcp") {
         // For MCP, resolve the session workspace path from session parameters
         const { createSessionProvider } = await import("../../../../domain/session");
-        const sessionProvider = createSessionProvider();
+        const sessionProvider = await createSessionProvider();
 
         // Try to get session name from params or resolve from task
         let sessionName = params.name;
@@ -197,7 +197,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
           const { createSessionProvider } = await import("../../../../domain/session");
           const { formatTaskIdForDisplay } = await import("../../../../domain/tasks/task-id-utils");
 
-          const sessionProvider = createSessionProvider();
+          const sessionProvider = await createSessionProvider();
           const resolved = await resolveSessionContextWithFeedback({
             session: params.name,
             task: params.task,
@@ -276,7 +276,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
         );
         const { createSessionProvider } = await import("../../../../domain/session");
 
-        const sessionProvider = createSessionProvider();
+        const sessionProvider = await createSessionProvider();
         const resolvedContext = await resolveSessionContextWithFeedback({
           session: params.name,
           task: params.task,
@@ -299,7 +299,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
     try {
       // Check if session has an existing PR
       const { createSessionProvider } = await import("../../../../domain/session");
-      const sessionDB = createSessionProvider();
+      const sessionDB = await createSessionProvider();
       const sessionRecord = await sessionDB.getSession(sessionName);
 
       // If session has PR state, a PR already exists
@@ -328,7 +328,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
           "../../../../domain/session/session-context-resolver"
         );
         const { createSessionProvider } = await import("../../../../domain/session");
-        const sessionProvider = createSessionProvider();
+        const sessionProvider = await createSessionProvider();
         const resolved = await resolveSessionContextWithFeedback({
           session: params.name,
           task: params.task,
@@ -342,7 +342,7 @@ export class SessionPrCreateCommand extends BaseSessionCommand<any, any> {
       if (!sessionName) return false;
 
       const { createSessionProvider } = await import("../../../../domain/session");
-      const sessionDB = createSessionProvider();
+      const sessionDB = await createSessionProvider();
       const record = await sessionDB.getSession(sessionName);
       return Boolean(record && record.prBranch && record.prState && record.prState.exists);
     } catch {
@@ -429,7 +429,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
       if (interfaceType === "mcp") {
         // For MCP, resolve the session workspace path from session parameters
         const { createSessionProvider } = await import("../../../../domain/session");
-        const sessionProvider = createSessionProvider();
+        const sessionProvider = await createSessionProvider();
 
         // Try to get session name from params or resolve from task
         let sessionName = params.name;
@@ -472,7 +472,7 @@ export class SessionPrEditCommand extends BaseSessionCommand<any, any> {
               "../../../../domain/tasks/task-id-utils"
             );
 
-            const sessionProvider = createSessionProvider();
+            const sessionProvider = await createSessionProvider();
             const resolved = await resolveSessionContextWithFeedback({
               session: params.name,
               task: params.task,

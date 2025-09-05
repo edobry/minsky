@@ -54,7 +54,7 @@ export const SessionContextComponent: ContextComponent = {
 
           // Get full session record with additional metadata
           try {
-            const sessionProvider = createSessionProvider();
+            const sessionProvider = await createSessionProvider();
             const fullSessionRecord = await sessionProvider.getSession(sessionId);
 
             if (fullSessionRecord) {

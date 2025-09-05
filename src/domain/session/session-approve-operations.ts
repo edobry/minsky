@@ -125,7 +125,7 @@ export async function approveSessionImpl(
   let taskId: string | undefined;
 
   // Set up session provider (use injected one or create default)
-  const sessionDB = depsInput?.sessionDB || createSessionProvider();
+  const sessionDB = depsInput?.sessionDB || (await createSessionProvider());
 
   // Try to get session from task ID if provided
   if (params.task && !sessionNameToUse) {

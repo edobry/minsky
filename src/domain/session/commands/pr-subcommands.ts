@@ -123,7 +123,7 @@ export async function sessionPrEdit(
   pullRequest?: PullRequestInfo;
   updated: boolean;
 }> {
-  const sessionProvider = createSessionProvider();
+  const sessionProvider = await createSessionProvider();
 
   // Resolve session context
   const resolvedContext = await resolveSessionContextWithFeedback({
@@ -228,7 +228,7 @@ export async function sessionPrList(params: {
     backendType?: string;
   }>;
 }> {
-  const sessionDB = createSessionProvider();
+  const sessionDB = await createSessionProvider();
 
   try {
     // Get all sessions
@@ -424,7 +424,7 @@ export async function sessionPrGet(params: {
     }>;
   };
 }> {
-  const sessionDB = createSessionProvider();
+  const sessionDB = await createSessionProvider();
 
   try {
     // Resolve session context using existing resolver
@@ -726,7 +726,7 @@ export async function sessionPrOpen(params: {
   sessionName: string;
   prNumber?: number;
 }> {
-  const sessionDB = createSessionProvider();
+  const sessionDB = await createSessionProvider();
 
   try {
     // Resolve session context using existing resolver

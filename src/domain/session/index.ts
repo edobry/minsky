@@ -7,8 +7,9 @@
 export {
   SessionDbAdapter,
   createSessionProvider,
-  type SessionProviderInterface,
 } from "./session-db-adapter";
+
+export type { SessionProviderInterface } from "./session-db-adapter";
 
 // Export core types from session-db
 export type { SessionDbState } from "./session-db";

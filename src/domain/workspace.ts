@@ -97,7 +97,7 @@ export async function getSessionFromWorkspace(
       return null;
     }
 
-    const db = sessionDbOverride || createSessionProvider();
+    const db = sessionDbOverride || (await createSessionProvider());
     const sessionRecord = await db.getSession(sessionName);
 
     if (!sessionRecord || !sessionRecord.repoUrl) {
@@ -161,7 +161,7 @@ export async function resolveMainWorkspacePath(deps: TestDependencies = {}): Pro
       if (sessionName) {
         // Use the session database to get the repository URL
         try {
-          const sessionProvider = createSessionProvider();
+          const sessionProvider = await createSessionProvider();
           const sessionRecord = await sessionProvider.getSession(sessionName);
           if (sessionRecord && sessionRecord.repoUrl) {
             return sessionRecord.repoUrl;
@@ -272,7 +272,7 @@ export async function getCurrentSessionContext(
     }
 
     // Query the SessionDB to get task information
-    const sessionDb = sessionDbOverride || createSessionProvider();
+    const sessionDb = sessionDbOverride || (await createSessionProvider());
     const sessionRecord = await sessionDb.getSession(sessionId);
 
     if (!sessionRecord) {

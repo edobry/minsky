@@ -1600,9 +1600,7 @@ export type { SessionRecord, SessionDbState } from "./session/session-db";
 // Re-export the SessionDbAdapter class
 export { SessionDbAdapter } from "./session/session-db-adapter";
 
-// Export SessionDB as function for backward compatibility with existing imports
-// This replaces the old class-based compatibility layer with a cleaner function-based approach
-export { createSessionProvider as SessionDB };
+// SessionDB compatibility removed - use createSessionProvider directly
 
 // Re-export session command functions with shorter names for adapters
 export { listSessionsFromParams as sessionList };

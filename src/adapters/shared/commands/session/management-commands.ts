@@ -127,7 +127,7 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
       "../../../../domain/session/repository-backend-detection"
     );
 
-    const sessionDB = createSessionProvider();
+    const sessionDB = await createSessionProvider();
     const gitService = createGitService();
 
     // Resolve session context (supports name, task, auto-detect)

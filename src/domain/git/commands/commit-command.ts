@@ -20,7 +20,7 @@ export async function commitChangesFromParams(params: {
   let repoPath = params.repo;
 
   if (params.session && !repoPath) {
-    const sessionProvider = createSessionProvider();
+    const sessionProvider = await createSessionProvider();
     const session = await sessionProvider.getSession(params.session);
 
     if (!session) {
