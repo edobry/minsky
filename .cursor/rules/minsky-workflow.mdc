@@ -65,10 +65,15 @@ minsky session dir [--name <value>] [--task <value>] [--repo <value>] [--json]
 
 ### 4. Review & Completion
 
-**Create Pull Request**
+**Create Pull Request / Changeset**
 
 ```bash
-minsky session pr.create [--title <value>] [--body <value>] [--bodyPath <value>] [--name <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--skipUpdate] [--autoResolveDeleteConflicts] [--skipConflictCheck]
+# Primary commands:
+minsky session pr create [--title <value>] [--type <value>] [--body <value>] [--bodyPath <value>] [--name <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--skipUpdate] [--autoResolveDeleteConflicts] [--skipConflictCheck]
+
+# Changeset aliases (same functionality):
+minsky session changeset create [same parameters]
+minsky session cs create [same parameters]  # short alias
 ```
 
 

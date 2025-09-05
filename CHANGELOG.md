@@ -14,6 +14,15 @@ All notable changes to this project will be documented in this file.
   - Future plans for AST-based structural chunking with tree-sitter
   - CLI/MCP tools for codebase search, analysis, and summarization
   - Build vs buy analysis with recommendations
+- **Unified Changeset Abstraction Layer (mt#510)**: Implemented comprehensive VCS-agnostic changeset system
+  - Platform-agnostic interfaces for GitHub PRs, GitLab MRs, Bitbucket PRs, Gerrit Changes, and local git
+  - Repository-wide commands: `minsky repo changeset [list|search|get|info]` (supports all VCS platforms)
+  - Session aliases: `minsky session changeset [create|list|get|approve|merge|edit]` and `minsky session cs [...]`
+  - Complete backward compatibility with existing `session pr` commands
+  - Adapter pattern with factory system for extensible platform support
+  - 30 comprehensive tests covering service layer and platform adapters
+  - MCP tools for all changeset operations
+  - Session filtering: `repo changeset list --session X` for cross-session analysis
 
 ### Changed
 
@@ -409,6 +418,7 @@ All notable changes to this project will be documented in this file.
 
   - `minsky session pr list --status open,merged --backend github --since 7d --until 2025-08-01`
   - `minsky session pr get --task md#413 --status all --since 24h`
+  - Changeset aliases: `minsky session changeset list`, `minsky session cs list`
   - Status accepts comma-separated or `all`; backend: `github|remote|local`; time accepts `YYYY-MM-DD` or relative `7d|24h|30m`.
 
 - tasks storage (md#315): add `backend` enum and `source_task_id` columns to `tasks` table; populate from qualified IDs; reuse centralized backend enum values from `enumSchemas.backendType`; update PG vector storage to write these fields.
@@ -443,9 +453,9 @@ All notable changes to this project will be documented in this file.
 - **Similarity Threshold Default**: Removed overly strict default threshold that could filter out all results. If no threshold is provided, the search now uses a permissive default so matches are shown.
 - Task md#425: Suppress [DEBUG] logs during `session start` unless debug is explicitly enabled. Replaced unguarded console logs with `log.debug(...)` in `startSessionFromParams` so they are hidden by default.
 - **CLI stdout/stderr routing**: Normal command output now prints to stdout rather than stderr. `minsky tasks list` and similar commands write human-readable output to stdout; warnings/errors remain on stderr. Adjusted logger configuration in `src/utils/logger.ts` and `src/domain/utils/logger.ts` to keep only non-info levels on stderr.
-- **Session PR List Output**: `minsky session pr list` now prints clean, human-friendly lines (no ASCII table). Shows `PR #<num> [status] <title>` with session/task/updated info; `--verbose` adds branch and URL. `--json` remains structured.
+- **Session PR List Output**: `minsky session pr list` (and aliases `session changeset list`, `session cs list`) now prints clean, human-friendly lines (no ASCII table). Shows `PR #<num> [status] <title>` with session/task/updated info; `--verbose` adds branch and URL. `--json` remains structured.
   - Refined to a compact, high signal format: `#<num> [status] <title>  (s:<session>, t:<task>, <relative time>)`. `--verbose` adds indented `branch` and `url` lines. `--json` unchanged.
-  - Harmonized title line with `session pr get` so both now render: `🟢 [feat] [md#123] Title text [#89]`. Removed redundant `PR #<num>` and `Backend:` labels from list details as they are already evident.
+  - Harmonized title line with `session pr get` (and changeset aliases) so both now render: `🟢 [feat] [md#123] Title text [#89]`. Removed redundant `PR #<num>` and `Backend:` labels from list details as they are already evident.
 - tasks: `minsky tasks list` now correctly displays task IDs again. Restored ID rendering by enhancing `formatTaskIdForDisplay` to handle legacy (`#123`) and numeric (`123`) IDs, outputting qualified `md#NNN` in CLI list output. See commit 26d958bf3.
 
 - feat(sessiondb): add Drizzle Kit migrations for PostgreSQL and wire runtime migrator
@@ -470,7 +480,7 @@ All notable changes to this project will be documented in this file.
 
 ### Added
 
-- **Session PR Edit Command**: Implemented `session pr edit` command for updating existing pull requests
+- **Session PR Edit Command**: Implemented `session pr edit` (and aliases `session changeset edit`, `session cs edit`) command for updating existing pull requests
 
 - **Configuration**: Added `workspace.mainPath` integration across task backends (Markdown/JSON) and environment mapping (`MINSKY_WORKSPACE_MAIN_PATH`). Backends prefer `workspace.mainPath` for main workspace resolution.
 
@@ -482,7 +492,7 @@ All notable changes to this project will be documented in this file.
   - Added 4 cases: sequential edits, delete/removal, ambiguous/conflict, formatting preservation
   - All 22 TS cases pass against real Morph configuration
 
-  - Separate `session pr create` and `session pr edit` functionality - create fails if PR already exists
+  - Separate `session pr create` and `session pr edit` functionality (changeset aliases available) - create fails if PR already exists
   - Added `updatePullRequest` method to `RepositoryBackend` interface for backend-specific PR updates
   - GitHub backend uses GitHub API directly (no local conflict checks, server handles conflicts)
   - Local/Remote backends delegate to existing `sessionPr` logic with conflict checks (appropriate for git workflows)
@@ -582,7 +592,7 @@ All notable changes to this project will be documented in this file.
 
 ## md#427: Enforce conventional-commit title validation on session pr edit
 
-- session pr edit now enforces conventional-commit title rules similar to session pr create
+- session pr edit (and changeset aliases) now enforces conventional-commit title rules similar to session pr create
 - Added optional --type for edit to compose titles from description-only --title
 - Validation runs regardless of --no-status-update
 - Added tests under tests/integration/session/pr-edit-validation.test.ts and src/adapters/shared/commands/session/pr-subcommand-commands.edit-validation.test.ts

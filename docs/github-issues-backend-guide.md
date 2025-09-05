@@ -131,8 +131,11 @@ minsky session start task123 --task 123
 
 # Work in the session...
 
-# Create PR (when implemented in Task 161)
-minsky session pr --title "Fix login bug"
+# Create PR
+minsky session pr create --title "Fix login bug" --type fix
+# Changeset aliases also available:
+minsky session changeset create --title "Fix login bug" --type fix
+minsky session cs create --title "Fix login bug" --type fix
 
 # Approve and merge
 minsky session approve

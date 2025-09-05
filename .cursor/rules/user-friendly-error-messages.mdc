@@ -104,19 +104,25 @@ throw new Error("Either 'session', 'taskId', or 'repoPath' must be provided to c
 throw new MinskyError(`
 🎯 Session not specified
 
-To create a PR, specify which session to use:
+To create a PR/changeset, specify which session to use:
 
 📂 Use current session (auto-detected):
-   minsky session pr --title "your title"
+   minsky session pr create --title "your title" --type feat
+   minsky session changeset create --title "your title" --type feat  # alias
+   minsky session cs create --title "your title" --type feat         # short alias
 
 🏷️  Use specific session name:
-   minsky session pr --session my-session --title "your title"
+   minsky session pr create --session my-session --title "your title" --type feat
 
 🎫 Use task ID to find session:
-   minsky session pr --task 123 --title "your title"
+   minsky session pr create --task 123 --title "your title" --type feat
 
 💡 List available sessions:
    minsky session list
+
+💡 List changesets for current session:
+   minsky session changeset list
+   minsky session cs list      # short alias
 `.trim());
 ```
 
