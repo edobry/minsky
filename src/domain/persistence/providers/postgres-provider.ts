@@ -31,7 +31,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
   /**
    * Capabilities of PostgreSQL provider
    */
-  readonly capabilities: PersistenceCapabilities = {
+  readonly capabilities = {
     sql: true,
     transactions: true,
     jsonb: true,
@@ -86,7 +86,11 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    * Get provider capabilities
    */
   getCapabilities(): PersistenceCapabilities {
-    return this.capabilities;
+    return {
+      supportsTransactions: true,
+      supportsVectorStorage: true,
+      supportsFullTextSearch: true,
+    };
   }
 
   /**
