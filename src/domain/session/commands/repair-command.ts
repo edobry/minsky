@@ -64,7 +64,7 @@ export async function sessionRepair(
   params: SessionRepairParameters,
   deps?: SessionRepairDependencies
 ): Promise<SessionRepairResult> {
-  const sessionDB = deps?.sessionDB || createSessionProvider();
+  const sessionDB = deps?.sessionDB || (await createSessionProvider());
   const gitService = deps?.gitService || createGitService();
 
   log.debug("Starting session repair", { params });

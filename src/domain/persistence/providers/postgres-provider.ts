@@ -28,16 +28,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
   private config: PersistenceConfig;
   private isInitialized = false;
 
-  /**
-   * Capabilities of PostgreSQL provider
-   */
-  readonly capabilities = {
-    sql: true,
-    transactions: true,
-    jsonb: true,
-    vectorStorage: true,
-    migrations: true,
-  };
+  // Note: Capabilities are returned by getCapabilities() method below
 
   constructor(config: PersistenceConfig) {
     super();
@@ -87,6 +78,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    */
   getCapabilities(): PersistenceCapabilities {
     return {
+      sql: true,
       supportsTransactions: true,
       supportsVectorStorage: true,
       supportsFullTextSearch: true,

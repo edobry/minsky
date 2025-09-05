@@ -41,7 +41,8 @@ export async function updateSessionTaskAssociation(
   newTaskId: string,
   options: SessionAssociationUpdateOptions = {}
 ): Promise<SessionAssociationUpdateResult> {
-  const { dryRun = false, sessionProvider = await createSessionProvider() } = options;
+  const { dryRun = false } = options;
+  const sessionProvider = options.sessionProvider || (await createSessionProvider());
 
   const result: SessionAssociationUpdateResult = {
     sessionsFound: 0,
@@ -157,7 +158,7 @@ export async function findSessionsByTaskId(
     return [];
   }
 
-  const allSessions = await sessionProvider.listSessions();
+  const allSessions = await provider.listSessions();
   return allSessions
     .filter((session) => session.taskId === localId)
     .map((session) => session.session);

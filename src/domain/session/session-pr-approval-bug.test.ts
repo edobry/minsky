@@ -28,7 +28,7 @@ import { SESSION_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
  * Evidence from SQLite:
  * task-md#357|md#357|pr/task-md#357|{"branchName":"pr/task-md#357",...}
  *
- * But createSessionProvider().getSession("task-md#357") returns null!
+ * But (await createSessionProvider()).getSession("task-md#357") returns null!
  */
 
 describe("Session PR Approval Bug", () => {

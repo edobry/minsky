@@ -280,7 +280,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   async get(id: string): Promise<DatabaseReadResult<SessionRecord>> {
     try {
       const entity = await this.getEntity(id);
-      
+
       if (entity) {
         return { success: true, data: entity };
       } else {
