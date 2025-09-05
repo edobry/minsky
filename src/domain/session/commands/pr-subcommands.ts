@@ -5,7 +5,7 @@
 
 import type { SessionRecord, PullRequestInfo } from "../session-db";
 import type { SessionProviderInterface } from "../types";
-import { createSessionProvider } from "../";
+import { createSessionProvider } from "../session-db-adapter";
 import { createGitService } from "../../git";
 import { sessionPr } from "./pr-command"; // Use modern implementation
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";

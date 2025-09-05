@@ -1,5 +1,5 @@
 import type { SessionListParameters } from "../../../domain/schemas";
-import { createSessionProvider } from "../../session";
+import { createSessionProvider } from "../session-db-adapter";
 import { Session, SessionProviderInterface, SessionDependencies } from "../types";
 
 /**

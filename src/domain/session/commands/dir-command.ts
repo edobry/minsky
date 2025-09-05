@@ -1,5 +1,5 @@
 import type { SessionDirectoryParameters } from "../../../domain/schemas";
-import { createSessionProvider } from "../../session";
+import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { SessionProviderInterface, SessionDependencies } from "../types";
 import { ResourceNotFoundError, ValidationError } from "../../errors/index";
