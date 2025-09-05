@@ -199,8 +199,11 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
    */
   async readState(): Promise<DatabaseReadResult<SessionDbState>> {
     try {
+      log.debug("PostgreSQL readState: Starting");
       await this.ensureConnection();
+      log.debug("PostgreSQL readState: Connection established, calling getEntities");
       const sessions = await this.getEntities();
+      log.debug(`PostgreSQL readState: Got ${sessions.length} sessions from getEntities`);
       const state: SessionDbState = {
         sessions,
         baseDir: "/tmp/postgres-sessions", // PostgreSQL doesn't have a filesystem base
@@ -210,7 +213,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
       // Keep user output concise; details available in debug logs
-      log.warn(`Failed to read PostgreSQL state: ${typedError.message}`);
+      log.error(`Failed to read PostgreSQL state: ${typedError.message}`, error);
       return { success: false, error: typedError };
     }
   }
