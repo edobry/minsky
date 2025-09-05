@@ -130,7 +130,7 @@ export async function getSessionFromParams(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    sessionDB: depsInput?.sessionDB || (await createSessionProviderAsync()),
   };
 
   try {
@@ -168,7 +168,7 @@ export async function listSessionsFromParams(
 ): Promise<Session[]> {
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    sessionDB: depsInput?.sessionDB || (await createSessionProviderAsync()),
   };
 
   return deps.sessionDB.listSessions();
@@ -198,7 +198,7 @@ export async function startSessionFromParams(
   }
 ): Promise<Session> {
   const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    sessionDB: depsInput?.sessionDB || (await createSessionProviderAsync()),
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
@@ -249,7 +249,7 @@ export async function deleteSessionFromParams(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    sessionDB: depsInput?.sessionDB || (await createSessionProviderAsync()),
   };
 
   try {
@@ -286,7 +286,7 @@ export async function getSessionDirFromParams(
   }
 ): Promise<string> {
   const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    sessionDB: depsInput?.sessionDB || (await createSessionProviderAsync()),
   };
 
   let sessionName: string;
@@ -381,7 +381,7 @@ export async function updateSessionFromParams(
   // Set up dependencies with defaults
   const deps = {
     gitService: depsInput?.gitService || createGitService(),
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    sessionDB: depsInput?.sessionDB || (await createSessionProviderAsync()),
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
 
@@ -1321,8 +1321,9 @@ async function cleanupLocalBranches(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-// REMOVED: Use the async createSessionProvider from session-db-adapter.ts instead
-// All call sites should await: const sessionDB = await createSessionProvider();
+// TEMPORARY RE-EXPORT: For files still importing from session.ts directly  
+import { createSessionProvider as createSessionProviderAsync } from "./session/session-db-adapter";
+export { createSessionProviderAsync as createSessionProvider };
 
 /**
  * Inspects current session based on workspace location
@@ -1337,7 +1338,7 @@ export async function inspectSessionFromParams(params: {
     throw new ResourceNotFoundError("No session detected for the current workspace");
   }
 
-  const session = await (await createSessionProvider()).getSession(context.sessionId);
+  const session = await (await createSessionProviderAsync()).getSession(context.sessionId);
 
   return session;
 }
@@ -1389,7 +1390,7 @@ export async function sessionReviewFromParams(
 ): Promise<SessionReviewResult> {
   // Set up default dependencies if not provided
   const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    sessionDB: depsInput?.sessionDB || (await createSessionProviderAsync()),
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
@@ -1602,7 +1603,7 @@ export { SessionDbAdapter } from "./session/session-db-adapter";
 
 // Export SessionDB as function for backward compatibility with existing imports
 // This replaces the old class-based compatibility layer with a cleaner function-based approach
-export const SessionDB = createSessionProvider;
+export { createSessionProviderAsync as SessionDB };
 
 // Re-export session command functions with shorter names for adapters
 export { listSessionsFromParams as sessionList };
