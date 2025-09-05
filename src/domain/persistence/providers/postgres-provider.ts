@@ -97,26 +97,14 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
       throw new Error("PostgresPersistenceProvider not initialized");
     }
 
-    // Return a generic storage implementation
-    // In practice, this would be specialized per domain
-    return {
-      get: async (id: string) => {
-        // Implementation would query the appropriate table
-        throw new Error("Storage implementation not yet complete");
-      },
-      save: async (id: string, data: T) => {
-        throw new Error("Storage implementation not yet complete");
-      },
-      update: async (id: string, updates: Partial<T>) => {
-        throw new Error("Storage implementation not yet complete");
-      },
-      delete: async (id: string) => {
-        throw new Error("Storage implementation not yet complete");
-      },
-      search: async (criteria: S) => {
-        throw new Error("Storage implementation not yet complete");
-      },
-    };
+    // Return the actual PostgreSQL storage implementation
+    const { PostgresStorage } = require("../../storage/backends/postgres-storage");
+    const storage = new PostgresStorage({
+      connectionString: this.config.postgres!.connectionString,
+      maxConnections: this.config.postgres!.maxConnections,
+      connectTimeout: this.config.postgres!.connectTimeout,
+    });
+    return storage as DatabaseStorage<T, S>;
   }
 
   /**

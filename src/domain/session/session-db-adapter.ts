@@ -34,7 +34,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       log.debug("Storage not cached, calling persistence.getStorage()");
       try {
         this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
-        log.debug("Successfully got storage from persistence provider");
+        log.debug(`Successfully got storage: ${this.storage.constructor.name}`);
       } catch (error) {
         log.error(
           "Failed to get storage from persistence provider:",
@@ -44,7 +44,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
         throw error;
       }
     } else {
-      log.debug("Using cached storage");
+      log.debug(`Using cached storage: ${this.storage.constructor.name}`);
     }
     return this.storage;
   }
