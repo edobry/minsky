@@ -275,6 +275,24 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
   }
 
   /**
+   * Get a single session by ID (compatibility method for SessionDbAdapter)
+   */
+  async get(id: string): Promise<DatabaseReadResult<SessionRecord>> {
+    try {
+      const entity = await this.getEntity(id);
+      
+      if (entity) {
+        return { success: true, data: entity };
+      } else {
+        return { success: false, error: new Error(`Session '${id}' not found`) };
+      }
+    } catch (error) {
+      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      return { success: false, error: typedError };
+    }
+  }
+
+  /**
    * Get a single session by ID
    */
   async getEntity(id: string, _options?: DatabaseQueryOptions): Promise<SessionRecord | null> {

@@ -214,11 +214,15 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async getSessionByTaskId(taskId: string): Promise<SessionRecord | null> {
     try {
       // Validate and normalize task ID
-      let validatedTaskId: string;
+      let validatedTaskId: string | null;
       try {
         validatedTaskId = validateQualifiedTaskId(taskId);
       } catch (error) {
         log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
+        return null;
+      }
+
+      if (!validatedTaskId) {
         return null;
       }
 
@@ -227,6 +231,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       sessions.forEach((session, i) => {
         log.debug(`Session ${i}: taskId='${session.taskId}', session='${session.session}'`);
       });
+      
       const found = sessions.find((session) => session.taskId === validatedTaskId);
       log.debug(`Found session: ${found ? "YES" : "NO"}`);
       return found || null;
