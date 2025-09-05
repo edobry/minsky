@@ -29,8 +29,22 @@ export class SessionDbAdapter implements SessionProviderInterface {
   constructor(private readonly persistence: PersistenceProvider) {}
 
   private async getStorage(): Promise<DatabaseStorage<SessionRecord, SessionDbState>> {
+    log.debug("Getting storage from persistence provider");
     if (!this.storage) {
-      this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
+      log.debug("Storage not cached, calling persistence.getStorage()");
+      try {
+        this.storage = this.persistence.getStorage<SessionRecord, SessionDbState>();
+        log.debug("Successfully got storage from persistence provider");
+      } catch (error) {
+        log.error(
+          "Failed to get storage from persistence provider:",
+          getErrorMessage(error as any),
+          error
+        );
+        throw error;
+      }
+    } else {
+      log.debug("Using cached storage");
     }
     return this.storage;
   }
@@ -51,11 +65,14 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async listSessions(): Promise<SessionRecord[]> {
     log.debug("Listing all sessions");
     try {
+      log.debug("About to get storage");
       const storage = await this.getStorage();
+      log.debug("Got storage, calling getState()");
       const state = await this.getState();
+      log.debug(`Got state with ${state.sessions.length} sessions`);
       return state.sessions || [];
     } catch (error) {
-      log.error("Failed to list sessions:", getErrorMessage(error as any));
+      log.error("Failed to list sessions:", getErrorMessage(error as any), error);
       return [];
     }
   }
@@ -204,7 +221,13 @@ export class SessionDbAdapter implements SessionProviderInterface {
       }
 
       const sessions = await this.listSessions();
-      return sessions.find((session) => session.taskId === validatedTaskId) || null;
+      log.debug(`Looking for taskId: '${validatedTaskId}' in ${sessions.length} sessions`);
+      sessions.forEach((session, i) => {
+        log.debug(`Session ${i}: taskId='${session.taskId}', session='${session.session}'`);
+      });
+      const found = sessions.find((session) => session.taskId === validatedTaskId);
+      log.debug(`Found session: ${found ? "YES" : "NO"}`);
+      return found || null;
     } catch (error) {
       log.error(`Failed to find session for task '${taskId}':`, getErrorMessage(error as any));
       return null;
@@ -246,8 +269,24 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
   // Internal helper methods
   private async getState(): Promise<SessionDbState> {
-    // Initialize default state when needed
-    return initializeSessionDbState();
+    try {
+      const storage = await this.getStorage();
+      log.debug("About to call storage.readState()");
+      const result = await storage.readState();
+      log.debug(`readState result: success=${result.success}, data=${!!result.data}`);
+      if (result.success && result.data) {
+        log.debug(`readState returned ${result.data.sessions.length} sessions`);
+        return result.data;
+      }
+      log.warn("Failed to read session state from storage, initializing empty state");
+      log.debug(
+        `Result details: success=${result.success}, data=${!!result.data}, error=${result.error?.message}`
+      );
+      return initializeSessionDbState();
+    } catch (error) {
+      log.error("Error reading session state:", getErrorMessage(error as any), error);
+      return initializeSessionDbState();
+    }
   }
 
   async getStorageInfo(): Promise<{
@@ -279,10 +318,20 @@ export async function createSessionProvider(_options?: {
   log.debug("Creating session provider with auto-repair support");
 
   // Get PersistenceProvider from PersistenceService
+  log.debug(`PersistenceService initialized: ${PersistenceService.isInitialized()}`);
   if (!PersistenceService.isInitialized()) {
-    await PersistenceService.initialize();
+    log.debug("Initializing PersistenceService...");
+    try {
+      await PersistenceService.initialize();
+      log.debug("PersistenceService initialization completed");
+    } catch (error) {
+      log.error("PersistenceService initialization failed:", getErrorMessage(error as any), error);
+      throw error;
+    }
   }
+  log.debug("Getting provider from PersistenceService...");
   const provider = PersistenceService.getProvider();
+  log.debug("Got provider, creating SessionDbAdapter...");
   const baseProvider = new SessionDbAdapter(provider);
 
   // Wrap with auto-repair functionality for universal session auto-repair
