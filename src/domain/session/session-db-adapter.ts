@@ -38,9 +38,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
       } catch (error) {
         log.error(
           "Failed to get storage from persistence provider:",
-          getErrorMessage(error as any),
-          error
+          getErrorMessage(error as any)
         );
+        log.error("Full error details:", error);
         throw error;
       }
     } else {

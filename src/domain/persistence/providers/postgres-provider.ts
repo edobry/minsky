@@ -101,8 +101,12 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     const { PostgresStorage } = require("../../storage/backends/postgres-storage");
     const storage = new PostgresStorage({
       connectionString: this.config.postgres!.connectionString,
-      maxConnections: this.config.postgres!.maxConnections,
-      connectTimeout: this.config.postgres!.connectTimeout,
+      maxConnections: this.config.postgres!.maxConnections || 10,
+      connectTimeout: this.config.postgres!.connectTimeout || 30,
+    });
+    // Initialize the storage before returning
+    storage.initialize().catch((err: any) => {
+      console.error("Failed to initialize PostgreSQL storage:", err);
     });
     return storage as DatabaseStorage<T, S>;
   }

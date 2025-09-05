@@ -1325,8 +1325,8 @@ export function createSessionProvider(options?: {
   dbPath?: string;
   useNewBackend?: boolean;
 }): SessionProviderInterface {
-  // Always use the new configuration-based backend
-  return new SessionDbAdapter();
+  // This function is DEPRECATED - use the async createSessionProvider from session-db-adapter.ts
+  throw new Error("DEPRECATED: Use async createSessionProvider from session-db-adapter.ts instead. This sync version doesn't initialize persistence properly.");
 }
 
 /**
