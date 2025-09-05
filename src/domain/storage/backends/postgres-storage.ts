@@ -75,7 +75,8 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
     const provider = PersistenceService.getProvider();
 
-    if (!provider.capabilities.sql) {
+    const capabilities = provider.getCapabilities();
+    if (!capabilities.sql) {
       throw new Error("Current persistence provider does not support SQL operations");
     }
 
