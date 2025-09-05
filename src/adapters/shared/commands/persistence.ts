@@ -1491,12 +1491,12 @@ async function validatePostgresBackend(): Promise<{
         const { getConfiguration } = await import("../../../domain/configuration/index");
         const config = getConfiguration();
         const backend = config.persistence?.backend || config.sessiondb?.backend || "sqlite";
-        
+
         if (backend === "postgres") {
           const connectionString = config.persistence?.postgres?.connectionString ||
                                  config.sessiondb?.postgres?.connectionString ||
                                  (process.env as any).MINSKY_POSTGRES_URL;
-          
+
           if (connectionString) {
             const status = await getPostgresMigrationsStatus(connectionString);
             if (status.pendingCount === 0) {
