@@ -1321,7 +1321,7 @@ async function cleanupLocalBranches(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-// TEMPORARY RE-EXPORT: For files still importing from session.ts directly  
+// TEMPORARY RE-EXPORT: For files still importing from session.ts directly
 import { createSessionProvider as createSessionProviderAsync } from "./session/session-db-adapter";
 export { createSessionProviderAsync as createSessionProvider };
 

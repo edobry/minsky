@@ -7,11 +7,11 @@ import { PostgresPersistenceProvider } from "./postgres-provider";
 import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 
-// Mock the postgres module to avoid real database connections  
+// Mock the postgres module to avoid real database connections
 const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => Promise.resolve([]));
 const mockSql = Object.assign(mockSqlFunction, {
-  options: { 
-    parsers: {}, 
+  options: {
+    parsers: {},
     serializers: {} // Drizzle needs both parsers and serializers
   },
   query: mock(() => Promise.resolve([])),
@@ -46,9 +46,9 @@ describe("PostgresPersistenceProvider", () => {
     // Mock successful connection
     mockSql.query.mockResolvedValueOnce([]);
     await provider.initialize();
-    
+
     const storage = provider.getStorage();
-    
+
     // Should return real PostgresStorage instance, not stub
     expect(storage).toBeInstanceOf(PostgresStorage);
     expect(storage.readState).toBeDefined();
@@ -62,12 +62,12 @@ describe("PostgresPersistenceProvider", () => {
 
   test("initialize() sets up provider correctly", async () => {
     expect(provider.isInitialized).toBe(false);
-    
+
     // Mock successful connection
     mockSql.query.mockResolvedValueOnce([]);
-    
+
     await provider.initialize();
-    
+
     expect(provider.isInitialized).toBe(true);
   });
 
@@ -75,9 +75,9 @@ describe("PostgresPersistenceProvider", () => {
     // Mock successful connection
     mockSql.query.mockResolvedValueOnce([]);
     await provider.initialize();
-    
+
     const connection = await provider.getRawSqlConnection();
-    
+
     expect(connection).toBeDefined();
     // Should return the mocked SQL connection
     expect(connection).toBe(mockSql);
@@ -85,7 +85,7 @@ describe("PostgresPersistenceProvider", () => {
 
   test("getCapabilities() returns correct PostgreSQL capabilities", () => {
     const capabilities = provider.getCapabilities();
-    
+
     expect(capabilities.supportsTransactions).toBe(true);
     expect(capabilities.supportsVectorStorage).toBe(true);
     expect(capabilities.supportsFullTextSearch).toBe(true);
