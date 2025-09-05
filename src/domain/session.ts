@@ -26,6 +26,7 @@ import { type GitServiceInterface, preparePrFromParams } from "./git";
 import { createGitService } from "./git";
 import { ConflictDetectionService } from "./git/conflict-detection";
 import { normalizeRepoName, resolveRepoPath } from "./repo-utils";
+import { createSessionProvider } from "./session/session-db-adapter";
 import {
   resolveRepositoryAndBackend,
   detectRepositoryBackendTypeFromUrl,
@@ -1337,7 +1338,8 @@ export async function inspectSessionFromParams(params: {
     throw new ResourceNotFoundError("No session detected for the current workspace");
   }
 
-  const session = await (await createSessionProvider()).getSession(context.sessionId);
+  const sessionProvider = await createSessionProvider();
+  const session = await sessionProvider.getSession(context.sessionId);
 
   return session;
 }
