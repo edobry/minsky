@@ -1487,11 +1487,29 @@ async function validatePostgresBackend(): Promise<{
     // Additional checks for PostgreSQL
     if (provider.getCapabilities().sql) {
       try {
-        // Test session table access
-        const { createSessionProvider } = await import("../../../domain/session/index");
-        const sessionProvider = await createSessionProvider();
-        const sessions = await sessionProvider.listSessions();
-        log.cli(`✅ Session table accessible (${sessions.length} sessions found)`);
+        // Check schema is up to date (no pending migrations)
+        const { getConfiguration } = await import("../../../domain/configuration/index");
+        const config = getConfiguration();
+        const backend = config.persistence?.backend || config.sessiondb?.backend || "sqlite";
+        
+        if (backend === "postgres") {
+          const connectionString = config.persistence?.postgres?.connectionString ||
+                                 config.sessiondb?.postgres?.connectionString ||
+                                 (process.env as any).MINSKY_POSTGRES_URL;
+          
+          if (connectionString) {
+            const status = await getPostgresMigrationsStatus(connectionString);
+            if (status.pendingCount === 0) {
+              log.cli(`✅ Schema up to date (${status.appliedCount} migrations applied)`);
+            } else {
+              log.cli(`⚠️  Schema outdated: ${status.pendingCount} pending migrations`);
+              log.cli(`   Run: minsky persistence migrate --execute`);
+            }
+          }
+        } else {
+          // For SQLite, we could add similar migration checking in the future
+          log.cli("✅ Schema status: SQLite (migration checking not implemented)");
+        }
 
         // Test vector storage if supported
         if (provider.getCapabilities().vectorStorage) {
