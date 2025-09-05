@@ -5,7 +5,7 @@
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
-import { createSessionProvider, type SessionProviderInterface } from "../../domain/session";
+import { createSessionProvider, type SessionProviderInterface } from "../../domain/session/session-db-adapter";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import {

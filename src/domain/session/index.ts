@@ -41,8 +41,8 @@ import { createSessionProvider as createSessionProviderInternal } from "./sessio
  * Creates a new SessionDB instance for dependency injection
  * Use this instead of a global singleton to ensure test isolation
  */
-export function createSessionDB() {
-  return createSessionProviderInternal();
+export async function createSessionDB() {
+  return await createSessionProviderInternal();
 }
 
 // For backward compatibility and convenience, export a lazily-initialized default instance
