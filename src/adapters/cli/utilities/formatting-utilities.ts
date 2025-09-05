@@ -158,16 +158,22 @@ export function formatResolvedConfiguration(resolved: any): string {
   // Task Storage
   // Note: tasks.backend is preferred, root backend is deprecated but kept for compatibility
   const taskBackend = resolved.tasks?.backend || resolved.backend;
-  if (taskBackend) {
+  const persistenceConfig = resolved.persistence || resolved.sessiondb;
+  const persistenceBackend = persistenceConfig?.backend || "sqlite";
+  
+  // Don't show separate task storage if it's using the same database as persistence
+  if (taskBackend === "minsky" && persistenceBackend === "postgres") {
+    // Will be shown in unified database section below
+  } else if (taskBackend) {
     output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}`;
+    if (taskBackend === TaskBackend.GITHUB_ISSUES && resolved.backendConfig?.["github-issues"]) {
+      const github = resolved.backendConfig["github-issues"];
+      output += ` (${github.owner}/${github.repo})`;
+    }
+    output += "\n";
   } else {
-    output += `📁 Task Storage: Auto-detected (multi-backend mode)`;
+    output += `📁 Task Storage: Auto-detected (multi-backend mode)\n`;
   }
-  if (taskBackend === TaskBackend.GITHUB_ISSUES && resolved.backendConfig?.["github-issues"]) {
-    const github = resolved.backendConfig["github-issues"];
-    output += ` (${github.owner}/${github.repo})`;
-  }
-  output += "\n";
 
   // Authentication & Credentials
   const hasAuth =
@@ -201,12 +207,20 @@ export function formatResolvedConfiguration(resolved: any): string {
     }
   }
 
-  // Persistence Storage (unified for sessions, tasks, embeddings)
-  const persistenceConfig = resolved.persistence || resolved.sessiondb; // fallback to legacy
+  // Storage Layer (unified for sessions, embeddings, and optionally tasks)
+  // persistenceConfig already defined above
   if (persistenceConfig) {
-    output += "💾 Persistence Storage:\n";
+    // Only show separate persistence if tasks aren't using the same backend
+    const taskBackend = resolved.tasks?.backend || resolved.backend;
     const persistenceBackend = persistenceConfig.backend || "sqlite";
-    output += `   • Backend: ${getSessionBackendDisplayName(persistenceBackend)}\n`;
+    
+    if (taskBackend === "minsky" && persistenceBackend === "postgres") {
+      // Both using same database - don't duplicate
+      output += "💾 Database Storage:\n   • All data stored in PostgreSQL database\n";
+    } else {
+      output += "💾 Session/Embeddings Storage:\n";
+      output += `   • Backend: ${getSessionBackendDisplayName(persistenceBackend)}\n`;
+    }
 
     if (persistenceBackend === "sqlite" && persistenceConfig.sqlite?.dbPath) {
       output += `   • Database: ${persistenceConfig.sqlite.dbPath}\n`;
