@@ -231,7 +231,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       sessions.forEach((session, i) => {
         log.debug(`Session ${i}: taskId='${session.taskId}', session='${session.session}'`);
       });
-      
+
       const found = sessions.find((session) => session.taskId === validatedTaskId);
       log.debug(`Found session: ${found ? "YES" : "NO"}`);
       return found || null;
@@ -257,6 +257,29 @@ export class SessionDbAdapter implements SessionProviderInterface {
     } catch (error) {
       log.error(`Failed to find sessions for task '${taskId}':`, getErrorMessage(error as any));
       return [];
+    }
+  }
+
+  async getSessionWorkdir(sessionName: string): Promise<string> {
+    try {
+      const storage = await this.getStorage();
+      const stateResult = await storage.readState();
+      
+      if (!stateResult.success || !stateResult.data) {
+        throw new Error("Failed to read session state");
+      }
+      
+      const { getSessionWorkdirFn } = await import("./session-db");
+      const workdir = getSessionWorkdirFn(stateResult.data, sessionName);
+      
+      if (!workdir) {
+        throw new Error(`Session '${sessionName}' not found or has no working directory`);
+      }
+      
+      return workdir;
+    } catch (error) {
+      log.error(`Failed to get session workdir for '${sessionName}':`, getErrorMessage(error as any));
+      throw error;
     }
   }
 

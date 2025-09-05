@@ -88,7 +88,7 @@ describe("createSessionProvider", () => {
     // Our mocked createSessionProvider doesn't go through PersistenceService
     // but the real implementation does. This test validates the contract.
     const provider = await createSessionProvider();
-    
+
     // Verify we get a valid provider (structure test)
     expect(provider).toBeDefined();
     expect(provider.listSessions).toBeDefined();
