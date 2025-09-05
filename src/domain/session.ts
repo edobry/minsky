@@ -1321,75 +1321,8 @@ async function cleanupLocalBranches(
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
  */
-export function createSessionProvider(options?: {
-  dbPath?: string;
-  useNewBackend?: boolean;
-}): SessionProviderInterface {
-  // TEMPORARY BRIDGE: Return a proxy that initializes async on first use
-  // This prevents breaking existing sync callers while we migrate to async
-  let realProvider: SessionProviderInterface | null = null;
-  
-  const proxyProvider: SessionProviderInterface = {
-    async listSessions() {
-      if (!realProvider) {
-        const { createSessionProvider: asyncCreate } = await import("./session/session-db-adapter");
-        realProvider = await asyncCreate();
-      }
-      return realProvider.listSessions();
-    },
-    
-    async getSession(sessionId: string) {
-      if (!realProvider) {
-        const { createSessionProvider: asyncCreate } = await import("./session/session-db-adapter");
-        realProvider = await asyncCreate();
-      }
-      return realProvider.getSession(sessionId);
-    },
-    
-    async getSessionByTaskId(taskId: string) {
-      if (!realProvider) {
-        const { createSessionProvider: asyncCreate } = await import("./session/session-db-adapter");
-        realProvider = await asyncCreate();
-      }
-      return realProvider.getSessionByTaskId(taskId);
-    },
-    
-    // Implement other required methods...
-    async addSession(session: any) {
-      if (!realProvider) {
-        const { createSessionProvider: asyncCreate } = await import("./session/session-db-adapter");
-        realProvider = await asyncCreate();
-      }
-      return realProvider.addSession(session);
-    },
-    
-    async updateSession(sessionId: string, updates: any) {
-      if (!realProvider) {
-        const { createSessionProvider: asyncCreate } = await import("./session/session-db-adapter");
-        realProvider = await asyncCreate();
-      }
-      return realProvider.updateSession(sessionId, updates);
-    },
-    
-    async deleteSession(sessionId: string) {
-      if (!realProvider) {
-        const { createSessionProvider: asyncCreate } = await import("./session/session-db-adapter");
-        realProvider = await asyncCreate();
-      }
-      return realProvider.deleteSession(sessionId);
-    },
-    
-    async getStorageInfo() {
-      if (!realProvider) {
-        const { createSessionProvider: asyncCreate } = await import("./session/session-db-adapter");
-        realProvider = await asyncCreate();
-      }
-      return realProvider.getStorageInfo();
-    }
-  };
-  
-  return proxyProvider;
-}
+// REMOVED: Use the async createSessionProvider from session-db-adapter.ts instead
+// All call sites should await: const sessionDB = await createSessionProvider();
 
 /**
  * Inspects current session based on workspace location
