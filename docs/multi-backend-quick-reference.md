@@ -108,7 +108,9 @@ minsky session start gh#456
 cd ~/.local/state/minsky/sessions/task-gh#456
 
 # Create PR with qualified reference
-minsky session pr --title "fix(gh#456): Authentication bug"
+minsky session pr create --title "Authentication bug" --type fix
+# Or using changeset terminology:
+minsky session changeset create --title "Authentication bug" --type fix
 ```
 
 ## Backend Configuration

@@ -435,8 +435,11 @@ minsky session start --description "Implement user authentication" auth-feature
 # Get session directory
 cd $(minsky session dir feature-session)
 
-# Work on code, then generate PR
-minsky session pr > PR.md
+# Work on code, then create PR
+minsky session pr create --title "Feature implementation" --type feat
+# Or using changeset terminology:
+minsky session changeset create --title "Feature implementation" --type feat
+minsky session cs create --title "Feature implementation" --type feat  # short alias
 
 # List and update tasks
 minsky tasks list --session feature-session

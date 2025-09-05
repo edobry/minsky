@@ -10,6 +10,7 @@ import { z } from "zod";
 export const commandCategorySchema = z.enum([
   "CORE",
   "GIT",
+  "REPO",
   "TASKS",
   "SESSION",
   "SESSIONDB",

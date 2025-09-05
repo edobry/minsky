@@ -70,7 +70,10 @@ minsky session start --task mt#123
 cd $(minsky session dir mt#123)
 
 # Prepare changes for review
-minsky session pr create --title "Fix critical bug"
+minsky session pr create --title "Fix critical bug" --type fix
+# Changeset aliases also available:
+minsky session changeset create --title "Fix critical bug" --type fix
+minsky session cs create --title "Fix critical bug" --type fix
 ```
 
 ### 3. Workflow Orchestration

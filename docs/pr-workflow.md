@@ -7,7 +7,7 @@ This document describes the workflow for creating and merging pull requests usin
 The enhanced PR workflow offers a streamlined approach to creating and merging pull requests. The workflow includes the following steps:
 
 1. Create a PR summary to review changes (`git summary`)
-2. Prepare a PR with a pre-created merge commit (`session pr` or `git prepare-pr`)
+2. Create a PR/changeset (`session pr create`, `session changeset create`, or `session cs create`)
 3. Approve and merge the prepared PR (`session approve` or `git merge-pr`)
 
 This workflow is designed to minimize merge conflicts and ensure that merges occur via fast-forward only, resulting in a cleaner, more linear commit history.
@@ -65,7 +65,7 @@ The command will also automatically update the task status to "IN_REVIEW" if a t
 
 ### `session pr`
 
-Creates a PR branch for a session with a pre-created merge commit that is ready for fast-forward merge.
+Creates a PR/changeset for a session. Multiple command aliases available.
 
 ```bash
 minsky session pr [session-name] [options]
@@ -206,7 +206,10 @@ The PR workflow commands use specific exit codes to indicate common failure cond
 2. Prepare a PR branch:
 
    ```bash
-   minsky session pr
+   # Create PR for current session:
+   minsky session pr create --title "Feature implementation" --type feat
+   # Or using changeset terminology:
+   minsky session changeset create --title "Feature implementation" --type feat
    ```
 
 3. Review the PR and when ready to merge:

@@ -238,7 +238,7 @@ describe.skip("filesystem operations test", () => {
 ```typescript
 // ✅ Conditional integration tests
 describe.if(process.env.RUN_INTEGRATION_TESTS)(
-  "session pr edit - conventional commit title validation",
+  "session pr edit (and changeset aliases) - conventional commit title validation",
   () => {
     // These run only when explicitly requested
   }

@@ -37,7 +37,15 @@ This rule outlines the usage of the Minsky Control Protocol (MCP) for AI agent i
 - minsky session get [--name <value>] [--task <value>] [--repo <value>] [--json] - get session details
 - minsky session start [--name <value>] [--task <value>] [--description <value>] [--branch <value>] [--repo <value>] [--session <value>] [--json] [--quiet] [--noStatusUpdate] [--skipInstall] [--packageManager <value>] - create new session
 - minsky session dir [--name <value>] [--task <value>] [--repo <value>] [--json] - get session directory
-- minsky session pr.create [--title <value>] [--body <value>] [--bodyPath <value>] [--name <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--skipUpdate] [--autoResolveDeleteConflicts] [--skipConflictCheck] - create pull request
+- minsky session pr create [--title <value>] [--type <value>] [--body <value>] [--bodyPath <value>] [--name <value>] [--task <value>] [--repo <value>] [--noStatusUpdate] [--debug] [--skipUpdate] [--autoResolveDeleteConflicts] [--skipConflictCheck] - create pull request
+- minsky session changeset create [same parameters] - create changeset (alias for pr create)
+- minsky session cs create [same parameters] - short alias for changeset create
+
+### Repository Changeset Operations (VCS Agnostic)
+- minsky repo changeset list [--status <value>] [--author <value>] [--targetBranch <value>] [--limit <value>] [--session <value>] - list all changesets in repository
+- minsky repo changeset search <query> [--status <value>] [--author <value>] [--session <value>] - search changesets by query
+- minsky repo changeset get <id> [--details] - get changeset details (works with PRs, MRs, etc.)
+- minsky repo changeset info - show platform capabilities (GitHub, GitLab, Local Git, etc.)
 
 ### Rules Management
 - minsky rules list [--format <value>] [--tag <value>] [--json] [--debug] - list all rules

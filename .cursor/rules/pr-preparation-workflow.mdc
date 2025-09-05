@@ -179,10 +179,13 @@ Use these types for the PR title:
 1. **Use `--body-path` instead of `--body "$(cat file)"`**
    ```bash
    # ❌ AVOID: Shell parsing issues, command hangs
-   minsky session pr --body "$(cat process/tasks/285/pr.md)"
+   minsky session pr create --body "$(cat process/tasks/285/pr.md)"
 
    # ✅ PREFER: Clean, reliable execution
-   minsky session pr --body-path "/tmp/pr-description.md"
+   minsky session pr create --body-path "/tmp/pr-description.md"
+   # Or using changeset aliases:
+   minsky session changeset create --body-path "/tmp/pr-description.md"
+   minsky session cs create --body-path "/tmp/pr-description.md"
    ```
 
 2. **Use temporary directories for PR descriptions**
@@ -192,7 +195,9 @@ Use these types for the PR title:
    cp process/tasks/285/pr.md /tmp/task285-pr/description.md
 
    # Use with session PR command
-   minsky session pr --title "fix(#285): Fix bug" --body-path "/tmp/task285-pr/description.md"
+   minsky session pr create --title "Fix bug" --type fix --body-path "/tmp/task285-pr/description.md"
+   # Or using changeset alias:
+   minsky session changeset create --title "Fix bug" --type fix --body-path "/tmp/task285-pr/description.md"
 
    # Clean up
    rm -rf /tmp/task285-pr
@@ -207,7 +212,7 @@ Use these types for the PR title:
 
 1. **Complete all work** in session workspace
 2. **Commit and push** all session changes
-3. **Create PR** using `minsky session pr` with proper syntax
+3. **Create PR** using `minsky session pr create` (or `session changeset create`) with proper syntax
 4. **STOP** - Do not continue working on session branch after PR creation
 5. **Switch to main workspace** if further work needed
 

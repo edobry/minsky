@@ -174,7 +174,9 @@ minsky tasks create --backend md "New feature"  # → md#125
 # New workflow supports both
 minsky tasks list --backends md,gh
 minsky session start gh#789
-minsky session pr --title "fix(gh#789): Authentication bug"
+minsky session pr create --title "Authentication bug" --type fix
+# Changeset alias also available:
+minsky session changeset create --title "Authentication bug" --type fix
 ```
 
 ### Scenario 3: Large Project Migration

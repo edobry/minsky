@@ -83,6 +83,9 @@ export { SessionRepairCommand, createSessionRepairCommand } from "./repair-comma
 // Import file commands
 export { SessionEditFileCommand, createSessionEditFileCommand } from "./file-commands";
 
+// Import changeset aliases
+export { registerSessionChangesetCommands } from "./changeset-aliases";
+
 // Import workflow factory functions for internal use
 import {
   createSessionApproveCommand,

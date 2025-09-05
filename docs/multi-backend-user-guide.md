@@ -145,7 +145,9 @@ cd ~/.local/state/minsky/sessions/task-md#125
 # ... make changes ...
 
 # Create PR
-minsky session pr --title "feat(#125): Implement feature X"
+minsky session pr create --title "Implement feature X" --type feat
+# Or using changeset terminology:
+minsky session changeset create --title "Implement feature X" --type feat
 ```
 
 ### 2. Working with GitHub Issues
@@ -162,7 +164,9 @@ cd ~/.local/state/minsky/sessions/task-gh#789
 # ... make changes ...
 
 # Create PR that references GitHub issue
-minsky session pr --title "fix(gh#789): Resolve authentication bug"
+minsky session pr create --title "Resolve authentication bug" --type fix
+# Or using changeset terminology:
+minsky session changeset create --title "Resolve authentication bug" --type fix
 ```
 
 ### 3. Cross-Backend Project Management
