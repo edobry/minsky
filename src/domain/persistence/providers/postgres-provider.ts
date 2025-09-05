@@ -146,11 +146,12 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     const { PostgresVectorStorage } = await import("../../storage/vector/postgres-vector-storage");
 
     // Return PostgresVectorStorage instance with correct constructor parameters
+    // Use tasks_embeddings table which should exist
     return new PostgresVectorStorage(this.sql!, this.db!, dimension, {
-      tableName: "embeddings",
-      idColumn: "id",
+      tableName: "tasks_embeddings",
+      idColumn: "task_id",
       embeddingColumn: "vector",
-      lastIndexedAtColumn: "created_at",
+      lastIndexedAtColumn: "indexed_at",
     });
   }
 

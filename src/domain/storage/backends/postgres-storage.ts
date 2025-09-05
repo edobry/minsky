@@ -297,10 +297,21 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       await this.ensureConnection();
       const results = (await this.drizzle!.select().from(postgresSessions)) as any;
-      return results.map(fromPostgresSelect);
+      log.debug(`PostgreSQL getEntities: Retrieved ${results.length} raw records`);
+      log.debug(`Sample raw record:`, JSON.stringify(results[0], null, 2));
+      const mapped = results.map((record: any, index: number) => {
+        try {
+          return fromPostgresSelect(record);
+        } catch (mappingError) {
+          log.error(`Error mapping record ${index}:`, mappingError, record);
+          throw mappingError;
+        }
+      });
+      log.debug(`PostgreSQL getEntities: Mapped to ${mapped.length} SessionRecords`);
+      return mapped;
     } catch (error) {
       const typedError = error instanceof Error ? error : new Error(String(error as any));
-      log.warn(`Failed to get sessions from PostgreSQL: ${typedError.message}`);
+      log.error(`Failed to get sessions from PostgreSQL: ${typedError.message}`, error);
       return [];
     }
   }
