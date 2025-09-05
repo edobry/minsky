@@ -160,7 +160,7 @@ export function formatResolvedConfiguration(resolved: any): string {
   const taskBackend = resolved.tasks?.backend || resolved.backend;
   const persistenceConfig = resolved.persistence || resolved.sessiondb;
   const persistenceBackend = persistenceConfig?.backend || "sqlite";
-  
+
   // Don't show separate task storage if it's using the same database as persistence
   if (taskBackend === "minsky" && persistenceBackend === "postgres") {
     // Will be shown in unified database section below
@@ -213,12 +213,12 @@ export function formatResolvedConfiguration(resolved: any): string {
     // Only show separate persistence if tasks aren't using the same backend
     const taskBackend = resolved.tasks?.backend || resolved.backend;
     const persistenceBackend = persistenceConfig.backend || "sqlite";
-    
+
     if (taskBackend === "minsky" && persistenceBackend === "postgres") {
       // Both using same database - don't duplicate
-      output += "💾 Database Storage:\n   • All data stored in PostgreSQL database\n";
+      output += "💾 Persistence:\n   • All data stored in PostgreSQL database\n";
     } else {
-      output += "💾 Session/Embeddings Storage:\n";
+      output += "💾 Persistence:\n";
       output += `   • Backend: ${getSessionBackendDisplayName(persistenceBackend)}\n`;
     }
 
