@@ -49,9 +49,9 @@ export function createSessionDB() {
 // However, tests should use createSessionDB() for isolation
 let _lazySessionDB: SessionProviderInterface | null = null;
 export const _SessionDB = {
-  get instance() {
+  async getInstance() {
     if (!_lazySessionDB) {
-      _lazySessionDB = createSessionProviderInternal();
+      _lazySessionDB = await createSessionProviderInternal();
     }
     return _lazySessionDB;
   },
