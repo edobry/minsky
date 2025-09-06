@@ -63,6 +63,88 @@ workspace:
 - If unset, backends fall back to explicit `workspacePath` or `process.cwd()`.
 - Environment override: `MINSKY_WORKSPACE_MAIN_PATH`.
 
+## PostgreSQL Vector Storage Configuration
+
+Minsky supports advanced similarity search through PostgreSQL with the pgvector extension. This enables semantic search capabilities for tasks and rules.
+
+### Vector Storage Capabilities
+
+| Backend    | Vector Storage   | Similarity Search               | Configuration Required |
+| ---------- | ---------------- | ------------------------------- | ---------------------- |
+| PostgreSQL | ✅ Full Support  | Semantic search with embeddings | pgvector extension     |
+| SQLite     | ❌ Not supported | Lexical fallback only           | N/A                    |
+| JSON       | ❌ Not supported | Lexical fallback only           | N/A                    |
+
+### PostgreSQL Persistence Configuration
+
+To enable vector storage, configure PostgreSQL as your persistence backend:
+
+```yaml
+version: 1
+persistence:
+  backend: postgres
+  postgres:
+    connectionString: "postgresql://user:password@localhost:5432/minsky"
+    maxConnections: 10
+    connectTimeout: 30000
+    idleTimeout: 10000
+    prepareStatements: true
+```
+
+### Environment Variable Configuration
+
+```bash
+# PostgreSQL persistence backend
+export MINSKY_PERSISTENCE_BACKEND=postgres
+export MINSKY_PERSISTENCE_POSTGRES_CONNECTION_STRING="postgresql://user:password@localhost:5432/minsky"
+
+# Optional connection tuning
+export MINSKY_PERSISTENCE_POSTGRES_MAX_CONNECTIONS=10
+export MINSKY_PERSISTENCE_POSTGRES_CONNECT_TIMEOUT=30000
+export MINSKY_PERSISTENCE_POSTGRES_IDLE_TIMEOUT=10000
+export MINSKY_PERSISTENCE_POSTGRES_PREPARE_STATEMENTS=true
+```
+
+### Vector Storage Commands
+
+Once PostgreSQL with pgvector is configured, these commands become available:
+
+```bash
+# Semantic task similarity search
+minsky tasks search "authentication workflow patterns"
+minsky tasks similar mt#123
+
+# Semantic rule similarity search
+minsky rules search "error handling best practices"
+
+# Generate/rebuild embeddings
+minsky tasks index-embeddings --reindex
+minsky rules index-embeddings --reindex
+```
+
+### Migration from SQLite to PostgreSQL
+
+To enable vector storage capabilities, migrate from SQLite to PostgreSQL:
+
+1. **Set up PostgreSQL with pgvector** (see [PostgreSQL Vector Storage Setup Guide](postgresql-vector-storage-setup.md))
+
+2. **Update configuration** to use PostgreSQL backend
+
+3. **Initialize embeddings** for existing content:
+   ```bash
+   minsky tasks index-embeddings --reindex
+   minsky rules index-embeddings --reindex
+   ```
+
+### Fallback Behavior
+
+When vector storage is unavailable (SQLite/JSON backends), similarity commands automatically fall back to lexical search with reduced capabilities.
+
+**See Also:**
+
+- [PostgreSQL Vector Storage Setup Guide](postgresql-vector-storage-setup.md) - Complete setup instructions
+- [SessionDB Migration Guide](sessiondb-migration-guide.md) - Data migration between backends
+
 ## Notes
 
 - This setting prevents accidental use of remote URLs or session workspace paths for task file operations.
