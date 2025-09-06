@@ -17,7 +17,7 @@ describe("PostgresStorage Interface Completeness", () => {
     const mockConfig = {
       connectionString: "postgresql://test:test@localhost:5432/test",
       maxConnections: 10,
-      connectTimeout: 30
+      connectTimeout: 30,
     };
 
     const storage = new PostgresStorage(mockConfig, null as any); // Mock sql connection
@@ -44,7 +44,7 @@ describe("PostgresStorage Interface Completeness", () => {
     // This should compile without errors if our interface is correct
     const mockResult: DatabaseReadResult<any> = {
       success: true,
-      data: { session: "test" }
+      data: { session: "test" },
     };
 
     expect(mockResult.success).toBe(true);
@@ -55,11 +55,11 @@ describe("PostgresStorage Interface Completeness", () => {
     // that SessionDbAdapter relies on
 
     const expectedMethods = [
-      'get',           // ← This was missing and caused the bug!
-      'getEntity',
-      'readState',
-      'writeState',
-      'initialize'
+      "get", // ← This was missing and caused the bug!
+      "getEntity",
+      "readState",
+      "writeState",
+      "initialize",
     ];
 
     // Mock storage that should have all expected methods
@@ -68,7 +68,7 @@ describe("PostgresStorage Interface Completeness", () => {
       getEntity: mock(() => Promise.resolve({})),
       readState: mock(() => Promise.resolve({ success: true, data: { sessions: [] } })),
       writeState: mock(() => Promise.resolve({ success: true })),
-      initialize: mock(() => Promise.resolve(true))
+      initialize: mock(() => Promise.resolve(true)),
     };
 
     // Verify all expected methods exist

@@ -12,26 +12,30 @@ import type { SessionRecord } from "./types";
 const mockPersistenceService = {
   initialize: mock(() => Promise.resolve()),
   getProvider: mock(() => mockPersistenceProvider),
-  isInitialized: mock(() => true)  // Should be a function, not property
+  isInitialized: mock(() => true), // Should be a function, not property
 };
 
 const mockStorage = {
   initialize: mock(() => Promise.resolve()),
-  readState: mock(() => Promise.resolve({
-    success: true,
-    data: {
-      sessions: [
-        { session: "test-session-1", taskId: "mt#123", branch: "task-mt#123" },
-        { session: "test-session-2", taskId: "mt#456", branch: "task-mt#456" }
-      ],
-      baseDir: "/test/path"
-    }
-  })),
+  readState: mock(() =>
+    Promise.resolve({
+      success: true,
+      data: {
+        sessions: [
+          { session: "test-session-1", taskId: "mt#123", branch: "task-mt#123" },
+          { session: "test-session-2", taskId: "mt#456", branch: "task-mt#456" },
+        ],
+        baseDir: "/test/path",
+      },
+    })
+  ),
   writeState: mock(() => Promise.resolve({ success: true })),
-  getEntities: mock(() => Promise.resolve([
-    { session: "test-session-1", taskId: "mt#123", branch: "task-mt#123" },
-    { session: "test-session-2", taskId: "mt#456", branch: "task-mt#456" }
-  ] as SessionRecord[]))
+  getEntities: mock(() =>
+    Promise.resolve([
+      { session: "test-session-1", taskId: "mt#123", branch: "task-mt#123" },
+      { session: "test-session-2", taskId: "mt#456", branch: "task-mt#456" },
+    ] as SessionRecord[])
+  ),
 };
 
 const mockPersistenceProvider: PersistenceProvider = {
@@ -41,14 +45,14 @@ const mockPersistenceProvider: PersistenceProvider = {
   getCapabilities: mock(() => ({
     supportsTransactions: true,
     supportsVectorStorage: true,
-    supportsFullTextSearch: true
+    supportsFullTextSearch: true,
   })),
-  isInitialized: true
+  isInitialized: true,
 };
 
 // Mock both PersistenceService and createSessionProvider at module level
 mock.module("../../persistence/service", () => ({
-  PersistenceService: mockPersistenceService
+  PersistenceService: mockPersistenceService,
 }));
 
 // Mock the createSessionProvider function directly
@@ -63,7 +67,7 @@ const mockCreateSessionProvider = mock(async () => {
 // Mock the module
 mock.module("./session-db-adapter", () => ({
   createSessionProvider: mockCreateSessionProvider,
-  SessionDbAdapter: require("./session-db-adapter").SessionDbAdapter
+  SessionDbAdapter: require("./session-db-adapter").SessionDbAdapter,
 }));
 
 describe("createSessionProvider", () => {

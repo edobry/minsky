@@ -18,7 +18,11 @@ import { resolveRepositoryAndBackend } from "../../../../domain/session/reposito
 import { createChangesetService } from "../../../../domain/changeset/index";
 import { log } from "../../../../utils/logger";
 import { getErrorMessage } from "../../../../errors/index";
-import { sessionPrCreateCommandParams, sessionPrEditCommandParams } from "./session-parameters";
+import {
+  sessionPrCreateCommandParams,
+  sessionPrEditCommandParams,
+  sessionApproveCommandParams,
+} from "./session-parameters";
 
 /**
  * Session changeset list parameters (simplified, session-focused)
@@ -313,7 +317,7 @@ export function registerSessionChangesetCommands(): void {
   // session.changeset.create → session.pr.create
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.create",
-    name: "changeset create",
+    name: "create",
     description: "Create a changeset for current session (alias for session pr create)",
     category: CommandCategory.SESSION,
     parameters: sessionPrCreateCommandParams,
@@ -327,13 +331,13 @@ export function registerSessionChangesetCommands(): void {
     },
   });
 
-  // session.changeset.approve → session.pr.approve
+    // session.changeset.approve → session.pr.approve
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.approve",
-    name: "changeset approve",
+    name: "approve",
     description: "Approve current session's changeset (alias for session pr approve)",
     category: CommandCategory.SESSION,
-    parameters: {},
+    parameters: sessionApproveCommandParams,
     execute: async (params: any, ctx?: CommandExecutionContext) => {
       const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
       if (prApproveCommand) {
@@ -346,10 +350,10 @@ export function registerSessionChangesetCommands(): void {
   // session.changeset.merge → session.pr.merge
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.merge",
-    name: "changeset merge",
+    name: "merge",
     description: "Merge current session's changeset (alias for session pr merge)",
     category: CommandCategory.SESSION,
-    parameters: {},
+    parameters: sessionApproveCommandParams,
     execute: async (params: any, ctx?: CommandExecutionContext) => {
       const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
       if (prMergeCommand) {
@@ -362,7 +366,7 @@ export function registerSessionChangesetCommands(): void {
   // session.changeset.edit → session.pr.edit
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.edit",
-    name: "changeset edit",
+    name: "edit",
     description: "Edit current session's changeset (alias for session pr edit)",
     category: CommandCategory.SESSION,
     parameters: sessionPrEditCommandParams,
@@ -378,7 +382,7 @@ export function registerSessionChangesetCommands(): void {
   // Short aliases for create/approve/merge
   sharedCommandRegistry.registerCommand({
     id: "session.cs.create",
-    name: "cs create",
+    name: "create",
     description: "Create changeset for current session (short alias)",
     category: CommandCategory.SESSION,
     parameters: sessionPrCreateCommandParams,
@@ -393,10 +397,10 @@ export function registerSessionChangesetCommands(): void {
 
   sharedCommandRegistry.registerCommand({
     id: "session.cs.approve",
-    name: "cs approve",
+    name: "approve",
     description: "Approve current session's changeset (short alias)",
     category: CommandCategory.SESSION,
-    parameters: {},
+    parameters: sessionApproveCommandParams,
     execute: async (params: any, ctx?: CommandExecutionContext) => {
       const prApproveCommand = sharedCommandRegistry.getCommand("session.pr.approve");
       if (prApproveCommand) {
@@ -408,10 +412,10 @@ export function registerSessionChangesetCommands(): void {
 
   sharedCommandRegistry.registerCommand({
     id: "session.cs.merge",
-    name: "cs merge",
+    name: "merge",
     description: "Merge current session's changeset (short alias)",
     category: CommandCategory.SESSION,
-    parameters: {},
+    parameters: sessionApproveCommandParams,
     execute: async (params: any, ctx?: CommandExecutionContext) => {
       const prMergeCommand = sharedCommandRegistry.getCommand("session.pr.merge");
       if (prMergeCommand) {

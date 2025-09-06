@@ -33,6 +33,7 @@ minsky repo changeset search "bug fix" --session my-session
 Use `session pr` for current session workflow or `session changeset`/`session cs` aliases for consistent terminology:
 
 #### Primary Commands (Original)
+
 ```bash
 minsky session pr create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
 minsky session pr edit --title "Updated title" [--body "..."]
@@ -43,6 +44,7 @@ minsky session pr merge
 ```
 
 #### Changeset Aliases (Same Functionality)
+
 ```bash
 minsky session changeset create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
 minsky session changeset edit --title "Updated title" [--body "..."]
@@ -53,6 +55,7 @@ minsky session changeset merge
 ```
 
 #### Short Aliases
+
 ```bash
 minsky session cs create --title "Add feature" --type feat [--body "..."] [--bodyPath file.md]
 minsky session cs edit --title "Updated title" [--body "..."]
@@ -65,44 +68,50 @@ minsky session cs merge
 ## Platform Support
 
 ### GitHub
+
 - ✅ Full PR support with reviews, comments, status checks
 - ✅ Draft PRs, branch protection, auto-merge
 - ✅ GitHub API integration for rich metadata
 
 ### Local Git
+
 - ✅ Prepared merge commit workflow (existing)
 - ✅ pr/ branch management
 - ✅ Session integration with task references
 
 ### GitLab (Future)
+
 - 🔄 Merge Requests (MRs) support
 - 🔄 GitLab API integration
 - 🔄 Pipeline status tracking
 
 ### Bitbucket (Future)
+
 - 🔄 Pull Request support
 - 🔄 Bitbucket API integration
 
 ### Other VCS (Future)
+
 - 🔄 Fossil changesets
 - 🔄 Jujutsu changes
 - 🔄 Mercurial commits
 
 ## Feature Comparison
 
-| Feature | GitHub | Local Git | GitLab* | Bitbucket* |
-|---------|---------|-----------|---------|------------|
-| Approval Workflow | ✅ | ✅ | 🔄 | 🔄 |
-| Draft Changesets | ✅ | ❌ | 🔄 | ❌ |
-| File Comments | ✅ | ❌ | 🔄 | ✅ |
-| Status Checks | ✅ | ❌ | 🔄 | ❌ |
-| Auto Merge | ✅ | ✅ | 🔄 | ✅ |
+| Feature           | GitHub | Local Git | GitLab\* | Bitbucket\* |
+| ----------------- | ------ | --------- | -------- | ----------- |
+| Approval Workflow | ✅     | ✅        | 🔄       | 🔄          |
+| Draft Changesets  | ✅     | ❌        | 🔄       | ❌          |
+| File Comments     | ✅     | ❌        | 🔄       | ✅          |
+| Status Checks     | ✅     | ❌        | 🔄       | ❌          |
+| Auto Merge        | ✅     | ✅        | 🔄       | ✅          |
 
-*Future implementation
+\*Future implementation
 
 ## Usage Examples
 
 ### Cross-Session Analysis
+
 ```bash
 # Find all open changesets by specific author
 minsky repo changeset list --status open --author alice
@@ -115,6 +124,7 @@ minsky repo changeset get 42 --details
 ```
 
 ### Session Workflow
+
 ```bash
 # Start working on a task
 minsky session start --task mt#123
@@ -131,6 +141,7 @@ minsky session cs merge
 ```
 
 ### Platform Information
+
 ```bash
 # Check what changeset features are available
 minsky repo changeset info --json

@@ -8,11 +8,13 @@ import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 
 // Mock the postgres module to avoid real database connections
-const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => Promise.resolve([]));
+const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) =>
+  Promise.resolve([])
+);
 const mockSql = Object.assign(mockSqlFunction, {
   options: {
     parsers: {},
-    serializers: {} // Drizzle needs both parsers and serializers
+    serializers: {}, // Drizzle needs both parsers and serializers
   },
   query: mock(() => Promise.resolve([])),
   end: mock(() => Promise.resolve()),
@@ -32,8 +34,8 @@ describe("PostgresPersistenceProvider", () => {
       postgres: {
         connectionString: "postgresql://testuser:testpass@localhost:5432/testdb",
         maxConnections: 10,
-        connectTimeout: 30
-      }
+        connectTimeout: 30,
+      },
     };
     provider = new PostgresPersistenceProvider(mockConfig);
   });
@@ -44,7 +46,7 @@ describe("PostgresPersistenceProvider", () => {
 
   test("getStorage() returns actual PostgresStorage instance, not stub", async () => {
     // Mock successful connection
-    mockSql.query.mockResolvedValueOnce([]);
+    mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
     await provider.initialize();
 
     const storage = provider.getStorage();
@@ -64,7 +66,7 @@ describe("PostgresPersistenceProvider", () => {
     expect(provider.isInitialized).toBe(false);
 
     // Mock successful connection
-    mockSql.query.mockResolvedValueOnce([]);
+    mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
 
     await provider.initialize();
 
@@ -73,7 +75,7 @@ describe("PostgresPersistenceProvider", () => {
 
   test("getRawSqlConnection() returns connection when initialized", async () => {
     // Mock successful connection
-    mockSql.query.mockResolvedValueOnce([]);
+    mockSql.query.mockImplementationOnce(() => Promise.resolve([]));
     await provider.initialize();
 
     const connection = await provider.getRawSqlConnection();

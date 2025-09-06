@@ -25,7 +25,7 @@ describe("GitService Default Branch Detection", () => {
   });
 
   test("should properly remove origin prefix from branch name", async () => {
-    // Create mock git service with expected behavior 
+    // Create mock git service with expected behavior
     const fetchMock = mock(async () => "custom-main");
     const mockGitService = createMockGitService({
       fetchDefaultBranch: fetchMock,

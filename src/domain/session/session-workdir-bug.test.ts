@@ -17,15 +17,17 @@ describe("Session Workdir Interface Completeness", () => {
       initialize: mock(() => Promise.resolve()),
       getStorage: mock(() => ({
         initialize: mock(() => Promise.resolve(true)),
-        readState: mock(() => Promise.resolve({
-          success: true,
-          data: { sessions: [], baseDir: "/tmp/test" }
-        })),
-        get: mock(() => Promise.resolve({ success: true, data: {} }))
+        readState: mock(() =>
+          Promise.resolve({
+            success: true,
+            data: { sessions: [], baseDir: "/tmp/test" },
+          })
+        ),
+        get: mock(() => Promise.resolve({ success: true, data: {} })),
       })),
       getRawSqlConnection: mock(() => Promise.resolve({})),
       getCapabilities: mock(() => ({ supportsTransactions: true })),
-      isInitialized: true
+      isInitialized: true,
     };
 
     // Create session adapter directly to test interface
@@ -53,7 +55,7 @@ describe("Session Workdir Interface Completeness", () => {
       getSessionWorkdir: mock(() => Promise.resolve("/test/workdir")),
       listSessions: mock(() => Promise.resolve([])),
       getSession: mock(() => Promise.resolve(null)),
-      getSessionByTaskId: mock(() => Promise.resolve(null))
+      getSessionByTaskId: mock(() => Promise.resolve(null)),
     };
 
     expect(typeof mockProvider.getSessionWorkdir).toBe("function");
@@ -67,7 +69,7 @@ describe("Session Workdir Interface Completeness", () => {
 
     // This should compile if the interface is correct
     const mockProvider: SessionProviderInterface = {
-      getSessionWorkdir: async (sessionName: string) => "/test/workdir"
+      getSessionWorkdir: async (sessionName: string) => "/test/workdir",
     };
 
     expect(typeof mockProvider.getSessionWorkdir).toBe("function");

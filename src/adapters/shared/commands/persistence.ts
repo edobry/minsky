@@ -1493,9 +1493,10 @@ async function validatePostgresBackend(): Promise<{
         const backend = config.persistence?.backend || config.sessiondb?.backend || "sqlite";
 
         if (backend === "postgres") {
-          const connectionString = config.persistence?.postgres?.connectionString ||
-                                 config.sessiondb?.postgres?.connectionString ||
-                                 (process.env as any).MINSKY_POSTGRES_URL;
+          const connectionString =
+            config.persistence?.postgres?.connectionString ||
+            config.sessiondb?.postgres?.connectionString ||
+            (process.env as any).MINSKY_POSTGRES_URL;
 
           if (connectionString) {
             const status = await getPostgresMigrationsStatus(connectionString);

@@ -63,5 +63,3 @@ export function registerChangesetTools(commandMapper: CommandMapper): void {
     },
   });
 }
-
-

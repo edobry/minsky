@@ -1,0 +1,188 @@
+---
+description: CRITICAL protocol for task status management during session workflow - prevents premature DONE status setting
+---
+
+# Task Status Workflow Protocol
+
+## CRITICAL VIOLATION PREVENTION RULE
+
+**NEVER manually set task status to DONE from within a session workflow.**
+
+This is a critical workflow violation that bypasses the proper review and approval process.
+
+## Task Status Lifecycle in Sessions
+
+### Correct Status Flow
+
+```
+TODO → IN-PROGRESS → IN-REVIEW → DONE (automatic via PR merge)
+  ↓         ↓            ↓              ↓
+Start    Session     Create PR      PR Merged
+Session   Work                      (Automatic)
+```
+
+### Manual Status Changes Allowed in Sessions
+
+| Status | When to Set | Command | Purpose |
+|--------|-------------|---------|---------|
+| `IN-PROGRESS` | Start working on task | `minsky tasks status set <id> IN-PROGRESS` | Indicates active work |
+| `IN-REVIEW` | Ready for PR review | Automatic or manual before PR | Indicates ready for review |
+| `BLOCKED` | Cannot proceed | `minsky tasks status set <id> BLOCKED` | Indicates impediment |
+
+### Manual Status Changes PROHIBITED in Sessions
+
+| Status | NEVER Set From Session | Reason |
+|--------|----------------------|--------|
+| `DONE` | ❌ FORBIDDEN | Only set automatically when PR merges |
+| `CLOSED` | ❌ FORBIDDEN | Only set when task is cancelled/invalid |
+
+## MANDATORY Verification Before Status Changes
+
+**Before ANY status change, MUST verify:**
+
+```bash
+# 1. Check current status
+minsky tasks status get <taskId>
+
+# 2. Verify you're following proper flow
+if [[ "$NEW_STATUS" == "DONE" ]]; then
+    echo "❌ FORBIDDEN: Never manually set DONE from session"
+    echo "✅ CORRECT: Create PR instead"
+    exit 1
+fi
+
+# 3. Only proceed with allowed status changes
+minsky tasks status set <taskId> <ALLOWED_STATUS>
+```
+
+## Proper Session Completion Workflow
+
+### ✅ CORRECT: Complete Session with PR
+
+1. **Commit all changes** in session:
+   ```bash
+   git add .
+   git commit -m "feat: implement feature"
+   git push origin $(git branch --show-current)
+   ```
+
+2. **Set status to IN-REVIEW** (if not automatic):
+   ```bash
+   minsky tasks status set mt#527 IN-REVIEW
+   ```
+
+3. **Create PR** (this does NOT set DONE):
+   ```bash
+   minsky session pr create --title "Feature implementation" --type feat
+   ```
+
+4. **DONE status set automatically** when PR merges (not manual)
+
+### ❌ FORBIDDEN: Direct DONE Status
+
+```bash
+# ❌ NEVER DO THIS FROM A SESSION
+minsky tasks status set mt#527 DONE
+
+# This bypasses:
+# - Code review process  
+# - PR approval workflow
+# - Automated testing
+# - Proper change integration
+```
+
+## Enforcement Mechanism
+
+### Pre-Status-Change Verification
+
+Before EVERY task status change, assistant MUST check:
+
+1. **Are we in a session?** (Check working directory)
+2. **Is target status DONE?** (Check command parameters)  
+3. **STOP IMMEDIATELY** if attempting to set DONE from session
+
+### Mandatory Questions Before Status Changes
+
+- [ ] Am I working in a session directory?
+- [ ] Am I trying to set status to DONE?  
+- [ ] Is this the proper completion workflow?
+- [ ] Should I create a PR instead?
+
+**If ANY answer suggests premature DONE setting: STOP and create PR instead**
+
+## Violation Response Protocol
+
+### When Status DONE Set Prematurely
+
+1. **Immediately undo** the incorrect status:
+   ```bash
+   minsky tasks status set <taskId> IN-REVIEW
+   ```
+
+2. **Create prevention rule** (this file) to prevent recurrence
+
+3. **Commit rule** to ensure future sessions have updated guidance
+
+4. **Create PR** for the actual work
+
+5. **Document violation** for learning
+
+### Emergency Status Correction
+
+```bash
+# If DONE was set incorrectly, immediately correct:
+minsky tasks status set mt#527 IN-REVIEW
+
+# Then follow proper PR creation workflow
+minsky session pr create --title "Work title" --type feat
+```
+
+## Integration with Other Workflow Rules
+
+- **PR Preparation Workflow**: Task status should be IN-REVIEW before PR creation
+- **Session Management**: Sessions are for development work, not completion marking  
+- **Git Workflow**: DONE status correlates with merged PRs, not development commits
+
+## Status Change Command Usage
+
+### Safe Commands in Sessions
+
+```bash
+# ✅ SAFE: Mark work started
+minsky tasks status set mt#527 IN-PROGRESS
+
+# ✅ SAFE: Mark ready for review  
+minsky tasks status set mt#527 IN-REVIEW
+
+# ✅ SAFE: Mark blocked
+minsky tasks status set mt#527 BLOCKED
+```
+
+### Dangerous Commands in Sessions
+
+```bash
+# ❌ DANGEROUS: Never set DONE manually
+minsky tasks status set mt#527 DONE
+
+# ❌ DANGEROUS: Never close from session
+minsky tasks status set mt#527 CLOSED
+```
+
+## CRITICAL REMINDER
+
+**The purpose of the session workflow is development and preparation for review, NOT completion marking.**
+
+**Task completion (DONE status) happens through the PR merge process, which includes:**
+- Code review by others
+- Automated testing  
+- Integration verification
+- Proper change documentation
+
+**Manually setting DONE bypasses these critical quality and process controls.**
+
+## Violation Tracking
+
+**Task #527 Violation**: Manually set DONE status from session on 2025-01-04
+- **Correction**: Status reverted to IN-REVIEW  
+- **Prevention**: This rule created
+- **Process**: PR created for proper completion workflow

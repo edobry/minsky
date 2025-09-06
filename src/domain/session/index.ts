@@ -4,10 +4,7 @@
  */
 
 // Export the adapter and its interface
-export {
-  SessionDbAdapter,
-  createSessionProvider,
-} from "./session-db-adapter";
+export { SessionDbAdapter, createSessionProvider } from "./session-db-adapter";
 
 export type { SessionProviderInterface } from "./session-db-adapter";
 

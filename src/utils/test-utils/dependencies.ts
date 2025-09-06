@@ -561,7 +561,7 @@ export function createMockGitService(options: MockGitServiceOptions = {}): GitSe
     getCurrentBranch: options.getCurrentBranch || (() => Promise.resolve("main")),
 
     hasUncommittedChanges: options.hasUncommittedChanges || (() => Promise.resolve(false)),
-    
+
     fetchDefaultBranch: options.fetchDefaultBranch || (() => Promise.resolve("main")),
   });
 

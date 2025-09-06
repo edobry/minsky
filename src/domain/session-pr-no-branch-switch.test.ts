@@ -82,14 +82,15 @@ describe("Session PR Command Branch Behavior", () => {
         {
           session: "task#228",
           title: "Test PR",
-          body: "Test body", 
+          body: "Test body",
           baseBranch: "main",
         },
         {
-          createGitService: () => ({
-            execInRepository: mockExecAsync,
-            getSessionWorkdir: () => "/test/session/workdir",
-          } as any),
+          createGitService: () =>
+            ({
+              execInRepository: mockExecAsync,
+              getSessionWorkdir: () => "/test/session/workdir",
+            }) as any,
         }
       );
 
@@ -183,10 +184,11 @@ describe("Session PR Command Branch Behavior", () => {
           baseBranch: "main",
         },
         {
-          createGitService: () => ({
-            execInRepository: mockExecAsync,
-            getSessionWorkdir: () => "/test/session/workdir",
-          } as any),
+          createGitService: () =>
+            ({
+              execInRepository: mockExecAsync,
+              getSessionWorkdir: () => "/test/session/workdir",
+            }) as any,
         }
       );
     } catch (error) {

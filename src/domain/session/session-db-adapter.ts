@@ -278,7 +278,10 @@ export class SessionDbAdapter implements SessionProviderInterface {
 
       return workdir;
     } catch (error) {
-      log.error(`Failed to get session workdir for '${sessionName}':`, getErrorMessage(error as any));
+      log.error(
+        `Failed to get session workdir for '${sessionName}':`,
+        getErrorMessage(error as any)
+      );
       throw error;
     }
   }
