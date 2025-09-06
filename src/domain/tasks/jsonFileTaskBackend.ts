@@ -216,11 +216,11 @@ ${description}
 
       if (provider.capabilities.sql) {
         const db = await provider.getDatabaseConnection?.();
-        
+
         if (db) {
           const { tasksTable } = await import("../storage/schemas/task-embeddings");
           const { eq } = await import("drizzle-orm");
-          
+
           // Delete from tasks table (this will cascade delete from tasks_embeddings due to FK constraint)
           const result = await db.delete(tasksTable).where(eq(tasksTable.id, id));
           log.debug(`Deleted task ${id} from database`, { rowCount: (result as any).rowCount });

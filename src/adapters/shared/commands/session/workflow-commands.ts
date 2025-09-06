@@ -171,7 +171,8 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
       "../../../../domain/session/session-review-operations"
     );
 
-    const result = await sessionReviewImpl({
+    // Get basic session review data (with changeset integration)
+    const reviewResult = await sessionReviewImpl({
       session: params.session || params.name,
       task: params.task,
       repo: params.repo,
@@ -180,7 +181,160 @@ export class SessionReviewCommand extends BaseSessionCommand<any, any> {
       prBranch: params.prBranch,
     });
 
-    return this.createSuccessResult(result);
+    // If AI analysis is requested, enhance with AI review
+    if (params.ai && reviewResult.changeset) {
+      try {
+        // Import AI services
+        const { AIReviewService } = await import("../../../../domain/ai/review-service");
+        const { DefaultAICompletionService } = await import(
+          "../../../../domain/ai/completion-service"
+        );
+        const { ConfigurationService } = await import("../../../../domain/configuration");
+
+        // Create AI completion service
+        const configService = new ConfigurationService(process.cwd());
+        const aiService = new DefaultAICompletionService(configService);
+        const reviewService = new AIReviewService(aiService);
+
+        // Perform AI analysis
+        const aiReviewResult = await reviewService.reviewChangeset(reviewResult.changeset, {
+          model: params.model,
+          provider: params.provider,
+          focus: params.focus || "general",
+          detailed: params.detailed || false,
+          includeTaskSpec: params.includeTaskSpec || false,
+          includeHistory: params.includeHistory || false,
+          temperature: params.temperature,
+          maxTokens: params.maxTokens,
+        });
+
+        // Handle AI actions if requested
+        if (params.autoComment && aiReviewResult.overall.recommendation !== "approve") {
+          await this.handleAutoComment(reviewResult, aiReviewResult);
+        }
+
+        if (params.autoApprove && aiReviewResult.overall.score >= 8) {
+          await this.handleAutoApprove(reviewResult, aiReviewResult);
+        }
+
+        // Return enhanced result with AI analysis
+        return this.createSuccessResult({
+          ...reviewResult,
+          aiAnalysis: aiReviewResult,
+          enhancedWithAI: true,
+        });
+      } catch (aiError) {
+        // If AI analysis fails, return basic result with error info
+        const errorMessage = aiError instanceof Error ? aiError.message : String(aiError);
+        return this.createSuccessResult({
+          ...reviewResult,
+          aiAnalysis: null,
+          aiError: `AI analysis failed: ${errorMessage}`,
+          enhancedWithAI: false,
+        });
+      }
+    }
+
+    // Return basic review result
+    return this.createSuccessResult(reviewResult);
+  }
+
+  /**
+   * Handle auto-comment action: add AI review as changeset comment
+   */
+  private async handleAutoComment(reviewResult: any, aiResult: any): Promise<void> {
+    if (!reviewResult.changeset) return;
+
+    try {
+      const { createChangesetService } = await import(
+        "../../../../domain/changeset/changeset-service"
+      );
+      const changesetService = await createChangesetService(
+        reviewResult.changeset.metadata?.github?.url ||
+          reviewResult.changeset.metadata?.local?.sessionName ||
+          "unknown"
+      );
+
+      // Get adapter to submit comment
+      const adapter = await changesetService.getAdapter();
+      if (adapter && typeof adapter.approve === "function") {
+        const commentText = this.formatAIReviewComment(aiResult);
+        await adapter.approve(reviewResult.changeset.id, commentText);
+      }
+    } catch (error) {
+      // Log error but don't fail the entire review
+      const { log } = await import("../../../../utils/logger");
+      log.warn("Failed to auto-comment AI review:", { error });
+    }
+  }
+
+  /**
+   * Handle auto-approve action: approve changeset if AI score is high
+   */
+  private async handleAutoApprove(reviewResult: any, aiResult: any): Promise<void> {
+    if (!reviewResult.changeset || aiResult.overall.score < 8) return;
+
+    try {
+      const { createChangesetService } = await import(
+        "../../../../domain/changeset/changeset-service"
+      );
+      const changesetService = await createChangesetService(
+        reviewResult.changeset.metadata?.github?.url ||
+          reviewResult.changeset.metadata?.local?.sessionName ||
+          "unknown"
+      );
+
+      // Get adapter to approve
+      const adapter = await changesetService.getAdapter();
+      if (adapter && typeof adapter.approve === "function") {
+        const approvalText = `AI Review: ${aiResult.overall.summary} (Score: ${aiResult.overall.score}/10)`;
+        await adapter.approve(reviewResult.changeset.id, approvalText);
+      }
+    } catch (error) {
+      // Log error but don't fail the entire review
+      const { log } = await import("../../../../utils/logger");
+      log.warn("Failed to auto-approve changeset:", { error });
+    }
+  }
+
+  /**
+   * Format AI review result as a comment
+   */
+  private formatAIReviewComment(aiResult: any): string {
+    const sections = [];
+
+    sections.push(`## 🤖 AI Code Review`);
+    sections.push(`**Overall Score:** ${aiResult.overall.score}/10`);
+    sections.push(
+      `**Recommendation:** ${aiResult.overall.recommendation.replace("_", " ").toUpperCase()}`
+    );
+    sections.push(`**Focus Area:** ${aiResult.metadata.focus}`);
+    sections.push("");
+    sections.push(`### Summary`);
+    sections.push(aiResult.overall.summary);
+
+    if (aiResult.suggestions && aiResult.suggestions.length > 0) {
+      sections.push("");
+      sections.push(`### Key Suggestions`);
+      aiResult.suggestions.slice(0, 5).forEach((suggestion: string, i: number) => {
+        sections.push(`${i + 1}. ${suggestion}`);
+      });
+    }
+
+    if (aiResult.fileReviews && aiResult.fileReviews.length > 0) {
+      sections.push("");
+      sections.push(`### File Reviews`);
+      aiResult.fileReviews.slice(0, 3).forEach((file: any) => {
+        sections.push(`- **${file.path}**: Score ${file.score}/10`);
+      });
+    }
+
+    sections.push("");
+    sections.push(
+      `*Generated by ${aiResult.metadata.model} in ${aiResult.metadata.analysisTimeMs}ms*`
+    );
+
+    return sections.join("\n");
   }
 }
 

@@ -4,6 +4,72 @@
 
 The Minsky multi-backend task system allows you to work with tasks from multiple backends (Markdown, GitHub Issues, JSON) simultaneously. This guide covers everything you need to know about using the new system.
 
+## Vector Storage Considerations
+
+### Backend Capabilities for Similarity Search
+
+Different task backends have varying capabilities, particularly for advanced similarity search features:
+
+| Backend           | Vector Storage         | Similarity Search                    | Configuration                  |
+| ----------------- | ---------------------- | ------------------------------------ | ------------------------------ |
+| **Markdown**      | Depends on persistence | Full semantic search (if PostgreSQL) | Requires PostgreSQL + pgvector |
+| **GitHub Issues** | Depends on persistence | Full semantic search (if PostgreSQL) | Requires PostgreSQL + pgvector |
+| **JSON**          | Depends on persistence | Full semantic search (if PostgreSQL) | Requires PostgreSQL + pgvector |
+
+**Important**: Vector storage depends on your **persistence backend configuration**, not the task backend itself.
+
+### Persistence Backend Vector Storage
+
+| Persistence Backend       | Vector Storage   | Similarity Commands                           |
+| ------------------------- | ---------------- | --------------------------------------------- |
+| **PostgreSQL + pgvector** | ✅ Full Support  | `minsky tasks search`, `minsky tasks similar` |
+| **SQLite**                | ❌ Not Supported | Lexical fallback with warnings                |
+| **JSON File**             | ❌ Not Supported | Lexical fallback with warnings                |
+
+### Enabling Vector Storage
+
+To enable semantic similarity search for any task backend:
+
+1. **Configure PostgreSQL persistence**:
+
+   ```yaml
+   # ~/.config/minsky/config.yaml or .minsky/config.yaml
+   persistence:
+     backend: postgres
+     postgres:
+       connectionString: "postgresql://user:password@localhost:5432/minsky"
+   ```
+
+2. **Install pgvector extension**:
+
+   ```bash
+   psql "postgresql://user:password@localhost:5432/minsky" \
+     -c "CREATE EXTENSION IF NOT EXISTS vector;"
+   ```
+
+3. **Generate embeddings**:
+   ```bash
+   minsky tasks index-embeddings --reindex
+   ```
+
+### Vector Storage vs Task Backend
+
+**Common Misconception**: "GitHub Issues have better search than Markdown tasks"
+
+**Reality**: Search quality depends on **persistence configuration**, not task backend:
+
+```bash
+# Same persistence = same search quality
+minsky tasks search "auth patterns" --backend=markdown     # Uses PostgreSQL vector storage
+minsky tasks search "auth patterns" --backend=github      # Uses same PostgreSQL vector storage
+
+# Different persistence = different search quality
+MINSKY_PERSISTENCE_BACKEND=sqlite minsky tasks search "auth"     # Lexical fallback
+MINSKY_PERSISTENCE_BACKEND=postgres minsky tasks search "auth"   # Semantic search
+```
+
+See the [Vector Storage Fallback Behavior Guide](vector-storage-fallback-behavior.md) for detailed information about fallback behavior.
+
 ## Task ID Formats
 
 ### Qualified Task IDs (New Format)
