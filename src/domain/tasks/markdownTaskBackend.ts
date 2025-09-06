@@ -812,7 +812,38 @@ ${description}
         return false;
       }
 
-      // Remove the task from the array
+      // Delete from PostgreSQL tasks table (source of truth)
+      try {
+        const { PersistenceService } = await import("../persistence/service");
+
+        if (!PersistenceService.isInitialized()) {
+          await PersistenceService.initialize();
+        }
+
+        const provider = PersistenceService.getProvider();
+
+        if (provider.capabilities.sql) {
+          const db = await provider.getDatabaseConnection?.();
+          
+          if (db) {
+            const { tasksTable } = await import("../storage/schemas/task-embeddings");
+            const { eq } = await import("drizzle-orm");
+            
+            // Delete from tasks table (this will cascade delete from tasks_embeddings due to FK constraint)
+            const result = await db.delete(tasksTable).where(eq(tasksTable.id, id));
+            log.debug(`Deleted task ${id} from database`, { rowCount: (result as any).rowCount });
+          } else {
+            log.debug(`No database connection available for task ${id} deletion`);
+          }
+        } else {
+          log.debug(`Database provider does not support SQL for task ${id} deletion`);
+        }
+      } catch (dbError) {
+        // Log but don't fail the operation if database deletion fails
+        log.debug(`Could not delete task ${id} from database: ${getErrorMessage(dbError as any)}`);
+      }
+
+      // Remove the task from the markdown file array
       const updatedTasks = tasks.filter((task) => task.id !== taskToDelete.id);
 
       // Save the updated tasks
