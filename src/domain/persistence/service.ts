@@ -75,12 +75,8 @@ export class PersistenceService {
       log.warn(
         "⚠️  DEPRECATION WARNING: Using legacy sessiondb configuration. Please migrate to persistence: configuration."
       );
-      log.warn(
-        "   Run 'minsky config migrate' to automatically convert your configuration."
-      );
-      log.warn(
-        "   Legacy sessiondb support will be removed in a future version."
-      );
+      log.warn("   Run 'minsky config migrate' to automatically convert your configuration.");
+      log.warn("   Legacy sessiondb support will be removed in a future version.");
       return {
         backend: "postgres",
         postgres: {
@@ -98,12 +94,8 @@ export class PersistenceService {
       log.warn(
         "⚠️  DEPRECATION WARNING: Using legacy sessiondb configuration. Please migrate to persistence: configuration."
       );
-      log.warn(
-        "   Run 'minsky config migrate' to automatically convert your configuration."
-      );
-      log.warn(
-        "   Legacy sessiondb support will be removed in a future version."
-      );
+      log.warn("   Run 'minsky config migrate' to automatically convert your configuration.");
+      log.warn("   Legacy sessiondb support will be removed in a future version.");
       return {
         backend: "sqlite",
         sqlite: {

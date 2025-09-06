@@ -122,7 +122,8 @@ export function createTasksAvailableCommand() {
         if (error instanceof Error && error.message.includes("no such table: task_relationships")) {
           return {
             success: false,
-            error: "Task relationships table not found. This feature requires PostgreSQL backend or database migration.",
+            error:
+              "Task relationships table not found. This feature requires PostgreSQL backend or database migration.",
           };
         }
         throw error;
@@ -235,7 +236,8 @@ export function createTasksRouteCommand() {
         if (error instanceof Error && error.message.includes("no such table: task_relationships")) {
           return {
             success: false,
-            error: "Task relationships table not found. This feature requires PostgreSQL backend or database migration.",
+            error:
+              "Task relationships table not found. This feature requires PostgreSQL backend or database migration.",
           };
         }
         throw error;

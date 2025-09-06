@@ -89,8 +89,7 @@ export function migrateSessionDbToPersistence(sessiondbConfig: any): any {
 
   if (backend === "postgres") {
     // Migrate PostgreSQL configuration
-    const connectionString =
-      validated.postgres?.connectionString || validated.connectionString;
+    const connectionString = validated.postgres?.connectionString || validated.connectionString;
 
     if (!connectionString) {
       throw new Error("PostgreSQL backend requires connectionString");
@@ -194,7 +193,7 @@ export function migrateConfigurationFile(
   // Perform migration
   try {
     const migrationResult = migrateSessionDbToPersistence(config.sessiondb);
-    
+
     // Create new configuration
     const newConfig = { ...config };
     newConfig.persistence = migrationResult.config;
@@ -220,10 +219,10 @@ export function migrateConfigurationFile(
       // Write new configuration
       let newContent: string;
       if (format === "yaml") {
-        newContent = yaml.dump(newConfig, { 
+        newContent = yaml.dump(newConfig, {
           indent: 2,
           quotingType: '"',
-          forceQuotes: false
+          forceQuotes: false,
         });
       } else {
         newContent = JSON.stringify(newConfig, null, 2);
@@ -255,29 +254,29 @@ export function validateMigration(sessiondbConfig: any, persistenceConfig: any):
 
     // Backend-specific validation
     if (modernValidated.backend === "postgres") {
-      const legacyConnectionString = 
+      const legacyConnectionString =
         legacyValidated.postgres?.connectionString || legacyValidated.connectionString;
       const modernConnectionString = modernValidated.postgres?.connectionString;
-      
+
       return legacyConnectionString === modernConnectionString;
     }
 
     if (modernValidated.backend === "sqlite") {
       const legacyPath = legacyValidated.sqlite?.path || legacyValidated.dbPath;
       const modernPath = modernValidated.sqlite?.dbPath;
-      
+
       // Allow computed paths for baseDir migration
       if (legacyPath) {
         return legacyPath === modernPath;
       }
-      
+
       // Check if baseDir was used to compute path
       const baseDir = legacyValidated.sqlite?.baseDir || legacyValidated.baseDir;
       if (baseDir) {
         const expectedPath = join(baseDir, "minsky.db");
         return expectedPath === modernPath;
       }
-      
+
       // Default path migration
       return modernPath === "~/.local/state/minsky/minsky.db";
     }

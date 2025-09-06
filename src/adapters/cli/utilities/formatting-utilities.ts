@@ -206,7 +206,8 @@ export function formatResolvedConfiguration(resolved: any): string {
   if (persistenceConfig) {
     // Warn about legacy sessiondb usage
     if (!resolved.persistence && resolved.sessiondb) {
-      output += "⚠️  DEPRECATION: sessiondb configuration detected. Please migrate to persistence: configuration.\n";
+      output +=
+        "⚠️  DEPRECATION: sessiondb configuration detected. Please migrate to persistence: configuration.\n";
       output += "   Run 'minsky config migrate' to automatically convert your configuration.\n\n";
     }
     output += "💾 Persistence Storage:\n";
