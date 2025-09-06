@@ -56,8 +56,8 @@ export class SessionDbAdapter implements SessionProviderInterface {
     log.debug(`Getting session: ${sessionName}`);
     try {
       const storage = await this.getStorage();
-      const result = await storage.get(sessionName);
-      return result.success ? result.data : null;
+      const result = await storage.getEntity(sessionName);
+      return result;
     } catch (error) {
       log.error(`Failed to get session '${sessionName}':`, getErrorMessage(error as any));
       return null;
@@ -79,15 +79,15 @@ export class SessionDbAdapter implements SessionProviderInterface {
     }
   }
 
-  async createSession(sessionRecord: SessionRecord): Promise<void> {
-    log.debug(`Creating session: ${sessionRecord.session}`);
+  async addSession(sessionRecord: SessionRecord): Promise<void> {
+    log.debug(`Adding session: ${sessionRecord.session}`);
     try {
       const storage = await this.getStorage();
-      await storage.save(sessionRecord.session, sessionRecord);
-      log.debug(`Session created successfully: ${sessionRecord.session}`);
+      await storage.createEntity(sessionRecord);
+      log.debug(`Session added successfully: ${sessionRecord.session}`);
     } catch (error) {
       log.error(
-        `Failed to create session '${sessionRecord.session}':`,
+        `Failed to add session '${sessionRecord.session}':`,
         getErrorMessage(error as any)
       );
       throw error;
@@ -98,7 +98,10 @@ export class SessionDbAdapter implements SessionProviderInterface {
     log.debug(`Updating session: ${sessionName}`);
     try {
       const storage = await this.getStorage();
-      await storage.update(sessionName, updates);
+      const result = await storage.updateEntity(sessionName, updates);
+      if (!result) {
+        throw new Error(`Session '${sessionName}' not found`);
+      }
       log.debug(`Session updated successfully: ${sessionName}`);
     } catch (error) {
       log.error(`Failed to update session '${sessionName}':`, getErrorMessage(error as any));
@@ -106,22 +109,27 @@ export class SessionDbAdapter implements SessionProviderInterface {
     }
   }
 
-  async deleteSession(sessionName: string): Promise<void> {
+  async deleteSession(sessionName: string): Promise<boolean> {
     log.debug(`Deleting session: ${sessionName}`);
     try {
       const storage = await this.getStorage();
-      await storage.delete(sessionName);
-      log.debug(`Session deleted successfully: ${sessionName}`);
+      const deleted = await storage.deleteEntity(sessionName);
+      if (deleted) {
+        log.debug(`Session deleted successfully: ${sessionName}`);
+      } else {
+        log.debug(`Session not found: ${sessionName}`);
+      }
+      return deleted;
     } catch (error) {
       log.error(`Failed to delete session '${sessionName}':`, getErrorMessage(error as any));
-      throw error;
+      return false;
     }
   }
 
   async doesSessionExist(sessionName: string): Promise<boolean> {
     try {
-      const session = await this.getSession(sessionName);
-      return session !== null;
+      const storage = await this.getStorage();
+      return await storage.entityExists(sessionName);
     } catch (error) {
       log.error(
         `Error checking if session exists '${sessionName}':`,
@@ -226,7 +234,8 @@ export class SessionDbAdapter implements SessionProviderInterface {
         return null;
       }
 
-      const sessions = await this.listSessions();
+      const state = await this.getState();
+      const sessions = state.sessions;
       log.debug(`Looking for taskId: '${validatedTaskId}' in ${sessions.length} sessions`);
       sessions.forEach((session, i) => {
         log.debug(`Session ${i}: taskId='${session.taskId}', session='${session.session}'`);
@@ -297,6 +306,22 @@ export class SessionDbAdapter implements SessionProviderInterface {
         getErrorMessage(error as any)
       );
       return false;
+    }
+  }
+
+  async getRepoPath(record: SessionRecord): Promise<string> {
+    try {
+      // Use the existing repoPath from the session record
+      if (record.repoPath) {
+        return record.repoPath;
+      }
+      
+      // Fallback: use the session-db getRepoPathFn utility
+      const repoPath = getRepoPathFn(record);
+      return repoPath;
+    } catch (error) {
+      log.error(`Failed to get repo path for session '${record.session}':`, getErrorMessage(error as any));
+      throw error;
     }
   }
 
