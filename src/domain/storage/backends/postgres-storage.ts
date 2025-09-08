@@ -12,6 +12,7 @@ import postgres from "postgres";
 import { log } from "../../../utils/logger";
 import { readdirSync, statSync } from "fs";
 import { join } from "path";
+import { getMinskyStateDir } from "../../../utils/paths";
 import type {
   DatabaseStorage,
   DatabaseReadResult,
@@ -205,9 +206,10 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       log.debug("PostgreSQL readState: Connection established, calling getEntities");
       const sessions = await this.getEntities();
       log.debug(`PostgreSQL readState: Got ${sessions.length} sessions from getEntities`);
+
       const state: SessionDbState = {
         sessions,
-        baseDir: "/tmp/postgres-sessions", // PostgreSQL doesn't have a filesystem base
+        baseDir: getMinskyStateDir(), // Use proper Minsky state directory for session workspaces
       };
 
       return { success: true, data: state };
