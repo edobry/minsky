@@ -658,4 +658,67 @@ export const sessionReviewCommandParams = {
     description: "PR branch name (defaults to pr/<session-name>)",
     required: false,
   },
+  // AI-powered review options
+  ai: {
+    schema: z.boolean(),
+    description: "Enable AI-powered code review analysis",
+    required: false,
+    defaultValue: false,
+  },
+  model: {
+    schema: z.string(),
+    description: "AI model to use (gpt-4o, claude-3.5, etc.)",
+    required: false,
+  },
+  provider: {
+    schema: z.string(),
+    description: "AI provider (openai, anthropic, google, cohere, mistral)",
+    required: false,
+  },
+  focus: {
+    schema: z.enum(["security", "performance", "style", "logic", "testing", "general"]),
+    description: "Focus area for AI review",
+    required: false,
+    defaultValue: "general",
+  },
+  detailed: {
+    schema: z.boolean(),
+    description: "Enable detailed file-level AI analysis",
+    required: false,
+    defaultValue: false,
+  },
+  autoApprove: {
+    schema: z.boolean(),
+    description: "Auto-approve if AI score is above threshold",
+    required: false,
+    defaultValue: false,
+  },
+  autoComment: {
+    schema: z.boolean(),
+    description: "Auto-add AI review as changeset comment",
+    required: false,
+    defaultValue: false,
+  },
+  includeTaskSpec: {
+    schema: z.boolean(),
+    description: "Include task specification in AI context",
+    required: false,
+    defaultValue: false,
+  },
+  includeHistory: {
+    schema: z.boolean(),
+    description: "Include git history in AI context",
+    required: false,
+    defaultValue: false,
+  },
+  temperature: {
+    schema: z.number().min(0).max(1),
+    description: "AI creativity vs consistency (0.0-1.0)",
+    required: false,
+  },
+  maxTokens: {
+    schema: z.number().positive(),
+    description: "Maximum tokens for AI response",
+    required: false,
+  },
 };

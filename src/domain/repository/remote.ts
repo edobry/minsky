@@ -47,7 +47,7 @@ export class RemoteGitBackend implements RepositoryBackend {
   private readonly repoUrl!: string;
   private readonly repoName!: string;
   private readonly defaultBranch?: string;
-  private sessionDB: SessionProviderInterface;
+  private sessionDB: SessionProviderInterface | null = null;
 
   /**
    * Create a new RemoteGitBackend instance
@@ -66,7 +66,16 @@ export class RemoteGitBackend implements RepositoryBackend {
     }
 
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDB = createSessionProvider();
+  }
+
+  /**
+   * Initialize session database lazily
+   */
+  private async getSessionDB(): Promise<SessionProviderInterface> {
+    if (!this.sessionDB) {
+      this.sessionDB = await createSessionProvider();
+    }
+    return this.sessionDB;
   }
 
   /**
@@ -311,7 +320,8 @@ Repository: ${this.repoUrl}
       // 3. Push to remote repository
 
       // This is a more complete implementation that would work with actual repositories
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
       if (currentSessions.length === 0) {
@@ -375,7 +385,8 @@ Repository: ${this.repoUrl}
       }
 
       // Get all sessions for this repository
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const currentSessions = sessions.filter((s) => s.repoUrl === this.repoUrl);
 
       if (currentSessions.length === 0) {
@@ -441,7 +452,8 @@ Repository: ${this.repoUrl}
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDB.getSession(session);
+      const sessionDB = await this.getSessionDB();
+      const record = await sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
@@ -480,7 +492,8 @@ Repository: ${this.repoUrl}
       throw new MinskyError("Session is required for remote repository PR updates");
     }
 
-    const sessionRecord = await this.sessionDB.getSession(options.session);
+    const sessionDB = await this.getSessionDB();
+    const sessionRecord = await sessionDB.getSession(options.session);
     if (!sessionRecord?.prBranch) {
       throw new MinskyError(`No PR found for session '${options.session}'`);
     }
@@ -523,7 +536,8 @@ Repository: ${this.repoUrl}
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDB.getSession(session);
+      const sessionDB = await this.getSessionDB();
+      const record = await sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
@@ -551,7 +565,8 @@ Repository: ${this.repoUrl}
     let sessionName = options.session;
     if (!sessionName && options.prIdentifier) {
       const prId = String(options.prIdentifier);
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
       sessionName = record?.session;
     }
@@ -560,7 +575,8 @@ Repository: ${this.repoUrl}
         "Remote backend requires session or prIdentifier to resolve PR details"
       );
     }
-    const record = await this.sessionDB.getSession(sessionName);
+    const sessionDB = await this.getSessionDB();
+    const record = await sessionDB.getSession(sessionName);
     const number = record?.prBranch || `pr/${sessionName}`;
     return {
       number,
@@ -585,7 +601,8 @@ Repository: ${this.repoUrl}
     let prBranch: string | undefined;
     if (!sessionName && options.prIdentifier) {
       const prId = String(options.prIdentifier);
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
       sessionName = record?.session;
       prBranch = prId;
@@ -596,7 +613,8 @@ Repository: ${this.repoUrl}
     const workdir = this.getSessionWorkdir(sessionName);
     const baseBranch = this.defaultBranch || "main";
     if (!prBranch) {
-      const record = await this.sessionDB.getSession(sessionName);
+      const sessionDB = await this.getSessionDB();
+      const record = await sessionDB.getSession(sessionName);
       prBranch = record?.prBranch || `pr/${sessionName}`;
     }
     await execGitWithTimeout("fetch", "fetch origin", { workdir });

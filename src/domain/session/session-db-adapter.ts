@@ -86,10 +86,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       await storage.createEntity(sessionRecord);
       log.debug(`Session added successfully: ${sessionRecord.session}`);
     } catch (error) {
-      log.error(
-        `Failed to add session '${sessionRecord.session}':`,
-        getErrorMessage(error as any)
-      );
+      log.error(`Failed to add session '${sessionRecord.session}':`, getErrorMessage(error as any));
       throw error;
     }
   }
@@ -315,12 +312,15 @@ export class SessionDbAdapter implements SessionProviderInterface {
       if (record.repoPath) {
         return record.repoPath;
       }
-      
+
       // Fallback: use the session-db getRepoPathFn utility
       const repoPath = getRepoPathFn(record);
       return repoPath;
     } catch (error) {
-      log.error(`Failed to get repo path for session '${record.session}':`, getErrorMessage(error as any));
+      log.error(
+        `Failed to get repo path for session '${record.session}':`,
+        getErrorMessage(error as any)
+      );
       throw error;
     }
   }

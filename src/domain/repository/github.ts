@@ -53,7 +53,7 @@ export class GitHubBackend implements RepositoryBackend {
   private readonly repoName!: string;
   private readonly owner?: string;
   private readonly repo?: string;
-  private sessionDB: SessionProviderInterface;
+  private sessionDB: SessionProviderInterface | null = null;
   private gitService: GitService;
 
   /**
@@ -86,7 +86,7 @@ export class GitHubBackend implements RepositoryBackend {
         // SSH: git@github.com:owner/repo.git
         // HTTPS: https://github.com/owner/repo.git
         const sshMatch = this.repoUrl.match(/git@github\.com:([^\/]+)\/([^\.]+)/);
-        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^\/]+)\/([^\.]+)/);
+        const httpsMatch = this.repoUrl.match(/https:\/\/github\.com\/([^\.]+)\/([^\.]+)/);
         const match = sshMatch || httpsMatch;
         if (match && match[1] && match[2]) {
           this.owner = this.owner || match[1];
@@ -96,8 +96,17 @@ export class GitHubBackend implements RepositoryBackend {
         // Ignore parsing errors; explicit config may still provide these later
       }
     }
-    this.sessionDB = createSessionProvider();
     this.gitService = new GitService(this.baseDir);
+  }
+
+  /**
+   * Initialize session database lazily
+   */
+  private async getSessionDB(): Promise<SessionProviderInterface> {
+    if (!this.sessionDB) {
+      this.sessionDB = await createSessionProvider();
+    }
+    return this.sessionDB;
   }
 
   /**
@@ -216,7 +225,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async getStatus(): Promise<RepositoryStatus> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -327,7 +337,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     // If no session is provided, find one for this repository
     try {
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const repoSession = sessions.find((s) => s.repoName === this.repoName);
 
       if (repoSession) {
@@ -413,7 +424,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async push(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -456,7 +468,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async pull(): Promise<Result> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -496,7 +509,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
   async checkout(branch: string): Promise<void> {
     try {
       // Find a session for this repository
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const repoSession = sessions.find((session) => session.repoName === this.repoName);
 
       if (!repoSession) {
@@ -550,11 +564,12 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDB.getSession(session);
+      const sessionDB = await this.getSessionDB();
+      const record = await sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
-      workdir = await this.sessionDB.getSessionWorkdir(session);
+      workdir = await sessionDB.getSessionWorkdir(session);
     } else {
       // Use current working directory
       workdir = process.cwd();
@@ -630,7 +645,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // Update session record with PR information if session is provided
       if (session) {
         try {
-          const sessionRecord = await this.sessionDB.getSession(session);
+          const sessionDB = await this.getSessionDB();
+          const sessionRecord = await sessionDB.getSession(session);
           if (sessionRecord) {
             // Update the session record with essential PR workflow state only
             // title, body, updatedAt are fetched live from GitHub API to avoid cache sync issues
@@ -653,7 +669,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
                 lastSynced: new Date().toISOString(),
               },
             };
-            await this.sessionDB.updateSession(session, updatedSession);
+            await sessionDB.updateSession(session, updatedSession);
             log.debug(`Updated session record for ${session} with PR #${pr.number}`);
           }
         } catch (error) {
@@ -867,7 +883,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
     } else if (options.session) {
       // Find PR number from session record or GitHub API
-      const sessionRecord = await this.sessionDB.getSession(options.session);
+      const sessionDB = await this.getSessionDB();
+      const sessionRecord = await sessionDB.getSession(options.session);
       if (!sessionRecord) {
         throw new MinskyError(`Session '${options.session}' not found`);
       }
@@ -894,9 +911,9 @@ Repository: https://github.com/${this.owner}/${this.repo}
               "Session name is required to update PR without explicit PR number"
             );
           }
-          const sessionWorkdir = await this.sessionDB.getSessionWorkdir(options.session);
+          const sessionWorkdir = await sessionDB.getSessionWorkdir(options.session);
           const { GitService } = require("../git");
-          const gitService = new GitService(this.sessionDB);
+          const gitService = new GitService(sessionDB);
           const currentBranch = (
             await gitService.execInRepository(sessionWorkdir, "git branch --show-current")
           ).trim();
@@ -978,7 +995,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
           owner: this.owner,
           repo: this.repo,
           // Only set workdir when session provided
-          workdir: options.session ? await this.sessionDB.getSessionWorkdir(options.session) : "",
+          workdir: options.session ? await sessionDB.getSessionWorkdir(options.session) : "",
         },
       };
     } catch (error) {
@@ -1248,7 +1265,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
       }
     } else if (options.session) {
       // Try to get PR number from session record
-      const sessionRecord = await this.sessionDB.getSession(options.session);
+      const sessionDB = await this.getSessionDB();
+      const sessionRecord = await sessionDB.getSession(options.session);
       if (sessionRecord?.pullRequest?.number) {
         prNumber =
           typeof sessionRecord.pullRequest.number === "string"
@@ -1314,7 +1332,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
         prNumber = await this.findPRNumberForBranch(String(options.prIdentifier));
       }
     } else if (options.session) {
-      const sessionRecord = await this.sessionDB.getSession(options.session);
+      const sessionDB = await this.getSessionDB();
+      const sessionRecord = await sessionDB.getSession(options.session);
       if (sessionRecord?.pullRequest?.number) {
         prNumber =
           typeof sessionRecord.pullRequest.number === "string"

@@ -48,7 +48,7 @@ export class LocalGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
   private readonly repoUrl!: string;
   private readonly repoName!: string;
-  private sessionDB: SessionProviderInterface;
+  private sessionDB: SessionProviderInterface | null = null;
   private config: RepositoryBackendConfig;
 
   /**
@@ -60,8 +60,17 @@ export class LocalGitBackend implements RepositoryBackend {
     this.baseDir = join(xdgStateHome, "minsky");
     this.repoUrl = config.repoUrl;
     this.repoName = normalizeRepositoryURI(this.repoUrl);
-    this.sessionDB = createSessionProvider();
     this.config = config;
+  }
+
+  /**
+   * Initialize session database lazily
+   */
+  private async getSessionDB(): Promise<SessionProviderInterface> {
+    if (!sessionDB) {
+      sessionDB = await createSessionProvider();
+    }
+    return sessionDB;
   }
 
   /**
@@ -295,7 +304,8 @@ export class LocalGitBackend implements RepositoryBackend {
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDB.getSession(session);
+      const sessionDB = await this.getSessionDB();
+      const record = await sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
@@ -319,14 +329,15 @@ export class LocalGitBackend implements RepositoryBackend {
     // After creating PR, update session record with local commit hash of PR branch
     if (session) {
       try {
-        const sessionRecord = await this.sessionDB.getSession(session);
+        const sessionDB = await this.getSessionDB();
+        const sessionRecord = await sessionDB.getSession(session);
         if (sessionRecord) {
           const prBranchName =
             typeof prInfo.number === "string" ? String(prInfo.number) : `pr/${session}`;
           const workdirPath = this.getSessionWorkdir(session);
           const { stdout } = await execAsync(`git -C ${workdirPath} rev-parse ${prBranchName}`);
           const commitHash = stdout.trim();
-          await this.sessionDB.updateSession(session, {
+          await sessionDB.updateSession(session, {
             ...sessionRecord,
             prBranch: prBranchName,
             prState: {
@@ -366,7 +377,8 @@ export class LocalGitBackend implements RepositoryBackend {
       throw new MinskyError("Session is required for local repository PR updates");
     }
 
-    const sessionRecord = await this.sessionDB.getSession(options.session);
+    const sessionDB = await this.getSessionDB();
+    const sessionRecord = await sessionDB.getSession(options.session);
     if (!sessionRecord?.prBranch) {
       throw new MinskyError(`No PR found for session '${options.session}'`);
     }
@@ -408,7 +420,8 @@ export class LocalGitBackend implements RepositoryBackend {
 
     // Determine working directory
     if (session) {
-      const record = await this.sessionDB.getSession(session);
+      const sessionDB = await this.getSessionDB();
+      const record = await sessionDB.getSession(session);
       if (!record) {
         throw new MinskyError(`Session '${session}' not found in database`);
       }
@@ -442,7 +455,8 @@ export class LocalGitBackend implements RepositoryBackend {
     const prId = String(prIdentifier);
 
     // Find session record by PR branch
-    const sessions = await this.sessionDB.listSessions();
+    const sessionDB = await this.getSessionDB();
+    const sessions = await sessionDB.listSessions();
     const sessionRecord = sessions.find((s) => s.prBranch === prId);
 
     if (!sessionRecord) {
@@ -462,7 +476,7 @@ export class LocalGitBackend implements RepositoryBackend {
     }
 
     // Update session record with approval (this is where local backend stores approval)
-    await this.sessionDB.updateSession(sessionRecord.session, {
+    await sessionDB.updateSession(sessionRecord.session, {
       prApproved: true,
     });
 
@@ -493,7 +507,8 @@ export class LocalGitBackend implements RepositoryBackend {
     const prId = String(prIdentifier);
 
     // Find session record by PR branch
-    const sessions = await this.sessionDB.listSessions();
+    const sessionDB = await this.getSessionDB();
+    const sessions = await sessionDB.listSessions();
     const sessionRecord = sessions.find((s) => s.prBranch === prId);
 
     if (!sessionRecord) {
@@ -622,7 +637,8 @@ export class LocalGitBackend implements RepositoryBackend {
     if (!sessionName && options.prIdentifier) {
       const prId = String(options.prIdentifier);
       // Try to find session by prBranch
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
       sessionName = record?.session;
     }
@@ -630,7 +646,8 @@ export class LocalGitBackend implements RepositoryBackend {
       throw new MinskyError("Local backend requires session or prIdentifier to resolve PR details");
     }
 
-    const record = await this.sessionDB.getSession(sessionName);
+    const sessionDB = await this.getSessionDB();
+    const record = await sessionDB.getSession(sessionName);
     if (!record) {
       throw new MinskyError(`Session '${sessionName}' not found`);
     }
@@ -660,7 +677,8 @@ export class LocalGitBackend implements RepositoryBackend {
 
     if (!sessionName && options.prIdentifier) {
       const prId = String(options.prIdentifier);
-      const sessions = await this.sessionDB.listSessions();
+      const sessionDB = await this.getSessionDB();
+      const sessions = await sessionDB.listSessions();
       const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
       sessionName = record?.session;
       prBranch = prId;
@@ -674,7 +692,8 @@ export class LocalGitBackend implements RepositoryBackend {
     // Determine base branch (default main) and prBranch
     const baseBranch = "main";
     if (!prBranch) {
-      const sessionRecord = await this.sessionDB.getSession(sessionName);
+      const sessionDB = await this.getSessionDB();
+      const sessionRecord = await sessionDB.getSession(sessionName);
       prBranch = sessionRecord?.prBranch || `pr/${sessionName}`;
     }
 
