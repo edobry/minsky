@@ -210,6 +210,13 @@ export function formatResolvedConfiguration(resolved: any): string {
   // Storage Layer (unified for sessions, embeddings, and optionally tasks)
   // persistenceConfig already defined above
   if (persistenceConfig) {
+    // Warn about legacy sessiondb usage
+    if (!resolved.persistence && resolved.sessiondb) {
+      output +=
+        "⚠️  DEPRECATION: sessiondb configuration detected. Please migrate to persistence: configuration.\n";
+      output += "   Run 'minsky config migrate' to automatically convert your configuration.\n\n";
+    }
+
     // Only show separate persistence if tasks aren't using the same backend
     const taskBackend = resolved.tasks?.backend || resolved.backend;
     const persistenceBackend = persistenceConfig.backend || "sqlite";

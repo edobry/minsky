@@ -25,6 +25,10 @@ import * as WorkspaceUtils from "../workspace";
 import { createSessionProvider, type SessionProviderInterface } from "./session-db-adapter";
 import { gitFetchWithTimeout } from "../../utils/git-exec";
 
+// Import changeset abstraction for enhanced review capabilities
+import { createChangesetService } from "../changeset/changeset-service";
+import type { ChangesetDetails } from "../changeset/adapter-interface";
+
 /**
  * Interface for session review parameters
  */
@@ -53,6 +57,9 @@ export interface SessionReviewResult {
     insertions: number;
     deletions: number;
   };
+  // Enhanced with changeset abstraction data
+  changeset?: ChangesetDetails;
+  platform?: string;
 }
 
 /**
@@ -72,7 +79,7 @@ export async function sessionReviewImpl(
 ): Promise<SessionReviewResult> {
   // Set up default dependencies if not provided
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     gitService: depsInput?.gitService || createGitService(),
     taskService:
       depsInput?.taskService ||
@@ -187,38 +194,101 @@ export async function sessionReviewImpl(
     }
   }
 
-  // 2. Get PR details and diff from repository backend (backend-agnostic)
+  // 2. Get changeset details using changeset abstraction (ENHANCED)
   try {
-    // Determine backend from session record
-    const backendType: RepositoryBackendType = ((): RepositoryBackendType => {
-      if (sessionRecord.backendType === "github") return RepositoryBackendType.GITHUB;
-      if (sessionRecord.backendType === "remote") return RepositoryBackendType.REMOTE;
-      return RepositoryBackendType.LOCAL;
-    })();
+    // Create changeset service for unified changeset operations
+    const changesetService = await createChangesetService(sessionRecord.repoUrl, sessionWorkdir);
 
-    const backend = await createRepositoryBackend({
-      type: backendType,
-      repoUrl: sessionRecord.repoUrl,
-    });
+    // Determine changeset ID from session context
+    // Try different possible changeset identifiers
+    const possibleChangesetIds = [
+      result.prBranch, // pr/session-name format
+      sessionNameToUse, // session name directly
+      `${sessionNameToUse}`, // session name as string
+    ];
 
-    // Fetch PR details; if GitHub, backend infers PR number from session
-    const details = await backend.getPullRequestDetails({ session: sessionNameToUse });
-    if (details) {
-      if (details.headBranch) result.prBranch = details.headBranch;
-      if (details.baseBranch) result.baseBranch = details.baseBranch;
-      result.prDescription = details.body;
+    let changesetDetails: ChangesetDetails | null = null;
+    let changesetId: string | undefined;
+
+    // Try to find the changeset by different ID formats
+    for (const id of possibleChangesetIds) {
+      try {
+        const details = await changesetService.getDetails(id);
+        if (details) {
+          changesetDetails = details;
+          changesetId = id;
+          break;
+        }
+      } catch (error) {
+        // Continue trying other IDs
+        log.debug(`Changeset not found with ID: ${id}`, { error: getErrorMessage(error) });
+      }
     }
 
-    // Fetch diff
-    const diffInfo = await backend.getPullRequestDiff({ session: sessionNameToUse });
-    if (diffInfo) {
-      result.diff = diffInfo.diff;
-      if (diffInfo.stats) {
-        result.diffStats = diffInfo.stats;
+    if (changesetDetails) {
+      // Use changeset abstraction data as primary source
+      result.changeset = changesetDetails;
+      result.platform = await changesetService.getPlatform();
+
+      // Update result with changeset data
+      if (changesetDetails.sourceBranch) result.prBranch = changesetDetails.sourceBranch;
+      if (changesetDetails.targetBranch) result.baseBranch = changesetDetails.targetBranch;
+      result.prDescription = changesetDetails.description;
+
+      // Use changeset diff stats if available
+      if (changesetDetails.diffStats) {
+        result.diffStats = {
+          filesChanged: changesetDetails.diffStats.filesChanged,
+          insertions: changesetDetails.diffStats.additions,
+          deletions: changesetDetails.diffStats.deletions,
+        };
+      }
+
+      // Use changeset full diff if available
+      if (changesetDetails.fullDiff) {
+        result.diff = changesetDetails.fullDiff;
+      }
+
+      log.debug("Successfully integrated changeset data", {
+        changesetId,
+        platform: result.platform,
+        filesChanged: changesetDetails.diffStats?.filesChanged,
+        reviewsCount: changesetDetails.reviews?.length || 0,
+      });
+    } else {
+      log.debug("No changeset found, falling back to repository backend methods");
+
+      // Fallback to existing repository backend approach
+      const backendType: RepositoryBackendType = ((): RepositoryBackendType => {
+        if (sessionRecord.backendType === "github") return RepositoryBackendType.GITHUB;
+        if (sessionRecord.backendType === "remote") return RepositoryBackendType.REMOTE;
+        return RepositoryBackendType.LOCAL;
+      })();
+
+      const backend = await createRepositoryBackend({
+        type: backendType,
+        repoUrl: sessionRecord.repoUrl,
+      });
+
+      // Fetch PR details; if GitHub, backend infers PR number from session
+      const details = await backend.getPullRequestDetails({ session: sessionNameToUse });
+      if (details) {
+        if (details.headBranch) result.prBranch = details.headBranch;
+        if (details.baseBranch) result.baseBranch = details.baseBranch;
+        result.prDescription = details.body;
+      }
+
+      // Fetch diff
+      const diffInfo = await backend.getPullRequestDiff({ session: sessionNameToUse });
+      if (diffInfo) {
+        result.diff = diffInfo.diff;
+        if (diffInfo.stats) {
+          result.diffStats = diffInfo.stats;
+        }
       }
     }
   } catch (error) {
-    log.debug("Error getting PR details/diff from repository backend", {
+    log.debug("Error getting changeset/PR details", {
       error: getErrorMessage(error),
       session: sessionNameToUse,
       repoUrl: sessionRecord.repoUrl,
