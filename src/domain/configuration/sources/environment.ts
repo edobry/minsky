@@ -132,14 +132,14 @@ export function loadEnvironmentConfiguration(): PartialConfiguration {
   // Process explicit mappings
   for (const [envVar, configPath] of Object.entries(environmentMappings)) {
     const value = process.env[envVar];
-    if (value !== undefined && value !== '') {
+    if (value !== undefined && value !== "") {
       setConfigValue(config, configPath, value);
     }
   }
 
   // Process MINSKY_ prefixed variables (automatic mapping)
   for (const [envVar, value] of Object.entries(process.env)) {
-    if (envVar.startsWith("MINSKY_") && value !== undefined && value !== '') {
+    if (envVar.startsWith("MINSKY_") && value !== undefined && value !== "") {
       // Skip if already handled by explicit mapping
       if (envVar in environmentMappings) continue;
 
@@ -246,7 +246,7 @@ export function getEnvironmentConfiguration(): {
 
   // Track which environment variables were loaded
   for (const [envVar, configPath] of Object.entries(environmentMappings)) {
-    if (process.env[envVar] !== undefined && process.env[envVar] !== '') {
+    if (process.env[envVar] !== undefined && process.env[envVar] !== "") {
       loadedVariables.push(envVar);
       mappings[envVar] = configPath;
     }
@@ -256,7 +256,7 @@ export function getEnvironmentConfiguration(): {
   for (const envVar of Object.keys(process.env)) {
     if (envVar.startsWith("MINSKY_") && !(envVar in environmentMappings)) {
       const configPath = envVarToConfigPath(envVar);
-      if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== '') {
+      if (configPath && process.env[envVar] !== undefined && process.env[envVar] !== "") {
         loadedVariables.push(envVar);
         mappings[envVar] = configPath;
       }

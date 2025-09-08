@@ -331,7 +331,7 @@ export function registerSessionChangesetCommands(): void {
     },
   });
 
-    // session.changeset.approve → session.pr.approve
+  // session.changeset.approve → session.pr.approve
   sharedCommandRegistry.registerCommand({
     id: "session.changeset.approve",
     name: "approve",
