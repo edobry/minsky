@@ -73,8 +73,10 @@ export class PersistenceService {
       runtimeConfig.sessiondb.backend === "postgres"
     ) {
       log.warn(
-        "Using legacy sessiondb configuration. Please migrate to persistence: configuration."
+        "⚠️  DEPRECATION WARNING: Using legacy sessiondb configuration. Please migrate to persistence: configuration."
       );
+      log.warn("   Run 'minsky config migrate' to automatically convert your configuration.");
+      log.warn("   Legacy sessiondb support will be removed in a future version.");
       return {
         backend: "postgres",
         postgres: {
@@ -90,8 +92,10 @@ export class PersistenceService {
     // SQLite fallback from sessiondb
     if (runtimeConfig.sessiondb?.backend === "sqlite") {
       log.warn(
-        "Using legacy sessiondb configuration. Please migrate to persistence: configuration."
+        "⚠️  DEPRECATION WARNING: Using legacy sessiondb configuration. Please migrate to persistence: configuration."
       );
+      log.warn("   Run 'minsky config migrate' to automatically convert your configuration.");
+      log.warn("   Legacy sessiondb support will be removed in a future version.");
       return {
         backend: "sqlite",
         sqlite: {
