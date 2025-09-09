@@ -184,11 +184,18 @@ export function formatEffectiveValueSources(
     });
   }
 
-  // Display values grouped by source
-  for (const source of sources.map((s) => s.name)) {
-    const values = valuesBySource[source];
+  // Display values grouped by source  
+  for (const sourceObj of sources) {
+    const sourceName = sourceObj.name;
+    const values = valuesBySource[sourceName];
     if (values && values.length > 0) {
-      output += `📂 FROM ${source.toUpperCase()}:\n`;
+      // Show the source name and path if available
+      let sourceHeader = `📂 FROM ${sourceName.toUpperCase()}`;
+      if (sourceObj.path) {
+        sourceHeader += ` (${sourceObj.path})`;
+      }
+      output += `${sourceHeader}:\n`;
+      
       for (const { path, value } of values) {
         const displayValue = formatValueForDisplay(value);
         output += `   ${path}=${displayValue}\n`;

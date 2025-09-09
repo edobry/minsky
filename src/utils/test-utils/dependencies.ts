@@ -664,7 +664,7 @@ export interface MockPersistenceProviderOptions {
 
 /**
  * Creates a mock PersistenceProvider with standard implementations
- * 
+ *
  * @param options Configuration options for mock behavior
  * @returns A complete mock PersistenceProvider
  */
@@ -693,7 +693,7 @@ export interface MockPersistenceServiceOptions {
 /**
  * Creates a mock PersistenceService with standard implementations
  * This can be used with module mocking to replace the PersistenceService
- * 
+ *
  * @param options Configuration options for mock behavior
  * @returns Mock PersistenceService implementation
  */
