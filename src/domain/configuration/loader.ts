@@ -159,7 +159,6 @@ export class ConfigurationLoader {
     }
   }
 
-
   /**
    * Clear configuration cache
    */
@@ -507,7 +506,6 @@ export async function loadConfiguration(
 
   return defaultLoader.load();
 }
-
 
 /**
  * Get cached configuration result

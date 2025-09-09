@@ -131,7 +131,6 @@ class TestConfigurationProvider implements ConfigurationProvider {
     }
   }
 
-
   getMetadata(): any {
     return {
       sources: this.configResult?.sources || [],
@@ -196,7 +195,6 @@ describe("Custom Configuration System", () => {
       expect(provider.has(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND)).toBe(true);
       expect(provider.has("nonexistent.path")).toBe(false);
     });
-
 
     test("should implement getMetadata() method", () => {
       const metadata = provider.getMetadata();

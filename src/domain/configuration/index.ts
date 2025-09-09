@@ -33,7 +33,6 @@ export interface ConfigurationProvider {
    */
   has(path: string): boolean;
 
-
   /**
    * Get configuration source information for debugging
    */
@@ -171,7 +170,6 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       return false;
     }
   }
-
 
   getMetadata(): ConfigurationMetadata {
     if (!this.configResult) {
@@ -368,7 +366,6 @@ export function get<T = any>(path: string): T {
 export function has(path: string): boolean {
   return getConfigurationProvider().has(path);
 }
-
 
 /**
  * Get configuration metadata for debugging
