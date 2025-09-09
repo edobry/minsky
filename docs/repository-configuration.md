@@ -11,7 +11,7 @@ The Minsky configuration system is designed to be powerful and flexible, support
     - **State**: This file **should be committed** to your repository.
     - **Controls**:
       - The default task backend (`markdown`, `json-file`, `github-issues`).
-      - SessionDB storage backend for consistent team session management.
+      - Persistence storage backend for consistent team session management.
       - GitHub repository details (`owner`, `repo`) if using the `github-issues` backend.
       - Backend auto-detection rules.
 
@@ -22,7 +22,7 @@ The Minsky configuration system is designed to be powerful and flexible, support
     - **Controls**:
       - Personal credentials (like a GitHub Personal Access Token, PostgreSQL connection strings).
       - Credential source preferences.
-      - Personal SessionDB preferences (SQLite database paths, etc.).
+      - Personal persistence preferences (SQLite database paths, etc.).
       - Future user-specific settings (e.g., UI preferences).
 
 ## Configuration Hierarchy
@@ -35,9 +35,9 @@ Minsky resolves settings by looking in the following places, in order of precede
 4.  **Repository Config (`.minsky/config.yaml`)**: The project-specific settings committed to the repo.
 5.  **Built-in Defaults**: The sensible defaults that Minsky provides out-of-the-box.
 
-## SessionDB Configuration
+## Persistence Configuration
 
-Minsky supports multiple SessionDB storage backends that can be configured at both repository and user levels:
+Minsky supports multiple persistence storage backends that can be configured at both repository and user levels:
 
 ### Available Backends
 
@@ -45,17 +45,17 @@ Minsky supports multiple SessionDB storage backends that can be configured at bo
 - **`sqlite`**: Local SQLite database with ACID transactions
 - **`postgres`**: PostgreSQL database for team environments
 
-### Repository-Level SessionDB Configuration
+### Repository-Level Persistence Configuration
 
-Define consistent SessionDB settings for your entire team in `.minsky/config.yaml`:
+Define consistent persistence settings for your entire team in `.minsky/config.yaml`:
 
 ```yaml
 # .minsky/config.yaml
 version: 1
-sessiondb:
+persistence:
   backend: "postgres"
-  connectionString: "${MINSKY_POSTGRES_URL}"
-  baseDir: "/shared/minsky/sessions"
+  postgres:
+    connectionString: "${MINSKY_POSTGRES_URL}"
 backends:
   default: "github-issues"
   github-issues:
@@ -63,9 +63,9 @@ backends:
     repo: "my-project"
 ```
 
-### User-Level SessionDB Configuration
+### User-Level Persistence Configuration
 
-Store personal SessionDB preferences and credentials in `~/.config/minsky/config.yaml`:
+Store personal persistence preferences and credentials in `~/.config/minsky/config.yaml`:
 
 ```yaml
 # ~/.config/minsky/config.yaml
@@ -75,29 +75,28 @@ github:
     token: "ghp_xxxxxxxxxxxxxxxxxxxx"
 postgres:
   connection_string: "postgresql://user:password@localhost:5432/minsky"
-sessiondb:
+persistence:
   backend: "sqlite"
   sqlite:
-    path: "~/.local/state/minsky/sessions.db"
-  base_dir: "~/.local/state/minsky/git"
+    dbPath: "~/.local/state/minsky/sessions.db"
 ```
 
 ### Environment Variable Overrides
 
-SessionDB backends can also be configured via environment variables:
+Persistence backends can also be configured via environment variables:
 
 ```bash
 # Backend selection
-export MINSKY_SESSION_BACKEND=postgres
+export MINSKY_PERSISTENCE_BACKEND=postgres
 
 # SQLite configuration
-export MINSKY_SQLITE_PATH=~/.local/state/minsky/sessions.db
+export MINSKY_PERSISTENCE_SQLITE_DBPATH=~/.local/state/minsky/sessions.db
 
 # PostgreSQL configuration
-export MINSKY_POSTGRES_URL="postgresql://user:pass@host:5432/db"
+export MINSKY_PERSISTENCE_POSTGRES_CONNECTION_STRING="postgresql://user:pass@host:5432/db"
 
-# Base directory for session workspaces
-export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
+# Legacy environment variables (deprecated, use above instead)
+export MINSKY_POSTGRES_URL="postgresql://user:pass@host:5432/db"
 ```
 
 ## How It Works: A Walkthrough
@@ -115,10 +114,10 @@ export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
     ```yaml
     # .minsky/config.yaml
     version: 1
-    sessiondb:
+    persistence:
       backend: "postgres"
-      connectionString: "${MINSKY_POSTGRES_URL}"
-      baseDir: "/shared/minsky/sessions"
+      postgres:
+        connectionString: "${MINSKY_POSTGRES_URL}"
     backends:
       default: "github-issues"
       github-issues:
@@ -154,10 +153,10 @@ export MINSKY_SESSIONDB_BASE_DIR=~/.local/state/minsky/git
     github:
       credentials:
         token: "ghp_xxxxxxxxxxxxxxxxxxxx"
-    sessiondb:
+    persistence:
       backend: "sqlite"
       sqlite:
-        path: "~/.local/state/minsky/sessions.db"
+        dbPath: "~/.local/state/minsky/sessions.db"
     ```
 
 4.  From now on, any `minsky` command in any repository will automatically use this global token.

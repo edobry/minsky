@@ -10,6 +10,7 @@ import { createConfigSetCommand } from "./set";
 import { createConfigUnsetCommand } from "./unset";
 import { createConfigValidateCommand } from "./validate";
 import { createConfigDoctorCommand } from "./doctor";
+import { createConfigMigrateCommand } from "./migrate";
 
 export function createConfigCommand(): Command {
   const configCmd = new Command("config")
@@ -24,6 +25,7 @@ Examples:
   minsky config unset <key>                     Remove a configuration value
   minsky config validate                        Validate configuration
   minsky config doctor                          Diagnose configuration issues
+  minsky config migrate                         Migrate sessiondb to persistence config
 
   minsky config list --json                     Output in JSON format
   minsky config set backend markdown            Set backend type
@@ -39,6 +41,7 @@ Examples:
   configCmd.addCommand(createConfigUnsetCommand());
   configCmd.addCommand(createConfigValidateCommand());
   configCmd.addCommand(createConfigDoctorCommand());
+  configCmd.addCommand(createConfigMigrateCommand());
 
   return configCmd;
 }
