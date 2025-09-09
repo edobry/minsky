@@ -100,7 +100,7 @@ export class TaskSimilarityService {
     filters?: Record<string, any>
   ): Promise<SearchResult[]> {
     if (!this.vectorStorage) {
-      await this.initialize();
+      throw new Error("TaskSimilarityService not initialized. Call initialize() before using similarity methods.");
     }
 
     const core = await createTaskSimilarityCore({
