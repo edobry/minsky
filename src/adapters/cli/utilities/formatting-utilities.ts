@@ -253,7 +253,7 @@ export function formatResolvedConfigurationWithSources(
   const getSourceAnnotation = (path: string): string => {
     const valueInfo = effectiveValues[path];
     if (valueInfo) {
-      return ` (from ${valueInfo.source})`;
+      return ` [${valueInfo.source}]`;
     }
     return "";
   };
