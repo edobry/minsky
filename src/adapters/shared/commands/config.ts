@@ -202,7 +202,11 @@ const configShowRegistration = {
   execute: async (params, _ctx: CommandExecutionContext) => {
     try {
       // Use custom configuration system to get resolved configuration
-      const config = getConfiguration();
+      const { getConfigurationProvider } = await import("../../../domain/configuration/index");
+      const provider = getConfigurationProvider();
+      const config = provider.getConfig();
+      const metadata = provider.getMetadata();
+      const effectiveValues = provider.getEffectiveValues();
 
       // Gather credential information safely
       const credentialResolver = new DefaultCredentialResolver();
@@ -219,11 +223,14 @@ const configShowRegistration = {
         json: params.json || false,
         configuration: resolved,
         showSources: params.sources || false,
-        ...(params.sources && {
-          sources: [
-            { name: "custom-config", original: "Custom Configuration System", parsed: resolved },
-          ],
-        }),
+        sources: metadata.sources.map((source) => ({
+          name: source.name,
+          priority: source.priority,
+          loaded: source.loaded,
+          path: source.path,
+          error: source.error,
+        })),
+        effectiveValues: maskCredentialsInEffectiveValues(effectiveValues, params.showSecrets || false),
       };
     } catch (error) {
       log.error("Failed to load configuration", {

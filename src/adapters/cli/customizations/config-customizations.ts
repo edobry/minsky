@@ -230,3 +230,18 @@ export function getPersistenceCustomizations(): {
     },
   };
 }
+/**
+ * Legacy sessiondb customizations (for backward compatibility)
+ * @deprecated Use getPersistenceCustomizations() instead
+ */
+export function getSessiondbCustomizations(): {
+  category: CommandCategory;
+  options: CategoryCommandOptions;
+} {
+  // Forward to persistence customizations for compatibility
+  const persistenceConfig = getPersistenceCustomizations();
+  return {
+    category: CommandCategory.SESSIONDB, // Keep legacy category for existing registration
+    options: persistenceConfig.options,
+  };
+}

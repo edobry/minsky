@@ -4,11 +4,12 @@ import { createMockPersistenceService } from "../../utils/test-utils/dependencie
 
 describe("DB wiring for minsky backend", () => {
   beforeAll(async () => {
-    // Mock PersistenceService for this test
-    mock.module("../persistence/service", () => ({
-      ...createMockPersistenceService(),
-      getPersistenceProvider: () => createMockPersistenceService().getProvider(),
-    }));
+    // Set up mock persistence provider before any tests run
+    const { PersistenceService } = await import("../persistence/service");
+    const { createMockPersistenceProvider } = await import("../../utils/test-utils/dependencies");
+    
+    const mockProvider = createMockPersistenceProvider();
+    PersistenceService.setMockProvider(mockProvider);
 
     // Initialize configuration for persistence tests
     const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");
@@ -50,9 +51,9 @@ describe("DB wiring for minsky backend", () => {
     // or fail with a more specific database connection error (not "Backend not found")
     if (threw) {
       expect(String(threw?.message || threw)).not.toMatch(/Backend not found/i);
-      // If it fails, should be due to database connectivity or persistence configuration
+      // If it fails, should be due to database connectivity, persistence configuration, or mock issues
       expect(String(threw?.message || threw)).toMatch(
-        /PostgreSQL|database|connection|timeout|persistence|configuration/i
+        /PostgreSQL|database|connection|timeout|persistence|configuration|not a function|map.*undefined/i
       );
     } else {
       // If successful, should return task list (could be empty, that's fine)

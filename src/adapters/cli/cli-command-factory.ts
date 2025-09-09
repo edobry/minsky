@@ -552,33 +552,33 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           }
         },
       },
-      "config.show": {
-        outputFormatter: (result: any) => {
-          // Check if JSON output was requested
-          if (result.json) {
-            log.cli(JSON.stringify(result, null, 2));
-            return;
-          }
-
-          if (result.success && result.configuration) {
-            let output = "";
-
-            // Show sources if explicitly requested
-            if (result.showSources && result.sources) {
-              output += formatConfigurationSources(result.configuration, result.sources);
-            } else {
-              // Default human-friendly structured view
-              output += formatResolvedConfiguration(result.configuration);
+        "config.show": {
+          outputFormatter: (result: any) => {
+            // Check if JSON output was requested
+            if (result.json) {
+              log.cli(JSON.stringify(result, null, 2));
+              return;
             }
 
-            log.cli(output);
-          } else if (result.error) {
-            log.cli(`Failed to load configuration: ${result.error}`);
-          } else {
-            log.cli(JSON.stringify(result, null, 2));
-          }
+            if (result.success && result.configuration) {
+              let output = "";
+
+              // Show sources if explicitly requested - enhance pretty format with source info
+              if (result.showSources && result.sources) {
+                output += formatConfigurationSources(result.configuration, result.sources, result.effectiveValues);
+              } else {
+                // Default human-friendly structured view
+                output += formatResolvedConfiguration(result.configuration);
+              }
+
+              log.cli(output);
+            } else if (result.error) {
+              log.cli(`Failed to load configuration: ${result.error}`);
+            } else {
+              log.cli(JSON.stringify(result, null, 2));
+            }
+          },
         },
-      },
       "config.get": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
@@ -987,7 +987,7 @@ function formatEffectiveValueSources(
     });
   }
 
-  // Display values grouped by source  
+  // Display values grouped by source
   for (const sourceObj of sources) {
     const sourceName = sourceObj.name;
     const values = valuesBySource[sourceName];
@@ -998,7 +998,7 @@ function formatEffectiveValueSources(
         sourceHeader += ` (${sourceObj.path})`;
       }
       output += `${sourceHeader}:\n`;
-      
+
       for (const { path, value } of values) {
         const displayValue = formatValueForDisplay(value);
         output += `   ${path}=${displayValue}\n`;

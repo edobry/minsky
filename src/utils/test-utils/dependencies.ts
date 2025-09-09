@@ -675,7 +675,22 @@ export function createMockPersistenceProvider(options: MockPersistenceProviderOp
       vectorStorage: true,
     },
     initialize: options.initialize || (() => Promise.resolve()),
-    getDatabaseConnection: options.getDatabaseConnection || (() => Promise.resolve({})),
+    getDatabaseConnection: options.getDatabaseConnection || (() => Promise.resolve({
+      select: () => ({
+        from: () => ({
+          where: () => ({
+            limit: () => Promise.resolve([]), // Return empty array for tasks
+            offset: () => ({ limit: () => Promise.resolve([]) }),
+          }),
+          limit: () => Promise.resolve([]),
+          orderBy: () => ({ limit: () => Promise.resolve([]) }),
+        }),
+        limit: () => Promise.resolve([]),
+      }),
+      insert: () => ({ values: () => Promise.resolve({ insertId: "test" }) }),
+      update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
+      delete: () => ({ where: () => Promise.resolve() }),
+    })),
     getStorage: options.getStorage || (() => ({})),
     close: options.close || (() => Promise.resolve()),
     getCapabilities: options.getCapabilities || (() => ({ sql: true, vectorStorage: true })),
