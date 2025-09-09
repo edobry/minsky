@@ -16,6 +16,7 @@ import type {
 import { validateQualifiedTaskId } from "../../domain/tasks/task-id-utils";
 import type { WorkspaceUtilsInterface } from "../../domain/workspace";
 import type { RepositoryBackend } from "../../domain/repository";
+import type { PersistenceProvider } from "../../domain/persistence/types";
 
 /**
  * Basic domain dependencies structure for common domain functions
@@ -644,4 +645,68 @@ export function createMockTaskService(options: MockTaskServiceOptions = {}): Tas
     options.getWorkspacePath || (() => "/mock/workspace/path");
 
   return mockTaskService;
+}
+
+/**
+ * Options for configuring PersistenceProvider mock behavior
+ */
+export interface MockPersistenceProviderOptions {
+  capabilities?: {
+    sql?: boolean;
+    vectorStorage?: boolean;
+  };
+  getDatabaseConnection?: () => Promise<any>;
+  getStorage?: () => any;
+  initialize?: () => Promise<void>;
+  close?: () => Promise<void>;
+  getCapabilities?: () => { sql: boolean; vectorStorage: boolean };
+}
+
+/**
+ * Creates a mock PersistenceProvider with standard implementations
+ * 
+ * @param options Configuration options for mock behavior
+ * @returns A complete mock PersistenceProvider
+ */
+export function createMockPersistenceProvider(options: MockPersistenceProviderOptions = {}): PersistenceProvider {
+  return createPartialMock<PersistenceProvider>({
+    capabilities: options.capabilities || {
+      sql: true,
+      vectorStorage: true,
+    },
+    initialize: options.initialize || (() => Promise.resolve()),
+    getDatabaseConnection: options.getDatabaseConnection || (() => Promise.resolve({})),
+    getStorage: options.getStorage || (() => ({})),
+    close: options.close || (() => Promise.resolve()),
+    getCapabilities: options.getCapabilities || (() => ({ sql: true, vectorStorage: true })),
+  });
+}
+
+/**
+ * Options for configuring PersistenceService mock behavior
+ */
+export interface MockPersistenceServiceOptions {
+  provider?: PersistenceProvider;
+  isInitialized?: boolean;
+}
+
+/**
+ * Creates a mock PersistenceService with standard implementations
+ * This can be used with module mocking to replace the PersistenceService
+ * 
+ * @param options Configuration options for mock behavior
+ * @returns Mock PersistenceService implementation
+ */
+export function createMockPersistenceService(options: MockPersistenceServiceOptions = {}) {
+  const mockProvider = options.provider || createMockPersistenceProvider();
+  const isInitialized = options.isInitialized ?? true;
+
+  return {
+    initialize: () => Promise.resolve(),
+    getProvider: () => mockProvider,
+    isInitialized: () => isInitialized,
+    close: () => Promise.resolve(),
+    reset: () => Promise.resolve(),
+    setMockProvider: () => {},
+  };
 }

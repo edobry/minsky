@@ -191,7 +191,7 @@ export function formatEffectiveValueSources(
       output += `📂 FROM ${source.toUpperCase()}:\n`;
       for (const { path, value } of values) {
         const displayValue = formatValueForDisplay(value);
-        output += `   ${path}: ${displayValue}\n`;
+        output += `   ${path}=${displayValue}\n`;
       }
       output += "\n";
     }
@@ -207,13 +207,13 @@ export function formatEffectiveValueSources(
  * Format a configuration value for display
  */
 function formatValueForDisplay(value: any): string {
-  if (value === null) return "null";
-  if (value === undefined) return "undefined";
-  if (typeof value === "string") return `"${value}"`;
-  if (typeof value === "boolean") return value ? "true" : "false";
-  if (typeof value === "number") return value.toString();
-  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (value === null) return "(null)";
+  if (value === undefined) return "(undefined)";
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "(empty array)" : `(${value.length} items)`;
+  }
   if (typeof value === "object") return `{${Object.keys(value).length} properties}`;
+  // For strings, numbers, booleans - display as-is (they're already masked if sensitive)
   return String(value);
 }
 

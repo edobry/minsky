@@ -475,16 +475,21 @@ export class ConfigurationLoader {
         const fullPath = currentPath ? `${currentPath}.${key}` : key;
         const value = config[key];
 
-        // Store the value (later sources will override earlier ones)
-        collector[fullPath] = {
-          value,
-          source: sourceName,
-          path: fullPath,
-        };
+        // Skip undefined values to avoid showing empty defaults
+        if (value === undefined) {
+          continue;
+        }
 
-        // Recurse for nested objects
+        // For objects, recurse first to get leaf values
         if (typeof value === "object" && !Array.isArray(value) && value !== null) {
           this.collectConfigPaths(value, sourceName, fullPath, collector);
+        } else {
+          // Only store leaf values (non-objects), later sources will override earlier ones
+          collector[fullPath] = {
+            value,
+            source: sourceName,
+            path: fullPath,
+          };
         }
       }
     }

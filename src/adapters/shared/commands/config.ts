@@ -111,16 +111,20 @@ function maskCredentialsInEffectiveValues(
     );
   };
 
-  // Helper to mask value
+  // Helper to mask value (but don't re-mask already masked values)
   const maskValue = (value: any): any => {
     if (typeof value === "string") {
+      // If it's already masked, don't re-mask it
+      if (value.includes("*") && value.includes("(configured)")) {
+        return value;
+      }
       return `${"*".repeat(20)} (configured)`;
     }
     return "[MASKED]";
   };
 
   for (const [path, valueInfo] of Object.entries(effectiveValues)) {
-    if (isSensitivePath(path)) {
+    if (isSensitivePath(path) && valueInfo.value !== null && valueInfo.value !== undefined) {
       masked[path] = {
         ...valueInfo,
         value: maskValue(valueInfo.value),

@@ -1,8 +1,15 @@
-import { describe, it, expect, beforeAll } from "bun:test";
+import { describe, it, expect, beforeAll, mock } from "bun:test";
 import { listTasksFromParams } from "./taskCommands";
+import { createMockPersistenceService } from "../../utils/test-utils/dependencies";
 
 describe("DB wiring for minsky backend", () => {
   beforeAll(async () => {
+    // Mock PersistenceService for this test
+    mock.module("../persistence/service", () => ({
+      ...createMockPersistenceService(),
+      getPersistenceProvider: () => createMockPersistenceService().getProvider(),
+    }));
+
     // Initialize configuration for persistence tests
     const { initializeConfiguration, CustomConfigFactory } = await import("../configuration/index");
 
