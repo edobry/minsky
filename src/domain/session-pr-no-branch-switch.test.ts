@@ -6,6 +6,13 @@ import { log } from "../utils/logger";
 
 describe("Session PR Command Branch Behavior", () => {
   beforeEach(async () => {
+    // Set up mock persistence provider before any tests run
+    const { PersistenceService } = await import("./persistence/service");
+    const { createMockPersistenceProvider } = await import("../utils/test-utils/dependencies");
+    
+    const mockProvider = createMockPersistenceProvider();
+    PersistenceService.setMockProvider(mockProvider);
+
     // Initialize configuration to prevent "Configuration not initialized" errors
     const factory = new CustomConfigFactory();
     await initializeConfiguration(factory);

@@ -361,7 +361,8 @@ export function formatResolvedConfigurationWithSources(
           details.push(`model: ${providerConfig.model}${modelSource || ""}`);
         }
         if (providerConfig.enabled !== undefined) {
-          details.push(`enabled: ${providerConfig.enabled ? "yes" : "no"}`);
+          const enabledSource = getSourceAnnotation(`ai.providers.${provider}.enabled`);
+          details.push(`enabled: ${providerConfig.enabled ? "yes" : "no"}${enabledSource || ""}`);
         }
         if (providerConfig.apiKey) {
           details.push("authenticated");

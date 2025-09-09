@@ -382,7 +382,7 @@ export class PreCommitHook {
     log.cli("🔧 Running ESLint rule tooling tests...");
 
     try {
-      await execAsync("AGENT=1 bun test src/eslint-rules/fixtures-test.test.js --timeout=5000", {
+      await execAsync("AGENT=1 bun test eslint-rules/fixtures-test.test.js --timeout=5000", {
         cwd: this.projectRoot,
         timeout: 15000,
         env: { ...process.env, AGENT: "1" },
