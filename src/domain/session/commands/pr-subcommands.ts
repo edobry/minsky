@@ -234,123 +234,68 @@ export async function sessionPrList(params: {
     // Get all sessions
     const sessions = await sessionDB.listSessions();
 
-    // Filter sessions that have actual PR information
-    let filteredSessions = sessions.filter((session) => {
-      // Only include sessions that have current PR tracking data
-      return !!session.prState?.commitHash || session.pullRequest;
-    });
-
-    // Apply filters
+    // Apply user filters first
+    let candidateSessions = sessions;
+    
     if (params.session) {
-      filteredSessions = filteredSessions.filter((s) => s.session === params.session);
+      candidateSessions = candidateSessions.filter((s) => s.session === params.session);
     }
 
     if (params.task) {
       const normalizedTask = params.task.replace(/^#/, "");
-      filteredSessions = filteredSessions.filter(
+      candidateSessions = candidateSessions.filter(
         (s) => s.taskId?.replace(/^#/, "") === normalizedTask
       );
     }
 
-    // Convert sessions to PR list format with GitHub API refresh for unknown sessions
-    const pullRequests = await Promise.all(
-      filteredSessions.map(async (session) => {
-        const pr = session.pullRequest;
-        const prState = session.prState;
-
-        // Determine initial status
-        let status = (() => {
-          // If we have explicit PR state, use it
-          if (pr?.state) return pr.state;
-
-          // If we have a commit hash, it was created
-          if (prState?.commitHash) return "created";
-
-          return "unknown";
-        })();
-
-        // For GitHub sessions with unknown status, try to refresh from API
-        let livePrData: any = null;
-        const isGitHubRepo =
-          session.backendType === "github" ||
-          (session.repoUrl &&
-            (session.repoUrl.includes("github.com") || session.repoUrl.includes("github")));
-
-        if (status === "unknown" && isGitHubRepo && session.repoUrl) {
-          try {
-            const { log } = require("../../../utils/logger");
-            log.debug(`Attempting GitHub API lookup for session ${session.session}`);
-
-            const { extractGitHubInfoFromUrl } = require("../repository-backend-detection");
-            const githubInfo = extractGitHubInfoFromUrl(session.repoUrl);
-
-            if (githubInfo) {
-              const { getConfiguration } = require("../../configuration/index");
-              const { Octokit } = require("@octokit/rest");
-
-              const config = getConfiguration();
-              const githubToken = config.github?.token;
-
-              if (githubToken) {
-                const octokit = new Octokit({ auth: githubToken });
-                const { owner, repo } = githubInfo;
-
-                // Try to find PR by session branch name
-                const potentialBranches = [
-                  session.session, // GitHub backend uses session name as branch
-                  `pr/${session.session}`, // Local backend pattern
-                  session.session.replace(/^task-/, ""), // Strip task- prefix
-                ];
-
-                for (const branchName of potentialBranches) {
-                  try {
-                    const { data: pulls } = await octokit.rest.pulls.list({
-                      owner,
-                      repo,
-                      head: `${owner}:${branchName}`,
-                      state: "all", // Include open, closed, merged
-                    });
-
-                    if (pulls.length > 0) {
-                      livePrData = pulls[0]; // Use the first/most recent PR
-                      status =
-                        livePrData.state === "closed" && livePrData.merged_at
-                          ? "merged"
-                          : livePrData.state;
-                      break;
-                    }
-                  } catch (branchError) {
-                    // Continue to next branch pattern
-                    continue;
-                  }
-                }
-              }
-            }
-          } catch (apiError) {
-            // API errors shouldn't break the listing, just continue with unknown status
-            const { log } = require("../../../utils/logger");
-            log.debug(
-              `GitHub API error for ${session.session}: ${(apiError as any)?.message || apiError}`
-            );
-          }
+    // Query repository backends for actual PRs (no caching, proper delegation)
+    const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
+    
+    const pullRequestResults = await Promise.all(
+      candidateSessions.map(async (session) => {
+        try {
+          // Create repository backend for this session
+          const repositoryBackend = await createRepositoryBackendFromSession(session);
+          
+          // Query the backend for PR details - this delegates to GitHub API for GitHub sessions
+          const prDetails = await repositoryBackend.getPullRequestDetails({ 
+            session: session.session 
+          });
+          
+          // Backend found a PR - return the details with proper merged status
+          const state = prDetails.state || "unknown";
+          const status = prDetails.mergedAt ? "merged" : state;
+          
+          return {
+            sessionName: session.session,
+            taskId: session.taskId,
+            prNumber: prDetails.number,
+            status,
+            title: prDetails.title || `PR for ${session.session}`,
+            url: prDetails.url,
+            updatedAt: prDetails.updatedAt || session.updatedAt,
+            branch: prDetails.headBranch || session.session,
+            backendType: session.backendType,
+          };
+        } catch (error) {
+          // No PR found for this session - don't include it in results
+          return null;
         }
-
-        return {
-          sessionName: session.session,
-          taskId: session.taskId,
-          prNumber: pr?.number || livePrData?.number,
-          status,
-          title: pr?.title || livePrData?.title || `PR for ${session.session}`,
-          url: pr?.url || livePrData?.html_url,
-          updatedAt: pr?.updatedAt || livePrData?.updated_at || prState?.lastChecked,
-          branch:
-            session.backendType === "github"
-              ? pr?.headBranch || livePrData?.head?.ref || session.session
-              : prState?.branchName || pr?.headBranch || `pr/${session.session}`,
-          backendType: (session.backendType as any) || undefined,
-        };
       })
     );
+
+    // Filter out sessions without PRs
+    const pullRequests = pullRequestResults.filter((pr) => pr !== null) as Array<{
+      sessionName: string;
+      taskId?: string;
+      prNumber?: number | string;
+      status: string;
+      title: string;
+      url?: string;
+      updatedAt?: string;
+      branch?: string;
+      backendType?: string;
+    }>;
 
     // Use shared utilities for filters
     const {
