@@ -204,11 +204,34 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
     const finalTargetUrl = targetBackend === "github" ? resolvedRemote : firstHop;
 
     if (params.dryRun) {
+      const currentBackend = record.backendType || "local";
+      const needsMigration = currentBackend !== targetBackend || record.repoUrl !== finalTargetUrl;
+
+      if (!needsMigration) {
+        return this.createSuccessResult(
+          {
+            preview: true,
+            session: sessionName,
+            from: currentBackend,
+            to: targetBackend,
+            detected: {
+              firstHopOrigin: firstHop,
+              secondHopOrigin: isLocalPath(firstHop) ? resolvedRemote : undefined,
+            },
+            proposed: {
+              repoUrl: finalTargetUrl,
+              backendType: targetBackend,
+            },
+          },
+          `No migration needed - session already uses '${targetBackend}' backend`
+        );
+      }
+
       return this.createSuccessResult(
         {
           preview: true,
           session: sessionName,
-          from: record.backendType || "local",
+          from: currentBackend,
           to: targetBackend,
           detected: {
             firstHopOrigin: firstHop,
@@ -254,6 +277,20 @@ export class SessionMigrateBackendCommand extends BaseSessionCommand<any, any> {
           `git remote add github-origin ${resolvedRemote}`
         );
       }
+    }
+
+    // Check if migration is actually needed
+    const currentBackend = record.backendType || "local";
+    const needsMigration = currentBackend !== targetBackend || record.repoUrl !== finalTargetUrl;
+
+    if (!needsMigration) {
+      return this.createSuccessResult({
+        session: sessionName,
+        backendType: targetBackend,
+        repoUrl: finalTargetUrl,
+        message: "No migration needed - session already uses the correct backend",
+        ...(gh ? { github: gh } : {}),
+      });
     }
 
     // Prepare session record updates

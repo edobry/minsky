@@ -28,6 +28,8 @@ export async function sessionStart(
     taskService,
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     resolveRepoPath: depsInput?.resolveRepoPath || resolveRepoPath,
+    resolveRepositoryAndBackend:
+      depsInput?.resolveRepositoryAndBackend || resolveRepositoryAndBackend,
   };
 
   return startSessionImpl(params, deps as any);
