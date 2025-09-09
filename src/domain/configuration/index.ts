@@ -33,10 +33,6 @@ export interface ConfigurationProvider {
    */
   has(path: string): boolean;
 
-  /**
-   * Reload configuration from sources
-   */
-  reload(): Promise<void>;
 
   /**
    * Get configuration source information for debugging
@@ -176,18 +172,6 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     }
   }
 
-  async reload(): Promise<void> {
-    // Clear the current config and reload from sources
-    this.configResult = null;
-    try {
-      await this.initialize();
-    } catch (error) {
-      // If initialization fails, log but don't throw
-      log.warn("Warning: CustomConfigurationProvider reload had issues:", error);
-    }
-    // Explicit return to ensure promise resolves
-    return Promise.resolve();
-  }
 
   getMetadata(): ConfigurationMetadata {
     if (!this.configResult) {
@@ -385,14 +369,6 @@ export function has(path: string): boolean {
   return getConfigurationProvider().has(path);
 }
 
-/**
- * Reload configuration from sources
- *
- * @throws Error if configuration hasn't been initialized
- */
-export async function reloadConfiguration(): Promise<void> {
-  await getConfigurationProvider().reload();
-}
 
 /**
  * Get configuration metadata for debugging

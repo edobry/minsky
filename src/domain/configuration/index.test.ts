@@ -131,10 +131,6 @@ class TestConfigurationProvider implements ConfigurationProvider {
     }
   }
 
-  async reload(): Promise<void> {
-    this.configResult = null;
-    await this.initialize();
-  }
 
   getMetadata(): any {
     return {
@@ -201,9 +197,6 @@ describe("Custom Configuration System", () => {
       expect(provider.has("nonexistent.path")).toBe(false);
     });
 
-    test("should implement reload() method", async () => {
-      await expect(provider.reload()).resolves.toBeUndefined();
-    });
 
     test("should implement getMetadata() method", () => {
       const metadata = provider.getMetadata();

@@ -77,7 +77,9 @@ export class TaskSimilarityService {
 
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     if (!this.vectorStorage) {
-      throw new Error("TaskSimilarityService not initialized. Call initialize() before using similarity methods.");
+      throw new Error(
+        "TaskSimilarityService not initialized. Call initialize() before using similarity methods."
+      );
     }
 
     // Delegate to generic core; embeddings backend will be first if available
@@ -100,7 +102,9 @@ export class TaskSimilarityService {
     filters?: Record<string, any>
   ): Promise<SearchResult[]> {
     if (!this.vectorStorage) {
-      throw new Error("TaskSimilarityService not initialized. Call initialize() before using similarity methods.");
+      throw new Error(
+        "TaskSimilarityService not initialized. Call initialize() before using similarity methods."
+      );
     }
 
     const core = await createTaskSimilarityCore({

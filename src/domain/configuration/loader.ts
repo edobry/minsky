@@ -159,13 +159,6 @@ export class ConfigurationLoader {
     }
   }
 
-  /**
-   * Reload configuration (clears cache)
-   */
-  async reload(): Promise<ConfigurationLoadResult> {
-    this.clearCache();
-    return this.load();
-  }
 
   /**
    * Clear configuration cache
@@ -515,12 +508,6 @@ export async function loadConfiguration(
   return defaultLoader.load();
 }
 
-/**
- * Reload configuration using default loader
- */
-export async function reloadConfiguration(): Promise<ConfigurationLoadResult> {
-  return defaultLoader.reload();
-}
 
 /**
  * Get cached configuration result
