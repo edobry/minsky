@@ -77,7 +77,7 @@ export class TaskSimilarityService {
 
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
     if (!this.vectorStorage) {
-      await this.initialize();
+      throw new Error("TaskSimilarityService not initialized. Call initialize() before using similarity methods.");
     }
 
     // Delegate to generic core; embeddings backend will be first if available
