@@ -234,20 +234,10 @@ export async function sessionPrList(params: {
     // Get all sessions
     const sessions = await sessionDB.listSessions();
 
-    // Filter sessions that have or might have had PR information
+    // Filter sessions that have actual PR information
     let filteredSessions = sessions.filter((session) => {
-      // Include sessions that have current PR tracking data
-      if (!!session.prState?.commitHash || session.pullRequest) return true;
-
-      // Also include sessions that might have had PRs based on naming patterns
-      // This helps include merged PRs that no longer have active tracking data
-      return (
-        session.session.startsWith("task-") ||
-        session.session.includes("#") ||
-        session.session.includes("fix-") ||
-        session.session.includes("feature-") ||
-        session.session.includes("rfc-")
-      );
+      // Only include sessions that have current PR tracking data
+      return !!session.prState?.commitHash || session.pullRequest;
     });
 
     // Apply filters
