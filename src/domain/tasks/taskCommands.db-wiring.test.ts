@@ -7,7 +7,7 @@ describe("DB wiring for minsky backend", () => {
     // Set up mock persistence provider before any tests run
     const { PersistenceService } = await import("../persistence/service");
     const { createMockPersistenceProvider } = await import("../../utils/test-utils/dependencies");
-    
+
     const mockProvider = createMockPersistenceProvider();
     PersistenceService.setMockProvider(mockProvider);
 

@@ -17,6 +17,7 @@ import {
 import { log } from "../../utils/logger";
 import { getMinskyStateDir } from "../../utils/paths";
 import {
+  formatConfigurationSources,
   formatResolvedConfiguration,
   getBackendDisplayName,
   getSessionBackendDisplayName,
@@ -938,23 +939,6 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
   });
 }
 
-function formatConfigurationSources(resolved: any, sources: any[]): string {
-  let output = "📋 CONFIGURATION SOURCES\n";
-  output += `${"=".repeat(40)}\n`;
-
-  // Show source precedence
-  output += "Source Precedence (highest to lowest):\n";
-  sources.forEach((source, index) => {
-    output += `  ${index + 1}. ${source.name}\n`;
-  });
-
-  output += "\n📋 RESOLVED CONFIGURATION\n";
-  output += formatResolvedConfiguration(resolved);
-
-  output += "\n\n💡 For just the final configuration, use: minsky config show";
-
-  return output;
-}
 
 function formatEffectiveValueSources(
   effectiveValues: Record<string, { value: any; source: string; path: string }>,

@@ -131,8 +131,8 @@ export function formatConfigSection(config: any): string {
  * @returns Formatted sources string
  */
 export function formatConfigurationSources(
-  resolved: any, 
-  sources: any[], 
+  resolved: any,
+  sources: any[],
   effectiveValues?: Record<string, { value: any; source: string; path: string }>
 ): string {
   let output = "📋 CONFIGURATION WITH SOURCES\n";
@@ -241,7 +241,7 @@ function formatValueForDisplay(value: any): string {
 
 /**
  * Format resolved configuration with source annotations
- * @param resolved Resolved configuration object  
+ * @param resolved Resolved configuration object
  * @param effectiveValues Per-value source information
  * @returns Enhanced formatted configuration string with sources
  */
@@ -325,7 +325,7 @@ export function formatResolvedConfigurationWithSources(
   // Storage Layer
   if (persistenceConfig) {
     const persistenceSource = getSourceAnnotation("persistence.backend") || getSourceAnnotation("sessiondb.backend");
-    
+
     if (taskBackend === "minsky" && persistenceBackend === "postgres") {
       output += `💾 Persistence:\n   • All data stored in PostgreSQL database${persistenceSource}\n`;
     } else {
@@ -334,7 +334,7 @@ export function formatResolvedConfigurationWithSources(
     }
 
     if (persistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
-      const connSource = getSourceAnnotation("persistence.postgres.connectionString") || 
+      const connSource = getSourceAnnotation("persistence.postgres.connectionString") ||
                         getSourceAnnotation("sessiondb.connectionString");
       output += `   • Connection: configured${connSource}\n`;
     }
