@@ -89,6 +89,50 @@ function maskCredentials(config: any, showSecrets: boolean): any {
   return masked;
 }
 
+function maskCredentialsInEffectiveValues(
+  effectiveValues: Record<string, { value: any; source: string; path: string }>,
+  showSecrets: boolean
+): Record<string, { value: any; source: string; path: string }> {
+  if (showSecrets) {
+    return effectiveValues;
+  }
+
+  const masked: Record<string, { value: any; source: string; path: string }> = {};
+
+  // Helper to check if a path contains sensitive information
+  const isSensitivePath = (path: string): boolean => {
+    return (
+      path.includes("token") ||
+      path.includes("apiKey") ||
+      path.includes("password") ||
+      path.includes("secret") ||
+      path.includes("key") ||
+      path.includes("connectionString")
+    );
+  };
+
+  // Helper to mask value
+  const maskValue = (value: any): any => {
+    if (typeof value === "string") {
+      return `${"*".repeat(20)} (configured)`;
+    }
+    return "[MASKED]";
+  };
+
+  for (const [path, valueInfo] of Object.entries(effectiveValues)) {
+    if (isSensitivePath(path)) {
+      masked[path] = {
+        ...valueInfo,
+        value: maskValue(valueInfo.value),
+      };
+    } else {
+      masked[path] = valueInfo;
+    }
+  }
+
+  return masked;
+}
+
 /**
  * Config list command definition
  */
@@ -105,6 +149,7 @@ const configListRegistration = {
       const provider = getConfigurationProvider();
       const config = provider.getConfig();
       const metadata = provider.getMetadata();
+      const effectiveValues = provider.getEffectiveValues();
 
       // Show ALL configuration properties except deprecated ones
       const { backend: _deprecatedBackend, ...resolved } = config;
@@ -123,6 +168,7 @@ const configListRegistration = {
           error: source.error,
         })),
         resolved: maskedConfig,
+        effectiveValues: maskCredentialsInEffectiveValues(effectiveValues, params.showSecrets || false),
         showSources: params.sources || false,
         credentialsMasked: !params.showSecrets,
       };

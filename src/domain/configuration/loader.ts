@@ -41,6 +41,13 @@ export interface ConfigurationSourceResult {
 }
 
 /**
+ * Value source tracking for individual configuration values
+ */
+export interface ValueSourceMap {
+  [key: string]: string | ValueSourceMap;
+}
+
+/**
  * Complete configuration loading result
  */
 export interface ConfigurationLoadResult {

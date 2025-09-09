@@ -236,7 +236,7 @@ export async function sessionPrList(params: {
 
     // Apply user filters first
     let candidateSessions = sessions;
-    
+
     if (params.session) {
       candidateSessions = candidateSessions.filter((s) => s.session === params.session);
     }
@@ -250,22 +250,22 @@ export async function sessionPrList(params: {
 
     // Query repository backends for actual PRs (no caching, proper delegation)
     const { createRepositoryBackendFromSession } = await import("../session-pr-operations");
-    
+
     const pullRequestResults = await Promise.all(
       candidateSessions.map(async (session) => {
         try {
           // Create repository backend for this session
           const repositoryBackend = await createRepositoryBackendFromSession(session);
-          
+
           // Query the backend for PR details - this delegates to GitHub API for GitHub sessions
-          const prDetails = await repositoryBackend.getPullRequestDetails({ 
-            session: session.session 
+          const prDetails = await repositoryBackend.getPullRequestDetails({
+            session: session.session,
           });
-          
+
           // Backend found a PR - return the details with proper merged status
           const state = prDetails.state || "unknown";
           const status = prDetails.mergedAt ? "merged" : state;
-          
+
           return {
             sessionName: session.session,
             taskId: session.taskId,

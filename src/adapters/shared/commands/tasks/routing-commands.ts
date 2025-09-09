@@ -82,10 +82,7 @@ export function createTasksAvailableCommand() {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
 
-      if (!PersistenceService.isInitialized()) {
-        await PersistenceService.initialize();
-      }
-
+      // PersistenceService should already be initialized at application startup
       const provider = PersistenceService.getProvider();
 
       if (!provider.capabilities.sql) {
@@ -207,10 +204,7 @@ export function createTasksRouteCommand() {
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
 
-      if (!PersistenceService.isInitialized()) {
-        await PersistenceService.initialize();
-      }
-
+      // PersistenceService should already be initialized at application startup
       const provider = PersistenceService.getProvider();
 
       if (!provider.capabilities.sql) {

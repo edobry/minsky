@@ -137,10 +137,7 @@ export async function createRuleSimilarityService(): Promise<RuleSimilarityServi
   // Use PersistenceService instead of direct dependencies
   const { PersistenceService } = await import("../persistence/service");
 
-  if (!PersistenceService.isInitialized()) {
-    await PersistenceService.initialize();
-  }
-
+  // PersistenceService should already be initialized at application startup
   const persistence = PersistenceService.getProvider();
 
   const service = new RuleSimilarityService(persistence, workspacePath);

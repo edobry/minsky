@@ -10,7 +10,6 @@ import { z } from "zod";
 // Import all domain schemas
 import { backendSchema, backendConfigSchema, type Backend, type BackendConfig } from "./backend";
 
-import { sessionDbConfigSchema, type SessionDbConfig } from "./sessiondb";
 
 import { persistenceConfigSchema, type PersistenceConfig } from "./persistence";
 
@@ -36,8 +35,6 @@ export const configurationSchema = z
     // Note: Deprecated root 'backend' property removed - use tasks.backend instead
     backendConfig: backendConfigSchema,
 
-    // Session database configuration (legacy)
-    sessiondb: sessionDbConfigSchema,
 
     // Modern persistence configuration
     persistence: persistenceConfigSchema.optional(),
@@ -158,9 +155,6 @@ export const configurationValidation = {
       return !!config.backend;
     },
 
-    sessiondb: (config: Configuration): boolean => {
-      return !!config.sessiondb?.backend;
-    },
 
     github: (config: Configuration): boolean => {
       // GitHub is optional, but if configured, should have token
@@ -212,16 +206,6 @@ export const configurationValidation = {
       }
     }
 
-    // Check SessionDB PostgreSQL has connection string
-    if (config.sessiondb?.backend === "postgres") {
-      const hasConnectionString = !!(
-        config.sessiondb.postgres?.connectionString || config.sessiondb.connectionString
-      );
-
-      if (!hasConnectionString) {
-        errors.push("PostgreSQL SessionDB backend requires connection string");
-      }
-    }
 
     // Check AI default provider is enabled
     if (config.ai?.defaultProvider) {
@@ -242,7 +226,6 @@ export const configurationValidation = {
 export type {
   Backend,
   BackendConfig,
-  SessionDbConfig,
   PersistenceConfig,
   GitHubConfig,
   AIConfig,
@@ -256,7 +239,6 @@ export type {
 export {
   backendSchema,
   backendConfigSchema,
-  sessionDbConfigSchema,
   persistenceConfigSchema,
   githubConfigSchema,
   aiConfigSchema,

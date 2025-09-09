@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { DatabaseConnectionManager } from "../../../../domain/database/connection-manager";
+import { PersistenceService } from "../../../../domain/persistence/service";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { type CommandParameterMap } from "../../command-registry";
 
@@ -51,7 +51,9 @@ export function createTasksDepsAddCommand() {
     description: "Add a dependency edge (task depends on prerequisite)",
     parameters: tasksDepsAddParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      // PersistenceService should already be initialized at application startup
+      const persistence = PersistenceService.getProvider();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection();
       const service = new TaskGraphService(db);
       const result = await service.addDependency(params.task, params.dependsOn);
 
@@ -71,7 +73,9 @@ export function createTasksDepsRmCommand() {
     description: "Remove a dependency edge",
     parameters: tasksDepsRmParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      // PersistenceService should already be initialized at application startup
+      const persistence = PersistenceService.getProvider();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection();
       const service = new TaskGraphService(db);
       const result = await service.removeDependency(params.task, params.dependsOn);
 
@@ -91,7 +95,9 @@ export function createTasksDepsListCommand() {
     description: "List dependencies for a task",
     parameters: tasksDepsListParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      // PersistenceService should already be initialized at application startup
+      const persistence = PersistenceService.getProvider();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection();
       const service = new TaskGraphService(db);
       const dependencies = await service.listDependencies(params.task);
       const dependents = await service.listDependents(params.task);

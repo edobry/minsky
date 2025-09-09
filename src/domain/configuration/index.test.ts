@@ -151,6 +151,10 @@ class TestConfigurationProvider implements ConfigurationProvider {
     };
   }
 
+  getEffectiveValues(): Record<string, { value: any; source: string; path: string }> {
+    return this.configResult?.effectiveValues || {};
+  }
+
   private getNestedValue(obj: any, path: string): any {
     return path
       .split(".")

@@ -208,10 +208,7 @@ ${description}
     try {
       const { PersistenceService } = await import("../persistence/service");
 
-      if (!PersistenceService.isInitialized()) {
-        await PersistenceService.initialize();
-      }
-
+      // PersistenceService should already be initialized at application startup
       const provider = PersistenceService.getProvider();
 
       if (provider.capabilities.sql) {

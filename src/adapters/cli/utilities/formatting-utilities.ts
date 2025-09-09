@@ -148,6 +148,76 @@ export function formatConfigurationSources(resolved: any, sources: any[]): strin
 }
 
 /**
+ * Format individual configuration values with their sources
+ * @param effectiveValues Map of configuration paths to value and source info
+ * @param sources Configuration sources metadata
+ * @returns Formatted string showing each value with its source
+ */
+export function formatEffectiveValueSources(
+  effectiveValues: Record<string, { value: any; source: string; path: string }>,
+  sources: any[]
+): string {
+  let output = "📋 CONFIGURATION VALUES BY SOURCE\n";
+  output += "========================================\n";
+
+  // Show source precedence first
+  output += "Source Precedence (highest to lowest):\n";
+  sources.forEach((source, index) => {
+    output += `  ${index + 1}. ${source.name}\n`;
+  });
+  output += "\n";
+
+  // Sort paths for consistent display
+  const sortedPaths = Object.keys(effectiveValues).sort();
+
+  // Group values by source for easier reading
+  const valuesBySource: Record<string, Array<{ path: string; value: any }>> = {};
+
+  for (const path of sortedPaths) {
+    const valueInfo = effectiveValues[path];
+    if (!valuesBySource[valueInfo.source]) {
+      valuesBySource[valueInfo.source] = [];
+    }
+    valuesBySource[valueInfo.source].push({
+      path,
+      value: valueInfo.value,
+    });
+  }
+
+  // Display values grouped by source
+  for (const source of sources.map((s) => s.name)) {
+    const values = valuesBySource[source];
+    if (values && values.length > 0) {
+      output += `📂 FROM ${source.toUpperCase()}:\n`;
+      for (const { path, value } of values) {
+        const displayValue = formatValueForDisplay(value);
+        output += `   ${path}: ${displayValue}\n`;
+      }
+      output += "\n";
+    }
+  }
+
+  output += "💡 For flattened key=value pairs, use: minsky config list\n";
+  output += "💡 For formatted configuration overview, use: minsky config show";
+
+  return output;
+}
+
+/**
+ * Format a configuration value for display
+ */
+function formatValueForDisplay(value: any): string {
+  if (value === null) return "null";
+  if (value === undefined) return "undefined";
+  if (typeof value === "string") return `"${value}"`;
+  if (typeof value === "boolean") return value ? "true" : "false";
+  if (typeof value === "number") return value.toString();
+  if (Array.isArray(value)) return `[${value.length} items]`;
+  if (typeof value === "object") return `{${Object.keys(value).length} properties}`;
+  return String(value);
+}
+
+/**
  * Format resolved configuration for display
  * @param resolved Resolved configuration object
  * @returns Formatted configuration string

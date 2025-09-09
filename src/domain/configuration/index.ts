@@ -44,6 +44,11 @@ export interface ConfigurationProvider {
   getMetadata(): ConfigurationMetadata;
 
   /**
+   * Get effective values with source information
+   */
+  getEffectiveValues(): Record<string, { value: any; source: string; path: string }>;
+
+  /**
    * Validate current configuration
    */
   validate(): ValidationResult;
@@ -200,6 +205,14 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       loadedAt: this.configResult.loadedAt,
       version: "custom",
     };
+  }
+
+  getEffectiveValues(): Record<string, { value: any; source: string; path: string }> {
+    if (!this.configResult) {
+      throw new Error("Configuration not loaded. Call initialize() first.");
+    }
+
+    return this.configResult.effectiveValues || {};
   }
 
   validate(): ValidationResult {

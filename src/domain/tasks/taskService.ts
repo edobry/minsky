@@ -83,8 +83,12 @@ export async function createConfiguredTaskService(options: {
 
       case TaskBackend.MINSKY: {
         try {
-          const { createDatabaseConnection } = await import("../database/connection-manager");
-          const db = await createDatabaseConnection();
+          const { PersistenceService } = await import("../persistence/service");
+
+          // PersistenceService should already be initialized at application startup
+          const persistence = PersistenceService.getProvider();
+          const db = await persistence.getDatabaseConnection();
+
           const minskyBackend = createMinskyTaskBackend({
             name: TaskBackend.MINSKY,
             workspacePath: options.workspacePath,
@@ -112,6 +116,18 @@ export async function createConfiguredTaskService(options: {
   } else {
     // No specific backend requested - register all available backends for multi-backend mode
     try {
+      // Get PersistenceService (should already be initialized at application startup)
+      const { PersistenceService } = await import("../persistence/service");
+      let persistenceProvider = null;
+      try {
+        persistenceProvider = PersistenceService.getProvider();
+        log.debug("PersistenceService available for multi-backend mode");
+      } catch (error) {
+        log.warn("PersistenceService not available - persistence-dependent backends will be unavailable", {
+          error: getErrorMessage(error as any)
+        });
+      }
+
       const markdownBackend = createMarkdownTaskBackend({
         name: TaskBackend.MARKDOWN,
         workspacePath: options.workspacePath,
@@ -147,22 +163,26 @@ export async function createConfiguredTaskService(options: {
         log.debug("GitHub backend not available", { error: getErrorMessage(error as any) });
       }
 
-      // Add minsky backend (mt# prefix) - requires database connection
-      try {
-        // Use configured database connection
-        const { createDatabaseConnection } = await import("../database/connection-manager");
-        const db = await createDatabaseConnection();
+      // Add minsky backend (mt# prefix) - only if persistence provider is available
+      if (persistenceProvider) {
+        try {
+          const db = await persistenceProvider.getDatabaseConnection();
 
-        const minskyBackend = createMinskyTaskBackend({
-          name: TaskBackend.MINSKY,
-          workspacePath: options.workspacePath,
-          db,
-        });
-        (minskyBackend as any).prefix = "mt";
-        service.registerBackend(minskyBackend);
-        log.debug("Minsky backend registered successfully");
-      } catch (error) {
-        log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
+          const minskyBackend = createMinskyTaskBackend({
+            name: TaskBackend.MINSKY,
+            workspacePath: options.workspacePath,
+            db,
+          });
+          (minskyBackend as any).prefix = "mt";
+          service.registerBackend(minskyBackend);
+          log.debug("Minsky backend registered successfully");
+        } catch (error) {
+          log.warn("Minsky backend database connection failed", {
+            error: getErrorMessage(error as any)
+          });
+        }
+      } else {
+        log.debug("Skipping minsky backend - persistence provider unavailable");
       }
 
       // Set the configured default backend (respect tasks.backend configuration with fallback to 'minsky')

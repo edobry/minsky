@@ -100,7 +100,6 @@ export interface GlobalUserConfig {
 export interface ResolvedConfig {
   // Note: Deprecated root 'backend' property removed - use tasks.backend instead
   backendConfig: BackendConfig;
-  sessiondb: SessionDbConfig;
   persistence?: PersistenceConfig; // New persistence configuration
   github?: GitHubConfig;
   ai?: AIConfig;
@@ -211,12 +210,6 @@ export const _DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   // Detection rules removed - these were setting the deprecated root backend property
   // Backend detection is now handled by BackendDetectionService which properly sets tasks.backend
   detectionRules: [],
-  sessiondb: {
-    backend: "sqlite",
-    baseDir: undefined,
-    dbPath: undefined,
-    connectionString: undefined,
-  },
   logger: {
     mode: "auto",
     level: "info",

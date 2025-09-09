@@ -24,15 +24,6 @@ export const defaultConfiguration: PartialConfiguration = {
     "json-file": {},
   },
 
-  // Session database configuration (legacy - use persistence instead)
-  sessiondb: {
-    backend: "sqlite",
-    sqlite: {
-      path: undefined, // Will use default location
-      baseDir: undefined, // Will use XDG standard
-    },
-    postgres: undefined,
-  },
 
   // Modern persistence configuration
   persistence: {

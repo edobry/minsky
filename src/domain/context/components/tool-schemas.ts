@@ -181,7 +181,6 @@ export const ToolSchemasComponent: ContextComponent = {
         const categories = [
           CommandCategory.TASKS,
           CommandCategory.SESSION,
-          CommandCategory.SESSIONDB,
           CommandCategory.RULES,
           CommandCategory.GIT,
           CommandCategory.CONFIG,

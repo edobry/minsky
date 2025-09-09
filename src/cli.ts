@@ -68,8 +68,17 @@ export async function createCli(): Promise<Command> {
  * This is only executed when this file is run directly
  */
 async function main(): Promise<void> {
+  // Initialize PersistenceService ONCE at application startup
+  // This ensures proper dependency injection architecture
+  const { PersistenceService } = await import("./domain/persistence/service");
+  await PersistenceService.initialize();
+  log.debug("PersistenceService initialized at application startup");
+
   await createCli();
   await cli.parseAsync();
+
+  // Clean up PersistenceService on exit
+  await PersistenceService.close();
 
   // Still need explicit exit until all resource leaks are fixed
   // The improvements to workspace manager help, but there are other sources

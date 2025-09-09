@@ -1,6 +1,6 @@
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { DatabaseConnectionManager } from "../../../../domain/database/connection-manager";
+import { PersistenceService } from "../../../../domain/persistence/service";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
@@ -102,7 +102,9 @@ export function createTasksDepsTreeCommand() {
     description: "Show dependency tree for a specific task",
     parameters: tasksDepsTreeParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      // PersistenceService should already be initialized at application startup
+      const persistence = PersistenceService.getProvider();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
@@ -130,7 +132,9 @@ export function createTasksDepsGraphCommand() {
     description: "Show ASCII graph of all task dependencies",
     parameters: tasksDepsGraphParams,
     execute: async (params: any) => {
-      const db: PostgresJsDatabase = await DatabaseConnectionManager.getInstance().getConnection();
+      // PersistenceService should already be initialized at application startup
+      const persistence = PersistenceService.getProvider();
+      const db: PostgresJsDatabase = await persistence.getDatabaseConnection();
       const graphService = new TaskGraphService(db);
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
