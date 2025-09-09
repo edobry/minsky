@@ -24,7 +24,6 @@ export const defaultConfiguration: PartialConfiguration = {
     "json-file": {},
   },
 
-
   // Modern persistence configuration
   persistence: {
     backend: "sqlite",

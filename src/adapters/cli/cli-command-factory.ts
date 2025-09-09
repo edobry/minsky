@@ -553,33 +553,37 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           }
         },
       },
-        "config.show": {
-          outputFormatter: (result: any) => {
-            // Check if JSON output was requested
-            if (result.json) {
-              log.cli(JSON.stringify(result, null, 2));
-              return;
-            }
+      "config.show": {
+        outputFormatter: (result: any) => {
+          // Check if JSON output was requested
+          if (result.json) {
+            log.cli(JSON.stringify(result, null, 2));
+            return;
+          }
 
-            if (result.success && result.configuration) {
-              let output = "";
+          if (result.success && result.configuration) {
+            let output = "";
 
-              // Show sources if explicitly requested - enhance pretty format with source info
-              if (result.showSources && result.sources) {
-                output += formatConfigurationSources(result.configuration, result.sources, result.effectiveValues);
-              } else {
-                // Default human-friendly structured view
-                output += formatResolvedConfiguration(result.configuration);
-              }
-
-              log.cli(output);
-            } else if (result.error) {
-              log.cli(`Failed to load configuration: ${result.error}`);
+            // Show sources if explicitly requested - enhance pretty format with source info
+            if (result.showSources && result.sources) {
+              output += formatConfigurationSources(
+                result.configuration,
+                result.sources,
+                result.effectiveValues
+              );
             } else {
-              log.cli(JSON.stringify(result, null, 2));
+              // Default human-friendly structured view
+              output += formatResolvedConfiguration(result.configuration);
             }
-          },
+
+            log.cli(output);
+          } else if (result.error) {
+            log.cli(`Failed to load configuration: ${result.error}`);
+          } else {
+            log.cli(JSON.stringify(result, null, 2));
+          }
         },
+      },
       "config.get": {
         useFirstRequiredParamAsArgument: true,
         parameters: {
@@ -930,7 +934,6 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
     },
   });
 
-
   // Tools commands customization
   cliFactory.customizeCategory(CommandCategory.TOOLS, {
     commandOptions: {
@@ -938,7 +941,6 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
     },
   });
 }
-
 
 function formatEffectiveValueSources(
   effectiveValues: Record<string, { value: any; source: string; path: string }>,

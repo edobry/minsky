@@ -166,7 +166,11 @@ export function getConfigCustomizations(): {
 
               // Show sources if explicitly requested
               if (result.showSources && result.sources) {
-                output += formatConfigurationSources(result.configuration, result.sources, result.effectiveValues);
+                output += formatConfigurationSources(
+                  result.configuration,
+                  result.sources,
+                  result.effectiveValues
+                );
               } else {
                 // Default human-friendly structured view
                 output += formatResolvedConfiguration(result.configuration);

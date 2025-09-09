@@ -10,7 +10,6 @@ import { z } from "zod";
 // Import all domain schemas
 import { backendSchema, backendConfigSchema, type Backend, type BackendConfig } from "./backend";
 
-
 import { persistenceConfigSchema, type PersistenceConfig } from "./persistence";
 
 import { githubConfigSchema, type GitHubConfig } from "./github";
@@ -34,7 +33,6 @@ export const configurationSchema = z
   .object({
     // Note: Deprecated root 'backend' property removed - use tasks.backend instead
     backendConfig: backendConfigSchema,
-
 
     // Modern persistence configuration
     persistence: persistenceConfigSchema.optional(),
@@ -155,7 +153,6 @@ export const configurationValidation = {
       return !!config.backend;
     },
 
-
     github: (config: Configuration): boolean => {
       // GitHub is optional, but if configured, should have token
       return !config.github || !!(config.github.token || config.github.tokenFile);
@@ -205,7 +202,6 @@ export const configurationValidation = {
         errors.push("GitHub Issues backend requires GitHub token configuration");
       }
     }
-
 
     // Check AI default provider is enabled
     if (config.ai?.defaultProvider) {

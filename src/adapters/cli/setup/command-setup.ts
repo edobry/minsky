@@ -36,7 +36,6 @@ export function setupCommonCommandCustomizations(program?: Command): void {
   const configConfig = getConfigCustomizations();
   cliFactory.customizeCategory(configConfig.category, configConfig.options);
 
-
   const persistenceConfig = getPersistenceCustomizations();
   cliFactory.customizeCategory(persistenceConfig.category, persistenceConfig.options);
 

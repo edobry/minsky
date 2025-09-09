@@ -39,11 +39,7 @@ export class DefaultConfigValidator implements ConfigValidator {
    * Validate entire configuration
    */
   validateConfiguration(): ValidationResult {
-    const results = [
-      this.validateBackend(),
-      this.validateAI(),
-      this.validateGitHub(),
-    ];
+    const results = [this.validateBackend(), this.validateAI(), this.validateGitHub()];
 
     const allErrors = results.flatMap((r) => r.errors);
     const allWarnings = results.flatMap((r) => r.warnings);
@@ -112,7 +108,6 @@ export class DefaultConfigValidator implements ConfigValidator {
       warnings,
     };
   }
-
 
   /**
    * Validate AI configuration

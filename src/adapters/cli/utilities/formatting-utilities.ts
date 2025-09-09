@@ -269,7 +269,8 @@ export function formatResolvedConfigurationWithSources(
   if (taskBackend === "minsky" && persistenceBackend === "postgres") {
     // Will be shown in unified database section below
   } else if (taskBackend) {
-    const taskBackendSource = getSourceAnnotation("tasks.backend") || getSourceAnnotation("backend");
+    const taskBackendSource =
+      getSourceAnnotation("tasks.backend") || getSourceAnnotation("backend");
     output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}${taskBackendSource}`;
     if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
       const github = resolved.backendConfig["github-issues"];
@@ -324,7 +325,8 @@ export function formatResolvedConfigurationWithSources(
 
   // Storage Layer
   if (persistenceConfig) {
-    const persistenceSource = getSourceAnnotation("persistence.backend") || getSourceAnnotation("sessiondb.backend");
+    const persistenceSource =
+      getSourceAnnotation("persistence.backend") || getSourceAnnotation("sessiondb.backend");
 
     if (taskBackend === "minsky" && persistenceBackend === "postgres") {
       output += `💾 Persistence:\n   • All data stored in PostgreSQL database${persistenceSource}\n`;
@@ -334,8 +336,9 @@ export function formatResolvedConfigurationWithSources(
     }
 
     if (persistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
-      const connSource = getSourceAnnotation("persistence.postgres.connectionString") ||
-                        getSourceAnnotation("sessiondb.connectionString");
+      const connSource =
+        getSourceAnnotation("persistence.postgres.connectionString") ||
+        getSourceAnnotation("sessiondb.connectionString");
       output += `   • Connection: configured${connSource}\n`;
     }
   }

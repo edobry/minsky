@@ -668,29 +668,50 @@ export interface MockPersistenceProviderOptions {
  * @param options Configuration options for mock behavior
  * @returns A complete mock PersistenceProvider
  */
-export function createMockPersistenceProvider(options: MockPersistenceProviderOptions = {}): PersistenceProvider {
+export function createMockPersistenceProvider(
+  options: MockPersistenceProviderOptions = {}
+): PersistenceProvider {
   return createPartialMock<PersistenceProvider>({
     capabilities: options.capabilities || {
       sql: true,
       vectorStorage: true,
     },
     initialize: options.initialize || (() => Promise.resolve()),
-    getDatabaseConnection: options.getDatabaseConnection || (() => Promise.resolve({
-      select: () => ({
-        from: () => ({
-          where: () => ({
-            limit: () => Promise.resolve([]), // Return empty array for tasks
-            offset: () => ({ limit: () => Promise.resolve([]) }),
-          }),
+    getDatabaseConnection:
+      options.getDatabaseConnection ||
+      (() => {
+        // Create a comprehensive mock query builder that always returns empty arrays
+        const createQueryChain = (): any => ({
+          from: () => createQueryChain(),
+          where: () => createQueryChain(),
           limit: () => Promise.resolve([]),
-          orderBy: () => ({ limit: () => Promise.resolve([]) }),
-        }),
-        limit: () => Promise.resolve([]),
+          offset: () => createQueryChain(),
+          orderBy: () => createQueryChain(),
+          leftJoin: () => createQueryChain(),
+          innerJoin: () => createQueryChain(),
+          select: () => createQueryChain(),
+          then: (fn: (result: any[]) => any) => fn([]), // Make it thenable
+          [Symbol.iterator]: () => [][Symbol.iterator](), // Make it iterable
+        });
+
+        return Promise.resolve({
+          select: () => createQueryChain(),
+          insert: () => ({
+            values: () => Promise.resolve({ insertId: "test" }),
+            returning: () => Promise.resolve([]),
+          }),
+          update: () => ({
+            set: () => ({
+              where: () => Promise.resolve(),
+              returning: () => Promise.resolve([]),
+            }),
+          }),
+          delete: () => ({
+            where: () => Promise.resolve(),
+            returning: () => Promise.resolve([]),
+          }),
+        });
       }),
-      insert: () => ({ values: () => Promise.resolve({ insertId: "test" }) }),
-      update: () => ({ set: () => ({ where: () => Promise.resolve() }) }),
-      delete: () => ({ where: () => Promise.resolve() }),
-    })),
     getStorage: options.getStorage || (() => ({})),
     close: options.close || (() => Promise.resolve()),
     getCapabilities: options.getCapabilities || (() => ({ sql: true, vectorStorage: true })),

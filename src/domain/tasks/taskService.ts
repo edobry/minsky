@@ -123,9 +123,12 @@ export async function createConfiguredTaskService(options: {
         persistenceProvider = PersistenceService.getProvider();
         log.debug("PersistenceService available for multi-backend mode");
       } catch (error) {
-        log.warn("PersistenceService not available - persistence-dependent backends will be unavailable", {
-          error: getErrorMessage(error as any)
-        });
+        log.warn(
+          "PersistenceService not available - persistence-dependent backends will be unavailable",
+          {
+            error: getErrorMessage(error as any),
+          }
+        );
       }
 
       const markdownBackend = createMarkdownTaskBackend({
@@ -178,7 +181,7 @@ export async function createConfiguredTaskService(options: {
           log.debug("Minsky backend registered successfully");
         } catch (error) {
           log.warn("Minsky backend database connection failed", {
-            error: getErrorMessage(error as any)
+            error: getErrorMessage(error as any),
           });
         }
       } else {

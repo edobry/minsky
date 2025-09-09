@@ -73,7 +73,6 @@ mock.module("../../src/utils/logger", () => ({
   isHumanMode: () => true,
 }));
 
-
 // Set up global test environment variables
 process.env.NODE_ENV = "test";
 process.env.MINSKY_LOG_LEVEL = "error";

@@ -172,7 +172,10 @@ const configListRegistration = {
           error: source.error,
         })),
         resolved: maskedConfig,
-        effectiveValues: maskCredentialsInEffectiveValues(effectiveValues, params.showSecrets || false),
+        effectiveValues: maskCredentialsInEffectiveValues(
+          effectiveValues,
+          params.showSecrets || false
+        ),
         showSources: params.sources || false,
         credentialsMasked: !params.showSecrets,
       };
@@ -230,7 +233,10 @@ const configShowRegistration = {
           path: source.path,
           error: source.error,
         })),
-        effectiveValues: maskCredentialsInEffectiveValues(effectiveValues, params.showSecrets || false),
+        effectiveValues: maskCredentialsInEffectiveValues(
+          effectiveValues,
+          params.showSecrets || false
+        ),
       };
     } catch (error) {
       log.error("Failed to load configuration", {
