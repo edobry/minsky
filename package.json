@@ -66,7 +66,7 @@
   },
   "dependencies": {
     "@ai-sdk/anthropic": "^1.0.2",
-    "@ai-sdk/google": "^1.0.2",
+    "@ai-sdk/google": "^2.0.12",
     "@ai-sdk/openai": "^1.0.2",
     "@clack/prompts": "^0.11.0",
     "@dotenvx/dotenvx": "^1.45.2",
