@@ -375,18 +375,8 @@ export async function createSessionProvider(_options?: {
 }): Promise<SessionProviderInterface> {
   log.debug("Creating session provider with auto-repair support");
 
-  // Get PersistenceProvider from PersistenceService
+  // Get PersistenceProvider from PersistenceService (should already be initialized at application startup)
   log.debug(`PersistenceService initialized: ${PersistenceService.isInitialized()}`);
-  if (!PersistenceService.isInitialized()) {
-    log.debug("Initializing PersistenceService...");
-    try {
-      await PersistenceService.initialize();
-      log.debug("PersistenceService initialization completed");
-    } catch (error) {
-      log.error("PersistenceService initialization failed:", getErrorMessage(error as any), error);
-      throw error;
-    }
-  }
   log.debug("Getting provider from PersistenceService...");
   const provider = PersistenceService.getProvider();
   log.debug("Got provider, creating SessionDbAdapter...");

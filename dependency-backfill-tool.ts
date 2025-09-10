@@ -8,7 +8,7 @@
 
 import { createConfiguredTaskService } from "./src/domain/tasks/taskService";
 import { TaskGraphService } from "./src/domain/tasks/task-graph-service";
-import { createDatabaseConnection } from "./src/domain/database/connection-manager";
+import { PersistenceService } from "./src/domain/persistence/service";
 import { initializeConfiguration, CustomConfigFactory } from "./src/domain/configuration";
 
 interface TaskDependencyReference {
@@ -475,7 +475,9 @@ async function main() {
     });
 
     // Initialize TaskGraphService with database
-    db = await createDatabaseConnection();
+    // PersistenceService should already be initialized at application startup
+    const persistence = PersistenceService.getProvider();
+    db = await persistence.getDatabaseConnection();
     const graphService = new TaskGraphService(db);
 
     console.log("✅ Services initialized successfully\n");

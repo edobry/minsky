@@ -17,6 +17,7 @@ import {
 import { log } from "../../utils/logger";
 import { getMinskyStateDir } from "../../utils/paths";
 import {
+  formatConfigurationSources,
   formatResolvedConfiguration,
   getBackendDisplayName,
   getSessionBackendDisplayName,
@@ -537,8 +538,8 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
             let output = "";
 
             // Show sources if explicitly requested
-            if (result.showSources && result.sources) {
-              output += formatConfigurationSources(result.resolved, result.sources);
+            if (result.showSources && result.sources && result.effectiveValues) {
+              output += formatEffectiveValueSources(result.effectiveValues, result.sources);
             } else {
               // For config list, show flattened key=value pairs
               output += formatFlattenedConfiguration(result.resolved);
@@ -563,9 +564,13 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
           if (result.success && result.configuration) {
             let output = "";
 
-            // Show sources if explicitly requested
+            // Show sources if explicitly requested - enhance pretty format with source info
             if (result.showSources && result.sources) {
-              output += formatConfigurationSources(result.configuration, result.sources);
+              output += formatConfigurationSources(
+                result.configuration,
+                result.sources,
+                result.effectiveValues
+              );
             } else {
               // Default human-friendly structured view
               output += formatResolvedConfiguration(result.configuration);
@@ -929,38 +934,6 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
     },
   });
 
-  // SessionDB commands customization
-  cliFactory.customizeCategory(CommandCategory.SESSIONDB, {
-    commandOptions: {
-      "sessiondb.migrate": {
-        useFirstRequiredParamAsArgument: true,
-        parameters: {
-          to: {
-            asArgument: true,
-            description: "Target backend (sqlite, postgres)",
-          },
-          from: {
-            description: "Source backend (auto-detect if not specified)",
-          },
-          sqlitePath: {
-            description: "SQLite database file path",
-          },
-          connectionString: {
-            description: "PostgreSQL connection string",
-          },
-          backup: {
-            description: "Create backup in specified directory",
-          },
-          dryRun: {
-            alias: "n",
-            description: "Simulate migration without making changes",
-          },
-          // debug/showSql retained as global CLI flags
-        },
-      },
-    },
-  });
-
   // Tools commands customization
   cliFactory.customizeCategory(CommandCategory.TOOLS, {
     commandOptions: {
@@ -969,22 +942,72 @@ export function setupCommonCommandCustomizations(_program?: Command): void {
   });
 }
 
-function formatConfigurationSources(resolved: any, sources: any[]): string {
-  let output = "📋 CONFIGURATION SOURCES\n";
+function formatEffectiveValueSources(
+  effectiveValues: Record<string, { value: any; source: string; path: string }>,
+  sources: any[]
+): string {
+  let output = "📋 CONFIGURATION VALUES BY SOURCE\n";
   output += `${"=".repeat(40)}\n`;
 
-  // Show source precedence
+  // Show source precedence first
   output += "Source Precedence (highest to lowest):\n";
   sources.forEach((source, index) => {
     output += `  ${index + 1}. ${source.name}\n`;
   });
+  output += "\n";
 
-  output += "\n📋 RESOLVED CONFIGURATION\n";
-  output += formatResolvedConfiguration(resolved);
+  // Sort paths for consistent display
+  const sortedPaths = Object.keys(effectiveValues).sort();
 
-  output += "\n\n💡 For just the final configuration, use: minsky config show";
+  // Group values by source for easier reading
+  const valuesBySource: Record<string, Array<{ path: string; value: any }>> = {};
+
+  for (const path of sortedPaths) {
+    const valueInfo = effectiveValues[path];
+    if (!valuesBySource[valueInfo.source]) {
+      valuesBySource[valueInfo.source] = [];
+    }
+    valuesBySource[valueInfo.source].push({
+      path,
+      value: valueInfo.value,
+    });
+  }
+
+  // Display values grouped by source
+  for (const sourceObj of sources) {
+    const sourceName = sourceObj.name;
+    const values = valuesBySource[sourceName];
+    if (values && values.length > 0) {
+      // Show the source name and path if available
+      let sourceHeader = `📂 FROM ${sourceName.toUpperCase()}`;
+      if (sourceObj.path) {
+        sourceHeader += ` (${sourceObj.path})`;
+      }
+      output += `${sourceHeader}:\n`;
+
+      for (const { path, value } of values) {
+        const displayValue = formatValueForDisplay(value);
+        output += `   ${path}=${displayValue}\n`;
+      }
+      output += "\n";
+    }
+  }
+
+  output += "💡 For flattened key=value pairs, use: minsky config list\n";
+  output += "💡 For formatted configuration overview, use: minsky config show";
 
   return output;
+}
+
+function formatValueForDisplay(value: any): string {
+  if (value === null) return "(null)";
+  if (value === undefined) return "(undefined)";
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "(empty array)" : `(${value.length} items)`;
+  }
+  if (typeof value === "object") return `{${Object.keys(value).length} properties}`;
+  // For strings, numbers, booleans - display as-is (they're already masked if sensitive)
+  return String(value);
 }
 
 // Removed duplicate formatResolvedConfiguration - using import from utilities instead

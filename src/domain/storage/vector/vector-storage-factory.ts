@@ -14,10 +14,7 @@ import { log } from "../../../utils/logger";
  * Create vector storage using persistence provider
  */
 export async function createVectorStorageFromConfig(dimension: number): Promise<VectorStorage> {
-  // Ensure PersistenceService is initialized and get provider
-  if (!PersistenceService.isInitialized()) {
-    await PersistenceService.initialize();
-  }
+  // Get PersistenceService provider (should already be initialized at application startup)
   const provider = PersistenceService.getProvider();
 
   // Check if provider supports vector storage

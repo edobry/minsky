@@ -4,16 +4,16 @@ import tsParser from "@typescript-eslint/parser";
 import importPlugin from "eslint-plugin-import";
 import prettierPlugin from "eslint-plugin-prettier";
 import prettierConfig from "eslint-config-prettier";
-import noUnderscorePrefixMismatch from "./src/eslint-rules/no-underscore-prefix-mismatch.js";
-import noExcessiveAsUnknown from "./src/eslint-rules/no-excessive-as-unknown.js";
-import noUnsafeGitExec from "./src/eslint-rules/no-unsafe-git-exec.js";
-import noJestPatterns from "./src/eslint-rules/no-jest-patterns.js";
-import noTestsDirectories from "./src/eslint-rules/no-tests-directories.js";
-import noRealFsInTests from "./src/eslint-rules/no-real-fs-in-tests.js";
-import noGlobalModuleMocks from "./src/eslint-rules/no-global-module-mocks.js";
-import noUnreliableFactoryMocks from "./src/eslint-rules/no-unreliable-factory-mocks.js";
-import noCliExecutionInTests from "./src/eslint-rules/no-cli-execution-in-tests.js";
-import noMagicStringDuplication from "./src/eslint-rules/no-magic-string-duplication.js";
+import noUnderscorePrefixMismatch from "./eslint-rules/no-underscore-prefix-mismatch.js";
+import noExcessiveAsUnknown from "./eslint-rules/no-excessive-as-unknown.js";
+import noUnsafeGitExec from "./eslint-rules/no-unsafe-git-exec.js";
+import noJestPatterns from "./eslint-rules/no-jest-patterns.js";
+import noTestsDirectories from "./eslint-rules/no-tests-directories.js";
+import noRealFsInTests from "./eslint-rules/no-real-fs-in-tests.js";
+import noGlobalModuleMocks from "./eslint-rules/no-global-module-mocks.js";
+import noUnreliableFactoryMocks from "./eslint-rules/no-unreliable-factory-mocks.js";
+import noCliExecutionInTests from "./eslint-rules/no-cli-execution-in-tests.js";
+import noMagicStringDuplication from "./eslint-rules/no-magic-string-duplication.js";
 
 export default [
   js.configs.recommended,

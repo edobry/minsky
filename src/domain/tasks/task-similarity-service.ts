@@ -14,11 +14,9 @@ export interface TaskSimilarityServiceConfig {
 }
 
 export class TaskSimilarityService {
-  private vectorStorage: VectorStorage | null = null;
-
   constructor(
     private readonly embeddingService: EmbeddingService,
-    private readonly persistence: PersistenceProvider,
+    private readonly vectorStorage: VectorStorage,
     private readonly findTaskById: (id: string) => Promise<Task | null>,
     private readonly searchTasks: (query: { text?: string }) => Promise<Task[]>,
     private readonly getTaskSpecContent: (
@@ -27,59 +25,7 @@ export class TaskSimilarityService {
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
-  /**
-   * @deprecated Use constructor with PersistenceProvider instead
-   */
-  static createWithVectorStorage(
-    embeddingService: EmbeddingService,
-    vectorStorage: VectorStorage,
-    findTaskById: (id: string) => Promise<Task | null>,
-    searchTasks: (query: { text?: string }) => Promise<Task[]>,
-    getTaskSpecContent: (id: string) => Promise<{ content: string; specPath: string; task: any }>,
-    config: TaskSimilarityServiceConfig = {}
-  ): TaskSimilarityService {
-    // Create a minimal persistence provider wrapper for backward compatibility
-    const mockPersistence = {
-      capabilities: {
-        vectorStorage: true,
-        sql: true,
-        transactions: true,
-        jsonb: true,
-        migrations: true,
-      },
-      getVectorStorage: async () => vectorStorage,
-    } as PersistenceProvider;
-
-    const service = new TaskSimilarityService(
-      embeddingService,
-      mockPersistence,
-      findTaskById,
-      searchTasks,
-      getTaskSpecContent,
-      config
-    );
-    service.vectorStorage = vectorStorage;
-    return service;
-  }
-
-  async initialize(): Promise<void> {
-    if (!this.persistence.capabilities.vectorStorage) {
-      throw new Error("Vector storage not supported by current backend");
-    }
-
-    const dimension = this.config.dimension || 1536;
-    this.vectorStorage = await this.persistence.getVectorStorage?.(dimension);
-
-    if (!this.vectorStorage) {
-      throw new Error("Failed to initialize vector storage from persistence provider");
-    }
-  }
-
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
-    if (!this.vectorStorage) {
-      await this.initialize();
-    }
-
     // Delegate to generic core; embeddings backend will be first if available
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
@@ -99,10 +45,6 @@ export class TaskSimilarityService {
     threshold?: number,
     filters?: Record<string, any>
   ): Promise<SearchResult[]> {
-    if (!this.vectorStorage) {
-      await this.initialize();
-    }
-
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
       listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),

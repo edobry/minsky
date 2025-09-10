@@ -131,11 +131,6 @@ class TestConfigurationProvider implements ConfigurationProvider {
     }
   }
 
-  async reload(): Promise<void> {
-    this.configResult = null;
-    await this.initialize();
-  }
-
   getMetadata(): any {
     return {
       sources: this.configResult?.sources || [],
@@ -149,6 +144,10 @@ class TestConfigurationProvider implements ConfigurationProvider {
       valid: true, // Change from isValid to valid
       errors: [],
     };
+  }
+
+  getEffectiveValues(): Record<string, { value: any; source: string; path: string }> {
+    return this.configResult?.effectiveValues || {};
   }
 
   private getNestedValue(obj: any, path: string): any {
@@ -195,10 +194,6 @@ describe("Custom Configuration System", () => {
       expect(provider.has("tasks.backend")).toBe(true);
       expect(provider.has(CONFIG_TEST_PATTERNS.SESSIONDB_BACKEND)).toBe(true);
       expect(provider.has("nonexistent.path")).toBe(false);
-    });
-
-    test("should implement reload() method", async () => {
-      await expect(provider.reload()).resolves.toBeUndefined();
     });
 
     test("should implement getMetadata() method", () => {

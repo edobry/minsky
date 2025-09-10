@@ -124,27 +124,281 @@ export function formatConfigSection(config: any): string {
 }
 
 /**
- * Format configuration sources for display
+ * Format configuration sources for display (enhanced pretty format with source info)
  * @param resolved Resolved configuration
  * @param sources Configuration sources
+ * @param effectiveValues Per-value source information
  * @returns Formatted sources string
  */
-export function formatConfigurationSources(resolved: any, sources: any[]): string {
-  let output = "📋 CONFIGURATION SOURCES\n";
+export function formatConfigurationSources(
+  resolved: any,
+  sources: any[],
+  effectiveValues?: Record<string, { value: any; source: string; path: string }>
+): string {
+  let output = "📋 CONFIGURATION WITH SOURCES\n";
   output += "========================================\n";
 
   // Show source precedence
   output += "Source Precedence (highest to lowest):\n";
   sources.forEach((source, index) => {
-    output += `  ${index + 1}. ${source.name}\n`;
+    let sourceLine = `  ${index + 1}. ${source.name}`;
+    if (source.path) {
+      sourceLine += ` (${source.path})`;
+    }
+    output += `${sourceLine}\n`;
   });
 
-  output += "\n📋 RESOLVED CONFIGURATION\n";
-  output += formatResolvedConfiguration(resolved);
+  output += "\n";
 
-  output += "\n\n💡 For just the final configuration, use: minsky config show";
+  // Show enhanced configuration with source annotations
+  if (effectiveValues) {
+    output += formatResolvedConfigurationWithSources(resolved, effectiveValues);
+  } else {
+    output += formatResolvedConfiguration(resolved);
+  }
+
+  output += "\n\n💡 For per-value source details, use: minsky config list --sources";
 
   return output;
+}
+
+/**
+ * Format individual configuration values with their sources
+ * @param effectiveValues Map of configuration paths to value and source info
+ * @param sources Configuration sources metadata
+ * @returns Formatted string showing each value with its source
+ */
+export function formatEffectiveValueSources(
+  effectiveValues: Record<string, { value: any; source: string; path: string }>,
+  sources: any[]
+): string {
+  let output = "📋 CONFIGURATION VALUES BY SOURCE\n";
+  output += "========================================\n";
+
+  // Show source precedence first
+  output += "Source Precedence (highest to lowest):\n";
+  sources.forEach((source, index) => {
+    output += `  ${index + 1}. ${source.name}\n`;
+  });
+  output += "\n";
+
+  // Sort paths for consistent display
+  const sortedPaths = Object.keys(effectiveValues).sort();
+
+  // Group values by source for easier reading
+  const valuesBySource: Record<string, Array<{ path: string; value: any }>> = {};
+
+  for (const path of sortedPaths) {
+    const valueInfo = effectiveValues[path];
+    if (!valuesBySource[valueInfo.source]) {
+      valuesBySource[valueInfo.source] = [];
+    }
+    valuesBySource[valueInfo.source].push({
+      path,
+      value: valueInfo.value,
+    });
+  }
+
+  // Display values grouped by source
+  for (const sourceObj of sources) {
+    const sourceName = sourceObj.name;
+    const values = valuesBySource[sourceName];
+    if (values && values.length > 0) {
+      // Show the source name and path if available
+      let sourceHeader = `📂 FROM ${sourceName.toUpperCase()}`;
+      if (sourceObj.path) {
+        sourceHeader += ` (${sourceObj.path})`;
+      }
+      output += `${sourceHeader}:\n`;
+
+      for (const { path, value } of values) {
+        const displayValue = formatValueForDisplay(value);
+        output += `   ${path}=${displayValue}\n`;
+      }
+      output += "\n";
+    }
+  }
+
+  output += "💡 For flattened key=value pairs, use: minsky config list\n";
+  output += "💡 For formatted configuration overview, use: minsky config show";
+
+  return output;
+}
+
+/**
+ * Format a configuration value for display
+ */
+function formatValueForDisplay(value: any): string {
+  if (value === null) return "(null)";
+  if (value === undefined) return "(undefined)";
+  if (Array.isArray(value)) {
+    return value.length === 0 ? "(empty array)" : `(${value.length} items)`;
+  }
+  if (typeof value === "object") return `{${Object.keys(value).length} properties}`;
+  // For strings, numbers, booleans - display as-is (they're already masked if sensitive)
+  return String(value);
+}
+
+/**
+ * Format resolved configuration with source annotations
+ * @param resolved Resolved configuration object
+ * @param effectiveValues Per-value source information
+ * @returns Enhanced formatted configuration string with sources
+ */
+export function formatResolvedConfigurationWithSources(
+  resolved: any,
+  effectiveValues: Record<string, { value: any; source: string; path: string }>
+): string {
+  // Helper to get source annotation for a config path
+  const getSourceAnnotation = (path: string): string => {
+    const valueInfo = effectiveValues[path];
+    if (valueInfo) {
+      return ` [${valueInfo.source}]`;
+    }
+    return "";
+  };
+
+  let output = "📋 CURRENT CONFIGURATION\n";
+
+  // Task Storage
+  const taskBackend = resolved.tasks?.backend || resolved.backend;
+  const persistenceConfig = resolved.persistence || resolved.sessiondb;
+  const persistenceBackend = persistenceConfig?.backend || "sqlite";
+
+  // Don't show separate task storage if it's using the same database as persistence
+  if (taskBackend === "minsky" && persistenceBackend === "postgres") {
+    // Will be shown in unified database section below
+  } else if (taskBackend) {
+    const taskBackendSource =
+      getSourceAnnotation("tasks.backend") || getSourceAnnotation("backend");
+    output += `📁 Task Storage: ${getBackendDisplayName(taskBackend)}${taskBackendSource}`;
+    if (taskBackend === "github-issues" && resolved.backendConfig?.["github-issues"]) {
+      const github = resolved.backendConfig["github-issues"];
+      output += ` (${github.owner}/${github.repo})`;
+    }
+    output += "\n";
+  } else {
+    output += `📁 Task Storage: Auto-detected (multi-backend mode)\n`;
+  }
+
+  // Authentication & Credentials
+  const hasAuth =
+    (resolved.credentials && Object.keys(resolved.credentials).length > 0) ||
+    resolved.github?.token ||
+    (resolved.ai?.providers &&
+      Object.keys(resolved.ai.providers).some((p) => resolved.ai.providers[p]?.apiKey));
+
+  if (hasAuth) {
+    output += "🔐 Authentication:\n";
+
+    // GitHub authentication
+    if (resolved.github?.token || resolved.credentials?.github) {
+      const githubSource = getSourceAnnotation("github.token");
+      output += `   • GitHub: ✓ configured${githubSource}\n`;
+    }
+
+    // AI provider authentication
+    if (resolved.ai?.providers) {
+      const configuredAI: string[] = [];
+      const aiSources: string[] = [];
+      for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+        if (config && typeof config === "object") {
+          const providerConfig = config as any;
+          if (providerConfig.apiKey) {
+            configuredAI.push(provider);
+            const source = getSourceAnnotation(`ai.providers.${provider}.apiKey`);
+            if (source) {
+              aiSources.push(`${provider}${source}`);
+            }
+          }
+        }
+      }
+      if (configuredAI.length > 0) {
+        const defaultProviderSource = getSourceAnnotation("ai.defaultProvider");
+        output += `   • AI Providers: ${configuredAI.join(", ")} ✓${defaultProviderSource}\n`;
+        if (aiSources.length > 0 && aiSources.length <= 3) {
+          output += `     (${aiSources.join(", ")})\n`;
+        }
+      }
+    }
+  }
+
+  // Storage Layer
+  if (persistenceConfig) {
+    const persistenceSource =
+      getSourceAnnotation("persistence.backend") || getSourceAnnotation("sessiondb.backend");
+
+    if (taskBackend === "minsky" && persistenceBackend === "postgres") {
+      output += `💾 Persistence:\n   • All data stored in PostgreSQL database${persistenceSource}\n`;
+    } else {
+      output += "💾 Persistence:\n";
+      output += `   • Backend: ${getSessionBackendDisplayName(persistenceBackend)}${persistenceSource}\n`;
+    }
+
+    if (persistenceBackend === "postgres" && persistenceConfig.postgres?.connectionString) {
+      const connSource =
+        getSourceAnnotation("persistence.postgres.connectionString") ||
+        getSourceAnnotation("sessiondb.connectionString");
+      output += `   • Connection: configured${connSource}\n`;
+    }
+  }
+
+  // AI Configuration
+  if (resolved.ai?.providers && Object.keys(resolved.ai.providers).length > 0) {
+    output += "🤖 AI Configuration:\n";
+
+    if (resolved.ai.defaultProvider) {
+      const defaultSource = getSourceAnnotation("ai.defaultProvider");
+      output += `   • Default Provider: ${resolved.ai.defaultProvider}${defaultSource}\n`;
+    }
+
+    output += "   • Configured Providers:\n";
+    for (const [provider, config] of Object.entries(resolved.ai.providers)) {
+      if (config && typeof config === "object") {
+        const providerConfig = config as any;
+        output += `     ${provider}:`;
+
+        const details: string[] = [];
+        if (providerConfig.model) {
+          const modelSource = getSourceAnnotation(`ai.providers.${provider}.model`);
+          details.push(`model: ${providerConfig.model}${modelSource || ""}`);
+        }
+        if (providerConfig.enabled !== undefined) {
+          const enabledSource = getSourceAnnotation(`ai.providers.${provider}.enabled`);
+          details.push(`enabled: ${providerConfig.enabled ? "yes" : "no"}${enabledSource || ""}`);
+        }
+        if (providerConfig.apiKey) {
+          details.push("authenticated");
+        }
+
+        if (details.length > 0) {
+          output += ` ${details.join(", ")}\n`;
+        } else {
+          output += "\n";
+        }
+      }
+    }
+  }
+
+  // GitHub Configuration
+  if (resolved.github && Object.keys(resolved.github).length > 0) {
+    output += "🐙 GitHub Configuration:\n";
+
+    if (resolved.github.token) {
+      const tokenSource = getSourceAnnotation("github.token");
+      output += `   • Token: configured${tokenSource}\n`;
+    }
+    if (resolved.github.organization) {
+      const orgSource = getSourceAnnotation("github.organization");
+      output += `   • Organization: ${resolved.github.organization}${orgSource}\n`;
+    }
+    if (resolved.github.baseUrl && resolved.github.baseUrl !== "https://api.github.com") {
+      const urlSource = getSourceAnnotation("github.baseUrl");
+      output += `   • Base URL: ${resolved.github.baseUrl}${urlSource}\n`;
+    }
+  }
+
+  return output.trim();
 }
 
 /**

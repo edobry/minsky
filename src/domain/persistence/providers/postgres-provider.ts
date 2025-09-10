@@ -10,6 +10,8 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import {
   PersistenceProvider,
+  VectorCapablePersistenceProvider,
+  SqlCapablePersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
   DatabaseStorage,
@@ -20,13 +22,27 @@ import { log } from "../../../utils/logger";
 import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-storage";
 
 /**
- * PostgreSQL persistence provider implementation
+ * Base PostgreSQL persistence provider (without vector storage)
  */
-export class PostgresPersistenceProvider extends PersistenceProvider {
-  private db: PostgresJsDatabase | null = null;
-  private sql: ReturnType<typeof postgres> | null = null;
-  private config: PersistenceConfig;
-  private isInitialized = false;
+export class PostgresPersistenceProvider
+  extends PersistenceProvider
+  implements SqlCapablePersistenceProvider
+{
+  protected db: PostgresJsDatabase | null = null;
+  protected sql: ReturnType<typeof postgres> | null = null;
+  protected config: PersistenceConfig;
+  protected isInitialized = false;
+
+  /**
+   * Base PostgreSQL capabilities (no vector storage)
+   */
+  readonly capabilities = {
+    sql: true,
+    transactions: true,
+    jsonb: true,
+    vectorStorage: false,
+    migrations: true,
+  } as const;
 
   // Note: Capabilities are returned by getCapabilities() method below
 
@@ -66,7 +82,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
       await this.sql`SELECT 1`;
 
       this.isInitialized = true;
-      log.debug("PostgreSQL persistence provider initialized");
+      log.debug("Base PostgreSQL persistence provider initialized");
     } catch (error) {
       log.error("Failed to initialize PostgreSQL provider:", error);
       throw error;
@@ -77,12 +93,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    * Get provider capabilities
    */
   getCapabilities(): PersistenceCapabilities {
-    return {
-      sql: true,
-      supportsTransactions: true,
-      supportsVectorStorage: true,
-      supportsFullTextSearch: true,
-    };
+    return this.capabilities;
   }
 
   /**
@@ -102,46 +113,11 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     });
     // Initialize the storage before returning
     storage.initialize().catch((err: any) => {
-      console.error("Failed to initialize PostgreSQL storage:", err);
+      log.error("Failed to initialize PostgreSQL storage:", err);
     });
     return storage as DatabaseStorage<T, S>;
   }
 
-  /**
-   * Get vector storage instance
-   */
-  async getVectorStorage(dimension: number): Promise<VectorStorage> {
-    if (!this.isInitialized) {
-      throw new Error("PostgresPersistenceProvider not initialized");
-    }
-
-    if (!this.sql) {
-      throw new Error("SQL connection not available");
-    }
-
-    // Check if pgvector extension is installed
-    const result = await this.sql`
-      SELECT EXISTS (
-        SELECT 1 FROM pg_extension WHERE extname = 'vector'
-      ) as exists
-    `;
-
-    if (!result[0].exists) {
-      throw new Error("pgvector extension not installed");
-    }
-
-    // Import the updated PostgresVectorStorage
-    const { PostgresVectorStorage } = await import("../../storage/vector/postgres-vector-storage");
-
-    // Return PostgresVectorStorage instance with correct constructor parameters
-    // Use tasks_embeddings table which should exist
-    return new PostgresVectorStorage(this.sql!, this.db!, dimension, {
-      tableName: "tasks_embeddings",
-      idColumn: "task_id",
-      embeddingColumn: "vector",
-      lastIndexedAtColumn: "indexed_at",
-    });
-  }
 
   /**
    * Get direct database connection
@@ -222,5 +198,77 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     const displayString = connectionString.replace(/\/\/[^@]+@/, "//***@");
 
     return `PostgreSQL: ${displayString} (${this.isInitialized ? "connected" : "disconnected"})`;
+  }
+}
+
+/**
+ * PostgreSQL persistence provider with vector storage support
+ * Only created when pgvector extension is available
+ */
+export class PostgresVectorPersistenceProvider 
+  extends PostgresPersistenceProvider
+  implements VectorCapablePersistenceProvider 
+{
+  /**
+   * PostgreSQL capabilities with vector storage
+   */
+  readonly capabilities = {
+    sql: true,
+    transactions: true,
+    jsonb: true,
+    vectorStorage: true,
+    migrations: true,
+  } as const;
+
+  async initialize(): Promise<void> {
+    // Initialize base PostgreSQL functionality first
+    await super.initialize();
+    
+    // Verify pgvector extension is available (should have been checked by factory)
+    if (!this.sql) {
+      throw new Error("SQL connection not available");
+    }
+
+    try {
+      const result = await this.sql`
+        SELECT EXISTS (
+          SELECT 1 FROM pg_extension WHERE extname = 'vector'  
+        ) as exists
+      `;
+      
+      if (!result[0].exists) {
+        throw new Error("pgvector extension not available - factory should have prevented this");
+      }
+      
+      log.debug("PostgreSQL persistence provider initialized with vector support");
+    } catch (error) {
+      log.error("Failed to verify pgvector extension:", error);
+      throw error;
+    }
+  }
+
+  /**
+   * Get vector storage instance (type-safe - only exists on vector provider)
+   */
+  getVectorStorage(dimension: number): VectorStorage {
+    if (!this.isInitialized) {
+      throw new Error("PostgresVectorPersistenceProvider not initialized");
+    }
+
+    if (!this.sql || !this.db) {
+      throw new Error("Database connections not available");
+    }
+
+    return new PostgresVectorStorage(this.sql, this.db, dimension, {
+      tableName: "tasks_embeddings",
+      idColumn: "task_id", 
+      embeddingColumn: "vector",
+      lastIndexedAtColumn: "indexed_at",
+    });
+  }
+
+  getConnectionInfo(): string {
+    const baseInfo = super.getConnectionInfo();
+    return baseInfo.replace("PostgreSQL:", "PostgreSQL (with vectors):");
   }
 }

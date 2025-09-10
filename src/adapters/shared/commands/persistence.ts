@@ -1043,7 +1043,7 @@ sharedCommandRegistry.registerCommand({
         }
 
         // Get sessions through SessionProviderInterface
-        await PersistenceService.initialize();
+        // PersistenceService should already be initialized at CLI startup
         const { createSessionProvider } = await import("../../../domain/session/index");
         const sessionProvider = await createSessionProvider();
         const sessions = await sessionProvider.listSessions();
@@ -1176,7 +1176,7 @@ sharedCommandRegistry.registerCommand({
       }
 
       // Use SessionProviderInterface for data migration
-      await PersistenceService.initialize();
+      // PersistenceService should already be initialized at CLI startup
       const { createSessionProvider } = await import("../../../domain/session/index");
       const sessionProvider = await createSessionProvider();
       const sessions = await sessionProvider.listSessions();
@@ -1469,7 +1469,7 @@ async function validatePostgresBackend(): Promise<{
 
     // Basic connection test
     // Use PersistenceService for connection testing
-    await PersistenceService.initialize();
+    // PersistenceService should already be initialized at CLI startup
     const provider = PersistenceService.getProvider();
 
     // Test basic connectivity

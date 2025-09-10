@@ -70,10 +70,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     // Get connection from PersistenceService
     const { PersistenceService } = await import("../../persistence/service");
 
-    if (!PersistenceService.isInitialized()) {
-      await PersistenceService.initialize();
-    }
-
+    // PersistenceService should already be initialized at application startup
     const provider = PersistenceService.getProvider();
 
     const capabilities = provider.getCapabilities();

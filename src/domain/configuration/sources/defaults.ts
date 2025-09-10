@@ -24,16 +24,6 @@ export const defaultConfiguration: PartialConfiguration = {
     "json-file": {},
   },
 
-  // Session database configuration (legacy - use persistence instead)
-  sessiondb: {
-    backend: "sqlite",
-    sqlite: {
-      path: undefined, // Will use default location
-      baseDir: undefined, // Will use XDG standard
-    },
-    postgres: undefined,
-  },
-
   // Modern persistence configuration
   persistence: {
     backend: "sqlite",
@@ -60,7 +50,7 @@ export const defaultConfiguration: PartialConfiguration = {
         apiKey: undefined,
         apiKeyFile: undefined,
         enabled: true,
-        model: "gpt-4",
+        model: "gpt-4o",
         models: [],
         baseUrl: undefined,
         maxTokens: undefined,
@@ -71,7 +61,7 @@ export const defaultConfiguration: PartialConfiguration = {
         apiKey: undefined,
         apiKeyFile: undefined,
         enabled: true,
-        model: "claude-3-sonnet-20240229",
+        model: "claude-3-5-sonnet-20241022",
         models: [],
         baseUrl: undefined,
         maxTokens: undefined,
@@ -106,6 +96,17 @@ export const defaultConfiguration: PartialConfiguration = {
         apiKeyFile: undefined,
         enabled: true,
         model: "mistral-medium",
+        models: [],
+        baseUrl: undefined,
+        maxTokens: undefined,
+        temperature: undefined,
+        headers: undefined,
+      },
+      morph: {
+        apiKey: undefined,
+        apiKeyFile: undefined,
+        enabled: true,
+        model: "morph-v3-large",
         models: [],
         baseUrl: undefined,
         maxTokens: undefined,

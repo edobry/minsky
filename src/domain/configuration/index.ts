@@ -34,14 +34,14 @@ export interface ConfigurationProvider {
   has(path: string): boolean;
 
   /**
-   * Reload configuration from sources
-   */
-  reload(): Promise<void>;
-
-  /**
    * Get configuration source information for debugging
    */
   getMetadata(): ConfigurationMetadata;
+
+  /**
+   * Get effective values with source information
+   */
+  getEffectiveValues(): Record<string, { value: any; source: string; path: string }>;
 
   /**
    * Validate current configuration
@@ -171,19 +171,6 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
     }
   }
 
-  async reload(): Promise<void> {
-    // Clear the current config and reload from sources
-    this.configResult = null;
-    try {
-      await this.initialize();
-    } catch (error) {
-      // If initialization fails, log but don't throw
-      log.warn("Warning: CustomConfigurationProvider reload had issues:", error);
-    }
-    // Explicit return to ensure promise resolves
-    return Promise.resolve();
-  }
-
   getMetadata(): ConfigurationMetadata {
     if (!this.configResult) {
       throw new Error("Configuration not loaded. Call initialize() first.");
@@ -200,6 +187,14 @@ export class CustomConfigurationProvider implements ConfigurationProvider {
       loadedAt: this.configResult.loadedAt,
       version: "custom",
     };
+  }
+
+  getEffectiveValues(): Record<string, { value: any; source: string; path: string }> {
+    if (!this.configResult) {
+      throw new Error("Configuration not loaded. Call initialize() first.");
+    }
+
+    return this.configResult.effectiveValues || {};
   }
 
   validate(): ValidationResult {
@@ -370,15 +365,6 @@ export function get<T = any>(path: string): T {
  */
 export function has(path: string): boolean {
   return getConfigurationProvider().has(path);
-}
-
-/**
- * Reload configuration from sources
- *
- * @throws Error if configuration hasn't been initialized
- */
-export async function reloadConfiguration(): Promise<void> {
-  await getConfigurationProvider().reload();
 }
 
 /**

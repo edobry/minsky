@@ -39,12 +39,7 @@ export class DefaultConfigValidator implements ConfigValidator {
    * Validate entire configuration
    */
   validateConfiguration(): ValidationResult {
-    const results = [
-      this.validateBackend(),
-      this.validateSessionDb(),
-      this.validateAI(),
-      this.validateGitHub(),
-    ];
+    const results = [this.validateBackend(), this.validateAI(), this.validateGitHub()];
 
     const allErrors = results.flatMap((r) => r.errors);
     const allWarnings = results.flatMap((r) => r.warnings);
@@ -104,69 +99,6 @@ export class DefaultConfigValidator implements ConfigValidator {
         field: "tasks.backend",
         message: `Error validating tasks backend configuration: ${(error as any).message}`,
         code: "TASKS_BACKEND_VALIDATION_ERROR",
-      });
-    }
-
-    return {
-      valid: errors.length === 0,
-      errors,
-      warnings,
-    };
-  }
-
-  /**
-   * Validate session database configuration
-   */
-  validateSessionDb(): ValidationResult {
-    const errors: ValidationError[] = [];
-    const warnings: ValidationWarning[] = [];
-
-    try {
-      const sessiondb = get("sessiondb") as any;
-      const backend = sessiondb?.backend;
-
-      if (!backend) {
-        errors.push({
-          field: "sessiondb.backend",
-          message: "Session database backend is required",
-          code: "MISSING_SESSIONDB_BACKEND",
-        });
-      } else {
-        const validBackends = ["sqlite", "postgres"];
-        if (!validBackends.includes(backend)) {
-          errors.push({
-            field: "sessiondb.backend",
-            message: `Invalid session database backend: ${backend}. Valid options: ${validBackends.join(", ")}`,
-            code: "INVALID_SESSIONDB_BACKEND",
-          });
-        }
-
-        // Backend-specific validations
-        if (backend === "sqlite" && !sessiondb.path) {
-          warnings.push({
-            field: "sessiondb.path",
-            message: "SQLite path not specified, will use default location",
-            code: "DEFAULT_SQLITE_PATH",
-          });
-        }
-
-        if (backend === "postgres") {
-          const hasConnectionString =
-            sessiondb.postgres?.connectionString || sessiondb.connectionString;
-          if (!hasConnectionString && !sessiondb.host) {
-            errors.push({
-              field: "sessiondb.postgres.connectionString",
-              message: "PostgreSQL connection string or host is required",
-              code: "MISSING_POSTGRES_CONNECTION",
-            });
-          }
-        }
-      }
-    } catch (error) {
-      errors.push({
-        field: "sessiondb",
-        message: `Error validating session database configuration: ${(error as any).message}`,
-        code: "SESSIONDB_VALIDATION_ERROR",
       });
     }
 

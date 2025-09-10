@@ -2,7 +2,7 @@
  * ESLint plugin for Minsky project custom rules
  */
 
-import noRealFsInTests from "./src/eslint-rules/no-real-fs-in-tests.js";
+import noRealFsInTests from "./eslint-rules/no-real-fs-in-tests.js";
 
 export default {
   rules: {

@@ -6,7 +6,7 @@
 import { describe, test, expect } from "bun:test";
 import { readFileSync } from "fs";
 import { join } from "path";
-import { log } from "../utils/logger";
+import { log } from "../src/utils/logger";
 
 describe("ESLint Rule Fixtures", () => {
   test("pathological fixture contains forbidden patterns", () => {

@@ -24,7 +24,6 @@ export enum CommandCategory {
   REPO = "REPO",
   TASKS = "TASKS",
   SESSION = "SESSION",
-  SESSIONDB = "SESSIONDB", // Legacy - use PERSISTENCE for new commands
   PERSISTENCE = "PERSISTENCE",
   RULES = "RULES",
   INIT = "INIT",

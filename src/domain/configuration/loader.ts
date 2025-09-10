@@ -41,6 +41,13 @@ export interface ConfigurationSourceResult {
 }
 
 /**
+ * Value source tracking for individual configuration values
+ */
+export interface ValueSourceMap {
+  [key: string]: string | ValueSourceMap;
+}
+
+/**
  * Complete configuration loading result
  */
 export interface ConfigurationLoadResult {
@@ -150,14 +157,6 @@ export class ConfigurationLoader {
         `Configuration loading failed: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-  }
-
-  /**
-   * Reload configuration (clears cache)
-   */
-  async reload(): Promise<ConfigurationLoadResult> {
-    this.clearCache();
-    return this.load();
   }
 
   /**
@@ -468,16 +467,21 @@ export class ConfigurationLoader {
         const fullPath = currentPath ? `${currentPath}.${key}` : key;
         const value = config[key];
 
-        // Store the value (later sources will override earlier ones)
-        collector[fullPath] = {
-          value,
-          source: sourceName,
-          path: fullPath,
-        };
+        // Skip undefined values to avoid showing empty defaults
+        if (value === undefined) {
+          continue;
+        }
 
-        // Recurse for nested objects
+        // For objects, recurse first to get leaf values
         if (typeof value === "object" && !Array.isArray(value) && value !== null) {
           this.collectConfigPaths(value, sourceName, fullPath, collector);
+        } else {
+          // Only store leaf values (non-objects), later sources will override earlier ones
+          collector[fullPath] = {
+            value,
+            source: sourceName,
+            path: fullPath,
+          };
         }
       }
     }
@@ -501,13 +505,6 @@ export async function loadConfiguration(
   }
 
   return defaultLoader.load();
-}
-
-/**
- * Reload configuration using default loader
- */
-export async function reloadConfiguration(): Promise<ConfigurationLoadResult> {
-  return defaultLoader.reload();
 }
 
 /**

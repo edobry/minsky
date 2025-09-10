@@ -5,10 +5,16 @@
  * Combines factory and singleton patterns for production use and testing flexibility.
  */
 
-import { PersistenceProvider, PersistenceConfig } from "./types";
+import {
+  PersistenceProvider,
+  VectorCapablePersistenceProvider,
+  PersistenceConfig,
+  CapabilityNotSupportedError,
+} from "./types";
 import { PersistenceProviderFactory } from "./factory";
 import { getConfiguration } from "../configuration";
 import { log } from "../../utils/logger";
+import type { VectorStorage } from "../storage/vector/types";
 
 /**
  * Persistence service singleton
@@ -43,8 +49,8 @@ export class PersistenceService {
       // Use provided config or load from configuration
       const persistenceConfig = config || PersistenceService.loadConfiguration();
 
-      // Create provider using factory
-      PersistenceService.provider = PersistenceProviderFactory.create(persistenceConfig);
+      // Create provider using factory (now async for runtime capability detection)
+      PersistenceService.provider = await PersistenceProviderFactory.create(persistenceConfig);
 
       // Initialize the provider
       await PersistenceService.provider.initialize();
@@ -62,42 +68,9 @@ export class PersistenceService {
   private static loadConfiguration(): PersistenceConfig {
     const runtimeConfig = getConfiguration();
 
-    // Check for new persistence config structure
+    // Check for persistence config structure
     if (runtimeConfig.persistence) {
       return runtimeConfig.persistence;
-    }
-
-    // Fall back to legacy sessiondb config for backward compatibility
-    if (
-      runtimeConfig.sessiondb?.connectionString &&
-      runtimeConfig.sessiondb.backend === "postgres"
-    ) {
-      log.warn(
-        "Using legacy sessiondb configuration. Please migrate to persistence: configuration."
-      );
-      return {
-        backend: "postgres",
-        postgres: {
-          connectionString: runtimeConfig.sessiondb.connectionString,
-          maxConnections: 10,
-          connectTimeout: 30000,
-          idleTimeout: 10000,
-          prepareStatements: true,
-        },
-      };
-    }
-
-    // SQLite fallback from sessiondb
-    if (runtimeConfig.sessiondb?.backend === "sqlite") {
-      log.warn(
-        "Using legacy sessiondb configuration. Please migrate to persistence: configuration."
-      );
-      return {
-        backend: "sqlite",
-        sqlite: {
-          dbPath: runtimeConfig.sessiondb.dbPath || "~/.local/state/minsky/minsky.db",
-        },
-      };
     }
 
     throw new Error(
@@ -115,6 +88,35 @@ export class PersistenceService {
       );
     }
     return PersistenceService.provider;
+  }
+
+  /**
+   * Get vector storage directly - type-safe approach using interface checking
+   * This eliminates runtime capability checking by using TypeScript type guards
+   */
+  static getVectorStorage(dimension: number): VectorStorage {
+    const provider = PersistenceService.getProvider();
+
+    // Type guard: check if provider implements VectorCapablePersistenceProvider
+    if (!PersistenceService.isVectorCapable(provider)) {
+      throw new CapabilityNotSupportedError("vectorStorage", provider.constructor.name);
+    }
+
+    // TypeScript now knows provider has getVectorStorage method
+    return provider.getVectorStorage(dimension);
+  }
+
+  /**
+   * Type guard to check if provider supports vector storage
+   */
+  private static isVectorCapable(
+    provider: PersistenceProvider
+  ): provider is VectorCapablePersistenceProvider {
+    return (
+      provider.capabilities.vectorStorage === true &&
+      "getVectorStorage" in provider &&
+      typeof provider.getVectorStorage === "function"
+    );
   }
 
   /**
@@ -151,11 +153,8 @@ export class PersistenceService {
 
 /**
  * Convenience function to get persistence provider
- * Ensures service is initialized before returning provider
+ * Assumes service is already initialized at application startup
  */
-export async function getPersistenceProvider(): Promise<PersistenceProvider> {
-  if (!PersistenceService.isInitialized()) {
-    await PersistenceService.initialize();
-  }
+export function getPersistenceProvider(): PersistenceProvider {
   return PersistenceService.getProvider();
 }
