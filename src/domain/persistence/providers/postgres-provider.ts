@@ -10,6 +10,8 @@ import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { migrate } from "drizzle-orm/postgres-js/migrator";
 import {
   PersistenceProvider,
+  VectorCapablePersistenceProvider,
+  SqlCapablePersistenceProvider,
   PersistenceCapabilities,
   PersistenceConfig,
   DatabaseStorage,
@@ -22,12 +24,24 @@ import { PostgresVectorStorage } from "../../storage/vector/postgres-vector-stor
 /**
  * PostgreSQL persistence provider implementation
  */
-export class PostgresPersistenceProvider extends PersistenceProvider {
+export class PostgresPersistenceProvider 
+  extends PersistenceProvider 
+  implements VectorCapablePersistenceProvider, SqlCapablePersistenceProvider {
   private db: PostgresJsDatabase | null = null;
   private sql: ReturnType<typeof postgres> | null = null;
   private config: PersistenceConfig;
   private isInitialized = false;
-  private vectorExtensionAvailable: boolean | null = null;
+
+  /**
+   * Capabilities of PostgreSQL provider (type-safe)
+   */
+  readonly capabilities = {
+    sql: true,
+    transactions: true,
+    jsonb: true,
+    vectorStorage: true,
+    migrations: true,
+  } as const;
 
   // Note: Capabilities are returned by getCapabilities() method below
 
@@ -66,21 +80,21 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
       // Verify connection
       await this.sql`SELECT 1`;
 
-      // Check for pgvector extension availability (eager validation)
-      try {
-        const result = await this.sql`
-          SELECT EXISTS (
-            SELECT 1 FROM pg_extension WHERE extname = 'vector'
-          ) as exists
-        `;
-        this.vectorExtensionAvailable = result[0].exists;
-        log.debug(
-          `pgvector extension ${this.vectorExtensionAvailable ? "available" : "not available"}`
+      // Validate required pgvector extension (fail-fast for type safety)
+      const result = await this.sql`
+        SELECT EXISTS (
+          SELECT 1 FROM pg_extension WHERE extname = 'vector'
+        ) as exists
+      `;
+      
+      if (!result[0].exists) {
+        throw new Error(
+          "PostgresPersistenceProvider requires pgvector extension, but it's not installed. " +
+          "Install with: CREATE EXTENSION vector;"
         );
-      } catch (error) {
-        log.warn("Could not check pgvector extension:", error);
-        this.vectorExtensionAvailable = false;
       }
+      
+      log.debug("pgvector extension verified");
 
       this.isInitialized = true;
       log.debug("PostgreSQL persistence provider initialized");
@@ -94,12 +108,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
    * Get provider capabilities
    */
   getCapabilities(): PersistenceCapabilities {
-    return {
-      sql: true,
-      supportsTransactions: true,
-      supportsVectorStorage: true,
-      supportsFullTextSearch: true,
-    };
+    return this.capabilities;
   }
 
   /**
@@ -125,29 +134,20 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
   }
 
   /**
-   * Get vector storage instance (synchronous - extension check done at init)
+   * Get vector storage instance (type-safe - only exists on vector-capable providers)
    */
   getVectorStorage(dimension: number): VectorStorage {
     if (!this.isInitialized) {
       throw new Error("PostgresPersistenceProvider not initialized");
     }
 
-    if (!this.sql) {
-      throw new Error("SQL connection not available");
+    if (!this.sql || !this.db) {
+      throw new Error("Database connections not available");
     }
 
-    if (this.vectorExtensionAvailable === false) {
-      throw new Error("pgvector extension not available");
-    }
-
-    if (this.vectorExtensionAvailable === null) {
-      throw new Error("pgvector extension availability unknown - initialization may have failed");
-    }
-
-    // Return PostgresVectorStorage instance with correct constructor parameters
-    // Use tasks_embeddings table which should exist
-    return new PostgresVectorStorage(this.sql!, this.db!, dimension, {
-      tableName: "tasks_embeddings",
+    // Type system guarantees this provider supports vectors
+    return new PostgresVectorStorage(this.sql, this.db, dimension, {
+      tableName: "tasks_embeddings", 
       idColumn: "task_id",
       embeddingColumn: "vector",
       lastIndexedAtColumn: "indexed_at",

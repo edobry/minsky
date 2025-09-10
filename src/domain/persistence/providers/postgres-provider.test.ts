@@ -8,9 +8,14 @@ import { PostgresStorage } from "../../storage/backends/postgres-storage";
 import type { PersistenceConfig } from "../../../domain/configuration/types";
 
 // Mock the postgres module to avoid real database connections
-const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) =>
-  Promise.resolve([])
-);
+const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
+  // Handle pgvector extension check specifically
+  const queryString = strings[0];
+  if (queryString.includes('pg_extension') && queryString.includes('vector')) {
+    return Promise.resolve([{ exists: true }]); // Mock pgvector as available
+  }
+  return Promise.resolve([]);
+});
 const mockSql = Object.assign(mockSqlFunction, {
   options: {
     parsers: {},
@@ -88,8 +93,10 @@ describe("PostgresPersistenceProvider", () => {
   test("getCapabilities() returns correct PostgreSQL capabilities", () => {
     const capabilities = provider.getCapabilities();
 
-    expect(capabilities.supportsTransactions).toBe(true);
-    expect(capabilities.supportsVectorStorage).toBe(true);
-    expect(capabilities.supportsFullTextSearch).toBe(true);
+    expect(capabilities.sql).toBe(true);
+    expect(capabilities.transactions).toBe(true);
+    expect(capabilities.jsonb).toBe(true);
+    expect(capabilities.vectorStorage).toBe(true);
+    expect(capabilities.migrations).toBe(true);
   });
 });

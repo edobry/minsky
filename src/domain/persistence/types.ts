@@ -51,52 +51,43 @@ export interface DatabaseStorage<T, S> {
 }
 
 /**
+ * Base interface for all persistence providers
+ */
+export interface BasePersistenceProvider {
+  readonly capabilities: PersistenceCapabilities;
+  getCapabilities(): PersistenceCapabilities;
+  getStorage<T, S>(): DatabaseStorage<T, S>;
+  initialize(): Promise<void>;
+  close(): Promise<void>;
+  getConnectionInfo(): string;
+}
+
+/**
+ * SQL-capable persistence provider interface
+ */
+export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
+  capabilities: PersistenceCapabilities & { sql: true };
+  getDatabaseConnection(): Promise<PostgresJsDatabase | null>;
+  getRawSqlConnection?(): Promise<ReturnType<typeof import("postgres")> | null>;
+}
+
+/**
+ * Vector-capable persistence provider interface  
+ */
+export interface VectorCapablePersistenceProvider extends BasePersistenceProvider {
+  capabilities: PersistenceCapabilities & { vectorStorage: true };
+  getVectorStorage(dimension: number): VectorStorage;
+}
+
+/**
  * Abstract base class for all persistence providers
  */
-export abstract class PersistenceProvider {
-  /**
-   * Capabilities of this persistence provider
-   */
+export abstract class PersistenceProvider implements BasePersistenceProvider {
   abstract readonly capabilities: PersistenceCapabilities;
-
-  /**
-   * Get provider capabilities
-   */
   abstract getCapabilities(): PersistenceCapabilities;
-
-  /**
-   * Get storage instance for domain entities
-   */
   abstract getStorage<T, S>(): DatabaseStorage<T, S>;
-
-  /**
-   * Get vector storage instance (if supported)
-   */
-  abstract getVectorStorage?(dimension: number): VectorStorage | null;
-
-  /**
-   * Get direct database connection (if SQL-based)
-   */
-  abstract getDatabaseConnection?(): Promise<PostgresJsDatabase | null>;
-
-  /**
-   * Get raw SQL connection for migrations and low-level operations (if SQL-based)
-   */
-  abstract getRawSqlConnection?(): Promise<ReturnType<typeof import("postgres")> | null>;
-
-  /**
-   * Initialize the provider
-   */
   abstract initialize(): Promise<void>;
-
-  /**
-   * Close all connections
-   */
   abstract close(): Promise<void>;
-
-  /**
-   * Get connection information for debugging
-   */
   abstract getConnectionInfo(): string;
 }
 

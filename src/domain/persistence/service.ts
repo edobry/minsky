@@ -5,10 +5,16 @@
  * Combines factory and singleton patterns for production use and testing flexibility.
  */
 
-import { PersistenceProvider, PersistenceConfig } from "./types";
+import { 
+  PersistenceProvider, 
+  VectorCapablePersistenceProvider,
+  PersistenceConfig,
+  CapabilityNotSupportedError 
+} from "./types";
 import { PersistenceProviderFactory } from "./factory";
 import { getConfiguration } from "../configuration";
 import { log } from "../../utils/logger";
+import type { VectorStorage } from "../storage/vector/types";
 
 /**
  * Persistence service singleton
@@ -85,29 +91,32 @@ export class PersistenceService {
   }
 
   /**
-   * Get vector storage directly - only works if provider supports it
-   * This eliminates the need for consumers to check capabilities or cast types
+   * Get vector storage directly - type-safe approach using interface checking
+   * This eliminates runtime capability checking by using TypeScript type guards
    */
   static getVectorStorage(dimension: number): VectorStorage {
     const provider = PersistenceService.getProvider();
-
-    if (!provider.capabilities.vectorStorage) {
-      const { CapabilityNotSupportedError } = require("./types");
+    
+    // Type guard: check if provider implements VectorCapablePersistenceProvider
+    if (!PersistenceService.isVectorCapable(provider)) {
       throw new CapabilityNotSupportedError("vectorStorage", provider.constructor.name);
     }
 
-    if (!provider.getVectorStorage) {
-      throw new Error(
-        `Provider ${provider.constructor.name} claims vector storage support but lacks getVectorStorage method`
-      );
-    }
+    // TypeScript now knows provider has getVectorStorage method
+    return provider.getVectorStorage(dimension);
+  }
 
-    const storage = provider.getVectorStorage(dimension);
-    if (!storage) {
-      throw new Error(`Provider ${provider.constructor.name} returned null for vector storage`);
-    }
-
-    return storage;
+  /**
+   * Type guard to check if provider supports vector storage
+   */
+  private static isVectorCapable(
+    provider: PersistenceProvider
+  ): provider is VectorCapablePersistenceProvider {
+    return (
+      provider.capabilities.vectorStorage === true &&
+      'getVectorStorage' in provider &&
+      typeof provider.getVectorStorage === 'function'
+    );
   }
 
   /**

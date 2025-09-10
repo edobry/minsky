@@ -9,9 +9,7 @@ import {
   PersistenceCapabilities,
   PersistenceConfig,
   DatabaseStorage,
-  CapabilityNotSupportedError,
 } from "../types";
-import type { VectorStorage } from "../../storage/vector/types";
 import { JsonFileStorage } from "../../storage/json-file-storage";
 import type { JsonFileStorageOptions } from "../../storage/json-file-storage";
 import { log } from "../../../utils/logger";
@@ -104,12 +102,6 @@ export class JsonPersistenceProvider extends PersistenceProvider {
     return this.storage as DatabaseStorage<T, S>;
   }
 
-  /**
-   * Vector storage not supported by JSON provider
-   */
-  getVectorStorage(dimension: number): VectorStorage | null {
-    throw new CapabilityNotSupportedError("vectorStorage", "JSON");
-  }
 
   /**
    * No database connection for JSON provider
