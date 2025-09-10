@@ -122,7 +122,7 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
   /**
    * Vector storage not supported by SQLite
    */
-  async getVectorStorage(dimension: number): Promise<VectorStorage | null> {
+  getVectorStorage(dimension: number): VectorStorage | null {
     throw new CapabilityNotSupportedError("vectorStorage", "SQLite");
   }
 

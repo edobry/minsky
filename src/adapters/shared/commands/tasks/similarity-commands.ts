@@ -300,9 +300,9 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
 
   // Use PersistenceService (should already be initialized at application startup)
   const { PersistenceService } = await import("../../../../domain/persistence/service");
-  
-  // Get vector storage directly - throws if provider doesn't support it
-  const vectorStorage = await PersistenceService.getVectorStorage(dimension);
+
+  // Get vector storage directly - throws if provider doesn't support it (now synchronous!)
+  const vectorStorage = PersistenceService.getVectorStorage(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");

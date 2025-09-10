@@ -128,7 +128,7 @@ export class RuleSimilarityService {
 export async function createRuleSimilarityService(): Promise<RuleSimilarityService> {
   const workspacePath = await resolveWorkspacePath({});
 
-  // Use PersistenceService instead of direct dependencies  
+  // Use PersistenceService instead of direct dependencies
   const { PersistenceService } = await import("../persistence/service");
 
   // PersistenceService should already be initialized at application startup

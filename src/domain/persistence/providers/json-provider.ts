@@ -107,7 +107,7 @@ export class JsonPersistenceProvider extends PersistenceProvider {
   /**
    * Vector storage not supported by JSON provider
    */
-  async getVectorStorage(dimension: number): Promise<VectorStorage | null> {
+  getVectorStorage(dimension: number): VectorStorage | null {
     throw new CapabilityNotSupportedError("vectorStorage", "JSON");
   }
 

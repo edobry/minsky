@@ -72,7 +72,7 @@ export abstract class PersistenceProvider {
   /**
    * Get vector storage instance (if supported)
    */
-  abstract getVectorStorage?(dimension: number): Promise<VectorStorage | null>;
+  abstract getVectorStorage?(dimension: number): VectorStorage | null;
 
   /**
    * Get direct database connection (if SQL-based)
@@ -99,7 +99,6 @@ export abstract class PersistenceProvider {
    */
   abstract getConnectionInfo(): string;
 }
-
 
 /**
  * Error thrown when a capability is not supported

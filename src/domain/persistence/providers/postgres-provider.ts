@@ -27,6 +27,7 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
   private sql: ReturnType<typeof postgres> | null = null;
   private config: PersistenceConfig;
   private isInitialized = false;
+  private vectorExtensionAvailable: boolean | null = null;
 
   // Note: Capabilities are returned by getCapabilities() method below
 
@@ -65,6 +66,22 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
       // Verify connection
       await this.sql`SELECT 1`;
 
+      // Check for pgvector extension availability (eager validation)
+      try {
+        const result = await this.sql`
+          SELECT EXISTS (
+            SELECT 1 FROM pg_extension WHERE extname = 'vector'
+          ) as exists
+        `;
+        this.vectorExtensionAvailable = result[0].exists;
+        log.debug(
+          `pgvector extension ${this.vectorExtensionAvailable ? "available" : "not available"}`
+        );
+      } catch (error) {
+        log.warn("Could not check pgvector extension:", error);
+        this.vectorExtensionAvailable = false;
+      }
+
       this.isInitialized = true;
       log.debug("PostgreSQL persistence provider initialized");
     } catch (error) {
@@ -102,15 +119,15 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
     });
     // Initialize the storage before returning
     storage.initialize().catch((err: any) => {
-      console.error("Failed to initialize PostgreSQL storage:", err);
+      log.error("Failed to initialize PostgreSQL storage:", err);
     });
     return storage as DatabaseStorage<T, S>;
   }
 
   /**
-   * Get vector storage instance
+   * Get vector storage instance (synchronous - extension check done at init)
    */
-  async getVectorStorage(dimension: number): Promise<VectorStorage> {
+  getVectorStorage(dimension: number): VectorStorage {
     if (!this.isInitialized) {
       throw new Error("PostgresPersistenceProvider not initialized");
     }
@@ -119,19 +136,13 @@ export class PostgresPersistenceProvider extends PersistenceProvider {
       throw new Error("SQL connection not available");
     }
 
-    // Check if pgvector extension is installed
-    const result = await this.sql`
-      SELECT EXISTS (
-        SELECT 1 FROM pg_extension WHERE extname = 'vector'
-      ) as exists
-    `;
-
-    if (!result[0].exists) {
-      throw new Error("pgvector extension not installed");
+    if (this.vectorExtensionAvailable === false) {
+      throw new Error("pgvector extension not available");
     }
 
-    // Import the updated PostgresVectorStorage
-    const { PostgresVectorStorage } = await import("../../storage/vector/postgres-vector-storage");
+    if (this.vectorExtensionAvailable === null) {
+      throw new Error("pgvector extension availability unknown - initialization may have failed");
+    }
 
     // Return PostgresVectorStorage instance with correct constructor parameters
     // Use tasks_embeddings table which should exist
