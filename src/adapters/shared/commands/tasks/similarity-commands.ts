@@ -300,17 +300,14 @@ export async function createTaskSimilarityService(): Promise<TaskSimilarityServi
 
   // Use PersistenceService (should already be initialized at application startup)
   const { PersistenceService } = await import("../../../../domain/persistence/service");
-  const persistence = PersistenceService.getProvider();
-
-  // Check capabilities and create vector storage
-  if (!persistence.capabilities.vectorStorage) {
-    throw new Error("Vector storage not supported by current backend");
-  }
-
-  const vectorStorage = await persistence.getVectorStorage?.(dimension);
-  if (!vectorStorage) {
-    throw new Error("Failed to initialize vector storage from persistence provider");
-  }
+  const { assertVectorCapable } = await import("../../../../domain/persistence/types");
+  
+  const provider = PersistenceService.getProvider();
+  
+  // Type-safe validation - throws if provider doesn't support vector storage
+  assertVectorCapable(provider);
+  
+  const vectorStorage = await provider.getVectorStorage(dimension);
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");

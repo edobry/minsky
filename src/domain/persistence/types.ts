@@ -101,6 +101,28 @@ export abstract class PersistenceProvider {
 }
 
 /**
+ * Type constraint for persistence providers that support vector storage
+ * This ensures similarity services can only be instantiated with capable providers
+ */
+export type VectorCapablePersistenceProvider = PersistenceProvider & {
+  capabilities: PersistenceCapabilities & { vectorStorage: true };
+  getVectorStorage: (dimension: number) => Promise<VectorStorage>;
+};
+
+/**
+ * Type guard and validator for vector-capable persistence providers
+ * Throws CapabilityNotSupportedError if provider doesn't support vector storage
+ */
+export function assertVectorCapable(provider: PersistenceProvider): asserts provider is VectorCapablePersistenceProvider {
+  if (!provider.capabilities.vectorStorage) {
+    throw new CapabilityNotSupportedError('vectorStorage', provider.constructor.name);
+  }
+  if (!provider.getVectorStorage) {
+    throw new Error(`Provider ${provider.constructor.name} claims vector storage support but lacks getVectorStorage method`);
+  }
+}
+
+/**
  * Error thrown when a capability is not supported
  */
 export class CapabilityNotSupportedError extends Error {

@@ -43,11 +43,6 @@ export class RuleSimilarityService {
     return new RuleSimilarityService(mockPersistence, workspacePath, config);
   }
 
-  async initialize(): Promise<void> {
-    if (!this.persistence.capabilities.vectorStorage) {
-      log.warn("Vector storage not supported by current backend, falling back to lexical search");
-    }
-  }
 
   /**
    * Search rules by natural language query using embeddings
@@ -136,12 +131,15 @@ export async function createRuleSimilarityService(): Promise<RuleSimilarityServi
 
   // Use PersistenceService instead of direct dependencies
   const { PersistenceService } = await import("../persistence/service");
+  const { assertVectorCapable } = await import("../persistence/types");
 
   // PersistenceService should already be initialized at application startup
-  const persistence = PersistenceService.getProvider();
+  const provider = PersistenceService.getProvider();
+  
+  // Type-safe validation - throws if provider doesn't support vector storage
+  assertVectorCapable(provider);
 
-  const service = new RuleSimilarityService(persistence, workspacePath);
-  await service.initialize();
+  const service = new RuleSimilarityService(provider, workspacePath);
 
   return service;
 }

@@ -25,10 +25,7 @@ export class TaskSimilarityService {
     private readonly config: TaskSimilarityServiceConfig = {}
   ) {}
 
-
-
   async similarToTask(taskId: string, limit = 10, threshold?: number): Promise<SearchResult[]> {
-
     // Delegate to generic core; embeddings backend will be first if available
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
@@ -48,7 +45,6 @@ export class TaskSimilarityService {
     threshold?: number,
     filters?: Record<string, any>
   ): Promise<SearchResult[]> {
-
     const core = await createTaskSimilarityCore({
       getById: this.findTaskById,
       listCandidateIds: async () => (await this.searchTasks({})).map((t) => t.id),
