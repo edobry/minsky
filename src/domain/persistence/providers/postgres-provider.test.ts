@@ -11,7 +11,7 @@ import type { PersistenceConfig } from "../../../domain/configuration/types";
 const mockSqlFunction = mock((strings: TemplateStringsArray, ...values: any[]) => {
   // Handle pgvector extension check specifically
   const queryString = strings[0];
-  if (queryString.includes('pg_extension') && queryString.includes('vector')) {
+  if (queryString.includes("pg_extension") && queryString.includes("vector")) {
     return Promise.resolve([{ exists: true }]); // Mock pgvector as available
   }
   return Promise.resolve([]);
@@ -90,13 +90,13 @@ describe("PostgresPersistenceProvider", () => {
     expect(connection).toBe(mockSql);
   });
 
-  test("getCapabilities() returns correct PostgreSQL capabilities", () => {
+  test("getCapabilities() returns correct PostgreSQL capabilities (base provider)", () => {
     const capabilities = provider.getCapabilities();
 
     expect(capabilities.sql).toBe(true);
     expect(capabilities.transactions).toBe(true);
     expect(capabilities.jsonb).toBe(true);
-    expect(capabilities.vectorStorage).toBe(true);
+    expect(capabilities.vectorStorage).toBe(false); // Base provider has no vector support
     expect(capabilities.migrations).toBe(true);
   });
 });

@@ -5,11 +5,11 @@
  * Combines factory and singleton patterns for production use and testing flexibility.
  */
 
-import { 
-  PersistenceProvider, 
+import {
+  PersistenceProvider,
   VectorCapablePersistenceProvider,
   PersistenceConfig,
-  CapabilityNotSupportedError 
+  CapabilityNotSupportedError,
 } from "./types";
 import { PersistenceProviderFactory } from "./factory";
 import { getConfiguration } from "../configuration";
@@ -49,8 +49,8 @@ export class PersistenceService {
       // Use provided config or load from configuration
       const persistenceConfig = config || PersistenceService.loadConfiguration();
 
-      // Create provider using factory
-      PersistenceService.provider = PersistenceProviderFactory.create(persistenceConfig);
+      // Create provider using factory (now async for runtime capability detection)
+      PersistenceService.provider = await PersistenceProviderFactory.create(persistenceConfig);
 
       // Initialize the provider
       await PersistenceService.provider.initialize();
@@ -96,7 +96,7 @@ export class PersistenceService {
    */
   static getVectorStorage(dimension: number): VectorStorage {
     const provider = PersistenceService.getProvider();
-    
+
     // Type guard: check if provider implements VectorCapablePersistenceProvider
     if (!PersistenceService.isVectorCapable(provider)) {
       throw new CapabilityNotSupportedError("vectorStorage", provider.constructor.name);
@@ -114,8 +114,8 @@ export class PersistenceService {
   ): provider is VectorCapablePersistenceProvider {
     return (
       provider.capabilities.vectorStorage === true &&
-      'getVectorStorage' in provider &&
-      typeof provider.getVectorStorage === 'function'
+      "getVectorStorage" in provider &&
+      typeof provider.getVectorStorage === "function"
     );
   }
 

@@ -72,7 +72,7 @@ export interface SqlCapablePersistenceProvider extends BasePersistenceProvider {
 }
 
 /**
- * Vector-capable persistence provider interface  
+ * Vector-capable persistence provider interface
  */
 export interface VectorCapablePersistenceProvider extends BasePersistenceProvider {
   capabilities: PersistenceCapabilities & { vectorStorage: true };

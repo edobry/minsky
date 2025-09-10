@@ -117,7 +117,6 @@ export class SqlitePersistenceProvider extends PersistenceProvider {
     return this.storage as DatabaseStorage<T, S>;
   }
 
-
   /**
    * Get direct database connection
    */

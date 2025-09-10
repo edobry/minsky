@@ -102,7 +102,6 @@ export class JsonPersistenceProvider extends PersistenceProvider {
     return this.storage as DatabaseStorage<T, S>;
   }
 
-
   /**
    * No database connection for JSON provider
    */

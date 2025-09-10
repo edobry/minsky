@@ -5,7 +5,7 @@
  */
 
 import { PersistenceProvider, PersistenceConfig } from "./types";
-import { PostgresPersistenceProvider } from "./providers/postgres-provider";
+import { PostgresProviderFactory } from "./providers/postgres-provider-factory";
 import { SqlitePersistenceProvider } from "./providers/sqlite-provider";
 import { JsonPersistenceProvider } from "./providers/json-provider";
 import { log } from "../../utils/logger";
@@ -16,8 +16,9 @@ import { log } from "../../utils/logger";
 export class PersistenceProviderFactory {
   /**
    * Create a persistence provider based on configuration
+   * Async to support runtime capability detection
    */
-  static create(config: PersistenceConfig): PersistenceProvider {
+  static async create(config: PersistenceConfig): Promise<PersistenceProvider> {
     log.debug(`Creating persistence provider for backend: ${config.backend}`);
 
     let provider: PersistenceProvider;
@@ -27,7 +28,8 @@ export class PersistenceProviderFactory {
         if (!config.postgres) {
           throw new Error("PostgreSQL configuration required for postgres backend");
         }
-        provider = new PostgresPersistenceProvider(config);
+        // Use factory to create appropriate PostgreSQL provider based on runtime capabilities
+        provider = await PostgresProviderFactory.create(config);
         break;
 
       case "sqlite":
