@@ -85,6 +85,25 @@ export class PersistenceService {
   }
 
   /**
+   * Get vector storage directly - only works if provider supports it
+   * This eliminates the need for consumers to check capabilities or cast types
+   */
+  static async getVectorStorage(dimension: number): Promise<VectorStorage> {
+    const provider = PersistenceService.getProvider();
+    
+    if (!provider.capabilities.vectorStorage) {
+      const { CapabilityNotSupportedError } = await import("./types");
+      throw new CapabilityNotSupportedError('vectorStorage', provider.constructor.name);
+    }
+
+    if (!provider.getVectorStorage) {
+      throw new Error(`Provider ${provider.constructor.name} claims vector storage support but lacks getVectorStorage method`);
+    }
+
+    return provider.getVectorStorage(dimension);
+  }
+
+  /**
    * Check if service is initialized
    */
   static isInitialized(): boolean {

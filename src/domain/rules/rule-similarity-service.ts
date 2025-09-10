@@ -43,7 +43,6 @@ export class RuleSimilarityService {
     return new RuleSimilarityService(mockPersistence, workspacePath, config);
   }
 
-
   /**
    * Search rules by natural language query using embeddings
    */
@@ -129,15 +128,11 @@ export class RuleSimilarityService {
 export async function createRuleSimilarityService(): Promise<RuleSimilarityService> {
   const workspacePath = await resolveWorkspacePath({});
 
-  // Use PersistenceService instead of direct dependencies
+  // Use PersistenceService instead of direct dependencies  
   const { PersistenceService } = await import("../persistence/service");
-  const { assertVectorCapable } = await import("../persistence/types");
 
   // PersistenceService should already be initialized at application startup
   const provider = PersistenceService.getProvider();
-  
-  // Type-safe validation - throws if provider doesn't support vector storage
-  assertVectorCapable(provider);
 
   const service = new RuleSimilarityService(provider, workspacePath);
 
