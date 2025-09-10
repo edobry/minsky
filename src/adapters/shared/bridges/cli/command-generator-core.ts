@@ -13,6 +13,7 @@ import {
   type CommandExecutionContext,
   type SharedCommand,
 } from "../../command-registry";
+import { commandDispatcher } from "../../command-dispatcher";
 import { normalizeCliParameters } from "../parameter-mapper";
 import {
   type CliCommandOptions,
@@ -160,11 +161,20 @@ export class CommandGeneratorCore {
         // Normalize parameters
         const normalizedParams = normalizeCliParameters(commandDef.parameters, rawParameters);
 
-        // Execute the command with parameters and context
-        const result = await commandDef.execute(normalizedParams, context);
+        // Execute the command via dispatcher for unified provider injection
+        const executionResult = await commandDispatcher.executeCommand(
+          commandDef.id,
+          normalizedParams,
+          context
+        );
+
+        // Check if execution was successful
+        if (!executionResult.success) {
+          throw new Error(executionResult.error?.message || "Command execution failed");
+        }
 
         // Handle output
-        this.handleCommandOutput(result, commandDef, options, context);
+        this.handleCommandOutput(executionResult.result, commandDef, options, context);
       } catch (error) {
         // Handle any errors using the CLI error handler
         handleCliError(error);

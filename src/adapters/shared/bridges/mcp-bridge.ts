@@ -5,6 +5,7 @@
  * allowing shared commands to be executed via MCP requests.
  */
 import { sharedCommandRegistry, type CommandExecutionContext } from "../command-registry";
+import { commandDispatcher } from "../command-dispatcher";
 import {
   validateMcpCommandRequest,
   validateCommandDefinition,
@@ -111,25 +112,32 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
       };
     }
 
-    // Execute the command
+    // Execute the command via dispatcher for unified provider injection
     const context: McpExecutionContext = {
       interface: "mcp",
       mcpSpecificData: validatedRequest.mcpContext,
     };
 
-    // Use the handler function if available, otherwise throw error
-    if (validatedCommandDef.handler) {
-      const result = await validatedCommandDef.handler(parsedParams, context);
+    // Use the CommandDispatcher to execute with automatic provider injection
+    const executionResult = await commandDispatcher.executeCommand(
+      validatedCommandDef.id,
+      parsedParams,
+      context
+    );
+
+    // Return the result in MCP format
+    if (executionResult.success) {
       return {
         success: true,
-        result,
+        result: executionResult.result,
       };
     } else {
       return {
         success: false,
         error: {
-          message: "Command handler not available",
-          type: "EXECUTION_ERROR",
+          message: executionResult.error?.message || "Command execution failed",
+          type: executionResult.error?.type || "EXECUTION_ERROR",
+          details: executionResult.error?.details,
         },
       };
     }
