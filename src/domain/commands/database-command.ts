@@ -1,6 +1,6 @@
 /**
  * Database Command Abstract Base Class
- * 
+ *
  * Foundation infrastructure for type-safe database command architecture.
  * Provides compile-time type safety and guaranteed provider injection.
  */
@@ -26,7 +26,7 @@ export interface DatabaseCommandContext extends CommandExecutionContext {
 
 /**
  * Abstract base class for commands that require database access
- * 
+ *
  * This class provides:
  * - Compile-time type safety for database commands
  * - Guaranteed provider injection via enhanced context
@@ -35,7 +35,7 @@ export interface DatabaseCommandContext extends CommandExecutionContext {
  */
 export abstract class DatabaseCommand<
   TParams extends CommandParameterMap = Record<string, CommandParameterDefinition>,
-  TResult = any
+  TResult = any,
 > {
   /** Unique command identifier */
   abstract readonly id: string;
@@ -54,7 +54,7 @@ export abstract class DatabaseCommand<
 
   /**
    * Execute the database command with typed parameters and guaranteed provider access
-   * 
+   *
    * @param params - Fully typed parameters from Zod schema validation
    * @param context - Enhanced context with guaranteed persistence provider
    * @returns Command result
@@ -97,12 +97,12 @@ export function isDatabaseCommand(command: any): command is DatabaseCommand {
  * Helper type to extract parameter types from a DatabaseCommand
  * Useful for creating strongly-typed command parameters
  */
-export type DatabaseCommandParameters<T extends DatabaseCommand> = 
+export type DatabaseCommandParameters<T extends DatabaseCommand> =
   T extends DatabaseCommand<infer P, any> ? P : never;
 
 /**
  * Helper type to extract result type from a DatabaseCommand
  * Useful for creating strongly-typed command result handlers
  */
-export type DatabaseCommandResult<T extends DatabaseCommand> = 
+export type DatabaseCommandResult<T extends DatabaseCommand> =
   T extends DatabaseCommand<any, infer R> ? R : never;

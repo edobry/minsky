@@ -1,10 +1,10 @@
 /**
  * Migrated Similarity Commands
- * 
+ *
  * This file demonstrates how to migrate existing commands from the old pattern
  * (manual PersistenceService.initialize()) to the new DatabaseCommand pattern
  * with automatic provider injection.
- * 
+ *
  * MIGRATION EXAMPLE: TasksSimilarCommand and TasksSearchCommand
  */
 
@@ -20,10 +20,10 @@ import type { EnhancedSearchResult } from "../similarity-command-factory";
 
 /**
  * MIGRATED: Task Similar Command
- * 
- * OLD PATTERN: Extended BaseTaskCommand, called createService() which internally 
+ *
+ * OLD PATTERN: Extended BaseTaskCommand, called createService() which internally
  * called PersistenceService.initialize()
- * 
+ *
  * NEW PATTERN: Extends DatabaseCommand, receives provider via context injection
  */
 export class TasksSimilarCommandMigrated extends DatabaseCommand {
@@ -104,7 +104,7 @@ export class TasksSimilarCommandMigrated extends DatabaseCommand {
 
   /**
    * Create TaskSimilarityService with injected provider
-   * 
+   *
    * MIGRATION NOTE: This replaces the old createTaskSimilarityService function
    * that manually initialized PersistenceService. Now it receives the provider
    * as a parameter from the context.
@@ -203,10 +203,10 @@ export class TasksSimilarCommandMigrated extends DatabaseCommand {
 
 /**
  * MIGRATED: Task Search Command
- * 
- * OLD PATTERN: Extended BaseTaskCommand, called createService() which internally 
+ *
+ * OLD PATTERN: Extended BaseTaskCommand, called createService() which internally
  * called PersistenceService.initialize()
- * 
+ *
  * NEW PATTERN: Extends DatabaseCommand, receives provider via context injection
  */
 export class TasksSearchCommandMigrated extends DatabaseCommand {
@@ -407,29 +407,29 @@ export class TasksSearchCommandMigrated extends DatabaseCommand {
 
 /**
  * MIGRATION SUMMARY:
- * 
+ *
  * KEY CHANGES FROM OLD TO NEW:
- * 
+ *
  * 1. INHERITANCE:
  *    OLD: extends BaseTaskCommand
  *    NEW: extends DatabaseCommand
- * 
+ *
  * 2. PROVIDER ACCESS:
  *    OLD: await PersistenceService.initialize(); const provider = PersistenceService.getProvider();
  *    NEW: const { provider } = context; // Automatically injected and initialized
- * 
+ *
  * 3. PARAMETER VALIDATION:
  *    OLD: Manual validation with this.validateRequired()
  *    NEW: Zod schemas with compile-time type safety
- * 
+ *
  * 4. EXECUTION CONTEXT:
  *    OLD: CommandExecutionContext
  *    NEW: DatabaseCommandContext (with guaranteed provider)
- * 
+ *
  * 5. SERVICE CREATION:
  *    OLD: this.createService() (via prototype extension)
  *    NEW: this.createTaskSimilarityService(provider) (direct method with injected provider)
- * 
+ *
  * BENEFITS OF MIGRATION:
  * - Automatic provider initialization only when needed
  * - Compile-time type safety for parameters

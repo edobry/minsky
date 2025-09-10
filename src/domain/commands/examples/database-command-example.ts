@@ -1,7 +1,7 @@
 /**
  * Database Command Example
- * 
- * This file demonstrates how to create commands using the new type-safe 
+ *
+ * This file demonstrates how to create commands using the new type-safe
  * DatabaseCommand architecture with guaranteed provider injection.
  */
 
@@ -11,7 +11,7 @@ import { CommandCategory } from "../../../adapters/shared/command-registry";
 
 /**
  * Example 1: Simple Database Query Command
- * 
+ *
  * This example shows a basic database command that queries session information.
  * The provider is automatically injected by the CommandDispatcher.
  */
@@ -30,7 +30,7 @@ export class ListSessionsCommand extends DatabaseCommand {
     },
     includeArchived: {
       schema: z.boolean(),
-      spec: "Include archived sessions in results", 
+      spec: "Include archived sessions in results",
       required: false,
       defaultValue: false,
     },
@@ -42,7 +42,7 @@ export class ListSessionsCommand extends DatabaseCommand {
   ) {
     // Provider is guaranteed to be available and initialized
     const { provider } = context;
-    
+
     // Use the provider for database operations
     const query = `
       SELECT id, name, created_at as "createdAt"
@@ -51,7 +51,7 @@ export class ListSessionsCommand extends DatabaseCommand {
       ORDER BY created_at DESC 
       LIMIT $1
     `;
-    
+
     const result = await provider.query(query, [params.limit]);
     return result.rows;
   }
@@ -59,7 +59,7 @@ export class ListSessionsCommand extends DatabaseCommand {
 
 /**
  * Example 2: Complex Database Operations Command
- * 
+ *
  * This example shows a command that performs multiple database operations
  * and demonstrates transaction handling with the injected provider.
  */
@@ -95,10 +95,9 @@ export class UpdateTaskStatusCommand extends DatabaseCommand {
 
     try {
       // Check if task exists and get current status
-      const currentTask = await provider.query(
-        `SELECT status FROM tasks WHERE id = $1`,
-        [params.taskId]
-      );
+      const currentTask = await provider.query(`SELECT status FROM tasks WHERE id = $1`, [
+        params.taskId,
+      ]);
 
       if (currentTask.rows.length === 0) {
         throw new Error(`Task not found: ${params.taskId}`);
@@ -139,7 +138,7 @@ export class UpdateTaskStatusCommand extends DatabaseCommand {
 
 /**
  * Migration Notes:
- * 
+ *
  * OLD PATTERN (to be replaced):
  * ```typescript
  * async function myCommandHandler(params: any, context: CommandExecutionContext) {
@@ -148,7 +147,7 @@ export class UpdateTaskStatusCommand extends DatabaseCommand {
  *   // ... use provider
  * }
  * ```
- * 
+ *
  * NEW PATTERN:
  * ```typescript
  * class MyDatabaseCommand extends DatabaseCommand {

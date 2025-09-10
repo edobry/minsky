@@ -68,18 +68,19 @@ export async function createCli(): Promise<Command> {
  * This is only executed when this file is run directly
  */
 async function main(): Promise<void> {
-  // Initialize PersistenceService BEFORE creating CLI commands
-  // This ensures all commands have access to initialized dependencies
-  const { PersistenceService } = await import("./domain/persistence/service");
-  await PersistenceService.initialize();
-  log.debug("PersistenceService initialized before CLI setup");
+  // MIGRATION NOTE: PersistenceService initialization removed from CLI startup
+  // CommandDispatcher now handles lazy initialization only when database commands are executed
+  // This improves performance - non-database commands no longer wait for database connections
 
-  // Create CLI AFTER PersistenceService is initialized
+  // Create CLI without pre-initializing PersistenceService
   const cliInstance = await createCli();
   await cliInstance.parseAsync();
 
-  // Clean up PersistenceService on exit
-  await PersistenceService.close();
+  // Clean up PersistenceService on exit if it was initialized
+  const { PersistenceService } = await import("./domain/persistence/service");
+  if (PersistenceService.isInitialized()) {
+    await PersistenceService.close();
+  }
 
   // Still need explicit exit until all resource leaks are fixed
   // The improvements to workspace manager help, but there are other sources

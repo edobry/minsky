@@ -7,7 +7,7 @@ This directory implements the new type-safe persistence provider architecture th
 The architecture consists of three main components:
 
 1. **DatabaseCommand** - Abstract base class for type-safe database commands
-2. **CommandDispatcher** - Central dispatcher with lazy initialization and provider injection  
+2. **CommandDispatcher** - Central dispatcher with lazy initialization and provider injection
 3. **DatabaseCommandContext** - Enhanced execution context with guaranteed provider access
 
 ## Key Benefits
@@ -30,11 +30,11 @@ export class MyDatabaseCommand extends DatabaseCommand<ParamTypes, ResultType> {
   readonly category = CommandCategory.TASKS;
   readonly name = "my-command";
   readonly description = "Description of what this command does";
-  
+
   readonly parameters = {
     param1: {
       schema: z.string(),
-      spec: "Parameter description", 
+      spec: "Parameter description",
       required: true,
     },
     // ... more parameters
@@ -43,7 +43,7 @@ export class MyDatabaseCommand extends DatabaseCommand<ParamTypes, ResultType> {
   async execute(params: ParamTypes, context: DatabaseCommandContext) {
     // Provider is guaranteed to be initialized and available
     const { provider } = context;
-    
+
     // Use provider for database operations
     const result = await provider.query("SELECT * FROM table WHERE id = $1", [params.param1]);
     return result.rows;
@@ -54,6 +54,7 @@ export class MyDatabaseCommand extends DatabaseCommand<ParamTypes, ResultType> {
 ### CommandDispatcher
 
 The `CommandDispatcher` automatically:
+
 - Detects database commands using `instanceof DatabaseCommand`
 - Performs lazy initialization of persistence provider only when needed
 - Injects initialized provider into `DatabaseCommandContext`
@@ -79,7 +80,7 @@ interface DatabaseCommandContext extends CommandExecutionContext {
 ### For New Commands
 
 1. Extend `DatabaseCommand` instead of implementing execute directly
-2. Define typed parameters with Zod schemas  
+2. Define typed parameters with Zod schemas
 3. Use the injected provider from context
 4. Register with shared command registry using `getExecutionHandler()`
 
@@ -122,21 +123,21 @@ describe("MyDatabaseCommand", () => {
   it("should execute with mocked provider", async () => {
     const command = new MyDatabaseCommand();
     const mockProvider = createMockProvider();
-    
+
     // Mock provider behavior
     mockProvider.query.mockResolvedValue({ rows: [{ id: "123" }] });
-    
+
     // Create context with mock provider
     const context: DatabaseCommandContext = {
       interface: "test",
       provider: mockProvider,
     };
-    
+
     const result = await command.execute({ param1: "test" }, context);
-    
+
     expect(result).toEqual([{ id: "123" }]);
     expect(mockProvider.query).toHaveBeenCalledWith(
-      expect.stringContaining("SELECT * FROM table"), 
+      expect.stringContaining("SELECT * FROM table"),
       ["test"]
     );
   });
@@ -153,18 +154,18 @@ describe("Command Dispatcher Integration", () => {
       { param1: "test" },
       { interface: "test" }
     );
-    
+
     expect(result.success).toBe(true);
     expect(PersistenceService.isInitialized()).toBe(true);
   });
-  
+
   it("should not initialize provider for non-database commands", async () => {
     const result = await commandDispatcher.executeCommand(
       "my.regular.command",
       {},
       { interface: "test" }
     );
-    
+
     expect(result.success).toBe(true);
     // Provider initialization is not required for non-database commands
   });
@@ -192,7 +193,7 @@ describe("Command Dispatcher Integration", () => {
 ```typescript
 async execute(params: ParamTypes, context: DatabaseCommandContext) {
   const { provider } = context;
-  
+
   try {
     return await provider.query("SELECT ...", params);
   } catch (error) {
@@ -232,8 +233,9 @@ The CommandDispatcher wraps all errors in a consistent format:
 ## Examples
 
 See `examples/database-command-example.ts` for comprehensive examples showing:
+
 - Simple database queries
-- Complex multi-operation commands  
+- Complex multi-operation commands
 - Custom error handling
 - Parameter validation
 - Registration patterns

@@ -38,16 +38,18 @@ export function createAllTaskCommands() {
   const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
   const { TasksSimilarCommand, TasksSearchCommand } = require("./similarity-commands");
   const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command");
+  // Import migrated dependency commands that use DatabaseCommand pattern
   const {
-    createTasksDepsAddCommand,
-    createTasksDepsRmCommand,
-    createTasksDepsListCommand,
-  } = require("./deps-commands");
+    TasksDepsAddCommand,
+    TasksDepsRmCommand, 
+    TasksDepsListCommand,
+  } = require("./deps-commands-migrated");
   const {
     createTasksDepsTreeCommand,
     createTasksDepsGraphCommand,
   } = require("./deps-visualization-commands");
-  const { createTasksAvailableCommand, createTasksRouteCommand } = require("./routing-commands");
+  // Import migrated routing commands that use DatabaseCommand pattern
+  const { TasksAvailableCommand, TasksRouteCommand } = require("./routing-commands-migrated");
 
   return [
     createTasksStatusGetCommand(),
@@ -63,14 +65,14 @@ export function createAllTaskCommands() {
     new TasksIndexEmbeddingsCommand(),
     createMigrateTasksCommand(),
     createTasksMigrateBackendCommand(),
-    // Dependency management commands
-    createTasksDepsAddCommand(),
-    createTasksDepsRmCommand(),
-    createTasksDepsListCommand(),
+    // Dependency management commands - MIGRATED to DatabaseCommand pattern
+    new TasksDepsAddCommand(),
+    new TasksDepsRmCommand(),
+    new TasksDepsListCommand(),
     createTasksDepsTreeCommand(),
     createTasksDepsGraphCommand(),
-    // Routing commands
-    createTasksAvailableCommand(),
-    createTasksRouteCommand(),
+    // Routing commands - MIGRATED to DatabaseCommand pattern
+    new TasksAvailableCommand(),
+    new TasksRouteCommand(),
   ];
 }

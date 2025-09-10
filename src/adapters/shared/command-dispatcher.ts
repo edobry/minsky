@@ -1,13 +1,17 @@
 /**
  * Command Dispatcher
- * 
+ *
  * Central command dispatcher that handles lazy persistence provider initialization
  * and dependency injection for database commands. Provides unified architecture
  * for both CLI and MCP execution contexts.
  */
 
 import { PersistenceService } from "../../domain/persistence/service";
-import { DatabaseCommand, DatabaseCommandContext, isDatabaseCommand } from "../../domain/commands/database-command";
+import {
+  DatabaseCommand,
+  DatabaseCommandContext,
+  isDatabaseCommand,
+} from "../../domain/commands/database-command";
 import {
   sharedCommandRegistry,
   type CommandExecutionContext,
@@ -37,7 +41,7 @@ export class CommandDispatcher {
 
   /**
    * Execute a command by ID with automatic provider injection for database commands
-   * 
+   *
    * @param commandId - Unique identifier for the command to execute
    * @param params - Command parameters (already validated)
    * @param baseContext - Base execution context from the calling interface
@@ -51,7 +55,7 @@ export class CommandDispatcher {
     try {
       // Get the command definition from the registry
       const command = sharedCommandRegistry.getCommand(commandId);
-      
+
       if (!command) {
         return {
           success: false,
@@ -94,7 +98,7 @@ export class CommandDispatcher {
       }
     } catch (error) {
       log.error(`Command execution failed for ${commandId}:`, error);
-      
+
       return {
         success: false,
         error: {
