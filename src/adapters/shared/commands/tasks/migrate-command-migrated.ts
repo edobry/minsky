@@ -73,7 +73,7 @@ export class MigrateTasksCommand extends DatabaseCommand {
       context.workspacePath || process.cwd(),
       provider // Pass injected provider
     );
-    
+
     const result = await importer.importMarkdownToDb({
       dryRun,
       limit: p.limit,
@@ -124,7 +124,7 @@ export class MigrateTasksCommand extends DatabaseCommand {
       log.cli(`❌ Errors: ${result.errors}`);
     }
 
-    if (dryRun && (result.inserted + result.updated) > 0) {
+    if (dryRun && result.inserted + result.updated > 0) {
       log.cli(`\n💡 Add --execute to apply these changes`);
     }
   }
