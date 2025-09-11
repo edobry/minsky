@@ -18,6 +18,11 @@ import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
 import { registerChangesetCommands } from "./changeset";
 
+// Import migrated commands
+import { sessionCommandsMigrated } from "./session/index-migrated";
+import { rulesCommandsMigrated } from "./rules-migrated";
+import { toolsCommandsMigrated } from "./tools-migrated";
+
 /**
  * Register all shared commands in the shared command registry
  */
@@ -28,11 +33,11 @@ export async function registerAllSharedCommands(): Promise<void> {
   // Register tasks commands
   registerTasksCommands();
 
-  // Register session commands (async)
-  await registerSessionCommands();
+  // Register session commands (async) - DISABLED: Using migrated DatabaseCommand versions
+  // await registerSessionCommands();
 
-  // Register rules commands
-  registerRulesCommands();
+  // Register rules commands - DISABLED: Using migrated DatabaseCommand versions
+  // registerRulesCommands();
 
   // Register init commands
   registerInitCommands();
@@ -55,11 +60,47 @@ export async function registerAllSharedCommands(): Promise<void> {
     });
   });
 
+  // Register migrated session commands - DatabaseCommand pattern
+  sessionCommandsMigrated.forEach((command) => {
+    sharedCommandRegistry.registerCommand({
+      id: command.id,
+      category: command.category,
+      name: command.name,
+      description: command.description,
+      parameters: command.parameters,
+      execute: (params, context) => command.execute(params, context as any),
+    });
+  });
+
+  // Register migrated rules commands - DatabaseCommand pattern
+  rulesCommandsMigrated.forEach((command) => {
+    sharedCommandRegistry.registerCommand({
+      id: command.id,
+      category: command.category,
+      name: command.name,
+      description: command.description,
+      parameters: command.parameters,
+      execute: (params, context) => command.execute(params, context as any),
+    });
+  });
+
+  // Register migrated tools commands - DatabaseCommand pattern
+  toolsCommandsMigrated.forEach((command) => {
+    sharedCommandRegistry.registerCommand({
+      id: command.id,
+      category: command.category,
+      name: command.name,
+      description: command.description,
+      parameters: command.parameters,
+      execute: (params, context) => command.execute(params, context as any),
+    });
+  });
+
   // Register AI commands
   registerAiCommands();
 
-  // Register tools commands
-  registerToolsCommands();
+  // Register tools commands - DISABLED: Using migrated DatabaseCommand versions
+  // registerToolsCommands();
 
   // Register changeset commands
   registerChangesetCommands();
