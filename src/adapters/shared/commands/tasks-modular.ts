@@ -13,8 +13,8 @@ import {
   TasksCreateCommand,
   TasksDeleteCommand,
 } from "./tasks/crud-commands-migrated";
-import { createTasksSpecCommand } from "./tasks/spec-command";
-import { createTasksStatusGetCommand, createTasksStatusSetCommand } from "./tasks/status-commands";
+import { TasksSpecCommand } from "./tasks/spec-command-migrated";
+import { TasksStatusGetCommand, TasksStatusSetCommand } from "./tasks/status-commands-migrated";
 import { TasksEditCommand } from "./tasks/edit-commands-migrated";
 import { createMigrateTasksCommand } from "./tasks/migrate-command";
 import { TasksMigrateBackendCommand } from "./tasks/migrate-backend-command-migrated";
@@ -56,9 +56,9 @@ export class ModularTasksCommandManager {
       const createCommand = new TasksCreateCommand();
       const editCommand = new TasksEditCommand();
       const deleteCommand = new TasksDeleteCommand();
-      const specCommand = createTasksSpecCommand();
-      const statusGetCommand = createTasksStatusGetCommand();
-      const statusSetCommand = createTasksStatusSetCommand();
+      const specCommand = new TasksSpecCommand();
+      const statusGetCommand = new TasksStatusGetCommand();
+      const statusSetCommand = new TasksStatusSetCommand();
       const migrateCommand = createMigrateTasksCommand();
       const migrateBackendCommand = new TasksMigrateBackendCommand();
 

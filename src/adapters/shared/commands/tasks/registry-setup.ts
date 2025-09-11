@@ -25,8 +25,8 @@ export function setupTaskCommandRegistry() {
 // Factory function that creates commands when called
 export function createAllTaskCommands() {
   // Import command creation functions locally to avoid top-level circular imports
-  const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
-  const { createTasksSpecCommand } = require("./spec-command");
+  const { TasksStatusGetCommand, TasksStatusSetCommand } = require("./status-commands-migrated");
+  const { TasksSpecCommand } = require("./spec-command-migrated");
   const {
     TasksListCommand,
     TasksGetCommand,
@@ -57,9 +57,9 @@ export function createAllTaskCommands() {
   const { TasksAvailableCommand, TasksRouteCommand } = require("./routing-commands-migrated");
 
   return [
-    createTasksStatusGetCommand(),
-    createTasksStatusSetCommand(),
-    createTasksSpecCommand(),
+    new TasksStatusGetCommand(),
+    new TasksStatusSetCommand(),
+    new TasksSpecCommand(),
     new TasksListCommand(),
     new TasksGetCommand(),
     new TasksCreateCommand(),
