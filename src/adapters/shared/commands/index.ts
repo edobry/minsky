@@ -19,7 +19,7 @@ import { registerToolsCommands } from "./tools";
 import { registerChangesetCommands } from "./changeset";
 
 // Import migrated commands
-import { sessionCommandsMigrated } from "./session/index-migrated";
+import { allSessionCommandsMigrated } from "./session/index-complete-migrated";
 import { rulesCommandsMigrated } from "./rules-migrated";
 import { toolsCommandsMigrated } from "./tools-migrated";
 
@@ -60,8 +60,8 @@ export async function registerAllSharedCommands(): Promise<void> {
     });
   });
 
-  // Register migrated session commands - DatabaseCommand pattern
-  sessionCommandsMigrated.forEach((command) => {
+  // Register ALL migrated session commands - DatabaseCommand pattern (20 commands total)
+  allSessionCommandsMigrated.forEach((command) => {
     sharedCommandRegistry.registerCommand({
       id: command.id,
       category: command.category,
