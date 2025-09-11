@@ -253,12 +253,11 @@ export class RulesSearchCommand extends DatabaseCommand<any, any> {
         persistenceProvider: context.provider
       });
 
-      const results = await similarityService.searchSimilar({
-        query: params.query,
-        limit: params.limit || 10,
-        format: params.format,
-        tag: params.tag,
-      });
+      const results = await similarityService.searchByText(
+        params.query,
+        params.limit || 10,
+        params.threshold
+      );
 
       if (params.json) {
         return {
