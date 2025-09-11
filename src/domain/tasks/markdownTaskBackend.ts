@@ -49,6 +49,7 @@ import {
 } from "./taskIO";
 
 import { validateQualifiedTaskId, formatTaskIdForDisplay, getTaskIdNumber } from "./task-id-utils";
+import type { PersistenceProvider } from "../persistence/types";
 
 // Helper import to avoid promise conversion issues
 import { readdir } from "fs/promises";
@@ -65,13 +66,15 @@ export class MarkdownTaskBackend implements TaskBackend {
   private readonly tasksDirectory: string;
   // Allow tests to override this via (backend as any).gitService
   private gitService: GitServiceInterface;
+  private persistenceProvider?: PersistenceProvider;
 
-  constructor(config: TaskBackendConfig) {
+  constructor(config: TaskBackendConfig & { persistenceProvider?: PersistenceProvider }) {
     this.workspacePath = config.workspacePath;
     this.tasksFilePath = getTasksFilePath(this.workspacePath);
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
     // Allow tests to inject a git service via config (ignored in prod)
     this.gitService = (config as any).gitService || createGitService();
+    this.persistenceProvider = config.persistenceProvider;
   }
 
   // ---- Capability Discovery ----
@@ -814,10 +817,12 @@ ${description}
 
       // Delete from PostgreSQL tasks table (source of truth)
       try {
-        const { PersistenceService } = await import("../persistence/service");
-
-        // PersistenceService should already be initialized at application startup
-        const provider = PersistenceService.getProvider();
+        // Use injected provider or fall back to singleton access (legacy compatibility)
+        let provider = this.persistenceProvider;
+        if (!provider) {
+          const { PersistenceService } = await import("../persistence/service");
+          provider = PersistenceService.getProvider();
+        }
 
         if (provider.capabilities.sql) {
           const db = await provider.getDatabaseConnection?.();
@@ -999,6 +1004,8 @@ ${description}
  * @param config Backend configuration
  * @returns MarkdownTaskBackend instance
  */
-export function createMarkdownTaskBackend(config: TaskBackendConfig): TaskBackend {
+export function createMarkdownTaskBackend(
+  config: TaskBackendConfig & { persistenceProvider?: PersistenceProvider }
+): TaskBackend {
   return new MarkdownTaskBackend(config);
 }

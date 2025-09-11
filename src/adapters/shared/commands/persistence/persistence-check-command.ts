@@ -59,7 +59,7 @@ export class PersistenceCheckCommand extends DatabaseCommand {
     context: DatabaseCommandContext
   ) {
     const { file, backend, fix, report } = params;
-    
+
     // Provider is automatically injected and initialized by CommandDispatcher
     const { provider } = context;
 
@@ -105,10 +105,9 @@ export class PersistenceCheckCommand extends DatabaseCommand {
       } else {
         return await this.validatePostgresBackend({ fix, report, provider, sourceInfo });
       }
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      
+
       return {
         success: false,
         error: `Database check failed: ${errorMessage}`,
@@ -137,8 +136,9 @@ export class PersistenceCheckCommand extends DatabaseCommand {
       const config = getConfiguration();
 
       // Determine database path
-      const dbPath = file || 
-        config.persistence?.sqlite?.dbPath || 
+      const dbPath =
+        file ||
+        config.persistence?.sqlite?.dbPath ||
         config.sessiondb?.sqlite?.path ||
         (await import("../../../../utils/paths")).getDefaultSqliteDbPath();
 
@@ -147,7 +147,7 @@ export class PersistenceCheckCommand extends DatabaseCommand {
       if (!existsSync(dbPath)) {
         issues.push(`Database file does not exist: ${dbPath}`);
         suggestions.push("Run 'minsky persistence migrate --execute' to initialize the database");
-        
+
         return {
           success: false,
           details: `SQLite database validation at ${dbPath}`,
@@ -163,7 +163,7 @@ export class PersistenceCheckCommand extends DatabaseCommand {
       // - Schema validation
       // - Index validation
       // - Foreign key constraint checks
-      
+
       if (fix) {
         // TODO: Implement automatic fixes
         suggestions.push("Automatic fix functionality not yet implemented");
@@ -181,11 +181,10 @@ export class PersistenceCheckCommand extends DatabaseCommand {
         backend: "sqlite" as const,
         message: "✅ SQLite database validation passed",
       };
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       issues.push(`SQLite validation error: ${errorMessage}`);
-      
+
       return {
         success: false,
         details: "SQLite validation failed with error",
@@ -226,7 +225,7 @@ export class PersistenceCheckCommand extends DatabaseCommand {
         suggestions.push(
           "Set persistence.postgres.connectionString (or sessiondb.postgres.connectionString) in config or MINSKY_POSTGRES_URL env var"
         );
-        
+
         return {
           success: false,
           details: "PostgreSQL connection not configured",
@@ -252,7 +251,7 @@ export class PersistenceCheckCommand extends DatabaseCommand {
       // - Migration status checks
       // - Performance metrics
       // - Replication status (if applicable)
-      
+
       if (fix) {
         // TODO: Implement automatic fixes
         suggestions.push("Automatic fix functionality not yet implemented");
@@ -270,11 +269,10 @@ export class PersistenceCheckCommand extends DatabaseCommand {
         backend: "postgres" as const,
         message: "✅ PostgreSQL database validation passed",
       };
-
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
       issues.push(`PostgreSQL validation error: ${errorMessage}`);
-      
+
       return {
         success: false,
         details: "PostgreSQL validation failed with error",

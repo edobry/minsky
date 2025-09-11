@@ -18,18 +18,18 @@ import { createTasksStatusGetCommand, createTasksStatusSetCommand } from "./task
 import { createTasksEditCommand } from "./tasks/edit-commands";
 import { createMigrateTasksCommand } from "./tasks/migrate-command";
 import { createTasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
-import { TasksSimilarCommand, TasksSearchCommand } from "./tasks/similarity-commands";
-import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command";
+import { TasksSimilarCommandMigrated, TasksSearchCommandMigrated } from "./tasks/similarity-commands-migrated";
+import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command-migrated";
 import {
-  createTasksDepsAddCommand,
-  createTasksDepsRmCommand,
-  createTasksDepsListCommand,
-} from "./tasks/deps-commands";
+  TasksDepsAddCommand,
+  TasksDepsRmCommand,
+  TasksDepsListCommand,
+} from "./tasks/deps-commands-migrated";
 import {
-  createTasksDepsTreeCommand,
-  createTasksDepsGraphCommand,
-} from "./tasks/deps-visualization-commands";
-import { createTasksAvailableCommand, createTasksRouteCommand } from "./tasks/routing-commands";
+  TasksDepsTreeCommand,
+  TasksDepsGraphCommand,
+} from "./tasks/deps-visualization-commands-migrated";
+import { TasksAvailableCommand, TasksRouteCommand } from "./tasks/routing-commands-migrated";
 
 /**
  * Modular Tasks Command Manager
@@ -59,18 +59,18 @@ export class ModularTasksCommandManager {
       const migrateCommand = createMigrateTasksCommand();
       const migrateBackendCommand = createTasksMigrateBackendCommand();
 
-      const similarCommand = new TasksSimilarCommand();
-      const searchCommand = new TasksSearchCommand();
+      const similarCommand = new TasksSimilarCommandMigrated();
+      const searchCommand = new TasksSearchCommandMigrated();
       const indexEmbeddingsCommand = new TasksIndexEmbeddingsCommand();
 
-      const depsAddCommand = createTasksDepsAddCommand();
-      const depsRmCommand = createTasksDepsRmCommand();
-      const depsListCommand = createTasksDepsListCommand();
-      const depsTreeCommand = createTasksDepsTreeCommand();
-      const depsGraphCommand = createTasksDepsGraphCommand();
+      const depsAddCommand = new TasksDepsAddCommand();
+      const depsRmCommand = new TasksDepsRmCommand();
+      const depsListCommand = new TasksDepsListCommand();
+      const depsTreeCommand = new TasksDepsTreeCommand();
+      const depsGraphCommand = new TasksDepsGraphCommand();
 
-      const availableCommand = createTasksAvailableCommand();
-      const routeCommand = createTasksRouteCommand();
+      const availableCommand = new TasksAvailableCommand();
+      const routeCommand = new TasksRouteCommand();
 
       // Register list command
       sharedCommandRegistry.registerCommand({

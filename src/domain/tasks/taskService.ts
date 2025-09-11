@@ -91,7 +91,7 @@ export async function createConfiguredTaskService(options: {
             const { PersistenceService } = await import("../persistence/service");
             persistence = PersistenceService.getProvider();
           }
-          
+
           const db = await persistence.getDatabaseConnection();
 
           const minskyBackend = createMinskyTaskBackend({

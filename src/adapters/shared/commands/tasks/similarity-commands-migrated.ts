@@ -9,7 +9,7 @@
  */
 
 import { z } from "zod";
-import { DatabaseCommand, DatabaseCommandContext } from "../../../domain/commands/database-command";
+import { DatabaseCommand, DatabaseCommandContext } from "../../../../domain/commands/database-command";
 import { CommandCategory } from "../../command-registry";
 import { TaskStatus } from "../../../../domain/tasks/taskConstants";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
@@ -122,7 +122,10 @@ export class TasksSimilarCommandMigrated extends DatabaseCommand {
 
     // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
     const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-    const taskService = await createConfiguredTaskService({ workspacePath: process.cwd(), persistenceProvider: provider });
+    const taskService = await createConfiguredTaskService({
+      workspacePath: process.cwd(),
+      persistenceProvider: provider,
+    });
     const findTaskById = async (id: string) => taskService.getTask(id);
     const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
     const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
@@ -330,7 +333,10 @@ export class TasksSearchCommandMigrated extends DatabaseCommand {
 
     // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
     const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-    const taskService = await createConfiguredTaskService({ workspacePath: process.cwd(), persistenceProvider: provider });
+    const taskService = await createConfiguredTaskService({
+      workspacePath: process.cwd(),
+      persistenceProvider: provider,
+    });
     const findTaskById = async (id: string) => taskService.getTask(id);
     const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
     const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);

@@ -118,7 +118,6 @@ export class PostgresPersistenceProvider
     return storage as DatabaseStorage<T, S>;
   }
 
-
   /**
    * Get direct database connection
    */
@@ -205,9 +204,9 @@ export class PostgresPersistenceProvider
  * PostgreSQL persistence provider with vector storage support
  * Only created when pgvector extension is available
  */
-export class PostgresVectorPersistenceProvider 
+export class PostgresVectorPersistenceProvider
   extends PostgresPersistenceProvider
-  implements VectorCapablePersistenceProvider 
+  implements VectorCapablePersistenceProvider
 {
   /**
    * PostgreSQL capabilities with vector storage
@@ -223,7 +222,7 @@ export class PostgresVectorPersistenceProvider
   async initialize(): Promise<void> {
     // Initialize base PostgreSQL functionality first
     await super.initialize();
-    
+
     // Verify pgvector extension is available (should have been checked by factory)
     if (!this.sql) {
       throw new Error("SQL connection not available");
@@ -235,11 +234,11 @@ export class PostgresVectorPersistenceProvider
           SELECT 1 FROM pg_extension WHERE extname = 'vector'  
         ) as exists
       `;
-      
+
       if (!result[0].exists) {
         throw new Error("pgvector extension not available - factory should have prevented this");
       }
-      
+
       log.debug("PostgreSQL persistence provider initialized with vector support");
     } catch (error) {
       log.error("Failed to verify pgvector extension:", error);
@@ -261,7 +260,7 @@ export class PostgresVectorPersistenceProvider
 
     return new PostgresVectorStorage(this.sql, this.db, dimension, {
       tableName: "tasks_embeddings",
-      idColumn: "task_id", 
+      idColumn: "task_id",
       embeddingColumn: "vector",
       lastIndexedAtColumn: "indexed_at",
     });

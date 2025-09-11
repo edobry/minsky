@@ -80,7 +80,7 @@ export class PersistenceMigrateCommand extends DatabaseCommand {
     context: DatabaseCommandContext
   ) {
     const { to, from, sqlitePath, backup, execute, setDefault, dryRun } = params;
-    
+
     // Provider is automatically injected and initialized by CommandDispatcher
     const { provider } = context;
 
@@ -99,7 +99,10 @@ export class PersistenceMigrateCommand extends DatabaseCommand {
         if (backend === "postgres") {
           // For postgres: show DB-aware dry-run plan or execute migrations
           if (!shouldApply) {
-            const result = await this.runSchemaMigrationsForConfiguredBackend({ dryRun: true, provider });
+            const result = await this.runSchemaMigrationsForConfiguredBackend({
+              dryRun: true,
+              provider,
+            });
             return result;
           }
 
@@ -108,9 +111,9 @@ export class PersistenceMigrateCommand extends DatabaseCommand {
         }
 
         // SQLite: preview or apply migrations
-        const result = await this.runSchemaMigrationsForConfiguredBackend({ 
-          dryRun: !shouldApply, 
-          provider 
+        const result = await this.runSchemaMigrationsForConfiguredBackend({
+          dryRun: !shouldApply,
+          provider,
         });
 
         if (context.interface === "cli") {
@@ -146,12 +149,12 @@ export class PersistenceMigrateCommand extends DatabaseCommand {
   /**
    * Run schema migrations for the configured backend
    */
-  private async runSchemaMigrationsForConfiguredBackend(options: { 
-    dryRun: boolean; 
+  private async runSchemaMigrationsForConfiguredBackend(options: {
+    dryRun: boolean;
     provider: any;
   }) {
     const { dryRun, provider } = options;
-    
+
     // Import configuration to determine backend
     const { getConfiguration } = await import("../../../../domain/configuration/index");
     const config = getConfiguration();
@@ -169,10 +172,7 @@ export class PersistenceMigrateCommand extends DatabaseCommand {
   /**
    * Run PostgreSQL migrations using drizzle-kit
    */
-  private async runMigrationsWithDrizzleKit(options: { 
-    dryRun: boolean; 
-    provider: any;
-  }) {
+  private async runMigrationsWithDrizzleKit(options: { dryRun: boolean; provider: any }) {
     // Implementation extracted from original persistence.ts
     // This would contain the drizzle-kit migration logic
     throw new Error("PostgreSQL drizzle-kit migrations not yet implemented in migrated version");
@@ -181,11 +181,7 @@ export class PersistenceMigrateCommand extends DatabaseCommand {
   /**
    * Run PostgreSQL-specific migrations
    */
-  private async runPostgresMigrations(options: { 
-    dryRun: boolean; 
-    provider: any; 
-    config: any;
-  }) {
+  private async runPostgresMigrations(options: { dryRun: boolean; provider: any; config: any }) {
     // Implementation for PostgreSQL migrations
     // Extract from original persistence.ts getPostgresMigrationsStatus function
     throw new Error("PostgreSQL migrations not yet implemented in migrated version");
@@ -194,11 +190,7 @@ export class PersistenceMigrateCommand extends DatabaseCommand {
   /**
    * Run SQLite-specific migrations
    */
-  private async runSqliteMigrations(options: { 
-    dryRun: boolean; 
-    provider: any; 
-    config: any;
-  }) {
+  private async runSqliteMigrations(options: { dryRun: boolean; provider: any; config: any }) {
     // Implementation for SQLite migrations
     // Extract from original persistence.ts SQLite migration logic
     throw new Error("SQLite migrations not yet implemented in migrated version");

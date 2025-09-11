@@ -41,7 +41,7 @@ export function createAllTaskCommands() {
     TasksSimilarCommandMigrated,
     TasksSearchCommandMigrated,
   } = require("./similarity-commands-migrated");
-  const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command");
+  const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command-migrated");
   // Import migrated dependency commands that use DatabaseCommand pattern
   const {
     TasksDepsAddCommand,

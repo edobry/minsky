@@ -20,6 +20,7 @@ import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../
 import type { Task, TaskListOptions, CreateTaskOptions, DeleteTaskOptions } from "../tasks";
 import { getTaskSpecRelativePath } from "./taskIO";
 import { validateQualifiedTaskId, formatTaskIdForDisplay, getTaskIdNumber } from "./task-id-utils";
+import type { PersistenceProvider } from "../persistence/types";
 
 /**
  * Configuration for GitHubIssuesTaskBackend
@@ -34,6 +35,11 @@ export interface GitHubIssuesTaskBackendOptions extends TaskBackendConfig {
    * Repository owner (username or organization)
    */
   owner: string;
+
+  /**
+   * Optional dependency injection for persistence provider
+   */
+  persistenceProvider?: PersistenceProvider;
 
   /**
    * Repository name
@@ -116,6 +122,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
   private readonly repo: string;
   private readonly statusLabels: Record<string, string>;
   private readonly tasksDirectory: string;
+  private readonly persistenceProvider?: PersistenceProvider;
 
   constructor(options: GitHubIssuesTaskBackendOptions) {
     this.workspacePath = options.workspacePath;
@@ -123,6 +130,7 @@ export class GitHubIssuesTaskBackend implements TaskBackend {
     this.repo = options.repo;
     this.statusLabels = { ...DEFAULT_STATUS_LABELS, ...options.statusLabels };
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
+    this.persistenceProvider = options.persistenceProvider;
 
     // Initialize GitHub API client
     this.octokit = new Octokit({
@@ -717,10 +725,12 @@ ${description}
 
       // Delete from PostgreSQL tasks table (source of truth)
       try {
-        const { PersistenceService } = await import("../persistence/service");
-
-        // PersistenceService should already be initialized at application startup
-        const provider = PersistenceService.getProvider();
+        // Use injected provider or fall back to singleton access (legacy compatibility)
+        let provider = this.persistenceProvider;
+        if (!provider) {
+          const { PersistenceService } = await import("../persistence/service");
+          provider = PersistenceService.getProvider();
+        }
 
         if (provider.capabilities.sql) {
           const db = await provider.getDatabaseConnection?.();

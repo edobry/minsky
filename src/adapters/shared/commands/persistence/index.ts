@@ -14,10 +14,7 @@ export { PersistenceCheckCommand } from "./persistence-check-command";
 import { PersistenceMigrateCommand } from "./persistence-migrate-command";
 import { PersistenceCheckCommand } from "./persistence-check-command";
 
-export const persistenceCommands = [
-  new PersistenceMigrateCommand(),
-  new PersistenceCheckCommand(),
-];
+export const persistenceCommands = [new PersistenceMigrateCommand(), new PersistenceCheckCommand()];
 
 /**
  * MIGRATION NOTES:

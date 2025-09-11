@@ -21,13 +21,13 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
         interface: "mcp",
         mcpSpecificData: undefined,
       };
-      
+
       const result = await commandDispatcher.executeCommand(
         "tasks.deps.add",
         { task: args.fromTaskId, dependsOn: args.toTaskId },
         context
       );
-      
+
       return { success: result.success, created: result.result?.created || false };
     },
   });
@@ -42,13 +42,13 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
         interface: "mcp",
         mcpSpecificData: undefined,
       };
-      
+
       const result = await commandDispatcher.executeCommand(
         "tasks.deps.rm",
         { task: args.fromTaskId, dependsOn: args.toTaskId },
         context
       );
-      
+
       return { success: result.success, removed: result.result?.removed || false };
     },
   });
@@ -63,13 +63,13 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
         interface: "mcp",
         mcpSpecificData: undefined,
       };
-      
+
       const result = await commandDispatcher.executeCommand(
         "tasks.deps.list",
         { task: args.taskId, verbose: true },
         context
       );
-      
+
       if (result.success && result.result) {
         // Return the specific direction requested (dependencies or dependents)
         if (args.direction === "dependents") {
@@ -77,7 +77,7 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
         }
         return { success: true, items: result.result.dependencies || [] };
       }
-      
+
       return { success: false, items: [] };
     },
   });
