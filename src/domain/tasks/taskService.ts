@@ -46,6 +46,7 @@ export async function createConfiguredTaskService(options: {
         const markdownBackend = createMarkdownTaskBackend({
           name: TaskBackend.MARKDOWN,
           workspacePath: options.workspacePath,
+          persistenceProvider: options.persistenceProvider,
         });
         (markdownBackend as any).prefix = "md";
         service.registerBackend(markdownBackend);
@@ -56,6 +57,7 @@ export async function createConfiguredTaskService(options: {
         const jsonBackend = createJsonFileTaskBackend({
           name: TaskBackend.JSON_FILE,
           workspacePath: options.workspacePath,
+          persistenceProvider: options.persistenceProvider,
         });
         (jsonBackend as any).prefix = "json";
         service.registerBackend(jsonBackend);
@@ -143,6 +145,7 @@ export async function createConfiguredTaskService(options: {
       const markdownBackend = createMarkdownTaskBackend({
         name: TaskBackend.MARKDOWN,
         workspacePath: options.workspacePath,
+        persistenceProvider: options.persistenceProvider,
       });
       // Add prefix property for multi-backend routing
       (markdownBackend as any).prefix = "md";
@@ -151,6 +154,7 @@ export async function createConfiguredTaskService(options: {
       const jsonBackend = createJsonFileTaskBackend({
         name: TaskBackend.JSON_FILE,
         workspacePath: options.workspacePath,
+        persistenceProvider: options.persistenceProvider,
       });
       (jsonBackend as any).prefix = "json";
       service.registerBackend(jsonBackend);
@@ -166,6 +170,7 @@ export async function createConfiguredTaskService(options: {
             owner: config.owner,
             repo: config.repo,
             statusLabels: config.statusLabels,
+            persistenceProvider: options.persistenceProvider,
           });
           (githubBackend as any).prefix = "gh";
           service.registerBackend(githubBackend);
