@@ -4,6 +4,7 @@ import { TaskStatus } from "../../../../domain/tasks/taskConstants";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
 import { tasksSimilarParams, tasksSearchParams } from "./task-parameters";
 import type { EnhancedSearchResult } from "../similarity-command-factory";
+import type { PersistenceProvider } from "../../../../domain/persistence/types";
 
 /**
  * Task-style result formatter for similarity search results
@@ -291,22 +292,36 @@ import { createEmbeddingServiceFromConfig } from "../../../../domain/ai/embeddin
 import { getConfiguration } from "../../../../domain/configuration";
 import { getEmbeddingDimension } from "../../../../domain/ai/embedding-models";
 
-export async function createTaskSimilarityService(): Promise<TaskSimilarityService> {
+export async function createTaskSimilarityService(
+  persistenceProvider?: PersistenceProvider
+): Promise<TaskSimilarityService> {
   const cfg = await getConfiguration();
   const model = (cfg as any).embeddings?.model || "text-embedding-3-small";
   const dimension = getEmbeddingDimension(model, 1536);
 
   const embedding = await createEmbeddingServiceFromConfig();
 
-  // Use PersistenceService (should already be initialized at application startup)
-  const { PersistenceService } = await import("../../../../domain/persistence/service");
-
-  // Get vector storage directly - throws if provider doesn't support it (now synchronous!)
-  const vectorStorage = PersistenceService.getVectorStorage(dimension);
+  // Use injected provider or fall back to singleton access (legacy compatibility)
+  let vectorStorage;
+  if (persistenceProvider) {
+    if (!persistenceProvider.capabilities.vectorStorage) {
+      throw new Error("Provided persistence provider does not support vector storage");
+    }
+    vectorStorage = await persistenceProvider.getVectorStorage?.(dimension);
+    if (!vectorStorage) {
+      throw new Error("Provider returned null for vector storage");
+    }
+  } else {
+    const { PersistenceService } = await import("../../../../domain/persistence/service");
+    vectorStorage = PersistenceService.getVectorStorage(dimension);
+  }
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-  const taskService = await createConfiguredTaskService({ workspacePath: process.cwd() });
+  const taskService = await createConfiguredTaskService({ 
+    workspacePath: process.cwd(),
+    persistenceProvider 
+  });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
   const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);
