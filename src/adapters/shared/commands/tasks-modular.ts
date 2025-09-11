@@ -15,9 +15,9 @@ import {
 } from "./tasks/crud-commands-migrated";
 import { createTasksSpecCommand } from "./tasks/spec-command";
 import { createTasksStatusGetCommand, createTasksStatusSetCommand } from "./tasks/status-commands";
-import { createTasksEditCommand } from "./tasks/edit-commands";
+import { TasksEditCommand } from "./tasks/edit-commands-migrated";
 import { createMigrateTasksCommand } from "./tasks/migrate-command";
-import { createTasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
+import { TasksMigrateBackendCommand } from "./tasks/migrate-backend-command-migrated";
 import {
   TasksSimilarCommandMigrated,
   TasksSearchCommandMigrated,
@@ -54,13 +54,13 @@ export class ModularTasksCommandManager {
       const listCommand = new TasksListCommand();
       const getCommand = new TasksGetCommand();
       const createCommand = new TasksCreateCommand();
-      const editCommand = createTasksEditCommand();
+      const editCommand = new TasksEditCommand();
       const deleteCommand = new TasksDeleteCommand();
       const specCommand = createTasksSpecCommand();
       const statusGetCommand = createTasksStatusGetCommand();
       const statusSetCommand = createTasksStatusSetCommand();
       const migrateCommand = createMigrateTasksCommand();
-      const migrateBackendCommand = createTasksMigrateBackendCommand();
+      const migrateBackendCommand = new TasksMigrateBackendCommand();
 
       const similarCommand = new TasksSimilarCommandMigrated();
       const searchCommand = new TasksSearchCommandMigrated();

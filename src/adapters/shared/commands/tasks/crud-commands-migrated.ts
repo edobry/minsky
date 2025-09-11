@@ -6,7 +6,7 @@
  *
  * MIGRATION NOTES:
  * - OLD: Extended BaseTaskCommand, used domain functions that internally call PersistenceService.getProvider()
- * - NEW: Extends DatabaseCommand, passes injected provider to domain functions via createConfiguredTaskService  
+ * - NEW: Extends DatabaseCommand, passes injected provider to domain functions via createConfiguredTaskService
  * - BENEFIT: No singleton access, proper dependency injection, lazy initialization
  */
 
@@ -56,7 +56,7 @@ export class TasksListCommand extends DatabaseCommand {
     context: DatabaseCommandContext
   ) {
     const { provider } = context;
-    
+
     // List tasks with filters - pass provider for dependency injection
     let tasks = await listTasksFromParams(
       {
@@ -72,7 +72,9 @@ export class TasksListCommand extends DatabaseCommand {
       },
       {
         createConfiguredTaskService: async (options) => {
-          const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
           return await createConfiguredTaskService({
             ...options,
             persistenceProvider: provider,
@@ -141,7 +143,9 @@ export class TasksGetCommand extends DatabaseCommand {
       },
       {
         createConfiguredTaskService: async (options) => {
-          const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
           return await createConfiguredTaskService({
             ...options,
             persistenceProvider: provider,
@@ -206,7 +210,9 @@ export class TasksCreateCommand extends DatabaseCommand {
       },
       {
         createConfiguredTaskService: async (options) => {
-          const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
           return await createConfiguredTaskService({
             ...options,
             persistenceProvider: provider,
@@ -265,7 +271,9 @@ export class TasksDeleteCommand extends DatabaseCommand {
       },
       {
         createConfiguredTaskService: async (options) => {
-          const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
           return await createConfiguredTaskService({
             ...options,
             persistenceProvider: provider,
@@ -282,7 +290,7 @@ export class TasksDeleteCommand extends DatabaseCommand {
     return {
       success: result,
       taskId: params.taskId,
-      message: result 
+      message: result
         ? `Task ${params.taskId} deleted successfully`
         : `Failed to delete task ${params.taskId}`,
     };
