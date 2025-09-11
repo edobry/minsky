@@ -30,7 +30,7 @@ import type { EnhancedSearchResult } from "../similarity-command-factory";
  * NEW PATTERN: Extends DatabaseCommand, receives provider via context injection
  */
 export class TasksSimilarCommandMigrated extends DatabaseCommand {
-  readonly id = "tasks.similar-migrated";
+  readonly id = "tasks.similar";
   readonly category = CommandCategory.TASKS;
   readonly name = "similar";
   readonly description = "Find tasks similar to the given task using embeddings";
@@ -217,7 +217,7 @@ export class TasksSimilarCommandMigrated extends DatabaseCommand {
  * NEW PATTERN: Extends DatabaseCommand, receives provider via context injection
  */
 export class TasksSearchCommandMigrated extends DatabaseCommand {
-  readonly id = "tasks.search-migrated";
+  readonly id = "tasks.search";
   readonly category = CommandCategory.TASKS;
   readonly name = "search";
   readonly description = "Search for tasks similar to a natural language query";
