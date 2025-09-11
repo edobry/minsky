@@ -36,18 +36,23 @@ export function createAllTaskCommands() {
   const { createTasksEditCommand } = require("./edit-commands");
   const { createMigrateTasksCommand } = require("./migrate-command");
   const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
-  const { TasksSimilarCommand, TasksSearchCommand } = require("./similarity-commands");
+  // Import migrated similarity commands that use DatabaseCommand pattern
+  const {
+    TasksSimilarCommandMigrated,
+    TasksSearchCommandMigrated,
+  } = require("./similarity-commands-migrated");
   const { TasksIndexEmbeddingsCommand } = require("./index-embeddings-command");
   // Import migrated dependency commands that use DatabaseCommand pattern
   const {
     TasksDepsAddCommand,
-    TasksDepsRmCommand, 
+    TasksDepsRmCommand,
     TasksDepsListCommand,
   } = require("./deps-commands-migrated");
+  // Import migrated deps visualization commands that use DatabaseCommand pattern
   const {
-    createTasksDepsTreeCommand,
-    createTasksDepsGraphCommand,
-  } = require("./deps-visualization-commands");
+    TasksDepsTreeCommand,
+    TasksDepsGraphCommand,
+  } = require("./deps-visualization-commands-migrated");
   // Import migrated routing commands that use DatabaseCommand pattern
   const { TasksAvailableCommand, TasksRouteCommand } = require("./routing-commands-migrated");
 
@@ -60,8 +65,9 @@ export function createAllTaskCommands() {
     createTasksCreateCommand(),
     createTasksEditCommand(),
     createTasksDeleteCommand(),
-    new TasksSimilarCommand(),
-    new TasksSearchCommand(),
+    // Similarity commands - MIGRATED to DatabaseCommand pattern
+    new TasksSimilarCommandMigrated(),
+    new TasksSearchCommandMigrated(),
     new TasksIndexEmbeddingsCommand(),
     createMigrateTasksCommand(),
     createTasksMigrateBackendCommand(),
@@ -69,8 +75,8 @@ export function createAllTaskCommands() {
     new TasksDepsAddCommand(),
     new TasksDepsRmCommand(),
     new TasksDepsListCommand(),
-    createTasksDepsTreeCommand(),
-    createTasksDepsGraphCommand(),
+    new TasksDepsTreeCommand(),
+    new TasksDepsGraphCommand(),
     // Routing commands - MIGRATED to DatabaseCommand pattern
     new TasksAvailableCommand(),
     new TasksRouteCommand(),

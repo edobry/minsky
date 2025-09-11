@@ -1,19 +1,22 @@
 /**
  * Migrated Dependency Commands
- * 
+ *
  * These commands migrate from the old pattern (direct PersistenceService.getProvider() calls)
  * to the new DatabaseCommand pattern with automatic provider injection.
  */
 
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { DatabaseCommand, DatabaseCommandContext } from "../../../../domain/commands/database-command";
+import {
+  DatabaseCommand,
+  DatabaseCommandContext,
+} from "../../../../domain/commands/database-command";
 import { CommandCategory } from "../../command-registry";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 
 /**
  * MIGRATED: Tasks Deps Add Command
- * 
+ *
  * OLD: Used PersistenceService.getProvider() directly
  * NEW: Extends DatabaseCommand, receives provider via context
  */
@@ -45,12 +48,12 @@ export class TasksDepsAddCommand extends DatabaseCommand {
   ) {
     // Provider is automatically injected and initialized by CommandDispatcher
     const { provider } = context;
-    
+
     const db = await provider.getDatabaseConnection?.();
     if (!db) {
       throw new Error("Failed to get database connection from persistence provider");
     }
-    
+
     const service = new TaskGraphService(db as PostgresJsDatabase);
     const result = await service.addDependency(params.task, params.dependsOn);
 
@@ -64,7 +67,7 @@ export class TasksDepsAddCommand extends DatabaseCommand {
 
 /**
  * MIGRATED: Tasks Deps Remove Command
- * 
+ *
  * OLD: Used PersistenceService.getProvider() directly
  * NEW: Extends DatabaseCommand, receives provider via context
  */
@@ -96,12 +99,12 @@ export class TasksDepsRmCommand extends DatabaseCommand {
   ) {
     // Provider is automatically injected and initialized by CommandDispatcher
     const { provider } = context;
-    
+
     const db = await provider.getDatabaseConnection?.();
     if (!db) {
       throw new Error("Failed to get database connection from persistence provider");
     }
-    
+
     const service = new TaskGraphService(db as PostgresJsDatabase);
     const result = await service.removeDependency(params.task, params.dependsOn);
 
@@ -115,7 +118,7 @@ export class TasksDepsRmCommand extends DatabaseCommand {
 
 /**
  * MIGRATED: Tasks Deps List Command
- * 
+ *
  * OLD: Used PersistenceService.getProvider() directly
  * NEW: Extends DatabaseCommand, receives provider via context
  */
@@ -148,18 +151,18 @@ export class TasksDepsListCommand extends DatabaseCommand {
   ) {
     // Provider is automatically injected and initialized by CommandDispatcher
     const { provider } = context;
-    
+
     const db = await provider.getDatabaseConnection?.();
     if (!db) {
       throw new Error("Failed to get database connection from persistence provider");
     }
-    
+
     const service = new TaskGraphService(db as PostgresJsDatabase);
 
     try {
       // Get dependencies (tasks this task depends on)
       const dependencies = await service.listDependencies(params.task);
-      
+
       // Get dependents (tasks that depend on this task) if verbose
       const dependents = params.verbose ? await service.listDependents(params.task) : [];
 
@@ -207,7 +210,7 @@ export class TasksDepsListCommand extends DatabaseCommand {
 
 /**
  * MIGRATION SUMMARY:
- * 
+ *
  * CHANGES MADE:
  * 1. Converted factory functions to DatabaseCommand classes
  * 2. Removed direct PersistenceService.getProvider() calls
@@ -215,7 +218,7 @@ export class TasksDepsListCommand extends DatabaseCommand {
  * 4. Added proper TypeScript typing for parameters and results
  * 5. Used Zod schemas with defaultValue instead of .default()
  * 6. Enhanced error handling for missing tables
- * 
+ *
  * BENEFITS:
  * - Automatic provider initialization via CommandDispatcher
  * - Type-safe parameter handling

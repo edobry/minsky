@@ -12,7 +12,8 @@ import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
-import { registerPersistenceCommands } from "./persistence";
+import { persistenceCommands } from "./persistence";
+import { sharedCommandRegistry } from "../command-registry";
 import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
 import { registerChangesetCommands } from "./changeset";
@@ -42,8 +43,17 @@ export async function registerAllSharedCommands(): Promise<void> {
   // Register debug commands
   registerDebugCommands();
 
-  // Register persistence commands
-  registerPersistenceCommands();
+  // Register persistence commands - MIGRATED to DatabaseCommand pattern
+  persistenceCommands.forEach(command => {
+    sharedCommandRegistry.registerCommand({
+      id: command.id,
+      category: command.category,
+      name: command.name,
+      description: command.description,
+      parameters: command.parameters,
+      execute: (params, context) => command.execute(params, context as any)
+    });
+  });
 
   // Register AI commands
   registerAiCommands();

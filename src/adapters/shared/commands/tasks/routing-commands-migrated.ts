@@ -1,13 +1,16 @@
 /**
  * Migrated Routing Commands
- * 
+ *
  * These commands migrate from the old pattern (direct PersistenceService.getProvider() calls)
  * to the new DatabaseCommand pattern with automatic provider injection.
  */
 
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
-import { DatabaseCommand, DatabaseCommandContext } from "../../../../domain/commands/database-command";
+import {
+  DatabaseCommand,
+  DatabaseCommandContext,
+} from "../../../../domain/commands/database-command";
 import { CommandCategory } from "../../command-registry";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { TaskRoutingService } from "../../../../domain/tasks/task-routing-service";
@@ -15,7 +18,7 @@ import { createConfiguredTaskService } from "../../../../domain/tasks/taskServic
 
 /**
  * MIGRATED: Tasks Available Command
- * 
+ *
  * OLD: Used PersistenceService.getProvider() directly
  * NEW: Extends DatabaseCommand, receives provider via context
  */
@@ -139,7 +142,7 @@ export class TasksAvailableCommand extends DatabaseCommand {
 
 /**
  * MIGRATED: Tasks Route Command
- * 
+ *
  * OLD: Used PersistenceService.getProvider() directly
  * NEW: Extends DatabaseCommand, receives provider via context
  */
@@ -234,14 +237,14 @@ export class TasksRouteCommand extends DatabaseCommand {
 
 /**
  * MIGRATION SUMMARY:
- * 
+ *
  * CHANGES MADE:
  * 1. Converted factory functions to DatabaseCommand classes
  * 2. Removed direct PersistenceService.getProvider() calls
  * 3. Added provider via context injection: const { provider } = context
  * 4. Added proper TypeScript typing for parameters
  * 5. Used Zod schemas with defaultValue instead of .default()
- * 
+ *
  * BENEFITS:
  * - Automatic provider initialization via CommandDispatcher
  * - Type-safe parameter handling

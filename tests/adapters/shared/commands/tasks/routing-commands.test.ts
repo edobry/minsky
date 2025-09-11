@@ -1,17 +1,17 @@
 import { describe, expect, test } from "bun:test";
 import {
-  createTasksAvailableCommand,
-  createTasksRouteCommand,
-} from "../../../../../src/adapters/shared/commands/tasks/routing-commands";
+  TasksAvailableCommand,
+  TasksRouteCommand,
+} from "../../../../../src/adapters/shared/commands/tasks/routing-commands-migrated";
 
 // Note: Integration tests for routing commands require complex database mocking
 // Core functionality is tested in task-routing-service.test.ts
 // CLI integration is verified through direct CLI implementations
 
 describe("Routing Commands", () => {
-  describe("createTasksAvailableCommand", () => {
+  describe("TasksAvailableCommand", () => {
     test("creates command with correct structure", () => {
-      const command = createTasksAvailableCommand();
+      const command = new TasksAvailableCommand();
 
       expect(command.id).toBe("tasks.available");
       expect(command.name).toBe("available");
@@ -21,7 +21,7 @@ describe("Routing Commands", () => {
     });
 
     test("has correct parameter definitions", () => {
-      const command = createTasksAvailableCommand();
+      const command = new TasksAvailableCommand();
       const params = command.parameters;
 
       expect(params.status).toBeDefined();
@@ -39,9 +39,9 @@ describe("Routing Commands", () => {
     // Integration tests require database setup - tested via direct CLI implementations
   });
 
-  describe("createTasksRouteCommand", () => {
+  describe("TasksRouteCommand", () => {
     test("creates command with correct structure", () => {
-      const command = createTasksRouteCommand();
+      const command = new TasksRouteCommand();
 
       expect(command.id).toBe("tasks.route");
       expect(command.name).toBe("route");
@@ -51,7 +51,7 @@ describe("Routing Commands", () => {
     });
 
     test("has correct parameter definitions", () => {
-      const command = createTasksRouteCommand();
+      const command = new TasksRouteCommand();
       const params = command.parameters;
 
       expect(params.target).toBeDefined();
