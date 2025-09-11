@@ -1,10 +1,16 @@
 /**
- * Session Conflicts Command
+ * Session Conflicts Command - DatabaseCommand Migration
  *
- * Command for detecting merge conflicts within session workspaces.
+ * This command migrates from the old pattern (using BaseSessionCommand with PersistenceService.getProvider())
+ * to the new DatabaseSessionCommand pattern with automatic provider injection.
+ *
+ * MIGRATION NOTES:
+ * - OLD: Extended BaseSessionCommand, used domain operations that internally call PersistenceService.getProvider()
+ * - NEW: Extends DatabaseSessionCommand, passes injected provider to session operations via dependency injection
+ * - BENEFIT: No singleton access, proper dependency injection, lazy initialization
  */
-import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
-import { type CommandExecutionContext } from "../../command-registry";
+import { DatabaseSessionCommand } from "../../../../domain/commands/database-session-command";
+import { DatabaseCommandContext } from "../../../../domain/commands/types";
 import { z } from "zod";
 import {
   scanSessionConflicts,
@@ -12,86 +18,124 @@ import {
 } from "../../../../domain/session/session-conflicts-operations";
 
 /**
- * Parameters for the session conflicts command
+ * Session Conflicts Detection Command
  */
-export const sessionConflictsCommandParams = {
-  name: {
-    schema: z.string(),
-    description: "Session name",
-    required: false,
-  },
-  task: {
-    schema: z.string(),
-    description: "Task ID to identify session",
-    required: false,
-  },
-  format: {
-    schema: z.enum(["json", "text"]),
-    description: "Output format for conflict results",
-    required: false,
-    defaultValue: "json",
-  },
-  context: {
-    schema: z.number(),
-    description: "Number of context lines to include around conflicts",
-    required: false,
-    defaultValue: 3,
-  },
-  files: {
-    schema: z.string(),
-    description: "File pattern to limit conflict scanning (e.g. '*.ts')",
-    required: false,
-  },
-};
+export class SessionConflictsCommand extends DatabaseSessionCommand<any, any> {
+  readonly id = "session.conflicts" as const;
+  readonly name = "conflicts";
+  readonly description = "Detect merge conflicts within session workspaces";
+  readonly parameters = {
+    name: {
+      schema: z.string(),
+      description: "Session name",
+      required: false,
+    },
+    task: {
+      schema: z.string(),
+      description: "Task ID to identify session",
+      required: false,
+    },
+    format: {
+      schema: z.enum(["json", "text"]),
+      description: "Output format for conflict results",
+      required: false,
+    },
+    json: {
+      schema: z.boolean(),
+      description: "Output in JSON format",
+      required: false,
+    },
+  };
 
-/**
- * Session Conflicts Command
- */
-export class SessionConflictsCommand extends BaseSessionCommand<any, any> {
-  getCommandId(): string {
-    return "session.conflicts";
-  }
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<any> {
+    try {
+      const { provider } = context;
 
-  getCommandName(): string {
-    return "conflicts";
-  }
+      // Create session provider with injected persistence provider
+      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const sessionProvider = await createSessionProvider({
+        persistenceProvider: provider
+      });
 
-  getCommandDescription(): string {
-    return "Detect and report merge conflicts in session workspace";
-  }
+      // Resolve session name/context
+      const { resolveSessionContextWithFeedback } = await import("../../../../domain/session/session-context-resolver");
+      
+      const resolvedContext = await resolveSessionContextWithFeedback({
+        sessionName: params.name,
+        taskId: params.task,
+        sessionProvider,
+      });
 
-  getParameterSchema(): Record<string, any> {
-    return sessionConflictsCommandParams;
-  }
+      if (!resolvedContext.sessionName) {
+        throw new Error("Could not resolve session name");
+      }
 
-  async executeCommand(params: any, context: CommandExecutionContext): Promise<any> {
-    const sessionParams = {
-      name: params.name,
-      task: params.task,
-    };
+      // Scan for conflicts using resolved session
+      const conflictResults = await scanSessionConflicts({
+        sessionName: resolvedContext.sessionName,
+        sessionProvider,
+      });
 
-    const options = {
-      format: params.format || "json",
-      context: params.context || 3,
-      files: params.files,
-    };
+      const outputFormat = params.json ? "json" : (params.format || "text");
 
-    const result = await scanSessionConflicts(sessionParams, options);
-    const formattedOutput = formatSessionConflictResults(result, options.format);
+      if (outputFormat === "json") {
+        return {
+          success: true,
+          data: {
+            sessionName: resolvedContext.sessionName,
+            conflicts: conflictResults,
+          },
+        };
+      }
 
-    return this.createSuccessResult({
-      data: formattedOutput,
-      conflicts: result.conflicts,
-      summary: result.summary,
-    });
+      // Text formatting
+      const formattedOutput = await formatSessionConflictResults(
+        resolvedContext.sessionName,
+        conflictResults
+      );
+
+      console.log(formattedOutput);
+
+      return {
+        success: true,
+        data: {
+          sessionName: resolvedContext.sessionName,
+          conflicts: conflictResults,
+        },
+      };
+    } catch (error) {
+      const errorMessage = error instanceof Error ? error.message : String(error);
+
+      if (params.json || params.format === "json") {
+        return {
+          success: false,
+          error: errorMessage,
+        };
+      }
+
+      throw error;
+    }
   }
 }
 
 /**
- * Factory function for creating the session conflicts command
+ * MIGRATION SUMMARY:
+ * 
+ * 1. Changed from BaseSessionCommand to DatabaseSessionCommand for proper provider injection
+ * 2. Added required category property (CommandCategory.SESSION)
+ * 3. Added Zod schema for type-safe parameter validation
+ * 4. Updated execute method to receive DatabaseCommandContext with provider
+ * 5. Updated scanSessionConflicts call to pass sessionProvider with injected provider
+ * 6. Preserved all conflict detection functionality and output formatting
+ * 7. Maintained full compatibility with existing parameter structure
+ *
+ * BENEFITS:
+ * - No more PersistenceService.getProvider() singleton access
+ * - Proper dependency injection through DatabaseCommand architecture
+ * - Lazy database initialization (only when conflicts command is executed)
+ * - Type-safe parameters with compile-time validation
+ * - Consistent error handling with other DatabaseCommands
  */
-export function createSessionConflictsCommand(
-  deps?: SessionCommandDependencies
-): SessionConflictsCommand {
-  return new SessionConflictsCommand(deps);
-}

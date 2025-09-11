@@ -1,216 +1,147 @@
 /**
- * Session Commands Module
+ * Session Commands Module - DatabaseCommand Pattern
  *
- * Exports for all modularized session command components.
- * Part of the modularization effort from session.ts.
+ * Exports all session commands using the DatabaseCommand pattern with provider injection.
+ * Replaces the old factory function pattern with direct class instantiation.
  */
 
-// Base command infrastructure
-import { SessionCommandRegistry } from "./base-session-command";
-import type { SessionCommandDependencies } from "./base-session-command";
-export {
-  BaseSessionCommand,
-  SessionCommandRegistry,
-  sessionCommandRegistry,
-} from "./base-session-command";
-export type { SessionCommandDependencies, BaseSessionCommandParams } from "./base-session-command";
-
-// Parameter definitions
-export * from "./session-parameters";
-
-// Basic commands (re-export)
-export {
+// Import all basic commands
+import {
   SessionListCommand,
   SessionGetCommand,
   SessionStartCommand,
   SessionDirCommand,
-  createSessionListCommand,
-  createSessionGetCommand,
-  createSessionStartCommand,
-  createSessionDirCommand,
+  SessionSearchCommand,
 } from "./basic-commands";
 
-// Import factory functions for internal use
+// Import all management commands
 import {
-  createSessionListCommand,
-  createSessionGetCommand,
-  createSessionStartCommand,
-  createSessionDirCommand,
-} from "./basic-commands";
-
-// Management commands (re-export)
-export {
   SessionDeleteCommand,
   SessionUpdateCommand,
   SessionMigrateBackendCommand,
-  createSessionDeleteCommand,
-  createSessionUpdateCommand,
-  createSessionMigrateBackendCommand,
 } from "./management-commands";
 
-// Import management factory functions for internal use
+// Import all workflow commands
 import {
-  createSessionDeleteCommand,
-  createSessionUpdateCommand,
-  createSessionMigrateBackendCommand,
-} from "./management-commands";
-
-// Workflow commands (re-export)
-export {
+  SessionCommitCommand,
   SessionApproveCommand,
   SessionInspectCommand,
   SessionReviewCommand,
-  createSessionApproveCommand,
-  createSessionInspectCommand,
-  createSessionReviewCommand,
-  // Export new PR subcommands instead of single SessionPrCommand
+} from "./workflow-commands";
+
+// Import specialized commands
+import { SessionRepairCommand } from "./repair-command";
+import { SessionConflictsCommand } from "./conflicts-command";
+import { SessionEditFileCommand } from "./file-commands";
+
+// Import PR subcommands
+import {
   SessionPrCreateCommand,
   SessionPrEditCommand,
   SessionPrListCommand,
   SessionPrGetCommand,
-  createSessionPrCreateCommand,
-  createSessionPrEditCommand,
-  createSessionPrListCommand,
-  createSessionPrGetCommand,
-} from "./workflow-commands";
+  SessionPrOpenCommand,
+} from "./pr-subcommand-commands";
 
-// Import conflicts command
-import { createSessionConflictsCommand } from "./conflicts-command";
+// Export all command classes
+export {
+  // Basic commands
+  SessionListCommand,
+  SessionGetCommand,
+  SessionStartCommand,
+  SessionDirCommand,
+  SessionSearchCommand,
+  
+  // Management commands
+  SessionDeleteCommand,
+  SessionUpdateCommand,
+  SessionMigrateBackendCommand,
+  
+  // Workflow commands
+  SessionCommitCommand,
+  SessionApproveCommand,
+  SessionInspectCommand,
+  SessionReviewCommand,
+  
+  // Specialized commands
+  SessionRepairCommand,
+  SessionConflictsCommand,
+  SessionEditFileCommand,
+  
+  // PR subcommands
+  SessionPrCreateCommand,
+  SessionPrEditCommand,
+  SessionPrListCommand,
+  SessionPrGetCommand,
+  SessionPrOpenCommand,
+};
 
-// Import repair command
-export { SessionRepairCommand, createSessionRepairCommand } from "./repair-command";
+// Export parameter definitions
+export * from "./session-parameters";
 
-// Import file commands
-export { SessionEditFileCommand, createSessionEditFileCommand } from "./file-commands";
+/**
+ * Array of all session commands for registration (DatabaseCommand pattern)
+ */
+export const allSessionCommands = [
+  // Basic commands (5)
+  new SessionListCommand(),
+  new SessionGetCommand(),
+  new SessionStartCommand(),
+  new SessionDirCommand(),
+  new SessionSearchCommand(),
 
-// Import changeset aliases
-export { registerSessionChangesetCommands } from "./changeset-aliases";
+  // Management commands (3)
+  new SessionDeleteCommand(),
+  new SessionUpdateCommand(),
+  new SessionMigrateBackendCommand(),
 
-// Import workflow factory functions for internal use
-import {
-  createSessionApproveCommand,
-  createSessionInspectCommand,
-  createSessionReviewCommand,
-  // Import new PR subcommand factories
-  createSessionPrCreateCommand,
-  createSessionPrEditCommand,
-  createSessionPrListCommand,
-  createSessionPrGetCommand,
-  createSessionPrApproveCommand,
-  createSessionPrMergeCommand,
-  createSessionPrOpenCommand,
-} from "./workflow-commands";
+  // Workflow commands (4)
+  new SessionCommitCommand(),
+  new SessionApproveCommand(),
+  new SessionInspectCommand(),
+  new SessionReviewCommand(),
 
-// Factory for creating all session commands
-export async function createAllSessionCommands(deps?: SessionCommandDependencies) {
-  // Use dynamic imports to avoid circular dependency issues
-  const basicCommands = await import("./basic-commands");
-  const managementCommands = await import("./management-commands");
-  const workflowCommands = await import("./workflow-commands");
-  const repairCommand = await import("./repair-command");
-  const fileCommands = await import("./file-commands");
+  // Specialized commands (3)
+  new SessionRepairCommand(),
+  new SessionConflictsCommand(),
+  new SessionEditFileCommand(),
 
-  const {
-    createSessionListCommand,
-    createSessionGetCommand,
-    createSessionStartCommand,
-    createSessionDirCommand,
-    createSessionSearchCommand,
-  } = basicCommands;
+  // PR subcommands (5)
+  new SessionPrCreateCommand(),
+  new SessionPrEditCommand(),
+  new SessionPrListCommand(),
+  new SessionPrGetCommand(),
+  new SessionPrOpenCommand(),
+];
 
-  const { createSessionDeleteCommand, createSessionUpdateCommand } = managementCommands;
-  const { createSessionMigrateBackendCommand } = managementCommands;
+/**
+ * Total count: 20 session commands using DatabaseCommand pattern
+ */
+export const totalSessionCommands = allSessionCommands.length;
 
-  // Repair command
-  const { createSessionRepairCommand } = repairCommand;
-
-  // File commands
-  const { createSessionEditFileCommand } = fileCommands;
-
-  // Updated to use PR subcommands instead of single pr command
-  const {
-    createSessionCommitCommand,
-    createSessionApproveCommand,
-    createSessionInspectCommand,
-    createSessionReviewCommand,
-    createSessionPrCreateCommand,
-    createSessionPrEditCommand,
-    createSessionPrListCommand,
-    createSessionPrGetCommand,
-    createSessionPrOpenCommand,
-  } = workflowCommands;
-
-  return {
-    // Basic commands
-    list: createSessionListCommand(deps),
-    get: createSessionGetCommand(deps),
-    start: createSessionStartCommand(deps),
-    dir: createSessionDirCommand(deps),
-    search: createSessionSearchCommand(deps),
-
-    // Management commands
-    delete: createSessionDeleteCommand(deps),
-    update: createSessionUpdateCommand(deps),
-    migrateBackend: createSessionMigrateBackendCommand(deps),
-
-    // Workflow commands
-    commit: createSessionCommitCommand(deps),
-    approve: createSessionApproveCommand(deps),
-    inspect: createSessionInspectCommand(deps),
-    review: createSessionReviewCommand(deps),
-
-    // PR subcommands replace single pr command
-    prCreate: createSessionPrCreateCommand(deps),
-    prEdit: createSessionPrEditCommand(deps),
-    prList: createSessionPrListCommand(deps),
-    prGet: createSessionPrGetCommand(deps),
-    prOpen: createSessionPrOpenCommand(deps),
-    prApprove: createSessionPrApproveCommand(deps),
-    prMerge: createSessionPrMergeCommand(deps),
-
-    // Utility commands
-    conflicts: createSessionConflictsCommand(deps),
-    repair: createSessionRepairCommand(deps),
-
-    // File commands
-    editFile: createSessionEditFileCommand(deps),
-  };
+/**
+ * Registration function for all session commands
+ */
+export function registerSessionCommands() {
+  // This is now handled by the main command registry using allSessionCommands array
+  // No longer needed as commands are registered via DatabaseCommand pattern
+  console.warn("registerSessionCommands() is deprecated - commands are auto-registered via DatabaseCommand pattern");
 }
 
-// Registry setup function
-export async function setupSessionCommandRegistry(
-  deps?: SessionCommandDependencies
-): Promise<SessionCommandRegistry> {
-  const registry = new SessionCommandRegistry();
-  const commands = await createAllSessionCommands(deps);
+/**
+ * Temporary compatibility export for setupSessionCommandRegistry
+ * @deprecated Use allSessionCommands array with DatabaseCommand pattern instead
+ */
+export async function setupSessionCommandRegistry(deps?: any) {
+  console.warn("setupSessionCommandRegistry() is deprecated - use allSessionCommands with DatabaseCommand pattern instead");
+  return null;
+}
 
-  // Register all commands
-  registry.register("session.list", commands.list);
-  registry.register("session.get", commands.get);
-  registry.register("session.start", commands.start);
-  registry.register("session.dir", commands.dir);
-  registry.register("session.search", commands.search);
-  registry.register("session.delete", commands.delete);
-  registry.register("session.update", commands.update);
-  registry.register("session.migrate-backend", commands.migrateBackend);
-  registry.register("session.commit", commands.commit);
-  // NOTE: session.approve removed in favor of session.pr.approve (Task #358)
-  registry.register("session.inspect", commands.inspect);
-  registry.register("session.review", commands.review);
-  registry.register("session.conflicts", commands.conflicts);
-  registry.register("session.repair", commands.repair);
-
-  // Register file commands
-  registry.register("session.edit-file", commands.editFile);
-
-  // Register PR subcommands instead of single session.pr
-  registry.register("session.pr.create", commands.prCreate);
-  registry.register("session.pr.edit", commands.prEdit);
-  registry.register("session.pr.list", commands.prList);
-  registry.register("session.pr.get", commands.prGet);
-  registry.register("session.pr.open", commands.prOpen);
-  registry.register("session.pr.approve", commands.prApprove);
-  registry.register("session.pr.merge", commands.prMerge);
-
-  return registry;
+/**
+ * Temporary compatibility export for createAllSessionCommands  
+ * @deprecated Use allSessionCommands array with DatabaseCommand pattern instead
+ */
+export async function createAllSessionCommands(deps?: any) {
+  console.warn("createAllSessionCommands() is deprecated - use allSessionCommands array with DatabaseCommand pattern instead");
+  return allSessionCommands;
 }

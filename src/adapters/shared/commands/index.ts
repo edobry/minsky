@@ -7,21 +7,18 @@
 
 import { registerGitCommands } from "./git";
 import { registerTasksCommands } from "./tasks";
-import { registerSessionCommands } from "./session";
-import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
 import { persistenceCommands } from "./persistence/index";
 import { sharedCommandRegistry } from "../command-registry";
 import { registerAiCommands } from "./ai";
-import { registerToolsCommands } from "./tools";
 import { registerChangesetCommands } from "./changeset";
 
-// Import migrated commands
-import { allSessionCommandsMigrated } from "./session/index-complete-migrated";
-import { rulesCommandsMigrated } from "./rules-migrated";
-import { toolsCommandsMigrated } from "./tools-migrated";
+// Import DatabaseCommand pattern commands  
+import { allSessionCommands } from "./session/index";
+import { rulesCommands } from "./rules";
+import { toolsCommands } from "./tools";
 
 /**
  * Register all shared commands in the shared command registry
@@ -60,8 +57,8 @@ export async function registerAllSharedCommands(): Promise<void> {
     });
   });
 
-  // Register ALL migrated session commands - DatabaseCommand pattern (20 commands total)
-  allSessionCommandsMigrated.forEach((command) => {
+  // Register ALL session commands - DatabaseCommand pattern (20 commands total)
+  allSessionCommands.forEach((command) => {
     sharedCommandRegistry.registerCommand({
       id: command.id,
       category: command.category,
@@ -72,8 +69,8 @@ export async function registerAllSharedCommands(): Promise<void> {
     });
   });
 
-  // Register migrated rules commands - DatabaseCommand pattern
-  rulesCommandsMigrated.forEach((command) => {
+  // Register rules commands - DatabaseCommand pattern
+  rulesCommands.forEach((command) => {
     sharedCommandRegistry.registerCommand({
       id: command.id,
       category: command.category,
@@ -84,8 +81,8 @@ export async function registerAllSharedCommands(): Promise<void> {
     });
   });
 
-  // Register migrated tools commands - DatabaseCommand pattern
-  toolsCommandsMigrated.forEach((command) => {
+  // Register tools commands - DatabaseCommand pattern
+  toolsCommands.forEach((command) => {
     sharedCommandRegistry.registerCommand({
       id: command.id,
       category: command.category,
