@@ -12,7 +12,7 @@ import { registerRulesCommands } from "./rules";
 import { registerInitCommands } from "./init";
 import { registerConfigCommands } from "./config";
 import { registerDebugCommands } from "./debug";
-import { persistenceCommands } from "./persistence";
+import { persistenceCommands } from "./persistence/index";
 import { sharedCommandRegistry } from "../command-registry";
 import { registerAiCommands } from "./ai";
 import { registerToolsCommands } from "./tools";
@@ -44,14 +44,14 @@ export async function registerAllSharedCommands(): Promise<void> {
   registerDebugCommands();
 
   // Register persistence commands - MIGRATED to DatabaseCommand pattern
-  persistenceCommands.forEach(command => {
+  persistenceCommands.forEach((command) => {
     sharedCommandRegistry.registerCommand({
       id: command.id,
       category: command.category,
       name: command.name,
       description: command.description,
       parameters: command.parameters,
-      execute: (params, context) => command.execute(params, context as any)
+      execute: (params, context) => command.execute(params, context as any),
     });
   });
 
