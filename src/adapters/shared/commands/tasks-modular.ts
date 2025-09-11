@@ -16,7 +16,7 @@ import {
 import { TasksSpecCommand } from "./tasks/spec-command-migrated";
 import { TasksStatusGetCommand, TasksStatusSetCommand } from "./tasks/status-commands-migrated";
 import { TasksEditCommand } from "./tasks/edit-commands-migrated";
-import { createMigrateTasksCommand } from "./tasks/migrate-command";
+import { MigrateTasksCommand } from "./tasks/migrate-command-migrated";
 import { TasksMigrateBackendCommand } from "./tasks/migrate-backend-command-migrated";
 import {
   TasksSimilarCommandMigrated,
@@ -59,7 +59,7 @@ export class ModularTasksCommandManager {
       const specCommand = new TasksSpecCommand();
       const statusGetCommand = new TasksStatusGetCommand();
       const statusSetCommand = new TasksStatusSetCommand();
-      const migrateCommand = createMigrateTasksCommand();
+      const migrateCommand = new MigrateTasksCommand();
       const migrateBackendCommand = new TasksMigrateBackendCommand();
 
       const similarCommand = new TasksSimilarCommandMigrated();

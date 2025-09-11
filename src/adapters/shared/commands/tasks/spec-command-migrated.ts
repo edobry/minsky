@@ -65,7 +65,9 @@ export class TasksSpecCommand extends DatabaseCommand {
           return await resolveRepoPath(repo);
         },
         createConfiguredTaskService: async (options) => {
-          const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
           return await createConfiguredTaskService({
             ...options,
             persistenceProvider: provider,

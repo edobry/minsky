@@ -59,7 +59,9 @@ export class TasksStatusGetCommand extends DatabaseCommand {
       },
       {
         createConfiguredTaskService: async (options) => {
-          const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
           return await createConfiguredTaskService({
             ...options,
             persistenceProvider: provider,
@@ -89,7 +91,8 @@ export class TasksStatusSetCommand extends DatabaseCommand {
   readonly id = "tasks.status.set";
   readonly category = CommandCategory.TASKS;
   readonly name = "status set";
-  readonly description = "Set the status of a task (with interactive prompt if status not provided)";
+  readonly description =
+    "Set the status of a task (with interactive prompt if status not provided)";
   readonly parameters = tasksStatusSetParams;
 
   async execute(
@@ -155,7 +158,9 @@ export class TasksStatusSetCommand extends DatabaseCommand {
       },
       {
         createConfiguredTaskService: async (options) => {
-          const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
           return await createConfiguredTaskService({
             ...options,
             persistenceProvider: provider,

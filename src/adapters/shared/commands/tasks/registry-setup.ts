@@ -34,7 +34,7 @@ export function createAllTaskCommands() {
     TasksDeleteCommand,
   } = require("./crud-commands-migrated");
   const { TasksEditCommand } = require("./edit-commands-migrated");
-  const { createMigrateTasksCommand } = require("./migrate-command");
+  const { MigrateTasksCommand } = require("./migrate-command-migrated");
   const { TasksMigrateBackendCommand } = require("./migrate-backend-command-migrated");
   // Import migrated similarity commands that use DatabaseCommand pattern
   const {
@@ -69,7 +69,7 @@ export function createAllTaskCommands() {
     new TasksSimilarCommandMigrated(),
     new TasksSearchCommandMigrated(),
     new TasksIndexEmbeddingsCommand(),
-    createMigrateTasksCommand(),
+    new MigrateTasksCommand(),
     new TasksMigrateBackendCommand(),
     // Dependency management commands - MIGRATED to DatabaseCommand pattern
     new TasksDepsAddCommand(),
