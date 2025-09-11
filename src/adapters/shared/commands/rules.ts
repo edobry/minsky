@@ -290,3 +290,11 @@ export const rulesCommands = [
   new RulesIndexEmbeddingsCommand(),
   new RulesSearchCommand(),
 ];
+
+/**
+ * BACKWARD COMPATIBILITY: Legacy registration function
+ * @deprecated Use rulesCommands array with DatabaseCommand pattern instead
+ */
+export function registerRulesCommands() {
+  console.warn("registerRulesCommands() is deprecated - use rulesCommands array with DatabaseCommand pattern instead");
+}
