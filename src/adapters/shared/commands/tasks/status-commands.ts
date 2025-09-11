@@ -1,174 +1,204 @@
 /**
- * Task Status Commands
+ * Task Status Commands - DatabaseCommand Migration
  *
- * Commands for getting and setting task status.
- * Extracted from tasks.ts as part of modularization effort.
+ * These commands migrate from the old pattern (using PersistenceService.getProvider() via domain layer)
+ * to the new DatabaseCommand pattern with automatic provider injection.
+ *
+ * MIGRATION NOTES:
+ * - OLD: Extended BaseTaskCommand, used domain functions that internally call PersistenceService.getProvider()
+ * - NEW: Extends DatabaseCommand, passes injected provider to domain functions via createConfiguredTaskService
+ * - BENEFIT: No singleton access, proper dependency injection, lazy initialization
  */
+
 import { select, isCancel, cancel } from "@clack/prompts";
-import { type CommandExecutionContext } from "../../command-registry";
+import {
+  DatabaseCommand,
+  DatabaseCommandContext,
+} from "../../../../domain/commands/database-command";
+import { CommandCategory } from "../../command-registry";
 import { getTaskStatusFromParams, setTaskStatusFromParams } from "../../../../domain/tasks";
 import { ValidationError } from "../../../../errors/index";
 import { TASK_STATUS } from "../../../../domain/tasks/taskConstants";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksStatusGetParams, tasksStatusSetParams } from "./task-parameters";
 
 /**
- * Parameters for tasks status get command
+ * Task status get command - migrated to DatabaseCommand
  */
-interface TasksStatusGetParams extends BaseTaskParams {
-  taskId: string;
-}
-
-/**
- * Parameters for tasks status set command
- */
-interface TasksStatusSetParams extends BaseTaskParams {
-  taskId: string;
-  status?: string;
-}
-
-/**
- * Task status get command implementation
- */
-export class TasksStatusGetCommand extends BaseTaskCommand {
+export class TasksStatusGetCommand extends DatabaseCommand {
   readonly id = "tasks.status.get";
+  readonly category = CommandCategory.TASKS;
   readonly name = "status get";
   readonly description = "Get the status of a task";
   readonly parameters = tasksStatusGetParams;
 
-  async execute(params: TasksStatusGetParams, ctx: CommandExecutionContext) {
-    this.debug("Starting tasks.status.get execution");
+  async execute(
+    params: {
+      taskId: string;
+      backend?: string;
+      repo?: string;
+      workspace?: string;
+      session?: string;
+      json?: boolean;
+    },
+    context: DatabaseCommandContext
+  ) {
+    const { provider } = context;
 
-    // Validate and normalize task ID
-    const taskId = this.validateRequired(params.taskId, "taskId");
-    const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
+    if (!params.taskId) {
+      throw new ValidationError("taskId is required");
+    }
 
-    // Get task status
-    const status = await getTaskStatusFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-    });
-
-    this.debug("Task status retrieved successfully");
-
-    return this.formatResult(
-      this.createSuccessResult(validatedTaskId, `Task ${validatedTaskId} status: ${status}`, {
-        status,
-      }),
-      params.json
+    // Get task status - pass provider for dependency injection
+    const status = await getTaskStatusFromParams(
+      {
+        taskId: params.taskId,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+      },
+      {
+        createConfiguredTaskService: async (options) => {
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
+          return await createConfiguredTaskService({
+            ...options,
+            persistenceProvider: provider,
+          });
+        },
+      }
     );
+
+    const wantJson = params.json || context.format === "json";
+    if (wantJson) {
+      return { taskId: params.taskId, status };
+    }
+
+    return {
+      success: true,
+      taskId: params.taskId,
+      status,
+      message: `Task ${params.taskId} status: ${status}`,
+    };
   }
 }
 
 /**
- * Task status set command implementation
+ * Task status set command - migrated to DatabaseCommand
  */
-export class TasksStatusSetCommand extends BaseTaskCommand {
+export class TasksStatusSetCommand extends DatabaseCommand {
   readonly id = "tasks.status.set";
+  readonly category = CommandCategory.TASKS;
   readonly name = "status set";
-  readonly description = "Set the status of a task";
+  readonly description =
+    "Set the status of a task (with interactive prompt if status not provided)";
   readonly parameters = tasksStatusSetParams;
 
-  async execute(params: TasksStatusSetParams, ctx: CommandExecutionContext) {
-    this.debug("Starting tasks.status.set execution");
+  async execute(
+    params: {
+      taskId: string;
+      status?: string;
+      backend?: string;
+      repo?: string;
+      workspace?: string;
+      session?: string;
+      json?: boolean;
+    },
+    context: DatabaseCommandContext
+  ) {
+    const { provider } = context;
 
-    // Validate and normalize task ID
-    const taskId = this.validateRequired(params.taskId, "taskId");
-    const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
-
-    // Verify the task exists before prompting for status and get current status
-    this.debug("Getting previous status");
-    const previousStatus = await getTaskStatusFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-    });
-    this.debug("Previous status retrieved successfully");
-
-    let status = params.status;
-
-    // If status is not provided, prompt for it interactively
-    if (!status) {
-      status = await this.promptForStatus(previousStatus);
+    if (!params.taskId) {
+      throw new ValidationError("taskId is required");
     }
 
-    // If no change, return a clear no-op message and skip update
-    if (status === previousStatus) {
-      const message = `Task ${normalizedTaskId} status is already ${status} (no change)`;
-      return this.formatResult(
-        this.createSuccessResult(normalizedTaskId, message, {
-          previousStatus,
-          newStatus: status,
-          changed: false,
-        }),
-        params.json
+    let targetStatus = params.status;
+
+    // Interactive status selection if not provided
+    if (!targetStatus) {
+      const statusOptions = Object.values(TASK_STATUS).map((status) => ({
+        value: status,
+        label: status,
+      }));
+
+      const selectedStatus = await select({
+        message: `Select new status for task ${params.taskId}:`,
+        options: statusOptions,
+      });
+
+      if (isCancel(selectedStatus)) {
+        cancel("Operation cancelled");
+        return {
+          success: false,
+          message: "Status update cancelled by user",
+        };
+      }
+
+      targetStatus = selectedStatus as string;
+    }
+
+    // Validate status
+    const validStatuses = Object.values(TASK_STATUS);
+    if (!validStatuses.includes(targetStatus as any)) {
+      throw new ValidationError(
+        `Invalid status "${targetStatus}". Valid options: ${validStatuses.join(", ")}`
       );
     }
 
-    // Set the task status
-    this.debug("Setting task status");
-    const result = await setTaskStatusFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-      status,
-    });
-
-    const message = `Task ${validatedTaskId} status changed from ${previousStatus} to ${status}`;
-    this.debug("Task status set successfully");
-
-    return this.formatResult(
-      this.createSuccessResult(validatedTaskId, message, {
-        previousStatus,
-        newStatus: status,
-        changed: true,
-        result,
-      }),
-      params.json
+    // Set task status - pass provider for dependency injection
+    await setTaskStatusFromParams(
+      {
+        taskId: params.taskId,
+        status: targetStatus,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+      },
+      {
+        createConfiguredTaskService: async (options) => {
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
+          return await createConfiguredTaskService({
+            ...options,
+            persistenceProvider: provider,
+          });
+        },
+      }
     );
-  }
 
-  /**
-   * Prompt user for status selection
-   */
-  private async promptForStatus(currentStatus: string): Promise<string> {
-    // Check if we're in an interactive environment
-    if (!process.stdout.isTTY) {
-      throw new ValidationError("Status parameter is required in non-interactive mode");
+    const wantJson = params.json || context.format === "json";
+    if (wantJson) {
+      return { taskId: params.taskId, status: targetStatus, updated: true };
     }
 
-    // Define the options array for consistency
-    const statusOptions = [
-      { value: TASK_STATUS.TODO, label: "TODO" },
-      { value: TASK_STATUS.IN_PROGRESS, label: "IN-PROGRESS" },
-      { value: TASK_STATUS.IN_REVIEW, label: "IN-REVIEW" },
-      { value: TASK_STATUS.DONE, label: "DONE" },
-      { value: TASK_STATUS.BLOCKED, label: "BLOCKED" },
-      { value: TASK_STATUS.CLOSED, label: "CLOSED" },
-    ];
-
-    // Find the index of the current status to pre-select it
-    const currentStatusIndex = statusOptions.findIndex((option) => option?.value === currentStatus);
-    const initialIndex = currentStatusIndex >= 0 ? currentStatusIndex : 0;
-
-    // Prompt for status selection
-    const selectedStatus = await select({
-      message: "Select a status:",
-      options: statusOptions,
-      initialValue: statusOptions[initialIndex]?.value,
-    });
-
-    // Check if user cancelled
-    if (isCancel(selectedStatus)) {
-      cancel("Operation cancelled");
-      throw new ValidationError("Operation cancelled by user");
-    }
-
-    return selectedStatus as string;
+    return {
+      success: true,
+      taskId: params.taskId,
+      status: targetStatus,
+      message: `Task ${params.taskId} status updated to: ${targetStatus}`,
+    };
   }
 }
 
 /**
- * Factory functions for creating command instances
+ * MIGRATION SUMMARY FOR STATUS COMMANDS:
+ *
+ * 1. Changed from BaseTaskCommand to DatabaseCommand
+ * 2. Added required category property (CommandCategory.TASKS)
+ * 3. Updated execute method to receive DatabaseCommandContext with provider
+ * 4. Replaced internal PersistenceService.getProvider() calls with injected provider
+ * 5. Updated domain function calls to pass provider via dependency injection
+ * 6. Preserved interactive status selection functionality
+ * 7. Simplified return structures (removed BaseTaskCommand helper methods)
+ *
+ * BENEFITS:
+ * - Automatic provider initialization via CommandDispatcher
+ * - Type-safe parameter handling with DatabaseCommand
+ * - Clean dependency injection for testing
+ * - No manual PersistenceService calls needed
+ * - Lazy initialization - no upfront database connections
+ * - Interactive prompts preserved
  */
-export const createTasksStatusGetCommand = (): TasksStatusGetCommand => new TasksStatusGetCommand();
-
-export const createTasksStatusSetCommand = (): TasksStatusSetCommand => new TasksStatusSetCommand();

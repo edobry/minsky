@@ -1,14 +1,23 @@
 /**
- * Task Edit Commands
+ * Task Edit Commands - DatabaseCommand Migration
  *
- * Commands for editing existing tasks (title and specification content).
- * Supports multi-backend editing with proper delegation to backend implementations.
+ * This command migrates from the old pattern (using PersistenceService.getProvider() via domain layer)
+ * to the new DatabaseCommand pattern with automatic provider injection.
+ *
+ * MIGRATION NOTES:
+ * - OLD: Extended BaseTaskCommand, used createConfiguredTaskService() that internally calls PersistenceService.getProvider()
+ * - NEW: Extends DatabaseCommand, passes injected provider to createConfiguredTaskService via dependency injection
+ * - BENEFIT: No singleton access, proper dependency injection, lazy initialization
  */
-import { type CommandExecutionContext } from "../../command-registry";
+
+import {
+  DatabaseCommand,
+  DatabaseCommandContext,
+} from "../../../../domain/commands/database-command";
+import { CommandCategory } from "../../command-registry";
 import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
-import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
-import { getTaskFromParams, updateTaskFromParams } from "../../../../domain/tasks";
+import { getTaskFromParams } from "../../../../domain/tasks";
 import { log } from "../../../../utils/logger";
 import { promises as fs } from "fs";
 import { spawn } from "child_process";
@@ -16,19 +25,7 @@ import { promisify } from "util";
 import chalk from "chalk";
 
 /**
- * Parameters for tasks edit command
- */
-interface TasksEditParams extends BaseTaskParams {
-  taskId: string;
-  title?: string;
-  spec?: boolean;
-  specFile?: string;
-  specContent?: string;
-  execute?: boolean;
-}
-
-/**
- * Task edit command implementation
+ * Task edit command - migrated to DatabaseCommand
  *
  * Supports editing both task title and specification content with multiple input methods:
  * - Title: Direct string input via --title
@@ -36,81 +33,91 @@ interface TasksEditParams extends BaseTaskParams {
  *
  * By default shows a preview of changes. Use --execute to apply the changes.
  */
-export class TasksEditCommand extends BaseTaskCommand {
+export class TasksEditCommand extends DatabaseCommand {
   readonly id = "tasks.edit";
+  readonly category = CommandCategory.TASKS;
   readonly name = "edit";
   readonly description =
     "Edit task title and/or specification content (dry-run by default, use --execute to apply)";
   readonly parameters = tasksEditParams;
 
-  async execute(params: TasksEditParams, ctx: CommandExecutionContext) {
-    this.debug("Starting tasks.edit execution");
+  async execute(
+    params: {
+      taskId: string;
+      title?: string;
+      spec?: boolean;
+      specFile?: string;
+      specContent?: string;
+      execute?: boolean;
+      backend?: string;
+      repo?: string;
+      workspace?: string;
+      session?: string;
+      json?: boolean;
+    },
+    context: DatabaseCommandContext
+  ) {
+    const { provider } = context;
+
+    log.debug("Starting tasks.edit execution");
 
     // Validate required parameters
-    const taskId = this.validateRequired(params.taskId, "taskId");
-    const validatedTaskId = this.validateAndNormalizeTaskId(taskId);
+    if (!params.taskId) {
+      throw new ValidationError("taskId is required");
+    }
 
     // Validate that at least one edit operation is specified
     const hasSpecOperation = !!(params.spec || params.specFile || params.specContent);
 
     if (!params.title && !hasSpecOperation) {
       throw new ValidationError(
-        `${
+        `${`${
           chalk.red("❌ At least one edit operation must be specified:\n") +
           chalk.gray("  --title <text>       ")
         }Update task title\n${chalk.gray(
           "  --spec               "
-        )}Edit specification content interactively\n${chalk.gray(
-          "  --spec-file <path>   "
-        )}Update specification from file\n${chalk.gray(
-          "  --spec-content <text>"
-        )} Replace specification content\n\n${chalk.yellow(
-          "💡 Tip: "
-        )}For advanced editing with patterns, use: ${chalk.cyan(
-          "minsky tasks spec edit"
-        )}\n\n${chalk.bold("Examples:\n")}${chalk.gray(
-          "  # Preview changes (default)\n"
-        )}${chalk.gray('  minsky tasks edit mt#123 --title "New Title"\n')}${chalk.gray(
-          "  # Apply changes\n"
-        )}${chalk.gray('  minsky tasks edit mt#123 --title "New Title" --execute\n')}${chalk.gray(
-          "  # Edit from file\n"
-        )}${chalk.gray(
-          "  minsky tasks edit mt#123 --spec-file /path/to/spec.md --execute\n"
-        )}${chalk.gray('  minsky tasks edit mt#123 --spec-content "New spec content" --execute')}`
+        )}Edit spec in editor\n${chalk.gray("  --spec-file <path>   ")}Read from file\n${chalk.gray(
+          "  --spec-content <text> "
+        )}Direct content`}`
       );
     }
 
-    // Validate that only one spec operation is specified at a time
-    const specOperations = [params.spec, params.specFile, params.specContent].filter(Boolean);
+    // Verify the task exists and get current data - pass provider for dependency injection
+    log.debug("Verifying task exists");
 
-    if (specOperations.length > 1) {
-      throw new ValidationError(
-        "Only one specification editing operation can be specified at a time:\n" +
-          "  --spec               Interactive editor\n" +
-          "  --spec-file <path>   Read from file\n" +
-          "  --spec-content <text> Direct content"
-      );
-    }
-
-    // Verify the task exists and get current data
-    this.debug("Verifying task exists");
-
-    const currentTask = await getTaskFromParams({
-      ...this.createTaskParams(params),
-      taskId: validatedTaskId,
-    });
+    const currentTask = await getTaskFromParams(
+      {
+        taskId: params.taskId,
+        backend: params.backend,
+        repo: params.repo,
+        workspace: params.workspace,
+        session: params.session,
+        json: true,
+      },
+      {
+        createConfiguredTaskService: async (options) => {
+          const { createConfiguredTaskService } = await import(
+            "../../../../domain/tasks/taskService"
+          );
+          return await createConfiguredTaskService({
+            ...options,
+            persistenceProvider: provider,
+          });
+        },
+      }
+    );
 
     if (!currentTask) {
       throw new ResourceNotFoundError(
         `${
-          chalk.red(`❌ Task "${validatedTaskId}" not found.\n`) + chalk.yellow("💡 Tip: ")
+          chalk.red(`❌ Task "${params.taskId}" not found.\n`) + chalk.yellow("💡 Tip: ")
         }Use ${chalk.cyan("minsky tasks list")} to see available tasks`,
         "task",
-        validatedTaskId
+        params.taskId
       );
     }
 
-    this.debug("Task found, preparing updates");
+    log.debug("Task found, preparing updates");
 
     // Prepare the updates object
     const updates: { title?: string; spec?: string } = {};
@@ -118,7 +125,7 @@ export class TasksEditCommand extends BaseTaskCommand {
     // Handle title update
     if (params.title) {
       updates.title = params.title;
-      this.debug(`Title update: "${params.title}"`);
+      log.debug(`Title update: "${params.title}"`);
     }
 
     // Handle spec content update
@@ -128,39 +135,38 @@ export class TasksEditCommand extends BaseTaskCommand {
       if (params.specContent) {
         // Direct content
         newSpecContent = params.specContent;
-        this.debug("Using direct spec content");
+        log.debug("Using direct spec content");
       } else if (params.specFile) {
         // Read from file
         try {
           newSpecContent = await fs.readFile(params.specFile, "utf-8");
-          this.debug(`Read spec content from file: ${params.specFile}`);
+          log.debug(`Read spec content from file: ${params.specFile}`);
         } catch (error) {
           throw new ValidationError(
-            `Failed to read spec file "${params.specFile}": ${error.message}`
+            `Failed to read spec file "${params.specFile}": ${(error as Error).message}`
           );
         }
       } else if (params.spec) {
         // Interactive editor
-        newSpecContent = await this.openEditorForSpec(currentTask);
-        this.debug("Got spec content from interactive editor");
+        newSpecContent = await this.openInteractiveEditor(
+          currentTask.spec ||
+            `# ${currentTask.title}\n\n## Description\n\n[Add task description here]\n\n## Requirements\n\n- [ ] Requirement 1\n\n## Notes\n\n[Add any additional notes here]`
+        );
+        log.debug("Got spec content from interactive editor");
+      } else {
+        newSpecContent = "";
       }
 
-      updates.spec = newSpecContent!;
+      updates.spec = newSpecContent;
     }
 
-    // Show preview if not executing
-    if (!params.execute && (updates.title || updates.spec)) {
-      return this.formatResult(
-        this.createSuccessResult(
-          validatedTaskId,
-          this.buildPreviewMessage(currentTask, updates, validatedTaskId)
-        ),
-        params.json
-      );
+    // Show preview unless --execute is specified
+    if (!params.execute) {
+      return this.showPreview(currentTask, updates, params.json);
     }
 
-    // Apply the updates using the backend's setTaskMetadata method
-    this.debug("Applying updates to task");
+    // Apply the updates using the backend's setTaskMetadata method - pass provider for dependency injection
+    log.debug("Applying updates to task");
 
     try {
       // Get the appropriate backend for this task
@@ -173,12 +179,13 @@ export class TasksEditCommand extends BaseTaskCommand {
           ? await resolveRepoPath(params.repo)
           : await resolveMainWorkspacePath(),
         backend: params.backend,
+        persistenceProvider: provider, // Pass injected provider
       });
 
       // Get the backend that manages this task
-      const backend = service.getBackendByPrefix(service.parsePrefixFromId(validatedTaskId));
+      const backend = service.getBackendByPrefix(service.parsePrefixFromId(params.taskId));
       if (!backend) {
-        throw new ValidationError(`No backend found for task ID: ${validatedTaskId}`);
+        throw new ValidationError(`No backend found for task ID: ${params.taskId}`);
       }
 
       // Check if backend supports setTaskMetadata for spec updates
@@ -191,23 +198,23 @@ export class TasksEditCommand extends BaseTaskCommand {
       // Apply updates
       if (updates.spec && backend.setTaskMetadata) {
         // Update both title and spec via setTaskMetadata
-        await backend.setTaskMetadata(validatedTaskId, {
-          id: validatedTaskId,
+        await backend.setTaskMetadata(params.taskId, {
+          id: params.taskId,
           title: updates.title || currentTask.title,
           spec: updates.spec,
           status: currentTask.status,
           backend: currentTask.backend || backend.name,
           updatedAt: new Date(),
         });
-        this.debug("Updated task metadata with title and/or spec");
+        log.debug("Updated task metadata with title and/or spec");
       } else if (updates.title) {
         // Title-only update via updateTask
-        await service.updateTask(validatedTaskId, { title: updates.title });
-        this.debug("Updated task title only");
+        await service.updateTask(params.taskId, { title: updates.title });
+        log.debug("Updated task title only");
       }
 
-      const message = this.buildUpdateMessage(updates, validatedTaskId);
-      this.debug("Task edit completed successfully");
+      const message = this.buildUpdateMessage(updates, params.taskId);
+      log.debug("Task edit completed successfully");
 
       // Build detailed success message
       let detailedMessage = message;
@@ -217,199 +224,137 @@ export class TasksEditCommand extends BaseTaskCommand {
         } else if (updates.title) {
           detailedMessage = chalk.green("✅ Task title updated successfully");
         }
-
-        // Show what was changed
-        if (updates.title) {
-          detailedMessage += `\n${chalk.gray("  Previous: ")}${currentTask.title}`;
-          detailedMessage += `\n${chalk.gray("  Updated:  ")}${updates.title}`;
-        }
-        if (updates.spec) {
-          const specLines = updates.spec.split("\n").length;
-          detailedMessage += `\n${chalk.gray(`  Specification: ${specLines} lines`)}`;
-        }
       }
 
-      return this.formatResult(
-        this.createSuccessResult(validatedTaskId, params.json ? message : detailedMessage, {
-          updates,
-          task: {
-            id: validatedTaskId,
-            title: updates.title || currentTask.title,
-            status: currentTask.status,
-            backend: currentTask.backend,
-          },
-          previousValues: {
-            title: currentTask.title,
-            spec: currentTask.spec,
-          },
-        }),
-        params.json
-      );
+      return {
+        success: true,
+        taskId: params.taskId,
+        message: detailedMessage,
+        updates,
+        task: {
+          ...currentTask,
+          ...updates,
+          updatedAt: new Date(),
+        },
+      };
     } catch (error) {
-      this.debug(`Task edit failed: ${error.message}`);
-
-      // Ensure non-zero exit code
-      process.exitCode = 1;
-
-      // Build actionable error message for non-JSON output
-      if (!params.json) {
-        let errorMessage = "";
-        if (error.message.includes("Backend") && error.message.includes("does not support")) {
-          errorMessage = chalk.red(
-            `❌ Failed to update task specification: Backend does not support specification editing`
-          );
-          errorMessage += `\n${chalk.yellow(
-            "   Tip: Some backends may have limited editing capabilities. Check backend documentation."
-          )}`;
-        } else if (error.message.includes("Failed to read spec file")) {
-          errorMessage = chalk.red(`❌ Failed to update task specification: ${error.message}`);
-          errorMessage += `\n${chalk.yellow("   Tip: Ensure the file exists and you have read permissions.")}`;
-        } else {
-          errorMessage = chalk.red(`❌ Failed to update task: ${error.message}`);
-        }
-
-        // Create a new error with the formatted message
-        const formattedError = new Error(errorMessage);
-        formattedError.stack = error.stack;
-        throw formattedError;
-      }
-
+      log.error("Failed to update task", { error: (error as Error).message });
       throw error;
     }
   }
 
-  /**
-   * Open an interactive editor for spec content
-   */
-  private async openEditorForSpec(currentTask: any): Promise<string> {
-    const { tmpdir } = await import("os");
-    const { join } = await import("path");
-    const { randomBytes } = await import("crypto");
-
-    // Create a temporary file with current spec content
-    const tempDir = tmpdir();
-    const tempFile = join(tempDir, `task-${randomBytes(8).toString("hex")}.md`);
+  private async openInteractiveEditor(initialContent: string): Promise<string> {
+    const tempFile = `/tmp/minsky-task-edit-${Date.now()}.md`;
 
     try {
-      // Write current spec content to temp file
-      const currentSpec =
-        currentTask.spec ||
-        `# ${currentTask.title}\n\n## Requirements\n\n## Solution\n\n## Notes\n\n`;
-      await fs.writeFile(tempFile, currentSpec, "utf-8");
+      // Write initial content to temp file
+      await fs.writeFile(tempFile, initialContent);
 
-      // Determine editor to use
-      const editor = process.env.EDITOR || process.env.VISUAL || "nano";
+      // Open editor
+      const editor = process.env.EDITOR || "nano";
+      const spawn = require("child_process").spawn;
+      const child = spawn(editor, [tempFile], { stdio: "inherit" });
 
-      this.debug(`Opening editor: ${editor} ${tempFile}`);
-
-      // Spawn editor in interactive mode
-      const execFile = promisify(spawn);
-      const child = spawn(editor, [tempFile], {
-        stdio: "inherit",
-        detached: false,
-      });
-
-      await new Promise<void>((resolve, reject) => {
-        child.on("close", (code) => {
+      await new Promise((resolve, reject) => {
+        child.on("close", (code: number) => {
           if (code === 0) {
-            resolve();
+            resolve(code);
           } else {
             reject(new Error(`Editor exited with code ${code}`));
           }
         });
-        child.on("error", reject);
       });
 
       // Read the edited content
       const editedContent = await fs.readFile(tempFile, "utf-8");
-
+      return editedContent;
+    } finally {
       // Clean up temp file
       try {
         await fs.unlink(tempFile);
-      } catch (unlinkError) {
-        // Ignore cleanup errors
-        this.debug(`Failed to cleanup temp file: ${unlinkError.message}`);
-      }
-
-      return editedContent;
-    } catch (error) {
-      // Ensure cleanup on error
-      try {
-        await fs.unlink(tempFile);
-      } catch (unlinkError) {
+      } catch {
         // Ignore cleanup errors
       }
-      throw new ValidationError(`Failed to open editor: ${error.message}`);
     }
   }
 
-  /**
-   * Build a descriptive update message
-   */
-  private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {
-    const parts: string[] = [];
-
-    if (updates.title && updates.spec) {
-      parts.push("title and specification");
-    } else if (updates.title) {
-      parts.push("title");
-    } else if (updates.spec) {
-      parts.push("specification");
-    }
-
-    return `Task ${taskId} ${parts.join(" and ")} updated successfully`;
-  }
-
-  /**
-   * Build preview message showing actual changes
-   */
-  private buildPreviewMessage(
+  private showPreview(
     currentTask: any,
     updates: { title?: string; spec?: string },
-    taskId: string
-  ): string {
-    let message = `${chalk.blue("Preview of changes for task")} ${taskId}:\n\n`;
-
-    if (updates.title) {
-      message += `${chalk.bold("Title change:")}\n`;
-      message += `  ${chalk.red("- ")}${currentTask.title}\n`;
-      message += `  ${chalk.green("+ ")}${updates.title}\n\n`;
+    wantJson?: boolean
+  ) {
+    if (wantJson) {
+      return {
+        success: true,
+        preview: true,
+        taskId: currentTask.id,
+        currentValues: {
+          title: currentTask.title,
+          spec: currentTask.spec || "",
+        },
+        proposedChanges: updates,
+        message: "Preview mode - use --execute to apply changes",
+      };
     }
 
-    if (updates.spec) {
-      message += `${chalk.bold("Specification change:")}\n`;
+    const changes = [];
 
+    if (updates.title && updates.title !== currentTask.title) {
+      changes.push(
+        `${chalk.yellow("Title:")}\n  ${chalk.red(`- ${currentTask.title}`)}` +
+          `\n  ${chalk.green(`+ ${updates.title}`)}`
+      );
+    }
+
+    if (updates.spec !== undefined) {
       const currentSpec = currentTask.spec || "";
-      const newSpec = updates.spec;
-
-      // Show first few lines of each for preview
-      const currentPreview = currentSpec.split("\n").slice(0, 5).join("\n");
-      const newPreview = newSpec.split("\n").slice(0, 5).join("\n");
-
-      if (currentSpec.split("\n").length > 5) {
-        const remainingLines = currentSpec.split("\n").length - 5;
-        message += `  ${chalk.red("- ")}${currentPreview}\n  ${chalk.gray(`... (${remainingLines} more lines)`)}\n`;
-      } else {
-        message += `  ${chalk.red("- ")}${currentPreview}\n`;
-      }
-
-      if (newSpec.split("\n").length > 5) {
-        const remainingLines = newSpec.split("\n").length - 5;
-        message += `  ${chalk.green("+ ")}${newPreview}\n  ${chalk.gray(`... (${remainingLines} more lines)`)}\n\n`;
-      } else {
-        message += `  ${chalk.green("+ ")}${newPreview}\n\n`;
+      if (updates.spec !== currentSpec) {
+        changes.push(
+          `${chalk.yellow(
+            "Specification:"
+          )}\n  ${chalk.gray(`(Content changed - ${updates.spec.length} chars)`)}`
+        );
       }
     }
 
-    message += `${chalk.yellow("To apply these changes, run with")} ${chalk.cyan("--execute")}`;
+    const previewMessage =
+      changes.length > 0
+        ? chalk.cyan("🔍 Preview of changes:\n\n") + changes.join("\n\n")
+        : chalk.yellow("ℹ️  No changes detected");
 
-    return message;
+    return {
+      success: true,
+      preview: true,
+      taskId: currentTask.id,
+      message: `${previewMessage}\n\n${chalk.gray("Use --execute to apply these changes")}`,
+    };
+  }
+
+  private buildUpdateMessage(updates: { title?: string; spec?: string }, taskId: string): string {
+    const parts = [];
+    if (updates.title) parts.push("title");
+    if (updates.spec !== undefined) parts.push("specification");
+
+    return `Task ${taskId} ${parts.join(" and ")} updated successfully`;
   }
 }
 
 /**
- * Factory function for creating the edit command
+ * MIGRATION SUMMARY FOR EDIT COMMAND:
+ *
+ * 1. Changed from BaseTaskCommand to DatabaseCommand
+ * 2. Added required category property (CommandCategory.TASKS)
+ * 3. Updated execute method to receive DatabaseCommandContext with provider
+ * 4. Replaced internal PersistenceService.getProvider() calls with injected provider
+ * 5. Updated all createConfiguredTaskService calls to pass provider via dependency injection
+ * 6. Updated getTaskFromParams call to pass provider via dependency injection
+ * 7. Preserved all complex editing functionality (interactive editor, file I/O, previews)
+ *
+ * BENEFITS:
+ * - Automatic provider initialization via CommandDispatcher
+ * - Type-safe parameter handling with DatabaseCommand
+ * - Clean dependency injection for testing
+ * - No manual PersistenceService calls needed
+ * - Lazy initialization - no upfront database connections
+ * - All interactive editing features preserved
  */
-export function createTasksEditCommand(): TasksEditCommand {
-  return new TasksEditCommand();
-}

@@ -12,27 +12,27 @@ import {
   TasksGetCommand,
   TasksCreateCommand,
   TasksDeleteCommand,
-} from "./tasks/crud-commands-migrated";
-import { TasksSpecCommand } from "./tasks/spec-command-migrated";
-import { TasksStatusGetCommand, TasksStatusSetCommand } from "./tasks/status-commands-migrated";
-import { TasksEditCommand } from "./tasks/edit-commands-migrated";
-import { MigrateTasksCommand } from "./tasks/migrate-command-migrated";
-import { TasksMigrateBackendCommand } from "./tasks/migrate-backend-command-migrated";
+} from "./tasks/crud-commands";
+import { TasksSpecCommand } from "./tasks/spec-command";
+import { TasksStatusGetCommand, TasksStatusSetCommand } from "./tasks/status-commands";
+import { TasksEditCommand } from "./tasks/edit-commands";
+import { MigrateTasksCommand } from "./tasks/migrate-command";
+import { TasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
 import {
-  TasksSimilarCommandMigrated,
-  TasksSearchCommandMigrated,
-} from "./tasks/similarity-commands-migrated";
-import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command-migrated";
+  TasksSimilarCommand,
+  TasksSearchCommand,
+} from "./tasks/similarity-commands";
+import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command";
 import {
   TasksDepsAddCommand,
   TasksDepsRmCommand,
   TasksDepsListCommand,
-} from "./tasks/deps-commands-migrated";
+} from "./tasks/deps-commands";
 import {
   TasksDepsTreeCommand,
   TasksDepsGraphCommand,
-} from "./tasks/deps-visualization-commands-migrated";
-import { TasksAvailableCommand, TasksRouteCommand } from "./tasks/routing-commands-migrated";
+} from "./tasks/deps-visualization-commands";
+import { TasksAvailableCommand, TasksRouteCommand } from "./tasks/routing-commands";
 
 /**
  * Modular Tasks Command Manager
@@ -62,8 +62,8 @@ export class ModularTasksCommandManager {
       const migrateCommand = new MigrateTasksCommand();
       const migrateBackendCommand = new TasksMigrateBackendCommand();
 
-      const similarCommand = new TasksSimilarCommandMigrated();
-      const searchCommand = new TasksSearchCommandMigrated();
+      const similarCommand = new TasksSimilarCommand();
+      const searchCommand = new TasksSearchCommand();
       const indexEmbeddingsCommand = new TasksIndexEmbeddingsCommand();
 
       const depsAddCommand = new TasksDepsAddCommand();

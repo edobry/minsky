@@ -12,32 +12,38 @@ export type { BaseTaskParams, TaskCommandResult, TaskCommandFactory } from "./ba
 // Parameter definitions
 export * from "./task-parameters";
 
-// Command implementations (re-export)
+// Command implementations (re-export) - DatabaseCommand classes only
 export {
   TasksStatusGetCommand,
   TasksStatusSetCommand,
-  createTasksStatusGetCommand,
-  createTasksStatusSetCommand,
 } from "./status-commands";
 
-export { TasksSpecCommand, createTasksSpecCommand } from "./spec-command";
+export { TasksSpecCommand } from "./spec-command";
 
 export {
   TasksListCommand,
   TasksGetCommand,
   TasksCreateCommand,
   TasksDeleteCommand,
-  createTasksListCommand,
-  createTasksGetCommand,
-  createTasksCreateCommand,
-  createTasksDeleteCommand,
 } from "./crud-commands";
 
-export { MigrateTasksCommand, createMigrateTasksCommand } from "./migrate-command";
+export { MigrateTasksCommand } from "./migrate-command";
+export { TasksMigrateBackendCommand } from "./migrate-backend-command";
+
+export { TasksEditCommand } from "./edit-commands";
+
 export {
-  TasksMigrateBackendCommand,
-  createTasksMigrateBackendCommand,
-} from "./migrate-backend-command";
+  TasksDepsAddCommand,
+  TasksDepsRmCommand,
+  TasksDepsListCommand,
+} from "./deps-commands";
+
+export {
+  TasksDepsTreeCommand,
+  TasksDepsGraphCommand,
+} from "./deps-visualization-commands";
+
+export { TasksAvailableCommand, TasksRouteCommand } from "./routing-commands";
 
 // Export registry setup functions from separate module
 export { createAllTaskCommands, setupTaskCommandRegistry } from "./registry-setup";

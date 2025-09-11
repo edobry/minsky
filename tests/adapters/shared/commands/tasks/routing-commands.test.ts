@@ -2,7 +2,7 @@ import { describe, expect, test } from "bun:test";
 import {
   TasksAvailableCommand,
   TasksRouteCommand,
-} from "../../../../../src/adapters/shared/commands/tasks/routing-commands-migrated";
+} from "../../../../../src/adapters/shared/commands/tasks/routing-commands";
 
 // Note: Integration tests for routing commands require complex database mocking
 // Core functionality is tested in task-routing-service.test.ts
