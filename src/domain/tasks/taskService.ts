@@ -26,6 +26,7 @@ import { getErrorMessage } from "../../errors/index";
 export interface TaskServiceOptions {
   workspacePath: string;
   backend?: string;
+  persistenceProvider?: import("../persistence/provider").PersistenceProvider;
 }
 
 // ---- Factory Functions ----
@@ -33,6 +34,7 @@ export interface TaskServiceOptions {
 export async function createConfiguredTaskService(options: {
   workspacePath: string;
   backend?: string;
+  persistenceProvider?: import("../persistence/provider").PersistenceProvider;
 }): Promise<TaskServiceInterface> {
   // Create task service - handles single or multiple backends based on options
   const service = createTaskService({ workspacePath: options.workspacePath });
@@ -83,10 +85,13 @@ export async function createConfiguredTaskService(options: {
 
       case TaskBackend.MINSKY: {
         try {
-          const { PersistenceService } = await import("../persistence/service");
-
-          // PersistenceService should already be initialized at application startup
-          const persistence = PersistenceService.getProvider();
+          // Use injected provider or fall back to singleton access (legacy compatibility)
+          let persistence = options.persistenceProvider;
+          if (!persistence) {
+            const { PersistenceService } = await import("../persistence/service");
+            persistence = PersistenceService.getProvider();
+          }
+          
           const db = await persistence.getDatabaseConnection();
 
           const minskyBackend = createMinskyTaskBackend({
@@ -116,19 +121,23 @@ export async function createConfiguredTaskService(options: {
   } else {
     // No specific backend requested - register all available backends for multi-backend mode
     try {
-      // Get PersistenceService (should already be initialized at application startup)
-      const { PersistenceService } = await import("../persistence/service");
-      let persistenceProvider = null;
-      try {
-        persistenceProvider = PersistenceService.getProvider();
-        log.debug("PersistenceService available for multi-backend mode");
-      } catch (error) {
-        log.warn(
-          "PersistenceService not available - persistence-dependent backends will be unavailable",
-          {
-            error: getErrorMessage(error as any),
-          }
-        );
+      // Use injected provider or fall back to singleton access (legacy compatibility)
+      let persistenceProvider = options.persistenceProvider;
+      if (!persistenceProvider) {
+        const { PersistenceService } = await import("../persistence/service");
+        try {
+          persistenceProvider = PersistenceService.getProvider();
+          log.debug("PersistenceService available for multi-backend mode");
+        } catch (error) {
+          log.warn(
+            "PersistenceService not available - persistence-dependent backends will be unavailable",
+            {
+              error: getErrorMessage(error as any),
+            }
+          );
+        }
+      } else {
+        log.debug("Using injected PersistenceProvider for multi-backend mode");
       }
 
       const markdownBackend = createMarkdownTaskBackend({

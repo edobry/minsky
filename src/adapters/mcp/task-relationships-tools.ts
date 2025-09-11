@@ -1,7 +1,7 @@
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { z } from "zod";
-import { PersistenceService } from "../../domain/persistence/service";
-import { TaskGraphService } from "../../domain/tasks/task-graph-service";
+import { commandDispatcher } from "../shared/command-dispatcher";
+import type { McpExecutionContext } from "../shared/bridges/mcp-bridge";
 
 const AddSchema = z.object({ fromTaskId: z.string(), toTaskId: z.string() });
 const RemoveSchema = z.object({ fromTaskId: z.string(), toTaskId: z.string() });
@@ -16,12 +16,19 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     description: "Add a dependency edge (task depends on prerequisite)",
     parameters: AddSchema,
     handler: async (args) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
-      const db = await persistence.getDatabaseConnection();
-      const service = new TaskGraphService(db);
-      const result = await service.addDependency(args.fromTaskId, args.toTaskId);
-      return { success: true, created: result.created };
+      // Use CommandDispatcher to execute the migrated DatabaseCommand
+      const context: McpExecutionContext = {
+        interface: "mcp",
+        mcpSpecificData: undefined,
+      };
+      
+      const result = await commandDispatcher.executeCommand(
+        "tasks.deps.add",
+        { task: args.fromTaskId, dependsOn: args.toTaskId },
+        context
+      );
+      
+      return { success: result.success, created: result.result?.created || false };
     },
   });
 
@@ -30,12 +37,19 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     description: "Remove a dependency edge",
     parameters: RemoveSchema,
     handler: async (args) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
-      const db = await persistence.getDatabaseConnection();
-      const service = new TaskGraphService(db);
-      const result = await service.removeDependency(args.fromTaskId, args.toTaskId);
-      return { success: true, removed: result.removed };
+      // Use CommandDispatcher to execute the migrated DatabaseCommand
+      const context: McpExecutionContext = {
+        interface: "mcp",
+        mcpSpecificData: undefined,
+      };
+      
+      const result = await commandDispatcher.executeCommand(
+        "tasks.deps.rm",
+        { task: args.fromTaskId, dependsOn: args.toTaskId },
+        context
+      );
+      
+      return { success: result.success, removed: result.result?.removed || false };
     },
   });
 
@@ -44,16 +58,27 @@ export function registerTaskRelationshipTools(commandMapper: CommandMapper): voi
     description: "List dependencies or dependents for a task",
     parameters: ListSchema,
     handler: async (args) => {
-      // PersistenceService should already be initialized at application startup
-      const persistence = PersistenceService.getProvider();
-      const db = await persistence.getDatabaseConnection();
-      const service = new TaskGraphService(db);
-      if (args.direction === "dependents") {
-        const list = await service.listDependents(args.taskId);
-        return { success: true, items: list };
+      // Use CommandDispatcher to execute the migrated DatabaseCommand
+      const context: McpExecutionContext = {
+        interface: "mcp",
+        mcpSpecificData: undefined,
+      };
+      
+      const result = await commandDispatcher.executeCommand(
+        "tasks.deps.list",
+        { task: args.taskId, verbose: true },
+        context
+      );
+      
+      if (result.success && result.result) {
+        // Return the specific direction requested (dependencies or dependents)
+        if (args.direction === "dependents") {
+          return { success: true, items: result.result.dependents || [] };
+        }
+        return { success: true, items: result.result.dependencies || [] };
       }
-      const list = await service.listDependencies(args.taskId);
-      return { success: true, items: list };
+      
+      return { success: false, items: [] };
     },
   });
 }

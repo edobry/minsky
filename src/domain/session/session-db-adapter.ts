@@ -368,17 +368,24 @@ export class SessionDbAdapter implements SessionProviderInterface {
 /**
  * Creates a default SessionProvider implementation
  * This factory function provides a consistent way to get a session provider with optional customization
+ * Supports dependency injection pattern for testing and DatabaseCommand integration
  */
 export async function createSessionProvider(_options?: {
   dbPath?: string;
   useNewBackend?: boolean;
+  persistenceProvider?: PersistenceProvider;
 }): Promise<SessionProviderInterface> {
   log.debug("Creating session provider with auto-repair support");
 
-  // Get PersistenceProvider from PersistenceService (should already be initialized at application startup)
-  log.debug(`PersistenceService initialized: ${PersistenceService.isInitialized()}`);
-  log.debug("Getting provider from PersistenceService...");
-  const provider = PersistenceService.getProvider();
+  // Use injected provider or fall back to singleton access (legacy compatibility)
+  let provider = _options?.persistenceProvider;
+  if (!provider) {
+    log.debug(`PersistenceService initialized: ${PersistenceService.isInitialized()}`);
+    log.debug("Getting provider from PersistenceService...");
+    provider = PersistenceService.getProvider();
+  } else {
+    log.debug("Using injected PersistenceProvider...");
+  }
   log.debug("Got provider, creating SessionDbAdapter...");
   const baseProvider = new SessionDbAdapter(provider);
 

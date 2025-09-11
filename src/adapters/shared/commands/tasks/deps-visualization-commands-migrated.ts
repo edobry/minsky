@@ -59,6 +59,7 @@ export class TasksDepsTreeCommand extends DatabaseCommand {
     const graphService = new TaskGraphService(db as PostgresJsDatabase);
     const taskService = await createConfiguredTaskService({
       workspacePath: process.cwd(),
+      persistenceProvider: provider,
     });
 
     try {
@@ -278,6 +279,7 @@ export class TasksDepsGraphCommand extends DatabaseCommand {
     const graphService = new TaskGraphService(db as PostgresJsDatabase);
     const taskService = await createConfiguredTaskService({
       workspacePath: process.cwd(),
+      persistenceProvider: provider,
     });
 
     try {

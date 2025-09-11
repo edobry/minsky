@@ -24,6 +24,7 @@ import { getTaskSpecRelativePath } from "./taskIO";
 import { validateQualifiedTaskId } from "./task-id-utils";
 import { getNextTaskId } from "./taskFunctions";
 import { get as getConfig, has as hasConfig } from "../configuration";
+import type { PersistenceProvider } from "../persistence/types";
 
 // TaskState is now imported from schemas/storage
 
@@ -34,10 +35,12 @@ export class JsonFileTaskBackend implements TaskBackend {
   name = "json-file";
   private workspacePath: string;
   private tasksFilePath: string;
+  private persistenceProvider?: PersistenceProvider;
 
-  constructor(config: TaskBackendConfig) {
+  constructor(config: TaskBackendConfig & { persistenceProvider?: PersistenceProvider }) {
     this.workspacePath = config.workspacePath;
     this.tasksFilePath = join(this.workspacePath, "process", "tasks", "tasks.json");
+    this.persistenceProvider = config.persistenceProvider;
   }
 
   // ---- User-Facing Operations ----
@@ -206,10 +209,12 @@ ${description}
 
     // Delete from PostgreSQL tasks table (source of truth)
     try {
-      const { PersistenceService } = await import("../persistence/service");
-
-      // PersistenceService should already be initialized at application startup
-      const provider = PersistenceService.getProvider();
+      // Use injected provider or fall back to singleton access (legacy compatibility)
+      let provider = this.persistenceProvider;
+      if (!provider) {
+        const { PersistenceService } = await import("../persistence/service");
+        provider = PersistenceService.getProvider();
+      }
 
       if (provider.capabilities.sql) {
         const db = await provider.getDatabaseConnection?.();
@@ -352,7 +357,9 @@ ${description}
   }
 }
 
-// Factory function
-export function createJsonFileTaskBackend(config: TaskBackendConfig): JsonFileTaskBackend {
+// Factory function with optional dependency injection
+export function createJsonFileTaskBackend(
+  config: TaskBackendConfig & { persistenceProvider?: PersistenceProvider }
+): JsonFileTaskBackend {
   return new JsonFileTaskBackend(config);
 }

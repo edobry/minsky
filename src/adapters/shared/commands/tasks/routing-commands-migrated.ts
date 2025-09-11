@@ -98,6 +98,7 @@ export class TasksAvailableCommand extends DatabaseCommand {
     const graphService = new TaskGraphService(db as PostgresJsDatabase);
     const taskService = await createConfiguredTaskService({
       workspacePath: process.cwd(),
+      persistenceProvider: provider,
     });
     const routingService = new TaskRoutingService(graphService, taskService);
 
@@ -202,6 +203,7 @@ export class TasksRouteCommand extends DatabaseCommand {
     const graphService = new TaskGraphService(db as PostgresJsDatabase);
     const taskService = await createConfiguredTaskService({
       workspacePath: process.cwd(),
+      persistenceProvider: provider,
     });
     const routingService = new TaskRoutingService(graphService, taskService);
 

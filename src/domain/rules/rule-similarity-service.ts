@@ -124,15 +124,19 @@ export class RuleSimilarityService {
 
 /**
  * Create a configured RuleSimilarityService instance with PersistenceProvider
+ * Supports dependency injection pattern for testing and DatabaseCommand integration
  */
-export async function createRuleSimilarityService(): Promise<RuleSimilarityService> {
+export async function createRuleSimilarityService(
+  persistenceProvider?: PersistenceProvider
+): Promise<RuleSimilarityService> {
   const workspacePath = await resolveWorkspacePath({});
 
-  // Use PersistenceService instead of direct dependencies
-  const { PersistenceService } = await import("../persistence/service");
-
-  // PersistenceService should already be initialized at application startup
-  const provider = PersistenceService.getProvider();
+  // Use injected provider or fall back to singleton access (legacy compatibility)
+  let provider = persistenceProvider;
+  if (!provider) {
+    const { PersistenceService } = await import("../persistence/service");
+    provider = PersistenceService.getProvider();
+  }
 
   const service = new RuleSimilarityService(provider, workspacePath);
 
