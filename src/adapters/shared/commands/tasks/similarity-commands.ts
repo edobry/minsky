@@ -318,9 +318,9 @@ export async function createTaskSimilarityService(
 
   // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
   const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-  const taskService = await createConfiguredTaskService({ 
+  const taskService = await createConfiguredTaskService({
     workspacePath: process.cwd(),
-    persistenceProvider 
+    persistenceProvider,
   });
   const findTaskById = async (id: string) => taskService.getTask(id);
   const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
