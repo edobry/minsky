@@ -106,3 +106,4 @@ export type DatabaseCommandParameters<T extends DatabaseCommand> =
  */
 export type DatabaseCommandResult<T extends DatabaseCommand> =
   T extends DatabaseCommand<any, infer R> ? R : never;
+

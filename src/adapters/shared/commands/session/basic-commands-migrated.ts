@@ -248,3 +248,4 @@ export class SessionSearchCommand extends DatabaseSessionCommand<any, any> {
     }
   }
 }
+

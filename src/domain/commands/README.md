@@ -245,3 +245,4 @@ See `examples/database-command-example.ts` for comprehensive examples showing:
 - [ADR-002: Persistence Provider Architecture](../../../docs/architecture/adr-002-persistence-provider-architecture.md)
 - [Command Registry Documentation](../../adapters/shared/command-registry.ts)
 - [Testing Best Practices](../../../docs/testing/test-architecture-documentation.md)
+
