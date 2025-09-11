@@ -1,15 +1,18 @@
 /**
  * Tasks Index Embeddings Command - DatabaseCommand Migration
- * 
+ *
  * This command generates and stores embeddings for tasks using vector storage.
- * 
+ *
  * MIGRATION NOTES:
  * - OLD: Extended BaseTaskCommand, used createTaskSimilarityService() factory
  * - NEW: Extends DatabaseCommand, uses injected provider for TaskSimilarityService
  * - BENEFIT: No singleton access, proper dependency injection for vector storage
  */
 
-import { DatabaseCommand, DatabaseCommandContext } from "../../../../domain/commands/database-command";
+import {
+  DatabaseCommand,
+  DatabaseCommandContext,
+} from "../../../../domain/commands/database-command";
 import { tasksIndexEmbeddingsParams } from "./task-parameters";
 import { listTasksFromParams, getTaskFromParams } from "../../../../domain/tasks/taskCommands";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";
@@ -22,7 +25,7 @@ import { z } from "zod";
 export class TasksIndexEmbeddingsCommand extends DatabaseCommand {
   readonly id = "tasks.index-embeddings";
   readonly category = CommandCategory.TASKS;
-  readonly name = "index-embeddings";  
+  readonly name = "index-embeddings";
   readonly description = "Generate and store embeddings for tasks";
   readonly parameters = tasksIndexEmbeddingsParams;
 
@@ -63,7 +66,7 @@ export class TasksIndexEmbeddingsCommand extends DatabaseCommand {
 
         const { log } = await import("../../../../utils/logger");
         const changed = await service.indexTask(task.id);
-        
+
         if (!params.json && context.format !== "json") {
           log.cli(`${task.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
         }
@@ -90,7 +93,7 @@ export class TasksIndexEmbeddingsCommand extends DatabaseCommand {
       let indexed = 0;
       let skipped = 0;
       const { log } = await import("../../../../utils/logger");
-      
+
       if (!params.json && context.format !== "json") {
         log.cli(`Indexing embeddings for ${tasks.length} task(s)...`);
       }
@@ -98,18 +101,18 @@ export class TasksIndexEmbeddingsCommand extends DatabaseCommand {
       // Concurrency control
       const concurrency = Math.max(1, Math.min(32, Number(params.concurrency) || 4));
       let i = 0;
-      
+
       const worker = async () => {
         while (true) {
           const idx = i++;
           if (idx >= tasks.length) break;
           const t = tasks[idx];
           const changed = await service.indexTask(t.id);
-          
+
           if (!params.json && context.format !== "json") {
             log.cli(`- ${t.id}: ${changed ? "indexed" : "up-to-date (skipped)"}`);
           }
-          
+
           if (changed) indexed++;
           else skipped++;
         }
@@ -117,7 +120,7 @@ export class TasksIndexEmbeddingsCommand extends DatabaseCommand {
 
       const workers = Array.from({ length: concurrency }, () => worker());
       await Promise.all(workers);
-      
+
       if (!params.json && context.format !== "json") {
         log.cli("");
         log.cli(`Done. Indexed ${indexed} task(s); skipped ${skipped}.`);
@@ -148,7 +151,7 @@ export class TasksIndexEmbeddingsCommand extends DatabaseCommand {
     if (!provider.capabilities.vectorStorage) {
       throw new Error("Provider does not support vector storage");
     }
-    
+
     const vectorStorage = await provider.getVectorStorage?.(dimension);
     if (!vectorStorage) {
       throw new Error("Failed to get vector storage from provider");
@@ -156,11 +159,11 @@ export class TasksIndexEmbeddingsCommand extends DatabaseCommand {
 
     // Minimal task resolvers reuse domain functions via dynamic import to avoid cycles
     const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
-    const taskService = await createConfiguredTaskService({ 
+    const taskService = await createConfiguredTaskService({
       workspacePath: process.cwd(),
-      persistenceProvider: provider 
+      persistenceProvider: provider,
     });
-    
+
     const findTaskById = async (id: string) => taskService.getTask(id);
     const searchTasks = async (_: { text?: string }) => taskService.listTasks({});
     const getTaskSpecContent = async (id: string) => taskService.getTaskSpecContent(id);

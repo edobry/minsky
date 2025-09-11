@@ -8,17 +8,20 @@ import { sharedCommandRegistry } from "../command-registry";
 import { CommandCategory } from "../command-registry";
 import { log } from "../../../utils/logger";
 import {
-  createTasksListCommand,
-  createTasksGetCommand,
-  createTasksCreateCommand,
-  createTasksDeleteCommand,
-} from "./tasks/crud-commands";
+  TasksListCommand,
+  TasksGetCommand,
+  TasksCreateCommand,
+  TasksDeleteCommand,
+} from "./tasks/crud-commands-migrated";
 import { createTasksSpecCommand } from "./tasks/spec-command";
 import { createTasksStatusGetCommand, createTasksStatusSetCommand } from "./tasks/status-commands";
 import { createTasksEditCommand } from "./tasks/edit-commands";
 import { createMigrateTasksCommand } from "./tasks/migrate-command";
 import { createTasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
-import { TasksSimilarCommandMigrated, TasksSearchCommandMigrated } from "./tasks/similarity-commands-migrated";
+import {
+  TasksSimilarCommandMigrated,
+  TasksSearchCommandMigrated,
+} from "./tasks/similarity-commands-migrated";
 import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command-migrated";
 import {
   TasksDepsAddCommand,
@@ -48,11 +51,11 @@ export class ModularTasksCommandManager {
 
       // Create command instances to get their parameter definitions
       log.debug("[ModularTasksCommandManager] Creating command instances");
-      const listCommand = createTasksListCommand();
-      const getCommand = createTasksGetCommand();
-      const createCommand = createTasksCreateCommand();
+      const listCommand = new TasksListCommand();
+      const getCommand = new TasksGetCommand();
+      const createCommand = new TasksCreateCommand();
       const editCommand = createTasksEditCommand();
-      const deleteCommand = createTasksDeleteCommand();
+      const deleteCommand = new TasksDeleteCommand();
       const specCommand = createTasksSpecCommand();
       const statusGetCommand = createTasksStatusGetCommand();
       const statusSetCommand = createTasksStatusSetCommand();

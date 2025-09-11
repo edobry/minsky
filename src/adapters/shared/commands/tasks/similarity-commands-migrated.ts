@@ -9,7 +9,10 @@
  */
 
 import { z } from "zod";
-import { DatabaseCommand, DatabaseCommandContext } from "../../../../domain/commands/database-command";
+import {
+  DatabaseCommand,
+  DatabaseCommandContext,
+} from "../../../../domain/commands/database-command";
 import { CommandCategory } from "../../command-registry";
 import { TaskStatus } from "../../../../domain/tasks/taskConstants";
 import { TaskSimilarityService } from "../../../../domain/tasks/task-similarity-service";

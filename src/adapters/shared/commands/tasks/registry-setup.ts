@@ -28,11 +28,11 @@ export function createAllTaskCommands() {
   const { createTasksStatusGetCommand, createTasksStatusSetCommand } = require("./status-commands");
   const { createTasksSpecCommand } = require("./spec-command");
   const {
-    createTasksListCommand,
-    createTasksGetCommand,
-    createTasksCreateCommand,
-    createTasksDeleteCommand,
-  } = require("./crud-commands");
+    TasksListCommand,
+    TasksGetCommand,
+    TasksCreateCommand,
+    TasksDeleteCommand,
+  } = require("./crud-commands-migrated");
   const { createTasksEditCommand } = require("./edit-commands");
   const { createMigrateTasksCommand } = require("./migrate-command");
   const { createTasksMigrateBackendCommand } = require("./migrate-backend-command");
@@ -60,11 +60,11 @@ export function createAllTaskCommands() {
     createTasksStatusGetCommand(),
     createTasksStatusSetCommand(),
     createTasksSpecCommand(),
-    createTasksListCommand(),
-    createTasksGetCommand(),
-    createTasksCreateCommand(),
+    new TasksListCommand(),
+    new TasksGetCommand(),
+    new TasksCreateCommand(),
     createTasksEditCommand(),
-    createTasksDeleteCommand(),
+    new TasksDeleteCommand(),
     // Similarity commands - MIGRATED to DatabaseCommand pattern
     new TasksSimilarCommandMigrated(),
     new TasksSearchCommandMigrated(),
