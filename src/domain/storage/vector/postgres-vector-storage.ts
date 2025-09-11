@@ -1,6 +1,7 @@
 import { drizzle } from "drizzle-orm/postgres-js";
 import postgres from "postgres";
 import type { VectorStorage, SearchResult, SearchOptions } from "./types";
+import type { PersistenceProvider } from "../../persistence/types";
 import { log } from "../../../utils/logger";
 
 export interface PostgresVectorStorageConfig {
@@ -29,12 +30,15 @@ export class PostgresVectorStorage implements VectorStorage {
 
   static async fromPersistenceProvider(
     dimension: number,
-    config: PostgresVectorStorageConfig
+    config: PostgresVectorStorageConfig,
+    persistenceProvider?: PersistenceProvider
   ): Promise<PostgresVectorStorage> {
-    const { PersistenceService } = await import("../../persistence/service");
-
-    // PersistenceService should already be initialized at application startup
-    const provider = PersistenceService.getProvider();
+    // Use injected provider or fall back to singleton access (legacy compatibility)
+    let provider = persistenceProvider;
+    if (!provider) {
+      const { PersistenceService } = await import("../../persistence/service");
+      provider = PersistenceService.getProvider();
+    }
 
     if (!provider.capabilities.sql || !provider.capabilities.vectorStorage) {
       throw new Error("Current persistence provider does not support SQL or vector storage");
