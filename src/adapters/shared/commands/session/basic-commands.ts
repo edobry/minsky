@@ -24,13 +24,16 @@ export class SessionListCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "List all sessions";
   readonly parameters = sessionListCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { listSessionsFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       let sessions = await listSessionsFromParams(
@@ -45,7 +48,10 @@ export class SessionListCommand extends DatabaseSessionCommand<any, any> {
 
       // Apply time filtering on createdAt
       try {
-        const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
+        const {
+          parseTime,
+          filterByTimeRange,
+        } = require("../../../../utils/result-handling/filters");
         const sinceTs = parseTime(params.since);
         const untilTs = parseTime(params.until);
         sessions = filterByTimeRange(
@@ -74,13 +80,16 @@ export class SessionGetCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Get details of a specific session";
   readonly parameters = sessionGetCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { getSessionFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const session = await getSessionFromParams(
@@ -102,7 +111,10 @@ export class SessionGetCommand extends DatabaseSessionCommand<any, any> {
 
       // Optional time constraint: createdAt within window
       try {
-        const { parseTime, filterByTimeRange } = require("../../../../utils/result-handling/filters");
+        const {
+          parseTime,
+          filterByTimeRange,
+        } = require("../../../../utils/result-handling/filters");
         const sinceTs = parseTime(params.since);
         const untilTs = parseTime(params.until);
         const [matched] = filterByTimeRange([{ updatedAt: session.createdAt }], sinceTs, untilTs);
@@ -130,7 +142,10 @@ export class SessionStartCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Start a new session";
   readonly parameters = sessionStartCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { startSessionFromParams } = await import("../../../../domain/session");
       const { createConfiguredTaskService } = await import("../../../../domain/tasks/taskService");
@@ -139,13 +154,13 @@ export class SessionStartCommand extends DatabaseSessionCommand<any, any> {
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       // Create task service with injected persistence provider
       const taskService = await createConfiguredTaskService({
         workspacePath: process.cwd(),
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const session = await startSessionFromParams(
@@ -185,13 +200,16 @@ export class SessionDirCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Get the working directory of a session";
   readonly parameters = sessionDirCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { getSessionDirFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const result = await getSessionDirFromParams(
@@ -222,13 +240,16 @@ export class SessionSearchCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Search sessions by name or task";
   readonly parameters = sessionSearchCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { searchSessionsFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const result = await searchSessionsFromParams(
@@ -248,4 +269,3 @@ export class SessionSearchCommand extends DatabaseSessionCommand<any, any> {
     }
   }
 }
-

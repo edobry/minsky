@@ -27,17 +27,16 @@ export class SessionRepairCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Repair session state issues (PR state, backend sync, etc.)";
   readonly parameters = sessionRepairCommandParams;
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     try {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       const repairParams: SessionRepairParameters = {
@@ -117,7 +116,7 @@ export class SessionRepairCommand extends DatabaseSessionCommand<any, any> {
 
 /**
  * MIGRATION SUMMARY:
- * 
+ *
  * 1. Changed from BaseSessionCommand to DatabaseSessionCommand for proper provider injection
  * 2. Added required category property (CommandCategory.SESSION)
  * 3. Added Zod schema for type-safe parameter validation

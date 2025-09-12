@@ -27,20 +27,20 @@ import { z } from "zod";
 export class SessionEditFileCommand extends DatabaseSessionCommand<any, any> {
   readonly id = "session.edit-file" as const;
   readonly name = "edit-file";
-  readonly description = "Edit a file within a session workspace using AI-powered pattern application";
+  readonly description =
+    "Edit a file within a session workspace using AI-powered pattern application";
   readonly parameters = sessionEditFileCommandParams;
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     try {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       // Resolve session name (auto-detect from workspace if not provided)
@@ -69,10 +69,7 @@ export class SessionEditFileCommand extends DatabaseSessionCommand<any, any> {
   /**
    * Resolve session name from parameter or auto-detect from workspace
    */
-  private async resolveSessionName(
-    params: any,
-    sessionProvider: any
-  ): Promise<string> {
+  private async resolveSessionName(params: any, sessionProvider: any): Promise<string> {
     if (params.session) {
       return params.session;
     }
@@ -211,7 +208,7 @@ export class SessionEditFileCommand extends DatabaseSessionCommand<any, any> {
 
 /**
  * MIGRATION SUMMARY:
- * 
+ *
  * 1. Changed from BaseSessionCommand to DatabaseSessionCommand for proper provider injection
  * 2. Added required category property (CommandCategory.SESSION)
  * 3. Added Zod schema for type-safe parameter validation

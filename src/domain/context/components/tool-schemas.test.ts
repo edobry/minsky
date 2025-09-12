@@ -5,7 +5,7 @@ import {
   createSharedCommandRegistry,
   CommandCategory,
 } from "../../../adapters/shared/command-registry";
-import { registerRulesCommands } from "../../../adapters/shared/commands/rules";
+import { rulesCommands } from "../../../adapters/shared/commands/rules";
 
 describe("ToolSchemasComponent", () => {
   let testRegistry: ReturnType<typeof createSharedCommandRegistry>;
@@ -14,8 +14,17 @@ describe("ToolSchemasComponent", () => {
     // Create a fresh registry for each test to avoid interference
     testRegistry = createSharedCommandRegistry();
 
-    // Register commands that support registry parameters
-    registerRulesCommands(testRegistry);
+    // Register rules commands using the DatabaseCommand pattern
+    rulesCommands.forEach((command) => {
+      testRegistry.registerCommand({
+        id: command.id,
+        category: command.category as CommandCategory,
+        name: command.name,
+        description: command.description,
+        parameters: command.parameters,
+        execute: (params, context) => command.execute(params, context as any),
+      });
+    });
 
     // Manually register some test commands to ensure we have >10 tools
     for (let i = 1; i <= 15; i++) {
@@ -192,7 +201,7 @@ describe("ToolSchemasComponent", () => {
       // Should have rich parameter schemas (not empty)
       const rulesList = gatheredInputs.toolSchemas["rules.list"];
       expect(rulesList).toBeDefined();
-      expect(rulesList.description).toBe("List all rules in the workspace");
+      expect(rulesList.description).toBe("List available rules");
       expect(rulesList.parameters.type).toBe("object");
       expect(rulesList.parameters.properties).toBeDefined();
 
@@ -218,21 +227,21 @@ describe("ToolSchemasComponent", () => {
 
       // Check multiple tools have different schemas
       expect(gatheredInputs.toolSchemas["rules.list"]).toBeDefined();
-      expect(gatheredInputs.toolSchemas["rules.create"]).toBeDefined();
+      expect(gatheredInputs.toolSchemas["rules.generate"]).toBeDefined();
       expect(gatheredInputs.toolSchemas["test.command1"]).toBeDefined();
 
       // Verify they are properly structured (all should have proper schema structure)
       const rulesList = gatheredInputs.toolSchemas["rules.list"];
-      const rulesCreate = gatheredInputs.toolSchemas["rules.create"];
+      const rulesGenerate = gatheredInputs.toolSchemas["rules.generate"];
       const testCommand = gatheredInputs.toolSchemas["test.command1"];
 
       // All should have the required schema properties
       expect(rulesList.parameters).toBeDefined();
-      expect(rulesCreate.parameters).toBeDefined();
+      expect(rulesGenerate.parameters).toBeDefined();
       expect(testCommand.parameters).toBeDefined();
 
       // They should be different tools with different descriptions
-      expect(rulesList.description).not.toEqual(rulesCreate.description);
+      expect(rulesList.description).not.toEqual(rulesGenerate.description);
       expect(rulesList.description).not.toEqual(testCommand.description);
     });
   });
@@ -264,7 +273,7 @@ describe("ToolSchemasComponent", () => {
       const gatheredInputs = await ToolSchemasComponent.gatherInputs(input);
 
       // Should include all tools from test registry, not filtered by query
-      expect(gatheredInputs.totalTools).toBeGreaterThan(15); // All test commands + registered rules
+      expect(gatheredInputs.totalTools).toBeGreaterThan(18); // All test commands (15) + registered rules commands (4) = 19
       expect(Object.keys(gatheredInputs.toolSchemas)).toContain("rules.list");
       expect(Object.keys(gatheredInputs.toolSchemas)).toContain("test.command1");
     });

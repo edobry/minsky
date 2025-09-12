@@ -22,13 +22,16 @@ export class SessionDeleteCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Delete a session";
   readonly parameters = sessionDeleteCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { deleteSessionFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const deleted = await deleteSessionFromParams(
@@ -64,13 +67,16 @@ export class SessionUpdateCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Update a session";
   readonly parameters = sessionUpdateCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { updateSessionFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       await updateSessionFromParams(
@@ -109,16 +115,20 @@ export class SessionUpdateCommand extends DatabaseSessionCommand<any, any> {
 export class SessionMigrateBackendCommand extends DatabaseSessionCommand<any, any> {
   readonly id = "session.migrate-backend";
   readonly name = "migrate-backend";
-  readonly description = "Migrate session backend from local to GitHub by discovering repository details";
+  readonly description =
+    "Migrate session backend from local to GitHub by discovering repository details";
   readonly parameters = sessionMigrateBackendCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { migrateSessionBackendFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const result = await migrateSessionBackendFromParams(
@@ -141,4 +151,3 @@ export class SessionMigrateBackendCommand extends DatabaseSessionCommand<any, an
     }
   }
 }
-

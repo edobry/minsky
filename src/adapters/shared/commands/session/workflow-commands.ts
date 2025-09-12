@@ -23,7 +23,10 @@ export class SessionCommitCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Commit and push changes within a session workspace";
   readonly parameters = sessionCommitCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { sessionCommit } = await import("../../../../domain/session/session-commands");
 
@@ -70,13 +73,16 @@ export class SessionApproveCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Approve a session pull request";
   readonly parameters = sessionApproveCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { approveSessionPrFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const result = await approveSessionPrFromParams(
@@ -108,13 +114,16 @@ export class SessionInspectCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Inspect session details and status";
   readonly parameters = sessionInspectCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { inspectSessionFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const result = await inspectSessionFromParams(
@@ -146,13 +155,16 @@ export class SessionReviewCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Review session pull request";
   readonly parameters = sessionReviewCommandParams;
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const { reviewSessionPrFromParams } = await import("../../../../domain/session");
 
       // Create session provider with injected persistence provider
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const result = await reviewSessionPrFromParams(
@@ -174,4 +186,3 @@ export class SessionReviewCommand extends DatabaseSessionCommand<any, any> {
     }
   }
 }
-

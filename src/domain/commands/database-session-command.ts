@@ -23,8 +23,10 @@ export interface BaseSessionCommandParams {
 /**
  * Abstract base class for session commands that require database access
  */
-export abstract class DatabaseSessionCommand<TParams = any, TResult = any> extends DatabaseCommand<TParams, TResult> {
-  
+export abstract class DatabaseSessionCommand<TParams = any, TResult = any> extends DatabaseCommand<
+  TParams,
+  TResult
+> {
   /**
    * Session commands belong to the session category
    */
@@ -85,7 +87,7 @@ export abstract class DatabaseSessionCommand<TParams = any, TResult = any> exten
         };
       }
     }
-    
+
     return this.execute(params, context as DatabaseCommandContext);
   }
 

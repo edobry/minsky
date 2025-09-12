@@ -31,6 +31,11 @@ import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
 import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
 import { createRuleSimilarityService } from "../../../domain/rules/rule-similarity-service";
+import { generateRulesWithConfig } from "../../../domain/rules/rule-template-service";
+import type {
+  InterfacePreference,
+  McpTransportMethod,
+} from "../../../domain/rules/template-system";
 
 /**
  * Rule-style result formatter for similarity search results
@@ -153,12 +158,12 @@ export class RulesListCommand extends DatabaseCommand<RulesListParams, any> {
         // ignore filtering errors
       }
 
-      // Transform rules to exclude content field for better usability  
+      // Transform rules to exclude content field for better usability
       const rulesWithoutContent = filteredRules.map(({ content, ...rule }: any) => rule);
 
       return {
         success: true,
-        data: { rules: rulesWithoutContent },
+        rules: rulesWithoutContent,
       };
     } catch (error) {
       log.error("Rules list command failed:", getErrorMessage(error));
@@ -187,7 +192,7 @@ export class RulesIndexEmbeddingsCommand extends DatabaseCommand<RulesIndexEmbed
 
       // Create rule similarity service with injected provider
       const similarityService = await createRuleSimilarityService(workspacePath, {
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       // Index the rules
@@ -220,7 +225,7 @@ export class RulesIndexEmbeddingsCommand extends DatabaseCommand<RulesIndexEmbed
 }
 
 /**
- * Rules Search Command  
+ * Rules Search Command
  */
 export class RulesSearchCommand extends DatabaseCommand<any, any> {
   readonly id = "rules.search";
@@ -244,13 +249,16 @@ export class RulesSearchCommand extends DatabaseCommand<any, any> {
     debug: CommonParameters.debug,
   };
 
-  async execute(params: any, context: DatabaseCommandContext): Promise<CommandExecutionResult<any>> {
+  async execute(
+    params: any,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
     try {
       const workspacePath = resolveWorkspacePath();
-      
+
       // Create rule similarity service with injected provider
       const similarityService = await createRuleSimilarityService(workspacePath, {
-        persistenceProvider: context.provider
+        persistenceProvider: context.provider,
       });
 
       const results = await similarityService.searchByText(
@@ -268,9 +276,7 @@ export class RulesSearchCommand extends DatabaseCommand<any, any> {
 
       // Format for human-readable output
       const output = results
-        .map((result: any, index: number) => 
-          ruleStyleFormatter(result, index, !!params.debug)
-        )
+        .map((result: any, index: number) => ruleStyleFormatter(result, index, !!params.debug))
         .join("\n\n");
 
       return {
@@ -284,11 +290,161 @@ export class RulesSearchCommand extends DatabaseCommand<any, any> {
   }
 }
 
+/**
+ * Parameters for the rules generate command
+ */
+type RulesGenerateParams = {
+  interface?: InterfacePreference;
+  rules?: string;
+  outputDir?: string;
+  dryRun?: boolean;
+  overwrite?: boolean;
+  format?: "cursor" | "openai";
+  preferMcp?: boolean;
+  mcpTransport?: McpTransportMethod;
+  json?: boolean;
+  debug?: boolean;
+};
+
+const rulesGenerateCommandParams: CommandParameterMap = composeParams(
+  {
+    interface: {
+      schema: z.enum(["cli", "mcp", "hybrid"]).optional(),
+      description: "Interface preference (cli, mcp, or hybrid)",
+      required: false,
+      defaultValue: "cli",
+    },
+    rules: {
+      schema: z.string().optional(),
+      description: "Comma-separated list of specific rule templates to generate",
+      required: false,
+    },
+    outputDir: {
+      schema: z.string().optional(),
+      description: "Output directory for generated rules",
+      required: false,
+    },
+    dryRun: {
+      schema: z.boolean().optional(),
+      description: "Show what would be generated without creating files",
+      required: false,
+      defaultValue: false,
+    },
+    overwrite: {
+      schema: z.boolean().optional(),
+      description: "Overwrite existing rule files",
+      required: false,
+    },
+    format: {
+      ...RulesParameters.format,
+      defaultValue: "cursor",
+    },
+    preferMcp: {
+      schema: z.boolean().optional(),
+      description: "In hybrid mode, prefer MCP commands over CLI",
+      required: false,
+    },
+    mcpTransport: {
+      schema: z.enum(["stdio", "http"]).optional(),
+      description: "MCP transport method (stdio or http)",
+      required: false,
+    },
+  },
+  {
+    json: CommonParameters.json,
+    debug: CommonParameters.debug,
+  }
+);
+
+/**
+ * Rules Generate Command
+ */
+export class RulesGenerateCommand extends DatabaseCommand<RulesGenerateParams, any> {
+  readonly id = "rules.generate";
+  readonly category = "RULES";
+  readonly name = "generate";
+  readonly description = "Generate new rules from templates";
+  readonly parameters = rulesGenerateCommandParams;
+
+  async execute(
+    params: RulesGenerateParams,
+    context: DatabaseCommandContext
+  ): Promise<CommandExecutionResult<any>> {
+    try {
+      const workspacePath = await resolveWorkspacePath({});
+
+      // Build configuration based on interface preference
+      let config: RuleGenerationConfig;
+      const interfacePreference = params.interface || "cli";
+
+      if (interfacePreference === "mcp") {
+        config = {
+          targetInterface: "mcp",
+          includeCliCommands: false,
+          includeMcpTools: true,
+          mcpTransport: params.mcpTransport || "stdio",
+        };
+      } else if (interfacePreference === "hybrid") {
+        config = {
+          targetInterface: "hybrid",
+          includeCliCommands: true,
+          includeMcpTools: true,
+          preferMcp: params.preferMcp || false,
+          mcpTransport: params.mcpTransport || "stdio",
+        };
+      } else {
+        // CLI
+        config = {
+          targetInterface: "cli",
+          includeCliCommands: true,
+          includeMcpTools: false,
+        };
+      }
+
+      // Convert rules parameter to selected rules array
+      const selectedRules = params.rules
+        ? params.rules.split(",").map((rule) => rule.trim())
+        : undefined;
+
+      const result = await generateRulesWithConfig(workspacePath, config, {
+        selectedRules,
+        outputDir: params.outputDir,
+        dryRun: params.dryRun || false,
+        overwrite: params.overwrite || false,
+        format: (params.format as "cursor" | "openai") || "cursor",
+      });
+
+      if (params.json) {
+        return {
+          success: result.success,
+          data: result,
+        };
+      }
+
+      const generated = result.rules?.length || 0;
+      const errors = result.errors?.length || 0;
+      const message = `Generated ${generated} rules (${errors} errors)`;
+
+      return {
+        success: result.success,
+        message,
+        generated,
+        errors: result.errors,
+        rules: result.rules,
+      };
+    } catch (error) {
+      log.error("Rules generate command failed:", getErrorMessage(error));
+      throw error;
+    }
+  }
+}
+
 // Export the DatabaseCommand pattern commands
 export const rulesCommands = [
   new RulesListCommand(),
   new RulesIndexEmbeddingsCommand(),
   new RulesSearchCommand(),
+  new RulesGenerateCommand(),
 ];
 
 /**
@@ -296,5 +452,7 @@ export const rulesCommands = [
  * @deprecated Use rulesCommands array with DatabaseCommand pattern instead
  */
 export function registerRulesCommands() {
-  console.warn("registerRulesCommands() is deprecated - use rulesCommands array with DatabaseCommand pattern instead");
+  log.warn(
+    "registerRulesCommands() is deprecated - use rulesCommands array with DatabaseCommand pattern instead"
+  );
 }

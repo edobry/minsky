@@ -18,20 +18,14 @@ import { TasksStatusGetCommand, TasksStatusSetCommand } from "./tasks/status-com
 import { TasksEditCommand } from "./tasks/edit-commands";
 import { MigrateTasksCommand } from "./tasks/migrate-command";
 import { TasksMigrateBackendCommand } from "./tasks/migrate-backend-command";
-import {
-  TasksSimilarCommand,
-  TasksSearchCommand,
-} from "./tasks/similarity-commands";
+import { TasksSimilarCommand, TasksSearchCommand } from "./tasks/similarity-commands";
 import { TasksIndexEmbeddingsCommand } from "./tasks/index-embeddings-command";
 import {
   TasksDepsAddCommand,
   TasksDepsRmCommand,
   TasksDepsListCommand,
 } from "./tasks/deps-commands";
-import {
-  TasksDepsTreeCommand,
-  TasksDepsGraphCommand,
-} from "./tasks/deps-visualization-commands";
+import { TasksDepsTreeCommand, TasksDepsGraphCommand } from "./tasks/deps-visualization-commands";
 import { TasksAvailableCommand, TasksRouteCommand } from "./tasks/routing-commands";
 
 /**

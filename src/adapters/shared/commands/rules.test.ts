@@ -1,7 +1,7 @@
 import { beforeEach, afterEach, describe, test, expect } from "bun:test";
 import { mock } from "bun:test";
 import { createSharedCommandRegistry } from "../command-registry";
-import { registerRulesCommands } from "./rules";
+import { rulesCommands } from "./rules";
 
 describe("Rules Commands", () => {
   // Mock workspace resolver
@@ -36,8 +36,17 @@ describe("Rules Commands", () => {
     // Create a fresh registry for each test to avoid interference
     testRegistry = createSharedCommandRegistry();
 
-    // Register commands in the test registry
-    registerRulesCommands(testRegistry);
+    // Register commands from the DatabaseCommand pattern
+    rulesCommands.forEach((command) => {
+      testRegistry.registerCommand({
+        id: command.id,
+        category: command.category,
+        name: command.name,
+        description: command.description,
+        parameters: command.parameters,
+        execute: (params, context) => command.execute(params, context as any),
+      });
+    });
   });
 
   afterEach(() => {

@@ -132,7 +132,9 @@ export class ToolsSimilarCommand extends DatabaseCommand<ToolsSimilarParams, any
   ): Promise<CommandExecutionResult<any>> {
     try {
       // Import the similarity service factory
-      const { createToolSimilarityService } = await import("../../../domain/tools/similarity/tool-similarity-service");
+      const { createToolSimilarityService } = await import(
+        "../../../domain/tools/similarity/tool-similarity-service"
+      );
 
       // Create similarity service
       const similarityService = await createToolSimilarityService();
@@ -153,8 +155,10 @@ export class ToolsSimilarCommand extends DatabaseCommand<ToolsSimilarParams, any
       // Format for human-readable output
       const output = results
         .map((result: any, index: number) => {
-          const score = params.details && result.score !== undefined ? 
-            ` (score: ${result.score.toFixed(3)})` : "";
+          const score =
+            params.details && result.score !== undefined
+              ? ` (score: ${result.score.toFixed(3)})`
+              : "";
           const description = result.description ? ` - ${result.description}` : "";
           return `${index + 1}. ${result.id}${score}${description}`;
         })
@@ -187,7 +191,9 @@ export class ToolsSearchCommand extends DatabaseCommand<ToolsSearchParams, any> 
   ): Promise<CommandExecutionResult<any>> {
     try {
       // Import the similarity service factory
-      const { createToolSimilarityService } = await import("../../../domain/tools/similarity/tool-similarity-service");
+      const { createToolSimilarityService } = await import(
+        "../../../domain/tools/similarity/tool-similarity-service"
+      );
 
       // Create similarity service
       const similarityService = await createToolSimilarityService();
@@ -208,8 +214,10 @@ export class ToolsSearchCommand extends DatabaseCommand<ToolsSearchParams, any> 
       // Format for human-readable output
       const output = results
         .map((result: any, index: number) => {
-          const score = params.details && result.score !== undefined ? 
-            ` (score: ${result.score.toFixed(3)})` : "";
+          const score =
+            params.details && result.score !== undefined
+              ? ` (score: ${result.score.toFixed(3)})`
+              : "";
           const description = result.description ? ` - ${result.description}` : "";
           const category = result.category ? ` [${result.category}]` : "";
           return `${index + 1}. ${result.id}${category}${score}${description}`;
@@ -243,7 +251,9 @@ export class ToolsIndexEmbeddingsCommand extends DatabaseCommand<ToolsIndexEmbed
   ): Promise<CommandExecutionResult<any>> {
     try {
       // Import the tool embedding service factory
-      const { createToolEmbeddingService } = await import("../../../domain/tools/tool-embedding-service");
+      const { createToolEmbeddingService } = await import(
+        "../../../domain/tools/tool-embedding-service"
+      );
 
       // Create embedding service
       const embeddingService = await createToolEmbeddingService();

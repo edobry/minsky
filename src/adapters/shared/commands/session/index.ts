@@ -5,6 +5,8 @@
  * Replaces the old factory function pattern with direct class instantiation.
  */
 
+import { log } from "../../../../utils/logger";
+
 // Import all basic commands
 import {
   SessionListCommand,
@@ -51,23 +53,23 @@ export {
   SessionStartCommand,
   SessionDirCommand,
   SessionSearchCommand,
-  
+
   // Management commands
   SessionDeleteCommand,
   SessionUpdateCommand,
   SessionMigrateBackendCommand,
-  
+
   // Workflow commands
   SessionCommitCommand,
   SessionApproveCommand,
   SessionInspectCommand,
   SessionReviewCommand,
-  
+
   // Specialized commands
   SessionRepairCommand,
   SessionConflictsCommand,
   SessionEditFileCommand,
-  
+
   // PR subcommands
   SessionPrCreateCommand,
   SessionPrEditCommand,
@@ -125,7 +127,9 @@ export const totalSessionCommands = allSessionCommands.length;
 export function registerSessionCommands() {
   // This is now handled by the main command registry using allSessionCommands array
   // No longer needed as commands are registered via DatabaseCommand pattern
-  console.warn("registerSessionCommands() is deprecated - commands are auto-registered via DatabaseCommand pattern");
+  log.warn(
+    "registerSessionCommands() is deprecated - commands are auto-registered via DatabaseCommand pattern"
+  );
 }
 
 /**
@@ -133,15 +137,19 @@ export function registerSessionCommands() {
  * @deprecated Use allSessionCommands array with DatabaseCommand pattern instead
  */
 export async function setupSessionCommandRegistry(deps?: any) {
-  console.warn("setupSessionCommandRegistry() is deprecated - use allSessionCommands with DatabaseCommand pattern instead");
+  log.warn(
+    "setupSessionCommandRegistry() is deprecated - use allSessionCommands with DatabaseCommand pattern instead"
+  );
   return null;
 }
 
 /**
- * Temporary compatibility export for createAllSessionCommands  
+ * Temporary compatibility export for createAllSessionCommands
  * @deprecated Use allSessionCommands array with DatabaseCommand pattern instead
  */
 export async function createAllSessionCommands(deps?: any) {
-  console.warn("createAllSessionCommands() is deprecated - use allSessionCommands array with DatabaseCommand pattern instead");
+  log.warn(
+    "createAllSessionCommands() is deprecated - use allSessionCommands array with DatabaseCommand pattern instead"
+  );
   return allSessionCommands;
 }

@@ -39,4 +39,3 @@ export const persistenceCommands = [new PersistenceMigrateCommand(), new Persist
  * - Automatic provider initialization
  * - No manual PersistenceService calls
  */
-

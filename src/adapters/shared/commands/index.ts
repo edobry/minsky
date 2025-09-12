@@ -15,7 +15,7 @@ import { sharedCommandRegistry } from "../command-registry";
 import { registerAiCommands } from "./ai";
 import { registerChangesetCommands } from "./changeset";
 
-// Import DatabaseCommand pattern commands  
+// Import DatabaseCommand pattern commands
 import { allSessionCommands } from "./session/index";
 import { rulesCommands } from "./rules";
 import { toolsCommands } from "./tools";

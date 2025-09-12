@@ -13,10 +13,7 @@ export type { BaseTaskParams, TaskCommandResult, TaskCommandFactory } from "./ba
 export * from "./task-parameters";
 
 // Command implementations (re-export) - DatabaseCommand classes only
-export {
-  TasksStatusGetCommand,
-  TasksStatusSetCommand,
-} from "./status-commands";
+export { TasksStatusGetCommand, TasksStatusSetCommand } from "./status-commands";
 
 export { TasksSpecCommand } from "./spec-command";
 
@@ -32,16 +29,9 @@ export { TasksMigrateBackendCommand } from "./migrate-backend-command";
 
 export { TasksEditCommand } from "./edit-commands";
 
-export {
-  TasksDepsAddCommand,
-  TasksDepsRmCommand,
-  TasksDepsListCommand,
-} from "./deps-commands";
+export { TasksDepsAddCommand, TasksDepsRmCommand, TasksDepsListCommand } from "./deps-commands";
 
-export {
-  TasksDepsTreeCommand,
-  TasksDepsGraphCommand,
-} from "./deps-visualization-commands";
+export { TasksDepsTreeCommand, TasksDepsGraphCommand } from "./deps-visualization-commands";
 
 export { TasksAvailableCommand, TasksRouteCommand } from "./routing-commands";
 

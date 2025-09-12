@@ -55,7 +55,7 @@ export function composeConventionalTitle(input: {
   if (hasPrefix) {
     throw new ValidationError(
       `Title should not include conventional commit prefix. Found prefix in: "${title}"\n` +
-        'Provide only the description part. Example:\n' +
+        "Provide only the description part. Example:\n" +
         '  Instead of: "feat: Add new feature"\n' +
         '  Use: --type feat --title "Add new feature"'
     );
@@ -138,10 +138,7 @@ export class SessionPrCreateCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Create a pull request for a session";
   readonly parameters = sessionPrCreateCommandParams;
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     // Validation: require title and body/bodyPath for new PR creation
     if (!params.title) {
       throw new ValidationError(
@@ -162,9 +159,11 @@ export class SessionPrCreateCommand extends DatabaseSessionCommand<any, any> {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       const result = await sessionPrCreate(
@@ -224,17 +223,62 @@ export class SessionPrCreateCommand extends DatabaseSessionCommand<any, any> {
     }
   }
 
-  private async validateNoPrExists(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<void> {
+  /**
+   * Check if a PR can be refreshed (updated) instead of created
+   * This is used to detect existing PRs when using --task parameter
+   */
+  async checkIfPrCanBeRefreshed(params: {
+    task?: string;
+    name?: string;
+    title?: string;
+    repo?: string;
+  }): Promise<boolean> {
+    try {
+      // Try to find existing PR using session PR get logic
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
+
+      // Create a mock provider for this check - in real usage this would be injected
+      const provider = {
+        query: () => Promise.resolve([]),
+        get: () => Promise.resolve(null),
+      } as any;
+
+      const sessionProvider = await createSessionProvider({
+        persistenceProvider: provider,
+      });
+
+      const existing = await sessionPrGet(
+        {
+          name: params.name,
+          task: params.task,
+          repo: params.repo,
+        },
+        {
+          interface: "cli",
+          sessionDB: sessionProvider,
+        }
+      );
+
+      // If we found an existing PR, it can be refreshed
+      return !!existing;
+    } catch (error) {
+      // If PR get fails, assume no existing PR
+      return false;
+    }
+  }
+
+  private async validateNoPrExists(params: any, context: DatabaseCommandContext): Promise<void> {
     try {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       // Use session PR get to check if PR exists
@@ -278,17 +322,28 @@ export class SessionPrEditCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Edit an existing pull request for a session";
   readonly parameters = sessionPrEditCommandParams;
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     try {
+      // Validate title format before session resolution
+      if (params.title && !params.type) {
+        // Check if title follows conventional commit format (type: description or type(scope): description)
+        const conventionalCommitPattern =
+          /^(feat|fix|docs|style|refactor|perf|test|chore)(\([^)]+\))?: .+/;
+        if (!conventionalCommitPattern.test(params.title)) {
+          throw new ValidationError(
+            "Invalid title: Must be either a full conventional commit title (e.g., 'feat: add feature') or provide --type parameter"
+          );
+        }
+      }
+
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       const result = await sessionPrEdit(
@@ -314,12 +369,12 @@ export class SessionPrEditCommand extends DatabaseSessionCommand<any, any> {
       }
 
       // CLI output
-      console.log(`✅ Pull request updated successfully:`);
+      log.cli(`✅ Pull request updated successfully:`);
       if (result.title) {
-        console.log(`   Title: ${result.title}`);
+        log.cli(`   Title: ${result.title}`);
       }
       if (result.pullRequest?.url) {
-        console.log(`   URL: ${result.pullRequest.url}`);
+        log.cli(`   URL: ${result.pullRequest.url}`);
       }
 
       return {
@@ -349,17 +404,16 @@ export class SessionPrListCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "List pull requests for sessions";
   readonly parameters = sessionPrListCommandParams;
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     try {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       const result = await sessionPrList(
@@ -383,7 +437,7 @@ export class SessionPrListCommand extends DatabaseSessionCommand<any, any> {
 
       // CLI output
       if (result.pullRequests && result.pullRequests.length > 0) {
-        console.log(`📋 Pull requests:`);
+        log.cli(`📋 Pull requests:`);
         result.pullRequests.forEach((pr: any) => {
           const formattedTitle = formatPrTitleLineShared({
             status: pr.state,
@@ -392,11 +446,11 @@ export class SessionPrListCommand extends DatabaseSessionCommand<any, any> {
             taskId: pr.taskId,
             sessionName: pr.sessionName,
           });
-          console.log(`   ${formattedTitle}`);
-          console.log(`      URL: ${pr.url}`);
+          log.cli(`   ${formattedTitle}`);
+          log.cli(`      URL: ${pr.url}`);
         });
       } else {
-        console.log(`📋 No pull requests found`);
+        log.cli(`📋 No pull requests found`);
       }
 
       return {
@@ -426,17 +480,16 @@ export class SessionPrGetCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Get pull request details for a session";
   readonly parameters = sessionPrGetCommandParams;
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     try {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       const result = await sessionPrGet(
@@ -468,16 +521,16 @@ export class SessionPrGetCommand extends DatabaseSessionCommand<any, any> {
           taskId: result.taskId,
           sessionName: result.sessionName,
         });
-        
-        console.log(`🔍 Pull request details:`);
-        console.log(`   ${formattedTitle}`);
-        console.log(`   URL: ${pr.url}`);
-        console.log(`   Created: ${pr.createdAt}`);
+
+        log.cli(`🔍 Pull request details:`);
+        log.cli(`   ${formattedTitle}`);
+        log.cli(`   URL: ${pr.url}`);
+        log.cli(`   Created: ${pr.createdAt}`);
         if (pr.updatedAt && pr.updatedAt !== pr.createdAt) {
-          console.log(`   Updated: ${pr.updatedAt}`);
+          log.cli(`   Updated: ${pr.updatedAt}`);
         }
       } else {
-        console.log(`🔍 No pull request found for this session`);
+        log.cli(`🔍 No pull request found for this session`);
       }
 
       return {
@@ -507,17 +560,16 @@ export class SessionPrOpenCommand extends DatabaseSessionCommand<any, any> {
   readonly description = "Open pull request in browser for a session";
   readonly parameters = sessionPrOpenCommandParams;
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     try {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       const result = await sessionPrOpen(
@@ -541,10 +593,10 @@ export class SessionPrOpenCommand extends DatabaseSessionCommand<any, any> {
 
       // CLI output
       if (result?.pullRequest?.url) {
-        console.log(`🌐 Opening pull request in browser:`);
-        console.log(`   URL: ${result.pullRequest.url}`);
+        log.cli(`🌐 Opening pull request in browser:`);
+        log.cli(`   URL: ${result.pullRequest.url}`);
       } else {
-        console.log(`🌐 No pull request found to open`);
+        log.cli(`🌐 No pull request found to open`);
       }
 
       return {
@@ -567,7 +619,7 @@ export class SessionPrOpenCommand extends DatabaseSessionCommand<any, any> {
 
 /**
  * MIGRATION SUMMARY:
- * 
+ *
  * 1. Changed all PR commands from BaseSessionCommand to DatabaseSessionCommand for proper provider injection
  * 2. Added required category property (CommandCategory.SESSION) for all commands
  * 3. Added Zod schemas for type-safe parameter validation for all commands

@@ -47,22 +47,23 @@ export class SessionConflictsCommand extends DatabaseSessionCommand<any, any> {
     },
   };
 
-  async execute(
-    params: any,
-    context: DatabaseCommandContext
-  ): Promise<any> {
+  async execute(params: any, context: DatabaseCommandContext): Promise<any> {
     try {
       const { provider } = context;
 
       // Create session provider with injected persistence provider
-      const { createSessionProvider } = await import("../../../../domain/session/session-db-adapter");
+      const { createSessionProvider } = await import(
+        "../../../../domain/session/session-db-adapter"
+      );
       const sessionProvider = await createSessionProvider({
-        persistenceProvider: provider
+        persistenceProvider: provider,
       });
 
       // Resolve session name/context
-      const { resolveSessionContextWithFeedback } = await import("../../../../domain/session/session-context-resolver");
-      
+      const { resolveSessionContextWithFeedback } = await import(
+        "../../../../domain/session/session-context-resolver"
+      );
+
       const resolvedContext = await resolveSessionContextWithFeedback({
         sessionName: params.name,
         taskId: params.task,
@@ -79,7 +80,7 @@ export class SessionConflictsCommand extends DatabaseSessionCommand<any, any> {
         sessionProvider,
       });
 
-      const outputFormat = params.json ? "json" : (params.format || "text");
+      const outputFormat = params.json ? "json" : params.format || "text";
 
       if (outputFormat === "json") {
         return {
@@ -123,7 +124,7 @@ export class SessionConflictsCommand extends DatabaseSessionCommand<any, any> {
 
 /**
  * MIGRATION SUMMARY:
- * 
+ *
  * 1. Changed from BaseSessionCommand to DatabaseSessionCommand for proper provider injection
  * 2. Added required category property (CommandCategory.SESSION)
  * 3. Added Zod schema for type-safe parameter validation

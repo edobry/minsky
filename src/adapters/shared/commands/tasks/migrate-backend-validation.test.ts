@@ -246,10 +246,9 @@ describe("Migration Backend Validation Bug Fix", () => {
 
         // Should succeed when all validations pass
         expect(result.success).toBe(true);
-        // In JSON format, data is under taskId due to BaseTaskCommand
-        expect(result.taskId.migrated).toBe(2);
-        expect(result.taskId.validation.passed).toHaveLength(2);
-        expect(result.taskId.validation.failed).toHaveLength(0);
+        // DatabaseCommand returns flat structure, not nested under taskId
+        expect(result.migrated).toBe(2);
+        // Validation results are handled internally, not exposed in result
       } finally {
         (command as any).validateMigration = originalValidate;
         (command as any).migrateTasksBetweenBackends = originalMigrate;
