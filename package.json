@@ -55,7 +55,7 @@
     "eslint-import-resolver-typescript": "^4.3.4",
     "eslint-plugin-import": "^2.31.0",
     "eslint-plugin-prettier": "^5.5.3",
-    "glob": "^11.0.3",
+    "glob": "^13.0.0",
     "husky": "^9.1.7",
     "lint-staged": "^16.0.0",
     "prettier": "^3.5.3",
