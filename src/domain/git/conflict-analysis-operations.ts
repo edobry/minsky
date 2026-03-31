@@ -31,6 +31,7 @@ export async function analyzeConflictFiles(repoPath: string): Promise<ConflictFi
 
     const conflictFiles: ConflictFile[] = [];
     const lines = statusOutput
+      .toString()
       .trim()
       .split("\n")
       .filter((line) => line.trim());
@@ -103,7 +104,7 @@ export async function analyzeDeletion(
     return {
       deletedInBranch: deletedBy === "us" ? "session" : "main",
       modifiedInBranch: deletedBy === "us" ? "main" : "session",
-      lastCommitHash: lastCommit.trim(),
+      lastCommitHash: lastCommit.toString().trim(),
       canAutoResolve: true, // Deletions are generally auto-resolvable
     };
   } catch (error) {
@@ -174,7 +175,7 @@ export async function checkSessionChangesInBase(
       { workdir: repoPath }
     );
 
-    if (!sessionCommits.trim()) {
+    if (!sessionCommits.toString().trim()) {
       return true; // No session commits not in base
     }
 
@@ -187,7 +188,7 @@ export async function checkSessionChangesInBase(
       `git -C ${repoPath} rev-parse ${baseBranch}^{tree}`
     );
 
-    return sessionTree.trim() === baseTree.trim();
+    return sessionTree.toString().trim() === baseTree.toString().trim();
   } catch (error) {
     log.warn("Could not check session changes in base", { error });
     return false;
