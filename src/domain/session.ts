@@ -1372,6 +1372,8 @@ export interface SessionReviewResult {
     insertions: number;
     deletions: number;
   };
+  /** Warnings from data-gathering steps that failed non-fatally */
+  warnings?: string[];
 }
 
 /**
@@ -1478,6 +1480,9 @@ export async function sessionReviewFromParams(
   // Get session workdir
   const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
 
+  // Track warnings from non-fatal data-gathering failures
+  const warnings: string[] = [];
+
   // Determine PR branch name (pr/<session-name>)
   const prBranchToUse = params.prBranch || `pr/${sessionNameToUse}`;
   const baseBranch = "main"; // Default base branch, could be made configurable
@@ -1503,10 +1508,9 @@ export async function sessionReviewFromParams(
         log.debug("Task service does not support getTaskSpecData method");
       }
     } catch (error) {
-      log.debug("Error getting task specification", {
-        error: getErrorMessage(error),
-        taskId,
-      });
+      const msg = `Could not retrieve task specification for ${taskId}: ${getErrorMessage(error)}`;
+      log.debug(msg);
+      warnings.push(msg);
     }
   }
 
@@ -1549,13 +1553,13 @@ export async function sessionReviewFromParams(
       }
     }
   } catch (error) {
-    log.debug("Error getting PR description", {
-      error: getErrorMessage(error),
-      prBranch: prBranchToUse,
-    });
+    const msg = `Error getting PR description: ${getErrorMessage(error)}`;
+    log.debug(msg, { prBranch: prBranchToUse });
+    warnings.push(msg);
   }
 
   // 3. Get diff stats and full diff
+  let diffObtained = false;
   try {
     // Fetch latest changes
     await deps.gitService.execInRepository(sessionWorkdir, "git fetch origin");
@@ -1585,12 +1589,62 @@ export async function sessionReviewFromParams(
     );
 
     result.diff = diffOutput;
+    diffObtained = true;
   } catch (error) {
-    log.debug("Error getting diff information", {
-      error: getErrorMessage(error),
-      baseBranch,
-      prBranch: prBranchToUse,
-    });
+    const msg = `Error getting diff from remote refs: ${getErrorMessage(error)}`;
+    log.debug(msg, { baseBranch, prBranch: prBranchToUse });
+    warnings.push(msg);
+  }
+
+  // 3b. Fallback: try local branch refs if remote diff failed
+  if (!diffObtained) {
+    try {
+      let currentBranch: string | undefined;
+      try {
+        currentBranch = await deps.gitService.getCurrentBranch(sessionWorkdir);
+      } catch {
+        // ignore
+      }
+      const headRef = currentBranch || prBranchToUse;
+
+      const diffStatsOutput = await deps.gitService.execInRepository(
+        sessionWorkdir,
+        `git diff --stat ${baseBranch}...${headRef}`
+      );
+      const diffOutput = await deps.gitService.execInRepository(
+        sessionWorkdir,
+        `git diff ${baseBranch}...${headRef}`
+      );
+      if (diffOutput && diffOutput.trim().length > 0) {
+        result.diff = diffOutput;
+        const statsMatch = diffStatsOutput.match(
+          /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
+        );
+        if (statsMatch) {
+          result.diffStats = {
+            filesChanged: parseInt(statsMatch[1] || "0", 10),
+            insertions: parseInt(statsMatch[2] || "0", 10),
+            deletions: parseInt(statsMatch[3] || "0", 10),
+          };
+        }
+        diffObtained = true;
+      }
+    } catch (error) {
+      const msg = `Error getting diff from local refs: ${getErrorMessage(error)}`;
+      log.debug(msg);
+      warnings.push(msg);
+    }
+  }
+
+  if (!diffObtained) {
+    warnings.push(
+      "Could not obtain diff content via any method (remote refs or local refs)"
+    );
+  }
+
+  // Attach warnings if any were collected
+  if (warnings.length > 0) {
+    result.warnings = warnings;
   }
 
   return result;

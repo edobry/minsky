@@ -60,6 +60,8 @@ export interface SessionReviewResult {
   // Enhanced with changeset abstraction data
   changeset?: ChangesetDetails;
   platform?: string;
+  /** Warnings from data-gathering steps that failed non-fatally */
+  warnings?: string[];
 }
 
 /**
@@ -166,6 +168,9 @@ export async function sessionReviewImpl(
   // Get session workdir
   const sessionWorkdir = await deps.sessionDB.getSessionWorkdir(sessionNameToUse);
 
+  // Track warnings from non-fatal data-gathering failures
+  const warnings: string[] = [];
+
   // Initialize result (prBranch/baseBranch will be filled from backend details when available)
   const result: SessionReviewResult = {
     session: sessionNameToUse,
@@ -187,14 +192,14 @@ export async function sessionReviewImpl(
         log.debug("Task service does not support getTaskSpecData method");
       }
     } catch (error) {
-      log.debug("Error getting task specification", {
-        error: getErrorMessage(error),
-        taskId,
-      });
+      const msg = `Could not retrieve task specification for ${taskId}: ${getErrorMessage(error)}`;
+      log.debug(msg);
+      warnings.push(msg);
     }
   }
 
   // 2. Get changeset details using changeset abstraction (ENHANCED)
+  let changesetOrBackendSucceeded = false;
   try {
     // Create changeset service for unified changeset operations
     const changesetService = await createChangesetService(sessionRecord.repoUrl, sessionWorkdir);
@@ -229,6 +234,7 @@ export async function sessionReviewImpl(
       // Use changeset abstraction data as primary source
       result.changeset = changesetDetails;
       result.platform = await changesetService.getPlatform();
+      changesetOrBackendSucceeded = true;
 
       // Update result with changeset data
       if (changesetDetails.sourceBranch) result.prBranch = changesetDetails.sourceBranch;
@@ -276,6 +282,7 @@ export async function sessionReviewImpl(
         if (details.headBranch) result.prBranch = details.headBranch;
         if (details.baseBranch) result.baseBranch = details.baseBranch;
         result.prDescription = details.body;
+        changesetOrBackendSucceeded = true;
       }
 
       // Fetch diff
@@ -285,18 +292,164 @@ export async function sessionReviewImpl(
         if (diffInfo.stats) {
           result.diffStats = diffInfo.stats;
         }
+        changesetOrBackendSucceeded = true;
       }
     }
   } catch (error) {
-    log.debug("Error getting changeset/PR details", {
-      error: getErrorMessage(error),
+    const msg = `Changeset/repository backend lookup failed: ${getErrorMessage(error)}`;
+    log.debug(msg, {
       session: sessionNameToUse,
       repoUrl: sessionRecord.repoUrl,
       backendType: sessionRecord.backendType,
     });
+    warnings.push(msg);
   }
 
-  // Note: direct git-based diff code removed in favor of backend methods
+  // 3. Direct git fallback: if neither changeset nor repository backend produced diff content,
+  //    fall back to running git commands directly against the session workdir.
+  if (!result.diff && !changesetOrBackendSucceeded) {
+    log.debug("Using direct git fallback for diff content");
+    try {
+      const gitService = deps.gitService;
+      const prBranchToUse = result.prBranch;
+      const baseBranch = result.baseBranch;
+
+      // Try to determine the actual current branch in the workdir
+      let currentBranch: string | undefined;
+      try {
+        currentBranch = await gitService.getCurrentBranch(sessionWorkdir);
+      } catch {
+        // ignore
+      }
+
+      // Determine the best diff range to use
+      // Prefer diffing against base branch using the current branch or PR branch
+      const headRef = currentBranch || prBranchToUse;
+
+      // Try remote-tracking diff first (origin/base...head)
+      let diffObtained = false;
+      try {
+        await gitService.execInRepository(sessionWorkdir, "git fetch origin");
+      } catch {
+        // fetch may fail for local-only repos, that's OK
+      }
+
+      // Strategy A: diff against origin/baseBranch...origin/prBranch
+      if (!diffObtained) {
+        try {
+          const diffStatOutput = await gitService.execInRepository(
+            sessionWorkdir,
+            `git diff --stat origin/${baseBranch}...origin/${prBranchToUse}`
+          );
+          const diffOutput = await gitService.execInRepository(
+            sessionWorkdir,
+            `git diff origin/${baseBranch}...origin/${prBranchToUse}`
+          );
+          if (diffOutput && diffOutput.trim().length > 0) {
+            result.diff = diffOutput;
+            parseDiffStats(diffStatOutput, result);
+            diffObtained = true;
+          }
+        } catch (error) {
+          log.debug("Git fallback strategy A (origin remote refs) failed", {
+            error: getErrorMessage(error),
+          });
+        }
+      }
+
+      // Strategy B: diff against baseBranch...headRef (local refs)
+      if (!diffObtained) {
+        try {
+          const diffStatOutput = await gitService.execInRepository(
+            sessionWorkdir,
+            `git diff --stat ${baseBranch}...${headRef}`
+          );
+          const diffOutput = await gitService.execInRepository(
+            sessionWorkdir,
+            `git diff ${baseBranch}...${headRef}`
+          );
+          if (diffOutput && diffOutput.trim().length > 0) {
+            result.diff = diffOutput;
+            parseDiffStats(diffStatOutput, result);
+            diffObtained = true;
+          }
+        } catch (error) {
+          log.debug("Git fallback strategy B (local refs) failed", {
+            error: getErrorMessage(error),
+          });
+        }
+      }
+
+      // Strategy C: diff against baseBranch...HEAD (uncommitted changes included)
+      if (!diffObtained) {
+        try {
+          const diffStatOutput = await gitService.execInRepository(
+            sessionWorkdir,
+            `git diff --stat ${baseBranch}...HEAD`
+          );
+          const diffOutput = await gitService.execInRepository(
+            sessionWorkdir,
+            `git diff ${baseBranch}...HEAD`
+          );
+          if (diffOutput && diffOutput.trim().length > 0) {
+            result.diff = diffOutput;
+            parseDiffStats(diffStatOutput, result);
+            diffObtained = true;
+          }
+        } catch (error) {
+          log.debug("Git fallback strategy C (baseBranch...HEAD) failed", {
+            error: getErrorMessage(error),
+          });
+        }
+      }
+
+      if (!diffObtained) {
+        warnings.push(
+          "Could not obtain diff content via any method (changeset, repository backend, or direct git commands)"
+        );
+      }
+
+      // Also try to get PR description from git log if not already set
+      if (!result.prDescription) {
+        try {
+          const prDesc = await gitService.execInRepository(
+            sessionWorkdir,
+            `git log -1 --pretty=format:%B ${headRef}`
+          );
+          if (prDesc && prDesc.trim().length > 0) {
+            result.prDescription = prDesc.trim();
+          }
+        } catch {
+          // not critical
+        }
+      }
+    } catch (error) {
+      const msg = `Direct git fallback also failed: ${getErrorMessage(error)}`;
+      log.debug(msg);
+      warnings.push(msg);
+    }
+  }
+
+  // Attach warnings if any were collected
+  if (warnings.length > 0) {
+    result.warnings = warnings;
+  }
 
   return result;
+}
+
+/**
+ * Parse git diff --stat output and populate diffStats on the result
+ */
+function parseDiffStats(diffStatOutput: string, result: SessionReviewResult): void {
+  const statsMatch = diffStatOutput.match(
+    /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
+  );
+  if (statsMatch) {
+    result.diffStats = {
+      filesChanged: parseInt(statsMatch[1] || "0", 10),
+      insertions: parseInt(statsMatch[2] || "0", 10),
+      deletions: parseInt(statsMatch[3] || "0", 10),
+    };
+  }
 }
