@@ -14,7 +14,7 @@ export async function sessionList(
 ): Promise<Session[]> {
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
   };
 
   return deps.sessionDB.listSessions();

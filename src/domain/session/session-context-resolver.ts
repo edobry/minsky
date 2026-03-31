@@ -70,10 +70,12 @@ export async function resolveSessionContext(
     repo,
     cwd = process.cwd(),
     allowAutoDetection = true,
-    sessionProvider = createSessionProvider(),
+    sessionProvider: sessionProviderInput,
     getCurrentSessionFn = getCurrentSession,
     getCurrentSessionContextFn = getCurrentSessionContext,
   } = options;
+
+  const sessionProvider = sessionProviderInput || (await createSessionProvider());
 
   log.debug("Resolving session context", {
     task,
