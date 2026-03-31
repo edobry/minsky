@@ -12,11 +12,7 @@ function createMockRuleService(rules: Rule[]): RuleService {
 }
 
 // Helper to create a minimal Rule object
-function makeRule(
-  id: string,
-  content: string,
-  opts: Partial<Rule> = {}
-): Rule {
+function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
   return {
     id,
     content,
@@ -306,10 +302,7 @@ describe("compileMonolithic()", () => {
         "Section One": ["rule-one"],
         "Section Two": ["rule-two"],
       };
-      const rules = [
-        makeRule("rule-one", "Content one"),
-        makeRule("rule-two", "Content two"),
-      ];
+      const rules = [makeRule("rule-one", "Content one"), makeRule("rule-two", "Content two")];
       const ruleService = createMockRuleService(rules);
       const result = await compileMonolithic(ruleService, {
         ...BASE_OPTIONS,
@@ -328,10 +321,7 @@ describe("compileMonolithic()", () => {
       const sectionMapping = {
         "Build & Test": ["included-rule"],
       };
-      const rules = [
-        makeRule("included-rule", "Included"),
-        makeRule("skipped-rule", "Skipped"),
-      ];
+      const rules = [makeRule("included-rule", "Included"), makeRule("skipped-rule", "Skipped")];
       const ruleService = createMockRuleService(rules);
       const result = await compileMonolithic(ruleService, {
         ...BASE_OPTIONS,
@@ -362,10 +352,7 @@ describe("compileMonolithic()", () => {
       const sectionMapping = {
         "Build & Test": ["rule-a", "rule-b"],
       };
-      const rules = [
-        makeRule("rule-a", "Content A"),
-        makeRule("rule-b", "Content B"),
-      ];
+      const rules = [makeRule("rule-a", "Content A"), makeRule("rule-b", "Content B")];
       const ruleService = createMockRuleService(rules);
       const result = await compileMonolithic(ruleService, {
         ...BASE_OPTIONS,
@@ -453,10 +440,7 @@ describe("compileMonolithic()", () => {
       const sectionMapping = {
         "Build & Test": ["rule-a", "rule-b"],
       };
-      const rules = [
-        makeRule("rule-a", "Content A"),
-        makeRule("rule-b", "Content B"),
-      ];
+      const rules = [makeRule("rule-a", "Content A"), makeRule("rule-b", "Content B")];
       const ruleService = createMockRuleService(rules);
       const result = await compileMonolithic(ruleService, {
         ...BASE_OPTIONS,
