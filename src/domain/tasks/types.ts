@@ -40,6 +40,7 @@ export interface Task {
   status: string;
   specPath?: string;
   backend?: string;
+  description?: string;
 }
 
 /**

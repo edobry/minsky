@@ -30,6 +30,21 @@ export interface SessionRecord {
   // NEW: Simple PR approval tracking (Task #358)
   prBranch?: string; // PR branch if one exists ("pr/session-name")
   prApproved?: boolean; // Whether this session's PR is approved
+
+  // Legacy / compatibility fields
+  /** @deprecated Use `session` instead */
+  name?: string;
+  workspacePath?: string;
+  sessionPath?: string;
+  /** Branch name - removed from persistent schema but kept for test compatibility */
+  branch?: string;
+  /** @deprecated Use `createdAt` instead */
+  created?: string;
+  github?: {
+    owner?: string;
+    repo?: string;
+    token?: string;
+  };
 }
 
 /**

@@ -42,6 +42,7 @@ export interface ErrorMessageSection {
 
 export interface ErrorTemplate {
   title: string;
+  description?: string;
   spec?: string;
   sections: ErrorMessageSection[];
 }
