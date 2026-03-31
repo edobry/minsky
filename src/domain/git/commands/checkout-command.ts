@@ -38,7 +38,7 @@ export async function checkoutFromParams(params: {
       throw new Error(`Session not found: ${params.session}`);
     }
 
-    repoPath = session.workdir;
+    repoPath = await sessionProvider.getSessionWorkdir(params.session);
   }
 
   // Default to current directory if no repo specified
