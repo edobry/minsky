@@ -26,6 +26,9 @@ jobs:
       - name: Lint
         run: bun run lint
 
+      - name: Type check
+        run: bun run typecheck
+
       - name: Build
         run: bun build src/cli.ts --outdir dist
 

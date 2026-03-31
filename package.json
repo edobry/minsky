@@ -27,6 +27,7 @@
     "lint:console:strict": "bun scripts/lint-console-usage.ts --fail-on-error",
     "validate-commit": "bun scripts/validate-commit-message.ts",
     "validate-imports": "bun scripts/validate-imports.ts",
+    "typecheck": "tsc --noEmit",
     "validate-all": "bun run validate-imports && bun run lint && bun run lint:console:strict && bun run test",
     "secrets:gitleaks": "gitleaks detect --source . --verbose",
     "secrets:scan": "gitleaks detect --source . --verbose",
