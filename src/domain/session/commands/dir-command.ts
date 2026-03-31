@@ -16,12 +16,11 @@ export async function getSessionDirFromParams(
 ): Promise<string> {
   const { name, task, repo } = params;
 
-  // Set up dependencies with defaults
-  const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
-  };
-
   try {
+    // Set up dependencies with defaults
+    const deps = {
+      sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    };
     // Use unified session context resolver with auto-detection support
     const resolvedContext = await resolveSessionContextWithFeedback({
       session: name,

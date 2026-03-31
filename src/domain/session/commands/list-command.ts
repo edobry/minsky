@@ -12,10 +12,16 @@ export async function sessionList(
     sessionDB?: SessionProviderInterface;
   }
 ): Promise<Session[]> {
-  // Set up dependencies with defaults
-  const deps = {
-    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
-  };
+  try {
+    // Set up dependencies with defaults
+    const deps = {
+      sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
+    };
 
-  return deps.sessionDB.listSessions();
+    return await deps.sessionDB.listSessions();
+  } catch (error) {
+    throw new Error(
+      `Failed to list sessions: ${error instanceof Error ? error.message : String(error)}`
+    );
+  }
 }
