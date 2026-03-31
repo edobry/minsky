@@ -133,6 +133,7 @@ Workspace-specific behavioral guidelines could not be determined.`;
         content,
         metadata: {
           componentId: "workspace-rules",
+          generatedAt: new Date().toISOString(),
           tokenCount: content.length / 4,
           sections: ["workspace_rules"],
         },
@@ -226,6 +227,7 @@ minsky sessiondb migrate --execute
       content,
       metadata: {
         componentId: "workspace-rules",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["rules", "agent_requestable_workspace_rules", "always_applied_workspace_rules"],
         totalRules: inputs.totalRules,

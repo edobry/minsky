@@ -35,6 +35,7 @@ IMPORTANT: Always use the todo_write tool to plan and track tasks throughout the
       content,
       metadata: {
         componentId: "task-management",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["task_management"],
       },

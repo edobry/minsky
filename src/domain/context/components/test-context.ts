@@ -237,10 +237,10 @@ export const TestContextComponent: ContextComponent = {
     );
 
     return {
-      id: this.id,
-      name: this.name,
       content: sections.join("\n"),
       metadata: {
+        componentId: "test-context",
+        generatedAt: new Date().toISOString(),
         framework: framework.name,
         totalTests: testFiles.total,
         qualityScore,

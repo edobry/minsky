@@ -194,10 +194,10 @@ export const DependencyContextComponent: ContextComponent = {
     }
 
     return {
-      id: this.id,
-      name: this.name,
       content: sections.join("\n"),
       metadata: {
+        componentId: "dependency-context",
+        generatedAt: new Date().toISOString(),
         packageCount: analysis.totalDependencies,
         healthScore: calculateHealthScore(analysis),
         hasSecurityIssues: analysis.securityIssues > 0,

@@ -44,6 +44,7 @@ DEFAULT TO PARALLEL: Unless you have a specific reason why operations MUST be se
       content,
       metadata: {
         componentId: "maximize-parallel-tool-calls",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["maximize_parallel_tool_calls"],
       },

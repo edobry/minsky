@@ -78,6 +78,7 @@ export function createMockBackend(name: string, prefix: string): TaskBackend {
     exportTask: mock(async (taskId: string): Promise<TaskExportData> => {
       return {
         spec: {
+          id: taskId,
           title: `Exported Task ${taskId}`,
           description: `Task exported from ${name} backend`,
           status: "TODO",
@@ -147,22 +148,24 @@ export function createBackendConfiguration(
 // Mock data generators for testing
 export const mockTaskSpecs = {
   simple: (): TaskSpec => ({
+    id: "simple-test-task",
     title: "Simple Test Task",
     description: "A simple task for testing",
     status: "TODO",
   }),
 
   complex: (): TaskSpec => ({
+    id: "complex-test-task",
     title: "Complex Test Task",
     description: "A complex task with metadata",
     status: "IN_PROGRESS",
-    priority: "high",
-    assignee: "test-user",
-    tags: ["test", "complex"],
   }),
 
   minimal: (): TaskSpec => ({
+    id: "minimal-task",
     title: "Minimal Task",
+    description: "",
+    status: "TODO",
   }),
 };
 

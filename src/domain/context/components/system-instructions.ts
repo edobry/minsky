@@ -67,6 +67,7 @@ NEVER proactively create documentation files (*.md) or README files. Only create
       content,
       metadata: {
         componentId: "system-instructions",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["system_instructions"],
         contextualFocus: inputs.contextualFocus || null,

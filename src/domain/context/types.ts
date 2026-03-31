@@ -10,7 +10,7 @@ import type { TokenizerComparison } from "../ai/tokenization/types";
 export interface RuleSuggestionRequest {
   query: string;
   workspaceRules: Rule[];
-  contextHints: {
+  contextHints?: {
     currentFiles?: string[];
     recentCommits?: string[];
     projectType?: string;

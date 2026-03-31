@@ -71,10 +71,13 @@ export const FileContentComponent: ContextComponent = {
 
     if (fileCount === 0) {
       return {
-        id: this.id,
-        name: this.name,
         content: "No relevant files found for the current context.",
-        metadata: { fileCount: 0, totalSize: 0 },
+        metadata: {
+          componentId: "file-content",
+          generatedAt: new Date().toISOString(),
+          fileCount: 0,
+          totalSize: 0,
+        },
       };
     }
 
@@ -103,10 +106,10 @@ export const FileContentComponent: ContextComponent = {
     );
 
     return {
-      id: this.id,
-      name: this.name,
       content: sections.join("\n"),
       metadata: {
+        componentId: "file-content",
+        generatedAt: new Date().toISOString(),
         fileCount,
         totalSize,
         types: [...new Set(relevantFiles.map((f) => f.type))],
