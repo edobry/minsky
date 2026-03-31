@@ -144,6 +144,8 @@ export interface SessionReviewResult {
     insertions: number;
     deletions: number;
   };
+  /** Warnings from data-gathering steps that failed non-fatally */
+  warnings?: string[];
 }
 
 /**

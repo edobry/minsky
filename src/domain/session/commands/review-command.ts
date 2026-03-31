@@ -67,13 +67,18 @@ export async function sessionReview(
     // Get session working directory
     const workdir = await deps.sessionDB.getSessionWorkdir(resolvedContext.sessionName);
 
+    // Track warnings from non-fatal data-gathering failures
+    const warnings: string[] = [];
+
     // Get task specification if available
     let taskSpec: string | undefined;
     if (sessionRecord.taskId && deps.taskService.getTaskSpecData) {
       try {
         taskSpec = await deps.taskService.getTaskSpecData(sessionRecord.taskId);
       } catch (error) {
-        log.debug(`Could not get task spec for task ${sessionRecord.taskId}`, { error });
+        const msg = `Could not get task spec for task ${sessionRecord.taskId}: ${getErrorMessage(error)}`;
+        log.debug(msg);
+        warnings.push(msg);
       }
     }
 
@@ -107,7 +112,9 @@ export async function sessionReview(
       });
       prDescription = prResult.markdown;
     } catch (error) {
-      log.debug("Could not generate PR description", { error });
+      const msg = `Could not generate PR description: ${getErrorMessage(error)}`;
+      log.debug(msg);
+      warnings.push(msg);
     }
 
     // Get diff and stats
@@ -139,7 +146,44 @@ export async function sessionReview(
         };
       }
     } catch (error) {
-      log.debug("Could not get diff information", { error });
+      const msg = `Could not get diff information: ${getErrorMessage(error)}`;
+      log.debug(msg);
+      warnings.push(msg);
+    }
+
+    // Fallback: try baseBranch...HEAD if the primary diff failed
+    if (!diff) {
+      try {
+        const diffResult = await deps.gitService.execInRepository(
+          workdir,
+          `git diff --stat ${baseBranch}...HEAD`
+        );
+
+        const diffText = await deps.gitService.execInRepository(
+          workdir,
+          `git diff ${baseBranch}...HEAD`
+        );
+
+        if (diffText && diffText.trim().length > 0) {
+          diff = diffText;
+          const statsMatch = diffResult.match(
+            /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
+          );
+          if (statsMatch) {
+            diffStats = {
+              filesChanged: parseInt(statsMatch[1], 10),
+              insertions: parseInt(statsMatch[2] || "0", 10),
+              deletions: parseInt(statsMatch[3] || "0", 10),
+            };
+          }
+        }
+      } catch (error) {
+        log.debug("Fallback diff (baseBranch...HEAD) also failed", { error });
+      }
+    }
+
+    if (!diff) {
+      warnings.push("Could not obtain diff content via any method");
     }
 
     const result: SessionReviewResult = {
@@ -151,6 +195,7 @@ export async function sessionReview(
       baseBranch,
       diff,
       diffStats,
+      ...(warnings.length > 0 ? { warnings } : {}),
     };
 
     // Write output if specified
@@ -200,6 +245,11 @@ function formatReviewOutput(result: SessionReviewResult): string {
 
   if (result.diff) {
     lines.push("", "## Diff", "", "```diff", result.diff, "```");
+  }
+
+  if (result.warnings && result.warnings.length > 0) {
+    lines.push("", "## Warnings", "");
+    result.warnings.forEach((w) => lines.push(`- ${w}`));
   }
 
   return lines.join("\n");
