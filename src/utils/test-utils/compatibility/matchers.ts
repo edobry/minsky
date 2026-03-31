@@ -393,10 +393,12 @@ export const asymmetricMatchers = {
  * @param expectObj The expect object to enhance
  */
 export function registerAsymmetricMatchers(expectObj: unknown): void {
+  if (typeof expectObj !== "object" || expectObj === null) return;
+  const obj = expectObj as Record<string, unknown>;
   // Add each matcher to the expect object
   for (const [key, value] of Object.entries(asymmetricMatchers)) {
-    if (!(key in expectObj)) {
-      expectObj[key] = value;
+    if (!(key in obj)) {
+      obj[key] = value;
     }
   }
 }
@@ -441,6 +443,6 @@ export function setupAsymmetricMatchers(): void {
     }
   } catch (error) {
     // Fail gracefully if bun:test is not available
-    log.warn("Failed to set up asymmetric matchers:", error);
+    log.warn("Failed to set up asymmetric matchers:", error instanceof Error ? error.message : String(error));
   }
 }

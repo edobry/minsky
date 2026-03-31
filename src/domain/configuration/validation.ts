@@ -198,7 +198,13 @@ export class ConfigurationValidator {
    * Validate session database configuration
    */
   private validateSessionDbConfig(config: Configuration, issues: ValidationIssue[]): void {
-    const sessiondb = config.sessiondb;
+    const sessiondb = config.sessiondb as {
+      backend?: string;
+      postgres?: { connectionString?: string };
+      sqlite?: { path?: string; baseDir?: string };
+    } | undefined;
+
+    if (!sessiondb) return;
 
     // Check backend-specific requirements
     switch (sessiondb.backend) {

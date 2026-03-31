@@ -30,22 +30,23 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
     // Create mock that captures all git commands executed
     mockExecAsync = mock(async (command: unknown) => {
-      gitCommands.push(command);
+      const cmd = command as string;
+      gitCommands.push(cmd);
 
       // Mock responses for different git commands
-      if (command.includes("rev-parse --abbrev-ref HEAD")) {
+      if (cmd.includes("rev-parse --abbrev-ref HEAD")) {
         return { stdout: "feature-branch", stderr: "" };
       }
-      if (command.includes("rev-parse --verify")) {
+      if (cmd.includes("rev-parse --verify")) {
         return { stdout: "abc123", stderr: "" };
       }
-      if (command.includes("status --porcelain")) {
+      if (cmd.includes("status --porcelain")) {
         return { stdout: "", stderr: "" }; // Clean working directory
       }
-      if (command.includes("log --oneline")) {
+      if (cmd.includes("log --oneline")) {
         return { stdout: "abc123 feat: add feature\ndef456 fix: bug", stderr: "" };
       }
-      if (command.includes("merge-base")) {
+      if (cmd.includes("merge-base")) {
         return { stdout: "base123", stderr: "" };
       }
 
@@ -59,6 +60,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Mock the preparePr method to use our mock execAsync
       const preparePrSpy = mock(async (options: unknown) => {
+        const opts = options as { title?: string; body?: string; baseBranch?: string };
         // Simulate current broken behavior: PR branch created FROM feature branch
         await mockExecAsync("git -C /test/repo checkout -b pr/feature-branch");
         await mockExecAsync("git -C /test/repo push origin pr/feature-branch");
@@ -66,8 +68,8 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         return {
           prBranch: SESSION_TEST_PATTERNS.PR_FEATURE_BRANCH,
           baseBranch: "main",
-          title: options.title,
-          body: options.body,
+          title: opts.title,
+          body: opts.body,
         };
       });
 
@@ -108,9 +110,10 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Mock the CORRECT preparePr implementation
       const correctPreparePrSpy = mock(async (options: unknown) => {
+        const opts = options as { baseBranch?: string; _title?: string; body?: string };
         const workdir = "/test/repo";
         const sourceBranch = "feature-branch";
-        const baseBranch = options.baseBranch || "main";
+        const baseBranch = opts.baseBranch || "main";
         const prBranch = `pr/${sourceBranch}`;
 
         // CORRECT BEHAVIOR per Task #025:
@@ -122,9 +125,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         await mockExecAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
 
         // 3. Create commit message file with PR title/body
-        await mockExecAsync(`echo "${options._title}" > ${workdir}/.pr_title`);
-        if (options.body) {
-          await mockExecAsync(`echo "${options.body}" >> ${workdir}/.pr_title`);
+        await mockExecAsync(`echo "${opts._title}" > ${workdir}/.pr_title`);
+        if (opts.body) {
+          await mockExecAsync(`echo "${opts.body}" >> ${workdir}/.pr_title`);
         }
 
         // 4. Merge feature branch INTO PR branch with --no-ff (prepared merge commit)
@@ -136,8 +139,8 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         return {
           prBranch,
           baseBranch,
-          _title: options._title,
-          body: options.body,
+          _title: opts._title,
+          body: opts.body,
         };
       });
 
@@ -231,9 +234,10 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
     test("SHOULD handle merge conflicts during prepared merge commit creation", async () => {
       // Mock merge conflict scenario
       const conflictMockExecAsync = mock(async (command: unknown) => {
-        gitCommands.push(command);
+        const cmd = command as string;
+        gitCommands.push(cmd);
 
-        if (command.includes("merge --no-ff")) {
+        if (cmd.includes("merge --no-ff")) {
           // Simulate merge conflict
           throw new Error("CONFLICT (content): Merge conflict in file.txt");
         }

@@ -20,6 +20,7 @@ export interface TaskData {
   /** Task ID in storage format (plain number string, e.g., "283") */
   id: string;
   title: string;
+  description?: string;
   spec?: string;
   status: TaskStatus;
   specPath?: string;
