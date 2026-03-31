@@ -5,7 +5,7 @@
  */
 
 import { z } from "zod";
-import { MinskyError } from "../../errors/index";
+import { MinskyError, NothingToCommitError } from "../../errors/index";
 import { log } from "../../utils/logger";
 
 /**
@@ -137,7 +137,7 @@ export async function sessionCommit(params: {
 }): Promise<{
   success: boolean;
   nothingToCommit?: boolean;
-  commitHash: string;
+  commitHash: string | null;
   shortHash?: string;
   subject?: string;
   branch?: string;
@@ -173,14 +173,14 @@ export async function sessionCommit(params: {
         amend: params.amend,
         noStage: params.noStage,
       });
-    } catch (commitErr: any) {
+    } catch (commitErr: unknown) {
       // Handle "nothing to commit" gracefully — not an error condition
-      if (commitErr?.cause === "NOTHING_TO_COMMIT" || commitErr?.message === "nothing to commit") {
+      if (commitErr instanceof NothingToCommitError) {
         log.debug("Nothing to commit in session", { session: params.session });
         return {
           success: true,
           nothingToCommit: true,
-          commitHash: "",
+          commitHash: null,
           message: "Nothing to commit, working tree clean",
           pushed: false,
         };
@@ -202,7 +202,7 @@ export async function sessionCommit(params: {
     try {
       branch = await gitService.getCurrentBranch(workdir);
     } catch (err) {
-      log.debug("Failed to get branch name", { error: (err as any)?.message });
+      log.debug("Failed to get branch name", { error: err instanceof Error ? err.message : String(err) });
     }
 
     // Author, subject, timestamp, short hash
@@ -225,7 +225,7 @@ export async function sessionCommit(params: {
         timestamp = parts[4];
       }
     } catch (err) {
-      log.debug("Failed to read commit metadata", { error: (err as any)?.message });
+      log.debug("Failed to read commit metadata", { error: err instanceof Error ? err.message : String(err) });
     }
 
     // Diffstat summary
@@ -254,7 +254,7 @@ export async function sessionCommit(params: {
         }
       }
     } catch (err) {
-      log.debug("Failed to parse diffstat", { error: (err as any)?.message });
+      log.debug("Failed to parse diffstat", { error: err instanceof Error ? err.message : String(err) });
     }
 
     // Changed files list with status
@@ -278,7 +278,7 @@ export async function sessionCommit(params: {
         return { status, path };
       });
     } catch (err) {
-      log.debug("Failed to list changed files", { error: (err as any)?.message });
+      log.debug("Failed to list changed files", { error: err instanceof Error ? err.message : String(err) });
     }
 
     return {
