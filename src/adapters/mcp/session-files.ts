@@ -4,10 +4,7 @@
  */
 import { readFile, writeFile, mkdir, access, readdir, unlink, stat, rename } from "fs/promises";
 import { join, resolve, relative, dirname } from "path";
-import {
-  createSessionProvider,
-  type SessionProviderInterface,
-} from "../../domain/session/session-db-adapter";
+import { resolveSessionDirectory } from "../../domain/session/resolve-session-directory";
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
@@ -160,29 +157,15 @@ function processFileContentWithLineRange(
 }
 
 /**
- * Session path resolver class for enforcing workspace boundaries
+ * Session path resolver class for enforcing workspace boundaries.
+ * Delegates directory resolution to the canonical resolveSessionDirectory() utility.
  */
 export class SessionPathResolver {
-  private sessionDB: SessionProviderInterface | null = null;
-
-  private async getProvider(): Promise<SessionProviderInterface> {
-    if (!this.sessionDB) {
-      this.sessionDB = await createSessionProvider();
-    }
-    return this.sessionDB;
-  }
-
   /**
    * Resolve session workspace path for a given session
    */
   async getSessionWorkspacePath(sessionId: string): Promise<string> {
-    const provider = await this.getProvider();
-    const session = await provider.getSession(sessionId);
-    if (!session) {
-      throw new Error(`Session "${sessionId}" not found`);
-    }
-
-    return await provider.getRepoPath(session);
+    return await resolveSessionDirectory(sessionId);
   }
 
   /**

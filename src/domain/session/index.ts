@@ -24,6 +24,9 @@ export {
   getSessionWorkdirFn,
 } from "./session-db";
 
+// Export canonical session directory resolution utility
+export { resolveSessionDirectory, _resetCachedProvider } from "./resolve-session-directory";
+
 // Export I/O functions and types from session-db-io
 export {
   readSessionDbFile,

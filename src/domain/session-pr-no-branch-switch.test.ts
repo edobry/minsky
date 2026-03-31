@@ -110,7 +110,9 @@ describe("Session PR Command Branch Behavior", () => {
     } catch (error) {
       // The test currently fails with session not found, which is expected
       // since we're using mocked functions without proper session setup
-      expect(String(error)).toMatch(/Session.*Not Found|sessionDb\.getSession is not a function/);
+      expect(String(error)).toMatch(
+        /[Ss]ession.*[Nn]ot [Ff]ound|sessionDb\.getSession is not a function/
+      );
       return; // Test passes when session lookup fails as expected
     }
 
@@ -201,7 +203,9 @@ describe("Session PR Command Branch Behavior", () => {
     } catch (error) {
       // The test currently fails with session not found, which is expected
       // since we're using mocked functions without proper session setup
-      expect(String(error)).toMatch(/Session.*Not Found|sessionDb\.getSession is not a function/);
+      expect(String(error)).toMatch(
+        /[Ss]ession.*[Nn]ot [Ff]ound|sessionDb\.getSession is not a function/
+      );
       return; // Test passes when session lookup fails
     }
   });

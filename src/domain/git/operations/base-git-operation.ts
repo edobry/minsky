@@ -9,6 +9,7 @@ import { ValidationError } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { getErrorMessage } from "../../../errors/index";
 import { type GitServiceInterface } from "../types";
+import { resolveSessionDirectory } from "../../session/resolve-session-directory";
 
 /**
  * Common dependencies for git operations
@@ -63,7 +64,7 @@ export abstract class BaseGitOperation<TParams, TResult> {
       // Resolve session to repo path if session is provided but repo is not
       const baseParams = validParams as BaseGitOperationParams;
       if (baseParams.session && !baseParams.repo) {
-        const workdir = await gitService.getSessionWorkdir(baseParams.session);
+        const workdir = await resolveSessionDirectory(baseParams.session);
         (validParams as any).repo = workdir;
       }
 
