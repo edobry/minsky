@@ -56,6 +56,8 @@ export interface ParameterMappingOptions {
   optionName?: string;
   /** Custom description for help text */
   spec?: string;
+  /** Human-readable description */
+  description?: string;
   /** Default value */
   defaultValue?: any;
 }
