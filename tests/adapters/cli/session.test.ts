@@ -183,15 +183,6 @@ describe("Session CLI Commands", () => {
       const dirIsolation = withDirectoryIsolation();
 
       const mockSessionProviderCurrent = createMockSessionProvider({
-        getCurrentSession: () => ({
-          name: "current-session",
-          taskId: "456",
-          repoUrl: "https://github.com/test/repo.git",
-          workspacePath: testData.tempDir,
-          sessionPath,
-          branch: "current-branch",
-          created: new Date().toISOString(),
-        }),
         getSession: (sessionName: string) => {
           if (sessionName === "current-session") {
             return {
@@ -334,7 +325,6 @@ describe("Session CLI Commands", () => {
           }
           return null;
         },
-        getCurrentSession: () => sessionRecord,
       });
 
       // Mock execAsync to simulate git commands
@@ -375,7 +365,6 @@ describe("Session CLI Commands", () => {
           }
           return null;
         },
-        getSessionFromWorkspace: () => sessionRecord,
       });
 
       // Mock execAsync to simulate git commands
