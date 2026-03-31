@@ -30,8 +30,8 @@ jobs:
         run: bun run typecheck
         continue-on-error: true
 
-      - name: Build
-        run: bun build src/cli.ts --outdir dist
-
       - name: Test
         run: bun run test
+
+      - name: Build
+        run: bun build src/cli.ts --outdir dist --target bun
