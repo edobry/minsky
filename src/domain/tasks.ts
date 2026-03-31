@@ -65,7 +65,16 @@ export async function listTasksFromParams(params: any) {
   log.debug("tasks.list created TaskService", {
     backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
   });
-  return await taskService.listTasks(validParams);
+  let tasks = await taskService.listTasks({
+    status: validParams.status,
+    all: validParams.all,
+    backend: validParams.backend,
+  });
+  // Apply limit client-side if provided
+  if (typeof validParams.limit === "number" && validParams.limit > 0) {
+    tasks = tasks.slice(0, validParams.limit);
+  }
+  return tasks;
 }
 
 export async function getTaskFromParams(params: any) {
