@@ -751,7 +751,8 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       },
       output: {
         schema: z.string().optional(),
-        description: "Output file path (defaults to AGENTS.md in workspace root for agents.md target)",
+        description:
+          "Output file path (defaults to AGENTS.md in workspace root for agents.md target)",
         required: false,
       },
       dryRun: {
