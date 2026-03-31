@@ -147,7 +147,7 @@ type RulesGenerateParams = {
   outputDir?: string;
   dryRun?: boolean;
   overwrite?: boolean;
-  format?: "cursor" | "openai";
+  format?: RuleFormat;
   preferMcp?: boolean;
   mcpTransport?: "stdio" | "http";
   json?: boolean;
@@ -186,8 +186,8 @@ const rulesGenerateCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
   format: {
-    schema: z.enum(["cursor", "openai"]),
-    description: "Rule format for file system organization (cursor or openai)",
+    schema: z.enum(["cursor", "generic"]),
+    description: "Rule format for file system organization (cursor or generic)",
     required: false,
     defaultValue: "cursor",
   },
@@ -563,7 +563,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           mcpEnabled: typedParams.interface === "mcp" || typedParams.interface === "hybrid",
           mcpTransport: (typedParams.mcpTransport || "stdio") as "stdio" | "http",
           preferMcp: typedParams.preferMcp || false,
-          ruleFormat: (typedParams.format || "cursor") as "cursor" | "openai",
+          ruleFormat: (typedParams.format || "cursor") as RuleFormat,
           outputDir:
             typedParams.outputDir ||
             (typedParams.format === "cursor" ? ".cursor/rules" : ".ai/rules"),

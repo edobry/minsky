@@ -1,3 +1,9 @@
+---
+name: Comments
+description: "Comments should explain WHY, not WHAT. Delete obvious comments."
+alwaysApply: false
+---
+
 # Comment Guidelines
 
 ## Core Principle

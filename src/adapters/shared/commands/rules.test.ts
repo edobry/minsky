@@ -96,7 +96,7 @@ describe("Rules Commands", () => {
           {
             interface: "hybrid",
             preferMcp: true,
-            format: "openai",
+            format: "generic",
           },
           { interface: "cli" }
         );
