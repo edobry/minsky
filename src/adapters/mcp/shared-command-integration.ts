@@ -96,6 +96,8 @@ export interface McpSharedCommandConfig {
     string,
     {
       /** Override command description */
+      description?: string;
+      /** Override command spec */
       spec?: string;
       /** Hide command from MCP */
       hidden?: boolean;

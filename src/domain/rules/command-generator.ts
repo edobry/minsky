@@ -23,6 +23,7 @@ export type InterfaceMode = "cli" | "mcp" | "hybrid";
  */
 export interface CommandParameter {
   name: string;
+  description?: string;
   spec?: string;
   required: boolean;
   defaultValue?: any;

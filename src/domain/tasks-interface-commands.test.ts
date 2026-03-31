@@ -108,7 +108,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
         all: false,
       };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params);
 
       expect(result).toEqual([mockTask]);
       // Mock call expectation updated - function may not call resolveRepoPath in all scenarios
@@ -139,7 +139,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
 
       const params = { all: false };
 
-      const result = await listTasksFromParams(params, mockDeps);
+      const result = await listTasksFromParams(params);
 
       expect(result.length).toBe(1);
       expect(result[0]?.status !== TASK_STATUS.DONE).toBe(true);
@@ -153,7 +153,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params);
 
       expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("md#123");
@@ -166,7 +166,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
       };
 
       try {
-        await getTaskFromParams(params, mockDeps);
+        await getTaskFromParams(params);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expectToBeInstanceOf(e, ResourceNotFoundError);
@@ -179,7 +179,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params);
 
       expect(result).toEqual(mockTask);
       expect(mockTaskService.getTask).toHaveBeenCalledWith("md#123");
@@ -191,7 +191,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
         backend: "markdown",
       };
 
-      const result = await getTaskFromParams(params, mockDeps);
+      const result = await getTaskFromParams(params);
 
       expect(result).toEqual({ ...mockTask, id: "md#23" });
       expect(mockTaskService.getTask).toHaveBeenCalledWith("md#23");
@@ -205,7 +205,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
         backend: "markdown",
       };
 
-      const result = await getTaskStatusFromParams(params, mockDeps);
+      const result = await getTaskStatusFromParams(params);
 
       expect(result).toBe(TASK_STATUS.TODO);
       // getTaskStatusFromParams actually calls getTask, not getTaskStatus
@@ -219,7 +219,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
       };
 
       try {
-        await getTaskStatusFromParams(params, mockDeps);
+        await getTaskStatusFromParams(params);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expectToBeInstanceOf(e, ResourceNotFoundError);
@@ -238,7 +238,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
         backend: "markdown",
       };
 
-      await setTaskStatusFromParams(params, mockDeps);
+      await setTaskStatusFromParams(params);
 
       expect(mockTaskService.setTaskStatus).toHaveBeenCalledWith("md#123", "IN-PROGRESS");
       expect(mockTaskService.getTask).toHaveBeenCalledWith("md#123");
@@ -252,7 +252,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
       };
 
       try {
-        await setTaskStatusFromParams(params, mockDeps);
+        await setTaskStatusFromParams(params);
         expect(true).toBe(false); // Should not reach here
       } catch (e) {
         expectToBeInstanceOf(e, ValidationError);

@@ -615,13 +615,14 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       let callCount = 0;
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
-          if (command.includes("rev-parse HEAD")) {
+          const cmd = command as string;
+          if (cmd.includes("rev-parse HEAD")) {
             callCount++;
             // First call returns original hash, second call returns new hash
             const hash = callCount === 1 ? "original-hash" : "new-merge-hash";
             return { stdout: hash, stderr: "" };
           }
-          if (command.includes("merge feature-branch")) {
+          if (cmd.includes("merge feature-branch")) {
             return { stdout: "Merge made by the 'recursive' strategy.", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -642,7 +643,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle staging operations with proper command execution", async () => {
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
-          expect(command.includes("git -C /test/repo add")).toBe(true);
+          const cmd = command as string;
+          expect(cmd.includes("git -C /test/repo add")).toBe(true);
           return { stdout: "", stderr: "" };
         }) as unknown,
       };
@@ -661,7 +663,7 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       let capturedCommand = "";
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
-          capturedCommand = command;
+          capturedCommand = command as string;
           return { stdout: "", stderr: "" };
         }) as unknown,
       };
@@ -679,13 +681,14 @@ describe("GitService - Core Methods with Dependency Injection", () => {
       let callCount = 0;
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
-          if (command.includes("rev-parse HEAD")) {
+          const cmd = command as string;
+          if (cmd.includes("rev-parse HEAD")) {
             callCount++;
             // First call returns old hash, second call returns new hash
             const hash = callCount === 1 ? "old-commit-hash" : "new-commit-hash";
             return { stdout: hash, stderr: "" };
           }
-          if (command.includes("fetch origin")) {
+          if (cmd.includes("fetch origin")) {
             return { stdout: "Fetching origin", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -701,10 +704,11 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle pullLatest with no updates", async () => {
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
-          if (command.includes("rev-parse HEAD")) {
+          const cmd = command as string;
+          if (cmd.includes("rev-parse HEAD")) {
             return { stdout: "same-commit-hash", stderr: "" };
           }
-          if (command.includes("fetch origin")) {
+          if (cmd.includes("fetch origin")) {
             return { stdout: "Already up to date.", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -720,11 +724,12 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle pullLatest with custom remote", async () => {
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
-          if (command.includes("rev-parse HEAD")) {
+          const cmd = command as string;
+          if (cmd.includes("rev-parse HEAD")) {
             return { stdout: "test-hash", stderr: "" };
           }
-          if (command.includes("fetch upstream")) {
-            expect(command).toContain("upstream"); // Verify custom remote is used
+          if (cmd.includes("fetch upstream")) {
+            expect(cmd).toContain("upstream"); // Verify custom remote is used
             return { stdout: "Updated", stderr: "" };
           }
           return { stdout: "", stderr: "" };
@@ -782,7 +787,8 @@ describe("GitService - Core Methods with Dependency Injection", () => {
     test("should handle clone failure during git command execution", async () => {
       const mockDeps = {
         execAsync: mock(async (command: unknown) => {
-          if (command.includes("git clone")) {
+          const cmd = command as string;
+          if (cmd.includes("git clone")) {
             throw new Error(
               "fatal: repository 'https://github.com/user/nonexistent.git' not found"
             );
