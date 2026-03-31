@@ -163,16 +163,11 @@ function processFileContentWithLineRange(
  * Session path resolver class for enforcing workspace boundaries
  */
 export class SessionPathResolver {
-  private sessionDBPromise: Promise<SessionProviderInterface>;
   private sessionDB: SessionProviderInterface | null = null;
-
-  constructor() {
-    this.sessionDBPromise = createSessionProvider();
-  }
 
   private async getProvider(): Promise<SessionProviderInterface> {
     if (!this.sessionDB) {
-      this.sessionDB = await this.sessionDBPromise;
+      this.sessionDB = await createSessionProvider();
     }
     return this.sessionDB;
   }

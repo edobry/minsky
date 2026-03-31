@@ -313,9 +313,13 @@ export class SessionDbAdapter implements SessionProviderInterface {
         return record.repoPath;
       }
 
-      // Fallback: use the session-db getRepoPathFn utility
-      const repoPath = getRepoPathFn(record);
-      return repoPath;
+      // Fallback: use the session-db getRepoPathFn utility with state
+      const storage = await this.getStorage();
+      const state = await storage.readState();
+      if (!state.success || !state.data) {
+        throw new Error("Failed to read session database state");
+      }
+      return getRepoPathFn(state.data, record);
     } catch (error) {
       log.error(
         `Failed to get repo path for session '${record.session}':`,
