@@ -24,7 +24,7 @@ import type {
 
 import { createRepositoryBackend, RepositoryBackendType } from "../../repository/index";
 import type { RepositoryBackend } from "../../repository/index";
-import { createSessionProvider } from "../../session/index";
+import { createSessionProvider, type SessionProviderInterface } from "../../session/index";
 import { MinskyError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { execSync } from "child_process";
@@ -37,7 +37,14 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
   readonly name = "Local Git (Prepared Merge Commits)";
 
   private repositoryBackend: RepositoryBackend;
-  private sessionProvider = createSessionProvider();
+  private sessionProvider: SessionProviderInterface | null = null;
+
+  private async getSessionProvider(): Promise<SessionProviderInterface> {
+    if (!this.sessionProvider) {
+      this.sessionProvider = await createSessionProvider();
+    }
+    return this.sessionProvider;
+  }
 
   constructor(
     private repositoryUrl: string,
@@ -346,7 +353,8 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       let description = "Local git changeset";
 
       try {
-        const session = await this.sessionProvider.getSession(sessionName);
+        const provider = await this.getSessionProvider();
+        const session = await provider.getSession(sessionName);
         if (session) {
           taskId = session.taskId;
           title = `Session: ${sessionName}`;

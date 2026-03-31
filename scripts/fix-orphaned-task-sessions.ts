@@ -32,7 +32,7 @@ async function fixOrphanedTaskSessions(
 
   log.cli("🔍 Scanning for orphaned task sessions...");
 
-  const sessionDB = createSessionProvider();
+  const sessionDB = await createSessionProvider();
   const taskService = new TaskService({
     workspacePath: process.cwd(),
     backend: "markdown",

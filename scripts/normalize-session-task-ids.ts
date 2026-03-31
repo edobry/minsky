@@ -31,7 +31,7 @@ async function normalizeSessionTaskIds(
 
   log.cli("🔍 Scanning for sessions with inconsistent task ID formats...");
 
-  const sessionDB = createSessionProvider();
+  const sessionDB = await createSessionProvider();
 
   // Get all sessions
   const allSessions = await sessionDB.listSessions();
