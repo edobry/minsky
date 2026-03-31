@@ -68,7 +68,7 @@ function addDepsAddCommand(parent: Command): void {
         task: fromTask,
         dependsOn: toTask,
         type: (options as any).type || "prerequisite",
-      });
+      }, { interface: "cli" });
 
       if (options.json) {
         outputResult(result, { json: true });
@@ -107,7 +107,7 @@ function addDepsRmCommand(parent: Command): void {
       const result = await command.execute({
         task: fromTask,
         dependsOn: toTask,
-      });
+      }, { interface: "cli" });
 
       if (options.json) {
         outputResult(result, { json: true });
@@ -146,7 +146,7 @@ function addDepsListCommand(parent: Command): void {
       const result = await command.execute({
         task: taskId,
         verbose: options.verbose,
-      });
+      }, { interface: "cli" });
 
       if (options.json) {
         outputResult(result, { json: true });
@@ -186,7 +186,7 @@ function addDepsTreeCommand(parent: Command): void {
         const result = await command.execute({
           task: taskId,
           maxDepth: options.maxDepth ? parseInt(options.maxDepth, 10) : 3,
-        });
+        }, { interface: "cli" });
 
         if (options.json) {
           outputResult(result, { json: true });
@@ -231,7 +231,7 @@ function addDepsGraphCommand(parent: Command): void {
           status: options.status,
           format: options.format || "ascii",
           output: options.output,
-        });
+        }, { interface: "cli" });
 
         if (options.json) {
           outputResult(result, { json: true });
