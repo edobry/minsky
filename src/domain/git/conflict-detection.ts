@@ -42,7 +42,17 @@ import {
 } from "./conflict-detection-types";
 
 // Re-export key types for external use
-export { FileConflictStatus, ConflictSeverity, ConflictType };
+export { FileConflictStatus, ConflictSeverity, ConflictType } from "./conflict-detection-types";
+export type {
+  ConflictPrediction,
+  BranchDivergenceAnalysis,
+  EnhancedMergeResult,
+  SmartUpdateResult,
+  AdvancedResolutionStrategy,
+  ConflictFile,
+  RebaseConflictPrediction,
+  ConflictingCommit,
+} from "./conflict-detection-types";
 
 export class ConflictDetectionService {
   /**

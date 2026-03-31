@@ -11,6 +11,7 @@ import { log } from "../utils/logger";
 // normalizeTaskId removed
 import { createJsonFileTaskBackend } from "./tasks/jsonFileTaskBackend";
 import type { TaskBackend } from "./tasks/types";
+export type { TaskBackend } from "./tasks/types";
 // normalizeTaskId removed
 import { createConfiguredTaskService } from "./tasks/taskService";
 export { createConfiguredTaskService } from "./tasks/taskService"; // Re-export createConfiguredTaskService from new location
@@ -27,6 +28,7 @@ import { createGitService } from "./git";
 // These wrap TaskService methods with parameter validation and formatting
 
 import { TaskServiceInterface } from "./tasks/taskService";
+export type { TaskServiceInterface };
 import {
   taskListParamsSchema,
   taskGetParamsSchema,
