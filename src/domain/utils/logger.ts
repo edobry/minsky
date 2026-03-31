@@ -4,7 +4,7 @@ const { format, transports } = winston;
 import type {} from "logform";
 
 // Update the import path for configuration/index
-import { getConfiguration } from "../configuration/index";
+import { get as getConfigValue } from "../configuration/index";
 
 // Logger configuration interface
 interface LoggerConfig {
@@ -50,9 +50,9 @@ function getLoggerConfig(): LoggerConfig {
 
   try {
     // Try to get configuration from the config system
-    const configMode = getConfiguration("logger.mode");
-    const configLevel = getConfiguration("logger.level");
-    const configAgentLogs = getConfiguration("logger.enableAgentLogs");
+    const configMode = getConfigValue("logger.mode");
+    const configLevel = getConfigValue("logger.level");
+    const configAgentLogs = getConfigValue("logger.enableAgentLogs");
 
     loggerConfig = {
       mode: (typeof configMode === "string" ? configMode : envMode || "auto") as

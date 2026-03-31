@@ -80,8 +80,12 @@ export abstract class BaseTaskCommand {
   /**
    * Log debug message with command context
    */
-  protected debug(message: string): void {
-    log.debug(`[${this.id}] ${message}`);
+  protected debug(message: string, context?: Record<string, any>): void {
+    if (context) {
+      log.debug(`[${this.id}] ${message}`, context);
+    } else {
+      log.debug(`[${this.id}] ${message}`);
+    }
   }
 
   /**

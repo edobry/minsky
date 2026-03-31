@@ -20,8 +20,8 @@ describe("Individual Service Mock Factories", () => {
       expect(await mockProvider.getSession("test")).toBeNull();
       expect(await mockProvider.getSessionByTaskId("123")).toBeNull();
       expect(await mockProvider.deleteSession("test")).toBe(true);
-      expect(await mockProvider.getRepoPath()).toBe("/mock/repo/path");
-      expect(await mockProvider.getSessionWorkdir()).toBe("/mock/session/workdir");
+      expect(await mockProvider.getRepoPath({ session: "test", repoName: "test-repo", repoUrl: "https://github.com/test/repo", createdAt: "2023-01-01T00:00:00Z" })).toBe("/mock/repo/path");
+      expect(await mockProvider.getSessionWorkdir("test")).toBe("/mock/session/workdir");
 
       // Test methods that require parameters
       await mockProvider.addSession({
@@ -81,15 +81,15 @@ describe("Individual Service Mock Factories", () => {
     test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
       const mockService = createMockGitService();
 
-      expect(await mockService.clone()).toEqual({
+      expect(await mockService.clone({ repoUrl: "https://github.com/test/repo", workdir: "/mock/workdir", session: "test-session" })).toEqual({
         workdir: "/mock/workdir",
         session: "test-session",
       });
-      expect(await mockService.branch()).toEqual({
+      expect(await mockService.branch({ session: "test-session", branch: "test-branch" })).toEqual({
         workdir: "/mock/workdir",
         branch: "test-branch",
       });
-      expect(mockService.getSessionWorkdir()).toBe("/mock/session/workdir");
+      expect(mockService.getSessionWorkdir("test-session")).toBe("/mock/session/workdir");
       expect(await mockService.getStatus()).toEqual({
         modified: [],
         untracked: [],
@@ -140,11 +140,11 @@ describe("Individual Service Mock Factories", () => {
 
       const mockService = createMockGitService(customOptions);
 
-      expect(await mockService.clone()).toEqual({
+      expect(await mockService.clone({ repoUrl: "https://github.com/test/repo", workdir: "/custom/workdir", session: "custom-session" })).toEqual({
         workdir: "/custom/workdir",
         session: "custom-session",
       });
-      expect(mockService.getSessionWorkdir()).toBe("/custom/session/workdir");
+      expect(mockService.getSessionWorkdir("test-session")).toBe("/custom/session/workdir");
     });
 
     test("handles non-PR git commands", async () => {
