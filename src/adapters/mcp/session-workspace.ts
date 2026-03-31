@@ -27,22 +27,31 @@ import { createSuccessResponse, createErrorResponse } from "../../domain/schemas
  * Session path resolver class for enforcing workspace boundaries
  */
 export class SessionPathResolver {
-  private sessionDB: SessionProviderInterface;
+  private sessionDBPromise: Promise<SessionProviderInterface>;
+  private sessionDB: SessionProviderInterface | null = null;
 
   constructor() {
-    this.sessionDB = createSessionProvider();
+    this.sessionDBPromise = createSessionProvider();
+  }
+
+  private async getProvider(): Promise<SessionProviderInterface> {
+    if (!this.sessionDB) {
+      this.sessionDB = await this.sessionDBPromise;
+    }
+    return this.sessionDB;
   }
 
   /**
    * Resolve session workspace path for a given session
    */
   async getSessionWorkspacePath(sessionId: string): Promise<string> {
-    const session = await this.sessionDB.getSession(sessionId);
+    const provider = await this.getProvider();
+    const session = await provider.getSession(sessionId);
     if (!session) {
       throw new Error(`Session "${sessionId}" not found`);
     }
 
-    return await this.sessionDB.getRepoPath(session);
+    return await provider.getRepoPath(session);
   }
 
   /**
