@@ -60,6 +60,13 @@ export abstract class BaseGitOperation<TParams, TResult> {
       // Create git service
       const gitService = this.deps.createGitService();
 
+      // Resolve session to repo path if session is provided but repo is not
+      const baseParams = validParams as BaseGitOperationParams;
+      if (baseParams.session && !baseParams.repo) {
+        const workdir = await gitService.getSessionWorkdir(baseParams.session);
+        (validParams as any).repo = workdir;
+      }
+
       // Execute the operation
       return await this.executeOperation(validParams, gitService);
     } catch (error) {
