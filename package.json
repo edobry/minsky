@@ -28,7 +28,7 @@
     "validate-commit": "bun scripts/validate-commit-message.ts",
     "validate-imports": "bun scripts/validate-imports.ts",
     "typecheck": "tsc --noEmit",
-    "validate-all": "bun run validate-imports && bun run lint && bun run lint:console:strict && bun run test",
+    "validate-all": "bun run validate-imports && bun run format:check && bun run lint && bun run lint:console:strict && (bun run typecheck || true) && bun run test",
     "secrets:gitleaks": "gitleaks detect --source . --verbose",
     "secrets:scan": "gitleaks detect --source . --verbose",
     "db:generate:pg": "bunx --yes drizzle-kit generate --config ./drizzle.pg.config.ts",
