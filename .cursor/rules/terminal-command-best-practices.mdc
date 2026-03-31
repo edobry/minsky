@@ -1,4 +1,6 @@
 ---
+name: Terminal Command Best Practices
+description: "Use ASCII quotes, prefer single quotes, keep commands simple to avoid shell parsing issues."
 alwaysApply: true
 ---
 

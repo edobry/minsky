@@ -1,3 +1,9 @@
+---
+name: Session-First Workflow
+description: "All task work must happen in session workspace. Use absolute paths. Never edit main workspace during active session."
+alwaysApply: false
+---
+
 # Session-First Workflow
 
 **Purpose:**

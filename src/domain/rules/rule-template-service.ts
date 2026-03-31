@@ -8,6 +8,7 @@ import * as fs from "fs";
 import * as path from "path";
 import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
 import { createTemplateContext, type RuleGenerationConfig } from "./template-system";
+import type { RuleFormat } from "./types";
 import * as grayMatterNamespace from "gray-matter";
 import * as jsYaml from "js-yaml";
 import { log } from "../../utils/logger";
@@ -39,10 +40,6 @@ function addFrontmatter(content: string, meta: RuleMetadata): string {
   return `---\n${yamlStr}---\n${content}`;
 }
 
-/**
- * Type for rule format
- */
-export type RuleFormat = "cursor" | "openai";
 
 /**
  * Template for generating rule content and metadata
