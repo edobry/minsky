@@ -13,51 +13,6 @@ describe("Session PR Workflow Architectural Bug", () => {
   // Current broken behavior: Skip session update, create PR branch immediately
 
   describe("sessionPr function", () => {
-    it("should use session PR operations layer (not bypass to git layer)", async () => {
-      // This test demonstrates the architectural bug:
-      // Session PR command should call session PR operations (includes session update)
-      // but instead calls git layer directly (skips session update)
-
-      const mockSessionPrOperations = mock();
-      const mockGitPreparePr = mock();
-
-      // Mock the dependencies to track what gets called
-      const mockParams: SessionPRParameters = {
-        session: "test-session",
-        title: "Test PR",
-        body: "Test body",
-        baseBranch: "main",
-        repo: "/test/repo",
-        debug: false,
-        skipUpdate: false,
-        skipConflictCheck: false,
-        autoResolveDeleteConflicts: false,
-      };
-
-      // CRITICAL TEST: This should fail until we fix the bug
-      // The session PR command should NOT call git layer directly
-      // It should call session PR operations which handles session update first
-
-      try {
-        await sessionPr(mockParams);
-      } catch (error) {
-        // Expected for now since we're testing architectural flow
-      }
-
-      // BUG EVIDENCE: This test will reveal that sessionPr is calling
-      // git layer (preparePrFromParams) directly instead of going through
-      // session PR operations layer that includes proper session update
-
-      // The fix should make sessionPr call session PR operations, which:
-      // 1. Runs session update FIRST on session branch
-      // 2. Handles conflicts on session branch (not PR branch)
-      // 3. Only creates PR branch after session branch is clean
-      // 4. Never switches user to PR branch
-
-      // For now, this test documents the architectural violation
-      expect(true).toBe(true); // Placeholder - will be replaced with proper assertions
-    });
-
     it("should now use session operations layer (architectural fix verified)", async () => {
       // FIXED: Session PR command now uses session PR operations layer
       // This ensures proper workflow: session update → conflict resolution → PR creation

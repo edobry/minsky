@@ -17,8 +17,6 @@ describe("Session PR Operations - URL Return Value", () => {
 
     // The important test is that our code change adds the url field to the return value:
     // return { prBranch, baseBranch, title, body, url: prInfo.url };
-
-    expect(true).toBe(true); // Placeholder assertion
   });
 
   test("should verify return type structure matches expected interface", () => {
