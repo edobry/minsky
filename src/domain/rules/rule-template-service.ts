@@ -40,7 +40,6 @@ function addFrontmatter(content: string, meta: RuleMetadata): string {
   return `---\n${yamlStr}---\n${content}`;
 }
 
-
 /**
  * Template for generating rule content and metadata
  */
