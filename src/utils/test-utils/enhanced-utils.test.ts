@@ -21,6 +21,7 @@ import {
   createSessionTestDeps,
   createGitTestDeps,
   withMockedDeps,
+  DomainDependencies,
 } from "./dependencies";
 import {
   createTaskData,
@@ -60,7 +61,7 @@ describe("Enhanced Test Utilities", () => {
       let mockFn = mockFunction<(n: unknown) => number>();
 
       // Set implementation
-      mockFn = mock((n) => n * 2);
+      mockFn = mock((n) => (n as number) * 2);
 
       // Use the mock
       const result = mockFn(TEST_ARRAY_SIZE);
@@ -175,7 +176,8 @@ describe("Enhanced Test Utilities", () => {
           },
         },
         async (mockDeps) => {
-          const session = await mockDeps.sessionDB.getSession("any");
+          const deps = mockDeps as DomainDependencies;
+          const session = await deps.sessionDB.getSession("any");
           return session?.session;
         }
       );
@@ -255,17 +257,18 @@ describe("Enhanced Test Utilities", () => {
           sessionDB: {
             getSession: async (name: unknown) => {
               if (name === "task#TEST_VALUE") {
-                return createSessionData({ taskId: "TEST_VALUE", session: name });
+                return createSessionData({ taskId: "TEST_VALUE", session: name as string });
               }
               return null;
             },
           },
         },
         async (deps) => {
+          const typedDeps = deps as DomainDependencies;
           // 3. Execute code under test with mocked dependencies
-          const task = await deps.taskService.getTask("#TEST_VALUE");
+          const task = await typedDeps.taskService.getTask("#TEST_VALUE");
           const session = task
-            ? await deps.sessionDB.getSession(`task#${task.id.replace("#", "")}`)
+            ? await typedDeps.sessionDB.getSession(`task#${(task as { id: string }).id.replace("#", "")}`)
             : null;
 
           return { task, session };
