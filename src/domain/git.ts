@@ -12,6 +12,7 @@ import {
 
 import {
   MinskyError,
+  NothingToCommitError,
   createSessionNotFoundMessage,
   createErrorContext,
   getErrorMessage,
@@ -242,6 +243,44 @@ export interface GitResult {
   workdir: string;
 }
 
+/**
+ * Returns true when a caught git exec error represents "nothing to commit".
+ * Extracted to avoid duplicating this check in `commit` and `commitWithDependencies`.
+ */
+function classifyNothingToCommit(err: unknown): boolean {
+  const msg = ((err as any)?.stderr || (err as any)?.stdout || (err as any)?.message || "").toString();
+  return msg.includes("nothing to commit") || msg.includes("nothing added to commit");
+}
+
+/**
+ * Extracts the commit hash from git commit output (stdout + stderr).
+ * Falls back to `git log -1` via the provided async resolver when the hash
+ * cannot be parsed from the raw output (e.g. when hooks redirect git's output).
+ */
+async function extractCommitHash(
+  stdout: string,
+  stderr: string,
+  logFallback: () => Promise<string>
+): Promise<string> {
+  const combinedOutput = `${stdout}\n${stderr || ""}`;
+  const match = combinedOutput.match(/\[.*\s+([a-f0-9]+)\]/);
+  if (match?.[1]) {
+    return match[1];
+  }
+
+  try {
+    const logOutput = await logFallback();
+    const hash = logOutput.trim();
+    if (hash && /^[a-f0-9]{7,40}$/.test(hash)) {
+      return hash;
+    }
+  } catch (_logErr) {
+    // ignore log fallback error
+  }
+
+  throw new Error("Failed to extract commit hash from git output");
+}
+
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
   private sessionDb: SessionProviderInterface | null = null;
@@ -444,14 +483,24 @@ export class GitService implements GitServiceInterface {
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
     const workdir = repoPath || process.cwd();
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
 
-    // Extract commit hash from git output
-    const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
-    if (!match?.[1]) {
-      throw new Error("Failed to extract commit hash from git output");
+    let stdout: string;
+    let stderr: string;
+    try {
+      ({ stdout, stderr } = await execAsync(
+        `git -C ${workdir} commit ${amendFlag} -m "${message}"`
+      ));
+    } catch (err: unknown) {
+      if (classifyNothingToCommit(err)) {
+        throw new NothingToCommitError();
+      }
+      throw err;
     }
-    return match[1];
+
+    return extractCommitHash(stdout, stderr, async () => {
+      const { stdout: logOutput } = await execAsync(`git -C ${workdir} log -1 --pretty=format:%H`);
+      return logOutput;
+    });
   }
 
   // Add methods for session update command
@@ -734,16 +783,26 @@ export class GitService implements GitServiceInterface {
     amend: boolean = false
   ): Promise<string> {
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await deps.execAsync(
-      `git -C ${workdir} commit ${amendFlag} -m "${message}"`
-    );
 
-    // Extract commit hash from git output
-    const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
-    if (!match?.[1]) {
-      throw new Error("Failed to extract commit hash from git output");
+    let stdout: string;
+    let stderr: string;
+    try {
+      ({ stdout, stderr } = await deps.execAsync(
+        `git -C ${workdir} commit ${amendFlag} -m "${message}"`
+      ));
+    } catch (err: unknown) {
+      if (classifyNothingToCommit(err)) {
+        throw new NothingToCommitError();
+      }
+      throw err;
     }
-    return match[1];
+
+    return extractCommitHash(stdout, stderr, async () => {
+      const { stdout: logOutput } = await deps.execAsync(
+        `git -C ${workdir} log -1 --pretty=format:%H`
+      );
+      return logOutput;
+    });
   }
 
   /**

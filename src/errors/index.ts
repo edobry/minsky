@@ -97,6 +97,16 @@ export class GitOperationError extends MinskyError {
 }
 
 /**
+ * Thrown when there is nothing to commit (working tree clean).
+ */
+export class NothingToCommitError extends GitOperationError {
+  constructor(message = "Nothing to commit, working tree clean") {
+    super(message);
+    this.name = "NothingToCommitError";
+  }
+}
+
+/**
  * Thrown when session branch has merge conflicts that prevent PR creation.
  */
 export class SessionConflictError extends GitOperationError {
