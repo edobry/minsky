@@ -42,6 +42,22 @@ export {
   createDeleteTaskOperation,
 } from "./mutation-operations";
 
+// Local imports for use in factory functions below
+import type { TaskOperationDependencies } from "./base-task-operation";
+import { TaskOperationRegistry } from "./base-task-operation";
+import {
+  createListTasksOperation,
+  createGetTaskOperation,
+  createGetTaskStatusOperation,
+  createGetTaskSpecContentOperation,
+} from "./query-operations";
+import {
+  createSetTaskStatusOperation,
+  createCreateTaskOperation,
+  createCreateTaskFromTitleAndDescriptionOperation,
+  createDeleteTaskOperation,
+} from "./mutation-operations";
+
 // Factory for creating all operations
 export function createAllTaskOperations(deps?: TaskOperationDependencies) {
   return {

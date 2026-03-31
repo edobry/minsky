@@ -209,7 +209,6 @@ export const _DEFAULT_CONFIG: Partial<ResolvedConfig> = {
   backendConfig: {},
   // Detection rules removed - these were setting the deprecated root backend property
   // Backend detection is now handled by BackendDetectionService which properly sets tasks.backend
-  detectionRules: [],
   logger: {
     mode: "auto",
     level: "info",

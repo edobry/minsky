@@ -11,6 +11,7 @@ import {
   TaskServiceOptions,
   TaskServiceInterface,
 } from "./taskService";
+import type { Task } from "./types";
 
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
 import { readFile } from "fs/promises";
