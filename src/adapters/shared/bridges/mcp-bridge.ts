@@ -68,10 +68,7 @@ export async function executeMcpCommand(request: McpCommandRequest): Promise<Mcp
 
       const valueToParse = rawValue === undefined ? paramDef.defaultValue : rawValue;
 
-      if (valueToParse === undefined) {
-        continue;
-      }
-
+      // Don't skip undefined values — let Zod apply .default() if the schema defines one
       const parseResult = paramDef.schema.safeParse(valueToParse);
       const validatedParseResult = validateZodParseResult(parseResult);
 
