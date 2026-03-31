@@ -178,6 +178,22 @@ Make edits to a file in a single edit_file call instead of multiple edit_file ca
     parameters: SessionSearchReplaceSchema,
     handler: async (args: SearchReplaceArgs): Promise<Record<string, any>> => {
       try {
+        // Validate required parameters to catch parameter naming mismatches early
+        if (args.search == null || typeof args.search !== "string") {
+          const receivedKeys = Object.keys(args).join(", ");
+          throw new Error(
+            `Missing required parameter "search". Received parameters: [${receivedKeys}]. ` +
+              `Expected: sessionName, path, search, replace`
+          );
+        }
+        if (args.replace == null || typeof args.replace !== "string") {
+          const receivedKeys = Object.keys(args).join(", ");
+          throw new Error(
+            `Missing required parameter "replace". Received parameters: [${receivedKeys}]. ` +
+              `Expected: sessionName, path, search, replace`
+          );
+        }
+
         const resolvedPath = await pathResolver.resolvePath(args.sessionName, args.path);
 
         // Validate file exists
