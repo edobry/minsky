@@ -14,6 +14,7 @@ import noGlobalModuleMocks from "./eslint-rules/no-global-module-mocks.js";
 import noUnreliableFactoryMocks from "./eslint-rules/no-unreliable-factory-mocks.js";
 import noCliExecutionInTests from "./eslint-rules/no-cli-execution-in-tests.js";
 import noMagicStringDuplication from "./eslint-rules/no-magic-string-duplication.js";
+import noUnwaitedAsyncFactory from "./eslint-rules/no-unwaited-async-factory.js";
 
 export default [
   js.configs.recommended,
@@ -104,6 +105,7 @@ export default [
           "no-unreliable-factory-mocks": noUnreliableFactoryMocks,
           "no-cli-execution-in-tests": noCliExecutionInTests,
           "no-magic-string-duplication": noMagicStringDuplication,
+          "no-unwaited-async-factory": noUnwaitedAsyncFactory,
         },
       },
     },
@@ -153,6 +155,14 @@ export default [
           skipPatterns: [], // Use defaults
         },
       ], // Encourage extraction of duplicated strings
+
+      // === ASYNC SAFETY ===
+      "custom/no-unwaited-async-factory": [
+        "error",
+        {
+          asyncFactoryFunctions: ["createSessionProvider"],
+        },
+      ], // Prevent unwaited async factory calls that silently assign Promises
 
       // === TEST ORGANIZATION ===
       "custom/no-tests-directories": "warn", // Encourage co-located test files over __tests__ directories

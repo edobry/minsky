@@ -353,7 +353,8 @@ export class GitService implements GitServiceInterface {
       execAsync,
       getSession: async (name: string) => (await this.getSessionDb()).getSession(name),
       getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
-      getSessionByTaskId: async (taskId: string) => (await this.getSessionDb()).getSessionByTaskId?.(taskId),
+      getSessionByTaskId: async (taskId: string) =>
+        (await this.getSessionDb()).getSessionByTaskId?.(taskId),
     };
 
     // Git layer should only handle git operations, not task management
@@ -523,7 +524,8 @@ export class GitService implements GitServiceInterface {
 
     return pushImpl(options, {
       execAsync,
-      getSession: async (sessionName: string) => (await this.getSessionDb()).getSession(sessionName),
+      getSession: async (sessionName: string) =>
+        (await this.getSessionDb()).getSession(sessionName),
       getSessionWorkdir: (sessionName: string) => this.getSessionWorkdir(sessionName),
     });
   }

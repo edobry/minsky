@@ -31,7 +31,7 @@ export async function resolveRepoPath(
 ): Promise<string> {
   // Set up default dependencies if not provided
   const deps: RepoUtilsDependencies = {
-    sessionProvider: depsInput?.sessionProvider || createSessionProvider(),
+    sessionProvider: depsInput?.sessionProvider || (await createSessionProvider()),
     execCwd: depsInput?.execCwd || execAsync,
     getCurrentDirectory: depsInput?.getCurrentDirectory || getCurrentWorkingDirectory,
   };
