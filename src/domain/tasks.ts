@@ -23,6 +23,9 @@ import type { TaskStatus } from "./tasks/taskConstants";
 import { getTaskSpecRelativePath } from "./tasks/taskIO";
 import { createGitService } from "./git";
 
+// Import TaskData for use in createTaskFromTitleAndSpec return type
+import type { TaskData } from "../types/tasks/taskData";
+
 // Import and re-export functions from taskCommands.ts
 // Command-level wrapper functions for CLI integration
 // These wrap TaskService methods with parameter validation and formatting
@@ -602,7 +605,7 @@ export class MarkdownTaskBackend implements TaskBackend {
         if (line.trim().startsWith("## ")) break;
         if (line.trim()) description += `${line.trim()}\n`;
       }
-      if (!spec.trim()) {
+      if (!description.trim()) {
         throw new Error("Invalid spec file: Empty Context section");
       }
 
@@ -680,7 +683,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       const task: Task = {
         id: taskId,
         title,
-        description: spec.trim(),
+        description: description.trim(),
         status: TASK_STATUS.TODO,
         specPath: newSpecPath,
       };
