@@ -20,6 +20,7 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/task-
 ## MCP Tools
 
 Minsky exposes 80+ MCP tools. Use them for all task and session operations instead of shelling out to the CLI:
+
 - `mcp__minsky__tasks_*` — task CRUD, status, specs, deps
 - `mcp__minsky__session_*` — session lifecycle, PRs, file operations
 - `mcp__minsky__rules_*` — project rules

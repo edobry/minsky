@@ -1637,9 +1637,7 @@ export async function sessionReviewFromParams(
   }
 
   if (!diffObtained) {
-    warnings.push(
-      "Could not obtain diff content via any method (remote refs or local refs)"
-    );
+    warnings.push("Could not obtain diff content via any method (remote refs or local refs)");
   }
 
   // Attach warnings if any were collected

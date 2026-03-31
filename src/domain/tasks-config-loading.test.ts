@@ -51,7 +51,6 @@ describe("Configuration Loading Bug Fix", () => {
       // But config property does exist and contains the backend setting
       expect(configResult.config.tasks.backend).toBe("minsky");
     });
-
   });
 
   describe("Regression Prevention", () => {
