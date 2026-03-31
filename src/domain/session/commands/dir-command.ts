@@ -18,7 +18,7 @@ export async function getSessionDirFromParams(
 
   // Set up dependencies with defaults
   const deps = {
-    sessionDB: depsInput?.sessionDB || createSessionProvider(),
+    sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
   };
 
   try {
