@@ -447,8 +447,8 @@ Instructions:
     } else {
       log.error(`Unexpected error during AI completion`, {
         provider,
-        errorType: error.constructor.name,
-        errorMessage: error.message,
+        errorType: error instanceof Error ? error.constructor.name : "unknown",
+        errorMessage: getErrorMessage(error),
       });
       throw error;
     }

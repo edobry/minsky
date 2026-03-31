@@ -202,7 +202,9 @@ export async function sessionCommit(params: {
     try {
       branch = await gitService.getCurrentBranch(workdir);
     } catch (err) {
-      log.debug("Failed to get branch name", { error: err instanceof Error ? err.message : String(err) });
+      log.debug("Failed to get branch name", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // Author, subject, timestamp, short hash
@@ -225,7 +227,9 @@ export async function sessionCommit(params: {
         timestamp = parts[4];
       }
     } catch (err) {
-      log.debug("Failed to read commit metadata", { error: err instanceof Error ? err.message : String(err) });
+      log.debug("Failed to read commit metadata", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // Diffstat summary
@@ -254,7 +258,9 @@ export async function sessionCommit(params: {
         }
       }
     } catch (err) {
-      log.debug("Failed to parse diffstat", { error: err instanceof Error ? err.message : String(err) });
+      log.debug("Failed to parse diffstat", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     // Changed files list with status
@@ -278,7 +284,9 @@ export async function sessionCommit(params: {
         return { status, path };
       });
     } catch (err) {
-      log.debug("Failed to list changed files", { error: err instanceof Error ? err.message : String(err) });
+      log.debug("Failed to list changed files", {
+        error: err instanceof Error ? err.message : String(err),
+      });
     }
 
     return {

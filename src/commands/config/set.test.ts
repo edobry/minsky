@@ -133,7 +133,9 @@ describe("config set command", () => {
       await executeConfigSet("key", "value", {}, deps);
       expect(true).toBe(false); // Should not reach this line
     } catch (error) {
-      expect(error.message).toBe("Failed to set configuration: Permission denied");
+      expect(error instanceof Error ? error.message : String(error)).toBe(
+        "Failed to set configuration: Permission denied"
+      );
     }
   });
 

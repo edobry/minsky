@@ -6,6 +6,7 @@ import { createConfiguredTaskService } from "../../../../domain/tasks/taskServic
 import { type CommandParameterMap } from "../../command-registry";
 import { execSync, exec } from "child_process";
 import { promisify } from "util";
+import { getErrorMessage } from "../../../../errors/index";
 
 const execAsync = promisify(exec);
 import { writeFileSync } from "fs";
@@ -273,7 +274,7 @@ async function generateDependencyTree(
       lines.push("🔍 No dependencies or dependents found");
     }
   } catch (error) {
-    lines.push(`❌ Error generating tree: ${error.message}`);
+    lines.push(`❌ Error generating tree: ${getErrorMessage(error)}`);
   }
 
   return lines.join("\n");
@@ -382,7 +383,7 @@ async function generateDependencyGraph(
       }
     }
   } catch (error) {
-    lines.push(`❌ Error generating graph: ${error.message}`);
+    lines.push(`❌ Error generating graph: ${getErrorMessage(error)}`);
   }
 
   return lines.join("\n");
@@ -749,7 +750,7 @@ async function generateGraphvizDot(
     return lines.join("\n");
   } catch (error) {
     lines.push("digraph TaskDependencies {");
-    lines.push(`  error [label="Error: ${error.message}", color=red];`);
+    lines.push(`  error [label="Error: ${getErrorMessage(error)}", color=red];`);
     lines.push("}");
     return lines.join("\n");
   }
@@ -832,7 +833,7 @@ async function renderGraphvizFormat(
           };
         } catch (error) {
           return {
-            message: `✅ Rendered task dependency graph to: ${finalOutputPath} (failed to open: ${error})`,
+            message: `✅ Rendered task dependency graph to: ${finalOutputPath} (failed to open: ${getErrorMessage(error)})`,
             filePath: finalOutputPath,
           };
         }
@@ -844,13 +845,13 @@ async function renderGraphvizFormat(
       };
     } catch (error) {
       return {
-        message: `❌ Failed to render graph: ${error.message}`,
+        message: `❌ Failed to render graph: ${getErrorMessage(error)}`,
         filePath: "",
       };
     }
   } catch (error) {
     return {
-      message: `❌ Error generating graph: ${error.message}`,
+      message: `❌ Error generating graph: ${getErrorMessage(error)}`,
       filePath: "",
     };
   }

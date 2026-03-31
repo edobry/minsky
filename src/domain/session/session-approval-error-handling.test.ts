@@ -89,7 +89,9 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
         expect(error.resourceType).toBe("session");
         expect(error.resourceId).toBe("md#3283");
       } else {
-        throw new Error(`Expected ResourceNotFoundError, got ${error?.constructor?.name}`);
+        throw new Error(
+          `Expected ResourceNotFoundError, got ${error instanceof Error ? error.constructor.name : String(error)}`
+        );
       }
     }
   });
@@ -121,7 +123,9 @@ describe("Session Approval Error Handling (Task #358 Updated)", () => {
         expect(error.resourceType).toBe("session");
         expect(error.resourceId).toBe("md#100");
       } else {
-        throw new Error(`Expected ResourceNotFoundError, got ${error?.constructor?.name}`);
+        throw new Error(
+          `Expected ResourceNotFoundError, got ${error instanceof Error ? error.constructor.name : String(error)}`
+        );
       }
     }
   });

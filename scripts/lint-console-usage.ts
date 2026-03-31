@@ -191,13 +191,29 @@ class ConsoleUsageLinter {
   /**
    * Scan all files in the project
    */
+  /**
+   * Check if a file path should be excluded from scanning.
+   * Converts glob patterns to simple path substring checks for common patterns.
+   */
+  private isExcludedFile(filePath: string): boolean {
+    const normalizedPath = filePath.replace(/\\/g, "/");
+    return this.excludePatterns.some((pattern) => {
+      // Convert glob patterns like "**/tests/integration/**" to path substring checks
+      const innerPattern = pattern.replace(/^\*\*\//, "").replace(/\/\*\*$/, "");
+      return normalizedPath.includes(`/${innerPattern}/`) || normalizedPath.includes(`/${innerPattern}`);
+    });
+  }
+
   async scanProject(): Promise<void> {
     // Prefer scanning ONLY staged files in git (pre-commit friendly)
     const stagedFiles = this.getStagedSourceFiles();
 
     if (stagedFiles.length > 0) {
       for (const file of stagedFiles) {
-        this.scanFile(file);
+        // Apply exclude patterns to staged files too
+        if (!this.isExcludedFile(file)) {
+          this.scanFile(file);
+        }
       }
       return;
     }

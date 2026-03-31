@@ -171,7 +171,7 @@ export class UserManagementService {
     } catch (error) {
       this.logger.error("Failed to create user", {
         email: userData.email,
-        error: error.message,
+        error: error instanceof Error ? error.message : String(error),
       });
       this.metricsService.increment("user.create.error");
       throw error;
@@ -203,7 +203,10 @@ export class UserManagementService {
 
       return user;
     } catch (error) {
-      this.logger.error("Failed to retrieve user by ID", { userId: id, error: error.message });
+      this.logger.error("Failed to retrieve user by ID", {
+        userId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.metricsService.increment("user.get.error");
       throw error;
     }
@@ -219,7 +222,10 @@ export class UserManagementService {
       const user = await this.database.users.findByEmail(email);
       return user;
     } catch (error) {
-      this.logger.error("Failed to find user by email", { email, error: error.message });
+      this.logger.error("Failed to find user by email", {
+        email,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -275,7 +281,10 @@ export class UserManagementService {
       this.logger.info("User updated successfully", { userId: id });
       return updatedUser;
     } catch (error) {
-      this.logger.error("Failed to update user", { userId: id, error: error.message });
+      this.logger.error("Failed to update user", {
+        userId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.metricsService.increment("user.update.error");
       throw error;
     }
@@ -304,7 +313,10 @@ export class UserManagementService {
 
       this.logger.info("User deleted successfully", { userId: id });
     } catch (error) {
-      this.logger.error("Failed to delete user", { userId: id, error: error.message });
+      this.logger.error("Failed to delete user", {
+        userId: id,
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.metricsService.increment("user.delete.error");
       throw error;
     }
@@ -337,7 +349,9 @@ export class UserManagementService {
         hasPrevious,
       };
     } catch (error) {
-      this.logger.error("Failed to list users", { error: error.message });
+      this.logger.error("Failed to list users", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       this.metricsService.increment("user.list.error");
       throw error;
     }
@@ -353,7 +367,10 @@ export class UserManagementService {
       await this.updateUser(userId, { lastLogin: new Date() });
       this.metricsService.increment("user.login");
     } catch (error) {
-      this.logger.error("Failed to record login", { userId, error: error.message });
+      this.logger.error("Failed to record login", {
+        userId,
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -372,7 +389,9 @@ export class UserManagementService {
       this.metricsService.increment("user.stats.requested");
       return stats;
     } catch (error) {
-      this.logger.error("Failed to get user statistics", { error: error.message });
+      this.logger.error("Failed to get user statistics", {
+        error: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -426,7 +445,10 @@ export class UserManagementService {
       await this.cacheService.delete(`user:email:${email}`);
       await this.cacheService.delete(`user:search:${email}`);
     } catch (error) {
-      this.logger.warn("Failed to invalidate user caches", { email, error: error.message });
+      this.logger.warn("Failed to invalidate user caches", {
+        email,
+        error: error instanceof Error ? error.message : String(error),
+      });
     }
   }
 }
