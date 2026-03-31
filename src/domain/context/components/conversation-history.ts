@@ -184,10 +184,10 @@ export const ConversationHistoryComponent: ContextComponent = {
     }
 
     return {
-      id: this.id,
-      name: this.name,
       content: sections.join("\n"),
       metadata: {
+        componentId: "conversation-history",
+        generatedAt: new Date().toISOString(),
         totalMessages: history.totalMessages,
         relevantEntries: relevantEntries.length,
         timespan: history.timespan.duration,

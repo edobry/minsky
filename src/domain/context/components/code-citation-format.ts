@@ -34,6 +34,7 @@ Code chunks that you receive (via tool calls or from user) may include inline li
       content,
       metadata: {
         componentId: "code-citation-format",
+        generatedAt: new Date().toISOString(),
         tokenCount: content.length / 4, // Rough estimate
         sections: ["code_citation", "inline_line_numbers"],
       },
