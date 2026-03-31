@@ -185,6 +185,22 @@ Make edits to a task spec in a single edit_file call instead of multiple edit_fi
     parameters: TaskSearchReplaceSchema,
     handler: async (args: TaskSearchReplaceArgs): Promise<Record<string, any>> => {
       try {
+        // Validate required parameters to catch parameter naming mismatches early
+        if (args.search == null || typeof args.search !== "string") {
+          const receivedKeys = Object.keys(args).join(", ");
+          throw new Error(
+            `Missing required parameter "search". Received parameters: [${receivedKeys}]. ` +
+              `Expected: taskId, search, replace`
+          );
+        }
+        if (args.replace == null || typeof args.replace !== "string") {
+          const receivedKeys = Object.keys(args).join(", ");
+          throw new Error(
+            `Missing required parameter "replace". Received parameters: [${receivedKeys}]. ` +
+              `Expected: taskId, search, replace`
+          );
+        }
+
         log.debug("Starting task search_replace operation", { taskId: args.taskId });
 
         // Load current task spec content
