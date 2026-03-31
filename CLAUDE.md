@@ -15,8 +15,8 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/task-
 2. **Subagents** do implementation work in session directories: read files, edit code, run tests. Never edit session files from the main agent.
 3. After a subagent completes, the main agent verifies changes, runs tests, commits, and pushes.
 4. All file operations in sessions MUST use absolute paths.
-4. Use `git -C "<session-path>"` instead of `cd <path> && git` to avoid Claude Code security prompts.
-5. Prefer Minsky MCP tools over CLI for task/session operations to avoid shell parsing issues with `#` in task IDs.
+5. Use `git -C "<session-path>"` instead of `cd <path> && git` to avoid Claude Code security prompts.
+6. Prefer Minsky MCP tools over CLI for task/session operations to avoid shell parsing issues with `#` in task IDs.
 
 ## MCP Tools
 

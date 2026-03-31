@@ -58,3 +58,6 @@ virtual-*.test.ts
 .tmp/
 .mcp.json
 supabase/
+
+# installed agent skills (restore via postinstall)
+.agents/

@@ -8,6 +8,7 @@
     "lint:fix": "eslint . --fix",
     "lint:tests": "bun detect-placeholder-tests.ts",
     "prepare": "husky",
+    "postinstall": "npx skills experimental_install -y",
     "format": "prettier --write \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:check": "prettier --check \"**/*.{ts,js,json,md}\" --log-level silent",
     "format:all": "bun run format && bun run lint:fix",
