@@ -136,6 +136,7 @@ export async function sessionCommit(params: {
   noStage?: boolean;
 }): Promise<{
   success: boolean;
+  nothingToCommit?: boolean;
   commitHash: string;
   shortHash?: string;
   subject?: string;
@@ -163,13 +164,29 @@ export async function sessionCommit(params: {
 
   try {
     // Commit changes using session-scoped git command
-    const commitResult = await commitChangesFromParams({
-      message: params.message,
-      session: params.session, // Always use session context
-      all: params.all,
-      amend: params.amend,
-      noStage: params.noStage,
-    });
+    let commitResult!: { commitHash: string; message: string };
+    try {
+      commitResult = await commitChangesFromParams({
+        message: params.message,
+        session: params.session, // Always use session context
+        all: params.all,
+        amend: params.amend,
+        noStage: params.noStage,
+      });
+    } catch (commitErr: any) {
+      // Handle "nothing to commit" gracefully — not an error condition
+      if (commitErr?.cause === "NOTHING_TO_COMMIT" || commitErr?.message === "nothing to commit") {
+        log.debug("Nothing to commit in session", { session: params.session });
+        return {
+          success: true,
+          nothingToCommit: true,
+          commitHash: "",
+          message: "Nothing to commit, working tree clean",
+          pushed: false,
+        };
+      }
+      throw commitErr;
+    }
 
     // Always push changes in session context - commit and push should be atomic
     const pushResult = await pushFromParams({

@@ -444,14 +444,44 @@ export class GitService implements GitServiceInterface {
   async commit(message: string, repoPath?: string, amend: boolean = false): Promise<string> {
     const workdir = repoPath || process.cwd();
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await execAsync(`git -C ${workdir} commit ${amendFlag} -m "${message}"`);
 
-    // Extract commit hash from git output
-    const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
-    if (!match?.[1]) {
-      throw new Error("Failed to extract commit hash from git output");
+    let stdout!: string;
+    let stderr!: string;
+    try {
+      ({ stdout, stderr } = await execAsync(
+        `git -C ${workdir} commit ${amendFlag} -m "${message}"`
+      ));
+    } catch (err: any) {
+      // Check if "nothing to commit" — treat as a special non-error case
+      const errOutput = (err?.stderr || err?.stdout || err?.message || "").toString();
+      if (
+        errOutput.includes("nothing to commit") ||
+        errOutput.includes("nothing added to commit")
+      ) {
+        throw new MinskyError("nothing to commit", "NOTHING_TO_COMMIT");
+      }
+      throw err;
     }
-    return match[1];
+
+    // Extract commit hash from git output (stdout first, then stderr for hooks that redirect output)
+    const combinedOutput = `${stdout}\n${stderr || ""}`;
+    const match = combinedOutput.match(/\[.*\s+([a-f0-9]+)\]/);
+    if (match?.[1]) {
+      return match[1];
+    }
+
+    // Fall back to git log -1 to get the commit hash (handles cases where hook output obscures git output)
+    try {
+      const { stdout: logOutput } = await execAsync(`git -C ${workdir} log -1 --pretty=format:%H`);
+      const hash = logOutput.trim();
+      if (hash && /^[a-f0-9]{7,40}$/.test(hash)) {
+        return hash;
+      }
+    } catch (_logErr) {
+      // ignore log fallback error
+    }
+
+    throw new Error("Failed to extract commit hash from git output");
   }
 
   // Add methods for session update command
@@ -734,16 +764,46 @@ export class GitService implements GitServiceInterface {
     amend: boolean = false
   ): Promise<string> {
     const amendFlag = amend ? "--amend" : "";
-    const { stdout } = await deps.execAsync(
-      `git -C ${workdir} commit ${amendFlag} -m "${message}"`
-    );
 
-    // Extract commit hash from git output
-    const match = stdout.match(/\[.*\s+([a-f0-9]+)\]/);
-    if (!match?.[1]) {
-      throw new Error("Failed to extract commit hash from git output");
+    let stdout!: string;
+    let stderr!: string;
+    try {
+      ({ stdout, stderr } = await deps.execAsync(
+        `git -C ${workdir} commit ${amendFlag} -m "${message}"`
+      ));
+    } catch (err: any) {
+      // Check if "nothing to commit" — treat as a special non-error case
+      const errOutput = (err?.stderr || err?.stdout || err?.message || "").toString();
+      if (
+        errOutput.includes("nothing to commit") ||
+        errOutput.includes("nothing added to commit")
+      ) {
+        throw new MinskyError("nothing to commit", "NOTHING_TO_COMMIT");
+      }
+      throw err;
     }
-    return match[1];
+
+    // Extract commit hash from git output (stdout first, then stderr for hooks that redirect output)
+    const combinedOutput = `${stdout}\n${stderr || ""}`;
+    const match = combinedOutput.match(/\[.*\s+([a-f0-9]+)\]/);
+    if (match?.[1]) {
+      return match[1];
+    }
+
+    // Fall back to git log -1 to get the commit hash (handles cases where hook output obscures git output)
+    try {
+      const { stdout: logOutput } = await deps.execAsync(
+        `git -C ${workdir} log -1 --pretty=format:%H`
+      );
+      const hash = logOutput.trim();
+      if (hash && /^[a-f0-9]{7,40}$/.test(hash)) {
+        return hash;
+      }
+    } catch (_logErr) {
+      // ignore log fallback error
+    }
+
+    throw new Error("Failed to extract commit hash from git output");
   }
 
   /**
