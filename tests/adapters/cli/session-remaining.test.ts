@@ -65,20 +65,6 @@ describe("session workspace detection", () => {
   });
 });
 
-describe("session inspect command", () => {
-  test("placeholder test for inspect command", () => {
-    // TODO: Implement session inspect command tests
-    expect(true).toBe(true);
-  });
-});
-
-describe("session list operations", () => {
-  test("placeholder test for list operations", () => {
-    // TODO: Implement session list command tests
-    expect(true).toBe(true);
-  });
-});
-
 describe("session pr command", () => {
   let testData: SessionTestData;
 

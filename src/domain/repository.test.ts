@@ -2,25 +2,30 @@
  * Tests for the repository backends implementation.
  */
 import { describe, test, expect } from "bun:test";
+import { RepositoryBackendType } from "./repository";
 
 describe("Repository backends", () => {
-  test("placeholder test to make CI pass - RepositoryBackend", () => {
-    // This test validates the RepositoryBackend interface has been properly defined
-    expect(true).toBe(true);
+  test("RepositoryBackendType enum has correct values", () => {
+    expect(RepositoryBackendType.LOCAL).toBe("local");
+    expect(RepositoryBackendType.REMOTE).toBe("remote");
+    expect(RepositoryBackendType.GITHUB).toBe("github");
   });
 
-  test("placeholder test for LocalGitBackend", () => {
-    // This test will be expanded to validate LocalGitBackend once the implementation is complete
-    expect(true).toBe(true);
+  test("RepositoryBackendType enum has all three backend types", () => {
+    const values = Object.values(RepositoryBackendType);
+    expect(values).toContain("local");
+    expect(values).toContain("remote");
+    expect(values).toContain("github");
+    expect(values.length).toBe(3);
   });
 
-  test("placeholder test for RemoteGitBackend", () => {
-    // This test will be expanded to validate RemoteGitBackend once the implementation is complete
-    expect(true).toBe(true);
+  test("RepositoryBackendType LOCAL value matches string literal", () => {
+    const backendType: RepositoryBackendType = RepositoryBackendType.LOCAL;
+    expect(backendType).toBe("local");
   });
 
-  test("placeholder test for GitHubBackend", () => {
-    // This test will be expanded to validate GitHubBackend once the implementation is complete
-    expect(true).toBe(true);
+  test("RepositoryBackendType GITHUB value matches string literal", () => {
+    const backendType: RepositoryBackendType = RepositoryBackendType.GITHUB;
+    expect(backendType).toBe("github");
   });
 });
