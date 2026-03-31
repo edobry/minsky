@@ -725,6 +725,83 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     },
   });
 
+  // Register rules compile command
+  targetRegistry.registerCommand({
+    id: "rules.compile",
+    category: CommandCategory.RULES,
+    name: "compile",
+    description: "Compile rules into a monolithic file (e.g., AGENTS.md)",
+    parameters: {
+      target: {
+        schema: z.enum(["agents.md"]),
+        description: "Target file type to compile to (currently only agents.md is supported)",
+        required: true,
+      },
+      output: {
+        schema: z.string().optional(),
+        description:
+          "Output file path (defaults to AGENTS.md in workspace root for agents.md target)",
+        required: false,
+      },
+      dryRun: {
+        schema: z.boolean(),
+        description: "Print compiled content to output without writing to file",
+        required: false,
+        defaultValue: false,
+      },
+    },
+    execute: async (params: any, ctx?: CommandExecutionContext) => {
+      log.debug("Executing rules.compile command", { params });
+
+      const typedParams = params as { target: "agents.md"; output?: string; dryRun?: boolean };
+
+      try {
+        const { compileMonolithic } = await import("../../../domain/rules/compile-monolithic");
+
+        // Resolve workspace path
+        const workspacePath = await resolveWorkspacePath({});
+        const ruleService = new RuleService(workspacePath);
+
+        const result = await compileMonolithic(ruleService, {
+          target: {
+            type: typedParams.target,
+            outputPath: typedParams.output,
+          },
+          dryRun: typedParams.dryRun || false,
+          workspacePath,
+        });
+
+        if (result.dryRun) {
+          return {
+            success: true,
+            dryRun: true,
+            content: result.content,
+            outputPath: result.outputPath,
+            rulesIncluded: result.rulesIncluded,
+            rulesSkipped: result.rulesSkipped,
+          };
+        }
+
+        // Write the output file
+        await fs.writeFile(result.outputPath, result.content, "utf-8");
+
+        return {
+          success: true,
+          dryRun: false,
+          outputPath: result.outputPath,
+          rulesIncluded: result.rulesIncluded,
+          rulesSkipped: result.rulesSkipped,
+        };
+      } catch (error) {
+        log.error("Failed to compile rules", {
+          error: getErrorMessage(error),
+          target: typedParams.target,
+        });
+        throw error;
+      }
+    },
+  });
+
   // Register rules search command
   targetRegistry.registerCommand({
     id: "rules.search",
