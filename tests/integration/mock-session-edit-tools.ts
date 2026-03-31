@@ -228,9 +228,9 @@ Return the complete merged code:`;
     const duration = 250; // Mock timing
     console.log("\n❌ MORPH API ERROR:");
     console.log("   Duration:", duration, "ms");
-    console.log("   Error type:", error.constructor.name);
-    console.log("   Error message:", error.message);
-    console.log("   Error stack:", error.stack);
+    console.log("   Error type:", error instanceof Error ? error.constructor.name : "unknown");
+    console.log("   Error message:", error instanceof Error ? error.message : String(error));
+    console.log("   Error stack:", error instanceof Error ? error.stack : undefined);
     console.log("=".repeat(80));
     console.log("🔚 END MORPH API ANALYSIS (ERROR)");
     console.log(`${"=".repeat(80)}\n`);

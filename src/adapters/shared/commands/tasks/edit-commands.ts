@@ -6,6 +6,7 @@
  */
 import { type CommandExecutionContext } from "../../command-registry";
 import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
+import { getErrorMessage } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import { tasksEditParams } from "./task-parameters";
 import { getTaskFromParams, updateTaskFromParams } from "../../../../domain/tasks";
@@ -136,7 +137,7 @@ export class TasksEditCommand extends BaseTaskCommand {
           this.debug(`Read spec content from file: ${params.specFile}`);
         } catch (error) {
           throw new ValidationError(
-            `Failed to read spec file "${params.specFile}": ${error.message}`
+            `Failed to read spec file "${params.specFile}": ${getErrorMessage(error)}`
           );
         }
       } else if (params.spec) {
@@ -246,31 +247,32 @@ export class TasksEditCommand extends BaseTaskCommand {
         params.json
       );
     } catch (error) {
-      this.debug(`Task edit failed: ${error.message}`);
+      this.debug(`Task edit failed: ${getErrorMessage(error)}`);
 
       // Ensure non-zero exit code
       process.exitCode = 1;
 
       // Build actionable error message for non-JSON output
       if (!params.json) {
+        const errorMsg = getErrorMessage(error);
         let errorMessage = "";
-        if (error.message.includes("Backend") && error.message.includes("does not support")) {
+        if (errorMsg.includes("Backend") && errorMsg.includes("does not support")) {
           errorMessage = chalk.red(
             `❌ Failed to update task specification: Backend does not support specification editing`
           );
           errorMessage += `\n${chalk.yellow(
             "   Tip: Some backends may have limited editing capabilities. Check backend documentation."
           )}`;
-        } else if (error.message.includes("Failed to read spec file")) {
-          errorMessage = chalk.red(`❌ Failed to update task specification: ${error.message}`);
+        } else if (errorMsg.includes("Failed to read spec file")) {
+          errorMessage = chalk.red(`❌ Failed to update task specification: ${errorMsg}`);
           errorMessage += `\n${chalk.yellow("   Tip: Ensure the file exists and you have read permissions.")}`;
         } else {
-          errorMessage = chalk.red(`❌ Failed to update task: ${error.message}`);
+          errorMessage = chalk.red(`❌ Failed to update task: ${errorMsg}`);
         }
 
         // Create a new error with the formatted message
         const formattedError = new Error(errorMessage);
-        formattedError.stack = error.stack;
+        formattedError.stack = error instanceof Error ? error.stack : undefined;
         throw formattedError;
       }
 
@@ -328,7 +330,9 @@ export class TasksEditCommand extends BaseTaskCommand {
         await fs.unlink(tempFile);
       } catch (unlinkError) {
         // Ignore cleanup errors
-        this.debug(`Failed to cleanup temp file: ${unlinkError.message}`);
+        this.debug(
+          `Failed to cleanup temp file: ${unlinkError instanceof Error ? unlinkError.message : String(unlinkError)}`
+        );
       }
 
       return editedContent;
@@ -339,7 +343,7 @@ export class TasksEditCommand extends BaseTaskCommand {
       } catch (unlinkError) {
         // Ignore cleanup errors
       }
-      throw new ValidationError(`Failed to open editor: ${error.message}`);
+      throw new ValidationError(`Failed to open editor: ${getErrorMessage(error)}`);
     }
   }
 

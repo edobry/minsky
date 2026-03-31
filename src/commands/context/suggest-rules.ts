@@ -57,7 +57,9 @@ based on rule descriptions, tags, and your specific context.
       try {
         await executeSuggestRules(query, options);
       } catch (error) {
-        log.cliError(`Failed to suggest rules: ${error.message}`);
+        log.cliError(
+          `Failed to suggest rules: ${error instanceof Error ? error.message : String(error)}`
+        );
         process.exit(1);
       }
     });

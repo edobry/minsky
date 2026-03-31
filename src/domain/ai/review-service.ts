@@ -125,7 +125,9 @@ export class AIReviewService {
       };
     } catch (error) {
       log.error("AI review failed", { error });
-      throw new Error(`AI review failed: ${error.message}`);
+      throw new Error(
+        `AI review failed: ${error instanceof Error ? error.message : String(error)}`
+      );
     }
   }
 

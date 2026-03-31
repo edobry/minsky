@@ -133,8 +133,9 @@ describe("Migration Backend Validation Bug Fix", () => {
         } catch (error) {
           threwError = true;
           // The command should throw an error when validation fails
-          expect(error.message).toContain("Post-migration validation failed");
-          expect(error.message).toContain("2 tasks failed validation");
+          const msg = error instanceof Error ? error.message : String(error);
+          expect(msg).toContain("Post-migration validation failed");
+          expect(msg).toContain("2 tasks failed validation");
         }
 
         // Should either throw error or return failure result
@@ -193,8 +194,9 @@ describe("Migration Backend Validation Bug Fix", () => {
         } catch (error) {
           threwError = true;
           // The command should throw an error when validation fails
-          expect(error.message).toContain("Post-migration validation failed");
-          expect(error.message).toContain("1 tasks failed validation");
+          const msg = error instanceof Error ? error.message : String(error);
+          expect(msg).toContain("Post-migration validation failed");
+          expect(msg).toContain("1 tasks failed validation");
         }
 
         // Should either throw error or return failure result

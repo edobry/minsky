@@ -127,7 +127,9 @@ describe("config unset command", () => {
       await executeConfigUnset("key", {}, deps);
       expect(true).toBe(false); // Should not reach this line
     } catch (error) {
-      expect(error.message).toBe(ERROR_MESSAGES.FAILED_UNSET_CONFIG_PERMISSION);
+      expect(error instanceof Error ? error.message : String(error)).toBe(
+        ERROR_MESSAGES.FAILED_UNSET_CONFIG_PERMISSION
+      );
     }
   });
 
@@ -256,7 +258,7 @@ describe("config unset command", () => {
       await executeConfigUnset("key", {}, deps);
       expect(true).toBe(false); // Should not reach this line
     } catch (error) {
-      expect(error.message).toBe("Unexpected error");
+      expect(error instanceof Error ? error.message : String(error)).toBe("Unexpected error");
     }
   });
 
@@ -285,7 +287,9 @@ describe("config unset command", () => {
       await executeConfigUnset("key", { json: true }, deps);
       expect(true).toBe(false); // Should not reach this line
     } catch (error) {
-      expect(error.message).toBe(ERROR_MESSAGES.FAILED_UNSET_CONFIG_PERMISSION);
+      expect(error instanceof Error ? error.message : String(error)).toBe(
+        ERROR_MESSAGES.FAILED_UNSET_CONFIG_PERMISSION
+      );
     }
 
     expect(mockConsoleLog).toHaveBeenCalledWith(

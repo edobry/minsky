@@ -248,7 +248,12 @@ export interface GitResult {
  * Extracted to avoid duplicating this check in `commit` and `commitWithDependencies`.
  */
 function classifyNothingToCommit(err: unknown): boolean {
-  const msg = ((err as any)?.stderr || (err as any)?.stdout || (err as any)?.message || "").toString();
+  const msg = (
+    (err as any)?.stderr ||
+    (err as any)?.stdout ||
+    (err as any)?.message ||
+    ""
+  ).toString();
   return msg.includes("nothing to commit") || msg.includes("nothing added to commit");
 }
 

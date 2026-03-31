@@ -492,7 +492,9 @@ export async function createTaskFromTitleAndDescription(
     try {
       specContent = await fs.readFile(validParams.specPath, "utf-8");
     } catch (error) {
-      throw new Error(`Failed to read spec from file ${validParams.specPath}: ${error.message}`);
+      throw new Error(
+        `Failed to read spec from file ${validParams.specPath}: ${getErrorMessage(error)}`
+      );
     }
   }
 

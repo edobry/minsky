@@ -13,6 +13,7 @@ import {
   deleteTaskFromParams,
 } from "../../../../domain/tasks";
 import { ValidationError, ResourceNotFoundError } from "../../../../errors/index";
+import { getErrorMessage } from "../../../../errors/index";
 import { BaseTaskCommand, type BaseTaskParams } from "./base-task-command";
 import {
   tasksListParams,
@@ -223,7 +224,7 @@ export class TasksCreateCommand extends BaseTaskCommand {
         params.json
       );
     } catch (error) {
-      this.debug(`Task creation failed: ${error.message}`);
+      this.debug(`Task creation failed: ${getErrorMessage(error)}`);
 
       // Ensure non-zero exit code
       process.exitCode = 1;
@@ -231,16 +232,17 @@ export class TasksCreateCommand extends BaseTaskCommand {
       // Build actionable error message
       if (!params.json) {
         const { default: chalk } = await import("chalk");
-        let errorMessage = chalk.red(`❌ Failed to create task: ${error.message}`);
+        const errorMsg = getErrorMessage(error);
+        let errorMessage = chalk.red(`❌ Failed to create task: ${errorMsg}`);
 
-        if (error.message.includes("spec from file")) {
+        if (errorMsg.includes("spec from file")) {
           errorMessage += `\n${chalk.yellow(
             "   Tip: Check that the file exists and you have read permissions."
           )}`;
         }
 
         const formattedError = new Error(errorMessage);
-        formattedError.stack = error.stack;
+        formattedError.stack = error instanceof Error ? error.stack : undefined;
         throw formattedError;
       }
 
