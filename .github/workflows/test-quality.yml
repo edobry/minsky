@@ -25,22 +25,22 @@ jobs:
 
       - name: Detect placeholder tests
         run: |
-          if grep -r "expect(true).toBe(true)" --include="*.test.ts" --include="*.test.js" .; then
+          if grep -r --exclude-dir=node_modules "expect(true).toBe(true)" --include="*.test.ts" --include="*.test.js" .; then
             echo "::error::Placeholder tests detected. Please replace with real tests."
             exit 1
           fi
 
-          if grep -r "test(.*todo.*)" --include="*.test.ts" --include="*.test.js" .; then
+          if grep -r --exclude-dir=node_modules "test(.*todo.*)" --include="*.test.ts" --include="*.test.js" .; then
             echo "::error::TODO tests detected. Please implement proper tests."
             exit 1
           fi
 
-          if grep -r "test(.*mock.*)" --include="*.test.ts" --include="*.test.js" .; then
+          if grep -r --exclude-dir=node_modules "test(.*mock.*)" --include="*.test.ts" --include="*.test.js" .; then
             echo "::error::Mock placeholder tests detected. Please implement proper tests."
             exit 1
           fi
 
-          if grep -r "test(.*placeholder.*)" --include="*.test.ts" --include="*.test.js" .; then
+          if grep -r --exclude-dir=node_modules "test(.*placeholder.*)" --include="*.test.ts" --include="*.test.js" .; then
             echo "::error::Placeholder tests detected. Please implement proper tests."
             exit 1
           fi
