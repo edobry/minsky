@@ -50,7 +50,7 @@ async function migrateTasklessSessions(
 
   log.cli("🔍 Starting taskless sessions migration scan...");
 
-  const sessionDB = createSessionProvider();
+  const sessionDB = await createSessionProvider();
   const gitService = createGitService();
 
   // Get all sessions
