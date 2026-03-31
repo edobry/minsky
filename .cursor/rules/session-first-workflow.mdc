@@ -196,8 +196,3 @@ When working with code and tests:
 - **Absolute paths eliminate ambiguity** about which workspace is being modified.
 
 ---
-
-- It improves code quality by addressing linter issues proactively.
-- **Absolute paths eliminate ambiguity** about which workspace is being modified.
-
----

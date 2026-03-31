@@ -1,4 +1,5 @@
 ---
+name: Bun Over Node
 description: Use this when running bun/nodejs commands, or when referencing nodejs in code/configuration.
 globs:
 alwaysApply: true

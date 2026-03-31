@@ -1,4 +1,5 @@
 ---
+name: Minsky Workflow Orchestrator
 description: REQUIRED entry point for understanding the Minsky workflow system including the git approve command for PR merging
 globs:
 alwaysApply: false

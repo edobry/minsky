@@ -1,4 +1,5 @@
 ---
+name: Variable Naming Protocol
 description: Use when encountering variable naming linter errors or "not defined" errors before changing variable names
 alwaysApply: true
 ---

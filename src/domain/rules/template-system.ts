@@ -11,6 +11,7 @@ import {
   createCommandGeneratorService,
 } from "./command-generator";
 import { CommandCategory } from "../../adapters/shared/command-registry";
+import type { RuleFormat } from "./types";
 
 /**
  * Configuration for rule generation
@@ -24,8 +25,8 @@ export interface RuleGenerationConfig {
   mcpTransport: "stdio" | "http";
   /** Whether to prefer MCP in hybrid mode */
   preferMcp: boolean;
-  /** Rule format (cursor or openai) */
-  ruleFormat: "cursor" | "openai";
+  /** Rule format (cursor or generic) */
+  ruleFormat: RuleFormat;
   /** Output directory for generated files */
   outputDir: string;
 }
