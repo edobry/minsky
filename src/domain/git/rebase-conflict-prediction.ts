@@ -44,7 +44,7 @@ export async function predictRebaseConflictsImpl(
     const { stdout: mergeBase } = await deps.execAsync(
       `git -C ${repoPath} merge-base ${baseBranch} ${featureBranch}`
     );
-    const commonAncestor = mergeBase.trim();
+    const commonAncestor = mergeBase.toString().trim();
 
     // Get commits in feature branch that are not in base branch
     const { stdout: commitsOutput } = await deps.execAsync(
@@ -53,6 +53,7 @@ export async function predictRebaseConflictsImpl(
 
     // Parse commit information
     const commitInfos = commitsOutput
+      .toString()
       .trim()
       .split("\n")
       .filter(Boolean)

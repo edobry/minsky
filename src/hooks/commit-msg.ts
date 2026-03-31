@@ -198,11 +198,11 @@ Examples:
   private getCurrentBranch(): string {
     try {
       const result = execSync("git branch --show-current", { encoding: "utf8" });
-      return typeof result === "string" ? result.trim() : "unknown";
+      return result.toString().trim();
     } catch (error) {
       try {
         const result = execSync("git rev-parse --abbrev-ref HEAD", { encoding: "utf8" });
-        return typeof result === "string" ? result.trim() : "unknown";
+        return result.toString().trim();
       } catch {
         return "unknown";
       }
