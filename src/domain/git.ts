@@ -244,16 +244,23 @@ export interface GitResult {
 
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;
-  private sessionDb: SessionProviderInterface;
+  private sessionDb: SessionProviderInterface | null = null;
 
   constructor(baseDir?: string) {
     this.baseDir = baseDir || getMinskyStateDir();
-    this.sessionDb = createSessionProvider({ dbPath: process.cwd() });
+  }
+
+  private async getSessionDb(): Promise<SessionProviderInterface> {
+    if (!this.sessionDb) {
+      this.sessionDb = await createSessionProvider({ dbPath: process.cwd() });
+    }
+    return this.sessionDb;
   }
 
   // Add public method to get session record
   public async getSessionRecord(sessionName: string): Promise<any | undefined> {
-    return this.sessionDb.getSession(sessionName);
+    const db = await this.getSessionDb();
+    return db.getSession(sessionName);
   }
 
   private async ensureBaseDir(): Promise<void> {
@@ -300,7 +307,7 @@ export class GitService implements GitServiceInterface {
     await this.ensureBaseDir();
     log.debug("Getting session for branch", { session: options.session });
 
-    const record = await this.sessionDb.getSession(options.session);
+    const record = await (await this.getSessionDb()).getSession(options.session);
     if (!record) {
       throw new Error(`Session '${options.session}' not found.`);
     }
@@ -344,9 +351,9 @@ export class GitService implements GitServiceInterface {
 
     const deps: PrDependencies = {
       execAsync,
-      getSession: async (name: string) => this.sessionDb.getSession(name),
+      getSession: async (name: string) => (await this.getSessionDb()).getSession(name),
       getSessionWorkdir: (session: string) => this.getSessionWorkdir(session),
-      getSessionByTaskId: async (taskId: string) => this.sessionDb.getSessionByTaskId?.(taskId),
+      getSessionByTaskId: async (taskId: string) => (await this.getSessionDb()).getSessionByTaskId?.(taskId),
     };
 
     // Git layer should only handle git operations, not task management
@@ -516,7 +523,7 @@ export class GitService implements GitServiceInterface {
 
     return pushImpl(options, {
       execAsync,
-      getSession: (sessionName: string) => this.sessionDb.getSession(sessionName),
+      getSession: async (sessionName: string) => (await this.getSessionDb()).getSession(sessionName),
       getSessionWorkdir: (sessionName: string) => this.getSessionWorkdir(sessionName),
     });
   }
@@ -632,7 +639,7 @@ export class GitService implements GitServiceInterface {
 
   async preparePr(options: PreparePrOptions): Promise<PreparePrResult> {
     return preparePrImpl(options, {
-      sessionDb: this.sessionDb,
+      sessionDb: await this.getSessionDb(),
       getSessionWorkdir: this.getSessionWorkdir.bind(this),
       execInRepository: this.execInRepository.bind(this),
       push: this.push.bind(this),
@@ -654,7 +661,7 @@ export class GitService implements GitServiceInterface {
 
   async mergePr(options: MergePrOptions): Promise<MergePrResult> {
     return mergePrImpl(options, {
-      sessionDb: this.sessionDb,
+      sessionDb: await this.getSessionDb(),
       getSessionWorkdir: this.getSessionWorkdir.bind(this),
       execInRepository: this.execInRepository.bind(this),
     });
