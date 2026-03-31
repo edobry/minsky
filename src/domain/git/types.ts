@@ -6,6 +6,8 @@ import {
   SmartUpdateResult,
 } from "./conflict-detection";
 
+export type { EnhancedMergeResult } from "./conflict-detection";
+
 /**
  * Interface for git service operations
  * This defines the contract for git-related functionality

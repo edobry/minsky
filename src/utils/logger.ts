@@ -6,7 +6,7 @@ import type {} from "logform";
 // Removed config dependency to avoid circular imports - logger should be independently configurable
 
 // Logger configuration interface
-interface LoggerConfig {
+export interface LoggerConfig {
   mode: "HUMAN" | "STRUCTURED" | "auto";
   level: "debug" | "info" | "warn" | "error";
   enableAgentLogs: boolean;

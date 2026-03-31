@@ -5,6 +5,7 @@ import type {
   CreateTaskOptions,
   DeleteTaskOptions,
 } from "./types";
+export type { TaskBackend } from "./types";
 import type { TaskServiceInterface } from "../tasks";
 import { promises as fs } from "fs";
 import { getTasksFilePath } from "./taskIO";
