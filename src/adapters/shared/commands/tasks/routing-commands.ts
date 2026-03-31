@@ -79,6 +79,12 @@ export function createTasksAvailableCommand() {
     description: "Show tasks currently available to work on (unblocked by dependencies)",
     parameters: tasksAvailableParams,
     execute: async (params: any) => {
+      // Apply nullish coalescing defaults for optional params (Zod defaults don't apply via MCP)
+      const limit = params.limit ?? 20;
+      const minReadiness = params.minReadiness ?? 1.0;
+      const showEffort = params.showEffort ?? false;
+      const showPriority = params.showPriority ?? false;
+
       // Get database connection using PersistenceService
       const { PersistenceService } = await import("../../../../domain/persistence/service");
 
@@ -111,9 +117,9 @@ export function createTasksAvailableCommand() {
         availableTasks = await routingService.findAvailableTasks({
           statusFilter,
           backendFilter: params.backend,
-          limit: params.limit,
-          showEffort: params.showEffort,
-          showPriority: params.showPriority,
+          limit,
+          showEffort,
+          showPriority,
         });
       } catch (error) {
         if (error instanceof Error && error.message.includes("no such table: task_relationships")) {
@@ -128,7 +134,7 @@ export function createTasksAvailableCommand() {
 
       // Filter by readiness score (default 1.0 = only truly available tasks)
       const readyTasks = availableTasks.filter(
-        (task) => task.readinessScore >= params.minReadiness
+        (task) => task.readinessScore >= minReadiness
       );
 
       if (params.json) {
@@ -154,7 +160,7 @@ export function createTasksAvailableCommand() {
         (t) => t.readinessScore > 0.5 && t.readinessScore < 1.0
       );
       const lowReadiness = readyTasks.filter(
-        (t) => t.readinessScore <= 0.5 && t.readinessScore >= params.minReadiness
+        (t) => t.readinessScore <= 0.5 && t.readinessScore >= minReadiness
       );
 
       if (fullyReady.length > 0) {
