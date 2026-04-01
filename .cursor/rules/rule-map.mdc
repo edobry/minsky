@@ -2,6 +2,7 @@
 description:
 globs:
 alwaysApply: false
+tags: [meta]
 ---
 # Rule Map: Best Practices and Canonical Rules
 

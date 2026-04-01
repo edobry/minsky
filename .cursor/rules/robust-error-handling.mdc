@@ -2,6 +2,7 @@
 description: Use when handling errors or exceptions. Apply alongside dont-ignore-errors when implementing error recovery.
 globs:
 alwaysApply: false
+tags: [safety]
 ---
 # Robust Error Handling
 

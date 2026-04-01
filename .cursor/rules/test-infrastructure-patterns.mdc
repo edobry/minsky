@@ -1,3 +1,6 @@
+---
+tags: [testing]
+---
 # Test Infrastructure Patterns
 
 This rule establishes patterns for test infrastructure, utilities, and organization to ensure consistent, maintainable testing practices.

@@ -2,6 +2,7 @@
 description: Use this when working with any command that outputs JSON, or when planning to use grep/awk/sed
 globs:
 alwaysApply: false
+tags: [tool-usage]
 ---
 # JSON Parsing Best Practices
 

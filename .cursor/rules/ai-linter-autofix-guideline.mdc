@@ -2,6 +2,7 @@
 description: Use this when dealing with code formatting issues and linter errors in general
 globs:
 alwaysApply: false
+tags: [tool-usage]
 ---
 # AI Guideline: Linter Autofixable Formatting
 

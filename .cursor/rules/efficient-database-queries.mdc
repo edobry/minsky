@@ -1,5 +1,6 @@
 ---
 description: Best practices for efficient database queries, avoiding N+1 problems and I/O in hot loops
+tags: [code-style]
 ---
 
 # Efficient Database Queries

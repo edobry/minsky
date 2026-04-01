@@ -1,3 +1,6 @@
+---
+tags: [code-style]
+---
 # Codemods Directory Standards
 
 All codemods in the `codemods/` directory must follow these mandatory standards established in Task #178.

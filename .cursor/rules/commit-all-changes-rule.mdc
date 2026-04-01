@@ -2,6 +2,7 @@
 description: "REQUIRED when making any code changes. Ensures all changes are automatically committed and pushed without explicit user request."
 globs: null
 alwaysApply: true
+tags: [workflow, preferences]
 ---
 # Commit All Changes Rule
 

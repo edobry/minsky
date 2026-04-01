@@ -2,6 +2,7 @@
 name: User Preferences
 description: "Communication and workflow preferences: direct action, professional tone, no emojis, auto-commit changes, verify before claiming completion."
 alwaysApply: true
+tags: [preferences]
 ---
 
 # User Preferences
