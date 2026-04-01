@@ -50,6 +50,11 @@ import {
 import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
 import { getConfiguration } from "../../../domain/configuration";
 import fs from "fs/promises";
+import fsSync from "fs";
+import { join } from "path";
+import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
+import { RULE_PRESETS } from "../../../domain/configuration/schemas/rules";
+import { resolveActiveRules } from "../../../domain/rules/rule-selection";
 import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
 import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
 import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
@@ -907,7 +912,13 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         }
 
         // Enhance results with rule details (similar to tasks.search)
-        const enhancedResults = [];
+        const enhancedResults: Array<{
+          id: string;
+          score: number;
+          name: string;
+          description: string;
+          format: string;
+        }> = [];
         for (const result of results) {
           try {
             // Get full rule details
@@ -951,4 +962,181 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       }
     },
   });
+
+  // ─── Rule selection commands ────────────────────────────────────────────────
+
+  // Register rules.enable command
+  targetRegistry.registerCommand({
+    id: "rules.enable",
+    category: CommandCategory.RULES,
+    name: "enable",
+    description: "Add a rule ID to the enabled list in the project config",
+    parameters: {
+      ruleId: {
+        schema: z.string(),
+        description: "The rule ID to enable",
+        required: true,
+      },
+    },
+    execute: async (params: { ruleId: string }) => {
+      const workspacePath = await resolveWorkspacePath({});
+      const config = await readRulesSelectionConfig(workspacePath);
+
+      if (!config.enabled.includes(params.ruleId)) {
+        config.enabled.push(params.ruleId);
+      }
+      // Remove from disabled if present
+      config.disabled = config.disabled.filter((id) => id !== params.ruleId);
+
+      await writeRulesSelectionConfig(workspacePath, config);
+      return {
+        success: true,
+        ruleId: params.ruleId,
+        enabled: config.enabled,
+        disabled: config.disabled,
+      };
+    },
+  });
+
+  // Register rules.disable command
+  targetRegistry.registerCommand({
+    id: "rules.disable",
+    category: CommandCategory.RULES,
+    name: "disable",
+    description: "Add a rule ID to the disabled list in the project config",
+    parameters: {
+      ruleId: {
+        schema: z.string(),
+        description: "The rule ID to disable",
+        required: true,
+      },
+    },
+    execute: async (params: { ruleId: string }) => {
+      const workspacePath = await resolveWorkspacePath({});
+      const config = await readRulesSelectionConfig(workspacePath);
+
+      if (!config.disabled.includes(params.ruleId)) {
+        config.disabled.push(params.ruleId);
+      }
+      // Remove from enabled if present
+      config.enabled = config.enabled.filter((id) => id !== params.ruleId);
+
+      await writeRulesSelectionConfig(workspacePath, config);
+      return {
+        success: true,
+        ruleId: params.ruleId,
+        enabled: config.enabled,
+        disabled: config.disabled,
+      };
+    },
+  });
+
+  // Register rules.config command
+  targetRegistry.registerCommand({
+    id: "rules.config",
+    category: CommandCategory.RULES,
+    name: "config",
+    description: "Show current rule selection state (presets, enabled, disabled)",
+    parameters: {},
+    execute: async () => {
+      const workspacePath = await resolveWorkspacePath({});
+      const config = await readRulesSelectionConfig(workspacePath);
+
+      // Get all rule IDs to compute active count
+      const ruleService = new RuleService(workspacePath);
+      const allRules = await ruleService.listRules({});
+      const allRuleIds = allRules.map((r) => r.id);
+      const activeIds = resolveActiveRules(allRuleIds, config);
+
+      return {
+        success: true,
+        presets: config.presets,
+        enabled: config.enabled,
+        disabled: config.disabled,
+        activeRuleCount: activeIds.size,
+        totalRuleCount: allRuleIds.length,
+      };
+    },
+  });
+
+  // Register rules.presets command
+  targetRegistry.registerCommand({
+    id: "rules.presets",
+    category: CommandCategory.RULES,
+    name: "presets",
+    description: "List available rule presets with their rule counts",
+    parameters: {},
+    execute: async () => {
+      const presets = Object.entries(RULE_PRESETS).map(([name, ruleIds]) => ({
+        name,
+        ruleCount: ruleIds.length,
+        rules: ruleIds,
+      }));
+      return { success: true, presets };
+    },
+  });
+}
+
+// ─── Config read/write helpers ──────────────────────────────────────────────
+
+interface RulesSelectionConfig {
+  presets: string[];
+  enabled: string[];
+  disabled: string[];
+}
+
+/**
+ * Read the rules selection config (presets/enabled/disabled) from the project
+ * config file (.minsky/config.yaml). Returns defaults if file doesn't exist.
+ */
+async function readRulesSelectionConfig(workspacePath: string): Promise<RulesSelectionConfig> {
+  const configPath = join(workspacePath, ".minsky", "config.yaml");
+  let raw: any = {};
+
+  try {
+    const content = String(await fs.readFile(configPath, "utf8"));
+    raw = parseYaml(content) || {};
+  } catch {
+    // File doesn't exist or is unreadable — start from empty config
+  }
+
+  const rules = raw?.rules || {};
+  return {
+    presets: Array.isArray(rules.presets) ? rules.presets : [],
+    enabled: Array.isArray(rules.enabled) ? rules.enabled : [],
+    disabled: Array.isArray(rules.disabled) ? rules.disabled : [],
+  };
+}
+
+/**
+ * Write the rules selection config back to the project config file.
+ */
+async function writeRulesSelectionConfig(
+  workspacePath: string,
+  config: RulesSelectionConfig
+): Promise<void> {
+  const minskyDir = join(workspacePath, ".minsky");
+  const configPath = join(minskyDir, "config.yaml");
+
+  let raw: any = {};
+  try {
+    const content = String(await fs.readFile(configPath, "utf8"));
+    raw = parseYaml(content) || {};
+  } catch {
+    // File doesn't exist — create fresh
+  }
+
+  if (!raw.rules) raw.rules = {};
+  raw.rules.presets = config.presets;
+  raw.rules.enabled = config.enabled;
+  raw.rules.disabled = config.disabled;
+
+  // Ensure directory exists
+  try {
+    await fs.mkdir(minskyDir, { recursive: true });
+  } catch {
+    // Already exists
+  }
+
+  await fs.writeFile(configPath, stringifyYaml(raw, { indent: 2 }), "utf8");
 }
