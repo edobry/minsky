@@ -6,18 +6,13 @@
  */
 import { execAsync } from "../../utils/exec";
 import { log } from "../../utils/logger";
-import type { ConflictFile } from "./conflict-detection";
-
-export interface MergeSimulationDependencies {
-  execAsync: typeof execAsync;
-  analyzeConflictFiles: (repoPath: string) => Promise<ConflictFile[]>;
-}
+import type { ConflictFile } from "./conflict-detection-types";
+import { analyzeConflictFiles } from "./conflict-analysis-operations";
 
 export async function simulateMergeImpl(
   repoPath: string,
   sourceBranch: string,
-  targetBranch: string,
-  deps: MergeSimulationDependencies
+  targetBranch: string
 ): Promise<ConflictFile[]> {
   log.debug("Simulating merge", { repoPath, sourceBranch, targetBranch });
 
@@ -27,29 +22,29 @@ export async function simulateMergeImpl(
 
     try {
       // Create temp branch from target
-      await deps.execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${targetBranch}`);
+      await execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${targetBranch}`);
 
       // Attempt merge
       try {
-        await deps.execAsync(`git -C ${repoPath} merge --no-commit --no-ff ${sourceBranch}`);
+        await execAsync(`git -C ${repoPath} merge --no-commit --no-ff ${sourceBranch}`);
 
         // If merge succeeds, reset and return no conflicts
-        await deps.execAsync(`git -C ${repoPath} reset --hard HEAD`);
+        await execAsync(`git -C ${repoPath} reset --hard HEAD`);
         return [];
       } catch (mergeError) {
         // Merge failed, analyze conflicts
-        const conflictFiles = await deps.analyzeConflictFiles(repoPath);
+        const conflictFiles = await analyzeConflictFiles(repoPath);
 
         // Only abort merge if there's actually a merge in progress
         // --no-commit flag means merge might not have started a transaction
         try {
           // Check if there's a merge to abort by looking for MERGE_HEAD
-          await deps.execAsync(`test -f ${repoPath}/.git/MERGE_HEAD`);
+          await execAsync(`test -f ${repoPath}/.git/MERGE_HEAD`);
           // If MERGE_HEAD exists, we can safely abort
-          await deps.execAsync(`git -C ${repoPath} merge --abort`);
+          await execAsync(`git -C ${repoPath} merge --abort`);
         } catch (mergeHeadError) {
           // No MERGE_HEAD means no merge transaction to abort, just reset
-          await deps.execAsync(`git -C ${repoPath} reset --hard HEAD`);
+          await execAsync(`git -C ${repoPath} reset --hard HEAD`);
         }
 
         return conflictFiles;
@@ -57,8 +52,8 @@ export async function simulateMergeImpl(
     } finally {
       // Clean up temporary branch
       try {
-        await deps.execAsync(`git -C ${repoPath} checkout ${targetBranch}`);
-        await deps.execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
+        await execAsync(`git -C ${repoPath} checkout ${targetBranch}`);
+        await execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
       } catch (cleanupError) {
         log.warn("Failed to clean up temporary branch", {
           tempBranch,
