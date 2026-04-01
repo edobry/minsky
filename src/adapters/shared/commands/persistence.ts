@@ -20,10 +20,8 @@ import { PersistenceProviderFactory } from "../../../domain/persistence/factory"
 import { log } from "../../../utils/logger";
 import type { SessionRecord } from "../../../domain/session/session-db";
 import {
-  getXdgStateHome,
   getMinskyStateDir,
   getDefaultSqliteDbPath,
-  getDefaultJsonDbPath,
 } from "../../../utils/paths";
 import {
   runMigrationsWithDrizzleKit,

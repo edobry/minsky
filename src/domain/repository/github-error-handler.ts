@@ -32,18 +32,15 @@ export interface OctokitErrorInfo {
  */
 export function classifyOctokitError(error: unknown): OctokitErrorInfo {
   const anyErr: any = error as any;
-  const message: string =
-    error instanceof Error ? error.message : String(error);
-  const status: number | undefined =
-    (anyErr?.status ?? anyErr?.response?.status) as number | undefined;
+  const message: string = error instanceof Error ? error.message : String(error);
+  const status: number | undefined = (anyErr?.status ?? anyErr?.response?.status) as
+    | number
+    | undefined;
   const ghData = anyErr?.response?.data;
-  const ghMessage: string =
-    typeof ghData?.message === "string" ? ghData.message : "";
+  const ghMessage: string = typeof ghData?.message === "string" ? ghData.message : "";
   const ghErrors: any[] = Array.isArray(ghData?.errors) ? ghData.errors : [];
   const ghErrorsText: string = `${ghMessage || ""} ${ghErrors
-    .map((e: any) =>
-      [e?.message, e?.code, e?.field].filter(Boolean).join(" "),
-    )
+    .map((e: any) => [e?.message, e?.code, e?.field].filter(Boolean).join(" "))
     .join(" ")}`.toLowerCase();
 
   return {
@@ -104,7 +101,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `https://github.com/settings/tokens\n` +
         `  2. Set it as GITHUB_TOKEN or GH_TOKEN environment variable\n` +
         `  3. Ensure the token has 'repo' and 'pull_requests' permissions\n\n` +
-        `Repository: ${ctx.owner}/${ctx.repo}`,
+        `Repository: ${ctx.owner}/${ctx.repo}`
     );
   }
 
@@ -122,7 +119,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `To fix this:\n` +
         `  - Ensure you have write access to the repository\n` +
         `  - Verify your GitHub token has sufficient permissions\n\n` +
-        `Repository: https://github.com/${ctx.owner}/${ctx.repo}`,
+        `Repository: https://github.com/${ctx.owner}/${ctx.repo}`
     );
   }
 
@@ -141,7 +138,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `  - Verify the repository/PR exists and is accessible\n` +
         `  - Check if the repository is private and you have access\n\n` +
         `https://github.com/${ctx.owner}/${ctx.repo}` +
-        (ctx.prNumber ? `/pull/${ctx.prNumber}` : ""),
+        (ctx.prNumber ? `/pull/${ctx.prNumber}` : "")
     );
   }
 
@@ -156,7 +153,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `You've hit GitHub's API rate limit.\n\n` +
         `To fix this:\n` +
         `  - Wait a few minutes before trying again\n` +
-        `  - Use a GitHub token for higher rate limits`,
+        `  - Use a GitHub token for higher rate limits`
     );
   }
 
@@ -173,7 +170,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
         `  - Check your internet connection\n` +
         `  - Verify GitHub is accessible (https://githubstatus.com)\n` +
         `  - Try again in a few moments\n\n` +
-        `Error: ${info.message}`,
+        `Error: ${info.message}`
     );
   }
 
@@ -190,14 +187,12 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
           : "") +
         `Next steps:\n` +
         `  - Request a review from a maintainer\n` +
-        `  - Have another collaborator approve the PR`,
+        `  - Have another collaborator approve the PR`
     );
   }
 
   // ── Fallback ────────────────────────────────────────────────────
-  throw new MinskyError(
-    `Failed to ${ctx.operation}: ${getErrorMessage(error as any)}`,
-  );
+  throw new MinskyError(`Failed to ${ctx.operation}: ${getErrorMessage(error as any)}`);
 }
 
 /**
@@ -206,10 +201,7 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
  * Separated because only createPullRequest needs the fine-grained
  * "already exists" / "no commits between" sub-classification.
  */
-export function handleCreatePR422(
-  info: OctokitErrorInfo,
-  ctx: ErrorContext,
-): void {
+export function handleCreatePR422(info: OctokitErrorInfo, ctx: ErrorContext): void {
   if (info.status !== 422 && !info.messageLower.includes("422")) {
     return; // not a 422
   }
@@ -225,7 +217,7 @@ export function handleCreatePR422(
         `To fix this:\n` +
         `  - Make sure your changes are committed to ${ctx.sourceBranch}\n` +
         `  - Push your branch: git push origin ${ctx.sourceBranch}\n` +
-        `  - Verify you're on the correct branch: git branch`,
+        `  - Verify you're on the correct branch: git branch`
     );
   }
 
@@ -235,7 +227,7 @@ export function handleCreatePR422(
     info.ghErrors.some((e: any) =>
       String(e?.message || e?.code || "")
         .toLowerCase()
-        .includes("already exists"),
+        .includes("already exists")
     )
   ) {
     throw new MinskyError(
@@ -246,14 +238,13 @@ export function handleCreatePR422(
         `  - Update the existing PR instead of creating a new one\n` +
         `  - Use a different branch name\n` +
         `  - Close the existing PR if it's no longer needed\n\n` +
-        `Check: https://github.com/${ctx.owner}/${ctx.repo}/pulls`,
+        `Check: https://github.com/${ctx.owner}/${ctx.repo}/pulls`
     );
   }
 
   // Generic 422
   throw new MinskyError(
-    `GitHub Validation Failed\n\n` +
-      `${info.ghMessage || "Unprocessable Entity"}`,
+    `GitHub Validation Failed\n\n` + `${info.ghMessage || "Unprocessable Entity"}`
   );
 }
 
@@ -266,7 +257,7 @@ export function handleCreatePR422(
 export function handleMerge405or422(
   info: OctokitErrorInfo,
   ctx: ErrorContext,
-  diagnosis?: string,
+  diagnosis?: string
 ): void {
   const isMergeBlock =
     info.status === 405 ||
@@ -292,6 +283,6 @@ export function handleMerge405or422(
       `Pull request #${ctx.prNumber} cannot be merged automatically.\n\n` +
       `${body}\n\n` +
       `Visit the PR to resolve: ` +
-      `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}`,
+      `https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}`
   );
 }

@@ -3,16 +3,9 @@ import { mkdir } from "node:fs/promises";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
-import {
-  createSessionProvider,
-  type SessionProviderInterface,
-} from "./session";
+import { createSessionProvider, type SessionProviderInterface } from "./session";
 
-import {
-  MinskyError,
-  NothingToCommitError,
-  getErrorMessage,
-} from "../errors/index";
+import { MinskyError, NothingToCommitError, getErrorMessage } from "../errors/index";
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
 import {
