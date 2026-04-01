@@ -1,10 +1,7 @@
 ---
 name: Minsky Workflow
 description: Core workflow orchestration guide for Minsky
-tags:
-  - workflow
-  - core
-  - required
+tags: [minsky]
 ---
 # Minsky Workflow
 

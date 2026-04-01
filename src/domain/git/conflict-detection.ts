@@ -952,7 +952,10 @@ export class ConflictDetectionService {
         );
 
         // If the content is the same when whitespace is removed, it's a formatting-only conflict
-        if (ourContent.toString().trim() === theirContent.toString().trim() && ourContent.toString().trim() !== fileContent.toString().trim()) {
+        if (
+          ourContent.toString().trim() === theirContent.toString().trim() &&
+          ourContent.toString().trim() !== fileContent.toString().trim()
+        ) {
           formattingOnlyFiles.push(file);
         }
       } catch (error) {

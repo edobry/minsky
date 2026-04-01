@@ -2,6 +2,7 @@
 description: Guidelines for structuring code to be easily testable with proper separation of concerns, dependency injection, and pure functions where possible
 globs:
 alwaysApply: false
+tags: [architecture]
 ---
 # Testable Design Principles
 

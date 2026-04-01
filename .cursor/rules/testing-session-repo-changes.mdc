@@ -1,7 +1,8 @@
 ---
 description: Use this when testing changes made in a session repository
-globs: 
+globs:
 alwaysApply: false
+tags: [minsky, testing]
 ---
 # Testing Session Repository Changes
 

@@ -1,3 +1,6 @@
+---
+tags: [testing]
+---
 # Minsky Testing Guidance - Start Here
 
 This rule serves as the **primary entry point** for all testing guidance in the Minsky project. It directs you to the relevant rules for your specific testing needs, recognizing that **multiple rules often apply simultaneously** for any testing scenario.

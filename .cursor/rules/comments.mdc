@@ -2,6 +2,7 @@
 name: Comments
 description: "Comments should explain WHY, not WHAT. Delete obvious comments."
 alwaysApply: false
+tags: [code-style]
 ---
 
 # Comment Guidelines

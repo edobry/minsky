@@ -2,6 +2,7 @@
 description: Use this when deciding where to put code, or when refactoring modules or moving functions around
 globs:
 alwaysApply: false
+tags: [architecture]
 ---
 # Domain-Oriented Module Organization
 

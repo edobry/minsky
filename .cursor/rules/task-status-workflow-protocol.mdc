@@ -1,5 +1,6 @@
 ---
 description: CRITICAL protocol for task status management during session workflow - prevents premature DONE status setting
+tags: [minsky]
 ---
 
 # Task Status Workflow Protocol

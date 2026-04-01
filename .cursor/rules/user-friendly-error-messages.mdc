@@ -2,6 +2,7 @@
 description:
 globs:
 alwaysApply: false
+tags: [safety]
 ---
 # User-Friendly Error Messages
 

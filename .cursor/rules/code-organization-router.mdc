@@ -2,6 +2,7 @@
 description: REQUIRED entry point for all code organization decisions. Use to navigate to specific organization rules like domain-oriented-modules or command-organization.
 globs:
 alwaysApply: false
+tags: [architecture]
 ---
 # Code Organization Guidance - Start Here
 

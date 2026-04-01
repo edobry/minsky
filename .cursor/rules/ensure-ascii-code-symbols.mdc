@@ -3,6 +3,7 @@ name: Ensure ASCII Code Symbols
 description: "REQUIRED: Generated code symbols (variables, functions, etc.) MUST use standard ASCII characters only. Prohibits non-ASCII in symbols."
 globs: ["**/*.ts", "**/*.js", "**/*.tsx", "**/*.jsx", "**/*.py", "**/*.go", "**/*.java", "**/*.cs", "**/*.rb", "**/*.php", "**/*.c", "**/*.cpp", "**/*.h", "**/*.hpp"]
 alwaysApply: true
+tags: [typescript]
 ---
 # Rule: Ensure ASCII Code Symbols
 
