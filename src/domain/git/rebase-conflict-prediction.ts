@@ -10,28 +10,141 @@ import type {
   RebaseConflictPrediction,
   ConflictingCommit,
   ConflictFile,
-} from "./conflict-detection";
+} from "./conflict-detection-types";
 
-export interface RebasePredictionDependencies {
-  execAsync: typeof execAsync;
-  analyzeConflictFiles: (repoPath: string) => Promise<ConflictFile[]>;
-  determineCommitComplexity: (conflictFiles: ConflictFile[]) => "simple" | "moderate" | "complex";
-  determineOverallComplexity: (
-    conflictingCommits: ConflictingCommit[]
-  ) => "simple" | "moderate" | "complex";
-  estimateResolutionTime: (conflictingCommits: ConflictingCommit[]) => string;
-  generateRebaseRecommendations: (
-    conflictingCommits: ConflictingCommit[],
-    overallComplexity: "simple" | "moderate" | "complex",
-    canAutoResolve: boolean
-  ) => string[];
+import { FileConflictStatus } from "./conflict-detection-types";
+
+import { analyzeConflictFiles } from "./conflict-analysis-operations";
+
+/**
+ * Determines the complexity of conflicts for a single commit
+ */
+export function determineCommitComplexity(
+  conflictFiles: ConflictFile[]
+): "simple" | "moderate" | "complex" {
+  if (conflictFiles.length === 0) {
+    return "simple";
+  }
+
+  const hasComplexConflicts = conflictFiles.some(
+    (file) =>
+      file.status === FileConflictStatus.RENAMED ||
+      (file.conflictRegions && file.conflictRegions.length > 5)
+  );
+
+  if (hasComplexConflicts) {
+    return "complex";
+  }
+
+  if (
+    conflictFiles.length > 3 ||
+    conflictFiles.some(
+      (file) =>
+        file.status === FileConflictStatus.DELETED_BY_US ||
+        file.status === FileConflictStatus.DELETED_BY_THEM
+    )
+  ) {
+    return "moderate";
+  }
+
+  return "simple";
+}
+
+/**
+ * Determines the overall complexity across all conflicting commits
+ */
+export function determineOverallComplexity(
+  conflictingCommits: ConflictingCommit[]
+): "simple" | "moderate" | "complex" {
+  if (conflictingCommits.length === 0) {
+    return "simple";
+  }
+
+  if (conflictingCommits.some((commit) => commit.complexity === "complex")) {
+    return "complex";
+  }
+
+  if (
+    conflictingCommits.some((commit) => commit.complexity === "moderate") ||
+    conflictingCommits.length > 3
+  ) {
+    return "moderate";
+  }
+
+  return "simple";
+}
+
+/**
+ * Estimates the time required to resolve conflicts across commits
+ */
+export function estimateResolutionTime(conflictingCommits: ConflictingCommit[]): string {
+  if (conflictingCommits.length === 0) {
+    return "0 minutes";
+  }
+
+  const timeEstimates = {
+    simple: 5,
+    moderate: 15,
+    complex: 30,
+  };
+
+  const totalMinutes = conflictingCommits.reduce(
+    (total, commit) => total + timeEstimates[commit.complexity],
+    0
+  );
+
+  if (totalMinutes < 60) {
+    return `${totalMinutes} minutes`;
+  }
+
+  const hours = Math.floor(totalMinutes / 60);
+  const minutes = totalMinutes % 60;
+  return `${hours} hour${hours > 1 ? "s" : ""}${minutes > 0 ? ` ${minutes} minutes` : ""}`;
+}
+
+/**
+ * Generates recommendations for rebase operations
+ */
+export function generateRebaseRecommendations(
+  conflictingCommits: ConflictingCommit[],
+  overallComplexity: "simple" | "moderate" | "complex",
+  canAutoResolve: boolean
+): string[] {
+  if (conflictingCommits.length === 0) {
+    return ["Rebase should complete without conflicts."];
+  }
+
+  const recommendations: string[] = [
+    `${conflictingCommits.length} commit(s) may cause conflicts during rebase.`,
+  ];
+
+  if (canAutoResolve) {
+    recommendations.push("All conflicts appear simple and might be auto-resolvable.");
+  } else if (overallComplexity === "complex") {
+    recommendations.push(
+      "Consider using interactive rebase (`git rebase -i`) to handle complex conflicts one by one.",
+      "You may want to squash related commits before rebasing to reduce conflict points."
+    );
+  } else {
+    recommendations.push(
+      "Use `git rebase --continue` after resolving each conflict.",
+      "Consider stashing any uncommitted changes before rebasing."
+    );
+  }
+
+  const complexCommits = conflictingCommits.filter((c) => c.complexity === "complex");
+  if (complexCommits.length > 0) {
+    const commitShas = complexCommits.map((c) => c.sha.substring(0, 8)).join(", ");
+    recommendations.push(`Pay special attention to complex commits: ${commitShas}`);
+  }
+
+  return recommendations;
 }
 
 export async function predictRebaseConflictsImpl(
   repoPath: string,
   baseBranch: string,
-  featureBranch: string,
-  deps: RebasePredictionDependencies
+  featureBranch: string
 ): Promise<RebaseConflictPrediction> {
   log.debug("Predicting rebase conflicts", {
     repoPath,
@@ -41,13 +154,13 @@ export async function predictRebaseConflictsImpl(
 
   try {
     // Find the common ancestor commit
-    const { stdout: mergeBase } = await deps.execAsync(
+    const { stdout: mergeBase } = await execAsync(
       `git -C ${repoPath} merge-base ${baseBranch} ${featureBranch}`
     );
     const commonAncestor = mergeBase.toString().trim();
 
     // Get commits in feature branch that are not in base branch
-    const { stdout: commitsOutput } = await deps.execAsync(
+    const { stdout: commitsOutput } = await execAsync(
       `git -C ${repoPath} log --format="%H|%s|%an" ${commonAncestor}..${featureBranch}`
     );
 
@@ -85,21 +198,21 @@ export async function predictRebaseConflictsImpl(
 
     try {
       // Create temp branch from base
-      await deps.execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${baseBranch}`);
+      await execAsync(`git -C ${repoPath} checkout -b ${tempBranch} ${baseBranch}`);
 
       // Simulate cherry-picking each commit to detect conflicts
       for (const commit of commitInfos) {
         try {
-          await deps.execAsync(`git -C ${repoPath} cherry-pick --no-commit ${commit.sha}`);
+          await execAsync(`git -C ${repoPath} cherry-pick --no-commit ${commit.sha}`);
 
           // No conflict for this commit, clean up and continue
-          await deps.execAsync(`git -C ${repoPath} reset --hard HEAD`);
+          await execAsync(`git -C ${repoPath} reset --hard HEAD`);
         } catch (cherryPickError) {
           // Cherry-pick failed, analyze conflicts
-          const conflictFiles = await deps.analyzeConflictFiles(repoPath);
+          const conflictFiles = await analyzeConflictFiles(repoPath);
 
           // Determine complexity based on conflict files
-          const complexity = deps.determineCommitComplexity(conflictFiles);
+          const complexity = determineCommitComplexity(conflictFiles);
 
           conflictingCommits.push({
             sha: commit.sha,
@@ -110,14 +223,14 @@ export async function predictRebaseConflictsImpl(
           });
 
           // Abort the cherry-pick
-          await deps.execAsync(`git -C ${repoPath} cherry-pick --abort`);
+          await execAsync(`git -C ${repoPath} cherry-pick --abort`);
         }
       }
     } finally {
       // Clean up temporary branch
       try {
-        await deps.execAsync(`git -C ${repoPath} checkout ${featureBranch}`);
-        await deps.execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
+        await execAsync(`git -C ${repoPath} checkout ${featureBranch}`);
+        await execAsync(`git -C ${repoPath} branch -D ${tempBranch}`);
       } catch (cleanupError) {
         log.warn("Failed to clean up temporary branch", {
           tempBranch,
@@ -127,12 +240,12 @@ export async function predictRebaseConflictsImpl(
     }
 
     // Determine overall complexity and estimated resolution time
-    const overallComplexity = deps.determineOverallComplexity(conflictingCommits);
-    const estimatedResolutionTime = deps.estimateResolutionTime(conflictingCommits);
+    const overallComplexity = determineOverallComplexity(conflictingCommits);
+    const estimatedResolutionTime = estimateResolutionTime(conflictingCommits);
     const canAutoResolve = conflictingCommits.every((commit) => commit.complexity === "simple");
 
     // Generate recommendations
-    const recommendations = deps.generateRebaseRecommendations(
+    const recommendations = generateRebaseRecommendations(
       conflictingCommits,
       overallComplexity,
       canAutoResolve

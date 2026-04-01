@@ -40,24 +40,23 @@ function ruleStyleFormatter(
 import { readContentFromFileIfExists, parseGlobs } from "../../../utils/rules-helpers";
 import { log } from "../../../utils/logger";
 import {
-  RULE_FORMAT_DESCRIPTION,
-  RULE_TAGS_DESCRIPTION,
   RULE_CONTENT_DESCRIPTION,
   RULE_DESCRIPTION_DESCRIPTION,
   RULE_NAME_DESCRIPTION,
   OVERWRITE_DESCRIPTION,
 } from "../../../utils/option-descriptions";
 import { CommonParameters, RulesParameters, composeParams } from "../common-parameters";
-import { getConfiguration } from "../../../domain/configuration";
-import fs from "fs/promises";
-import fsSync from "fs";
-import { join } from "path";
-import { parse as parseYaml, stringify as stringifyYaml } from "yaml";
-import { RULE_PRESETS } from "../../../domain/configuration/schemas/rules";
-import { resolveActiveRules } from "../../../domain/rules/rule-selection";
-import { getEmbeddingDimension } from "../../../domain/ai/embedding-models";
-import { createEmbeddingServiceFromConfig } from "../../../domain/ai/embedding-service-factory";
-import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-vector-storage";
+import {
+  enableRule,
+  disableRule,
+  getRulesConfig,
+  getRulesPresets,
+  migrateRules,
+  indexRuleEmbeddings,
+  searchRulesEnhanced,
+  listRulesFiltered,
+  compileRules,
+} from "../../../domain/rules/rules-command-operations";
 
 /**
  * Parameters for the rules list command
@@ -65,6 +64,8 @@ import { PostgresVectorStorage } from "../../../domain/storage/vector/postgres-v
 type RulesListParams = {
   format?: "cursor" | "generic";
   tag?: string;
+  since?: string;
+  until?: string;
   json?: boolean;
   debug?: boolean;
 };
@@ -76,13 +77,15 @@ const rulesListCommandParams: CommandParameterMap = composeParams(
     since: {
       schema: z.string().optional(),
       description:
-        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). " +
+        "Currently not enforced due to missing timestamps.",
       required: false,
     },
     until: {
       schema: z.string().optional(),
       description:
-        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). Currently not enforced due to missing timestamps.",
+        "Optional: filter by updated time (YYYY-MM-DD or 7d/24h/30m). " +
+        "Currently not enforced due to missing timestamps.",
       required: false,
     },
   },
@@ -169,13 +172,15 @@ const rulesGenerateCommandParams: CommandParameterMap = {
   rules: {
     schema: z.string().optional(),
     description:
-      "Comma-separated list of specific rule templates to generate (if not specified, generates all available templates)",
+      "Comma-separated list of specific rule templates to generate " +
+      "(if not specified, generates all available templates)",
     required: false,
   },
   outputDir: {
     schema: z.string().optional(),
     description:
-      "Output directory for generated rules (defaults to .cursor/rules for cursor format, .ai/rules for openai format)",
+      "Output directory for generated rules (defaults to .cursor/rules " +
+      "for cursor format, .ai/rules for openai format)",
     required: false,
   },
   dryRun: {
@@ -350,6 +355,7 @@ const rulesSearchCommandParams: CommandParameterMap = composeParams(
  */
 export function registerRulesCommands(registry?: typeof sharedCommandRegistry): void {
   const targetRegistry = registry || sharedCommandRegistry;
+
   // Register rules index-embeddings command
   targetRegistry.registerCommand({
     id: "rules.index-embeddings",
@@ -359,76 +365,34 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     parameters: rulesIndexEmbeddingsParams,
     execute: async (params: RulesIndexEmbeddingsParams, ctx?: CommandExecutionContext) => {
       try {
-        // Use the proper service abstraction (same pattern as tasks)
-        const { createRuleSimilarityService } = await import(
-          "../../../domain/rules/rule-similarity-service"
-        );
-        const service = await createRuleSimilarityService();
-
-        // Get list of rules to index
         const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
-        const rules = await ruleService.listRules({});
+        const json = Boolean(params.json) || ctx?.format === "json";
 
-        // Apply limit for debugging
-        const slice = params.limit ? rules.slice(0, params.limit) : rules;
+        const result = await indexRuleEmbeddings({
+          workspacePath,
+          limit: params.limit,
+          force: params.force,
+          json,
+          debug: params.debug,
+        });
 
-        if (slice.length === 0) {
-          if (params.json || ctx?.format === "json") {
-            return { success: true, indexed: 0, skipped: 0, total: 0 };
-          }
+        if (json) {
+          return result;
+        }
+
+        if (result.indexed === 0 && result.skipped === 0 && result.total === 0) {
           log.cli("No rules found to index.");
           return { success: true };
         }
 
-        let indexed = 0;
-        let skipped = 0;
-        const start = Date.now();
-
-        if (!(params.json || ctx?.format === "json")) {
-          log.cli(`Indexing embeddings for ${slice.length} rule(s)...`);
-        }
-
-        // Index each rule using the service
-        for (const rule of slice) {
-          if (!(params.json || ctx?.format === "json")) {
-            log.cli(`- ${rule.id}`);
-          }
-
-          try {
-            const changed = await service.indexRule(rule.id);
-            if (changed) {
-              indexed++;
-            } else {
-              skipped++;
-            }
-          } catch (error) {
-            skipped++;
-            if (params.debug) {
-              log.cliError(`Error indexing rule ${rule.id}: ${getErrorMessage(error as any)}`);
-            }
-          }
-        }
-
-        const elapsed = Date.now() - start;
-
-        if (params.json || ctx?.format === "json") {
-          return {
-            success: true,
-            indexed,
-            skipped,
-            total: slice.length,
-            ms: elapsed,
-          };
-        }
-
         log.cli(
-          `✅ Indexed ${indexed}/${slice.length} rule(s) in ${elapsed}ms (skipped errors: ${skipped})`
+          `\u2705 Indexed ${result.indexed}/${result.total} rule(s) ` +
+            `in ${result.ms}ms (skipped errors: ${result.skipped})`
         );
         return { success: true };
       } catch (error) {
         const message = getErrorMessage(error as any);
-        if (params.json || ctx?.format === "json") {
+        if (Boolean(params.json) || ctx?.format === "json") {
           return { success: false, error: message };
         }
         log.cliError(`Failed to index rule embeddings: ${message}`);
@@ -436,6 +400,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       }
     },
   });
+
   // Register rules list command
   targetRegistry.registerCommand({
     id: "rules.list",
@@ -447,52 +412,15 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       log.debug("Executing rules.list command", { params });
 
       try {
-        // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
-
-        // Convert parameters
-        const format = params.format as RuleFormat | undefined;
-
-        // Call domain function
-        const rules = await ruleService.listRules({
-          format,
+        return await listRulesFiltered({
+          workspacePath,
+          format: params.format as RuleFormat | undefined,
           tag: params.tag,
+          since: params.since,
+          until: params.until,
           debug: params.debug,
         });
-
-        // Optional time filtering using file modification time as proxy
-        let filtered = rules;
-        try {
-          const { parseTime, filterByTimeRange } = await import(
-            "../../../utils/result-handling/filters"
-          );
-          const sinceTs = parseTime((params as any).since);
-          const untilTs = parseTime((params as any).until);
-          if (sinceTs !== null || untilTs !== null) {
-            const withUpdatedAt = await Promise.all(
-              rules.map(async (rule) => {
-                try {
-                  const stat = await fs.stat(rule.path);
-                  return { ...rule, updatedAt: new Date(stat.mtimeMs) } as any;
-                } catch {
-                  return { ...rule } as any;
-                }
-              })
-            );
-            filtered = filterByTimeRange(withUpdatedAt as any[], sinceTs, untilTs) as any[];
-          }
-        } catch {
-          // ignore filtering errors
-        }
-
-        // Transform rules to exclude content field for better usability
-        const rulesWithoutContent = filtered.map(({ content, ...rule }) => rule);
-
-        return {
-          success: true,
-          rules: rulesWithoutContent,
-        };
       } catch (error) {
         log.error("Failed to list rules", {
           error: getErrorMessage(error),
@@ -515,23 +443,17 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       const typedParams = params as RulesGetParams;
 
       try {
-        // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
 
-        // Convert parameters
         const format = typedParams.format as RuleFormat | undefined;
 
-        // Call domain function
         const rule = await ruleService.getRule(typedParams.id, {
           format,
           debug: typedParams.debug,
         });
 
-        return {
-          success: true,
-          rule,
-        };
+        return { success: true, rule };
       } catch (error) {
         log.error("Failed to get rule", {
           error: getErrorMessage(error),
@@ -555,14 +477,11 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       const typedParams = params as RulesGenerateParams;
 
       try {
-        // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
         const ruleTemplateService = createRuleTemplateService(workspacePath);
 
-        // Register templates
         await ruleTemplateService.registerDefaultTemplates();
 
-        // Convert parameters to RuleGenerationConfig
         const config: RuleGenerationConfig = {
           interface: (typedParams.interface || "cli") as "cli" | "mcp" | "hybrid",
           mcpEnabled: typedParams.interface === "mcp" || typedParams.interface === "hybrid",
@@ -580,7 +499,6 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         const dryRun = typedParams.dryRun || false;
         const overwrite = typedParams.overwrite || false;
 
-        // Call domain function
         const result = await ruleTemplateService.generateRules({
           config,
           selectedRules,
@@ -620,20 +538,16 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       const typedParams = params as RulesCreateParams;
 
       try {
-        // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
 
-        // Process content (could be file path)
         const content = await readContentFromFileIfExists(typedParams.content);
 
-        // Process globs and tags
         const globs = parseGlobs(typedParams.globs);
         const tags = typedParams.tags
           ? typedParams.tags.split(",").map((tag: string) => tag.trim())
           : undefined;
 
-        // Prepare metadata
         const meta = {
           name: typedParams.name || typedParams.id,
           description: typedParams.description,
@@ -641,19 +555,14 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           tags,
         };
 
-        // Convert format
         const format = typedParams.format as RuleFormat | undefined;
 
-        // Call domain function
         const rule = await ruleService.createRule(typedParams.id, content, meta, {
           format,
           overwrite: typedParams.overwrite,
         });
 
-        return {
-          success: true,
-          rule,
-        };
+        return { success: true, rule };
       } catch (error) {
         log.error("Failed to create rule", {
           error: getErrorMessage(error),
@@ -677,49 +586,36 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       const typedParams = params as RulesUpdateParams;
 
       try {
-        // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
 
-        // Process content if provided (could be file path)
         const content = typedParams.content
           ? await readContentFromFileIfExists(typedParams.content)
           : undefined;
 
-        // Process globs and tags
         const globs = typedParams.globs ? parseGlobs(typedParams.globs) : undefined;
         const tags = typedParams.tags
           ? typedParams.tags.split(",").map((tag: string) => tag.trim())
           : undefined;
 
-        // Prepare metadata updates
         const meta: Record<string, any> = {};
-
         if (typedParams.name !== undefined) meta.name = typedParams.name;
         if (typedParams.description !== undefined) meta.description = typedParams.description;
         if (globs !== undefined) meta.globs = globs;
         if (tags !== undefined) meta.tags = tags;
 
-        // Convert format
         const format = typedParams.format as RuleFormat | undefined;
 
-        // Call domain function
         const rule = await ruleService.updateRule(
           typedParams.id,
           {
             content,
             meta: Object.keys(meta).length > 0 ? meta : undefined,
           },
-          {
-            format,
-            debug: typedParams.debug,
-          }
+          { format, debug: typedParams.debug }
         );
 
-        return {
-          success: true,
-          rule,
-        };
+        return { success: true, rule };
       } catch (error) {
         log.error("Failed to update rule", {
           error: getErrorMessage(error),
@@ -740,7 +636,8 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       target: {
         schema: z.string(),
         description:
-          "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+          "Target file type to compile to (e.g., agents.md, claude.md). " +
+          "Defaults to agents.md.",
         required: false,
         defaultValue: "agents.md",
       },
@@ -758,12 +655,13 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       check: {
         schema: z.boolean(),
         description:
-          "Check if the output file is up-to-date (staleness detection). Exits non-zero if stale.",
+          "Check if the output file is up-to-date (staleness detection). " +
+          "Exits non-zero if stale.",
         required: false,
         defaultValue: false,
       },
     },
-    execute: async (params: any, ctx?: CommandExecutionContext) => {
+    execute: async (params: any, _ctx?: CommandExecutionContext) => {
       log.debug("Executing rules.compile command", { params });
 
       const typedParams = params as {
@@ -773,87 +671,19 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         check?: boolean;
       };
 
-      const targetId = typedParams.target || "agents.md";
-
       try {
-        const { createCompileService, agentsMdTarget, claudeMdTarget } = await import(
-          "../../../domain/rules/compile"
-        );
-
-        // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
-        const ruleService = new RuleService(workspacePath);
-
-        const compileService = createCompileService();
-
-        // For check mode, do a dry-run first to get the compiled content
-        if (typedParams.check) {
-          const dryResult = await compileService.compile(ruleService, targetId, {
-            workspacePath,
-            outputPath: typedParams.output,
-            dryRun: true,
-          });
-
-          // Determine the output path for the target
-          const targetMap: Record<string, { defaultOutputPath(w: string): string }> = {
-            "agents.md": agentsMdTarget,
-            "claude.md": claudeMdTarget,
-          };
-          const targetObj = targetMap[targetId];
-          const outputFilePath =
-            typedParams.output ||
-            (targetObj ? targetObj.defaultOutputPath(workspacePath) : `${workspacePath}/OUT.md`);
-
-          try {
-            const existingContent = await fs.readFile(outputFilePath, "utf-8");
-            const isStale = existingContent !== dryResult.content;
-            return {
-              success: true,
-              check: true,
-              stale: isStale,
-              rulesIncluded: dryResult.rulesIncluded,
-              rulesSkipped: dryResult.rulesSkipped,
-            };
-          } catch {
-            // File doesn't exist — it's stale
-            return {
-              success: true,
-              check: true,
-              stale: true,
-              rulesIncluded: dryResult.rulesIncluded,
-              rulesSkipped: dryResult.rulesSkipped,
-            };
-          }
-        }
-
-        const result = await compileService.compile(ruleService, targetId, {
+        return await compileRules({
           workspacePath,
-          outputPath: typedParams.output,
-          dryRun: typedParams.dryRun || false,
+          target: typedParams.target,
+          output: typedParams.output,
+          dryRun: typedParams.dryRun,
+          check: typedParams.check,
         });
-
-        if (typedParams.dryRun) {
-          return {
-            success: true,
-            dryRun: true,
-            content: result.content,
-            filesWritten: result.filesWritten,
-            rulesIncluded: result.rulesIncluded,
-            rulesSkipped: result.rulesSkipped,
-          };
-        }
-
-        return {
-          success: true,
-          dryRun: false,
-          filesWritten: result.filesWritten,
-          rulesIncluded: result.rulesIncluded,
-          rulesSkipped: result.rulesSkipped,
-        };
       } catch (error) {
         log.error("Failed to compile rules", {
           error: getErrorMessage(error),
-          target: targetId,
+          target: typedParams.target || "agents.md",
         });
         throw error;
       }
@@ -883,79 +713,13 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     execute: async (params: { dryRun?: boolean; force?: boolean }) => {
       log.debug("Executing rules.migrate command", { params });
 
-      const dryRun = params.dryRun || false;
-      const force = params.force || false;
-
       try {
         const workspacePath = await resolveWorkspacePath({});
-        const sourceDir = join(workspacePath, ".cursor/rules");
-        const destDir = join(workspacePath, ".minsky/rules");
-
-        // Check if source directory exists
-        let sourceEntries: string[];
-        try {
-          const entries = await fs.readdir(sourceDir);
-          sourceEntries = entries.filter((f) => f.endsWith(".mdc"));
-        } catch {
-          return {
-            success: false,
-            error: `Source directory does not exist: ${sourceDir}`,
-          };
-        }
-
-        if (sourceEntries.length === 0) {
-          return {
-            success: false,
-            error: `No .mdc files found in source directory: ${sourceDir}`,
-          };
-        }
-
-        // Create dest dir if needed (unless dry run)
-        if (!dryRun) {
-          await fs.mkdir(destDir, { recursive: true });
-        }
-
-        const migrated: string[] = [];
-        const skipped: string[] = [];
-
-        for (const filename of sourceEntries) {
-          const srcFile = join(sourceDir, filename);
-          const destFile = join(destDir, filename);
-
-          // Check if destination file already exists
-          let destExists = false;
-          try {
-            await fs.access(destFile);
-            destExists = true;
-          } catch {
-            destExists = false;
-          }
-
-          if (destExists && !force) {
-            skipped.push(filename);
-            continue;
-          }
-
-          if (!dryRun) {
-            const content = await fs.readFile(srcFile);
-            await fs.writeFile(destFile, content);
-          }
-          migrated.push(filename);
-        }
-
-        return {
-          success: true,
-          dryRun,
-          migrated,
-          skipped,
-          sourceDir,
-          destDir,
-          nextSteps: [
-            "Run `minsky rules compile --target cursor-rules` to regenerate .cursor/rules/ from the new canonical source",
-            "Add `.cursor/rules/` to your .gitignore",
-            "Run `git rm -r --cached .cursor/rules/` to untrack the old files",
-          ],
-        };
+        return await migrateRules({
+          workspacePath,
+          dryRun: params.dryRun || false,
+          force: params.force || false,
+        });
       } catch (error) {
         log.error("Failed to migrate rules", {
           error: getErrorMessage(error as any),
@@ -976,30 +740,20 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
       log.debug("Executing rules.search command", { params });
 
       try {
-        // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
-
-        // Use similarity service (consistent with tasks.search)
-        const { createRuleSimilarityService } = await import(
-          "../../../domain/rules/rule-similarity-service"
-        );
-        const service = await createRuleSimilarityService();
 
         const query = params.query;
         const limit = params.limit ?? 10;
         const threshold = params.threshold;
 
-        // Emit progress message like tasks.search does
+        // Emit progress message
         const quiet = Boolean(params.quiet);
         const json = Boolean(params.json) || ctx?.format === "json";
         if (!quiet && !json && query) {
           log.cliWarn(`Searching for rules matching: "${query}" ...`);
         }
 
-        // Perform similarity search (consistent with tasks.search)
-        const results = await service.searchByText(query, limit, threshold);
-
-        // Optional human-friendly diagnostics (consistent with tasks.search)
+        // Optional human-friendly diagnostics
         if (params.details) {
           try {
             const cfg = await (await import("../../../domain/configuration")).getConfiguration();
@@ -1016,46 +770,17 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           }
         }
 
-        // Enhance results with rule details (similar to tasks.search)
-        const enhancedResults: Array<{
-          id: string;
-          score: number;
-          name: string;
-          description: string;
-          format: string;
-        }> = [];
-        for (const result of results) {
-          try {
-            // Get full rule details
-            const { ModularRulesService } = await import(
-              "../../../domain/rules/rules-service-modular"
-            );
-            const rulesService = new ModularRulesService(workspacePath);
-            const rule = await rulesService.getRule(result.id);
-
-            enhancedResults.push({
-              id: result.id,
-              score: result.score,
-              name: rule.name || result.id,
-              description: rule.description || rule.name || "",
-              format: rule.format || "",
-            });
-          } catch (error) {
-            // Rule not found or error loading rule, include minimal info
-            enhancedResults.push({
-              id: result.id,
-              score: result.score,
-              name: result.id,
-              description: "",
-              format: "",
-            });
-          }
-        }
+        const enhancedResults = await searchRulesEnhanced({
+          workspacePath,
+          query,
+          limit,
+          threshold,
+        });
 
         return {
           success: true,
           count: enhancedResults.length,
-          results: enhancedResults, // Use same format as tasks.search
+          results: enhancedResults,
           details: params.details,
         };
       } catch (error) {
@@ -1068,7 +793,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     },
   });
 
-  // ─── Rule selection commands ────────────────────────────────────────────────
+  // ─── Rule selection commands ──────────────────────────────────
 
   // Register rules.enable command
   targetRegistry.registerCommand({
@@ -1085,20 +810,12 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     },
     execute: async (params: { ruleId: string }) => {
       const workspacePath = await resolveWorkspacePath({});
-      const config = await readRulesSelectionConfig(workspacePath);
-
-      if (!config.enabled.includes(params.ruleId)) {
-        config.enabled.push(params.ruleId);
-      }
-      // Remove from disabled if present
-      config.disabled = config.disabled.filter((id) => id !== params.ruleId);
-
-      await writeRulesSelectionConfig(workspacePath, config);
+      const result = await enableRule(workspacePath, params.ruleId);
       return {
         success: true,
         ruleId: params.ruleId,
-        enabled: config.enabled,
-        disabled: config.disabled,
+        enabled: result.enabled,
+        disabled: result.disabled,
       };
     },
   });
@@ -1118,20 +835,12 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     },
     execute: async (params: { ruleId: string }) => {
       const workspacePath = await resolveWorkspacePath({});
-      const config = await readRulesSelectionConfig(workspacePath);
-
-      if (!config.disabled.includes(params.ruleId)) {
-        config.disabled.push(params.ruleId);
-      }
-      // Remove from enabled if present
-      config.enabled = config.enabled.filter((id) => id !== params.ruleId);
-
-      await writeRulesSelectionConfig(workspacePath, config);
+      const result = await disableRule(workspacePath, params.ruleId);
       return {
         success: true,
         ruleId: params.ruleId,
-        enabled: config.enabled,
-        disabled: config.disabled,
+        enabled: result.enabled,
+        disabled: result.disabled,
       };
     },
   });
@@ -1145,22 +854,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     parameters: {},
     execute: async () => {
       const workspacePath = await resolveWorkspacePath({});
-      const config = await readRulesSelectionConfig(workspacePath);
-
-      // Get all rule IDs to compute active count
-      const ruleService = new RuleService(workspacePath);
-      const allRules = await ruleService.listRules({});
-      const allRuleIds = allRules.map((r) => r.id);
-      const activeIds = resolveActiveRules(allRuleIds, config);
-
-      return {
-        success: true,
-        presets: config.presets,
-        enabled: config.enabled,
-        disabled: config.disabled,
-        activeRuleCount: activeIds.size,
-        totalRuleCount: allRuleIds.length,
-      };
+      return await getRulesConfig(workspacePath);
     },
   });
 
@@ -1172,76 +866,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     description: "List available rule presets with their rule counts",
     parameters: {},
     execute: async () => {
-      const presets = Object.entries(RULE_PRESETS).map(([name, ruleIds]) => ({
-        name,
-        ruleCount: ruleIds.length,
-        rules: ruleIds,
-      }));
-      return { success: true, presets };
+      return getRulesPresets();
     },
   });
-}
-
-// ─── Config read/write helpers ──────────────────────────────────────────────
-
-interface RulesSelectionConfig {
-  presets: string[];
-  enabled: string[];
-  disabled: string[];
-}
-
-/**
- * Read the rules selection config (presets/enabled/disabled) from the project
- * config file (.minsky/config.yaml). Returns defaults if file doesn't exist.
- */
-async function readRulesSelectionConfig(workspacePath: string): Promise<RulesSelectionConfig> {
-  const configPath = join(workspacePath, ".minsky", "config.yaml");
-  let raw: any = {};
-
-  try {
-    const content = String(await fs.readFile(configPath, "utf8"));
-    raw = parseYaml(content) || {};
-  } catch {
-    // File doesn't exist or is unreadable — start from empty config
-  }
-
-  const rules = raw?.rules || {};
-  return {
-    presets: Array.isArray(rules.presets) ? rules.presets : [],
-    enabled: Array.isArray(rules.enabled) ? rules.enabled : [],
-    disabled: Array.isArray(rules.disabled) ? rules.disabled : [],
-  };
-}
-
-/**
- * Write the rules selection config back to the project config file.
- */
-async function writeRulesSelectionConfig(
-  workspacePath: string,
-  config: RulesSelectionConfig
-): Promise<void> {
-  const minskyDir = join(workspacePath, ".minsky");
-  const configPath = join(minskyDir, "config.yaml");
-
-  let raw: any = {};
-  try {
-    const content = String(await fs.readFile(configPath, "utf8"));
-    raw = parseYaml(content) || {};
-  } catch {
-    // File doesn't exist — create fresh
-  }
-
-  if (!raw.rules) raw.rules = {};
-  raw.rules.presets = config.presets;
-  raw.rules.enabled = config.enabled;
-  raw.rules.disabled = config.disabled;
-
-  // Ensure directory exists
-  try {
-    await fs.mkdir(minskyDir, { recursive: true });
-  } catch {
-    // Already exists
-  }
-
-  await fs.writeFile(configPath, stringifyYaml(raw, { indent: 2 }), "utf8");
 }

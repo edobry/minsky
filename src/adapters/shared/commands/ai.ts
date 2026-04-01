@@ -9,17 +9,35 @@ import { z } from "zod";
 import {
   sharedCommandRegistry,
   CommandCategory,
-  type CommandExecutionContext,
   type CommandParameterMap,
 } from "../command-registry";
-import { DefaultAICompletionService } from "../../../domain/ai/completion-service";
-import { DefaultAIConfigurationService } from "../../../domain/ai/config-service";
-import { DefaultModelCacheService } from "../../../domain/ai/model-cache";
-import { PROVIDER_FETCHER_REGISTRY, type AIProvider } from "../../../domain/ai/provider-registry";
 import { log } from "../../../utils/logger";
 import { getConfiguration } from "../../../domain/configuration";
 import { exit } from "../../../utils/process";
 import type { ResolvedConfig } from "../../../domain/configuration/types";
+import {
+  createCompletionService,
+  createConfigService,
+  createModelCacheServiceWithFetchers,
+} from "../../../domain/ai/service-factory";
+import { executeFastApply } from "../../../domain/ai/fast-apply-service";
+import { getErrorMessage } from "../../../domain/ai/error-utils";
+import {
+  requireAIProviders,
+  testProviderConnectivity,
+  refreshSingleProvider,
+  refreshAllProviders,
+  getProviderStatuses,
+} from "../../../domain/ai/provider-operations";
+
+/**
+ * Get resolved configuration, cast to ResolvedConfig for domain service
+ * compatibility. The Configuration type from zod inference is structurally
+ * compatible but not assignable due to optional vs required field differences.
+ */
+function getResolvedConfig(): ResolvedConfig {
+  return getConfiguration() as unknown as ResolvedConfig;
+}
 
 /**
  * Parameters for AI completion command
@@ -100,50 +118,6 @@ const aiFastApplyParams: CommandParameterMap = {
 };
 
 /**
- * Helper function to handle refresh errors with user-friendly messages
- */
-function handleRefreshError(provider: string, error: any): void {
-  const errorMessage = getErrorMessage(error);
-
-  // Handle specific known error cases
-  if (errorMessage.includes("HTTP 404") || errorMessage.includes("Not Found")) {
-    if (provider === "anthropic") {
-      log.cliWarn(
-        `⚠️  ${provider}: API endpoint not found - this provider may not support model listing`
-      );
-    } else {
-      log.cliWarn(`⚠️  ${provider}: Model listing endpoint not found`);
-    }
-  } else if (errorMessage.includes("HTTP 401") || errorMessage.includes("Unauthorized")) {
-    log.cliError(`❌ ${provider}: Invalid API key - please check your configuration`);
-  } else if (errorMessage.includes("HTTP 403") || errorMessage.includes("Forbidden")) {
-    log.cliError(`❌ ${provider}: Access denied - please check your API key permissions`);
-  } else if (errorMessage.includes("ENOTFOUND") || errorMessage.includes("network")) {
-    log.cliError(`❌ ${provider}: Network error - please check your internet connection`);
-  } else if (errorMessage.includes("timeout")) {
-    log.cliError(`❌ ${provider}: Request timeout - please try again later`);
-  } else {
-    log.cliError(`❌ ${provider}: ${errorMessage}`);
-  }
-}
-
-/**
- * Helper function to get a user-friendly error message from any error
- */
-function getErrorMessage(error: any): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "object" && error?.message) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  return "Unknown error occurred";
-}
-
-/**
  * Register all AI-related shared commands
  */
 export function registerAiCommands(): void {
@@ -158,19 +132,10 @@ export function registerAiCommands(): void {
       try {
         const { prompt, model, provider, temperature, maxTokens, stream, system } = params;
 
-        // Get AI configuration directly from the unified config system
-        const config = getConfiguration();
-        const aiConfig = config.ai;
+        const config = getResolvedConfig();
+        requireAIProviders(config);
 
-        if (!aiConfig?.providers) {
-          log.cliError("No AI providers configured. Please configure at least one provider.");
-          exit(1);
-        }
-
-        const mockConfigService = {
-          loadConfiguration: () => Promise.resolve({ resolved: config }),
-        } as any;
-        const completionService = new DefaultAICompletionService(mockConfigService);
+        const completionService = createCompletionService(config);
 
         const request = {
           prompt,
@@ -183,20 +148,19 @@ export function registerAiCommands(): void {
         };
 
         if (request.stream) {
-          // Handle streaming response
           for await (const response of completionService.stream(request)) {
             await Bun.write(Bun.stdout, response.content);
           }
           await Bun.write(Bun.stdout, "\n");
         } else {
-          // Handle non-streaming response
           const response = await completionService.complete(request);
           await Bun.write(Bun.stdout, `${response.content}\n`);
 
-          // Show usage info
           if (response.usage) {
             log.info(
-              `Usage: ${response.usage.totalTokens} tokens (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+              `Usage: ${response.usage.totalTokens} tokens ` +
+                `(${response.usage.promptTokens} prompt + ` +
+                `${response.usage.completionTokens} completion)`
             );
             if (response.usage.cost) {
               log.info(`Cost: $${response.usage.cost.toFixed(4)}`);
@@ -218,128 +182,67 @@ export function registerAiCommands(): void {
     category: CommandCategory.AI,
     name: "fast-apply",
     description:
-      "Apply fast edits to a file using fast-apply models (supports both instruction and Cursor edit pattern modes)",
+      "Apply fast edits to a file using fast-apply models " +
+      "(supports both instruction and Cursor edit pattern modes)",
     parameters: aiFastApplyParams,
     execute: async (params, context) => {
       try {
         const { filePath, instructions, codeEdit, provider, model, dryRun } = params;
 
-        // Validate that either instructions or codeEdit is provided
         if (!instructions && !codeEdit) {
           log.cliError("Either 'instructions' or 'codeEdit' parameter must be provided");
           exit(1);
         }
 
-        // Import filesystem utilities
         const fs = await import("fs/promises");
-        const path = await import("path");
 
-        // Read the target file
         let originalContent: string;
         try {
           originalContent = (await fs.readFile(filePath, "utf-8")) as string;
         } catch (error) {
           log.cliError(
-            `Failed to read file ${filePath}: ${error instanceof Error ? error.message : String(error)}`
+            `Failed to read file ${filePath}: ` +
+              `${error instanceof Error ? error.message : String(error)}`
           );
           exit(1);
         }
 
-        // Get AI configuration
-        const config = getConfiguration();
-        const aiConfig = config.ai;
+        const config = getResolvedConfig();
+        requireAIProviders(config);
 
-        if (!aiConfig?.providers) {
-          log.cliError("No AI providers configured. Please configure at least one provider.");
-          exit(1);
-        }
-
-        // Find fast-apply capable provider if not specified
-        let targetProvider = provider;
-        if (!targetProvider) {
-          // Auto-detect fast-apply provider
-          const fastApplyProviders = Object.entries(aiConfig.providers)
-            .filter(
-              ([name, providerConfig]) =>
-                providerConfig?.enabled &&
-                // Check if provider supports fast-apply (morph for now)
-                name === "morph"
-            )
-            .map(([name]) => name);
-
-          if (fastApplyProviders.length === 0) {
-            log.cliError(
-              "No fast-apply capable providers configured. Please configure Morph or another fast-apply provider."
-            );
-            exit(1);
-          }
-
-          targetProvider = fastApplyProviders[0];
-          log.info(`Auto-detected fast-apply provider: ${targetProvider}`);
-        }
-
-        // Create AI completion service
-        const mockConfigService = {
-          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
-        };
-        const completionService = new DefaultAICompletionService(mockConfigService);
-
-        // Create fast-apply prompt based on mode
-        let prompt: string;
-
-        if (codeEdit) {
-          // Morph's exact XML format: <instruction>...</instruction><code>...</code><update>...</update>
-          // Generate instructions for code edit mode
-          const editInstructions =
-            instructions || "I am applying the provided code edits with existing code markers";
-          prompt = `<instruction>${editInstructions}</instruction>
-<code>${originalContent}</code>
-<update>${codeEdit}</update>`;
-        } else {
-          // Morph's exact XML format for instruction-based mode
-          prompt = `<instruction>${instructions}</instruction>
-<code>${originalContent}</code>
-<update>// Apply the above instructions to modify this file</update>`;
-        }
-
-        const mode = codeEdit ? "Cursor edit pattern" : "instruction-based";
-        log.info(`Applying edits to ${filePath} using ${targetProvider} (${mode})...`);
-
-        // Generate the edited content
-        const response = await completionService.complete({
-          prompt,
-          provider: targetProvider,
-          model: model || (targetProvider === "morph" ? "morph-v3-large" : undefined),
-          temperature: 0.1, // Low temperature for precise edits
-          maxTokens: Math.max(originalContent.length * 2, 4000), // Ensure enough tokens for the response
-          systemPrompt:
-            "You are a precise code editor. Return only the final updated file content without any explanations or formatting.",
+        const result = await executeFastApply(config, {
+          filePath,
+          originalContent: originalContent!,
+          instructions,
+          codeEdit,
+          provider,
+          model,
         });
 
-        const editedContent = response.content.trim();
-
-        // Show the changes
         if (dryRun) {
           log.cli("🔍 Dry run - showing proposed changes:");
           log.cli("\n--- Original ---");
-          log.cli(originalContent);
+          log.cli(originalContent!);
           log.cli("\n--- Edited ---");
-          log.cli(editedContent);
+          log.cli(result.editedContent);
           log.cli(
-            `\nTokens used: ${response.usage.totalTokens} (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+            `\nTokens used: ${result.response.usage.totalTokens} ` +
+              `(${result.response.usage.promptTokens} prompt + ` +
+              `${result.response.usage.completionTokens} completion)`
           );
-          if (response.usage.cost) {
-            log.cli(`Cost: $${response.usage.cost.toFixed(4)}`);
+          if (result.response.usage.cost) {
+            log.cli(`Cost: $${result.response.usage.cost.toFixed(4)}`);
           }
         } else {
-          // Apply the changes
-          await fs.writeFile(filePath, editedContent, "utf-8");
+          await fs.writeFile(filePath, result.editedContent, "utf-8");
           log.cli(`✅ Successfully applied edits to ${filePath}`);
           log.info(
-            `Tokens used: ${response.usage.totalTokens} (${response.usage.promptTokens} prompt + ${response.usage.completionTokens} completion)`
+            `Tokens used: ${result.response.usage.totalTokens} ` +
+              `(${result.response.usage.promptTokens} prompt + ` +
+              `${result.response.usage.completionTokens} completion)`
           );
-          if (response.usage.cost) {
-            log.info(`Cost: $${response.usage.cost.toFixed(4)}`);
+          if (result.response.usage.cost) {
+            log.info(`Cost: $${result.response.usage.cost.toFixed(4)}`);
           }
         }
       } catch (error) {
@@ -376,28 +279,16 @@ export function registerAiCommands(): void {
     },
     execute: async (params, context) => {
       try {
-        const { model, provider, system } = params;
+        const config = getResolvedConfig();
+        requireAIProviders(config);
 
-        // Get AI configuration directly
-        const config = getConfiguration();
-        const aiConfig = config.ai;
-
-        if (!aiConfig?.providers) {
-          log.cliError("No AI providers configured. Please configure at least one provider.");
-          exit(1);
-        }
-
-        const mockConfigService = {
-          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
-        };
-        const completionService = new DefaultAICompletionService(mockConfigService);
-
-        // For now, chat is not implemented due to readline complexity in Bun
-        log.cliError("Interactive chat is not yet implemented. Use 'minsky ai complete' instead.");
+        log.cliError(
+          "Interactive chat is not yet implemented. " + "Use 'minsky ai complete' instead."
+        );
         exit(1);
       } catch (error) {
         log.cliError(
-          `Chat session failed: ${error instanceof Error ? error.message : String(error)}`
+          `Chat session failed: ` + `${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
       }
@@ -433,19 +324,10 @@ export function registerAiCommands(): void {
         const { provider, format, json } = params;
         const outputFormat = json ? "json" : format;
 
-        // Get AI configuration directly
-        const config = getConfiguration();
-        const aiConfig = config.ai;
+        const config = getResolvedConfig();
+        requireAIProviders(config);
 
-        if (!aiConfig?.providers) {
-          log.cliError("No AI providers configured. Please configure at least one provider.");
-          exit(1);
-        }
-
-        const mockConfigService = {
-          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
-        };
-        const completionService = new DefaultAICompletionService(mockConfigService);
+        const completionService = createCompletionService(config);
         const models = await completionService.getAvailableModels(provider as string | undefined);
 
         if (models.length === 0) {
@@ -461,7 +343,8 @@ export function registerAiCommands(): void {
             log.cliWarn("  - Providers don't support model listing");
             log.cliWarn("  - Network connectivity issues");
             log.cli(
-              "\nTo configure providers, see: https://github.com/edobry/minsky#ai-completion-backend"
+              "\nTo configure providers, see: " +
+                "https://github.com/edobry/minsky#ai-completion-backend"
             );
           }
           return;
@@ -470,7 +353,6 @@ export function registerAiCommands(): void {
         if (outputFormat === "json") {
           log.cli(JSON.stringify(models, null, 2));
         } else {
-          // Table format
           log.cli("AVAILABLE AI MODELS");
           log.cli("=".repeat(50));
 
@@ -483,7 +365,8 @@ export function registerAiCommands(): void {
 
             if (model.costPer1kTokens) {
               log.cli(
-                `  Cost: $${model.costPer1kTokens.input}/1k input, $${model.costPer1kTokens.output}/1k output`
+                `  Cost: $${model.costPer1kTokens.input}/1k input, ` +
+                  `$${model.costPer1kTokens.output}/1k output`
               );
             }
 
@@ -535,22 +418,12 @@ export function registerAiCommands(): void {
       try {
         const { provider, json } = params;
 
-        // Get AI configuration directly
-        const config = getConfiguration();
-        const aiConfig = config.ai;
+        const config = getResolvedConfig();
+        const aiConfig = requireAIProviders(config);
 
-        if (!aiConfig?.providers) {
-          log.cliError("No AI providers configured. Please configure at least one provider.");
-          exit(1);
-        }
-
-        const mockConfigService = {
-          loadConfiguration: (workingDir: string) => Promise.resolve({ resolved: config }),
-        };
-        const completionService = new DefaultAICompletionService(mockConfigService);
+        const completionService = createCompletionService(config);
         const result = await completionService.validateConfiguration();
 
-        // Collect validation results for JSON output
         const validationResults = {
           valid: result.valid,
           errors: result.errors,
@@ -568,51 +441,14 @@ export function registerAiCommands(): void {
         };
 
         if (result.valid) {
-          // Test each provider if no specific provider requested
           const providersToTest = provider ? [provider] : Object.keys(aiConfig.providers || {});
 
-          for (const providerName of providersToTest) {
-            const providerConfig = aiConfig.providers?.[providerName];
-            const providerResult = {
-              name: providerName,
-              configured: !!providerConfig,
-              hasApiKey: !!providerConfig?.apiKey,
-              connectionTest: {
-                attempted: false,
-                successful: false,
-                error: undefined as string | undefined,
-              },
-            };
-
-            if (providerConfig?.apiKey) {
-              try {
-                providerResult.connectionTest.attempted = true;
-                if (!json) log.cli(`Testing ${providerName}...`);
-
-                await completionService.complete({
-                  prompt: "Hello",
-                  provider: providerName,
-                  maxTokens: 5,
-                });
-
-                providerResult.connectionTest.successful = true;
-                if (!json) log.cli(`✓ ${providerName} connection successful`);
-              } catch (error) {
-                providerResult.connectionTest.error =
-                  error instanceof Error ? error.message : String(error);
-                if (!json) {
-                  log.cliError(
-                    `✗ ${providerName} connection failed: ${providerResult.connectionTest.error}`
-                  );
-                }
-              }
-            } else {
-              if (!json) log.cliWarn(`⚠ ${providerName} not configured (missing API key)`);
-              if (!json) log.cliWarning(`⚠ ${providerName} not configured (missing API key)`);
-            }
-
-            validationResults.providers.push(providerResult);
-          }
+          validationResults.providers = await testProviderConnectivity(
+            completionService,
+            aiConfig,
+            providersToTest,
+            { silent: !!json }
+          );
         }
 
         if (json) {
@@ -635,33 +471,12 @@ export function registerAiCommands(): void {
         }
       } catch (error) {
         log.cliError(
-          `Validation failed: ${error instanceof Error ? error.message : String(error)}`
+          `Validation failed: ` + `${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
       }
     },
   });
-
-  // Initialize model cache service instance
-  const createModelCacheService = () => {
-    const cacheService = new DefaultModelCacheService();
-
-    // Register all available fetchers from the type-safe registry
-    Object.entries(PROVIDER_FETCHER_REGISTRY).forEach(([provider, FetcherClass]) => {
-      if (FetcherClass && typeof FetcherClass === "function") {
-        try {
-          cacheService.registerFetcher(new FetcherClass());
-          log.debug(`Registered model fetcher for provider: ${provider}`);
-        } catch (error) {
-          log.warn(`Failed to register model fetcher for provider ${provider}:`, error);
-        }
-      } else {
-        log.warn(`No model fetcher implementation available for provider: ${provider}`);
-      }
-    });
-
-    return cacheService;
-  };
 
   // Register AI models refresh command
   sharedCommandRegistry.registerCommand({
@@ -686,98 +501,25 @@ export function registerAiCommands(): void {
       try {
         const { provider, force } = params;
 
-        // Get AI configuration
-        const config = getConfiguration();
-        const aiConfig = config.ai;
+        const config = getResolvedConfig();
+        const aiConfig = requireAIProviders(config);
 
-        if (!aiConfig?.providers) {
-          log.cliError("No AI providers configured. Please configure at least one provider.");
-          exit(1);
-        }
-
-        const configService = new DefaultAIConfigurationService({
-          loadConfiguration: () => Promise.resolve({ resolved: config }),
-        } as any);
-        const cacheService = createModelCacheService();
+        const configService = createConfigService(config);
+        const cacheService = createModelCacheServiceWithFetchers();
 
         if (provider) {
-          // Refresh specific provider
-          const providerConfig = await configService.getProviderConfig(provider);
-          if (!providerConfig) {
-            log.cliError(`Provider '${provider}' is not configured.`);
-            exit(1);
-          }
-
-          if (!providerConfig.apiKey) {
-            log.cliError(
-              `Provider '${provider}' is missing an API key. Please configure the API key first.`
-            );
-            exit(1);
-          }
-
-          if (!force && !(await cacheService.isCacheStale(provider))) {
-            log.info(
-              `Cache for provider '${provider}' is still fresh. Use --force to refresh anyway.`
-            );
-            return;
-          }
-
-          log.info(`Refreshing models for provider: ${provider}`);
-          try {
-            await cacheService.refreshProvider(provider, {
-              apiKey: providerConfig.apiKey!,
-              baseURL: providerConfig.baseURL,
-            });
-            log.cli(`✓ Successfully refreshed models for ${provider}`);
-          } catch (refreshError) {
-            handleRefreshError(provider, refreshError);
-          }
+          await refreshSingleProvider(configService, cacheService, provider, force);
         } else {
-          // Refresh all providers
-          const providerConfigs: Record<string, any> = {};
-          const configuredProviders = Object.keys(aiConfig.providers || {});
-          const errors: string[] = [];
+          const result = await refreshAllProviders(configService, cacheService, aiConfig, force);
 
-          for (const providerName of configuredProviders) {
-            const providerConfig = await configService.getProviderConfig(providerName);
-            if (providerConfig && providerConfig.apiKey) {
-              if (force || (await cacheService.isCacheStale(providerName))) {
-                providerConfigs[providerName] = {
-                  apiKey: providerConfig.apiKey,
-                  baseURL: providerConfig.baseURL,
-                };
-              }
-            } else if (!providerConfig?.apiKey) {
-              log.cliWarn(`Skipping ${providerName}: No API key configured`);
-            }
+          if (result.successCount > 0) {
+            log.cli(`\n✓ Successfully refreshed ${result.successCount} provider(s)`);
           }
 
-          if (Object.keys(providerConfigs).length === 0) {
-            log.info("All provider caches are fresh. Use --force to refresh anyway.");
-            return;
-          }
-
-          log.info(`Refreshing models for ${Object.keys(providerConfigs).length} providers...`);
-
-          // Refresh providers individually to handle errors gracefully
-          let successCount = 0;
-          for (const [providerName, config] of Object.entries(providerConfigs)) {
-            try {
-              await cacheService.refreshProvider(providerName, config);
-              log.cli(`✓ Successfully refreshed models for ${providerName}`);
-              successCount++;
-            } catch (refreshError) {
-              handleRefreshError(providerName, refreshError);
-              errors.push(providerName);
-            }
-          }
-
-          if (successCount > 0) {
-            log.cli(`\n✓ Successfully refreshed ${successCount} provider(s)`);
-          }
-
-          if (errors.length > 0) {
-            log.cliWarn(`Failed to refresh ${errors.length} provider(s): ${errors.join(", ")}`);
+          if (result.errors.length > 0) {
+            log.cliWarn(
+              `Failed to refresh ${result.errors.length} provider(s): ${result.errors.join(", ")}`
+            );
             exit(1);
           }
         }
@@ -824,7 +566,7 @@ export function registerAiCommands(): void {
         const { provider, format, showCache, json } = params;
         const outputFormat = json ? "json" : format;
 
-        const cacheService = createModelCacheService();
+        const cacheService = createModelCacheServiceWithFetchers();
         const allModels = await cacheService.getAllCachedModels();
 
         let modelsToShow = allModels;
@@ -835,7 +577,6 @@ export function registerAiCommands(): void {
         if (outputFormat === "json") {
           log.cli(JSON.stringify(modelsToShow, null, 2));
         } else if (outputFormat === "yaml") {
-          // Simple YAML-like output
           for (const [providerName, models] of Object.entries(modelsToShow)) {
             log.cli(`${providerName}:`);
             for (const model of models) {
@@ -845,13 +586,13 @@ export function registerAiCommands(): void {
               log.cli(`    status: ${model.status}`);
               if (model.costPer1kTokens) {
                 log.cli(
-                  `    cost: $${model.costPer1kTokens.input}/$${model.costPer1kTokens.output} per 1k tokens`
+                  `    cost: $${model.costPer1kTokens.input}/` +
+                    `$${model.costPer1kTokens.output} per 1k tokens`
                 );
               }
             }
           }
         } else {
-          // Table format
           log.cli("CACHED AI MODELS");
           log.cli("=".repeat(80));
 
@@ -869,7 +610,8 @@ export function registerAiCommands(): void {
               log.cli(`    Status: ${model.status}`);
               if (model.costPer1kTokens) {
                 log.cli(
-                  `    Cost: $${model.costPer1kTokens.input}/1k input, $${model.costPer1kTokens.output}/1k output`
+                  `    Cost: $${model.costPer1kTokens.input}/1k input, ` +
+                    `$${model.costPer1kTokens.output}/1k output`
                 );
               }
               if (showCache) {
@@ -889,7 +631,7 @@ export function registerAiCommands(): void {
         }
       } catch (error) {
         log.cliError(
-          `Failed to list models: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to list models: ` + `${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
       }
@@ -921,52 +663,16 @@ export function registerAiCommands(): void {
         const { format, json } = params;
         const outputFormat = json ? "json" : format;
 
-        // Get AI configuration
-        const config = getConfiguration();
-        const aiConfig = config.ai;
+        const config = getResolvedConfig();
+        const aiConfig = requireAIProviders(config);
 
-        if (!aiConfig?.providers) {
-          log.cliError("No AI providers configured.");
-          exit(1);
-        }
-
-        const configService = new DefaultAIConfigurationService({
-          loadConfiguration: () => Promise.resolve({ resolved: config }),
-        } as any);
-        const cacheService = createModelCacheService();
-        const metadata = await cacheService.getCacheMetadata();
-
-        const providers: Array<{
-          name: string;
-          configured: boolean;
-          hasApiKey: boolean;
-          lastFetched: string | undefined;
-          modelCount: number;
-          lastSuccess: boolean | null;
-          isStale: boolean;
-          error: string | undefined;
-        }> = [];
-        for (const providerName of Object.keys(aiConfig.providers)) {
-          const providerConfig = await configService.getProviderConfig(providerName);
-          const providerMetadata = metadata.providers[providerName];
-          const isStale = await cacheService.isCacheStale(providerName);
-
-          providers.push({
-            name: providerName,
-            configured: !!providerConfig,
-            hasApiKey: !!providerConfig?.apiKey,
-            lastFetched: providerMetadata?.lastFetched?.toISOString(),
-            modelCount: providerMetadata?.modelCount || 0,
-            lastSuccess: providerMetadata?.lastFetchSuccessful ?? null,
-            isStale,
-            error: providerMetadata?.lastError,
-          });
-        }
+        const configService = createConfigService(config);
+        const cacheService = createModelCacheServiceWithFetchers();
+        const providers = await getProviderStatuses(configService, cacheService, aiConfig);
 
         if (outputFormat === "json") {
           log.cli(JSON.stringify(providers, null, 2));
         } else {
-          // Table format
           log.cli("CONFIGURED AI PROVIDERS");
           log.cli("=".repeat(60));
 
@@ -983,7 +689,7 @@ export function registerAiCommands(): void {
             log.cli(`  Status: ${status}`);
             log.cli(`  Models Cached: ${provider.modelCount}`);
             if (provider.lastFetched) {
-              log.cli(`  Last Fetched: ${new Date(provider.lastFetched).toLocaleString()}`);
+              log.cli(`  Last Fetched: ` + `${new Date(provider.lastFetched).toLocaleString()}`);
             }
             if (provider.error) {
               log.cli(`  Error: ${provider.error}`);
@@ -992,7 +698,7 @@ export function registerAiCommands(): void {
         }
       } catch (error) {
         log.cliError(
-          `Failed to list providers: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to list providers: ` + `${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
       }
@@ -1022,7 +728,7 @@ export function registerAiCommands(): void {
       try {
         const { provider, confirm } = params;
 
-        const cacheService = createModelCacheService();
+        const cacheService = createModelCacheServiceWithFetchers();
 
         if (!confirm) {
           const target = provider ? `provider '${provider}'` : "all providers";
@@ -1040,7 +746,7 @@ export function registerAiCommands(): void {
         }
       } catch (error) {
         log.cliError(
-          `Failed to clear cache: ${error instanceof Error ? error.message : String(error)}`
+          `Failed to clear cache: ` + `${error instanceof Error ? error.message : String(error)}`
         );
         exit(1);
       }

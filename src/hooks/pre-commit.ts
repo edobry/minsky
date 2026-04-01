@@ -363,9 +363,9 @@ export class PreCommitHook {
     log.cli("🎨 Running code formatter...");
 
     try {
-      await execAsync("bun run format", {
+      await execAsync("bunx lint-staged", {
         cwd: this.projectRoot,
-        timeout: 120000,
+        timeout: 30000,
       });
       log.cli("✅ Code formatting completed.");
       return { success: true, message: "Code formatting passed", exitCode: 0 };
