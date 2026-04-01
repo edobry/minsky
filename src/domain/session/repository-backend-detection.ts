@@ -219,8 +219,8 @@ export function extractGitHubInfoFromUrl(
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
-        owner: match[1],
-        repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
+        owner: match[1] || "",
+        repo: (match[2] || "").replace(/\.git$/, ""), // Remove .git suffix
       };
     }
 

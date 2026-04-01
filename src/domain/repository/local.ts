@@ -67,10 +67,10 @@ export class LocalGitBackend implements RepositoryBackend {
    * Initialize session database lazily
    */
   private async getSessionDB(): Promise<SessionProviderInterface> {
-    if (!sessionDB) {
-      sessionDB = await createSessionProvider();
+    if (!this.sessionDB) {
+      this.sessionDB = await createSessionProvider();
     }
-    return sessionDB;
+    return this.sessionDB;
   }
 
   /**

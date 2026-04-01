@@ -55,7 +55,7 @@ export function handleCliError(error: any): never {
       const paramsMatch = msg.match(/\nparams:[\s\S]*$/i);
 
       const failedQueryBlock = failedQueryMatch ? failedQueryMatch[0] : "";
-      const errorLine = errorLineMatch ? errorLineMatch[1].trim() : "Database error";
+      const errorLine = errorLineMatch ? (errorLineMatch[1] || "").trim() : "Database error";
       const paramsBlock = paramsMatch ? paramsMatch[0].trim() : "";
 
       if (showFull) {
