@@ -10,7 +10,7 @@ const TEST_VALUE = 123;
 export const initializeProjectParamsSchema = z.object({
   repoPath: z.string(),
   backend: enumSchemas.backendType,
-  ruleFormat: z.enum(["cursor", "generic"] as const),
+  ruleFormat: z.enum(["cursor", "generic", "minsky"] as const),
   mcp: z
     .object({
       enabled: z.boolean().optional().default(true),

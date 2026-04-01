@@ -191,7 +191,7 @@ const rulesGenerateCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]),
+    schema: z.enum(["cursor", "generic", "minsky"]),
     description: "Rule format for file system organization (cursor or generic)",
     required: false,
     defaultValue: "cursor",
