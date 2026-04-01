@@ -40,7 +40,6 @@ import type {
   SessionDeleteParams,
   SessionDirParams,
   SessionUpdateParams,
-  SessionPrParams,
 } from "../schemas/session";
 import type { GitServiceInterface } from "./git";
 
@@ -299,22 +298,6 @@ export async function approveSessionFromParams(
     approvalInfo: result.approvalInfo,
     wasAlreadyApproved: result.wasAlreadyApproved,
   };
-}
-
-/**
- * DEPRECATED: sessionPrFromParams() has been removed.
- * Use sessionPr() from './session/commands/pr-command.ts' instead.
- */
-export async function sessionPrFromParams(
-  _params: SessionPrParams,
-  _depsInput?: {
-    sessionDB?: SessionProviderInterface;
-    gitService?: GitServiceInterface;
-  }
-): Promise<{ prBranch: string; baseBranch: string; title?: string; body?: string }> {
-  throw new Error(
-    "DEPRECATED: sessionPrFromParams() has been removed. Use sessionPr() from './session/commands/pr-command.ts' instead."
-  );
 }
 
 // Shorter alias exports for adapters

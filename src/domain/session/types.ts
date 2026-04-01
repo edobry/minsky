@@ -59,7 +59,8 @@ export interface Session {
   session: string;
   repoUrl?: string;
   repoName?: string;
-  // Removed: branch (no longer stored persistently)
+  /** @deprecated No longer stored persistently; kept for compatibility with code that still reads it */
+  branch?: string;
   createdAt?: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;

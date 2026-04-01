@@ -6,21 +6,10 @@
 
 import { log } from "../../utils/logger";
 
-/**
- * Get a user-friendly error message from any error type
- */
-export function getErrorMessage(error: any): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-  if (typeof error === "object" && error?.message) {
-    return error.message;
-  }
-  if (typeof error === "string") {
-    return error;
-  }
-  return "Unknown error occurred";
-}
+// Re-export getErrorMessage from the canonical location
+export { getErrorMessage } from "../../errors/index";
+
+import { getErrorMessage } from "../../errors/index";
 
 /**
  * Handle model refresh errors with user-friendly messages
