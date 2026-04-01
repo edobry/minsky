@@ -1,8 +1,7 @@
 import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import { exec } from "node:child_process";
-import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
+import { execAsync } from "../utils/exec";
 import { createSessionProvider, type SessionProviderInterface } from "./session";
 
 import { log } from "../utils/logger";
@@ -85,8 +84,6 @@ export {
   checkoutFromParams,
   rebaseFromParams,
 } from "./git/git-params-facade";
-
-const execAsync = promisify(exec);
 
 export class GitService implements GitServiceInterface {
   private readonly baseDir: string;

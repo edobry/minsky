@@ -1,9 +1,7 @@
 import { createSessionProvider, type SessionProviderInterface } from "./session";
-import { exec } from "child_process";
-import { promisify } from "util";
 import { getCurrentWorkingDirectory } from "../utils/process";
 import { normalizeRepoName } from "./repository-uri";
-const execAsync = promisify(exec);
+import { execAsync } from "../utils/exec";
 
 export interface RepoResolutionOptions {
   session?: string;

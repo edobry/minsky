@@ -1,14 +1,13 @@
 import { join } from "path";
 import { mkdir } from "fs/promises";
-import { exec } from "child_process";
-import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
+import { execAsync } from "../../utils/exec";
 import { normalizeRepositoryURI } from "../repository-uri";
 import { execGitWithTimeout, gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
 import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { log } from "../../utils/logger";
-import type { RepositoryStatus } from "../repository";
+import type { RepositoryStatus } from "./legacy-types";
 import {
   createPreparedMergeCommitPR,
   mergePreparedMergeCommitPR,
@@ -26,8 +25,6 @@ import type {
   MergeInfo,
 } from "./index";
 import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
-
-const execAsync = promisify(exec);
 
 /**
  * Remote Git Repository Backend implementation

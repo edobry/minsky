@@ -10,7 +10,7 @@ import { createTaskFromDescription } from "../../templates/session-templates";
 import { detectPackageManager, installDependencies } from "../../../utils/package-manager";
 import { log } from "../../../utils/logger";
 import { Session, SessionRecord, SessionCreateDependencies } from "../types";
-import { MinskyError, ValidationError } from "../../errors/index";
+import { MinskyError, ValidationError } from "../../../errors/index";
 
 /**
  * Starts a new session based on parameters

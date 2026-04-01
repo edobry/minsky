@@ -1,12 +1,9 @@
-import { exec } from "child_process";
-import { promisify } from "util";
 import { writeFileSync } from "fs";
+import { execAsync } from "../../../../utils/exec";
 import { join } from "path";
 import { Graphviz } from "@hpcc-js/wasm";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
 import { getErrorMessage } from "../../../../errors/index";
-
-const execAsync = promisify(exec);
 
 export interface LayoutOptions {
   layout?: string;

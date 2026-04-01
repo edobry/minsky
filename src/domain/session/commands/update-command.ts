@@ -9,7 +9,7 @@ import {
   ResourceNotFoundError,
   ValidationError,
   getErrorMessage,
-} from "../../errors/index";
+} from "../../../errors/index";
 import { log } from "../../../utils/logger";
 
 /**

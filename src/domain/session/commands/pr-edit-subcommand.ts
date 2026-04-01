@@ -5,7 +5,7 @@
 import type { PullRequestInfo } from "../session-db";
 import { createSessionProvider } from "../session-db-adapter";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
-import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../errors/index";
+import { ResourceNotFoundError, ValidationError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 import { readTextFile } from "../../../utils/fs";
 

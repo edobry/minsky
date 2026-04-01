@@ -2,10 +2,11 @@
  * MCP adapter for session file operations
  * Provides session-scoped file operations that enforce workspace isolation
  */
-import { readFile, writeFile, mkdir, access, readdir, unlink, stat, rename } from "fs/promises";
-import { join, resolve, relative, dirname } from "path";
-import { resolveSessionDirectory } from "../../domain/session/resolve-session-directory";
+import { mkdir, stat, rename } from "fs/promises";
+import { join, relative, dirname } from "path";
 import type { CommandMapper } from "../../mcp/command-mapper";
+import { SessionPathResolver } from "../../domain/session/session-path-resolver";
+export { SessionPathResolver };
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
 import type { ErrorContext } from "../../utils/semantic-error-classifier";
@@ -155,64 +156,6 @@ function processFileContentWithLineRange(
         : `${actualStartLine}-${actualEndLine}`,
     summary,
   };
-}
-
-/**
- * Session path resolver class for enforcing workspace boundaries.
- * Delegates directory resolution to the canonical resolveSessionDirectory() utility.
- */
-export class SessionPathResolver {
-  /**
-   * Resolve session workspace path for a given session
-   */
-  async getSessionWorkspacePath(sessionId: string): Promise<string> {
-    return await resolveSessionDirectory(sessionId);
-  }
-
-  /**
-   * Resolve and validate a path within a session workspace
-   */
-  async resolvePath(sessionId: string, inputPath: string): Promise<string> {
-    const sessionWorkspace = await this.getSessionWorkspacePath(sessionId);
-
-    // Convert relative paths to absolute within session workspace
-    let targetPath: string;
-    if (inputPath.startsWith("/")) {
-      // Absolute path - ensure it's within session workspace
-      targetPath = inputPath;
-    } else {
-      // Relative path - resolve within session workspace
-      targetPath = resolve(sessionWorkspace, inputPath);
-    }
-
-    // Normalize the path to handle .. and . components
-    const normalizedPath = resolve(targetPath);
-    const normalizedWorkspace = resolve(sessionWorkspace);
-
-    // Security check: ensure the resolved path is within the session workspace
-    if (
-      !normalizedPath.startsWith(`${normalizedWorkspace}/`) &&
-      normalizedPath !== normalizedWorkspace
-    ) {
-      throw new Error(
-        `Path "${inputPath}" resolves outside session workspace. ` +
-          `Session workspace: ${sessionWorkspace}, Resolved path: ${normalizedPath}`
-      );
-    }
-
-    return normalizedPath;
-  }
-
-  /**
-   * Validate that a path exists and is accessible
-   */
-  async validatePathExists(path: string): Promise<void> {
-    try {
-      await access(path);
-    } catch (error) {
-      throw new Error(`Path does not exist or is not accessible: ${path}`);
-    }
-  }
 }
 
 /**

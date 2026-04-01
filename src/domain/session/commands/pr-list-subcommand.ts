@@ -3,7 +3,7 @@
  */
 
 import { createSessionProvider } from "../session-db-adapter";
-import { MinskyError, getErrorMessage } from "../../errors/index";
+import { MinskyError, getErrorMessage } from "../../../errors/index";
 
 /**
  * Session PR List implementation

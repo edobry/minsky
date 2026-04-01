@@ -5,7 +5,7 @@ import { join } from "path";
 import { existsSync } from "fs";
 import { execSync } from "child_process";
 import { log } from "./logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage } from "../../errors/index";
 import type { PackageManagerDependencies } from "../../utils/package-manager";
 
 /**
