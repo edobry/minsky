@@ -1,6 +1,6 @@
 import { spawn, ChildProcess } from "child_process";
 import { log } from "../utils/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getErrorStack } from "../errors/index";
 
 /**
  * Configuration options for the MCP Inspector
@@ -161,8 +161,8 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
     // Handle process events
     inspectorProcess.on("error", (error) => {
       log.error("MCP Inspector process error", {
-        error: (error as any).message as any,
-        stack: (error as any).stack as any,
+        error: error.message,
+        stack: error.stack,
       });
     });
 
@@ -183,16 +183,16 @@ export function launchInspector(options: InspectorOptions): InspectorLaunchResul
   } catch (error) {
     // Log and return error
     log.error("Failed to launch MCP Inspector", {
-      error: getErrorMessage(error as any),
-      stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
+      error: getErrorMessage(error),
+      stack: getErrorStack(error),
     });
 
     return {
       success: false,
       error:
         error instanceof Error
-          ? ((error as any).message as any)
-          : ("Unknown error launching MCP Inspector" as any),
+          ? error.message
+          : "Unknown error launching MCP Inspector",
     };
   }
 }

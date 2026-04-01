@@ -150,7 +150,7 @@ export class GitHubBackend implements RepositoryBackend {
         session,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
 
       // Provide more informative error messages for common GitHub issues
       if (normalizedError.message.includes("Authentication failed")) {
@@ -199,7 +199,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         branch,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       throw new Error(`Failed to create branch in GitHub repository: ${normalizedError.message}`);
     }
   }
@@ -295,7 +295,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         gitHubRepo: this.repo,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       throw new Error(`Failed to get GitHub repository status: ${normalizedError.message}`);
     }
   }
@@ -394,7 +394,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         message: "GitHub repository validated successfully",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         valid: false,
         success: false,
@@ -440,7 +440,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
           : "No changes to push or push failed",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         message: `Failed to push to repository: ${normalizedError.message}`,
@@ -480,7 +480,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
           : "Already up-to-date. No changes pulled.",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         message: `Failed to pull from repository: ${normalizedError.message}`,
@@ -512,7 +512,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       // This depends on GitService having a checkout method
       await execGitWithTimeout("github-checkout-branch", `checkout ${branch}`, { workdir });
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       throw new Error(`Failed to checkout branch: ${normalizedError.message}`);
     }
   }
@@ -840,7 +840,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Fallback for any other errors
       throw new MinskyError(
-        `Failed to create GitHub pull request: ${getErrorMessage(error as any)}`
+        `Failed to create GitHub pull request: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1020,7 +1020,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Fallback for any other errors
       throw new MinskyError(
-        `Failed to update GitHub pull request: ${getErrorMessage(error as any)}`
+        `Failed to update GitHub pull request: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1229,7 +1229,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Fallback for any other errors
       throw new MinskyError(
-        `Failed to merge GitHub pull request: ${getErrorMessage(error as any)}`
+        `Failed to merge GitHub pull request: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1560,7 +1560,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
         throw error;
       }
       throw new MinskyError(
-        `Failed to find PR number for branch ${branchName}: ${getErrorMessage(error as any)}`
+        `Failed to find PR number for branch ${branchName}: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1672,7 +1672,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       };
     } catch (error) {
       // Enhanced error handling for different types of GitHub API errors
-      const errorMessage = getErrorMessage(error as any);
+      const errorMessage = getErrorMessage(error);
 
       // Token permissions issues
       if (errorMessage.includes("401") || errorMessage.includes("Bad credentials")) {
@@ -1754,7 +1754,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
       // Fallback for any other errors
       throw new MinskyError(
-        `Failed to approve GitHub pull request: ${getErrorMessage(error as any)}`
+        `Failed to approve GitHub pull request: ${getErrorMessage(error)}`
       );
     }
   }
@@ -1881,7 +1881,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       };
     } catch (error) {
       throw new MinskyError(
-        `Failed to get GitHub PR approval status: ${getErrorMessage(error as any)}`
+        `Failed to get GitHub PR approval status: ${getErrorMessage(error)}`
       );
     }
   }

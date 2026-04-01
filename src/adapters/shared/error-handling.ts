@@ -27,7 +27,7 @@ export interface ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: any, options?: ErrorHandlingOptions): never;
+  handleError(error: unknown, options?: ErrorHandlingOptions): never;
 }
 
 /**
@@ -51,46 +51,46 @@ export class SharedErrorHandler {
    * @param debug Whether to include debug information
    * @returns A structured error object with consistent properties
    */
-  static formatError(error: any, debug: boolean = false): Record<string, any> {
-    const normalizedError = ensureError(error as any);
+  static formatError(error: unknown, debug: boolean = false): Record<string, unknown> {
+    const normalizedError = ensureError(error);
     let errorType = "UNKNOWN_ERROR";
-    const result: Record<string, any> = {
+    const result: Record<string, unknown> = {
       message: normalizedError.message,
     };
 
     // Add error-specific information
     if (error instanceof ValidationError) {
       errorType = "VALIDATION_ERROR";
-      if ((error as any).errors) {
-        (result as any).validationErrors = (error as any).errors as any;
+      if (error.errors) {
+        result.validationErrors = error.errors;
       }
     } else if (error instanceof ResourceNotFoundError) {
       errorType = "NOT_FOUND_ERROR";
-      if ((error as any).resourceType) {
-        (result as any).resourceType = (error as any).resourceType as any;
+      if (error.resourceType) {
+        result.resourceType = error.resourceType;
       }
-      if ((error as any).resourceId) {
-        (result as any).resourceId = (error as any).resourceId as any;
+      if (error.resourceId) {
+        result.resourceId = error.resourceId;
       }
     } else if (error instanceof ServiceUnavailableError) {
       errorType = "SERVICE_UNAVAILABLE_ERROR";
-      if ((error as any).serviceName) {
-        (result as any).serviceName = (error as any).serviceName as any;
+      if (error.serviceName) {
+        result.serviceName = error.serviceName;
       }
     } else if (error instanceof FileSystemError) {
       errorType = "FILE_SYSTEM_ERROR";
-      if ((error as any).path) {
-        (result as any).path = (error as any).path as any;
+      if (error.path) {
+        result.path = error.path;
       }
     } else if (error instanceof ConfigurationError) {
       errorType = "CONFIGURATION_ERROR";
-      if ((error as any).configKey) {
-        (result as any).configKey = (error as any).configKey as any;
+      if (error.configKey) {
+        result.configKey = error.configKey;
       }
     } else if (error instanceof GitOperationError) {
       errorType = "GIT_OPERATION_ERROR";
-      if ((error as any).command) {
-        (result as any).command = (error as any).command as any;
+      if (error.command) {
+        result.command = error.command;
       }
     } else if (error instanceof MinskyError) {
       errorType = "MINSKY_ERROR";
@@ -122,7 +122,7 @@ export class SharedErrorHandler {
    * @param error The error to get a prefix for
    * @returns A human-readable error prefix
    */
-  static getErrorPrefix(error: any): string {
+  static getErrorPrefix(error: unknown): string {
     if (error instanceof ValidationError) {
       return "Validation error";
     } else if (error instanceof ResourceNotFoundError) {
@@ -161,9 +161,9 @@ export class SharedErrorHandler {
    * @param options Error handling options
    * @returns Never returns, process exits
    */
-  static handleError(error: any, options: ErrorHandlingOptions = {}): never {
+  static handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
-    const normalizedError = ensureError(error as any);
+    const normalizedError = ensureError(error);
 
     // Format error for structured logging
     const formattedError = SharedErrorHandler.formatError(error, debug);
@@ -188,9 +188,9 @@ export class CliErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: any, options: ErrorHandlingOptions = {}): never {
+  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
-    const normalizedError = ensureError(error as any);
+    const normalizedError = ensureError(error);
 
     // Handle well-formatted validation errors specially
     if (error instanceof ValidationError) {
@@ -202,31 +202,31 @@ export class CliErrorHandler implements ErrorHandler {
         log.cliError(message);
       } else {
         // Add validation error prefix for less formatted messages
-        const prefix = (SharedErrorHandler as any).getErrorPrefix(error as any);
+        const prefix = SharedErrorHandler.getErrorPrefix(error);
         log.cliError(`${prefix}: ${message}`);
       }
     } else {
       // Get type-specific error prefix for non-validation errors
-      const prefix = (SharedErrorHandler as any).getErrorPrefix(error as any);
+      const prefix = SharedErrorHandler.getErrorPrefix(error);
       log.cliError(`${prefix}: ${normalizedError.message}`);
     }
 
     // Add type-specific details
-    if (error instanceof ValidationError && (error as any).errors && debug) {
+    if (error instanceof ValidationError && error.errors && debug) {
       log.cliError("\nValidation details:");
-      log.cliError(JSON.stringify((error as any).errors, undefined, 2));
+      log.cliError(JSON.stringify(error.errors, undefined, 2));
     } else if (error instanceof ResourceNotFoundError) {
-      if ((error as any).resourceType && (error as any).resourceId) {
-        log.cliError(`Resource: ${(error as any).resourceType}, ID: ${(error as any).resourceId}`);
+      if (error.resourceType && error.resourceId) {
+        log.cliError(`Resource: ${error.resourceType}, ID: ${error.resourceId}`);
       }
-    } else if (error instanceof ServiceUnavailableError && (error as any).serviceName) {
-      log.cliError(`Service: ${(error as any).serviceName}`);
-    } else if (error instanceof FileSystemError && (error as any).path) {
-      log.cliError(`Path: ${(error as any).path}`);
-    } else if (error instanceof ConfigurationError && (error as any).configKey) {
-      log.cliError(`Key: ${(error as any).configKey}`);
-    } else if (error instanceof GitOperationError && (error as any).command) {
-      log.cliError(`Command: ${(error as any).command}`);
+    } else if (error instanceof ServiceUnavailableError && error.serviceName) {
+      log.cliError(`Service: ${error.serviceName}`);
+    } else if (error instanceof FileSystemError && error.path) {
+      log.cliError(`Path: ${error.path}`);
+    } else if (error instanceof ConfigurationError && error.configKey) {
+      log.cliError(`Key: ${error.configKey}`);
+    } else if (error instanceof GitOperationError && error.command) {
+      log.cliError(`Command: ${error.command}`);
     }
 
     // Add debug information if in debug mode
@@ -270,7 +270,7 @@ export class McpErrorHandler implements ErrorHandler {
    * @param error Error to handle
    * @param options Error handling options
    */
-  handleError(error: any, options: ErrorHandlingOptions = {}): never {
+  handleError(error: unknown, options: ErrorHandlingOptions = {}): never {
     const { debug = SharedErrorHandler.isDebugMode(), exitCode = 1 } = options;
 
     // Format error for MCP response

@@ -68,7 +68,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       };
     } catch (error) {
       throw new WorkspaceError(
-        `Failed to get file info: ${getErrorMessage(error as any)}`,
+        `Failed to get file info: ${getErrorMessage(error)}`,
         "file_info",
         workspaceDir,
         relative(workspaceDir, fullPath),
@@ -106,12 +106,12 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
 
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
+      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
 
       throw new WorkspaceError(
-        `Failed to read file: ${getErrorMessage(error as any)}`,
+        `Failed to read file: ${getErrorMessage(error)}`,
         "read_file",
         workspaceDir,
         relativePath,
@@ -163,7 +163,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         throw error;
       }
 
-      const message = `Failed to write file: ${getErrorMessage(error as any)}`;
+      const message = `Failed to write file: ${getErrorMessage(error)}`;
       log.error("Write file failed", {
         workspaceDir,
         relativePath,
@@ -209,11 +209,11 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
 
       // Handle file not found
-      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
+      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath, error);
       }
 
-      const message = `Failed to delete: ${getErrorMessage(error as any)}`;
+      const message = `Failed to delete: ${getErrorMessage(error)}`;
       log.error("Delete failed", {
         workspaceDir,
         relativePath,
@@ -252,7 +252,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
           // Log but don't fail on individual file errors
           log.warn("Failed to get info for directory entry", {
             entry,
-            error: getErrorMessage(error as any),
+            error: getErrorMessage(error),
           });
         }
       }
@@ -276,12 +276,12 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
       }
 
       // Handle directory not found
-      if (error instanceof Error && "code" in error && (error as any)?.code === "ENOENT") {
+      if (error instanceof Error && "code" in error && (error as NodeJS.ErrnoException).code === "ENOENT") {
         throw new FileNotFoundError(workspaceDir, relativePath || ".", error);
       }
 
       throw new WorkspaceError(
-        `Failed to list directory: ${getErrorMessage(error as any)}`,
+        `Failed to list directory: ${getErrorMessage(error)}`,
         "list_directory",
         workspaceDir,
         relativePath,
@@ -326,7 +326,7 @@ export class LocalWorkspaceBackend implements WorkspaceBackend {
         throw error;
       }
 
-      const message = `Failed to create directory: ${getErrorMessage(error as any)}`;
+      const message = `Failed to create directory: ${getErrorMessage(error)}`;
       log.error("Create directory failed", {
         workspaceDir,
         relativePath,

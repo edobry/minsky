@@ -143,7 +143,7 @@ export async function installDependencies(
 
     return { success: true, output };
   } catch (error) {
-    const errorMessage = getErrorMessage(error as any);
+    const errorMessage = getErrorMessage(error);
 
     if (!options.quiet && deps.logger) {
       deps.logger.error(`Failed to install dependencies: ${errorMessage}`);

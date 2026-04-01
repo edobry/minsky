@@ -150,7 +150,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error as any)),
+        error: error instanceof Error ? error : new Error(String(error)),
       };
     }
   }
@@ -179,7 +179,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
     } catch (error) {
       return {
         success: false,
-        error: error instanceof Error ? error : new Error(String(error as any)),
+        error: error instanceof Error ? error : new Error(String(error)),
       };
     }
   }
@@ -198,7 +198,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
 
       return (result[0] as TEntity) || null;
     } catch (error) {
-      const errorMessage = getErrorMessage(error as any);
+      const errorMessage = getErrorMessage(error);
       log.error(`Failed to get session '${id}': ${errorMessage}`);
       return null;
     }
@@ -242,7 +242,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       const sessions = await query;
       return sessions as TEntity[];
     } catch (error) {
-      const errorMessage = getErrorMessage(error as any);
+      const errorMessage = getErrorMessage(error);
       log.error(`Failed to get sessions: ${errorMessage}`);
       return [];
     }
@@ -258,7 +258,7 @@ export class SqliteStorage<TEntity extends Record<string, any>, TState>
       await this.drizzleDb.insert(sessionsTable).values(sessionRecord);
       return entity;
     } catch (error) {
-      const errorMessage = getErrorMessage(error as any);
+      const errorMessage = getErrorMessage(error);
       log.debug(`Failed to create session '${entity.session}': ${errorMessage}`);
       throw error;
     }

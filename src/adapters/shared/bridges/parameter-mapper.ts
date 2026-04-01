@@ -279,7 +279,7 @@ export function normalizeCliParameters(
           throw new Error(`Invalid value for parameter '${paramName}': ${userFriendlyMessage}`);
         } else {
           throw new Error(
-            `Invalid value for parameter '${paramName}': ${getErrorMessage(error as any)}`
+            `Invalid value for parameter '${paramName}': ${getErrorMessage(error)}`
           );
         }
       }

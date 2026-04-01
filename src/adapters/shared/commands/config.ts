@@ -181,12 +181,12 @@ const configListRegistration = {
       };
     } catch (error) {
       log.error("Failed to load configuration", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return {
         success: false,
         json: params.json || false,
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         showSources: (params as any).sources || false,
       };
     }
@@ -240,12 +240,12 @@ const configShowRegistration = {
       };
     } catch (error) {
       log.error("Failed to load configuration", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return {
         success: false,
         json: params.json || false,
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         showSources: (params as any).sources || false,
       };
     }
@@ -373,7 +373,7 @@ const configGetRegistration = {
       return {
         success: false,
         json: params.json || false,
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         key: params.key,
       };
     }
@@ -570,7 +570,7 @@ const configDoctorRegistration = {
       diagnostics.push({
         check: "Configuration Loading",
         status: "error",
-        message: `Configuration loading failed: ${getErrorMessage(e as any)}`,
+        message: `Configuration loading failed: ${getErrorMessage(e)}`,
       });
     }
 
@@ -589,7 +589,7 @@ const configDoctorRegistration = {
       diagnostics.push({
         check: "Configuration Validation",
         status: "error",
-        message: `Validation check failed: ${getErrorMessage(e as any)}`,
+        message: `Validation check failed: ${getErrorMessage(e)}`,
       });
     }
 
@@ -630,7 +630,7 @@ const configDoctorRegistration = {
       diagnostics.push({
         check: "Filesystem Check",
         status: "error",
-        message: `Filesystem check failed: ${getErrorMessage(e as any)}`,
+        message: `Filesystem check failed: ${getErrorMessage(e)}`,
       });
     }
 

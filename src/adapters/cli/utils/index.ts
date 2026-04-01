@@ -77,23 +77,23 @@ export function outputResult(result: any, options: OutputOptions = {}): void {
 /**
  * Handle CLI errors
  */
-export function handleCliError(error: any, options: { debug?: boolean } = {}): void {
-  const err = ensureError(error as any);
+export function handleCliError(error: unknown, options: { debug?: boolean } = {}): void {
+  const err = ensureError(error);
   if (options.debug) {
     // Detailed error in debug mode
     log.cliError("Command execution failed");
-    log.cliError(String(err as any));
-    if ((err as any)?.stack) {
-      log.cliError((err as any).stack);
+    log.cliError(String(err));
+    if (err.stack) {
+      log.cliError(err.stack);
     }
   } else {
     // Simple error in regular mode
     log.cliError(`Error: ${getErrorMessage(err)}`);
   }
   // Set appropriate exit code based on error type
-  if ((err as any)?.name === "ValidationError") {
+  if (err.name === "ValidationError") {
     process.exitCode = 2;
-  } else if ((err as any)?.name === "NotFoundError") {
+  } else if (err.name === "NotFoundError") {
     process.exitCode = 4;
   } else {
     process.exitCode = 1;

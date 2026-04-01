@@ -54,6 +54,16 @@ export {
 // Original utilities (avoid conflicts)
 export { createMockFileSystem, setupTestMocks } from "./mocking";
 
+// Type-safe mock factories (replaces `as any` pattern)
+export {
+  createPartialMock as createTypedPartialMock,
+  createSessionRecordMock,
+  createSessionProviderMock,
+  createTaskServiceMock,
+  createGitServiceMock,
+  createCommandContextMock,
+} from "./typed-mocks";
+
 // Import the functions for use in setupCompleteTestEnvironment
 import { setupTestCleanup } from "./cleanup";
 import { setupEnhancedMocking, validateMockIsolation } from "./enhanced-mocking";

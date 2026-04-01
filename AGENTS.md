@@ -7,6 +7,7 @@
 Always use `bun` instead of `node` when running JavaScript/TypeScript in the project. Bun is the preferred runtime.
 
 Examples:
+
 - Use `bun install` instead of `npm install`
 - Use `bun run` instead of `node`
 - Use `bun test` instead of `jest` or `mocha`
@@ -15,6 +16,7 @@ Examples:
 When writing documentation, commands, or implementation code, always prefer Bun's API and CLI over Node.js equivalents. The project is specifically designed to leverage Bun's performance and capabilities.
 
 In package.json scripts, ensure all commands use bun:
+
 ```json
 "scripts": {
   "start": "bun run src/index.ts",
@@ -25,6 +27,7 @@ In package.json scripts, ensure all commands use bun:
 ```
 
 When creating new files, use the bun shebang:
+
 ```typescript
 #!/usr/bin/env bun
 ```
@@ -34,6 +37,7 @@ This rule applies to all code, documentation, and configuration files in the pro
 # Test Execution and Verification
 
 ## Integration with Testing Rule System
+
 - This rule is part of the Minsky testing rule system. Start with [testing-router](mdc:.cursor/rules/testing-router.mdc) for the complete overview.
 - This rule focuses on **when to run tests** and **verification protocols**, complementing other testing rules.
 
@@ -46,16 +50,18 @@ This rule applies to all code, documentation, and configuration files in the pro
 - Never infer urgency. If you perceive time pressure, assume there is none and ask the user before making trade-offs.
 
 1. **When to Run Tests**
+
    - Run tests after ANY change to:
-     - Source code files (*.ts, *.js)
-     - Test files (*.test.ts, *.spec.ts)
+     - Source code files (_.ts, _.js)
+     - Test files (_.test.ts, _.spec.ts)
      - Configuration files that affect test behavior
    - Do NOT run tests for:
-     - Documentation changes (*.md)
+     - Documentation changes (\*.md)
      - Comment-only changes
      - Formatting-only changes (unless they affect test output)
 
 2. **Which Tests to Run**
+
    - Run all tests in the affected package/module
    - For changes to shared utilities or core functionality, run all tests
    - Use `bun test` for the default test suite
@@ -72,6 +78,7 @@ This rule applies to all code, documentation, and configuration files in the pro
 ## Verification Protocols
 
 ### Batch Verification
+
 - After each set of related changes, run all of these checks:
   ```bash
   bun lint        # Check code quality
@@ -81,6 +88,7 @@ This rule applies to all code, documentation, and configuration files in the pro
   ```
 
 ### Verification Checkpoints
+
 - Verification MUST be performed:
   - Before committing changes
   - Before opening a pull request
@@ -89,12 +97,14 @@ This rule applies to all code, documentation, and configuration files in the pro
   - After refactoring shared code
 
 ### Test Pass/Fail Gating
+
 - Failed tests MUST block further progress
 - You MUST NOT commit, merge, or ship code with failing tests
 - Broken tests MUST be fixed rather than skipped or removed
 - If test failures are expected due to implementation changes, update tests FIRST
 
 ## Core Principles
+
 1. **Zero Tolerance for Placeholder Tests**: All tests must meaningfully test actual functionality.
 2. **Test-First Development**: Write tests before implementing features and fixes.
 3. **Isolate Test Dependencies**: Use proper mocking and test isolation techniques.
@@ -141,6 +151,7 @@ If the code clearly shows what it does, don't comment it.
 ## ❌ DELETE These Comment Types
 
 **Obvious statements:**
+
 ```typescript
 // Create a new user
 const user = createUser();
@@ -149,10 +160,13 @@ const user = createUser();
 return result;
 
 // All operations work in main workspace
-function processInWorkspace() { /* clearly works in workspace */ }
+function processInWorkspace() {
+  /* clearly works in workspace */
+}
 ```
 
 **Temporal references (your internal process, not the code's purpose):**
+
 ```typescript
 // This was simplified after refactoring
 // Operations now work in main workspace
@@ -160,6 +174,7 @@ function processInWorkspace() { /* clearly works in workspace */ }
 ```
 
 **Internal reasoning language:**
+
 ```typescript
 // Enhanced error handling
 // Robust implementation
@@ -169,6 +184,7 @@ function processInWorkspace() { /* clearly works in workspace */ }
 ## ✅ KEEP These Comment Types
 
 **Explains WHY something non-obvious happens:**
+
 ```typescript
 // Cache expires after 5 minutes to balance freshness and performance
 // Using setTimeout instead of setInterval to avoid overlapping calls
@@ -176,6 +192,7 @@ function processInWorkspace() { /* clearly works in workspace */ }
 ```
 
 **Documents business logic or domain knowledge:**
+
 ```typescript
 // Tax calculation must use the rate from the invoice date, not current rate
 // API rate limit is 100 requests per minute per API key
@@ -183,6 +200,7 @@ function processInWorkspace() { /* clearly works in workspace */ }
 ```
 
 **Warns about gotchas or non-obvious behavior:**
+
 ```typescript
 // Modifies the original array for performance reasons
 // This function has side effects - it updates the global cache
@@ -192,6 +210,7 @@ function processInWorkspace() { /* clearly works in workspace */ }
 ## Comment Test
 
 Before writing any comment, ask:
+
 1. **Is this obvious from reading the code?** → Delete it
 2. **Does this explain WHY, not WHAT?** → Keep it
 3. **Would this help someone understand the business logic?** → Keep it
@@ -209,6 +228,7 @@ Extract and organize constants systematically to improve maintainability and red
 ## Key Principles
 
 1. **Extract Repetition Aggressively**: Always extract strings/characters/emoji/numbers that appear 3 or more times, even as a substring of longer strings:
+
    ```typescript
    // AVOID - Repeated emoji
    console.log("🔴 Error: Connection failed");
@@ -223,30 +243,32 @@ Extract and organize constants systematically to improve maintainability and red
    ```
 
 2. **Categorize Constants**: Group related constants together in meaningful categories:
+
    ```typescript
    // Organize by domain
    export const BREW_CMD = {
-     LIST_FORMULAS: 'brew list --formula',
-     LIST_CASKS: 'brew list --cask',
-     INSTALL_FORMULA: 'brew install',
-     INSTALL_CASK: 'brew install --cask',
+     LIST_FORMULAS: "brew list --formula",
+     LIST_CASKS: "brew list --cask",
+     INSTALL_FORMULA: "brew install",
+     INSTALL_CASK: "brew install --cask",
    };
 
    export const DISPLAY = {
      EMOJIS: {
-       ENABLED: '🟢',
-       DISABLED: '🔴',
-       WARNING: '⚠️',
-       UNKNOWN: '❓',
-       CHECK: '✅',
-       INSTALL: '🏗️',
-       ADDITIONAL_INFO: 'ℹ️',
+       ENABLED: "🟢",
+       DISABLED: "🔴",
+       WARNING: "⚠️",
+       UNKNOWN: "❓",
+       CHECK: "✅",
+       INSTALL: "🏗️",
+       ADDITIONAL_INFO: "ℹ️",
      },
-     SEPARATOR: '─'.repeat(80),
+     SEPARATOR: "─".repeat(80),
    };
    ```
 
 3. **Extract Common Patterns**: Even substrings that appear in different contexts should be extracted if repeated:
+
    ```typescript
    // AVOID
    app.get('/api/users', ...);
@@ -261,6 +283,7 @@ Extract and organize constants systematically to improve maintainability and red
    ```
 
 4. **Consolidate Related Files**: Keep all constants in one place or organized by domain:
+
    ```typescript
    // constants/index.ts - The main export point
    export * from './display';
@@ -275,18 +298,20 @@ Extract and organize constants systematically to improve maintainability and red
    ```
 
 5. **Use Template Literals For Derived Constants**: Derive constants from other constants when possible:
+
    ```typescript
-   const BASE_URL = 'https://api.example.com';
-   const API_VERSION = 'v1';
+   const BASE_URL = "https://api.example.com";
+   const API_VERSION = "v1";
 
    // Derived constant using template literals
    const API_ENDPOINT = `${BASE_URL}/${API_VERSION}`;
    ```
 
 6. **Proper Types for Constants**: Use proper TypeScript types for constants:
+
    ```typescript
    // String literal union for status
-   export type Status = 'idle' | 'loading' | 'success' | 'error';
+   export type Status = "idle" | "loading" | "success" | "error";
 
    // Properly typed object of constants
    export const HTTP_STATUS: Record<string, number> = {
@@ -301,6 +326,7 @@ Extract and organize constants systematically to improve maintainability and red
    ```
 
 7. **Environment-specific Constants**: Handle environment-specific constants cleanly:
+
    ```typescript
    // Base constants for all environments
    const BASE_CONSTANTS = {
@@ -312,17 +338,17 @@ Extract and organize constants systematically to improve maintainability and red
    const ENV_CONSTANTS = {
      development: {
        ...BASE_CONSTANTS,
-       API_URL: 'http://localhost:3000',
+       API_URL: "http://localhost:3000",
        TIMEOUT_MS: 10000, // Longer timeout for development
      },
      production: {
        ...BASE_CONSTANTS,
-       API_URL: 'https://api.example.com',
+       API_URL: "https://api.example.com",
      },
    };
 
    // Export the appropriate constants
-   export const CONSTANTS = ENV_CONSTANTS[process.env.NODE_ENV || 'development'];
+   export const CONSTANTS = ENV_CONSTANTS[process.env.NODE_ENV || "development"];
    ```
 
 ## Benefits
@@ -345,33 +371,36 @@ Extract and organize constants systematically to improve maintainability and red
 # Rule: Ensure ASCII Code Symbols
 
 ## Description
+
 This rule ensures that all generated code symbols (variable names, function names, class names, constants, identifiers, etc.) STRICTLY use only standard ASCII characters.
 
 ## Requirements
+
 1.  **ASCII-Only Symbols**: All code symbols generated by the AI must consist exclusively of standard ASCII characters.
 2.  **No Non-ASCII in Symbols**: Non-ASCII characters (e.g., accented letters, Cyrillic, Korean, Chinese characters, emojis, etc.) are strictly prohibited within code symbols.
 3.  **Exceptions for Literals**: This rule does NOT apply to:
-    *   String literals explicitly provided by the user.
-    *   String literals or comments where non-ASCII characters are part of the intended textual content.
-    *   Existing code symbols in the codebase that deliberately and verifiably use non-ASCII characters (the AI should mirror existing conventions if explicitly told to do so for specific symbols, but not introduce new ones).
+    - String literals explicitly provided by the user.
+    - String literals or comments where non-ASCII characters are part of the intended textual content.
+    - Existing code symbols in the codebase that deliberately and verifiably use non-ASCII characters (the AI should mirror existing conventions if explicitly told to do so for specific symbols, but not introduce new ones).
 4.  **Verification**: Before outputting code, the AI should internally verify that generated symbols adhere to this rule.
 5.  **Application**: This rule `alwaysApply: true` because it is a fundamental requirement for code integrity and predictability from the AI.
 
 ## Rationale
+
 To maintain code clarity, prevent compilation or interpretation issues across different environments, and ensure predictable behavior from the AI code generation. This rule was created after an incident where non-ASCII characters were inadvertently introduced into code.
 
 ## Examples
 
 // AVOID
 function 안녕하세요() { // Korean in function name
-  let π = 3.14; // Greek letter in variable name
-  const OPTION_Ä = "value"; // Accented character in constant
+let π = 3.14; // Greek letter in variable name
+const OPTION_Ä = "value"; // Accented character in constant
 }
 
 // PREFER
 function helloWorld() {
-  let pi = 3.14;
-  const OPTION_A = "value";
+let pi = 3.14;
+const OPTION_A = "value";
 }
 
 ## Architecture
@@ -385,14 +414,17 @@ When organizing code in a modular application, follow these principles for bette
 ## Principles
 
 - **Reduce cross-module dependencies and import cycles**
+
   - Co-locate related functions to prevent circular imports
   - Move utility functions to modules where they're most relevant
 
 - **Improve code understandability**
+
   - Keep related functions together based on domain, not just technical category
   - Group functions by what they operate on rather than how they operate
 
 - **Enhance maintainability**
+
   - Organize code according to domain boundaries, not just technical layers
   - Make it easier to update related functionality without needing to touch multiple files
 
@@ -406,27 +438,37 @@ When organizing code in a modular application, follow these principles for bette
 
 ```typescript
 // utils/homebrew.ts
-export async function isBrewPackageInstalled() { /* ... */ }
+export async function isBrewPackageInstalled() {
+  /* ... */
+}
 
 // commands/tools/homebrew.ts
-import { isBrewPackageInstalled } from '../../utils/homebrew.ts';
-export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
+import { isBrewPackageInstalled } from "../../utils/homebrew.ts";
+export function getToolBrewPackageName(brewConfig, toolId) {
+  /* ... */
+}
 
 // utils/tool-status.ts
-import { getToolBrewPackageName } from '../commands/tools/homebrew';
-import { isBrewPackageInstalled } from './homebrew';
+import { getToolBrewPackageName } from "../commands/tools/homebrew";
+import { isBrewPackageInstalled } from "./homebrew";
 ```
 
 ### ✅ Better: Domain-Oriented Organization
 
 ```typescript
 // utils/homebrew.ts - Contains ALL homebrew-related functions
-export async function isBrewPackageInstalled() { /* ... */ }
-export function getToolBrewPackageName(brewConfig, toolId) { /* ... */ }
-export function normalizeBrewConfig(brewConfig, toolId) { /* ... */ }
+export async function isBrewPackageInstalled() {
+  /* ... */
+}
+export function getToolBrewPackageName(brewConfig, toolId) {
+  /* ... */
+}
+export function normalizeBrewConfig(brewConfig, toolId) {
+  /* ... */
+}
 
 // Commands use the consolidated utility module
-import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/homebrew';
+import { isBrewPackageInstalled, getToolBrewPackageName } from "../../utils/homebrew";
 ```
 
 ## Guidelines
@@ -442,10 +484,12 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 5. **Merge Fragmented Utilities**: If multiple utility files serve the same domain, consider merging them
 
 ## Best Practices Cross-Reference
+
 - See also: testable-design, minsky-workflow, session-first-workflow, rule-map.mdc
 - This rule governs: interface alignment, single source of truth for interfaces, and domain grouping.
 
 ## Requirements (Revised)
+
 - You MUST consolidate all shared interfaces/types into a single authoritative file per domain.
 - You MUST update all implementations to match the authoritative interface before making further changes.
 - You MUST group related functions and types by domain, not by technical layer.
@@ -458,6 +502,7 @@ import { isBrewPackageInstalled, getToolBrewPackageName } from '../../utils/home
 ## Interface-Agnostic Architecture
 
 Minsky implements an interface-agnostic command architecture that separates:
+
 - Core domain logic in `src/domain/` (what to do)
 - Interface-specific adapters in `src/adapters/` (how to interact)
 - Command entry points in `src/commands/` (CLI entry points)
@@ -465,12 +510,14 @@ Minsky implements an interface-agnostic command architecture that separates:
 ## Directory Structure
 
 ### Domain Logic
+
 - Core business logic lives in `src/domain/` directory
 - Organized by domain concept (e.g., `tasks.ts`, `git.ts`, `session.ts`)
 - Contains pure TypeScript functions with proper typing and validation
 - Focus on "what" rather than "how" of each operation
 
 ### Interface Adapters
+
 - Located in `src/adapters/` directory
 - Organized by interface type:
   - `src/adapters/cli/`: CLI-specific adapters
@@ -482,6 +529,7 @@ Minsky implements an interface-agnostic command architecture that separates:
   - Handling interface-specific error presentation
 
 ### Command Entry Points
+
 - Located in `src/commands/` directory
 - Organized by interface type:
   - `src/commands/mcp/`: MCP command entry points
@@ -494,19 +542,23 @@ Minsky implements an interface-agnostic command architecture that separates:
 ## Best Practices
 
 1. **Separate Concerns**:
+
    - Domain logic should be interface-agnostic
    - Adapters handle interface-specific concerns
    - Command entry points define the external API
 
 2. **Consistent Organization**:
+
    - Match domain files with corresponding adapters
    - Example: `src/domain/tasks.ts` → `src/adapters/cli/tasks.ts` and `src/adapters/mcp/tasks.ts`
 
 3. **Parameter Validation**:
+
    - Use Zod schemas for consistent parameter validation across interfaces
    - Define schemas once and reuse where possible
 
 4. **Error Handling**:
+
    - Domain functions should throw typed errors
    - Adapters should catch and format errors for their interface
 
@@ -522,6 +574,7 @@ Minsky implements an interface-agnostic command architecture that separates:
 Write comprehensive, maintainable tests following these principles:
 
 ## Test Structure & Organization
+
 - Use `describe`/`it` blocks to organize tests in a clear hierarchy
 - Name tests with clear, action-oriented descriptions of what's being tested
 - Follow the Arrange-Act-Assert pattern for test clarity
@@ -529,6 +582,7 @@ Write comprehensive, maintainable tests following these principles:
 - For test file organization patterns, see [test-organization](mdc:.cursor/rules/test-organization.mdc)
 
 ## Environment Isolation
+
 - Create temporary test directories for filesystem operations
 - Use `beforeEach`/`afterEach` hooks for consistent setup and cleanup
 - Reset test state between tests to prevent cross-test contamination
@@ -536,6 +590,7 @@ Write comprehensive, maintainable tests following these principles:
 - Never depend on global state or other tests' side effects
 
 ## Test Data Management
+
 - Create test fixtures with meaningful, predictable test data
 - Use helper functions to set up test state
 - Maintain clear separation between test setup and assertions
@@ -543,6 +598,7 @@ Write comprehensive, maintainable tests following these principles:
 - Don't use test data that could produce flaky tests (e.g., current date/time)
 
 ## Mocking & Stubbing
+
 - Mock external services and dependencies for deterministic tests
 - Use the simplest mocking approach that meets your needs
 - Prefer explicit mocks over automatic/magic mocking
@@ -550,6 +606,7 @@ Write comprehensive, maintainable tests following these principles:
 - Reset mocks between tests
 
 ## Error & Edge Case Testing
+
 - Test both success and failure paths explicitly
 - Include tests for edge cases and boundary conditions
 - Test handling of empty inputs, null values, and invalid data
@@ -557,6 +614,7 @@ Write comprehensive, maintainable tests following these principles:
 - Test graceful handling of resource failures (network, filesystem, etc.)
 
 ## Assertion Best Practices
+
 - Use specific, precise assertions (e.g., `toContain` vs `toBeTruthy`)
 - Test only what matters – avoid over-specifying implementation details
 - Verify side effects (e.g., file creation/deletion) in addition to function returns
@@ -564,6 +622,7 @@ Write comprehensive, maintainable tests following these principles:
 - For complex objects, assert only on relevant properties
 
 ## Setup & Teardown
+
 - Use the minimum setup necessary for each test
 - Prefer local setup within tests over complex shared fixtures
 - Ensure proper cleanup to avoid test pollution
@@ -571,6 +630,7 @@ Write comprehensive, maintainable tests following these principles:
 - Document environment requirements in test files
 
 ## Coverage Guidelines
+
 - Aim for high coverage of business logic and error handling
 - Don't obsess over 100% coverage at the expense of test quality
 - Focus on testing behaviors rather than implementation details
@@ -580,46 +640,56 @@ Write comprehensive, maintainable tests following these principles:
 ## Guidelines for Writing Effective, Maintainable Tests
 
 ### 1. Focus on Core Functionality
+
 - Write tests that verify the essential behavior and outcomes of a module or function, not its internal implementation details.
 - Prefer black-box testing: test the public API and observable effects, not private state or internal calls.
 
 ### 2. Avoid Complex Mocking
+
 - Do not use complex or brittle mocking patterns, especially those that require deep knowledge of module internals or rely on patching module properties.
 - If mocking is necessary, use simple, explicit stubs or dependency injection.
 - Avoid mocking file system operations, process environment, or global state unless absolutely required.
 
 ### 3. Use Dependency Injection
+
 - Structure code so that dependencies (e.g., services, database, file system) can be injected for testing.
 - In tests, provide minimal mock implementations for dependencies that return predictable results.
 - This enables tests to be simple, reliable, and decoupled from implementation details.
 
 ### 4. Avoid File System Operations in Tests
+
 - Do not create, modify, or delete files or directories in tests unless the test is specifically for file I/O.
 - Prefer in-memory or stubbed data for testing logic.
 - If file system operations are unavoidable, use temporary directories and ensure cleanup is robust.
 
 ### 5. Prefer Simplicity and Maintainability
+
 - Write tests that are easy to read, understand, and maintain.
 - Avoid over-specifying behavior that is likely to change as implementation evolves.
 - Use clear, descriptive test names that specify the intended behavior.
 
 ### 6. Test Only What Matters
+
 - Do not test implementation details that are not part of the module's contract.
 - Avoid asserting on the number of function calls, internal state, or specific log output unless it is part of the public API.
 
 ### 7. Use Proper Test Structure
+
 - Group related tests using `describe` blocks.
 - Use `test` or `it` for individual test cases.
 - Use setup/teardown hooks (`beforeEach`, `afterEach`) only when necessary.
 
 ### 8. Document Test Rationale
+
 - When a test uses a non-obvious pattern (e.g., a stub, a workaround for a test runner limitation), document why.
 
 ### 9. Prefer Integration Over End-to-End for CLI
+
 - For CLI commands, prefer integration tests that invoke the command handler directly with injected dependencies, rather than spawning processes or writing/reading files.
 - Only use end-to-end CLI tests for critical user flows that cannot be covered by integration tests.
 
 ### 10. Update Tests When Refactoring
+
 - When refactoring code, update tests to match the new structure, but do not overfit tests to the implementation.
 - Remove or rewrite tests that are no longer relevant or that test implementation details.
 
@@ -640,11 +710,10 @@ This rule defines the complete workflow for working with tasks and sessions in M
 ### 1. Task Management
 
 **List Available Tasks**
+
 ```bash
 minsky tasks list [--all] [--status <value>] [--filter <value>] [--limit <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
 ```
-
-
 
 **Get Task Details**
 
@@ -652,15 +721,11 @@ minsky tasks list [--all] [--status <value>] [--filter <value>] [--limit <value>
 minsky tasks get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
 ```
 
-
-
 **Check Task Status**
 
 ```bash
 minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
 ```
-
-
 
 ### 2. Session Management
 
@@ -670,15 +735,11 @@ minsky tasks status.get <taskId> [--repo <value>] [--workspace <value>] [--sessi
 minsky session start [--name <value>] [--task <value>] [--description <value>] [--branch <value>] [--repo <value>] [--session <value>] [--json] [--quiet] [--noStatusUpdate] [--skipInstall] [--packageManager <value>]
 ```
 
-
-
 **Get Session Directory**
 
 ```bash
 minsky session dir [--name <value>] [--task <value>] [--repo <value>] [--json]
 ```
-
-
 
 ### 3. Implementation Process
 
@@ -701,15 +762,11 @@ minsky session changeset create [same parameters]
 minsky session cs create [same parameters]  # short alias
 ```
 
-
-
 **Update Task Status**
 
 ```bash
 minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspace <value>] [--session <value>] [--backend <value>] [--json]
 ```
-
-
 
 ## Best Practices
 
@@ -761,10 +818,12 @@ minsky tasks status.set <taskId> [--status <value>] [--repo <value>] [--workspac
 To ensure all code, test, and configuration changes for a task are made exclusively within the session workspace, maintaining strict isolation and traceability as required by the Minsky workflow.
 
 ## Best Practices Cross-Reference
+
 - See also: minsky-workflow, dont-ignore-errors, rule-map.mdc
 - This rule governs: session workspace integrity, audit trail, progress logging, and tool adaptation.
 
 ## Requirements (Revised)
+
 - You MUST perform all code, test, config, and doc changes for a task in the session workspace only.
 - **You MUST use absolute paths for ALL file operations in the session workspace.**
 - You MUST log all edits and maintain an audit trail for traceability.
@@ -801,7 +860,7 @@ This section outlines the non-negotiable rules for file handling and editing wit
 - **Incorrect Example (RISK OF MAIN WORKSPACE MODIFICATION):** `src/file.ts`
 - **Session Directory Pattern:** `/Users/edobry/.local/state/minsky/sessions/task#[TASK_ID]/[PROJECT_PATH]`
 
-- **Rationale:** Many tools (including the `edit_file` tool) and system commands may resolve relative paths against the main workspace root by default, *not* the current shell directory, even if your terminal is currently located within the session directory. Using relative paths can lead to silent, unintended modifications to the main workspace, corrupting its state.
+- **Rationale:** Many tools (including the `edit_file` tool) and system commands may resolve relative paths against the main workspace root by default, _not_ the current shell directory, even if your terminal is currently located within the session directory. Using relative paths can lead to silent, unintended modifications to the main workspace, corrupting its state.
 
 ### 3.2. Pre-Operation Verification (Mandatory)
 
@@ -809,7 +868,7 @@ Before any file operation (especially edits), the following verifications **MUST
 
 1.  **Confirm Session Directory:** Ensure the active Minsky session directory path is known and correct.
     - Example: `/Users/edobry/.local/state/minsky/sessions/task#227`
-2.  **Validate Target Path:** The absolute path of the target file **MUST** be constructed and validated to ensure it unequivocally resides *within* the confirmed session directory. (This incorporates the previous "3. Edit Location Verification" rule).
+2.  **Validate Target Path:** The absolute path of the target file **MUST** be constructed and validated to ensure it unequivocally resides _within_ the confirmed session directory. (This incorporates the previous "3. Edit Location Verification" rule).
     - Example: `/Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts`
 3.  **Existence Check (Highly Recommended):** Before editing, verify the file exists at the constructed absolute session path (e.g., using `ls -la /Users/edobry/.local/state/minsky/sessions/task#227/src/domain/tasks/task-service.ts`).
 
@@ -821,8 +880,8 @@ Before any file operation (especially edits), the following verifications **MUST
 ### 3.4. Audit Trail for Edits
 
 - For traceability, every file edit performed by an AI or automated tool **MUST** log:
-    - The confirmed absolute session directory path.
-    - The absolute path of the file being edited.
+  - The confirmed absolute session directory path.
+  - The absolute path of the file being edited.
 - **Example Log Message (to be outputted before an edit operation):**
   ```
   Minsky Session Edit Pre-Check:
@@ -837,16 +896,18 @@ Before any file operation (especially edits), the following verifications **MUST
 **Following repeated violations of the absolute path requirement, this section provides zero-tolerance enforcement:**
 
 1. **Mandatory Pre-Edit Verification**: Before ANY file edit in a session workspace, the assistant MUST:
+
    - Verify the file path starts with `/Users/edobry/.local/state/minsky/sessions/task#[ID]/`
    - Output the "Minsky Session Edit Pre-Check" message
    - REJECT any edit attempt using relative paths
 
 2. **Violation Response Protocol**: If user reports absolute path violation:
+
    - **FIRST VIOLATION**: Immediate correction with rule reminder
    - **SECOND VIOLATION**: Critical error - update rule enforcement
    - **THIRD VIOLATION**: Terminal error - complete operational pause
 
-3. **Tool Usage Restrictions**: 
+3. **Tool Usage Restrictions**:
    - `edit_file` tool MUST use absolute paths in session workspaces
    - `read_file` tool MUST use absolute paths in session workspaces
    - `delete_file` tool MUST use absolute paths in session workspaces
@@ -883,6 +944,7 @@ When utilizing the `edit_file` tool, adhere strictly to the **Core Practices for
 - **Mandatory Pre-Edit Verification Message:** Before every call to `edit_file`, the AI **MUST** output the verification message detailed in Section 3.4 (Audit Trail for Edits).
 
 - **Example `edit_file` Invocation:**
+
   ```typescript
   // Session directory for task #227:
   const sessionDirectory = "/Users/edobry/.local/state/minsky/sessions/task#227";
@@ -890,7 +952,9 @@ When utilizing the `edit_file` tool, adhere strictly to the **Core Practices for
   const absolutePathInSession = `${sessionDirectory}/${filePathRelativeToProject}`;
 
   // Log verification message (as per Section 3.4)
-  console.log(`Minsky Session Edit Pre-Check:\n- Session Directory: ${sessionDirectory}\n- Target File (Absolute): ${absolutePathInSession}\nProceeding with edit...`);
+  console.log(
+    `Minsky Session Edit Pre-Check:\n- Session Directory: ${sessionDirectory}\n- Target File (Absolute): ${absolutePathInSession}\nProceeding with edit...`
+  );
 
   // Call edit_file with the absolute path
   // edit_file(target_file = absolutePathInSession, code_edit = "...your code edit...", instructions = "...");
@@ -959,33 +1023,39 @@ When working with code and tests:
 ## Workflow Sequence
 
 1. **Task Selection and Status Verification**
+
    - First: Check available tasks with `minsky tasks list`
    - Then: Verify task status with `minsky tasks status get '#<id>'`
    - Apply: minsky-cli-usage and task-status-protocol
 
 2. **Session Creation and Navigation**
+
    - First: Create or re-enter a session for the task
    - Then: Navigate to the session directory
    - Apply: minsky-session-management
 
 3. **Task Implementation**
+
    - First: Understand task requirements
    - Then: Implement the solution in the session workspace
    - Apply: task-implementation-workflow and session-first-workflow
 
 4. **Testing and Verification**
+
    - Pacing Note: Do not trade correctness or coverage for speed. A temporarily non-green state is acceptable while restoring the full intended scope after merges. Ask the user before any scope reduction.
    - First: Write and run tests for the implementation
    - Then: Verify that all requirements are met
    - Apply: task-implementation-workflow and tests
 
 5. **PR Preparation and Submission**
+
    - Pacing Note: If tests are failing due to in-progress restoration of coverage, continue restoration work before modifying test assertions. Do not weaken tests to pass without explicit user approval.
    - First: Generate PR description
    - Then: Finalize changes and update task status
    - Apply: pr-preparation-workflow
 
 6. **PR Approval and Merging**
+
    - First: Review PR content thoroughly
    - Then: Use `minsky git approve` to merge the PR branch
    - Apply: pr-preparation-workflow
@@ -997,14 +1067,14 @@ When working with code and tests:
 
 ## Error Recovery Checkpoints
 
-| Error Scenario | Rule to Apply | Recovery Action |
-|----------------|---------------|-----------------|
-| **Wrong CLI Command** | minsky-cli-usage | Check command reference and retry |
-| **Path Resolution Issue** | session-first-workflow | Use absolute paths in session workspace |
-| **File Editing Outside Session** | session-first-workflow | Cancel edits and switch to session workspace |
-| **Status Tracking Issue** | task-status-protocol | Verify implementation state vs. tracked status |
-| **PR Creation Problem** | pr-preparation-workflow | Check prerequisites and retry |
-| **PR Approval Failure** | pr-preparation-workflow | Address merge conflicts or PR issues before retry |
+| Error Scenario                   | Rule to Apply           | Recovery Action                                   |
+| -------------------------------- | ----------------------- | ------------------------------------------------- |
+| **Wrong CLI Command**            | minsky-cli-usage        | Check command reference and retry                 |
+| **Path Resolution Issue**        | session-first-workflow  | Use absolute paths in session workspace           |
+| **File Editing Outside Session** | session-first-workflow  | Cancel edits and switch to session workspace      |
+| **Status Tracking Issue**        | task-status-protocol    | Verify implementation state vs. tracked status    |
+| **PR Creation Problem**          | pr-preparation-workflow | Check prerequisites and retry                     |
+| **PR Approval Failure**          | pr-preparation-workflow | Address merge conflicts or PR issues before retry |
 
 ## Common Workflow Questions
 
@@ -1046,16 +1116,17 @@ When working with code and tests:
 
 ## Rule Integration Table
 
-| Rule | Primary Purpose | Integrates With |
-|------|-----------------|----------------|
-| minsky-cli-usage | CLI command usage | All workflow rules |
-| minsky-session-management | Session operations | session-first-workflow, task-implementation-workflow |
-| task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow |
-| task-status-protocol | Status management | task-status-verification, task-implementation-workflow |
-| pr-preparation-workflow | PR preparation | task-implementation-workflow, pr-description-guidelines |
-| session-first-workflow | File operations | minsky-session-management, task-implementation-workflow |
+| Rule                         | Primary Purpose     | Integrates With                                         |
+| ---------------------------- | ------------------- | ------------------------------------------------------- |
+| minsky-cli-usage             | CLI command usage   | All workflow rules                                      |
+| minsky-session-management    | Session operations  | session-first-workflow, task-implementation-workflow    |
+| task-implementation-workflow | Task implementation | task-status-protocol, pr-preparation-workflow           |
+| task-status-protocol         | Status management   | task-status-verification, task-implementation-workflow  |
+| pr-preparation-workflow      | PR preparation      | task-implementation-workflow, pr-description-guidelines |
+| session-first-workflow       | File operations     | minsky-session-management, task-implementation-workflow |
 
 ## See Also
+
 - See minsky-cli-usage for CLI command reference
 - See minsky-session-management for session management
 - See task-implementation-workflow for implementing tasks
@@ -1069,7 +1140,9 @@ When working with code and tests:
 ## Git & PR Workflow
 
 # Git Usage Policy
+
 # Git Usage Policy
+
 # Git Usage Policy
 
 This rule outlines the mandatory policies and best practices for using Git within the Minsky project. Adherence to these guidelines is critical for maintaining repository integrity, collaboration, and preventing data loss.
@@ -1081,6 +1154,7 @@ The following verification protocol is **MANDATORY** for all Git operations to p
 ### Required Pre-Command Verification Steps
 
 Before executing ANY Git command that:
+
 - Modifies commit history (`reset`, `rebase`, etc.)
 - Modifies branch structure (`branch -D`, `push origin :branch`, etc.)
 - Overwrites remote state (`push --force`, `push -f`, etc.)
@@ -1089,11 +1163,13 @@ Before executing ANY Git command that:
 You **MUST**:
 
 1. **Document Current State**:
+
    - Run `git status` and observe the current working tree status
    - Run `git log --oneline -n 5` to see the recent commit history
    - If on a branch, note the branch name with `git branch --show-current`
 
 2. **Predict Expected Outcome**:
+
    - Explicitly state what changes will occur to:
      - Working directory files
      - Staging area
@@ -1101,11 +1177,13 @@ You **MUST**:
      - Remote repository state (if applicable)
 
 3. **Consider Safer Alternatives**:
+
    - For `reset`: Consider `git stash` or creating a temporary branch
    - For `rebase`: Consider working on a new temporary branch first
    - For destructive commands: Consider if a non-destructive approach exists
 
 4. **Execute with Verification Flags or in Steps**:
+
    - Use the `--dry-run` flag when available to preview changes
    - Break complex operations into smaller, verifiable steps
    - For critical operations, create a temporary backup branch: `git branch temp-backup`
@@ -1223,7 +1301,8 @@ Accidental or unapproved use of `git push --force` that results in data loss or 
 When user requests "SURGICAL" approach:
 
 1. **Identify Minimal Scope**: Determine exact commits/files that need modification
-2. **Choose Least Invasive Tool**: 
+2. **Choose Least Invasive Tool**:
+
    - `git rebase -i` for specific commit edits
    - Manual file edits for content changes
    - Targeted `git filter-repo --refs <range>` for limited history modification
@@ -1235,16 +1314,19 @@ When user requests "SURGICAL" approach:
 ### Tool Selection Hierarchy for Credential Removal
 
 **User says "surgical"**:
+
 - `git rebase -i <commit-range>` for interactive editing
-- Manual file edits + `git commit --amend` for recent commits  
+- Manual file edits + `git commit --amend` for recent commits
 - `git filter-repo --refs <specific-range>` for targeted history modification
 
 **User says "comprehensive" or "clean everything"**:
+
 - Global `git filter-repo` (with explicit confirmation of scope)
 
 ### Critical Anti-Pattern
 
 **PROHIBITED**: Using comprehensive tools when surgical precision is requested
+
 - ❌ User says "surgical" → Running `git filter-repo` on entire 6,890 commit history
 - ❌ Defaulting to most thorough approach when precision is specified
 - ❌ Ignoring scope limitations in favor of completeness
@@ -1252,6 +1334,7 @@ When user requests "SURGICAL" approach:
 ### Recovery Strategy Integration
 
 For surgical operations that fail:
+
 - Session workspaces at `~/.local/state/minsky/sessions/` provide recovery snapshots
 - Reset to safe commit and cherry-pick clean changes
 - Use targeted approach on restored repository state
@@ -1276,12 +1359,10 @@ For surgical operations that fail:
 - `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
 - `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
 
-
 ## See Also
 
 - `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
 - `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
-
 
 - `minsky-workflow-orchestrator`: For how Git operations fit into the broader Minsky development workflow.
 - `minsky-cli-usage`: For guidelines on using Minsky's Git-related CLI commands.
@@ -1295,12 +1376,14 @@ For any Pull Request, follow these standards to ensure clarity, consistency, and
 When a user mentions or references this rule (explicitly or implicitly) in the context of an existing PR:
 
 1. **Default to Direct Improvement**:
+
    - Immediately locate the corresponding PR description file (typically in `process/tasks/<task-id>/pr.md`)
    - Analyze the existing PR description for missing sections or improvements
    - **Directly update the file** to bring it into compliance with these guidelines
    - Commit and push the changes with an appropriate message (e.g., `docs(#<task-id>): Improve PR description`)
 
 2. **When to Apply vs. Explain**:
+
    - **Apply Directly**: When a PR description file exists and the user references these guidelines
    - **Explain Only**: When explicitly asked for an explanation or when no PR description exists yet
    - **Both**: When asked to explain what changes would be needed and then implement them
@@ -1313,22 +1396,27 @@ When a user mentions or references this rule (explicitly or implicitly) in the c
 This protocol aligns with the direct action and automation preferences specified in the user-preferences rule.
 
 ## Output Format
+
 When generating a PR description, always wrap it in a markdown code block with the markdown language specifier:
+
 ```markdown
 # feat(scope): description
 
 ## Summary
+
 ...rest of PR description...
 ```
 
 This ensures the formatting is preserved and makes it easy to copy and paste into PR systems.
 
 ## Handling Nested Code Blocks
+
 When including code examples within your PR description, you MUST use alternative syntax for nested code blocks to prevent formatting issues:
 
 1. **For the outer markdown code block**: Use standard triple backticks with language specifier: ```markdown
 
 2. **For code examples inside your PR description**: Use one of these approaches:
+
    - Use indentation (4 spaces) instead of backticks for simple code examples
    - For syntax highlighting in nested blocks, use HTML syntax:
      ```html
@@ -1340,16 +1428,14 @@ When including code examples within your PR description, you MUST use alternativ
      ```
    - Alternatively, escape the backticks in nested code blocks with HTML entities:
      ```html
-     &#96;&#96;&#96;javascript
-     function example() {
-       return "This is properly nested";
-     }
+     &#96;&#96;&#96;javascript function example() { return "This is properly nested"; }
      &#96;&#96;&#96;
      ```
 
 3. **For simple inline code**, continue using single backticks as normal: `example`
 
 ## PR Title Format
+
 - Always use the conventional commits format: `type(scope): description`
 - For task-related PRs, include the task ID in the scope: `feat(#002): Add per-repo session storage`
 - Use appropriate types:
@@ -1361,41 +1447,50 @@ When including code examples within your PR description, you MUST use alternativ
   - `chore`: Changes to build process or auxiliary tools
 
 ## PR Description Structure
+
 1. **Summary** (Required)
+
    - Brief overview of the PR in 2-3 sentences
    - Mention the task ID being implemented
 
 2. **Motivation & Context** (Required)
+
    - Explain WHY this change is needed
    - Reference the original task specification
    - Describe the problem being solved
    - Include any design constraints or considerations
 
 3. **Design/Approach** (Required)
+
    - Explain the high-level design or approach chosen
    - Mention any alternative approaches that were considered and why they were rejected
    - Reference any architectural decisions that influenced the implementation
 
 4. **Key Changes** (Required)
+
    - Bullet points listing significant changes made
    - Group related changes together
    - Use code examples where appropriate for clarity
 
 5. **Breaking Changes** (When applicable)
+
    - Explicitly call out any breaking changes
    - Detail migration paths for users
    - Provide examples of before/after code if applicable
 
 6. **Data Migrations** (When applicable)
+
    - Document any data format changes
    - Explain how existing data will be migrated
    - Mention any backward compatibility considerations
 
 7. **Ancillary Changes** (When applicable)
+
    - List changes made that were not explicitly part of the task
    - Explain why these additional changes were necessary
 
 8. **Testing** (Required)
+
    - Describe how the changes were tested
    - Mention any new tests added
    - Note any testing limitations or edge cases
@@ -1411,15 +1506,19 @@ When including code examples within your PR description, you MUST use alternativ
 # feat(#002): Store Session Repos Under Per-Repo Directories
 
 ## Summary
+
 This PR implements task #002, reorganizing session storage to use a more structured directory hierarchy and adding repository name tracking.
 
 ## Motivation & Context
+
 The current flat session storage structure becomes unwieldy with many sessions from different repositories. This change creates a more organized structure by grouping sessions by repository.
 
 ## Design Approach
+
 We've implemented a hierarchical directory structure while maintaining backward compatibility with existing sessions. Repository names are normalized to ensure consistent directory naming across different repository URL formats.
 
 ## Key Changes
+
 - Added `repoName` field to `SessionRecord` to track normalized repository names
 - Implemented repository name normalization (e.g., `github.com/org/project.git` → `org/project`)
 - Updated directory structure to store session repositories under `$XDG_STATE_HOME/minsky/git/<repoName>/sessions/<session>`
@@ -1451,23 +1550,28 @@ Example directory structure (4-space indentation for code blocks):
             └── feature-x/
 
 ## Breaking Changes
+
 None. All changes maintain backward compatibility with existing sessions.
 
 ## Data Migrations
+
 - Existing session records without a `repoName` field will have it automatically populated
 - Repositories remain in their original locations but can be migrated using the new `migrateSessionsToSubdirectory` method
 
 ## Ancillary Changes
+
 - Improved error handling in session path resolution
 - Enhanced workspace detection for better path handling across different environments
 
 ## Testing
+
 - Added test cases for repository name normalization
 - Added tests for path resolution with both legacy and new structures
 - Updated existing tests to work with the new directory structure
 ```
 
 ## Reference
+
 This guide is based on industry best practices for PR descriptions. For more information on conventional commits, see [conventionalcommits.org](mdc:https:/www.conventionalcommits.org).
 
 ## ⚠️ Critical PR Creation Anti-Patterns
@@ -1501,6 +1605,7 @@ This guide is based on industry best practices for PR descriptions. For more inf
 ### Mandatory PR Creation Verification
 
 **Before any PR creation, verify:**
+
 - [ ] Using `--body` parameter or tmp directory (never commit PR description files)
 - [ ] Title only in `--title` parameter (not duplicated in body)
 - [ ] Body content starts with `## Summary` (no title header)
@@ -1509,7 +1614,7 @@ This guide is based on industry best practices for PR descriptions. For more inf
 
 **If user reports PR creation error twice: Treat as critical protocol failure**
 
-```
+````
 
 ## Reference
 This guide is based on industry best practices for PR descriptions. For more information on conventional commits, see [conventionalcommits.org](mdc:https:/www.conventionalcommits.org).
@@ -1542,7 +1647,7 @@ Use the Minsky CLI to generate a PR description:
 
 ```bash
 minsky git pr --task <task-id>
-```
+````
 
 or if you're already in a session:
 
@@ -1654,16 +1759,19 @@ Use these types for the PR title:
   - Keep task IDs in the PR description/body and in commit messages
 
 ### Correct Examples
+
 - Task relationships MVP
 - Improve error messages for invalid session paths
 - Add MCP tool for session file reads
 
 ### Incorrect Examples
+
 - feat(mt#238): Task relationships MVP
 - Task relationships MVP (mt#238)
 - fix: Task relationships MVP
 
 ### Validation Notes
+
 - The PR creation command enforces description-only titles. If you include prefixes or IDs, it will fail.
 - Use the PR body to reference the task ID (e.g., "Implements mt#238") and include the checklist.
 
@@ -1684,6 +1792,7 @@ Use these types for the PR title:
 ### Command Syntax Best Practices
 
 1. **Use `--body-path` instead of `--body "$(cat file)"`**
+
    ```bash
    # ❌ AVOID: Shell parsing issues, command hangs
    minsky session pr create --body "$(cat process/tasks/285/pr.md)"
@@ -1696,6 +1805,7 @@ Use these types for the PR title:
    ```
 
 2. **Use temporary directories for PR descriptions**
+
    ```bash
    # Create PR description outside session workspace
    mkdir -p /tmp/task285-pr
@@ -1746,6 +1856,7 @@ Use these types for the PR title:
 Keep potentially destructive operations safe by default.
 
 ## Requirements
+
 - Default to preview/dry-run; perform changes only when user passes an explicit `--execute` flag.
 - Reflect this behavior in CLI help, docs, and package scripts.
 - Show a clear preview plan for what would happen before applying.
@@ -1754,12 +1865,14 @@ Keep potentially destructive operations safe by default.
 ## Examples
 
 // AVOID: applying by default
+
 ```
 minsky sessiondb migrate
 # applies immediately
 ```
 
 // PREFER: safe default with explicit execution
+
 ```
 # preview
 minsky sessiondb migrate --dry-run
@@ -1769,6 +1882,7 @@ minsky sessiondb migrate --execute
 ```
 
 ## Cross-References
+
 - See `sessiondb.migrate` behavior and other commands using `--execute` semantics.
 
 # Terminal Command Best Practices
@@ -1792,11 +1906,13 @@ When using the `run_terminal_cmd` tool, follow these practices to avoid shell pa
 ### Problem Identification
 
 **Signs of Quote/Parsing Issues:**
+
 - Commands hang with `dquote>` prompt
 - Shell showing `cmdand cmdand cmdand` patterns
 - Need to type `"` and press enter to continue
 
 **Root Causes:**
+
 - Unicode character contamination in command strings
 - Smart quotes instead of ASCII quotes
 - Overly complex command chains
@@ -1804,11 +1920,13 @@ When using the `run_terminal_cmd` tool, follow these practices to avoid shell pa
 ### Examples
 
 **❌ Problematic:**
+
 ```bash
 echo "Complex && command && chains && with && many && operations"
 ```
 
 **✅ Preferred:**
+
 ```bash
 echo 'Simple command'
 # or
@@ -1816,6 +1934,7 @@ echo Simple unquoted text
 ```
 
 **✅ For Complex Operations:**
+
 ```bash
 echo 'Step 1 complete'
 echo 'Step 2 complete'
@@ -1869,8 +1988,8 @@ Step 2: Is variable defined as `X` but parameter uses `_X`?
 ## Common Error Pattern
 
 ```typescript
-const _spec = parseTaskSpec();  // DEFINITION has underscore
-expect(spec.id).toBe("123");    // USAGE has no underscore → ERROR
+const _spec = parseTaskSpec(); // DEFINITION has underscore
+expect(spec.id).toBe("123"); // USAGE has no underscore → ERROR
 
 // WRONG fix: expect(_spec.id).toBe("123")
 // CORRECT fix: const spec = parseTaskSpec()
@@ -1907,11 +2026,13 @@ Always commit and push all code changes without waiting for an explicit request 
 ## Requirements
 
 1. After implementing any feature, fix, or update:
+
    - Stage all changed files
    - Commit with a descriptive message following conventional commits format
    - Push the changes to the remote repository
 
 2. Never consider a task complete until changes have been:
+
    - Committed to the local repository
    - Pushed to the remote repository
 
@@ -1926,6 +2047,7 @@ Always commit and push all code changes without waiting for an explicit request 
 ## Verification Checklist
 
 Before considering any implementation complete, verify:
+
 - [ ] All changes are staged
 - [ ] Changes are committed with a descriptive message
 - [ ] Changes are pushed to the remote repository

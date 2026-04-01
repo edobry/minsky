@@ -83,12 +83,12 @@ export class SessionWorkspaceService {
 
       log.error("Failed to get session workspace", {
         sessionId,
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
 
       throw new SessionNotFoundError(
         sessionId,
-        `Failed to get session workspace: ${getErrorMessage(error as any)}`
+        `Failed to get session workspace: ${getErrorMessage(error)}`
       );
     }
   }
@@ -209,7 +209,7 @@ export class SessionWorkspaceService {
       log.debug("File existence check failed", {
         sessionId,
         relativePath,
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return false;
     }
@@ -265,7 +265,7 @@ export class SessionWorkspaceService {
       log.debug("Path validation failed", {
         sessionId,
         relativePath,
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return false;
     }

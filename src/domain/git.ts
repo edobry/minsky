@@ -16,6 +16,7 @@ import {
   createSessionNotFoundMessage,
   createErrorContext,
   getErrorMessage,
+  getErrorCode,
 } from "../errors/index";
 import { log } from "../utils/logger";
 import { getMinskyStateDir } from "../utils/paths";
@@ -283,12 +284,9 @@ export interface GitResult {
  * Extracted to avoid duplicating this check in `commit` and `commitWithDependencies`.
  */
 function classifyNothingToCommit(err: unknown): boolean {
-  const msg = (
-    (err as any)?.stderr ||
-    (err as any)?.stdout ||
-    (err as any)?.message ||
-    ""
-  ).toString();
+  // Git exec errors may have stderr/stdout/message properties
+  const gitErr = err as { stderr?: string; stdout?: string; message?: string };
+  const msg = (gitErr?.stderr || gitErr?.stdout || gitErr?.message || "").toString();
   return msg.includes("nothing to commit") || msg.includes("nothing added to commit");
 }
 
@@ -557,7 +555,7 @@ export class GitService implements GitServiceInterface {
       await execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
     }
   }
 
@@ -574,7 +572,7 @@ export class GitService implements GitServiceInterface {
       await execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
     }
   }
 
@@ -595,7 +593,7 @@ export class GitService implements GitServiceInterface {
       // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
-      throw new Error(`Failed to fetch latest changes: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to fetch latest changes: ${getErrorMessage(err)}`);
     }
   }
 
@@ -670,13 +668,13 @@ export class GitService implements GitServiceInterface {
       // Log at debug level to avoid showing expected command failures to users
       // Many git operations (like checking if branches exist) are expected to fail
       log.debug("Command execution failed", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         command,
         workdir,
       });
 
       // Extract clean error message - avoid verbose output from hooks/linting
-      const fullError = getErrorMessage(error as any);
+      const fullError = getErrorMessage(error);
       const cleanError = this.extractCleanGitError(fullError, command);
 
       throw new MinskyError(`Failed to execute command in repository: ${cleanError}`);
@@ -775,7 +773,7 @@ export class GitService implements GitServiceInterface {
     } catch (error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         repoPath,
       });
       // Fall back to main
@@ -803,7 +801,7 @@ export class GitService implements GitServiceInterface {
     } catch (error) {
       // Log error but don't throw
       log.error("Could not determine default branch, falling back to 'main'", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         repoPath,
       });
       // Fall back to main
@@ -864,7 +862,7 @@ export class GitService implements GitServiceInterface {
       await deps.execAsync(`git -C ${workdir} stash push -m "minsky session update"`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to stash changes: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to stash changes: ${getErrorMessage(err)}`);
     }
   }
 
@@ -887,7 +885,7 @@ export class GitService implements GitServiceInterface {
       await deps.execAsync(`git -C ${workdir} stash pop`);
       return { workdir, stashed: true };
     } catch (err) {
-      throw new Error(`Failed to pop stash: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to pop stash: ${getErrorMessage(err)}`);
     }
   }
 
@@ -936,7 +934,7 @@ export class GitService implements GitServiceInterface {
         conflicts: false,
       };
     } catch (err) {
-      throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to merge branch ${branch}: ${getErrorMessage(err)}`);
     }
   }
 
@@ -984,7 +982,7 @@ export class GitService implements GitServiceInterface {
       // For session updates, the subsequent merge step will show if changes were applied
       return { workdir, updated: beforeHash.trim() !== afterHash.trim() };
     } catch (err) {
-      throw new Error(`Failed to pull latest changes: ${getErrorMessage(err as any)}`);
+      throw new Error(`Failed to pull latest changes: ${getErrorMessage(err)}`);
     }
   }
 

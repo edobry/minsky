@@ -22,9 +22,11 @@ export async function executeCommand(command: string, options: any = {}) {
     return result;
   } catch (error) {
     // Ensure any spawned processes are cleaned up on error
-    if ((error as any).child) {
+    // Node.js exec errors may have a child process reference (non-standard property)
+    const execError = error as { child?: { kill: (signal: string) => void } };
+    if (execError.child) {
       try {
-        (error as any).child.kill("SIGTERM");
+        execError.child.kill("SIGTERM");
       } catch (killError) {
         // Ignore kill errors
       }

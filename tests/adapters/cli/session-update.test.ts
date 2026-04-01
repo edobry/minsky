@@ -15,11 +15,14 @@ import { createMock } from "../../../src/utils/test-utils/core/mock-functions";
 import type { SessionTestData } from "./session-test-utilities";
 import { SESSION_TEST_PATTERNS } from "../../../src/utils/test-utils/test-constants";
 import type { SessionRecord } from "../../../src/domain/session";
+import type { SessionProviderInterface } from "../../../src/domain/session";
+import type { GitServiceInterface } from "../../../src/domain/git";
 import { mockLogger } from "../../../src/utils/test-utils/mock-logger";
+import { createPartialMock } from "../../../src/utils/test-utils/typed-mocks";
 
 describe("session update command", () => {
   let testData: SessionTestData;
-  let mockGitService: any;
+  let mockGitService: GitServiceInterface;
   let mockFs: ReturnType<typeof createMockFilesystem>;
 
   beforeEach(() => {
@@ -89,11 +92,11 @@ describe("session update command", () => {
     };
 
     // Mock the session database to return our test session
-    const mockSessionDB = {
-      getSession: () => sessionRecord,
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
+      getSession: mock(() => Promise.resolve(sessionRecord)),
       updateSession: createMock(),
-      getSessionWorkdir: createMock(() => sessionPath),
-    };
+      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+    });
 
     const result = await updateSessionFromParams(
       {
@@ -103,7 +106,7 @@ describe("session update command", () => {
       } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB as any,
+        sessionDB: mockSessionDB,
         getCurrentSession: async () => "test-session", // Mock current session detection
       }
     );
@@ -133,11 +136,11 @@ describe("session update command", () => {
       created: new Date().toISOString(),
     };
 
-    const mockSessionDB = {
-      getSession: () => sessionRecord,
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
+      getSession: mock(() => Promise.resolve(sessionRecord)),
       updateSession: createMock(),
-      getSessionWorkdir: createMock(() => sessionPath),
-    };
+      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+    });
 
     const result = await updateSessionFromParams(
       {
@@ -146,7 +149,7 @@ describe("session update command", () => {
       } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB as any,
+        sessionDB: mockSessionDB,
         getCurrentSession: async () => "missing-session", // Mock current session detection
       }
     );
@@ -181,11 +184,11 @@ describe("session update command", () => {
     // Use directory isolation to mock process.cwd
     const dirIsolation = withDirectoryIsolation();
 
-    const mockSessionDB = {
-      getSession: () => sessionRecord,
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
+      getSession: mock(() => Promise.resolve(sessionRecord)),
       updateSession: createMock(),
-      getSessionWorkdir: createMock(() => sessionPath),
-    };
+      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+    });
 
     const result = await updateSessionFromParams(
       {
@@ -194,7 +197,7 @@ describe("session update command", () => {
       } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB as any,
+        sessionDB: mockSessionDB,
         getCurrentSession: async () => SESSION_TEST_PATTERNS.URL_TEST_SESSION, // Mock current session detection
       }
     );
@@ -223,11 +226,11 @@ describe("session update command", () => {
       created: new Date().toISOString(),
     };
 
-    const mockSessionDB = {
-      getSession: () => sessionRecord,
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
+      getSession: mock(() => Promise.resolve(sessionRecord)),
       updateSession: createMock(),
-      getSessionWorkdir: createMock(() => sessionPath),
-    };
+      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+    });
 
     const result = await updateSessionFromParams(
       {
@@ -236,7 +239,7 @@ describe("session update command", () => {
       } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB as any,
+        sessionDB: mockSessionDB,
         getCurrentSession: async () => "force-session", // Mock current session detection
       }
     );
@@ -263,11 +266,11 @@ describe("session update command", () => {
       created: new Date().toISOString(),
     };
 
-    const mockSessionDB = {
-      getSession: () => sessionRecord,
+    const mockSessionDB = createPartialMock<SessionProviderInterface>({
+      getSession: mock(() => Promise.resolve(sessionRecord)),
       updateSession: createMock(),
-      getSessionWorkdir: createMock(() => sessionPath),
-    };
+      getSessionWorkdir: createMock(() => Promise.resolve(sessionPath)),
+    });
 
     const result = await updateSessionFromParams(
       {
@@ -276,7 +279,7 @@ describe("session update command", () => {
       } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB as any,
+        sessionDB: mockSessionDB,
         getCurrentSession: async () => "dry-run-session", // Mock current session detection
       }
     );

@@ -318,7 +318,7 @@ ${description}
       const data = JSON.parse(content.toString());
       return Array.isArray(data) ? data : [];
     } catch (error) {
-      log.warn("Failed to read tasks file", { error: getErrorMessage(error as any) });
+      log.warn("Failed to read tasks file", { error: getErrorMessage(error) });
       return [];
     }
   }

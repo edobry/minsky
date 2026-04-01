@@ -87,7 +87,7 @@ function extractGitHubRepoFromRemote(
   } catch (error) {
     log.debug("Failed to extract GitHub repo from git remote", {
       workspacePath,
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
     });
     return null as any;
   }
@@ -160,9 +160,10 @@ export async function createGitHubLabels(
         });
         log.debug(`Label ${labelName} already exists`);
         continue;
-      } catch (error: any) {
+      } catch (error: unknown) {
         // Label doesn't exist, continue to create it
-        if ((error as any).status !== HTTP_NOT_FOUND) {
+        const httpError = error as { status?: number };
+        if (httpError.status !== HTTP_NOT_FOUND) {
           throw error;
         }
       }
@@ -179,7 +180,7 @@ export async function createGitHubLabels(
       log.debug(`Created GitHub label: ${labelName}`);
     } catch (error) {
       log.error(`Failed to create GitHub label: ${labelName}`, {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
     }
   }

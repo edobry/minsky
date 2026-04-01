@@ -8,6 +8,7 @@ const _COMMIT_HASH_SHORT_LENGTH = 7;
 import { promises as fs } from "fs";
 import { join, dirname } from "path";
 import { log } from "../../utils/logger";
+import { getErrorCode } from "../../schemas/error";
 import type {
   TaskWriteOperationResult,
   TaskReadOperationResult,
@@ -28,9 +29,9 @@ export async function readTasksFile(filePath: string): Promise<TaskReadOperation
       content,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error as any));
+    const err = error instanceof Error ? error : new Error(String(error));
     // Provide concise, user-friendly context without dumping raw error object
-    const code = (err as any)?.code || "";
+    const code = getErrorCode(error) || "";
     const hint =
       code === "ENOENT"
         ? "Tasks file not found. Ensure you're pointing to the main workspace (process/tasks.md)."
@@ -68,7 +69,7 @@ export async function writeTasksFile(
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error as any));
+    const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write tasks file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -92,7 +93,7 @@ export async function readTaskSpecFile(filePath: string): Promise<TaskReadOperat
       content,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error as any));
+    const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to read task spec file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -122,7 +123,7 @@ export async function writeTaskSpecFile(
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error as any));
+    const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to write task spec file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -159,7 +160,7 @@ export async function createDirectory(dirPath: string): Promise<TaskFileOperatio
       filePath: dirPath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error as any));
+    const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to create directory: ${dirPath}`, { error: err });
     return {
       success: false,
@@ -184,7 +185,7 @@ export async function deleteFile(filePath: string): Promise<TaskFileOperationRes
       filePath,
     };
   } catch (error) {
-    const err = error instanceof Error ? error : new Error(String(error as any));
+    const err = error instanceof Error ? error : new Error(String(error));
     log.error(`Failed to delete file: ${filePath}`, { error: err });
     return {
       success: false,
@@ -206,7 +207,7 @@ export async function listFiles(dirPath: string): Promise<string[] | null> {
     return files;
   } catch (error) {
     log.error(`Failed to list files in directory: ${dirPath}`, {
-      error: error instanceof Error ? error : String(error as any),
+      error: error instanceof Error ? error : String(error),
     });
     return null as any;
   }

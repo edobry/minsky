@@ -5,7 +5,7 @@ import { createMockFilesystem } from "../../utils/test-utils/filesystem/mock-fil
 import type { TaskBackend, TaskBackendConfig } from "./types";
 describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   let mockFs: any;
-  let backend: TaskBackend;
+  let backend: TaskBackend & Record<string, any>;
   let tempDir: string;
   let tasksFile: string;
 
@@ -31,7 +31,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
   });
 
   // Helper function to create mock backend with DI
-  function createMockMarkdownBackend(filesystem: any, workspacePath: string): TaskBackend {
+  function createMockMarkdownBackend(filesystem: any, workspacePath: string): TaskBackend & Record<string, any> {
     let taskCounter = 0;
 
     // Store task descriptions separately (simulates spec files)

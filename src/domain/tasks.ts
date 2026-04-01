@@ -15,7 +15,7 @@ export type { TaskBackend } from "./tasks/types";
 // normalizeTaskId removed
 import { createConfiguredTaskService } from "./tasks/taskService";
 export { createConfiguredTaskService } from "./tasks/taskService"; // Re-export createConfiguredTaskService from new location
-import { ResourceNotFoundError, getErrorMessage } from "../errors/index";
+import { ResourceNotFoundError, getErrorMessage, getErrorCode } from "../errors/index";
 const matter = require("gray-matter");
 // Import constants and utilities for use within this file
 import { TASK_STATUS, TASK_STATUS_CHECKBOX, TASK_PARSING_UTILS } from "./tasks/taskConstants";
@@ -511,8 +511,8 @@ export class MarkdownTaskBackend implements TaskBackend {
         });
       }
       return tasks;
-    } catch (error: any) {
-      if ((error as any).code === "ENOENT") {
+    } catch (error: unknown) {
+      if (getErrorCode(error) === "ENOENT") {
         log.warn(`Task file not found at ${this.filePath}. Returning empty task list.`);
         return []; // File not found, return empty array
       }
@@ -679,7 +679,7 @@ export class MarkdownTaskBackend implements TaskBackend {
           }
         }
       } catch (error: any) {
-        throw new Error(`Failed to rename or update spec file: ${getErrorMessage(error as any)}`);
+        throw new Error(`Failed to rename or update spec file: ${getErrorMessage(error)}`);
       }
 
       // Create the task entry
@@ -825,11 +825,11 @@ export class MarkdownTaskBackend implements TaskBackend {
       log.debug("Updated task metadata", { id, specFilePath, metadata });
     } catch (error: any) {
       log.error("Failed to update task metadata", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         id,
         specFilePath,
       });
-      throw new Error(`Failed to update task metadata: ${getErrorMessage(error as any)}`);
+      throw new Error(`Failed to update task metadata: ${getErrorMessage(error)}`);
     }
   }
 
@@ -887,7 +887,7 @@ export class MarkdownTaskBackend implements TaskBackend {
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return false;
     }

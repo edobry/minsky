@@ -88,7 +88,7 @@ export class SessionPathResolver {
       // log.warn("Error checking path boundaries", {
       //   sessionDir,
       //   resolvedPath,
-      //   error: getErrorMessage(error as any),
+      //   error: getErrorMessage(error),
       // });
       return false;
     }
@@ -118,7 +118,7 @@ export class SessionPathResolver {
       // log.warn("Error converting absolute to relative path", {
       //   sessionDir,
       //   absolutePath,
-      //   error: getErrorMessage(error as any),
+      //   error: getErrorMessage(error),
       // });
       return null;
     }
@@ -163,7 +163,7 @@ export class SessionPathResolver {
         validatedPaths.push(validatedPath);
       } catch (error) {
         if (error instanceof InvalidPathError) {
-          errors.push(`${userPath}: ${(error as any).message}`);
+          errors.push(`${userPath}: ${error.message}`);
         } else {
           errors.push(`${userPath}: Unexpected error during validation`);
         }

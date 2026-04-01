@@ -165,7 +165,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
 
       return await this.buildChangesetFromPR(pr);
     } catch (error) {
-      if ((error as any).status === 404) {
+      const httpError = error as { status?: number };
+      if (httpError.status === 404) {
         return null;
       }
       throw new MinskyError(`Failed to get GitHub changeset ${id}: ${getErrorMessage(error)}`);

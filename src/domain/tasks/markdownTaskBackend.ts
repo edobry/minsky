@@ -869,14 +869,14 @@ ${description}
           }
         } catch (error) {
           // Log but don't fail the operation if spec file deletion fails
-          log.debug(`Could not delete spec file for task ${id}: ${getErrorMessage(error as any)}`);
+          log.debug(`Could not delete spec file for task ${id}: ${getErrorMessage(error)}`);
         }
       }
 
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return false;
     }
@@ -980,7 +980,7 @@ ${description}
       return files.filter((file) => file.startsWith(`${taskId}-`));
     } catch (error) {
       log.error(`Failed to find task spec file for task #${taskId}`, {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
       return [];
     }

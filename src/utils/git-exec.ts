@@ -11,7 +11,7 @@ import {
   createGitTimeoutErrorMessage,
   createMergeConflictErrorMessage,
 } from "../errors/enhanced-error-templates";
-import { MinskyError } from "../errors/index";
+import { MinskyError, getErrorMessage } from "../errors/index";
 
 const execAsync = promisify(exec);
 
@@ -76,11 +76,20 @@ export async function execGitWithTimeout(
       workdir,
       executionTimeMs,
     };
-  } catch (error: any) {
+  } catch (error: unknown) {
     const executionTimeMs = Date.now() - startTime;
 
+    // Node.js exec errors have additional properties beyond standard Error
+    const execError = error as {
+      killed?: boolean;
+      signal?: string;
+      stdout?: string;
+      stderr?: string;
+      message?: string;
+    };
+
     // Handle timeout errors with enhanced error messages
-    if ((error as any)?.killed && (error as any)?.signal === "SIGTERM") {
+    if (execError?.killed && execError?.signal === "SIGTERM") {
       const errorMessage = createGitTimeoutErrorMessage(operation, timeout, workdir, [
         ...context,
         { label: "Command", value: fullCommand },
@@ -91,13 +100,13 @@ export async function execGitWithTimeout(
 
     // Handle merge conflicts with enhanced error messages
     if (
-      ((error as any)?.stdout && (error.stdout as any).includes("CONFLICT")) ||
-      ((error as any)?.stderr && (error.stderr as any).includes("CONFLICT"))
+      (execError?.stdout && execError.stdout.includes("CONFLICT")) ||
+      (execError?.stderr && execError.stderr.includes("CONFLICT"))
     ) {
-      const conflictFiles = extractConflictFiles((error as any).stdout, (error as any).stderr);
+      const conflictFiles = extractConflictFiles(execError.stdout ?? "", execError.stderr ?? "");
       const conflictTypes = analyzeConflictTypes(
-        (error as any).stdout,
-        (error as any).stderr,
+        execError.stdout ?? "",
+        execError.stderr ?? "",
         conflictFiles
       );
 
@@ -116,9 +125,9 @@ export async function execGitWithTimeout(
     }
 
     // Re-throw other errors with additional context
-    const errorMessage = (error as any)?.message || "Unknown git command error";
+    const errorMessage = getErrorMessage(error) || "Unknown git command error";
     const enhancedError = new MinskyError(
-      `Git ${operation} failed: ${errorMessage}\n\nCommand: ${fullCommand}\nWorking directory: ${workdir || (process as any).cwd()}\nExecution time: ${executionTimeMs}ms`
+      `Git ${operation} failed: ${errorMessage}\n\nCommand: ${fullCommand}\nWorking directory: ${workdir || process.cwd()}\nExecution time: ${executionTimeMs}ms`
     );
 
     throw enhancedError;

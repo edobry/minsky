@@ -15,7 +15,7 @@ import { registerPersistenceTools } from "../../adapters/mcp/persistence";
 import { registerTaskTools } from "../../adapters/mcp/tasks";
 import { registerChangesetTools } from "../../adapters/mcp/changeset";
 import { SharedErrorHandler } from "../../adapters/shared/error-handling";
-import { getErrorMessage } from "../../errors/index";
+import { getErrorMessage, getErrorStack } from "../../errors/index";
 // Remove network error imports since stdio doesn't have network errors
 import { launchInspector, isInspectorAvailable } from "../../mcp/inspector-launcher";
 import { createProjectContext } from "../../types/project";
@@ -488,7 +488,7 @@ export function createMCPCommand(): Command {
           } catch (error) {
             log.cliError(`Invalid repository path: ${repositoryPath}`);
             if (SharedErrorHandler.isDebugMode() && error instanceof Error) {
-              log.cliError((error as any).message);
+              log.cliError(error.message);
             }
             exit(1);
           }
@@ -686,12 +686,12 @@ export function createMCPCommand(): Command {
         log.error("Failed to start MCP server", {
           transportType: options.http ? "http" : "stdio",
           withInspector: options.withInspector || false,
-          error: getErrorMessage(error as any),
-          stack: error instanceof Error ? (error as any).stack : undefined,
+          error: getErrorMessage(error),
+          stack: getErrorStack(error),
         });
 
         // Handle different types of errors for user-friendly messages
-        log.cliError(`Failed to start MCP server: ${getErrorMessage(error as any)}`);
+        log.cliError(`Failed to start MCP server: ${getErrorMessage(error)}`);
 
         exit(1);
       }

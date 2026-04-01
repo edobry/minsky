@@ -144,7 +144,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         return { success: true, data: state };
       }
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Error reading database file ${this.filePath}: ${typedError.message}`);
       return {
         success: false,
@@ -190,7 +190,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
         bytesWritten: json.length,
       };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Error writing database file ${this.filePath}: ${typedError.message}`);
       return {
         success: false,
@@ -402,7 +402,7 @@ export class JsonFileStorage<T, S> implements DatabaseStorage<T, S> {
 
       return true;
     } catch (error) {
-      log.error(`Error initializing storage: ${getErrorMessage(error as any)}`);
+      log.error(`Error initializing storage: ${getErrorMessage(error)}`);
       return false;
     }
   }

@@ -559,6 +559,6 @@ export async function resolveRepoPath(options: {
       return repository.uri;
     }
   } catch (error) {
-    throw new MinskyError(`Failed to resolve repository _path: ${getErrorMessage(error as any)}`);
+    throw new MinskyError(`Failed to resolve repository _path: ${getErrorMessage(error)}`);
   }
 }

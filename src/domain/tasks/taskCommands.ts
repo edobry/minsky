@@ -243,8 +243,8 @@ export async function getTaskStatusFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task status",
-        (error as any).format(),
-        error as any
+        (error).format(),
+        error
       );
     }
     throw error;
@@ -310,8 +310,8 @@ export async function setTaskStatusFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for setting task status",
-        (error as any).format(),
-        error as any
+        (error).format(),
+        error
       );
     }
     throw error;
@@ -386,8 +386,8 @@ export async function updateTaskFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for updating task",
-        (error as any).format(),
-        error as any
+        (error).format(),
+        error
       );
     }
     throw error;
@@ -446,8 +446,8 @@ export async function createTaskFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for creating task",
-        (error as any).format(),
-        error as any
+        (error).format(),
+        error
       );
     }
     throw error;
@@ -614,8 +614,8 @@ export async function getTaskSpecContentFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for getting task specification",
-        (error as any).format(),
-        error as any
+        (error).format(),
+        error
       );
     }
     throw error;
@@ -685,8 +685,8 @@ export async function deleteTaskFromParams(
     if (error instanceof z.ZodError) {
       throw new ValidationError(
         "Invalid parameters for deleting task",
-        (error as any).format(),
-        error as any
+        (error).format(),
+        error
       );
     }
     throw error;

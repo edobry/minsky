@@ -79,11 +79,11 @@ export interface TaskBackend {
   getCapabilities(): BackendCapabilities;
 
   // ---- Optional Methods ----
+  // createTask: legacy method for creating from a spec file path; only some backends support it
   createTask?(specPath: string | any, options?: any): Promise<Task>;
+  // getTaskSpecPath: returns relative path for a task's spec file; only file-based backends implement it
   getTaskSpecPath?(taskId: string, title: string): string;
-  validateLocalId?(id: string): boolean;
-  exportTask?(id: string): Promise<any>;
-  importTask?(data: any): Promise<Task>;
+  // getTaskMetadata/setTaskMetadata: rich metadata access; only database-backed backends implement it
   getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;
 }

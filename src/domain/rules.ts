@@ -4,7 +4,7 @@ import { join } from "path";
 import * as grayMatterNamespace from "gray-matter";
 import { existsSync as nodeExistsSync } from "fs";
 import { log } from "../utils/logger";
-import { getErrorMessage } from "../errors/index";
+import { getErrorMessage, getErrorStack } from "../errors/index";
 const COMMIT_HASH_SHORT_LENGTH = 7;
 
 // Added logger import
@@ -155,8 +155,8 @@ export class RuleService {
           } catch (error) {
             log.error("Error processing rule file", {
               file,
-              originalError: getErrorMessage(error as any),
-              stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
+              originalError: getErrorMessage(error),
+              stack: getErrorStack(error),
             });
           }
         }
@@ -165,8 +165,8 @@ export class RuleService {
         if ((error as NodeJS.ErrnoException).code !== "ENOENT") {
           log.error("Error reading rules directory", {
             format,
-            originalError: getErrorMessage(error as any),
-            stack: error instanceof Error ? ((error as any).stack as any) : (undefined as any),
+            originalError: getErrorMessage(error),
+            stack: getErrorStack(error),
           });
         }
       }
@@ -237,7 +237,7 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter", {
               filePath,
-              error: getErrorMessage(error as any),
+              error: getErrorMessage(error),
               content: ((content as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
@@ -268,7 +268,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in requested format", {
             filePath,
-            error: getErrorMessage(error as any),
+            error: getErrorMessage(error),
           });
         }
         // Instead of failing immediately, try other formats below
@@ -350,7 +350,7 @@ export class RuleService {
           if (options.debug) {
             log.error("Error parsing frontmatter in alternative format", {
               filePath,
-              error: getErrorMessage(error as any),
+              error: getErrorMessage(error),
               content: ((content as any).toString() as any).substring(0, HTTP_OK), // Log the first HTTP_OK chars for debugging
             });
           }
@@ -378,7 +378,7 @@ export class RuleService {
         if (options.debug) {
           log.debug("File not found in alternative format", {
             filePath,
-            error: getErrorMessage(error as any),
+            error: getErrorMessage(error),
           });
         }
         continue;
@@ -408,7 +408,7 @@ export class RuleService {
     } catch (error) {
       // Return null if rule is not found, instead of throwing
       if (options.debug) {
-        log.debug("Rule not found", { id, error: getErrorMessage(error as any) });
+        log.debug("Rule not found", { id, error: getErrorMessage(error) });
       }
       return null;
     }

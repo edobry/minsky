@@ -109,7 +109,7 @@ export class SessionDbHealthMonitor {
       };
     } catch (error) {
       log.error("Health check failed", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         duration: (Date as any).now() - startTime,
       });
 
@@ -120,7 +120,7 @@ export class SessionDbHealthMonitor {
           backend: sessionDbConfig?.backend || "unknown",
           responseTime: Date.now() - startTime,
           timestamp: new Date().toISOString(),
-          errors: [`Health check failed: ${getErrorMessage(error as any)}`],
+          errors: [`Health check failed: ${getErrorMessage(error)}`],
         },
         performance: {
           averageResponseTime: 0,
@@ -168,11 +168,11 @@ export class SessionDbHealthMonitor {
     } catch (error) {
       status.healthy = false;
       status.responseTime = Date.now() - startTime;
-      (status.errors as any).push(getErrorMessage(error as any));
+      (status.errors as any).push(getErrorMessage(error));
 
       log.warn("Backend health check failed", {
         backend: config.backend,
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
         responseTime: status.responseTime,
       });
     }
@@ -254,7 +254,7 @@ export class SessionDbHealthMonitor {
         status.details!.directoryWritable = false;
       }
     } catch (error) {
-      status.warnings?.push(`JSON health check warning: ${getErrorMessage(error as any)}`);
+      status.warnings?.push(`JSON health check warning: ${getErrorMessage(error)}`);
     }
   }
 
@@ -294,7 +294,7 @@ export class SessionDbHealthMonitor {
         db.close();
       }
     } catch (error) {
-      status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error as any)}`);
+      status.warnings?.push(`SQLite health check warning: ${getErrorMessage(error)}`);
     }
   }
 
@@ -348,7 +348,7 @@ export class SessionDbHealthMonitor {
         await pool.end();
       }
     } catch (error) {
-      status.warnings?.push(`PostgreSQL health check warning: ${getErrorMessage(error as any)}`);
+      status.warnings?.push(`PostgreSQL health check warning: ${getErrorMessage(error)}`);
     }
   }
 
@@ -412,7 +412,7 @@ export class SessionDbHealthMonitor {
       }
     } catch (error) {
       log.warn("Storage metrics check failed", {
-        error: getErrorMessage(error as any),
+        error: getErrorMessage(error),
       });
     }
 

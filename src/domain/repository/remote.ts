@@ -122,7 +122,7 @@ export class RemoteGitBackend implements RepositoryBackend {
         session,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
 
       // Provide more informative error messages for common Git issues
       if (normalizedError?.message.includes("Authentication failed")) {
@@ -170,7 +170,7 @@ Repository: ${this.repoUrl}
         branch,
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       throw new Error(`Failed to create branch in Git repository: ${normalizedError.message}`);
     }
   }
@@ -231,7 +231,7 @@ Repository: ${this.repoUrl}
         changes: [],
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       throw new Error(`Failed to get Git repository status: ${normalizedError.message}`);
     }
   }
@@ -283,7 +283,7 @@ Repository: ${this.repoUrl}
         message: "Git repository URL validated successfully",
       };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         message: `Failed to validate Git repository: ${normalizedError.message}`,
@@ -339,8 +339,8 @@ Repository: ${this.repoUrl}
           // Push to remote
           await execGitWithTimeout("push", `push origin ${targetBranch}`, { workdir });
         } catch (error) {
-          const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-          if ((normalizedError?.message as any).includes("Authentication failed")) {
+          const normalizedError = error instanceof Error ? error : new Error(String(error));
+          if (normalizedError?.message?.includes("Authentication failed")) {
             return {
               success: false,
               error: new Error(
@@ -354,7 +354,7 @@ Repository: ${this.repoUrl}
 
       return { success: true };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         error: new Error(`Failed to push changes: ${normalizedError.message}`),
@@ -404,8 +404,8 @@ Repository: ${this.repoUrl}
           // Pull from remote
           await execGitWithTimeout("pull", `pull origin ${targetBranch}`, { workdir });
         } catch (error) {
-          const normalizedError = error instanceof Error ? error : new Error(String(error as any));
-          if ((normalizedError?.message as any).includes("Authentication failed")) {
+          const normalizedError = error instanceof Error ? error : new Error(String(error));
+          if (normalizedError?.message?.includes("Authentication failed")) {
             return {
               success: false,
               error: new Error(
@@ -419,7 +419,7 @@ Repository: ${this.repoUrl}
 
       return { success: true, message: "Pull completed successfully" };
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return {
         success: false,
         error: new Error(`Failed to pull changes: ${normalizedError.message}`),

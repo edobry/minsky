@@ -9,13 +9,17 @@ import { MinskyError, ensureError } from "../../errors/base-errors";
 // Re-export base errors
 export { MinskyError, ensureError };
 
-/**
- * Safely extract error message from unknown error value
- * Replaces the common pattern: error instanceof Error ? error.message : String(error)
- */
-export function getErrorMessage(error: any): string {
-  return error instanceof Error ? ((error as any).message as any) : (String(error as any) as any);
-}
+// Re-export canonical error utilities from schemas/error
+export {
+  getErrorMessage,
+  getErrorStack,
+  getErrorCode,
+  isErrorLike,
+  toError,
+  validateError,
+  validateSystemError,
+  validateGitError,
+} from "../../schemas/error";
 
 /**
  * Thrown when user input or request parameters fail validation.

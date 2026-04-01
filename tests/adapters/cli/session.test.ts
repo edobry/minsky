@@ -26,6 +26,7 @@ import { withDirectoryIsolation } from "../../../src/utils/test-utils/cleanup-pa
 import { createMockFilesystem } from "../../../src/utils/test-utils/filesystem/mock-filesystem";
 import type { SessionRecord, SessionProviderInterface } from "../../../src/domain/session";
 import type { GitServiceInterface } from "../../../src/domain/git";
+import { createSessionProviderMock, createPartialMock } from "../../../src/utils/test-utils/typed-mocks";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
 
 // Set up automatic mock cleanup
@@ -71,8 +72,8 @@ describe("Session CLI Commands", () => {
       },
     });
 
-    mockSessionProvider = createMockSessionProvider({
-      getSession: (sessionName: string) =>
+    mockSessionProvider = createSessionProviderMock({
+      getSession: mock((sessionName: string) =>
         Promise.resolve({
           session: sessionName,
           repoName: "test/repo",
@@ -82,10 +83,12 @@ describe("Session CLI Commands", () => {
           sessionPath: join(testData.tempDir, "sessions", sessionName),
           branch: "main",
           createdAt: new Date().toISOString(),
-        }),
-      getSessionWorkdir: (_sessionName: string) =>
-        Promise.resolve(join(testData.tempDir, "sessions", _sessionName)),
-      listSessions: () =>
+        })
+      ),
+      getSessionWorkdir: mock((_sessionName: string) =>
+        Promise.resolve(join(testData.tempDir, "sessions", _sessionName))
+      ),
+      listSessions: mock(() =>
         Promise.resolve([
           {
             session: "test-session",
@@ -97,8 +100,9 @@ describe("Session CLI Commands", () => {
             branch: "main",
             createdAt: new Date().toISOString(),
           },
-        ]),
-    } as any);
+        ])
+      ),
+    });
   });
 
   afterEach(() => {
@@ -128,8 +132,8 @@ describe("Session CLI Commands", () => {
       // Create the session directory using mock filesystem
       mockFs.ensureDirectoryExists(sessionPath);
 
-      const mockSessionProviderWithTask = createMockSessionProvider({
-        getSession: (sessionName: string) => {
+      const mockSessionProviderWithTask = createSessionProviderMock({
+        getSession: mock((sessionName: string) => {
           if (sessionName === "task-123") {
             return Promise.resolve({
               session: "task-123",
@@ -143,8 +147,8 @@ describe("Session CLI Commands", () => {
             });
           }
           return Promise.resolve(null);
-        },
-        getSessionByTaskId: (taskId: string) => {
+        }),
+        getSessionByTaskId: mock((taskId: string) => {
           if (taskId === "md#123") {
             return Promise.resolve({
               session: "task-123",
@@ -158,9 +162,9 @@ describe("Session CLI Commands", () => {
             });
           }
           return Promise.resolve(null);
-        },
-        getSessionWorkdir: (_sessionName: string) => Promise.resolve(sessionPath),
-        listSessions: () =>
+        }),
+        getSessionWorkdir: mock((_sessionName: string) => Promise.resolve(sessionPath)),
+        listSessions: mock(() =>
           Promise.resolve([
             {
               session: "task-123",
@@ -172,8 +176,9 @@ describe("Session CLI Commands", () => {
               branch: PATH_TEST_PATTERNS.FEATURE_TASK_BRANCH,
               createdAt: new Date().toISOString(),
             },
-          ]),
-      } as any);
+          ])
+        ),
+      });
 
       const result = await getSessionDirFromParams(
         { task: "md#123" },
@@ -191,8 +196,8 @@ describe("Session CLI Commands", () => {
       // Use directory isolation to mock process.cwd
       const dirIsolation = withDirectoryIsolation();
 
-      const mockSessionProviderCurrent = createMockSessionProvider({
-        getSession: (sessionName: string) => {
+      const mockSessionProviderCurrent = createSessionProviderMock({
+        getSession: mock((sessionName: string) => {
           if (sessionName === "current-session") {
             return Promise.resolve({
               session: "current-session",
@@ -206,9 +211,9 @@ describe("Session CLI Commands", () => {
             });
           }
           return Promise.resolve(null);
-        },
-        getSessionWorkdir: (_sessionName: string) => Promise.resolve(sessionPath),
-      } as any);
+        }),
+        getSessionWorkdir: mock((_sessionName: string) => Promise.resolve(sessionPath)),
+      });
 
       // For now, provide session name explicitly to avoid complex auto-detection mocking
       const result = await getSessionDirFromParams(
@@ -241,11 +246,11 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionDB = {
-        getSession: () => sessionRecord,
+      const mockSessionDB = createPartialMock<SessionProviderInterface>({
+        getSession: mock(() => Promise.resolve(sessionRecord)),
         updateSession: mock(),
-        getSessionWorkdir: () => sessionPath,
-      };
+        getSessionWorkdir: mock(() => Promise.resolve(sessionPath)),
+      });
 
       const result = await updateSessionFromParams(
         {
@@ -261,7 +266,7 @@ describe("Session CLI Commands", () => {
         } as any,
         {
           gitService: mockGitService,
-          sessionDB: mockSessionDB as any,
+          sessionDB: mockSessionDB,
           getCurrentSession: async () => "update-session", // Mock current session detection
         }
       );
@@ -293,11 +298,11 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionDB = {
-        getSession: () => sessionRecord,
+      const mockSessionDB = createPartialMock<SessionProviderInterface>({
+        getSession: mock(() => Promise.resolve(sessionRecord)),
         updateSession: mock(),
-        getSessionWorkdir: () => sessionPath,
-      };
+        getSessionWorkdir: mock(() => Promise.resolve(sessionPath)),
+      });
 
       const mockGitServiceWithCommands = createMockGitService({
         getSessionWorkdir: () => sessionPath,
@@ -325,7 +330,7 @@ describe("Session CLI Commands", () => {
         } as any,
         {
           gitService: mockGitServiceWithCommands,
-          sessionDB: mockSessionDB as any,
+          sessionDB: mockSessionDB,
           getCurrentSession: async () => "git-session", // Mock current session detection
         }
       );
@@ -350,14 +355,14 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionProviderWorkspace = createMockSessionProvider({
-        getSession: (sessionName: string) => {
+      const mockSessionProviderWorkspace = createSessionProviderMock({
+        getSession: mock((sessionName: string) => {
           if (sessionName === SESSION_TEST_PATTERNS.WORKSPACE_SESSION) {
             return Promise.resolve(sessionRecord);
           }
           return Promise.resolve(null);
-        },
-      } as any);
+        }),
+      });
 
       // Mock execAsync to simulate git commands
       const mockExecAsync = mock(async (command: string) => {
@@ -393,14 +398,14 @@ describe("Session CLI Commands", () => {
         created: new Date().toISOString(),
       };
 
-      const mockSessionProviderDirectory = createMockSessionProvider({
-        getSession: (sessionName: string) => {
+      const mockSessionProviderDirectory = createSessionProviderMock({
+        getSession: mock((sessionName: string) => {
           if (sessionName === SESSION_TEST_PATTERNS.DIRECTORY_SESSION) {
             return Promise.resolve(sessionRecord);
           }
           return Promise.resolve(null);
-        },
-      } as any);
+        }),
+      });
 
       // Mock execAsync to simulate git commands
       const mockExecAsync = mock(async (command: string) => {

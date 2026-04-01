@@ -18,6 +18,17 @@ Minsky sessions are isolated git clones at `~/.local/state/minsky/sessions/task-
 5. Use `git -C "<session-path>"` instead of `cd <path> && git` to avoid Claude Code security prompts.
 6. Prefer Minsky MCP tools over CLI for task/session operations to avoid shell parsing issues with `#` in task IDs.
 
+## Task Completion Protocol
+
+A PR merging is NOT the same as a task being complete. Before marking any task DONE:
+
+1. **Re-read the task spec** — fetch it with `tasks_spec_get` and review every success criterion
+2. **Check each criterion** — verify the PR/code actually delivers it, not just something adjacent
+3. **If scope was reduced**, update the spec FIRST to reflect actual scope, note what was deferred, and create follow-up tasks for gaps before marking DONE
+4. **If criteria can't be verified**, the task is not DONE — use IN-REVIEW or create follow-up tasks
+
+Never treat "code merged" as equivalent to "task complete." The spec defines completeness, not the PR.
+
 ## MCP Tools
 
 Minsky exposes 80+ MCP tools. Use them for all task and session operations instead of shelling out to the CLI:

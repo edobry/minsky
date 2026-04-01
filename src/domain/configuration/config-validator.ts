@@ -7,6 +7,7 @@
 
 import { get } from "./index";
 import { TaskBackend } from "./backend-detection";
+import { getErrorMessage } from "../../schemas/error";
 
 export interface ValidationError {
   field: string;
@@ -97,7 +98,7 @@ export class DefaultConfigValidator implements ConfigValidator {
     } catch (error) {
       errors.push({
         field: "tasks.backend",
-        message: `Error validating tasks backend configuration: ${(error as any).message}`,
+        message: `Error validating tasks backend configuration: ${getErrorMessage(error)}`,
         code: "TASKS_BACKEND_VALIDATION_ERROR",
       });
     }
@@ -144,7 +145,7 @@ export class DefaultConfigValidator implements ConfigValidator {
     } catch (error) {
       errors.push({
         field: "ai",
-        message: `Error validating AI configuration: ${(error as any).message}`,
+        message: `Error validating AI configuration: ${getErrorMessage(error)}`,
         code: "AI_VALIDATION_ERROR",
       });
     }
@@ -206,7 +207,7 @@ export class DefaultConfigValidator implements ConfigValidator {
     } catch (error) {
       errors.push({
         field: "github",
-        message: `Error validating GitHub configuration: ${(error as any).message}`,
+        message: `Error validating GitHub configuration: ${getErrorMessage(error)}`,
         code: "GITHUB_VALIDATION_ERROR",
       });
     }

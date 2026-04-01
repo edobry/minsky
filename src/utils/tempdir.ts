@@ -37,7 +37,7 @@ export function createRobustTempDir(
     } catch (error) {
       log.error(
         `Failed to create temp dir at ${base} with prefix ${prefix}:`,
-        error instanceof Error ? error : new Error(String(error as any))
+        error instanceof Error ? error : new Error(String(error))
       );
       // Try next location
     }

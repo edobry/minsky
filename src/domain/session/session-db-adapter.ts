@@ -40,7 +40,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       } catch (error) {
         log.error(
           "Failed to get storage from persistence provider:",
-          getErrorMessage(error as any)
+          getErrorMessage(error)
         );
         log.error("Full error details:", error);
         throw error;
@@ -59,7 +59,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       const result = await storage.getEntity(sessionName);
       return result;
     } catch (error) {
-      log.error(`Failed to get session '${sessionName}':`, getErrorMessage(error as any));
+      log.error(`Failed to get session '${sessionName}':`, getErrorMessage(error));
       return null;
     }
   }
@@ -74,7 +74,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       log.debug(`Got state with ${state.sessions.length} sessions`);
       return state.sessions || [];
     } catch (error) {
-      log.error("Failed to list sessions:", getErrorMessage(error as any), error);
+      log.error("Failed to list sessions:", getErrorMessage(error), error);
       return [];
     }
   }
@@ -86,7 +86,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       await storage.createEntity(sessionRecord);
       log.debug(`Session added successfully: ${sessionRecord.session}`);
     } catch (error) {
-      log.error(`Failed to add session '${sessionRecord.session}':`, getErrorMessage(error as any));
+      log.error(`Failed to add session '${sessionRecord.session}':`, getErrorMessage(error));
       throw error;
     }
   }
@@ -101,7 +101,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       }
       log.debug(`Session updated successfully: ${sessionName}`);
     } catch (error) {
-      log.error(`Failed to update session '${sessionName}':`, getErrorMessage(error as any));
+      log.error(`Failed to update session '${sessionName}':`, getErrorMessage(error));
       throw error;
     }
   }
@@ -118,7 +118,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       }
       return deleted;
     } catch (error) {
-      log.error(`Failed to delete session '${sessionName}':`, getErrorMessage(error as any));
+      log.error(`Failed to delete session '${sessionName}':`, getErrorMessage(error));
       return false;
     }
   }
@@ -130,7 +130,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     } catch (error) {
       log.error(
         `Error checking if session exists '${sessionName}':`,
-        getErrorMessage(error as any)
+        getErrorMessage(error)
       );
       return false;
     }
@@ -149,7 +149,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       try {
         validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
       } catch (error) {
-        log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
+        log.error(`Task ID validation failed: ${getErrorMessage(error)}`);
         return false;
       }
 
@@ -168,7 +168,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       log.debug(`Task ${formatTaskIdForDisplay(validatedTaskId)} added to session ${sessionName}`);
       return true;
     } catch (error) {
-      log.error(`Failed to add task to session '${sessionName}':`, getErrorMessage(error as any));
+      log.error(`Failed to add task to session '${sessionName}':`, getErrorMessage(error));
       return false;
     }
   }
@@ -196,7 +196,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       );
       return true;
     } catch (error) {
-      log.error(`Failed to set repo for session '${sessionName}':`, getErrorMessage(error as any));
+      log.error(`Failed to set repo for session '${sessionName}':`, getErrorMessage(error));
       return false;
     }
   }
@@ -209,7 +209,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
         return session.repoPath === repoPath;
       });
     } catch (error) {
-      log.error(`Failed to find sessions for repo '${repoPath}':`, getErrorMessage(error as any));
+      log.error(`Failed to find sessions for repo '${repoPath}':`, getErrorMessage(error));
       return [];
     }
   }
@@ -221,7 +221,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       try {
         validatedTaskId = validateQualifiedTaskId(taskId);
       } catch (error) {
-        log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
+        log.error(`Task ID validation failed: ${getErrorMessage(error)}`);
         return null;
       }
 
@@ -240,7 +240,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       log.debug(`Found session: ${found ? "YES" : "NO"}`);
       return found || null;
     } catch (error) {
-      log.error(`Failed to find session for task '${taskId}':`, getErrorMessage(error as any));
+      log.error(`Failed to find session for task '${taskId}':`, getErrorMessage(error));
       return null;
     }
   }
@@ -252,14 +252,14 @@ export class SessionDbAdapter implements SessionProviderInterface {
       try {
         validatedTaskId = validateQualifiedTaskId(taskId) ?? taskId;
       } catch (error) {
-        log.error(`Task ID validation failed: ${getErrorMessage(error as any)}`);
+        log.error(`Task ID validation failed: ${getErrorMessage(error)}`);
         return [];
       }
 
       const sessions = await this.listSessions();
       return sessions.filter((session) => session.taskId === validatedTaskId);
     } catch (error) {
-      log.error(`Failed to find sessions for task '${taskId}':`, getErrorMessage(error as any));
+      log.error(`Failed to find sessions for task '${taskId}':`, getErrorMessage(error));
       return [];
     }
   }
@@ -284,7 +284,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     } catch (error) {
       log.error(
         `Failed to get session workdir for '${sessionName}':`,
-        getErrorMessage(error as any)
+        getErrorMessage(error)
       );
       throw error;
     }
@@ -298,7 +298,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     } catch (error) {
       log.error(
         `Failed to clear task from session '${sessionName}':`,
-        getErrorMessage(error as any)
+        getErrorMessage(error)
       );
       return false;
     }
@@ -321,7 +321,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
     } catch (error) {
       log.error(
         `Failed to get repo path for session '${record.session}':`,
-        getErrorMessage(error as any)
+        getErrorMessage(error)
       );
       throw error;
     }
@@ -344,7 +344,7 @@ export class SessionDbAdapter implements SessionProviderInterface {
       );
       return initializeSessionDbState();
     } catch (error) {
-      log.error("Error reading session state:", getErrorMessage(error as any), error);
+      log.error("Error reading session state:", getErrorMessage(error), error);
       return initializeSessionDbState();
     }
   }

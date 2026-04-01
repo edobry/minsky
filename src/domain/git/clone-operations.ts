@@ -127,11 +127,11 @@ export async function cloneImpl(
     };
   } catch (error) {
     log.error("Error during git clone", {
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
       stack: error instanceof Error ? error.stack : undefined,
       repoUrl: options.repoUrl,
       workdir,
     });
-    throw new Error(`Failed to clone git repository: ${getErrorMessage(error as any)}`);
+    throw new Error(`Failed to clone git repository: ${getErrorMessage(error)}`);
   }
 }

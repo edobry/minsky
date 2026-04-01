@@ -66,7 +66,7 @@ export function detectRepositoryBackendType(workdir: string): RepositoryBackendT
   } catch (error) {
     log.debug("Failed to detect repository backend type", {
       workdir,
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
     });
     // Default to local if detection fails
     return RepositoryBackendType.LOCAL;
@@ -116,9 +116,7 @@ export async function resolveRepositoryAndBackend(options?: {
       return { repoUrl: remoteUrl, backendType: RepositoryBackendType.GITHUB };
     } catch (error) {
       throw new Error(
-        `Default repository backend is GitHub, but could not detect GitHub remote: ${getErrorMessage(
-          error as any
-        )}`
+        `Default repository backend is GitHub, but could not detect GitHub remote: ${getErrorMessage(error)}`
       );
     }
   }
@@ -200,7 +198,7 @@ export async function createRepositoryBackendForSession(
 
     return await createRepositoryBackend(config);
   } catch (error) {
-    throw new Error(`Failed to create repository backend: ${getErrorMessage(error as any)}`);
+    throw new Error(`Failed to create repository backend: ${getErrorMessage(error)}`);
   }
 }
 
@@ -228,7 +226,7 @@ export function extractGitHubInfoFromUrl(
   } catch (error) {
     log.debug("Failed to extract GitHub info from URL", {
       remoteUrl,
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
     });
     return null;
   }

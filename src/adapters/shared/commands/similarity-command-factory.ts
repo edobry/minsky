@@ -203,7 +203,7 @@ export function createSimilaritySearchCommand<TService, TResult extends Similari
         };
       } catch (error) {
         log.error(`Failed to search ${config.entityName}`, {
-          error: getErrorMessage(error as any),
+          error: getErrorMessage(error),
           query: params.query,
         });
         throw error;

@@ -101,9 +101,9 @@ export async function createConfiguredTaskService(options: {
           service.registerBackend(minskyBackend);
           log.debug("Minsky backend registered successfully");
         } catch (error) {
-          log.debug("Minsky backend not available", { error: getErrorMessage(error as any) });
+          log.debug("Minsky backend not available", { error: getErrorMessage(error) });
           throw new Error(
-            `Minsky backend requested but not available: ${getErrorMessage(error as any)}`
+            `Minsky backend requested but not available: ${getErrorMessage(error)}`
           );
         }
         break;
@@ -129,7 +129,7 @@ export async function createConfiguredTaskService(options: {
         log.warn(
           "PersistenceService not available - persistence-dependent backends will be unavailable",
           {
-            error: getErrorMessage(error as any),
+            error: getErrorMessage(error),
           }
         );
       }
@@ -166,7 +166,7 @@ export async function createConfiguredTaskService(options: {
           log.debug("GitHub backend registered successfully");
         }
       } catch (error) {
-        log.debug("GitHub backend not available", { error: getErrorMessage(error as any) });
+        log.debug("GitHub backend not available", { error: getErrorMessage(error) });
       }
 
       // Add minsky backend (mt# prefix) - only if persistence provider is available
@@ -184,7 +184,7 @@ export async function createConfiguredTaskService(options: {
           log.debug("Minsky backend registered successfully");
         } catch (error) {
           log.warn("Minsky backend database connection failed", {
-            error: getErrorMessage(error as any),
+            error: getErrorMessage(error),
           });
         }
       } else {
@@ -200,13 +200,13 @@ export async function createConfiguredTaskService(options: {
         log.debug(`Set default backend to '${configuredBackend}' from configuration`);
       } catch (error) {
         log.debug("Could not read configuration for default backend", {
-          error: getErrorMessage(error as any),
+          error: getErrorMessage(error),
         });
         // Fallback to 'minsky' if config system fails
         (service as any).setDefaultBackend(TaskBackend.MINSKY);
       }
     } catch (error) {
-      log.warn("Failed to register some backends", { error: getErrorMessage(error as any) });
+      log.warn("Failed to register some backends", { error: getErrorMessage(error) });
     }
   }
 

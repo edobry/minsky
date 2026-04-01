@@ -58,15 +58,9 @@ export interface ContextInfo {
   value: string;
 }
 
-/**
- * Utility function to safely extract error message from unknown error
- */
-export function getErrorMessage(error: any): string {
-  if (error instanceof Error) {
-    return (error as any).message;
-  }
-  return String(error as any);
-}
+// Import and re-export canonical getErrorMessage from schemas/error
+import { getErrorMessage } from "../schemas/error";
+export { getErrorMessage };
 
 /**
  * Format command suggestions with consistent styling
@@ -208,7 +202,7 @@ export function createCommandFailureMessage(
 ): string {
   const template: ErrorTemplate = {
     title: `${ErrorEmojis.FAILED} Command Failed`,
-    description: `The command "${command}" failed with error: ${getErrorMessage(error as any)}`,
+    description: `The command "${command}" failed with error: ${getErrorMessage(error)}`,
     sections: [
       {
         title: "Try these alternatives:",
@@ -352,7 +346,7 @@ export function createGitErrorMessage(
   workdir?: string,
   context?: ContextInfo[]
 ): string {
-  const errorMessage = getErrorMessage(error as any);
+  const errorMessage = getErrorMessage(error);
   const isConflict = (errorMessage.toLowerCase() as any).includes("conflict");
 
   const baseContext: ContextInfo[] = [

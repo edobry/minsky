@@ -165,7 +165,7 @@ export function validateRepositoryURI(uri: string): URIValidationResult {
   } catch (error) {
     return {
       valid: false,
-      error: getErrorMessage(error as any),
+      error: getErrorMessage(error),
     };
   }
 }

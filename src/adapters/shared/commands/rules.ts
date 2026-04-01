@@ -405,7 +405,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
           } catch (error) {
             skipped++;
             if (params.debug) {
-              log.cliError(`Error indexing rule ${rule.id}: ${getErrorMessage(error as any)}`);
+              log.cliError(`Error indexing rule ${rule.id}: ${getErrorMessage(error)}`);
             }
           }
         }
@@ -427,7 +427,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         );
         return { success: true };
       } catch (error) {
-        const message = getErrorMessage(error as any);
+        const message = getErrorMessage(error);
         if (params.json || ctx?.format === "json") {
           return { success: false, error: message };
         }
@@ -958,7 +958,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         };
       } catch (error) {
         log.error("Failed to migrate rules", {
-          error: getErrorMessage(error as any),
+          error: getErrorMessage(error),
         });
         throw error;
       }
@@ -1060,7 +1060,7 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         };
       } catch (error) {
         log.error("Failed to search rules", {
-          error: getErrorMessage(error as any),
+          error: getErrorMessage(error),
           query: (params as any).query,
         });
         throw error;

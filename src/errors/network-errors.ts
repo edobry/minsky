@@ -8,6 +8,7 @@ const ALTERNATIVE_HTTP_PORT = 8082;
  */
 
 import { MinskyError } from "./base-errors";
+import { getErrorCode } from "../schemas/error";
 
 import { DEFAULT_DEV_PORT, BYTES_PER_KB } from "../utils/constants";
 /**
@@ -81,10 +82,10 @@ export function createNetworkError(
   host: string = "localhost"
 ): NetworkError {
   // Ensure we have an Error object
-  const originalError = error instanceof Error ? error : new Error(String(error as any));
+  const originalError = error instanceof Error ? error : new Error(String(error));
 
   // Check for specific error types
-  const errorCode = (originalError as any)?.code || "";
+  const errorCode = getErrorCode(originalError) || "";
 
   switch (errorCode) {
     case "EADDRINUSE":
@@ -121,7 +122,7 @@ export function isNetworkError(error: any): boolean {
     "EHOSTUNREACH",
   ];
 
-  return (networkErrorCodes as any).includes((error as any)?.code || "");
+  return networkErrorCodes.includes(getErrorCode(error) || "");
 }
 
 /**
@@ -132,7 +133,7 @@ export function isNetworkError(error: any): boolean {
  * @returns A formatted error message
  */
 export function formatNetworkErrorMessage(error: NetworkError, debug: boolean = false): string {
-  let message = `Error: ${(error as any).message}\n`;
+  let message = `Error: ${error.message}\n`;
 
   // Add suggestions if available
   if (error instanceof PortInUseError || error instanceof NetworkPermissionError) {

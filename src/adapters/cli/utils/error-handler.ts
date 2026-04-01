@@ -35,8 +35,8 @@ export const isDebugMode = (): boolean =>
  *
  * @param error Any error caught during command execution
  */
-export function handleCliError(error: any): never {
-  const normalizedError = ensureError(error as any);
+export function handleCliError(error: unknown): never {
+  const normalizedError = ensureError(error);
 
   // In human mode, use programLogger for all user-facing errors
   // In structured mode, use both loggers as configured
@@ -95,9 +95,9 @@ export function handleCliError(error: any): never {
     }
 
     // Show validation details in debug mode
-    if (isDebugMode() && (error as any).errors) {
+    if (isDebugMode() && error.errors) {
       log.cliError("\nValidation details:");
-      log.cliError(JSON.stringify((error as any).errors, undefined, 2));
+      log.cliError(JSON.stringify(error.errors, undefined, 2));
     }
   } else if (error instanceof ZodError) {
     // Zod validation errors (e.g., bad CLI parameter values)
@@ -117,32 +117,35 @@ export function handleCliError(error: any): never {
       log.cliError(JSON.stringify((error as ZodError).issues, undefined, 2));
     }
   } else if (error instanceof ResourceNotFoundError) {
-    log.cliError(`Not found: ${sanitizeMessage((normalizedError as any).message)}`);
-    if ((error as any).resourceType && (error as any).resourceId) {
-      log.cliError(`Resource: ${(error as any).resourceType}, ID: ${(error as any).resourceId}`);
+    log.cliError(`Not found: ${sanitizeMessage(normalizedError.message)}`);
+    if (error.resourceType && error.resourceId) {
+      log.cliError(`Resource: ${error.resourceType}, ID: ${error.resourceId}`);
     }
   } else if (error instanceof ServiceUnavailableError) {
-    log.cliError(`Service unavailable: ${sanitizeMessage((normalizedError as any).message)}`);
-    if ((error as any).serviceName) {
-      log.cliError(`Service: ${(error as any).serviceName}`);
+    log.cliError(`Service unavailable: ${sanitizeMessage(normalizedError.message)}`);
+    if (error.serviceName) {
+      log.cliError(`Service: ${error.serviceName}`);
     }
   } else if (error instanceof FileSystemError) {
-    log.cliError(`File system error: ${sanitizeMessage((normalizedError as any).message)}`);
-    if ((error as any).path) {
-      log.cliError(`Path: ${(error as any).path}`);
+    log.cliError(`File system error: ${sanitizeMessage(normalizedError.message)}`);
+    if (error.path) {
+      log.cliError(`Path: ${error.path}`);
     }
   } else if (error instanceof ConfigurationError) {
-    log.cliError(`Configuration error: ${sanitizeMessage((normalizedError as any).message)}`);
-    if ((error as any).configKey) {
-      log.cliError(`Key: ${(error as any).configKey}`);
+    log.cliError(`Configuration error: ${sanitizeMessage(normalizedError.message)}`);
+    if (error.configKey) {
+      log.cliError(`Key: ${error.configKey}`);
     }
   } else if (error instanceof GitOperationError) {
-    log.cliError(`Git operation failed: ${sanitizeMessage((normalizedError as any).message)}`);
-    if ((error as any).command) {
-      log.cliError(`Command: ${(error as any).command}`);
+    log.cliError(`Git operation failed: ${sanitizeMessage(normalizedError.message)}`);
+    if (error.command) {
+      log.cliError(`Command: ${error.command}`);
     }
   } else if (isLikelyPostgresError(error)) {
-    const anyErr: any = error as any;
+    // Use any-typed accessor for postgres driver error object which has dynamic properties
+    // TODO: Define a proper PostgresError interface once types are available
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const anyErr = error as any;
     const code = anyErr?.code || anyErr?.originalError?.code || anyErr?.cause?.code;
     const rawMessage =
       anyErr?.message || anyErr?.originalError?.message || String(normalizedError.message);
@@ -251,7 +254,8 @@ export function handleCliError(error: any): never {
  * Reference: https://www.postgresql.org/docs/current/errcodes-appendix.html
  */
 function isLikelyPostgresError(err: unknown): boolean {
-  const e: any = err as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const e = err as any;
   return Boolean(
     (e && typeof e === "object" && (e.code || e.severity || e.schema || e.table)) ||
       (e?.originalError && (e.originalError.code || e.originalError.severity)) ||

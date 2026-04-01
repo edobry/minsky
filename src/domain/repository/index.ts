@@ -411,7 +411,7 @@ export async function createRepositoryBackend(
           }
         } catch (error) {
           throw new Error(
-            `Failed to validate local repository _path: ${getErrorMessage(error as any)}`
+            `Failed to validate local repository _path: ${getErrorMessage(error)}`
           );
         }
       }

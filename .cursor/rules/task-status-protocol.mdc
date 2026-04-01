@@ -143,17 +143,22 @@ The Minsky system supports automatic task status updates at key workflow points:
 
 Before marking any task as DONE, do a final verification:
 
-1. **Requirements Validation**
-   - All requirements in the task document should be implemented
-   - All acceptance criteria should be met
-   - All verification steps should be completed
+1. **Spec Re-Read (MANDATORY)**
+   - Re-fetch the task spec (`tasks_spec_get`) — do not rely on memory
+   - Review every success criterion line by line
+   - A merged PR is NOT task completion — the spec defines completeness
 
-2. **Code Quality Verification**
+2. **Requirements Validation**
+   - Every success criterion in the task spec must be individually verified
+   - If any criterion was not met, the task is NOT done
+   - If scope was intentionally reduced, update the spec FIRST to reflect actual scope, note deferrals, and create follow-up tasks before marking DONE
+
+3. **Code Quality Verification**
    - All tests should be passing
    - Code should adhere to project standards
    - No TODOs or unfinished work should remain
 
-3. **Documentation Check**
+4. **Documentation Check**
    - Work log should be up to date
    - Changelog should be updated
    - Any relevant documentation should be updated

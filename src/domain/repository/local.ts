@@ -222,7 +222,7 @@ export class LocalGitBackend implements RepositoryBackend {
       // For remote repositories, we can't easily validate them without cloning
       // For now, we'll just assume they're valid
     } catch (error) {
-      const normalizedError = error instanceof Error ? error : new Error(String(error as any));
+      const normalizedError = error instanceof Error ? error : new Error(String(error));
       return { success: false, message: `Invalid git repository: ${normalizedError.message}` };
     }
     return { success: true, message: "Repository is valid" };
@@ -340,7 +340,7 @@ export class LocalGitBackend implements RepositoryBackend {
         }
       } catch (err) {
         log.debug("Local backend: unable to record PR commit hash", {
-          error: getErrorMessage(err as any),
+          error: getErrorMessage(err),
           session,
         });
       }

@@ -24,10 +24,14 @@ This rule was created after Task #305 where completion was prematurely declared 
 
 **BEFORE declaring ANY task complete:**
 
-1. ✅ **Run quantifiable verification**: Execute the specific commands that measure success
-2. ✅ **Check ALL success criteria**: Verify every requirement in task specification  
-3. ✅ **Show actual numbers**: Report the specific metric (0 violations, 0 patterns, etc.)
-4. ✅ **Test functionality**: Verify changes don't break existing functionality
+1. ✅ **Re-read the task spec**: Fetch the spec (`tasks_spec_get`) and review every success criterion line by line — do not rely on memory of what the spec says
+2. ✅ **Check each success criterion individually**: For each criterion, verify the deliverable actually satisfies it — not something adjacent or partial
+3. ✅ **Run quantifiable verification**: Execute the specific commands that measure success
+4. ✅ **Show actual numbers**: Report the specific metric (0 violations, 0 patterns, etc.)
+5. ✅ **Test functionality**: Verify changes don't break existing functionality
+6. ✅ **If scope was reduced**: Update the spec to reflect actual scope BEFORE marking done, note what was deferred, and create follow-up tasks for unmet criteria
+
+**A merged PR is NOT task completion.** The spec's success criteria define completeness, not the PR.
 
 ## Required Verification Commands
 

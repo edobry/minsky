@@ -142,7 +142,7 @@ export async function createPreparedMergeCommitPR(
 
       // For other prediction errors, provide generic guidance
       throw new MinskyError(
-        `Failed to validate merge compatibility: ${getErrorMessage(error as any)}\n\n` +
+        `Failed to validate merge compatibility: ${getErrorMessage(error)}\n\n` +
           `Please ensure your session branch is up to date:\n` +
           `   minsky session update`
       );
@@ -249,7 +249,7 @@ export async function createPreparedMergeCommitPR(
     }
 
     throw new MinskyError(
-      `Failed to create prepared merge commit PR: ${getErrorMessage(error as any)}`
+      `Failed to create prepared merge commit PR: ${getErrorMessage(error)}`
     );
   }
 }
@@ -325,7 +325,7 @@ export async function mergePreparedMergeCommitPR(
     };
   } catch (error) {
     throw new MinskyError(
-      `Failed to merge prepared merge commit PR: ${getErrorMessage(error as any)}`
+      `Failed to merge prepared merge commit PR: ${getErrorMessage(error)}`
     );
   }
 }

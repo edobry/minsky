@@ -128,14 +128,56 @@ export function validateGitError(error: unknown): GitError {
  * Utility function to get error message safely
  */
 export function getErrorMessage(error: unknown): string {
-  const validatedError = validateError(error);
-  return validatedError.message;
+  if (error instanceof Error) {
+    return error.message;
+  }
+  if (error !== null && typeof error === "object" && "message" in error) {
+    return String((error as { message: unknown }).message);
+  }
+  return String(error);
 }
 
 /**
  * Utility function to get error stack safely
  */
 export function getErrorStack(error: unknown): string | undefined {
-  const validatedError = validateError(error);
-  return validatedError.stack;
+  if (error instanceof Error) {
+    return error.stack;
+  }
+  if (error !== null && typeof error === "object" && "stack" in error) {
+    const stack = (error as { stack: unknown }).stack;
+    return typeof stack === "string" ? stack : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Utility function to get error code safely (for system/Node.js errors)
+ */
+export function getErrorCode(error: unknown): string | undefined {
+  if (error !== null && typeof error === "object" && "code" in error) {
+    const code = (error as { code: unknown }).code;
+    return typeof code === "string" ? code : undefined;
+  }
+  return undefined;
+}
+
+/**
+ * Type guard to check if a value looks like an error with a message
+ */
+export function isErrorLike(error: unknown): error is { message: string } {
+  return error !== null && typeof error === "object" && "message" in error && typeof (error as { message: unknown }).message === "string";
+}
+
+/**
+ * Wraps any value in an Error object (or returns the original if already an Error)
+ */
+export function toError(error: unknown): Error {
+  if (error instanceof Error) {
+    return error;
+  }
+  if (isErrorLike(error)) {
+    return new Error(error.message);
+  }
+  return new Error(String(error));
 }

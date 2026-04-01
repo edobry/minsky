@@ -178,7 +178,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       }
     } catch (error) {
       // Surface concise error upstream
-      const message = error instanceof Error ? error.message : String(error as any);
+      const message = error instanceof Error ? error.message : String(error);
       throw new Error(message);
     }
   }
@@ -211,7 +211,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return { success: true, data: state };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       // Keep user output concise; details available in debug logs
       log.error(`Failed to read PostgreSQL state: ${typedError.message}`, error);
       return { success: false, error: typedError };
@@ -243,7 +243,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return { success: true, bytesWritten: state.sessions.length };
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       const anyErr: any = typedError as any;
 
       // Prefer the underlying driver error message if available (no SQL query text)
@@ -287,7 +287,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         return { success: false, error: new Error(`Session '${id}' not found`) };
       }
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       return { success: false, error: typedError };
     }
   }
@@ -299,7 +299,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
     try {
       return await this.deleteEntity(id);
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to delete session from PostgreSQL: ${typedError.message}`);
       return false;
     }
@@ -318,7 +318,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
 
       return result.length > 0 ? fromPostgresSelect(result[0]) : null;
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to get session from PostgreSQL: ${typedError.message}`);
       return null;
     }
@@ -344,7 +344,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       log.debug(`PostgreSQL getEntities: Mapped to ${mapped.length} SessionRecords`);
       return mapped;
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.error(`Failed to get sessions from PostgreSQL: ${typedError.message}`, error);
       return [];
     }
@@ -360,7 +360,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await this.drizzle!.insert(postgresSessions).values(insertData);
       return entity;
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to create session in PostgreSQL: ${typedError.message}`);
       throw error;
     }
@@ -386,7 +386,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
         .where(eq(postgresSessions.session, id));
       return updated;
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to update session in PostgreSQL: ${typedError.message}`);
       throw error;
     }
@@ -401,7 +401,7 @@ export class PostgresStorage implements DatabaseStorage<SessionRecord, SessionDb
       await this.drizzle!.delete(postgresSessions).where(eq(postgresSessions.session, id));
       return true;
     } catch (error) {
-      const typedError = error instanceof Error ? error : new Error(String(error as any));
+      const typedError = error instanceof Error ? error : new Error(String(error));
       log.warn(`Failed to delete session in PostgreSQL: ${typedError.message}`);
       return false;
     }

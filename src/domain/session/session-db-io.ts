@@ -81,7 +81,7 @@ export function readSessionDbFile(
           };
     }
   } catch (error) {
-    log.error(`Error reading session database: ${getErrorMessage(error as any)}`);
+    log.error(`Error reading session database: ${getErrorMessage(error)}`);
     return isStringPath
       ? []
       : {
@@ -111,7 +111,7 @@ export async function writeSessionsToFile(
 
     writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
   } catch (error) {
-    log.error(`Error writing session database: ${getErrorMessage(error as any)}`);
+    log.error(`Error writing session database: ${getErrorMessage(error)}`);
   }
 }
 
@@ -124,7 +124,7 @@ export function writeSessionDbFile(dbPath: string, sessions: SessionRecord[]): v
     }
     writeFileSync(dbPath, JSON.stringify(sessions, undefined, 2));
   } catch (error) {
-    log.error(`Error writing session database: ${getErrorMessage(error as any)}`);
+    log.error(`Error writing session database: ${getErrorMessage(error)}`);
   }
 }
 
@@ -139,7 +139,7 @@ export function ensureDbDir(dbPath: string): boolean {
     }
     return true;
   } catch (error) {
-    log.error(`Error creating database directory: ${getErrorMessage(error as any)}`);
+    log.error(`Error creating database directory: ${getErrorMessage(error)}`);
     return false;
   }
 }

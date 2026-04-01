@@ -114,8 +114,8 @@ export async function sessionPrImpl(
     SessionPRParametersSchema.parse(params);
   } catch (error) {
     if (error instanceof Error && error.name === "ZodError") {
-      // Extract the validation error message
-      const zodError = error as any;
+      // Extract the validation error message from ZodError
+      const zodError = error as { errors?: Array<{ message: string }> };
       const message = zodError.errors?.[0]?.message || "Invalid parameters";
       throw new ValidationError(message);
     }
@@ -375,6 +375,6 @@ Please provide a title for your pull request:
       url: prInfo.url, // Include PR URL from repository backend
     };
   } catch (error) {
-    throw new MinskyError(`Failed to create pull request: ${getErrorMessage(error as any)}`);
+    throw new MinskyError(`Failed to create pull request: ${getErrorMessage(error)}`);
   }
 }

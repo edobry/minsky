@@ -6,6 +6,7 @@
  */
 
 import { log } from "../../../utils/logger";
+import { getErrorMessage } from "../../../schemas/error";
 
 export enum StorageErrorType {
   CONNECTION = "CONNECTION",
@@ -140,7 +141,7 @@ export class StorageErrorClassifier {
 
     // Generic error fallback
     return {
-      message: `Unclassified storage error: ${(error as any).message}`,
+      message: `Unclassified storage error: ${getErrorMessage(error)}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [
@@ -237,7 +238,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `JSON backend error: ${(error as any).message}`,
+      message: `JSON backend error: ${getErrorMessage(error)}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -327,7 +328,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `SQLite backend error: ${(error as any).message}`,
+      message: `SQLite backend error: ${getErrorMessage(error)}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -456,7 +457,7 @@ export class StorageErrorClassifier {
     }
 
     return {
-      message: `PostgreSQL backend error: ${(error as any).message}`,
+      message: `PostgreSQL backend error: ${getErrorMessage(error)}`,
       type: StorageErrorType.UNKNOWN,
       severity: StorageErrorSeverity.MEDIUM,
       recoveryActions: [],
@@ -564,8 +565,8 @@ export class StorageErrorMonitor {
    * Record error occurrence for monitoring
    */
   static recordError(error: StorageError): void {
-    const key = `${(error.context as any).backend}-${(error as any).type}`;
-    const currentCount = (this.errorCounts as any).get(key) || 0;
+    const key = `${error.context.backend}-${error.type}`;
+    const currentCount = this.errorCounts.get(key) || 0;
 
     this.errorCounts.set(key, currentCount + 1);
     this.lastErrors.set(key, error);

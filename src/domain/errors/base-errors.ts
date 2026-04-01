@@ -40,6 +40,6 @@ export function ensureError(error: any): Error {
   }
 
   return new MinskyError(
-    typeof error === "string" ? error : `Unknown error: ${JSON.stringify(error as any)}`
+    typeof error === "string" ? error : `Unknown error: ${JSON.stringify(error)}`
   );
 }
