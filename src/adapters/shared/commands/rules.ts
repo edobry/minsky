@@ -730,17 +730,18 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
     id: "rules.compile",
     category: CommandCategory.RULES,
     name: "compile",
-    description: "Compile rules into a monolithic file (e.g., AGENTS.md)",
+    description: "Compile rules into a monolithic file (e.g., AGENTS.md or CLAUDE.md)",
     parameters: {
       target: {
-        schema: z.enum(["agents.md"]),
-        description: "Target file type to compile to (currently only agents.md is supported)",
-        required: true,
+        schema: z.string(),
+        description:
+          "Target file type to compile to (e.g., agents.md, claude.md). Defaults to agents.md.",
+        required: false,
+        defaultValue: "agents.md",
       },
       output: {
         schema: z.string().optional(),
-        description:
-          "Output file path (defaults to AGENTS.md in workspace root for agents.md target)",
+        description: "Output file path (defaults to the target's default output path)",
         required: false,
       },
       dryRun: {
@@ -749,53 +750,105 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         required: false,
         defaultValue: false,
       },
+      check: {
+        schema: z.boolean(),
+        description:
+          "Check if the output file is up-to-date (staleness detection). Exits non-zero if stale.",
+        required: false,
+        defaultValue: false,
+      },
     },
     execute: async (params: any, ctx?: CommandExecutionContext) => {
       log.debug("Executing rules.compile command", { params });
 
-      const typedParams = params as { target: "agents.md"; output?: string; dryRun?: boolean };
+      const typedParams = params as {
+        target?: string;
+        output?: string;
+        dryRun?: boolean;
+        check?: boolean;
+      };
+
+      const targetId = typedParams.target || "agents.md";
 
       try {
-        const { compileMonolithic } = await import("../../../domain/rules/compile-monolithic");
+        const { createCompileService, agentsMdTarget, claudeMdTarget } = await import(
+          "../../../domain/rules/compile"
+        );
 
         // Resolve workspace path
         const workspacePath = await resolveWorkspacePath({});
         const ruleService = new RuleService(workspacePath);
 
-        const result = await compileMonolithic(ruleService, {
-          target: {
-            type: typedParams.target,
+        const compileService = createCompileService();
+
+        // For check mode, do a dry-run first to get the compiled content
+        if (typedParams.check) {
+          const dryResult = await compileService.compile(ruleService, targetId, {
+            workspacePath,
             outputPath: typedParams.output,
-          },
-          dryRun: typedParams.dryRun || false,
+            dryRun: true,
+          });
+
+          // Determine the output path for the target
+          const targetMap: Record<string, { defaultOutputPath(w: string): string }> = {
+            "agents.md": agentsMdTarget,
+            "claude.md": claudeMdTarget,
+          };
+          const targetObj = targetMap[targetId];
+          const outputFilePath =
+            typedParams.output ||
+            (targetObj ? targetObj.defaultOutputPath(workspacePath) : `${workspacePath}/OUT.md`);
+
+          try {
+            const existingContent = await fs.readFile(outputFilePath, "utf-8");
+            const isStale = existingContent !== dryResult.content;
+            return {
+              success: true,
+              check: true,
+              stale: isStale,
+              rulesIncluded: dryResult.rulesIncluded,
+              rulesSkipped: dryResult.rulesSkipped,
+            };
+          } catch {
+            // File doesn't exist — it's stale
+            return {
+              success: true,
+              check: true,
+              stale: true,
+              rulesIncluded: dryResult.rulesIncluded,
+              rulesSkipped: dryResult.rulesSkipped,
+            };
+          }
+        }
+
+        const result = await compileService.compile(ruleService, targetId, {
           workspacePath,
+          outputPath: typedParams.output,
+          dryRun: typedParams.dryRun || false,
         });
 
-        if (result.dryRun) {
+        if (typedParams.dryRun) {
           return {
             success: true,
             dryRun: true,
             content: result.content,
-            outputPath: result.outputPath,
+            filesWritten: result.filesWritten,
             rulesIncluded: result.rulesIncluded,
             rulesSkipped: result.rulesSkipped,
           };
         }
 
-        // Write the output file
-        await fs.writeFile(result.outputPath, result.content, "utf-8");
-
         return {
           success: true,
           dryRun: false,
-          outputPath: result.outputPath,
+          filesWritten: result.filesWritten,
           rulesIncluded: result.rulesIncluded,
           rulesSkipped: result.rulesSkipped,
         };
       } catch (error) {
         log.error("Failed to compile rules", {
           error: getErrorMessage(error),
-          target: typedParams.target,
+          target: targetId,
         });
         throw error;
       }
