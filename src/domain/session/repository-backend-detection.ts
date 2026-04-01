@@ -161,7 +161,7 @@ export async function createRepositoryBackendFromSessionUrl(
     }
   }
 
-  return await createRepositoryBackend(config, workdir);
+  return await createRepositoryBackend(config);
 }
 
 /**

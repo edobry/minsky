@@ -271,7 +271,7 @@ async function detectTestFramework(workspacePath: string): Promise<TestContextIn
 
     // Check for Bun test (native)
     if (packageJson.scripts?.test?.includes("bun test")) {
-      return { name: "bun", version: process.versions.bun };
+      return { name: "bun", version: process.version };
     }
 
     // Check for Jest

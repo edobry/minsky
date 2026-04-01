@@ -290,7 +290,7 @@ export class TasksEditCommand extends BaseTaskCommand {
 
     // Create a temporary file with current spec content
     const tempDir = tmpdir();
-    const tempFile = join(tempDir, `task-${randomBytes(8).toString("hex")}.md`);
+    const tempFile = join(tempDir, `task-${Buffer.from(randomBytes(8)).toString("hex")}.md`);
 
     try {
       // Write current spec content to temp file

@@ -17,6 +17,7 @@ describe("Clone Operations with Dependency Injection", () => {
   beforeEach(() => {
     // Create custom mock for clone operations using createPartialMock
     const mockGitService = createPartialMock<GitServiceInterface>({
+      pullLatest: (_repoPath: string, _remote?: string) => Promise.resolve({ workdir: _repoPath, updated: false }),
       clone: (options: CloneOptions) => {
         // Mock different clone scenarios based on repoUrl
         if (options?.repoUrl?.includes("nonexistent")) {
@@ -45,7 +46,7 @@ describe("Clone Operations with Dependency Injection", () => {
 
     // Use established DI patterns with custom git service mock
     deps = createTestDeps({
-      gitService: mockGitService,
+      gitService: mockGitService as any,
     });
 
     gitService = deps.gitService as GitService;

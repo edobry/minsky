@@ -11,7 +11,7 @@ import { getErrorMessage } from "../../../../errors/index";
 const execAsync = promisify(exec);
 import { writeFileSync } from "fs";
 import { join } from "path";
-import { Graphviz } from "@hpcc-js/wasm/graphviz";
+import { Graphviz } from "@hpcc-js/wasm";
 
 // Parameter definitions matching the CommandParameterMap interface
 const tasksDepsTreeParams: CommandParameterMap = {

@@ -1,5 +1,5 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
-import { createSessionPR } from "../pr-command";
+import { sessionPr } from "../pr-command";
 
 export const prSessionSubcommand: CommandExecutionHandler = async (params) => {
   const { args, options } = params;
@@ -12,7 +12,7 @@ export const prSessionSubcommand: CommandExecutionHandler = async (params) => {
   const noStatusUpdate = options?.["no-status-update"] === true;
 
   try {
-    const prDescription = await createSessionPR(sessionId, { noStatusUpdate });
+    const prDescription = await sessionPr({ session: sessionId, noStatusUpdate } as any);
     return {
       success: true,
       data: { prDescription },

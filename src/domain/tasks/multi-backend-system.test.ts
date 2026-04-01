@@ -70,7 +70,7 @@ describe("Multi-Backend Task System", () => {
 
       it("should support task listing from all backends", async () => {
         const { service } = createTaskServiceWithMocks();
-        const all = await service.listAllTasks();
+        const all = await service.listTasks();
         expect(all.length).toBe(6);
         const ids = all.map((t) => t.id);
         expect(ids).toContain("md#1");
@@ -82,7 +82,7 @@ describe("Multi-Backend Task System", () => {
     describe("ID Management", () => {
       it("should convert all task IDs to qualified format", async () => {
         const { service } = createTaskServiceWithMocks();
-        const all = await service.listAllTasks();
+        const all = await service.listTasks();
         expect(all.every((t) => /.+#.+/.test(t.id))).toBe(true);
       });
     });

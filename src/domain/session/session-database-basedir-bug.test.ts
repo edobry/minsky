@@ -20,7 +20,8 @@ import { SessionDbAdapter } from "./session-db-adapter";
 import { initializeSessionDbState, getSessionWorkdirFn } from "./session-db";
 import { readSessionDbFile } from "./session-db-io";
 import { approveSessionImpl } from "./session-approve-operations";
-import type { SessionRecord, SessionDbState } from "./types";
+import type { SessionRecord } from "./types";
+import type { SessionDbState } from "./session-db";
 import { PATH_TEST_PATTERNS } from "../../utils/test-utils/test-constants";
 
 describe("Session Database BaseDir Bug", () => {

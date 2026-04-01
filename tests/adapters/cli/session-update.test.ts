@@ -76,6 +76,9 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
+      session: "test-session",
+      repoName: "test/repo",
+      createdAt: new Date().toISOString(),
       name: "test-session",
       taskId: "123",
       repoUrl: "https://github.com/test/repo.git",
@@ -118,6 +121,9 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
+      session: "missing-session",
+      repoName: "test/repo",
+      createdAt: new Date().toISOString(),
       name: "missing-session",
       taskId: "456",
       repoUrl: "https://github.com/test/repo.git",
@@ -160,6 +166,9 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
+      session: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
+      repoName: "test/repo",
+      createdAt: new Date().toISOString(),
       name: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
       taskId: "789",
       repoUrl: "https://github.com/test/repo.git",
@@ -202,6 +211,9 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
+      session: "force-session",
+      repoName: "test/repo",
+      createdAt: new Date().toISOString(),
       name: "force-session",
       taskId: "101112",
       repoUrl: "https://github.com/test/repo.git",
@@ -239,6 +251,9 @@ describe("session update command", () => {
     mockFs.ensureDirectoryExists(sessionPath);
 
     const sessionRecord: SessionRecord = {
+      session: "dry-run-session",
+      repoName: "test/repo",
+      createdAt: new Date().toISOString(),
       name: "dry-run-session",
       taskId: "131415",
       repoUrl: "https://github.com/test/repo.git",

@@ -1,5 +1,5 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
-import { getSessionDirectory } from "../dir-command";
+import { getSessionDirFromParams } from "../dir-command";
 
 export const dirSessionSubcommand: CommandExecutionHandler = async (params) => {
   const { args } = params;
@@ -10,7 +10,7 @@ export const dirSessionSubcommand: CommandExecutionHandler = async (params) => {
   }
 
   try {
-    const sessionDir = await getSessionDirectory(sessionId);
+    const sessionDir = await getSessionDirFromParams({ name: sessionId });
     return { success: true, data: { sessionDirectory: sessionDir } };
   } catch (error) {
     throw new Error(

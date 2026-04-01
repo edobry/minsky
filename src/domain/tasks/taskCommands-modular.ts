@@ -19,7 +19,7 @@ import {
   type TaskCreateFromTitleAndDescriptionParams,
   type TaskSpecContentParams,
   type TaskDeleteParams,
-} from "../../domain/schemas";
+} from "../../schemas/tasks";
 
 /**
  * Modular Task Commands Manager

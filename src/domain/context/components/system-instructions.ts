@@ -22,7 +22,7 @@ export const SystemInstructionsComponent: ContextComponent = {
       mainGoal:
         "Your main goal is to follow the USER's instructions at each message, denoted by the <user_query> tag.",
       userPrompt,
-      contextualFocus: this.getContextualFocus(userPrompt),
+      contextualFocus: this.getContextualFocus!(userPrompt),
     };
   },
 

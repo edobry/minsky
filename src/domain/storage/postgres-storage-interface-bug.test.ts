@@ -20,7 +20,7 @@ describe("PostgresStorage Interface Completeness", () => {
       connectTimeout: 30,
     };
 
-    const storage = new PostgresStorage(mockConfig, null as any); // Mock sql connection
+    const storage = new PostgresStorage(mockConfig); // Mock sql connection
 
     // Verify both methods exist on the interface
     expect(typeof storage.getEntity).toBe("function");

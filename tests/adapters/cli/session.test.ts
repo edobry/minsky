@@ -219,6 +219,9 @@ describe("Session CLI Commands", () => {
       mockFs.ensureDirectoryExists(sessionPath);
 
       const sessionRecord: SessionRecord = {
+        session: "update-session",
+        repoName: "test/repo",
+        createdAt: new Date().toISOString(),
         name: "update-session",
         taskId: "789",
         repoUrl: "https://github.com/test/repo.git",
@@ -261,6 +264,9 @@ describe("Session CLI Commands", () => {
       mockFs.ensureDirectoryExists(sessionPath);
 
       const sessionRecord: SessionRecord = {
+        session: "git-session",
+        repoName: "test/repo",
+        createdAt: new Date().toISOString(),
         name: "git-session",
         taskId: "101112",
         repoUrl: "https://github.com/test/repo.git",
@@ -309,6 +315,9 @@ describe("Session CLI Commands", () => {
   describe("getCurrentSession", () => {
     test("should get current session from workspace", async () => {
       const sessionRecord: SessionRecord = {
+        session: SESSION_TEST_PATTERNS.WORKSPACE_SESSION,
+        repoName: "test/repo",
+        createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.WORKSPACE_SESSION,
         taskId: "131415",
         repoUrl: "https://github.com/test/repo.git",
@@ -349,6 +358,9 @@ describe("Session CLI Commands", () => {
   describe("getSessionFromWorkspace", () => {
     test("should get session from workspace directory", async () => {
       const sessionRecord: SessionRecord = {
+        session: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,
+        repoName: "test/repo",
+        createdAt: new Date().toISOString(),
         name: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,
         taskId: "161718",
         repoUrl: "https://github.com/test/repo.git",

@@ -19,7 +19,7 @@ import { describe, it, expect, beforeEach } from "bun:test";
 import { listTasksFromParams } from "./taskCommands";
 import type { TaskListParams } from "../../schemas/tasks";
 import { createConfiguredTaskService } from "./taskService";
-import type { TaskServiceInterface } from "./types";
+import type { TaskServiceInterface } from "./taskService";
 
 describe("Multi-Backend Task Aggregation Bug Fix", () => {
   let tempWorkspacePath: string;
@@ -65,6 +65,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
 
       const params: TaskListParams = {
         // No backend specified - should use multi-backend mode and aggregate all tasks
+        all: false,
       };
 
       const mockCreateTaskService = async (options: any): Promise<TaskServiceInterface> => {
@@ -98,10 +99,12 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
 
       const markdownParams: TaskListParams = {
         backend: "markdown",
+        all: false,
       };
 
       const minskyParams: TaskListParams = {
         backend: "minsky",
+        all: false,
       };
 
       const mockCreateTaskService = async (options: any): Promise<TaskServiceInterface> => {
@@ -147,6 +150,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
 
       const params: TaskListParams = {
         // No backend specified - should aggregate from all backends
+        all: false,
       };
 
       const mockCreateTaskService = async (options: any): Promise<TaskServiceInterface> => {
@@ -186,6 +190,7 @@ describe("Multi-Backend Task Aggregation Bug Fix", () => {
 
       const params: TaskListParams = {
         status: "TODO", // Filter by status
+        all: false,
       };
 
       const mockCreateTaskService = async (options: any): Promise<TaskServiceInterface> => {

@@ -204,11 +204,9 @@ export class SessionDbAdapter implements SessionProviderInterface {
   async findSessionsForRepo(repoPath: string): Promise<SessionRecord[]> {
     try {
       const sessions = await this.listSessions();
-      const repoPathFn = await getRepoPathFn();
 
       return sessions.filter((session) => {
-        const sessionRepoPath = repoPathFn(session);
-        return sessionRepoPath === repoPath;
+        return session.repoPath === repoPath;
       });
     } catch (error) {
       log.error(`Failed to find sessions for repo '${repoPath}':`, getErrorMessage(error as any));

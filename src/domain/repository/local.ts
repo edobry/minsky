@@ -481,6 +481,7 @@ export class LocalGitBackend implements RepositoryBackend {
       approvedBy: approver,
       approvedAt: new Date().toISOString(),
       comment: reviewComment,
+      prNumber: prId,
       platformData: {
         platform: "local",
         prIdentifier: prId,

@@ -24,6 +24,8 @@ describe("Session PR Workflow Architectural Bug", () => {
         baseBranch: "main",
         repo: "/test/repo",
         debug: false,
+        noStatusUpdate: false,
+        draft: false,
         skipUpdate: false, // This should trigger session update
         skipConflictCheck: false,
         autoResolveDeleteConflicts: false,

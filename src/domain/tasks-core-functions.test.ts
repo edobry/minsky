@@ -82,6 +82,11 @@ describe("interface-agnostic task functions", () => {
           );
         },
         setTaskStatus: () => Promise.resolve(),
+        createTask: () => Promise.resolve(mockTask),
+        createTaskFromTitleAndSpec: () => Promise.resolve(mockTask),
+        deleteTask: () => Promise.resolve(true),
+        getTaskSpecContent: () =>
+          Promise.resolve({ task: mockTask, specPath: "/mock/spec.md", content: "" }),
         // Add missing methods that the new multi-backend system expects
         listBackends: () => [{ name: "markdown", prefix: "md" }],
         getWorkspacePath: () => "/mock/workspace/path",

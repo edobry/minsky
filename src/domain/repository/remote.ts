@@ -25,6 +25,7 @@ import type {
   PRInfo,
   MergeInfo,
 } from "./index";
+import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
 
 const execAsync = promisify(exec);
 
@@ -629,5 +630,75 @@ Repository: ${this.repoUrl}
         }
       : undefined;
     return { diff: String(diff), stats };
+  }
+
+  /**
+   * Approve a pull request in the remote repository.
+   * For remote git backends, this updates the session record with prApproved: true.
+   */
+  async approvePullRequest(
+    prIdentifier: string | number,
+    reviewComment?: string
+  ): Promise<ApprovalInfo> {
+    const prId = String(prIdentifier);
+    const sessionDB = await this.getSessionDB();
+    const sessions = await sessionDB.listSessions();
+    const sessionRecord = sessions.find(
+      (s) => s.prBranch === prId || `pr/${s.session}` === prId || s.session === prId
+    );
+
+    if (!sessionRecord) {
+      throw new MinskyError(`No session found for PR identifier: ${prId}`);
+    }
+
+    const approver = process.env.USER || "system";
+    await sessionDB.updateSession(sessionRecord.session, {
+      prApproved: true,
+    });
+
+    return {
+      reviewId: `remote-${prId}-${Date.now()}`,
+      approvedBy: approver,
+      approvedAt: new Date().toISOString(),
+      comment: reviewComment,
+      prNumber: prId,
+      platformData: {
+        platform: "remote",
+        prIdentifier: prId,
+        sessionName: sessionRecord.session,
+      },
+    };
+  }
+
+  /**
+   * Get approval status for a pull request in the remote repository.
+   * For remote git backends, checks the session record for prApproved status.
+   */
+  async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
+    const prId = String(prIdentifier);
+    const sessionDB = await this.getSessionDB();
+    const sessions = await sessionDB.listSessions();
+    const sessionRecord = sessions.find(
+      (s) => s.prBranch === prId || `pr/${s.session}` === prId || s.session === prId
+    );
+
+    const isApproved = sessionRecord?.prApproved === true;
+
+    return {
+      isApproved,
+      approvals: isApproved
+        ? [
+            {
+              reviewId: `remote-${prId}`,
+              approvedBy: "unknown",
+              approvedAt: new Date().toISOString(),
+              prNumber: prId,
+            },
+          ]
+        : [],
+      requiredApprovals: 1,
+      canMerge: isApproved,
+      prState: "open",
+    };
   }
 }

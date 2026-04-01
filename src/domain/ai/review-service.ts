@@ -8,7 +8,8 @@ import {
   ValidationResult,
   AIUsage,
 } from "./types";
-import { ChangesetDetails, ChangesetReview, ReviewComment } from "../changeset/adapter-interface";
+import { ChangesetDetails } from "../changeset/adapter-interface";
+import { ChangesetReview, ReviewComment } from "../changeset/types";
 import { log } from "../../utils/logger";
 import { DefaultAIConfigurationService } from "./config-service";
 import { ConfigurationService } from "../configuration/types";

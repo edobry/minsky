@@ -925,6 +925,13 @@ export class GitService implements GitServiceInterface {
   }
 
   /**
+   * Pull latest changes from a remote
+   */
+  async pullLatest(repoPath: string, remote: string = "origin"): Promise<PullResult> {
+    return this.pullLatestWithDependencies(repoPath, { execAsync }, remote);
+  }
+
+  /**
    * Testable version of pullLatest with dependency injection
    */
   async pullLatestWithDependencies(

@@ -85,21 +85,12 @@ describe("Session PR Command Branch Behavior", () => {
 
     // Execute preparePr which is called by session pr
     try {
-      await preparePrFromParams(
-        {
-          session: "task#228",
-          title: "Test PR",
-          body: "Test body",
-          baseBranch: "main",
-        },
-        {
-          createGitService: () =>
-            ({
-              execInRepository: mockExecAsync,
-              getSessionWorkdir: () => "/test/session/workdir",
-            }) as any,
-        }
-      );
+      await preparePrFromParams({
+        session: "task#228",
+        title: "Test PR",
+        body: "Test body",
+        baseBranch: "main",
+      });
 
       // If we get here, verify the correct sequence of git commands
       const relevantCommands = gitCommands.filter(
@@ -185,21 +176,12 @@ describe("Session PR Command Branch Behavior", () => {
 
     // Test should complete without errors AND not switch to PR branch
     try {
-      await preparePrFromParams(
-        {
-          session: "task#228",
-          title: "Test PR",
-          body: "Test body",
-          baseBranch: "main",
-        },
-        {
-          createGitService: () =>
-            ({
-              execInRepository: mockExecAsync,
-              getSessionWorkdir: () => "/test/session/workdir",
-            }) as any,
-        }
-      );
+      await preparePrFromParams({
+        session: "task#228",
+        title: "Test PR",
+        body: "Test body",
+        baseBranch: "main",
+      });
     } catch (error) {
       // The test currently fails with session not found, which is expected
       // since we're using mocked functions without proper session setup

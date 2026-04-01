@@ -170,7 +170,7 @@ export async function createAllSessionCommands(deps?: SessionCommandDependencies
 
     // Utility commands
     conflicts: createSessionConflictsCommand(deps),
-    repair: createSessionRepairCommand(deps),
+    repair: createSessionRepairCommand(),
 
     // File commands
     editFile: createSessionEditFileCommand(deps),

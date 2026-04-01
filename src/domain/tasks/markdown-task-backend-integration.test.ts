@@ -523,7 +523,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     });
 
     it("should filter tasks by backend", async () => {
-      await backend.createTask({ title: "Markdown Task" });
+      await backend.createTask!({ title: "Markdown Task" });
 
       const mdTasks = await backend.listTasks({ backend: "md" });
       const ghTasks = await backend.listTasks({ backend: "gh" });
@@ -538,13 +538,13 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
   describe("Export/Import Operations", () => {
     it("should export tasks correctly", async () => {
-      const task = await backend.createTask({
+      const task = await backend.createTask!({
         title: "Export Test Task",
         description: "Testing export functionality",
         status: TASK_STATUS.TODO,
       });
 
-      const exportData = await backend.exportTask(task.id);
+      const exportData = await backend.exportTask!(task.id);
 
       expect(exportData.backend).toBe("md");
       expect(exportData.spec.title).toBe("Export Test Task");
@@ -566,7 +566,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         exportedAt: new Date().toISOString(),
       };
 
-      const importedTask = await backend.importTask(importData);
+      const importedTask = await backend.importTask!(importData);
 
       expect(importedTask.id).toMatch(/^md#\d+$/);
       expect(importedTask.title).toBe("Imported Task");
@@ -577,23 +577,23 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
 
   describe("Local ID Validation", () => {
     it("should validate local IDs correctly", () => {
-      expect(backend.validateLocalId("123")).toBe(true);
-      expect(backend.validateLocalId("1")).toBe(true);
-      expect(backend.validateLocalId("999")).toBe(true);
+      expect(backend.validateLocalId!("123")).toBe(true);
+      expect(backend.validateLocalId!("1")).toBe(true);
+      expect(backend.validateLocalId!("999")).toBe(true);
 
-      expect(backend.validateLocalId("0")).toBe(false); // Zero not allowed
-      expect(backend.validateLocalId("-1")).toBe(false); // Negative not allowed
-      expect(backend.validateLocalId("abc")).toBe(false); // Non-numeric
-      expect(backend.validateLocalId("12.5")).toBe(false); // Decimal
-      expect(backend.validateLocalId("")).toBe(false); // Empty
-      expect(backend.validateLocalId("1a")).toBe(false); // Mixed
+      expect(backend.validateLocalId!("0")).toBe(false); // Zero not allowed
+      expect(backend.validateLocalId!("-1")).toBe(false); // Negative not allowed
+      expect(backend.validateLocalId!("abc")).toBe(false); // Non-numeric
+      expect(backend.validateLocalId!("12.5")).toBe(false); // Decimal
+      expect(backend.validateLocalId!("")).toBe(false); // Empty
+      expect(backend.validateLocalId!("1a")).toBe(false); // Mixed
     });
   });
 
   describe("File System Integration", () => {
     it("should generate correct task spec paths", () => {
-      const path1 = backend.getTaskSpecPath("md#123", "Test Task Title");
-      const path2 = backend.getTaskSpecPath("456", "Another Task"); // Local ID
+      const path1 = backend.getTaskSpecPath!("md#123", "Test Task Title");
+      const path2 = backend.getTaskSpecPath!("456", "Another Task"); // Local ID
 
       expect(path1).toContain("123-test-task-title.md");
       expect(path2).toContain("456-another-task.md");

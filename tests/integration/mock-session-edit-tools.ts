@@ -115,7 +115,9 @@ async function loggingApplyEditPattern(
     }
 
     // Create completion service
-    const completionService = new DefaultAICompletionService();
+    const completionService = new DefaultAICompletionService({
+      loadConfiguration: () => Promise.resolve({ resolved: config }),
+    } as any);
 
     // Create the prompt that will be sent to Morph
     const prompt = `You are an expert code editor. Apply the following edit pattern to the original code.

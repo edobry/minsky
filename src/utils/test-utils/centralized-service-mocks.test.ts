@@ -204,7 +204,7 @@ describe("Centralized Service Mock Factories", () => {
       const deleted = await mockTaskService.deleteTask("test");
       expect(deleted).toBe(false);
 
-      const backend = await mockTaskService.getBackendForTask("test");
+      const backend = await mockTaskService.getBackendForTask!("test");
       expect(backend).toBe("markdown");
     });
 

@@ -342,7 +342,7 @@ export class TaskServiceImpl implements TaskService {
         throw new Error("No backends registered");
       }
 
-      const created = await backend.createTask(specPath, options);
+      const created = await backend.createTask!(specPath, options);
       return this.qualifyTaskFromBackend(created, backend)!;
     } else {
       // Multi-backend signature: createTask(spec: TaskSpec, backendPrefix?: string)

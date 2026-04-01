@@ -21,7 +21,8 @@ export async function sessionStart(
   depsInput?: any
 ): Promise<Session> {
   // Delegate to domain implementation; adapter remains thin
-  const taskService = depsInput?.taskService || (await createConfiguredTaskService());
+  const taskService =
+    depsInput?.taskService || (await createConfiguredTaskService({ workspacePath: process.cwd() }));
   const deps = {
     sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     gitService: depsInput?.gitService || createGitService(),

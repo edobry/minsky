@@ -166,7 +166,7 @@ export async function updateSessionImpl(
     try {
       // Fetch latest changes
       log.debug("Fetching latest changes", { workdir, remote: remote || "origin" });
-      await deps.gitService.fetchLatest(workdir, remote || "origin");
+      await deps.gitService.fetchLatest!(workdir, remote || "origin");
       log.debug("Latest changes fetched");
 
       // Determine target branch for merge - use actual default branch from repo instead of hardcoding "main"

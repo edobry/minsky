@@ -68,7 +68,7 @@ export async function listTasksFromParams(params: any) {
   });
 
   log.debug("tasks.list created TaskService", {
-    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+    backend: taskService.listBackends!().find((b) => b.prefix === backend)?.name || "default",
   });
   let tasks = await taskService.listTasks({
     status: validParams.status,
@@ -107,7 +107,7 @@ export async function getTaskFromParams(params: any) {
   });
 
   log.debug("tasks.get created TaskService", {
-    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+    backend: taskService.listBackends!().find((b) => b.prefix === backend)?.name || "default",
   });
   const task = await taskService.getTask(validParams.taskId);
   if (!task) {
@@ -130,7 +130,7 @@ export async function getTaskStatusFromParams(params: any) {
   });
   log.debug("tasks.status.get created TaskService", {
     backend:
-      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+      taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   return await taskService.getTaskStatus(validParams.taskId);
 }
@@ -145,7 +145,7 @@ export async function setTaskStatusFromParams(params: any) {
   });
   log.debug("tasks.status.set created TaskService", {
     backend:
-      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+      taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   await taskService.setTaskStatus(validParams.taskId, validParams.status);
   return { success: true, taskId: validParams.taskId, status: validParams.status };
@@ -159,7 +159,7 @@ export async function updateTaskFromParams(params: any) {
     backend: params.backend,
   });
   log.debug("tasks.update created TaskService", {
-    backend: taskService.listBackends().find((b) => b.prefix === params.backend)?.name || "default",
+    backend: taskService.listBackends!().find((b) => b.prefix === params.backend)?.name || "default",
   });
 
   // Prepare updates object
@@ -185,7 +185,7 @@ export async function createTaskFromParams(params: any) {
   });
   log.debug("tasks.create created TaskService", {
     backend:
-      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+      taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   return await taskService.createTask(validParams.specPath);
 }
@@ -204,7 +204,7 @@ export async function createTaskFromTitleAndSpec(params: any) {
 
   log.debug("tasks.createTitleSpec created TaskService", {
     backend:
-      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+      taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   // Use spec field, fallback to description for compatibility
   const spec = (validParams as any).spec || (validParams as any).description || "";
@@ -222,7 +222,7 @@ export async function deleteTaskFromParams(params: any) {
   });
   log.debug("tasks.delete created TaskService", {
     backend:
-      taskService.listBackends().find((b) => b.prefix === validParams.backend)?.name || "default",
+      taskService.listBackends!().find((b) => b.prefix === validParams.backend)?.name || "default",
   });
   const success = await taskService.deleteTask(validParams.taskId, validParams);
   return { success, taskId: validParams.taskId };
@@ -257,7 +257,7 @@ export async function getTaskSpecContentFromParams(params: any) {
 
   const taskService = await createConfiguredTaskService({ workspacePath, backend });
   log.debug("tasks.spec created TaskService", {
-    backend: taskService.listBackends().find((b) => b.prefix === backend)?.name || "default",
+    backend: taskService.listBackends!().find((b) => b.prefix === backend)?.name || "default",
   });
   return await taskService.getTaskSpecContent(validParams.taskId);
 }

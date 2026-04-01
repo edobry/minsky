@@ -196,7 +196,7 @@ async function loggingApplyEditPattern(
     let capturedRequestBody: any = null;
     let capturedResponseBody: any = null;
 
-    global.fetch = async (input: any, init: any) => {
+    global.fetch = Object.assign(async (input: any, init: any) => {
       if (typeof input === "string" && input.includes("morphllm.com")) {
         console.log("\n🔍 INTERCEPTED HTTP REQUEST TO MORPH:");
         console.log("   URL:", input);
@@ -229,7 +229,7 @@ async function loggingApplyEditPattern(
       }
 
       return response;
-    };
+    }, { preconnect: () => {} });
 
     const response = await completionService.complete(completionParams);
 
@@ -338,21 +338,21 @@ describe.if(process.env.RUN_INTEGRATION_TESTS)(
       // Check Morph configuration
       const morphConfig = config.ai?.providers?.morph;
 
-      // Apply default baseURL if not set (handling base_url inconsistency)
-      const baseURL = morphConfig?.base_url || "https://api.morphllm.com/v1";
+      // Apply default baseURL if not set
+      const baseURL = morphConfig?.baseUrl || "https://api.morphllm.com/v1";
 
-      const hasValidMorphConfig = !!(morphConfig?.enabled && morphConfig?.api_key && baseURL);
+      const hasValidMorphConfig = !!(morphConfig?.enabled && morphConfig?.apiKey && baseURL);
 
       if (hasValidMorphConfig) {
         console.log("✅ Morph provider configured successfully");
-        console.log("   API Key:", `${morphConfig.api_key?.substring(0, 20)}...`);
+        console.log("   API Key:", `${morphConfig.apiKey?.substring(0, 20)}...`);
         console.log("   Base URL:", baseURL);
         console.log("   Model:", morphConfig.default_model);
       } else {
         console.log("⚠️  Morph configuration incomplete - integration tests will be skipped");
         console.log("   Enabled:", morphConfig?.enabled);
-        console.log("   API Key:", morphConfig?.api_key ? "present" : "missing");
-        console.log("   Base URL (base_url):", morphConfig?.base_url ? "present" : "missing");
+        console.log("   API Key:", morphConfig?.apiKey ? "present" : "missing");
+        console.log("   Base URL (baseUrl):", morphConfig?.baseUrl ? "present" : "missing");
         console.log("   Applied default baseURL:", baseURL);
       }
 

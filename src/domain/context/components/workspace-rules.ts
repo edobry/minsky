@@ -45,9 +45,7 @@ export const WorkspaceRulesComponent: ContextComponent = {
       if (shouldUseEnhancedFiltering) {
         try {
           // Use enhanced rule suggestion
-          const similarityService = await createRuleSimilarityService(
-            context.workspacePath || process.cwd()
-          );
+          const similarityService = await createRuleSimilarityService();
 
           filteredRules = await suggestRules(
             {

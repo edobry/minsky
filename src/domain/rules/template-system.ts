@@ -47,7 +47,7 @@ export interface TemplateHelpers {
    * @param content Code content
    * @param language Code language
    */
-  codeBlock: (content: string, language: string) => string;
+  codeBlock: (content: string, language?: string) => string;
 
   /**
    * Creates a conditional section that only renders if a condition is met

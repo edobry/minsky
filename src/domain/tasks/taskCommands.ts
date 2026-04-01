@@ -500,7 +500,7 @@ export async function createTaskFromTitleAndDescription(
   }
 
   // Create the task from title and spec
-  const task = await taskService.createTaskFromTitleAndDescription(validParams.title, specContent);
+  const task = await taskService.createTaskFromTitleAndSpec(validParams.title, specContent);
 
   return task;
 }

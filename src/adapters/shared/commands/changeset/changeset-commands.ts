@@ -139,10 +139,13 @@ const changesetGetParams: CommandParameterMap = composeParams(
 /**
  * Parameters for changeset info command
  */
-const changesetInfoParams: CommandParameterMap = composeParams({
-  repo: CommonParameters.repo,
-  json: CommonParameters.json,
-});
+const changesetInfoParams: CommandParameterMap = composeParams(
+  {
+    repo: CommonParameters.repo,
+    json: CommonParameters.json,
+  },
+  {}
+);
 
 /**
  * List changesets in the repository

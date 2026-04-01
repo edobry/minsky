@@ -182,7 +182,7 @@ describe("Individual Service Mock Factories", () => {
       expect(await mockService.listTasks()).toEqual([]);
       expect(await mockService.getTaskStatus("123")).toBeUndefined();
       expect(await mockService.deleteTask("123")).toBe(false);
-      expect(await mockService.getBackendForTask("123")).toBe("markdown");
+      expect(await mockService.getBackendForTask!("123")).toBe("markdown");
     });
 
     test("creates tasks with proper structure", async () => {

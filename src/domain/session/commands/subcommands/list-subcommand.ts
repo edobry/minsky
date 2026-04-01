@@ -3,7 +3,7 @@ import {
   type CommandParameterMap,
   type CommandExecutionContext,
 } from "../../../../adapters/shared/command-registry";
-import { listSessionsFromParams } from "../list-command";
+import { sessionList } from "../list-command";
 import { log } from "../../../../utils/logger";
 
 /**
@@ -36,7 +36,7 @@ export async function executeSessionListCommand(
 ): Promise<any[]> {
   const { repo, json } = parameters;
 
-  const result = await listSessionsFromParams({
+  const result = await sessionList({
     repo,
     json,
   });

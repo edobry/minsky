@@ -15,7 +15,7 @@ import type { TaskData } from "../../types/tasks/taskData";
 import { createJsonFileStorage } from "../storage/json-file-storage";
 import type { DatabaseStorage } from "../storage/database-storage";
 import { validateTaskState, type TaskState } from "../../schemas/storage";
-import type { TaskSpec } from "./taskIO";
+import type { TaskSpec } from "./multi-backend-service";
 import { log } from "../../utils/logger";
 import { readFile, writeFile, mkdir, access, unlink } from "fs/promises";
 import { getErrorMessage } from "../../errors/index";

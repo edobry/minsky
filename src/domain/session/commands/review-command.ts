@@ -42,7 +42,8 @@ export async function sessionReview(
   const deps = {
     sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     gitService: depsInput?.gitService || createGitService(),
-    taskService: depsInput?.taskService || (await createConfiguredTaskService()),
+    taskService:
+      depsInput?.taskService || (await createConfiguredTaskService({ workspacePath: process.cwd() })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };

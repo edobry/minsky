@@ -675,7 +675,10 @@ export function createMockPersistenceProvider(
   return createPartialMock<PersistenceProvider>({
     capabilities: options.capabilities || {
       sql: true,
+      transactions: true,
+      jsonb: true,
       vectorStorage: true,
+      migrations: true,
     },
     initialize: options.initialize || (() => Promise.resolve()),
     getDatabaseConnection:

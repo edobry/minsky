@@ -1,5 +1,5 @@
 import { CommandExecutionHandler } from "../../../../adapters/shared/command-registry";
-import { reviewSession } from "../review-command";
+import { sessionReview } from "../review-command";
 
 export const reviewSessionSubcommand: CommandExecutionHandler = async (params) => {
   const { args } = params;
@@ -10,7 +10,7 @@ export const reviewSessionSubcommand: CommandExecutionHandler = async (params) =
   }
 
   try {
-    const review = await reviewSession(sessionId);
+    const review = await sessionReview({ session: sessionId } as any);
     return {
       success: true,
       data: review,

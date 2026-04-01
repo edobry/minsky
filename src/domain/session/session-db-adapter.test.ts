@@ -81,8 +81,8 @@ describe("createSessionProvider", () => {
 
     // Initialize configuration for testing
     try {
-      const { initializeConfiguration } = await import("../configuration");
-      await initializeConfiguration();
+      const { initializeConfiguration, CustomConfigFactory } = await import("../configuration");
+      await initializeConfiguration(new CustomConfigFactory());
     } catch (error) {
       // Configuration might already be initialized, that's OK
     }

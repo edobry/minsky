@@ -242,12 +242,15 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        const result = await command.execute({
-          format: undefined,
-          tag: undefined,
-          json: true,
-          debug: false,
-        });
+        const result = await command.execute(
+          {
+            format: undefined,
+            tag: undefined,
+            json: true,
+            debug: false,
+          },
+          {}
+        );
 
         expect(result.success).toBe(true);
         expect(result.rules).toBeDefined();
@@ -286,12 +289,15 @@ describe("Rules Commands", () => {
       expect(command).toBeDefined();
 
       if (command) {
-        await command.execute({
-          format: "cursor",
-          tag: "test-tag",
-          json: true,
-          debug: true,
-        });
+        await command.execute(
+          {
+            format: "cursor",
+            tag: "test-tag",
+            json: true,
+            debug: true,
+          },
+          {}
+        );
 
         // Verify that the filtering parameters were passed correctly
         expect(mockListRules).toHaveBeenCalledWith({

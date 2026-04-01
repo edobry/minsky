@@ -420,6 +420,20 @@ ${issue.labels.map((label) => `- ${typeof label === "string" ? label : label.nam
     return this.workspacePath;
   }
 
+  getCapabilities(): import("./types").BackendCapabilities {
+    return {
+      canCreate: true,
+      canUpdate: true,
+      canDelete: true,
+      canList: true,
+      supportsTaskCreation: true,
+      supportsTaskUpdate: true,
+      supportsTaskDeletion: true,
+      supportsStatus: true,
+      supportsMetadata: true,
+    };
+  }
+
   getTaskSpecPath(taskId: string, title: string): string {
     return getTaskSpecRelativePath(taskId, title, this.workspacePath);
   }

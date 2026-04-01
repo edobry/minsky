@@ -145,7 +145,7 @@ export const NETWORK_TIMEOUT = {
 export function createMockFetch(responses: MockResponse[]): typeof fetch {
   let callCount = 0;
 
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const mockFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     const response = responses[callCount] || responses[responses.length - 1];
     callCount++;
 
@@ -163,6 +163,8 @@ export function createMockFetch(responses: MockResponse[]): typeof fetch {
       headers: response.headers,
     });
   };
+  (mockFn as any).preconnect = () => {};
+  return mockFn as typeof fetch;
 }
 
 /**
@@ -172,7 +174,7 @@ export function createMockFetch(responses: MockResponse[]): typeof fetch {
 export function createRetryScenarioMock(): typeof fetch {
   let callCount = 0;
 
-  return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+  const mockFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
     callCount++;
 
     // First two calls return rate limit, third succeeds
@@ -190,4 +192,6 @@ export function createRetryScenarioMock(): typeof fetch {
       });
     }
   };
+  (mockFn as any).preconnect = () => {};
+  return mockFn as typeof fetch;
 }
