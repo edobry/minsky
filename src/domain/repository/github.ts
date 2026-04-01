@@ -29,7 +29,6 @@ const HTTP_NOT_FOUND = 404;
 const HTTP_UNAUTHORIZED = 401;
 const HTTP_FORBIDDEN = 403;
 
-
 const execAsync = promisify(exec);
 
 /**

@@ -28,7 +28,6 @@ import type {
   SessionUpdateEvent,
 } from "./index";
 
-
 const execAsync = promisify(exec);
 
 /**

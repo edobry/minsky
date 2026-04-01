@@ -137,7 +137,7 @@ function extractConflictFiles(stdout: string, stderr: string): string[] {
   const files = conflictLines
     .map((line) => {
       const match = line.match(/CONFLICT.*in (.+?)(?:\s|$)/);
-      return match ? (match[1] || null) : null;
+      return match ? match[1] || null : null;
     })
     .filter(Boolean) as string[];
 

@@ -115,7 +115,7 @@ export class TaskServiceImpl implements TaskService {
 
   private parsePrefixFromId(taskId: string): string | null {
     const match = taskId.match(/^([a-zA-Z0-9_-]+)#/);
-    return match ? (match[1] || null) : null;
+    return match ? match[1] || null : null;
   }
 
   private getBackendByPrefix(prefix: string | null): TaskBackend | null {

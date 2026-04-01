@@ -26,7 +26,6 @@ import type {
   MergeInfo,
 } from "./index";
 
-
 const execAsync = promisify(exec);
 
 /**
