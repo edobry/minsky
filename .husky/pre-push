@@ -1,3 +1,4 @@
+#!/usr/bin/env bash
 echo "Running tests before push..."
 
 # Run tests with output suppressed, only show summary
