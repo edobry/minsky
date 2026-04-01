@@ -9,8 +9,9 @@
 export * from "./RepositoryBackend";
 export * from "./approval-types";
 
-// Import RepositoryStatus from legacy-types (previously from ../repository)
+// Import RepositoryStatus and RepositoryBackendType from legacy-types (previously from ../repository)
 import type { RepositoryStatus } from "./legacy-types";
+import { RepositoryBackendType } from "./legacy-types";
 
 import { DEFAULT_TIMEOUT_MS } from "../../utils/constants";
 import { getErrorMessage } from "../../errors/index";
@@ -350,13 +351,9 @@ export interface SessionUpdateEvent {
 }
 
 /**
- * Repository backend types
+ * Repository backend types — re-exported from legacy-types for single source of truth
  */
-export enum RepositoryBackendType {
-  LOCAL = "local",
-  REMOTE = "remote",
-  GITHUB = "github",
-}
+export { RepositoryBackendType } from "./legacy-types";
 
 /**
  * Operation result
