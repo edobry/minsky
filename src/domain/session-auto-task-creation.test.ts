@@ -120,7 +120,7 @@ describe("Session Auto-Task Creation", () => {
       // No taskId or sessionName provided - both should be auto-generated
     };
 
-    const result = await startSessionFromParams(params, {
+    const result = await startSessionFromParams(params as any, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
@@ -140,7 +140,7 @@ describe("Session Auto-Task Creation", () => {
       // sessionName will be auto-generated from taskId
     };
 
-    await startSessionFromParams(params, {
+    await startSessionFromParams(params as any, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
@@ -160,7 +160,7 @@ describe("Session Auto-Task Creation", () => {
       // No task provided - should auto-create from description
     };
 
-    const result = await startSessionFromParams(params, {
+    const result = await startSessionFromParams(params as any, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,

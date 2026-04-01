@@ -43,7 +43,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
       listSessions: () => Promise.resolve([]),
-      addSession: addSessionSpy,
+      addSession: addSessionSpy as any,
       deleteSession: () => Promise.resolve(true),
     });
 
@@ -51,7 +51,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     (mockSessionDB as any).getNewSessionRepoPath = () => TEST_PATHS.SESSION_MD_160;
 
     const mockGitService = createMockGitService({
-      clone: cloneSpy,
+      clone: cloneSpy as any,
     });
 
     // Add branchWithoutSession method not covered by centralized factory
@@ -81,12 +81,12 @@ describe("Session Git Clone Bug Regression Test", () => {
 
     // Act & Assert - Git clone failure should not leave session in database
     await expect(
-      startSessionFromParams(params, {
+      startSessionFromParams(params as any, {
         sessionDB: mockSessionDB,
         gitService: mockGitService,
         taskService: mockTaskService,
         workspaceUtils: mockWorkspaceUtils,
-        resolveRepoPath: mockResolveRepoPath,
+        resolveRepoPath: mockResolveRepoPath as any,
       })
     ).rejects.toThrow("destination path 'task-md#160' already exists");
 
@@ -118,7 +118,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     const mockSessionDB = createMockSessionProvider({
       getSession: () => Promise.resolve(null),
       listSessions: () => Promise.resolve([]),
-      addSession: addSessionSpy,
+      addSession: addSessionSpy as any,
       deleteSession: () => Promise.resolve(true),
     });
 
@@ -126,7 +126,7 @@ describe("Session Git Clone Bug Regression Test", () => {
     (mockSessionDB as any).getNewSessionRepoPath = () => TEST_PATHS.SESSION_MD_160;
 
     const mockGitService = createMockGitService({
-      clone: cloneSpy,
+      clone: cloneSpy as any,
     });
 
     // Add branchWithoutSession method not covered by centralized factory
@@ -157,12 +157,12 @@ describe("Session Git Clone Bug Regression Test", () => {
     };
 
     // Act
-    const result = await startSessionFromParams(params, {
+    const result = await startSessionFromParams(params as any, {
       sessionDB: mockSessionDB,
       gitService: mockGitService,
       taskService: mockTaskService,
       workspaceUtils: mockWorkspaceUtils,
-      resolveRepoPath: mockResolveRepoPath,
+      resolveRepoPath: mockResolveRepoPath as any,
     });
 
     // Assert - Session should be created successfully

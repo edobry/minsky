@@ -62,7 +62,7 @@ describe("Session Approval Display Bug Fix", () => {
     };
 
     // Test the data extraction logic
-    const sessionName = resultWithoutData.data?.session || "Unknown";
+    const sessionName = (resultWithoutData.data as any)?.session || "Unknown";
 
     // Should gracefully fallback to "Unknown" when data is null
     expect(sessionName).toBe("Unknown");
@@ -89,7 +89,7 @@ describe("Session Approval Display Bug Fix", () => {
     };
 
     // Test both approaches
-    const correctAccess = resultWithOldStructure.data?.session || "Unknown"; // Fixed approach
+    const correctAccess = (resultWithOldStructure as any).data?.session || "Unknown"; // Fixed approach
     const buggyAccess = (resultWithOldStructure as any).result?.session || "Unknown"; // Old approach
 
     // The fix correctly identifies missing data and falls back to "Unknown"

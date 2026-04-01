@@ -28,7 +28,7 @@ const INTEGRATION_CONFIG = {
   testPrefix: "[MINSKY-INTEGRATION-TEST]",
 };
 
-describe.if(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token)(
+describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
   "GitHub API Integration Tests",
   () => {
     let octokit: Octokit;
@@ -198,7 +198,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token)(
 
         expect(retrievedIssue.number).toBe(createdIssue.number);
         expect(retrievedIssue.title).toBe(createdIssue.title);
-        expect(retrievedIssue.body).toBe(createdIssue.body);
+        expect(retrievedIssue.body).toBe(createdIssue.body ?? null);
       });
     });
 

@@ -983,7 +983,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
           owner: this.owner,
           repo: this.repo,
           // Only set workdir when session provided
-          workdir: options.session ? await sessionDB.getSessionWorkdir(options.session) : "",
+          workdir: options.session ? await (await this.getSessionDB()).getSessionWorkdir(options.session) : "",
         },
       };
     } catch (error) {

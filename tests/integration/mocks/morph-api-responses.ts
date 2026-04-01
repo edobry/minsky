@@ -146,13 +146,13 @@ export function createMockFetch(responses: MockResponse[]): typeof fetch {
   let callCount = 0;
 
   const mockFn = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
-    const response = responses[callCount] || responses[responses.length - 1];
+    const response = (responses[callCount] || responses[responses.length - 1])!;
     callCount++;
 
     // Simulate network timeout if configured
     if ("shouldTimeout" in response && response.shouldTimeout) {
       await new Promise((_, reject) => {
-        setTimeout(() => reject(new Error("Network timeout")), response.timeoutMs);
+        setTimeout(() => reject(new Error("Network timeout")), (response as any).timeoutMs);
       });
     }
 

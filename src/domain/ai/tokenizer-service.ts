@@ -97,8 +97,8 @@ export class DefaultTokenizerService implements TokenizerService {
       tokens: tokens.length,
       characters: text.length,
       model: modelId,
-      library: tokenizerInfo.library,
-      encoding: tokenizerInfo.encoding,
+      library: tokenizerInfo.library ?? "unknown",
+      encoding: tokenizerInfo.encoding ?? "unknown",
     };
   }
 
@@ -223,16 +223,16 @@ export class DefaultTokenizerService implements TokenizerService {
 
     switch (tokenizerInfo.library) {
       case "gpt-tokenizer":
-        tokenizer = await this.createGptTokenizer(tokenizerInfo.encoding);
+        tokenizer = await this.createGptTokenizer(tokenizerInfo.encoding ?? "cl100k_base");
         break;
       case "tiktoken":
-        tokenizer = await this.createTiktokenTokenizer(tokenizerInfo.encoding);
+        tokenizer = await this.createTiktokenTokenizer(tokenizerInfo.encoding ?? "cl100k_base");
         break;
       case "anthropic":
-        tokenizer = await this.createAnthropicTokenizer(tokenizerInfo.encoding);
+        tokenizer = await this.createAnthropicTokenizer(tokenizerInfo.encoding ?? "cl100k_base");
         break;
       case "google":
-        tokenizer = await this.createGoogleTokenizer(tokenizerInfo.encoding);
+        tokenizer = await this.createGoogleTokenizer(tokenizerInfo.encoding ?? "cl100k_base");
         break;
       default:
         throw new Error(`Unsupported tokenizer library: ${tokenizerInfo.library}`);
@@ -247,7 +247,8 @@ export class DefaultTokenizerService implements TokenizerService {
    */
   private async createGptTokenizer(encoding: string): Promise<any> {
     try {
-      const { GPTTokens } = await import("gpt-tokenizer");
+      const gptTokenizer = await import("gpt-tokenizer");
+      const GPTTokens = (gptTokenizer as any).GPTTokens;
       const instance = new GPTTokens({
         model: encoding === "o200k_base" ? "gpt-4o" : "gpt-4",
         training: false,

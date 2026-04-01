@@ -8,7 +8,7 @@ import { getConfiguration } from "../configuration";
 import { getEmbeddingDimension } from "../ai/embedding-models";
 import { sharedCommandRegistry, type SharedCommand } from "../../adapters/shared/command-registry";
 
-const log = createLogger("tool-embedding-service");
+const log = createLogger();
 
 export interface ToolEmbeddingServiceConfig {
   threshold?: number; // maximum distance for inclusion
@@ -142,7 +142,7 @@ export class ToolEmbeddingService {
       }
       return null;
     } catch (error) {
-      log.error(`Failed to get tool metadata for ${toolId}:`, error);
+      log.error(`Failed to get tool metadata for ${toolId}:`, error instanceof Error ? error : new Error(String(error)));
       return null;
     }
   }

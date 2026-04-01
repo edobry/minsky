@@ -137,7 +137,7 @@ describe("session pr command", () => {
         if (command.includes("git switch") || command.includes("git checkout")) {
           const branchMatch = command.match(/(?:switch|checkout)\s+(?:-C\s+)?([^\s]+)/);
           if (branchMatch) {
-            currentBranch = branchMatch[1];
+            currentBranch = branchMatch[1]!;
             branchHistory.push(currentBranch);
           }
         }

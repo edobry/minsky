@@ -18,7 +18,7 @@ setupTestMocks();
 const TEST_VALUE = 123;
 
 // Simple mock for execAsync that matches the expected function signature
-const mockGitRootExecAsync = (stdout: string) => {
+const mockGitRootExecAsync = (stdout: string): any => {
   return async (command: string, options?: any) => {
     if (command.includes("git rev-parse --show-toplevel")) {
       return { stdout, stderr: "" };
@@ -70,7 +70,7 @@ describe("Workspace Domain Methods", () => {
     test("returns false when an error occurs during check", async () => {
       // Arrange
       const repoPath = "/invalid/path";
-      const execAsyncMock = async () => {
+      const execAsyncMock: any = async () => {
         throw new Error("Git command failed");
       };
 
@@ -128,7 +128,7 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
+        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock as any);
 
         // Assert
         expect(result).toEqual({
@@ -170,7 +170,7 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
+        const result = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock as any);
 
         // Assert
         expect(result).toBeNull();
@@ -202,8 +202,8 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const result1 = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock);
-        const result2 = await getSessionFromRepo(repoPath, execAsyncMock, sessionDbMock);
+        const result1 = await getSessionFromWorkspace(repoPath, execAsyncMock, sessionDbMock as any);
+        const result2 = await getSessionFromRepo(repoPath, execAsyncMock, sessionDbMock as any);
 
         // Assert
         expect(result1).toEqual(result2);
@@ -238,7 +238,7 @@ describe("Workspace Domain Methods", () => {
 
       try {
         // Act
-        const result = await getCurrentSession(sessionPath, execAsyncMock, sessionDbMock);
+        const result = await getCurrentSession(sessionPath, execAsyncMock, sessionDbMock as any);
 
         // Assert
         expect(result).toBe("session-name");
@@ -257,7 +257,7 @@ describe("Workspace Domain Methods", () => {
       const result = await getCurrentSession(notSessionPath, execAsyncMock);
 
       // Assert
-      expect(result).toBeNull();
+      expect(result).toBeFalsy();
     });
   });
 

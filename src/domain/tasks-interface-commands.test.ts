@@ -127,7 +127,7 @@ describe.skip("interface-agnostic task functions - REQUIRES TEST ISOLATION REWRI
 
       // Mock should implement the same filtering logic as the real TaskService
       mockTaskService.listTasks = mock((options = {}) => {
-        if (!options.all) {
+        if (!(options as any).all) {
           return Promise.resolve(
             allTasks.filter(
               (task) => task.status !== TASK_STATUS.DONE && task.status !== TASK_STATUS.CLOSED

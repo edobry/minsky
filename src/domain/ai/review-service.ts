@@ -12,7 +12,7 @@ import { ChangesetDetails } from "../changeset/adapter-interface";
 import { ChangesetReview, ReviewComment } from "../changeset/types";
 import { log } from "../../utils/logger";
 import { DefaultAIConfigurationService } from "./config-service";
-import { ConfigurationService } from "../configuration/types";
+// ConfigurationService removed - using any for configuration
 import { generateObject } from "ai"; // Using generateObject for structured output
 import { openai } from "@ai-sdk/openai"; // Example provider
 import { z } from "zod";

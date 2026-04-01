@@ -2,7 +2,7 @@ import type { SimilarityBackend, SimilarityItem, SimilarityQuery } from "../../s
 import { sharedCommandRegistry } from "../../../adapters/shared/command-registry";
 import { createLogger } from "../../../utils/logger";
 
-const log = createLogger("tool-keyword-backend");
+const log = createLogger();
 
 /**
  * ToolKeywordBackend: Keyword-based tool matching fallback

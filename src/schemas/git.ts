@@ -9,7 +9,7 @@ import {
   taskIdSchema,
   flagSchema,
   sessionSchema,
-  commonRepoSchema,
+  _commonRepoSchema as commonRepoSchema,
 } from "./common";
 
 /**

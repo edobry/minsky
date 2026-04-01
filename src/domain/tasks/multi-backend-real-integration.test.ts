@@ -117,7 +117,7 @@ describe("TaskService with Real MarkdownTaskBackend", () => {
     it("should register markdown backend correctly", () => {
       const backends = service.listBackends();
       expect(backends).toHaveLength(1);
-      expect(backends[0].name).toBe("markdown");
+      expect(backends[0]!.name).toBe("markdown");
     });
 
     it("should route qualified IDs to correct backend", async () => {

@@ -144,11 +144,11 @@ describe("Session Command Domain Logic", () => {
             taskId: "123",
           },
         ],
-        deleteSession: (sessionName: string) => {
+        deleteSession: ((sessionName: string) => {
           // Return false for non-existent sessions
           const sessionExists = sessionName === "test-session";
           return Promise.resolve(sessionExists);
-        },
+        }) as any,
       });
 
       const result = await sessionDelete(

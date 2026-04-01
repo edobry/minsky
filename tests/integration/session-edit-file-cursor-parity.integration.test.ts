@@ -68,7 +68,7 @@ async function loggingApplyEditPattern(
   console.log("=".repeat(80));
 
   // Import utilities
-  const { analyzeEditPattern, createMorphCompletionParams, MorphFastApplyRequest } = await import(
+  const { analyzeEditPattern, createMorphCompletionParams } = await import(
     "../../src/domain/ai/edit-pattern-utils.js"
   );
 
@@ -139,7 +139,7 @@ async function loggingApplyEditPattern(
     let model: string | undefined;
 
     if (fastApplyProviders.length > 0) {
-      provider = fastApplyProviders[0]; // Use the first available fast-apply provider
+      provider = fastApplyProviders[0]!; // Use the first available fast-apply provider
       model = aiConfig.providers[provider]?.model;
       console.log(`   Using fast-apply provider: ${provider} with model: ${model}`);
     } else {
@@ -152,7 +152,7 @@ async function loggingApplyEditPattern(
         throw new Error("No enabled AI providers found for edit operations");
       }
 
-      provider = enabledProviders[0];
+      provider = enabledProviders[0]!;
       model = aiConfig.providers[provider]?.model;
       console.log(`   Using fallback provider: ${provider} with model: ${model}`);
     }
@@ -163,7 +163,7 @@ async function loggingApplyEditPattern(
     } as any);
 
     // Create the correct Morph Fast Apply API format using utilities
-    const morphRequest: MorphFastApplyRequest = {
+    const morphRequest: any = {
       instruction: instruction || "Add a multiply method to the Calculator class",
       originalCode: originalContent,
       editPattern: editPattern,
@@ -222,7 +222,7 @@ async function loggingApplyEditPattern(
             capturedResponseBody = await responseClone.json();
             console.log("\n📥 INTERCEPTED HTTP RESPONSE FROM MORPH:");
             console.log("   Status:", response.status, response.statusText);
-            console.log("   Headers:", JSON.stringify([...response.headers.entries()], null, 2));
+            console.log("   Headers:", JSON.stringify([...(response.headers as any).entries()], null, 2));
             console.log("   RESPONSE BODY:", JSON.stringify(capturedResponseBody, null, 2));
           } catch (e) {
             console.log("   Response body could not be parsed as JSON");
@@ -324,7 +324,7 @@ async function loggingApplyEditPattern(
   }
 }
 
-describe.if(process.env.RUN_INTEGRATION_TESTS)(
+describe.if(!!process.env.RUN_INTEGRATION_TESTS)(
   "session.edit_file Cursor Parity Integration",
   () => {
     beforeAll(async () => {
@@ -350,7 +350,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS)(
         console.log("✅ Morph provider configured successfully");
         console.log("   API Key:", `${morphConfig.apiKey?.substring(0, 20)}...`);
         console.log("   Base URL:", baseURL);
-        console.log("   Model:", morphConfig.default_model);
+        console.log("   Model:", (morphConfig as any).default_model);
       } else {
         console.log("⚠️  Morph configuration incomplete - integration tests will be skipped");
         console.log("   Enabled:", morphConfig?.enabled);

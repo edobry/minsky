@@ -75,7 +75,7 @@ describe("result-handling/filters: filterByBackend", () => {
     ];
     const res = filterByBackend(items, "github");
     expect(res).toHaveLength(1);
-    expect(res[0].backendType).toBe("github");
+    expect(res[0]!.backendType).toBe("github");
   });
 });
 
@@ -91,6 +91,6 @@ describe("result-handling/filters: filterByTimeRange", () => {
     const until = now - 10 * 60000; // 10m ago
     const res = filterByTimeRange(items, since, until);
     expect(res).toHaveLength(1);
-    expect(res[0].updatedAt).toBeDefined();
+    expect(res[0]!.updatedAt).toBeDefined();
   });
 });

@@ -88,7 +88,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         const normalizeId = (taskId: string) => {
           // Extract just the numeric part, removing leading zeros
           const match = taskId.match(/(\d+)$/);
-          return match ? parseInt(match[1], 10).toString() : taskId;
+          return match ? parseInt(match[1]!, 10).toString() : taskId;
         };
 
         const searchIdNormalized = normalizeId(id);
@@ -295,9 +295,9 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
         let qualifiedId = id;
 
         // Convert legacy formats to qualified format
-        if (id.startsWith("#")) {
+        if (id!.startsWith("#")) {
           qualifiedId = `md${id}`; // #123 -> md#123
-        } else if (/^\d+$/.test(id)) {
+        } else if (/^\d+$/.test(id!)) {
           qualifiedId = `md#${id}`; // 123 -> md#123
         }
 
@@ -329,7 +329,7 @@ describe("MarkdownTaskBackend Multi-Backend Integration", () => {
     const title = titleMatch ? titleMatch[1] : "Untitled Task";
 
     const contextMatch = content.match(/## Context\n\n(.+)/s);
-    const description = contextMatch ? contextMatch[1].trim() : "";
+    const description = contextMatch ? contextMatch[1]!.trim() : "";
 
     return { title, description };
   }

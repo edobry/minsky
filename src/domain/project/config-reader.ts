@@ -117,7 +117,7 @@ export class ProjectConfigReader {
     for (const configPath of possiblePaths) {
       if (existsSync(configPath)) {
         try {
-          const config = JSON.parse(readFileSync(configPath, "utf8"));
+          const config = JSON.parse(readFileSync(configPath, "utf8" as BufferEncoding) as string);
           if (config.workflows) {
             return {
               workflows: config.workflows,
@@ -147,7 +147,7 @@ export class ProjectConfigReader {
     }
 
     try {
-      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8"));
+      const packageJson = JSON.parse(readFileSync(packageJsonPath, "utf8" as BufferEncoding) as string);
       const scripts = packageJson.scripts || {};
 
       const packageManager = this.detectPackageManager();

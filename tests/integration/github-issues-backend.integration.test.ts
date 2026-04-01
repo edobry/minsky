@@ -34,7 +34,7 @@ const INTEGRATION_CONFIG = {
   apiTimeout: 10000,
 };
 
-describe.if(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token)(
+describe.if(!!(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token))(
   "GitHub Issues Backend Integration Tests",
   () => {
     let backend: TaskBackend;
@@ -48,7 +48,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token)(
 
       // Create backend instance
       backend = createGitHubIssuesTaskBackend({
-        githubToken: INTEGRATION_CONFIG.token,
+        githubToken: INTEGRATION_CONFIG.token!,
         owner: INTEGRATION_CONFIG.owner,
         repo: INTEGRATION_CONFIG.repo,
         name: "github-issues",
@@ -199,7 +199,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token)(
         createdIssueNumbers.push(issueNumber);
 
         // Update status to IN_PROGRESS
-        const updatedTask = await backend.updateTask(task.id, {
+        const updatedTask = await (backend as any).updateTask(task.id, {
           status: "IN_PROGRESS",
         });
 
@@ -233,7 +233,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token)(
         const statuses: TaskStatus[] = ["IN_PROGRESS", "IN_REVIEW", "DONE"];
 
         for (const status of statuses) {
-          const updatedTask = await backend.updateTask(task.id, { status });
+          const updatedTask = await (backend as any).updateTask(task.id, { status });
           expect(updatedTask.status).toBe(status);
 
           // Small delay to avoid rate limiting
@@ -268,7 +268,7 @@ describe.if(process.env.RUN_INTEGRATION_TESTS && INTEGRATION_CONFIG.token)(
         createdIssueNumbers.push(issueNumber);
 
         // Fetch all tasks
-        const tasks = await backend.getTasksData();
+        const tasks = await (backend as any).getTasksData();
 
         expect(Array.isArray(tasks)).toBe(true);
 

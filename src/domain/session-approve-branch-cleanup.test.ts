@@ -52,7 +52,7 @@ describe("Session Approve Branch Cleanup", () => {
       }),
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
+        getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
         getTask: () =>
           Promise.resolve({
             id: TEST_TASK_ID,
@@ -107,7 +107,7 @@ describe("Session Approve Branch Cleanup", () => {
       }),
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
+        getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
         getTask: () =>
           Promise.resolve({
             id: TEST_TASK_ID,
@@ -163,7 +163,7 @@ describe("Session Approve Branch Cleanup", () => {
       }),
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
+        getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
         getTask: () =>
           Promise.resolve({
             id: TEST_TASK_ID,

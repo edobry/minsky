@@ -48,7 +48,7 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
 
     // PROOF: Verify SQL generation
     expect(capturedQueries).toHaveLength(1);
-    const { query, params } = capturedQueries[0];
+    const { query, params } = capturedQueries[0]!;
 
     // PROOF 1: WHERE clause is generated
     expect(query).toContain("WHERE");
@@ -83,7 +83,7 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
     });
 
     expect(capturedQueries).toHaveLength(1);
-    const { query, params } = capturedQueries[0];
+    const { query, params } = capturedQueries[0]!;
 
     // PROOF: Multiple conditions with AND
     expect(query).toContain("WHERE");
@@ -115,7 +115,7 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
     await storage.search(queryVector, { limit: 10 });
 
     expect(capturedQueries).toHaveLength(1);
-    const { query, params } = capturedQueries[0];
+    const { query, params } = capturedQueries[0]!;
 
     // PROOF: No WHERE clause without filters
     expect(query).not.toContain("WHERE");
@@ -147,7 +147,7 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
     });
 
     expect(capturedQueries).toHaveLength(1);
-    const { query, params } = capturedQueries[0];
+    const { query, params } = capturedQueries[0]!;
 
     // PROOF: Only non-null filters create conditions
     expect(query).toContain("WHERE");
@@ -180,7 +180,7 @@ describe("SQL Generation Proof for Server-Side Filtering", () => {
     });
 
     expect(capturedQueries).toHaveLength(1);
-    const { query } = capturedQueries[0];
+    const { query } = capturedQueries[0]!;
 
     // PERFORMANCE PROOF: Single query with embedded filter
     // No separate filtering step in application code

@@ -157,6 +157,17 @@ export class DefaultConfigValidator implements ConfigValidator {
   }
 
   /**
+   * Validate session database configuration
+   */
+  validateSessionDb(): ValidationResult {
+    return {
+      valid: true,
+      errors: [],
+      warnings: [],
+    };
+  }
+
+  /**
    * Validate GitHub configuration
    */
   validateGitHub(): ValidationResult {

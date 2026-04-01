@@ -61,7 +61,7 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
       return;
     }
 
-    const targetToolId = searchResults[0].id;
+    const targetToolId = searchResults[0]!.id;
     const results = await service.similarToTool(targetToolId, 2);
 
     expect(Array.isArray(results)).toBe(true);
@@ -77,13 +77,13 @@ describe("ToolSimilarityService → SimilaritySearchService (lexical fallback)",
     const service = new ToolSimilarityService();
     const results = await service.findRelevantTools({
       query: "debug test",
-      categories: ["TASKS"], // Restrict to TASKS category only
+      categories: ["TASKS" as any], // Restrict to TASKS category only
       limit: 5,
     });
 
     // All results should be from TASKS category if any exist
     results.forEach((result) => {
-      expect(result.tool.category).toBe("TASKS");
+      expect(result.tool.category).toBe("TASKS" as any);
     });
   });
 

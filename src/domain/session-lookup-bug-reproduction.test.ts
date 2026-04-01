@@ -94,12 +94,11 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
     });
 
     mockTaskService = createMockTaskService({
-      getTaskById: () => Promise.resolve(null),
+      getTask: () => Promise.resolve(null),
       listTasks: () => Promise.resolve([]),
-      createTask: () => Promise.resolve(),
-      updateTask: () => Promise.resolve(),
+      createTask: (() => Promise.resolve()) as any,
       deleteTask: () => Promise.resolve(true),
-    });
+    } as any);
 
     // Mock workspace utilities
     mockWorkspaceUtils = {
@@ -130,7 +129,7 @@ describe("Session Lookup Bug Reproduction (Task #168)", () => {
       // Act: Attempt to start session (should fail due to git error)
       let errorThrown = false;
       try {
-        await startSessionFromParams(sessionParams, {
+        await startSessionFromParams(sessionParams as any, {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,

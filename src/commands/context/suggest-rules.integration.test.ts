@@ -136,9 +136,9 @@ describe("suggest-rules service integration", () => {
     // Verify response structure
     expect(response.suggestions).toBeArray();
     expect(response.suggestions.length).toBe(1);
-    expect(response.suggestions[0].ruleId).toBe("test-driven-bugfix");
-    expect(response.suggestions[0].relevanceScore).toBe(0.9);
-    expect(response.suggestions[0].confidenceLevel).toBe("high");
+    expect(response.suggestions[0]!.ruleId).toBe("test-driven-bugfix");
+    expect(response.suggestions[0]!.relevanceScore).toBe(0.9);
+    expect(response.suggestions[0]!.confidenceLevel).toBe("high");
     expect(response.queryAnalysis.intent).toContain("bug");
     expect(response.totalRulesAnalyzed).toBe(3);
   });
@@ -153,8 +153,8 @@ describe("suggest-rules service integration", () => {
 
     expect(response.suggestions).toBeArray();
     expect(response.suggestions.length).toBe(1);
-    expect(response.suggestions[0].ruleId).toBe(RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES);
-    expect(response.suggestions[0].relevanceScore).toBe(0.8);
+    expect(response.suggestions[0]!.ruleId).toBe(RULES_TEST_PATTERNS.DOMAIN_ORIENTED_MODULES);
+    expect(response.suggestions[0]!.relevanceScore).toBe(0.8);
     expect(response.queryAnalysis.intent).toContain("modules");
   });
 
@@ -225,7 +225,7 @@ describe("suggest-rules service integration", () => {
       })),
     };
 
-    const limitedService = new DefaultRuleSuggestionService(multiMockAI, mockRulesService, {
+    const limitedService = new DefaultRuleSuggestionService(multiMockAI as any, mockRulesService, {
       maxSuggestions: 2,
     });
 
@@ -237,8 +237,8 @@ describe("suggest-rules service integration", () => {
     const response = await limitedService.suggestRules(request);
 
     expect(response.suggestions).toHaveLength(2); // Limited to 2
-    expect(response.suggestions[0].relevanceScore).toBeGreaterThan(
-      response.suggestions[1].relevanceScore
+    expect(response.suggestions[0]!.relevanceScore).toBeGreaterThan(
+      response.suggestions[1]!.relevanceScore
     ); // Sorted by relevance
   });
 
@@ -261,7 +261,7 @@ describe("suggest-rules service integration", () => {
       }),
     };
 
-    const errorService = new DefaultRuleSuggestionService(errorMockAI, mockRulesService, {});
+    const errorService = new DefaultRuleSuggestionService(errorMockAI as any, mockRulesService, {});
 
     const request: RuleSuggestionRequest = {
       query: "test error handling",

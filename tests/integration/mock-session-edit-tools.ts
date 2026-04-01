@@ -95,7 +95,7 @@ async function loggingApplyEditPattern(
     let isFastApply = false;
 
     if (fastApplyProviders.length > 0) {
-      provider = fastApplyProviders[0]; // Use the first available fast-apply provider
+      provider = fastApplyProviders[0]!; // Use the first available fast-apply provider
       model = aiConfig.providers[provider]?.model;
       isFastApply = true;
       console.log(`   Using fast-apply provider: ${provider} with model: ${model}`);
@@ -109,7 +109,7 @@ async function loggingApplyEditPattern(
         throw new Error("No enabled AI providers found for edit operations");
       }
 
-      provider = enabledProviders[0];
+      provider = enabledProviders[0]!;
       model = aiConfig.providers[provider]?.model;
       console.log(`   Using fallback provider: ${provider} with model: ${model}`);
     }
@@ -149,7 +149,7 @@ Return the complete merged code:`;
 
     // Make the actual API call
     console.log("\n🌐 CALLING MORPH API...");
-    const response = await completionService.createCompletion([{ role: "user", content: prompt }], {
+    const response = await (completionService as any).createCompletion([{ role: "user", content: prompt }], {
       provider,
       model,
       temperature: 0.1, // Lower temperature for more consistent edits
@@ -262,8 +262,8 @@ require("fs/promises").writeFile = async (
 
   // Extract session name from path
   const sessionMatch = path.match(/^([^/]+)\//);
-  const sessionName = sessionMatch ? sessionMatch[1] : "";
-  const filePath = sessionMatch ? path.substring(sessionMatch[1].length + 1) : path;
+  const sessionName = sessionMatch ? sessionMatch[1] ?? "" : "";
+  const filePath = sessionMatch ? path.substring(sessionMatch[1]!.length + 1) : path;
 
   createMockFile(sessionName, filePath, content);
   return Promise.resolve();
@@ -296,7 +296,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
   console.log("📋 Registering mock session edit tools with enhanced logging");
 
   // Register session.edit_file tool with enhanced logging
-  commandMapper.register("session.edit_file", {
+  (commandMapper as any).register("session.edit_file", {
     description: "Edit a file within a session workspace with comprehensive logging",
     inputSchema: {
       type: "object",
@@ -400,7 +400,7 @@ export function registerMockSessionEditTools(commandMapper: CommandMapper): void
   });
 
   // Register session.search_replace tool (minimal logging for now)
-  commandMapper.register("session.search_replace", {
+  (commandMapper as any).register("session.search_replace", {
     description: "Replace text in a file within a session workspace",
     inputSchema: {
       type: "object",

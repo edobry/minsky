@@ -10,7 +10,7 @@ const DUPLICATION_ERROR = "appears to be duplicated";
 
 // Global test state
 let testCommitContent = "";
-let currentExecSyncBehavior = (command: string) => {
+let currentExecSyncBehavior: (command: string) => string = (command: string) => {
   if (command.includes(GIT_BRANCH_COMMAND)) {
     return TEST_BRANCH;
   }

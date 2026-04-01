@@ -495,13 +495,15 @@ Repository: ${this.repoUrl}
 
     const result = await sessionPr(
       {
-        sessionName: options.session,
-        title: options.title,
+        sessionName: options.session!,
+        title: options.title ?? "Update PR",
         body: options.body,
         // For remote backend updates, we still need conflict checking
         skipConflictCheck: false,
         noStatusUpdate: true,
         autoResolveDeleteConflicts: false,
+        debug: false,
+        draft: false,
       },
       { interface: "cli" }
     );
@@ -569,18 +571,19 @@ Repository: ${this.repoUrl}
     const sessionDB = await this.getSessionDB();
     const record = await sessionDB.getSession(sessionName);
     const number = record?.prBranch || `pr/${sessionName}`;
+    const prInfo = record?.pullRequest as any;
     return {
       number,
       url: number,
       state: record?.prApproved ? "approved" : "open",
-      title: record?.pullRequest?.title,
-      body: record?.pullRequest?.body,
+      title: prInfo?.title,
+      body: prInfo?.body,
       headBranch: number,
-      baseBranch: record?.pullRequest?.baseBranch || "main",
+      baseBranch: prInfo?.baseBranch || "main",
       author: undefined,
-      createdAt: record?.pullRequest?.createdAt,
-      updatedAt: record?.pullRequest?.updatedAt,
-      mergedAt: record?.pullRequest?.mergedAt,
+      createdAt: prInfo?.createdAt,
+      updatedAt: prInfo?.updatedAt,
+      mergedAt: prInfo?.mergedAt,
     };
   }
 

@@ -31,9 +31,9 @@ describe("Routing Commands", () => {
       expect(params.minReadiness).toBeDefined();
 
       // Check parameter requirements
-      expect(params.status.required).toBe(false);
-      expect(params.backend.required).toBe(false);
-      expect(params.limit.required).toBe(false);
+      expect(params.status!.required).toBe(false);
+      expect(params.backend!.required).toBe(false);
+      expect(params.limit!.required).toBe(false);
     });
 
     // Integration tests require database setup - tested via direct CLI implementations
@@ -60,8 +60,8 @@ describe("Routing Commands", () => {
       expect(params.json).toBeDefined();
 
       // Check parameter requirements
-      expect(params.target.required).toBe(true);
-      expect(params.strategy.required).toBe(false);
+      expect(params.target!.required).toBe(true);
+      expect(params.strategy!.required).toBe(false);
     });
 
     // Integration tests require database setup - tested via direct CLI implementations

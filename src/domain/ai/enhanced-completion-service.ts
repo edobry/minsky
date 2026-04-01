@@ -56,4 +56,20 @@ export class EnhancedAICompletionService implements AICompletionService {
       throw error; // Re-throw the final error
     }
   }
+
+  async *stream(request: AICompletionRequest): AsyncIterable<AICompletionResponse> {
+    yield* this.defaultCompletionService.stream(request);
+  }
+
+  async generateObject(request: any): Promise<any> {
+    return this.defaultCompletionService.generateObject(request);
+  }
+
+  async getAvailableModels(provider?: string): Promise<any[]> {
+    return this.defaultCompletionService.getAvailableModels(provider);
+  }
+
+  async validateConfiguration(): Promise<any> {
+    return this.defaultCompletionService.validateConfiguration();
+  }
 }

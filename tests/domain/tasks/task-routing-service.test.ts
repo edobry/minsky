@@ -139,8 +139,8 @@ describe("TaskRoutingService", () => {
 
       // Should be sorted by readiness score descending
       for (let i = 1; i < availableTasks.length; i++) {
-        expect(availableTasks[i - 1].readinessScore).toBeGreaterThanOrEqual(
-          availableTasks[i].readinessScore
+        expect(availableTasks[i - 1]!.readinessScore).toBeGreaterThanOrEqual(
+          availableTasks[i]!.readinessScore
         );
       }
     });
@@ -328,8 +328,8 @@ describe("TaskRoutingService", () => {
 
       // Should handle missing dependencies gracefully
       expect(availableTasks.length).toBe(1);
-      expect(availableTasks[0].taskId).toBe("task-x");
-      expect(availableTasks[0].readinessScore).toBe(1.0); // Should be ready since dep doesn't exist
+      expect(availableTasks[0]!.taskId).toBe("task-x");
+      expect(availableTasks[0]!.readinessScore).toBe(1.0); // Should be ready since dep doesn't exist
     });
 
     test("handles circular dependency detection in route generation", async () => {

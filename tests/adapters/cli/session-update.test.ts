@@ -47,9 +47,9 @@ describe("session update command", () => {
 
     mockGitService = createMockGitService({
       getSessionWorkdir: () => join(testData.tempDir, "test-repo", "sessions", "test-session"),
-      fetchLatest: async (workdir: string) => {
+      fetchLatest: async () => {
         // Mock successful fetch
-        return;
+        return { workdir: "mock-workdir", updated: false };
       },
       execInRepository: async (workdir: string, command: string) => {
         if (command.includes("git remote get-url origin")) {
@@ -100,17 +100,17 @@ describe("session update command", () => {
         sessionName: "test-session",
         branch: "new-branch",
         noPush: true,
-      },
+      } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB,
+        sessionDB: mockSessionDB as any,
         getCurrentSession: async () => "test-session", // Mock current session detection
       }
     );
 
     expect(result).toBeDefined();
-    expect(result.name).toBe("test-session");
-    expect(result.branch).toBe("new-branch");
+    expect((result as any).name).toBe("test-session");
+    expect((result as any).branch).toBe("new-branch");
     expect(mockSessionDB.updateSession).toHaveBeenCalled();
   });
 
@@ -143,16 +143,16 @@ describe("session update command", () => {
       {
         sessionName: "missing-session",
         skipConflictCheck: true,
-      },
+      } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB,
+        sessionDB: mockSessionDB as any,
         getCurrentSession: async () => "missing-session", // Mock current session detection
       }
     );
 
     expect(result).toBeDefined();
-    expect(result.name).toBeTruthy();
+    expect((result as any).name).toBeTruthy();
   });
 
   test("should handle repository URL detection", async () => {
@@ -191,16 +191,16 @@ describe("session update command", () => {
       {
         sessionName: SESSION_TEST_PATTERNS.URL_TEST_SESSION,
         autoResolveDeleteConflicts: true,
-      },
+      } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB,
+        sessionDB: mockSessionDB as any,
         getCurrentSession: async () => SESSION_TEST_PATTERNS.URL_TEST_SESSION, // Mock current session detection
       }
     );
 
     expect(result).toBeDefined();
-    expect(result.name).toBeTruthy();
+    expect((result as any).name).toBeTruthy();
 
     // dirIsolation.cleanup(); // Not available in this test utility
   });
@@ -233,16 +233,16 @@ describe("session update command", () => {
       {
         sessionName: "force-session",
         force: true,
-      },
+      } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB,
+        sessionDB: mockSessionDB as any,
         getCurrentSession: async () => "force-session", // Mock current session detection
       }
     );
 
     expect(result).toBeDefined();
-    expect(result.name).toBeTruthy();
+    expect((result as any).name).toBeTruthy();
   });
 
   test("should handle dry run mode", async () => {
@@ -273,16 +273,16 @@ describe("session update command", () => {
       {
         sessionName: "dry-run-session",
         dryRun: true,
-      },
+      } as any,
       {
         gitService: mockGitService,
-        sessionDB: mockSessionDB,
+        sessionDB: mockSessionDB as any,
         getCurrentSession: async () => "dry-run-session", // Mock current session detection
       }
     );
 
     expect(result).toBeDefined();
-    expect(result.name).toBeTruthy();
+    expect((result as any).name).toBeTruthy();
     // In dry run mode, updateSession should not be called
     expect(mockSessionDB.updateSession).not.toHaveBeenCalled();
   });

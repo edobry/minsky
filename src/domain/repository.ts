@@ -248,7 +248,7 @@ export async function createRepositoryBackend(
     }
     case RepositoryBackendType.REMOTE: {
       const { RemoteGitBackend } = await import("./remoteGitBackend.js");
-      return new RemoteGitBackend(config);
+      return new RemoteGitBackend(config as unknown as RemoteGitConfig);
     }
     case RepositoryBackendType.GITHUB: {
       const { GitService } = await import("./git.js");

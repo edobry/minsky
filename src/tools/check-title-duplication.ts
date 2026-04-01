@@ -19,21 +19,23 @@ function main(): void {
 
   if (!commitMsgFile) {
     log.error("Usage: bun check-title-duplication.ts <commit-msg-file>");
-    Bun.exit(1);
+    process.exit(1);
   }
 
   let commitMessage: string;
   try {
-    const content = readFileSync(commitMsgFile, "utf-8");
-    commitMessage = typeof content === "string" ? content.trim() : content.toString().trim();
+    const content = readFileSync(commitMsgFile, "utf-8" as BufferEncoding) as string;
+    commitMessage = content.trim();
   } catch (error) {
     log.error(`Error reading commit message file: ${error}`);
-    Bun.exit(1);
+    process.exit(1);
+    return; // unreachable, but helps TypeScript
   }
 
   if (!commitMessage) {
     log.info("✅ Empty commit message, skipping title duplication check");
-    Bun.exit(0);
+    process.exit(0);
+    return;
   }
 
   // Parse commit message into title and body
@@ -50,12 +52,14 @@ function main(): void {
 
   if (!title) {
     log.info("✅ No title found, skipping title duplication check");
-    Bun.exit(0);
+    process.exit(0);
+    return;
   }
 
   if (!body) {
     log.info("✅ No body found, skipping title duplication check");
-    Bun.exit(0);
+    process.exit(0);
+    return;
   }
 
   // 🎯 TRUE CODE REUSE: Import and use the actual validation function
@@ -63,7 +67,8 @@ function main(): void {
 
   if (validation.isValid) {
     log.info("✅ No title duplication found in commit message");
-    Bun.exit(0);
+    process.exit(0);
+    return;
   }
 
   log.info("❌ Title duplication detected in commit message:");
@@ -84,7 +89,7 @@ function main(): void {
   log.info("     Title: fix: Fix user authentication bug");
   log.info("     Body:  Resolves issue where users couldn't log in...");
 
-  Bun.exit(1);
+  process.exit(1);
 }
 
 if (import.meta.main) {

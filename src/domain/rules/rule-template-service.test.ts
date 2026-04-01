@@ -595,12 +595,12 @@ ${helpers.conditionalSection(context.config.interface === "mcp", CODE_TEST_PATTE
       }
       expect(result.success).toBe(true);
       expect(result.rules).toHaveLength(1);
-      expect(result.rules[0].id).toBe("test-template");
-      expect(result.rules[0].content).toContain("# Test Rule");
-      expect(result.rules[0].content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
+      expect(result.rules[0]!.id).toBe("test-template");
+      expect(result.rules[0]!.content).toContain("# Test Rule");
+      expect(result.rules[0]!.content).toContain(CLI_COMMANDS.MINSKY_TASKS_LIST);
 
       // Verify that dryRun: false was respected (files would be created in real scenario)
-      expect(result.config.interface).toBe("cli");
+      expect(result.config!.interface).toBe("cli");
     });
   });
 });

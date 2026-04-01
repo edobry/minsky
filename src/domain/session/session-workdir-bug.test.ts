@@ -31,7 +31,7 @@ describe("Session Workdir Interface Completeness", () => {
     };
 
     // Create session adapter directly to test interface
-    const adapter = new SessionDbAdapter(mockPersistenceProvider);
+    const adapter = new SessionDbAdapter(mockPersistenceProvider as any);
 
     // Verify getSessionWorkdir method exists
     expect(typeof adapter.getSessionWorkdir).toBe("function");

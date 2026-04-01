@@ -363,8 +363,8 @@ describe("Session Edit Tools", () => {
         expect(result.proposedContent).toBe(UI_TEST_PATTERNS.NEW_FILE_CONTENT);
         expect(result.diff).toContain("+new file content");
         expect(result.diff).toContain("+line 2");
-        expect(result.diffSummary.linesAdded).toBe(2);
-        expect(result.diffSummary.linesRemoved).toBe(0);
+        expect(result.diffSummary!.linesAdded).toBe(2);
+        expect(result.diffSummary!.linesRemoved).toBe(0);
         expect(result.edited).toBe(false);
         expect(result.created).toBe(true);
       });

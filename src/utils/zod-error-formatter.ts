@@ -177,7 +177,7 @@ function formatStringError(issue: ZodIssue, fieldName: string): string {
 function isTaskStatusEnum(options: string[]): boolean {
   return (
     options.length === TASK_STATUS_VALUES.length &&
-    options.every((option) => TASK_STATUS_VALUES.includes(option))
+    options.every((option) => TASK_STATUS_VALUES.includes(option as any))
   );
 }
 

@@ -60,7 +60,7 @@ describe("Session Approve", () => {
 
     const mockTaskService = createMockTaskService({
       setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
+      getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
       getTask: () =>
         Promise.resolve({
           id: TEST_TASK_ID,
@@ -123,7 +123,7 @@ describe("Session Approve", () => {
 
     const mockTaskService = createMockTaskService({
       setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
+      getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
       getTask: () =>
         Promise.resolve({
           id: TEST_TASK_ID,
@@ -191,7 +191,7 @@ describe("Session Approve", () => {
       }),
       taskService: createMockTaskService({
         setTaskStatus: () => Promise.resolve(),
-        getBackendForTask: () => Promise.resolve({ setTaskMetadata: () => Promise.resolve() }),
+        getBackendForTask: (() => Promise.resolve({ setTaskMetadata: () => Promise.resolve() })) as any,
         getTask: () =>
           Promise.resolve({
             id: "md#456",
@@ -240,7 +240,7 @@ describe("Session Approve", () => {
 
     const mockTaskService = createMockTaskService({
       setTaskStatus: () => Promise.resolve(),
-      getBackendForTask: () => Promise.resolve({}),
+      getBackendForTask: (() => Promise.resolve({})) as any,
     });
 
     // Create test dependencies
@@ -255,7 +255,7 @@ describe("Session Approve", () => {
 
     // Test with non-existent session
     try {
-      await approveSessionFromParams({ session: "non-existent" }, testDeps);
+      await approveSessionFromParams({ session: "non-existent" }, testDeps as any);
       // Should not reach this point
       expect(false).toBe(true);
     } catch (error) {

@@ -129,7 +129,7 @@ describe("Session Database BaseDir Bug", () => {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
           taskService: mockTaskService,
-          createRepositoryBackend: mockCreateRepositoryBackend,
+          createRepositoryBackend: mockCreateRepositoryBackend as any,
         }
       )
     ).rejects.toThrow(
@@ -187,7 +187,7 @@ describe("Session Database BaseDir Bug", () => {
         sessionDB: mockSessionDB,
         gitService: mockGitService,
         taskService: mockTaskService,
-        createRepositoryBackend: mockCreateRepositoryBackend,
+        createRepositoryBackend: mockCreateRepositoryBackend as any,
       }
     );
 

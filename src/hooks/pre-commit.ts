@@ -130,8 +130,8 @@ export class PreCommitHook {
           cwd: this.projectRoot,
           timeout: 30000, // 30 second timeout
         });
-        stdout = result.stdout;
-        stderr = result.stderr;
+        stdout = result.stdout.toString();
+        stderr = result.stderr.toString();
       } catch (execError: any) {
         // ESLint exits with non-zero on errors/warnings but still produces valid output
         if (execError.stdout) {

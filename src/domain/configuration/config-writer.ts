@@ -80,13 +80,13 @@ export class ConfigWriter {
     } as Required<ConfigWriterOptions>;
 
     this.configDir = this.options.configDir || getUserConfigDir();
-    this.fs = deps?.fs || {
-      readFileSync: nodeFs.readFileSync,
-      writeFileSync: nodeFs.writeFileSync,
+    this.fs = (deps?.fs || {
+      readFileSync: (path: string, encoding: string) => nodeFs.readFileSync(path, encoding as BufferEncoding) as string,
+      writeFileSync: (path: string, data: string, encoding: string) => nodeFs.writeFileSync(path, data, encoding as BufferEncoding),
       existsSync: nodeFs.existsSync,
       mkdirSync: nodeFs.mkdirSync,
       copyFileSync: nodeFs.copyFileSync,
-    };
+    }) as SyncFs;
   }
 
   /**
@@ -438,10 +438,10 @@ ${stringify(config, { indent: 2 })}`;
     const pathToCheck = [...keys];
 
     for (let i = 0; i < pathToCheck.length - 1; i++) {
-      current = current[pathToCheck[i]];
+      current = current[pathToCheck[i]!];
     }
 
-    const lastKey = pathToCheck[pathToCheck.length - 1];
+    const lastKey = pathToCheck[pathToCheck.length - 1]!;
     if (
       current[lastKey] &&
       typeof current[lastKey] === "object" &&

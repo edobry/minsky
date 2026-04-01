@@ -36,7 +36,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
   readonly platform: ChangesetPlatform = "local-git";
   readonly name = "Local Git (Prepared Merge Commits)";
 
-  private repositoryBackend: RepositoryBackend;
+  private repositoryBackend!: RepositoryBackend;
   private sessionProvider: SessionProviderInterface | null = null;
 
   private async getSessionProvider(): Promise<SessionProviderInterface> {
@@ -84,7 +84,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
         encoding: "utf8",
       });
 
-      const prBranches = branchesOutput
+      const prBranches = branchesOutput.toString()
         .split("\n")
         .map((line) => line.trim().replace(/^\*\s*/, ""))
         .filter((branch) => branch.startsWith("pr/"))
@@ -277,7 +277,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       });
 
       // Parse stats (simple parsing)
-      const statsMatch = diffStats.match(
+      const statsMatch = diffStats.toString().match(
         /(\d+) files? changed(?:, (\d+) insertions?)?(?:, (\d+) deletions?)?/
       );
       const filesChanged = statsMatch ? parseInt(statsMatch[1] || "0") : 0;
@@ -292,7 +292,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
           additions,
           deletions,
         },
-        fullDiff,
+        fullDiff: fullDiff.toString(),
       };
     } catch (error) {
       log.debug(`Failed to get diff details for ${id}`, { error: getErrorMessage(error) });
@@ -403,8 +403,8 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       }
 
       // Get creation date from first commit
-      const createdAt = commits.length > 0 ? commits[commits.length - 1].timestamp : new Date();
-      const updatedAt = commits.length > 0 ? commits[0].timestamp : new Date();
+      const createdAt = commits.length > 0 ? commits[commits.length - 1]!.timestamp : new Date();
+      const updatedAt = commits.length > 0 ? commits[0]!.timestamp : new Date();
 
       return {
         id: prBranch,
@@ -475,15 +475,15 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
             .filter((file) => file.trim());
 
           return {
-            sha,
-            message,
+            sha: sha ?? "",
+            message: message ?? "",
             author: {
-              username: authorName,
-              email: authorEmail,
+              username: authorName ?? "",
+              email: authorEmail ?? "",
             },
-            timestamp: new Date(timestamp),
+            timestamp: new Date(timestamp ?? 0),
             filesChanged,
-          };
+          } satisfies import("../types").ChangesetCommit;
         });
 
       return commits;

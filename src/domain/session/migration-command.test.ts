@@ -82,7 +82,7 @@ function createMockSessionDB(initialSessions: SessionRecord[] = []): SessionProv
       async (sessionName: string, updates: Partial<Omit<SessionRecord, "session">>) => {
         const sessionIndex = sessions.findIndex((s) => s.session === sessionName);
         if (sessionIndex !== -1) {
-          sessions[sessionIndex] = { ...sessions[sessionIndex], ...updates };
+          sessions[sessionIndex] = { ...sessions[sessionIndex]!, ...updates };
         }
       }
     ),
@@ -149,13 +149,13 @@ describe("Session Migration Command", () => {
 
       it("should show detailed changes for each session", async () => {
         const mockData = createMockSessionData();
-        const sessionDB = createMockSessionDB([mockData.legacy[0]]); // Just one legacy session
+        const sessionDB = createMockSessionDB([mockData.legacy[0]!]); // Just one legacy session
         const migrationService = new SessionMigrationService(sessionDB);
 
         const report = await migrationService.preview();
 
         expect(report.results).toHaveLength(1);
-        const result = report.results[0];
+        const result = report.results[0]!;
 
         // Ensure result exists before checking properties
         expect(result).toBeDefined();
@@ -271,7 +271,7 @@ describe("Session Migration Command", () => {
 
         // Should only process the session that would become 'md' backend
         expect(report.results).toHaveLength(1);
-        expect(report.results[0].original.session).toBe("task123");
+        expect(report.results[0]!.original.session).toBe("task123");
       });
 
       it("should filter by date", async () => {
@@ -301,7 +301,7 @@ describe("Session Migration Command", () => {
 
         // Should only process sessions created before the cutoff
         expect(report.results).toHaveLength(1);
-        expect(report.results[0].original.session).toBe("task123");
+        expect(report.results[0]!.original.session).toBe("task123");
       });
 
       it("should filter by session name pattern", async () => {
@@ -344,8 +344,8 @@ describe("Session Migration Command", () => {
         const report = await migrationService.migrate({ backup: false });
 
         expect(report.progress.failed).toBe(1);
-        expect(report.results[0].success).toBe(false);
-        expect(report.results[0].error).toBe("Migration failed");
+        expect(report.results[0]!.success).toBe(false);
+        expect(report.results[0]!.error).toBe("Migration failed");
       });
 
       it("should handle database update failures", async () => {

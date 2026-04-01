@@ -40,7 +40,7 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
   readonly platform: ChangesetPlatform = "github-pr";
   readonly name = "GitHub Pull Requests";
 
-  private repositoryBackend: RepositoryBackend;
+  private repositoryBackend!: RepositoryBackend;
   private octokit: Octokit;
   private owner?: string;
   private repo?: string;
@@ -503,12 +503,12 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
               startLine: comment.start_line || comment.line,
               endLine: comment.line,
               createdAt: new Date(comment.created_at),
-              isResolved: comment.resolved,
+              isResolved: (comment as any).resolved,
             })),
-            submittedAt: new Date(review.submitted_at || review.created_at),
+            submittedAt: new Date(review.submitted_at || (review as any).created_at),
           };
         })
-      );
+      ) as Promise<ChangesetReview[]>;
     } catch (error) {
       log.debug(`Failed to get reviews for PR ${prNumber}`, { error: getErrorMessage(error) });
       return [];
@@ -535,8 +535,8 @@ export class GitHubChangesetAdapter implements ChangesetAdapter {
         content: comment.body || "",
         createdAt: new Date(comment.created_at),
         updatedAt: comment.updated_at ? new Date(comment.updated_at) : undefined,
-        isMinimized: comment.minimized_reason !== null,
-      }));
+        isMinimized: (comment as any).minimized_reason !== null,
+      })) as ChangesetComment[];
     } catch (error) {
       log.debug(`Failed to get comments for PR ${prNumber}`, { error: getErrorMessage(error) });
       return [];

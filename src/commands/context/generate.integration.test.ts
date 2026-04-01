@@ -49,7 +49,7 @@ describe.skip("context generate integration", () => {
         { encoding: "utf-8", cwd: TEST_PATHS.MOCK_WORKSPACE }
       );
 
-      const jsonOutput = JSON.parse(result);
+      const jsonOutput = JSON.parse(result as unknown as string);
       expect(jsonOutput).toHaveProperty("sections");
       expect(jsonOutput).toHaveProperty("metadata");
       expect(jsonOutput.sections).toBeArray();

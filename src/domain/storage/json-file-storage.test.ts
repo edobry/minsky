@@ -39,7 +39,7 @@ describe("JsonFileStorage Core Tests", () => {
     metadata?: Record<string, any>;
   }
 
-  let storage: DatabaseStorage<TestState>;
+  let storage: DatabaseStorage<TestEntity, TestState>;
   let mockFs: ReturnType<typeof createMockFilesystem>;
   let testDirPath: string;
   let testDbPath: string;
@@ -65,7 +65,7 @@ describe("JsonFileStorage Core Tests", () => {
     testDbPath = join(testDirPath, "test-storage.json");
 
     // Create storage instance with correct configuration
-    storage = createJsonFileStorage<TestState>({
+    storage = createJsonFileStorage<TestEntity, TestState>({
       filePath: testDbPath,
       initializeState: () => ({
         entities: [],
@@ -244,7 +244,7 @@ describe("JsonFileStorage Core Tests", () => {
       await storage.createEntity(entity);
 
       // Create new storage instance with same file
-      const storage2 = createJsonFileStorage<TestState>({
+      const storage2 = createJsonFileStorage<TestEntity, TestState>({
         filePath: testDbPath,
         entitiesField: "entities",
         initializeState: () => ({

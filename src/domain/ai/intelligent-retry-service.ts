@@ -50,7 +50,7 @@ export class IntelligentRetryService {
       throw new Error(`Circuit breaker is open for provider: ${provider}. Try again later.`);
     }
 
-    let lastError: Error;
+    let lastError: Error = new Error("Operation failed with no attempts");
 
     for (let attempt = 0; attempt <= this.maxRetries; attempt++) {
       try {

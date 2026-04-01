@@ -82,12 +82,14 @@ export interface ToolDefinition {
 interface ResourceDefinition {
   uri: string;
   name: string;
+  description?: string;
   spec?: string;
   handler: (uri: string) => Promise<any>;
 }
 
 interface PromptDefinition {
   name: string;
+  description?: string;
   spec?: string;
   handler: (args: any) => Promise<any>;
 }

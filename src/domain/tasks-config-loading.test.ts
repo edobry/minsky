@@ -46,7 +46,7 @@ describe("Configuration Loading Bug Fix", () => {
       const configResult = await mockConfigLoader.load();
 
       // This demonstrates the bug - data property doesn't exist
-      expect(configResult.data).toBeUndefined();
+      expect((configResult as any).data).toBeUndefined();
 
       // But config property does exist and contains the backend setting
       expect(configResult.config.tasks.backend).toBe("minsky");

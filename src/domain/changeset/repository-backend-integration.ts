@@ -104,7 +104,7 @@ export async function createChangesetAwareRepositoryBackend(
       );
 
       if (githubInfo) {
-        config.github = {
+        (config as any).github = {
           owner: githubInfo.owner,
           repo: githubInfo.repo,
         };
@@ -164,7 +164,7 @@ export class MultiRepositoryChangesetService {
 
     for (const [key, service] of this.services) {
       try {
-        const repositoryUrl = key.split(":")[0];
+        const repositoryUrl = key.split(":")[0] ?? key;
         const changesets = await service.search({ query, ...options });
 
         if (changesets.length > 0) {
@@ -195,7 +195,7 @@ export class MultiRepositoryChangesetService {
 
     for (const [key, service] of this.services) {
       try {
-        const repositoryUrl = key.split(":")[0];
+        const repositoryUrl = key.split(":")[0] ?? key;
         const changesets = await service.list(options);
 
         results.push({

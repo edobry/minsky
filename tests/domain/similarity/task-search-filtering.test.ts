@@ -100,9 +100,9 @@ describe("Task Search Server-Side Filtering Integration", () => {
     const results = await backend.search(query);
 
     expect(results).toHaveLength(1);
-    expect(results[0].id).toBe("gh#002");
-    expect(results[0].metadata?.status).toBe("TODO");
-    expect(results[0].metadata?.backend).toBe("github");
+    expect(results[0]!.id).toBe("gh#002");
+    expect(results[0]!.metadata?.status).toBe("TODO");
+    expect(results[0]!.metadata?.backend).toBe("github");
   });
 
   it("should respect limit with filters", async () => {
@@ -115,8 +115,8 @@ describe("Task Search Server-Side Filtering Integration", () => {
     const results = await backend.search(query);
 
     expect(results).toHaveLength(1);
-    expect(["gh#001", "gh#002"]).toContain(results[0].id);
-    expect(results[0].metadata?.backend).toBe("github");
+    expect(["gh#001", "gh#002"]).toContain(results[0]!.id);
+    expect(results[0]!.metadata?.backend).toBe("github");
   });
 
   it("should return empty results for non-matching filters", async () => {

@@ -80,7 +80,7 @@ export const backendValidation = {
   /**
    * Validate that a backend name is supported
    */
-  isValidBackend: (backend: string): backend is Backend => {
+  isValidBackend: (backend: string): backend is NonNullable<Backend> => {
     return Object.values(TaskBackend).includes(backend as TaskBackend);
   },
 

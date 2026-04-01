@@ -92,8 +92,9 @@ export class DefaultTokenizerRegistry implements TokenizerRegistry {
       );
 
     if (candidates.length > 0) {
-      log.debug(`Selected tokenizer for ${modelId}: ${candidates[0].id}`);
-      return candidates[0];
+      const selected = candidates[0]!;
+      log.debug(`Selected tokenizer for ${modelId}: ${selected.id}`);
+      return selected;
     }
 
     // Fallback to default library

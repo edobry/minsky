@@ -63,9 +63,9 @@ describe("LocalGitChangesetAdapter", () => {
     const changesets = await adapter.list();
 
     expect(changesets).toHaveLength(2);
-    expect(changesets[0].id).toBe("pr/test-session");
-    expect(changesets[1].id).toBe("pr/feature-123");
-    expect(changesets[0].platform).toBe("local-git");
+    expect(changesets[0]!.id).toBe("pr/test-session");
+    expect(changesets[1]!.id).toBe("pr/feature-123");
+    expect(changesets[0]!.platform).toBe("local-git");
   });
 
   test("filters changesets by status", async () => {
@@ -148,10 +148,10 @@ describe("LocalGitChangesetAdapter", () => {
     const changeset = await adapter.get("pr/test-session");
 
     expect(changeset?.commits).toHaveLength(1);
-    expect(changeset?.commits[0].sha).toBe("abc123");
-    expect(changeset?.commits[0].message).toBe("feat: test commit");
-    expect(changeset?.commits[0].author.username).toBe("testuser");
-    expect(changeset?.commits[0].filesChanged).toContain("src/test.ts");
+    expect(changeset?.commits[0]!.sha).toBe("abc123");
+    expect(changeset?.commits[0]!.message).toBe("feat: test commit");
+    expect(changeset?.commits[0]!.author.username).toBe("testuser");
+    expect(changeset?.commits[0]!.filesChanged).toContain("src/test.ts");
   });
 
   test("reports correct feature support", () => {

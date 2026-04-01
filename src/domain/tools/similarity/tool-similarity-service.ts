@@ -9,7 +9,7 @@ import {
 import { createLogger } from "../../../utils/logger";
 import type { SimilarityItem } from "../../similarity/types";
 
-const log = createLogger("tool-similarity-service");
+const log = createLogger();
 
 export interface SearchResult {
   id: string;

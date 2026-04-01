@@ -62,7 +62,7 @@ describe("Dynamic Backend Selection", () => {
 
     // Verify backend selection behavior
     expect(capturedBackends[0]).toBe("markdown"); // Explicit choice honored
-    expect(capturedBackends[1]).toBe(undefined); // Automatic selection enabled
+    expect(capturedBackends[1]).toBe(undefined as any); // Automatic selection enabled
     expect(capturedBackends[2]).toBe("json-file"); // Explicit choice honored
   });
 });

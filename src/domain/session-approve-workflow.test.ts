@@ -190,7 +190,7 @@ describe("Session Approve Workflow", () => {
     failingExecSpy = mock(() => Promise.reject(new Error("Git command failed")));
 
     const failingGitService = createMockGitService({
-      execInRepository: failingExecSpy,
+      execInRepository: failingExecSpy as any,
     });
 
     await expect(

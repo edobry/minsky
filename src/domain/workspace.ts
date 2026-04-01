@@ -198,8 +198,8 @@ export async function resolveWorkspacePath(
   // For task operations, always use the main workspace.
   if (options?.forTaskOperations) {
     const sessionInfo = await getSessionFromWorkspace(process.cwd());
-    if (sessionInfo && sessionInfo.repoUrl) {
-      return resolveMainWorkspaceFromRepoUrl(sessionInfo.repoUrl);
+    if (sessionInfo && sessionInfo.upstreamRepository) {
+      return resolveMainWorkspaceFromRepoUrl(sessionInfo.upstreamRepository);
     }
     // If not in a session, or session has no upstream, fall through to normal logic.
   }
@@ -241,7 +241,7 @@ export async function getCurrentSession(
   sessionDbOverride?: SessionProviderInterface
 ): Promise<string | undefined> {
   const sessionInfo = await getSessionFromWorkspace(cwd, execAsyncFn, sessionDbOverride);
-  return sessionInfo ? sessionInfo.session : null;
+  return sessionInfo ? sessionInfo.session : undefined;
 }
 
 /**
@@ -376,11 +376,11 @@ export function createWorkspaceUtils(): WorkspaceUtilsInterface {
     isSessionWorkspace,
     getCurrentSession: async (repoPath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromRepo(repoPath);
-      return sessionInfo ? sessionInfo.session : null;
+      return sessionInfo ? sessionInfo.session : undefined;
     },
     getSessionFromWorkspace: async (workspacePath: string): Promise<string | undefined> => {
       const sessionInfo = await getSessionFromWorkspace(workspacePath);
-      return sessionInfo ? sessionInfo.session : null;
+      return sessionInfo ? sessionInfo.session : undefined;
     },
     resolveWorkspacePath: resolveWorkspacePath,
   };

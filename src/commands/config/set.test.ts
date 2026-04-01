@@ -27,7 +27,7 @@ describe("config set command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigSetDependencies = {
-      createConfigWriter: mockCreateConfigWriter,
+      createConfigWriter: mockCreateConfigWriter as any,
       console: {
         log: mockConsoleLog,
       },
@@ -63,7 +63,7 @@ describe("config set command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigSetDependencies = {
-      createConfigWriter: mockCreateConfigWriter,
+      createConfigWriter: mockCreateConfigWriter as any,
       console: {
         log: mockConsoleLog,
       },
@@ -97,7 +97,7 @@ describe("config set command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigSetDependencies = {
-      createConfigWriter: mockCreateConfigWriter,
+      createConfigWriter: mockCreateConfigWriter as any,
       console: {
         log: mockConsoleLog,
       },
@@ -123,7 +123,7 @@ describe("config set command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigSetDependencies = {
-      createConfigWriter: mockCreateConfigWriter,
+      createConfigWriter: mockCreateConfigWriter as any,
       console: {
         log: mockConsoleLog,
       },
@@ -157,7 +157,7 @@ describe("config set command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigSetDependencies = {
-      createConfigWriter: mockCreateConfigWriter,
+      createConfigWriter: mockCreateConfigWriter as any,
       console: {
         log: mockConsoleLog,
       },
@@ -198,7 +198,7 @@ describe("config set command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigSetDependencies = {
-      createConfigWriter: mockCreateConfigWriter,
+      createConfigWriter: mockCreateConfigWriter as any,
       console: {
         log: mockConsoleLog,
       },
@@ -230,7 +230,7 @@ describe("config set command", () => {
     const mockConsoleLog = mock(() => {});
 
     const deps: ConfigSetDependencies = {
-      createConfigWriter: mockCreateConfigWriter,
+      createConfigWriter: mockCreateConfigWriter as any,
       console: {
         log: mockConsoleLog,
       },

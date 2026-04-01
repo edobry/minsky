@@ -19,7 +19,7 @@ function createInMemoryRepo(initial: Array<[string, string]> = []) {
       const res: string[] = [];
       for (const key of edges) {
         const [f, t] = key.split("→");
-        if (f === taskId) res.push(t);
+        if (f === taskId) res.push(t!);
       }
       return res;
     },
@@ -27,22 +27,22 @@ function createInMemoryRepo(initial: Array<[string, string]> = []) {
       const res: string[] = [];
       for (const key of edges) {
         const [f, t] = key.split("→");
-        if (t === taskId) res.push(f);
+        if (t === taskId) res.push(f!);
       }
       return res;
     },
     async getAllRelationships() {
       return Array.from(edges).map((key) => {
         const [fromTaskId, toTaskId] = key.split("→");
-        return { fromTaskId, toTaskId };
+        return { fromTaskId: fromTaskId!, toTaskId: toTaskId! };
       });
     },
     async getRelationshipsForTasks(taskIds: string[]) {
       const result: { fromTaskId: string; toTaskId: string }[] = [];
       for (const key of edges) {
         const [f, t] = key.split("→");
-        if (taskIds.includes(f) || taskIds.includes(t)) {
-          result.push({ fromTaskId: f, toTaskId: t });
+        if (taskIds.includes(f!) || taskIds.includes(t!)) {
+          result.push({ fromTaskId: f!, toTaskId: t! });
         }
       }
       return result;
@@ -52,7 +52,7 @@ function createInMemoryRepo(initial: Array<[string, string]> = []) {
 
 describe("TaskGraphService (in-memory)", () => {
   it("adds dependency idempotently and lists dependencies", async () => {
-    const svc = new TaskGraphService(createInMemoryRepo());
+    const svc = new TaskGraphService(createInMemoryRepo() as any);
     const r1 = await svc.addDependency("md#1", "db#2");
     const r2 = await svc.addDependency("md#1", "db#2");
     expect(r1.created).toBe(true);
@@ -61,12 +61,12 @@ describe("TaskGraphService (in-memory)", () => {
   });
 
   it("prevents self-edge", async () => {
-    const svc = new TaskGraphService(createInMemoryRepo());
+    const svc = new TaskGraphService(createInMemoryRepo() as any);
     await expect(svc.addDependency("md#1", "md#1")).rejects.toThrow();
   });
 
   it("validates qualified IDs", async () => {
-    const svc = new TaskGraphService(createInMemoryRepo());
+    const svc = new TaskGraphService(createInMemoryRepo() as any);
     await expect(svc.addDependency("1", "db#2")).rejects.toThrow();
     await expect(svc.addDependency("md#1", "2")).rejects.toThrow();
   });

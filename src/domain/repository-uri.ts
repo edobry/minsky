@@ -185,7 +185,7 @@ export function convertRepositoryURI(
     // Type-safe mapping from RepositoryURIType to UriFormat
     // Since RepositoryURIType values are mapped to UriFormat values,
     // we can safely cast the string value
-    const targetFormat = targetType as UriFormat;
+    const targetFormat = targetType as unknown as UriFormat;
     return convertRepositoryUri(uri, targetFormat);
   } catch (error) {
     return undefined;

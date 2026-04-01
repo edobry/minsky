@@ -38,10 +38,12 @@ const mockSessions: SessionRecord[] = [
 // Mock session provider
 const createMockSessionProvider = (): SessionProviderInterface => ({
   listSessions: mock(() => Promise.resolve([...mockSessions])),
-  getSession: mock(() => Promise.resolve(mockSessions[0])),
+  getSession: mock(() => Promise.resolve(mockSessions[0])) as any,
+  getSessionByTaskId: mock(() => Promise.resolve(null)),
   addSession: mock(() => Promise.resolve()),
   updateSession: mock(() => Promise.resolve()),
   deleteSession: mock(() => Promise.resolve(true)),
+  getRepoPath: mock(() => Promise.resolve("/fake/repo")),
   getSessionWorkdir: mock(() => Promise.resolve("/fake/path")),
 });
 
@@ -51,8 +53,8 @@ describe("Session Task Association", () => {
   beforeEach(() => {
     mockProvider = createMockSessionProvider();
     // Reset the mock sessions to original state
-    mockSessions[0].taskId = "123";
-    mockSessions[1].taskId = "456";
+    mockSessions[0]!.taskId = "123";
+    mockSessions[1]!.taskId = "456";
   });
 
   describe("updateSessionTaskAssociation", () => {

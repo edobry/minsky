@@ -84,7 +84,7 @@ export function createNetworkError(
   const originalError = error instanceof Error ? error : new Error(String(error as any));
 
   // Check for specific error types
-  const errorCode = originalError?.code || "";
+  const errorCode = (originalError as any)?.code || "";
 
   switch (errorCode) {
     case "EADDRINUSE":

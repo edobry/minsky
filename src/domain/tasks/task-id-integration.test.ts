@@ -148,13 +148,13 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
           name: "test-md999-integration",
           task: "md#999",
           repo: "test-repo",
-        },
+        } as any,
         {
           sessionDB: mockSessionDB as any,
           gitService: mockGitService as any,
           taskService: mockTaskService as any,
           workspaceUtils: mockWorkspaceUtils as any,
-          resolveRepoPath: async () => "/test/repo",
+          resolveRepoPath: (async () => "/test/repo") as any,
           // Inject fs adapter to avoid real fs ops
           fs: {
             exists: () => false,
@@ -240,7 +240,7 @@ describe("Task ID Integration Issues (Domain Layer Testing)", () => {
       // Step 2: Verify task appears in list
       const tasks = await mockTaskService.listTasks();
       expect(tasks).toHaveLength(1);
-      expect(tasks[0].id).toBe(qualifiedId);
+      expect(tasks[0]!.id).toBe(qualifiedId);
 
       // Step 3: Verify session can be created (mocked)
       const sessionCreated = true; // Simplified for this test

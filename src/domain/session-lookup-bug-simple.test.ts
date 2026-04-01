@@ -84,7 +84,7 @@ describe("Session Creation Bug Fix (TDD)", () => {
           name: "test-session",
           repo: "https://github.com/test/repo.git",
           branch: "main",
-        },
+        } as any,
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,
@@ -135,7 +135,7 @@ describe("Session Creation Bug Fix (TDD)", () => {
           name: "test-partial-session",
           repo: "https://github.com/test/repo.git",
           branch: "main",
-        },
+        } as any,
         {
           sessionDB: mockSessionDB,
           gitService: mockGitService,

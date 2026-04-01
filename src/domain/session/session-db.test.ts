@@ -77,7 +77,7 @@ describe("SessionDB Functional Implementation", () => {
     it("should handle null options parameter without throwing runtime error", () => {
       // Additional edge case to ensure robustness
       expect(() => {
-        const state = initializeSessionDbState(null);
+        const state = initializeSessionDbState(null as any);
         expect(state).toHaveProperty("sessions");
         expect(state.sessions).toEqual([]);
         expect(state).toHaveProperty("baseDir");
@@ -238,7 +238,7 @@ describe("SessionDB Functional Implementation", () => {
 
     it("should throw error for invalid input", () => {
       const state = createTestState();
-      expect(() => getRepoPathFn(state, null)).toThrow("Session record is required");
+      expect(() => getRepoPathFn(state, null as any)).toThrow("Session record is required");
     });
   });
 

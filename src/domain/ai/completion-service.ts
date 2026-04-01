@@ -23,7 +23,7 @@ import {
 } from "./types";
 import { DefaultAIConfigurationService } from "./config-service";
 import { DefaultModelCacheService, OpenAIModelFetcher, AnthropicModelFetcher } from "./model-cache";
-import { ConfigurationService } from "../configuration/types";
+// ConfigurationService removed - using any for configuration
 import { log } from "../../utils/logger";
 
 /**
@@ -101,7 +101,7 @@ export class DefaultAICompletionService implements AICompletionService {
           id: call.toolCallId,
           name: call.toolName,
           arguments: call.args,
-          result: call.result,
+          result: (call as any).result,
         })),
         steps: result.steps?.map((step) => ({
           type: step.toolCalls ? "tool-call" : "text",
@@ -110,7 +110,7 @@ export class DefaultAICompletionService implements AICompletionService {
             id: call.toolCallId,
             name: call.toolName,
             arguments: call.args,
-            result: call.result,
+            result: (call as any).result,
           })),
           usage: this.transformUsage(step.usage),
         })),
@@ -190,7 +190,7 @@ export class DefaultAICompletionService implements AICompletionService {
           id: call.toolCallId,
           name: call.toolName,
           arguments: call.args,
-          result: call.result,
+          result: (call as any).result,
         })),
         finishReason: this.mapFinishReason((await stream.finishReason) || "stop"),
         metadata: { streaming: false, final: true },

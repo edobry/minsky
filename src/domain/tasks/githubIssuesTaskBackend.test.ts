@@ -110,7 +110,7 @@ describe("GitHubIssuesTaskBackend", () => {
       expect(tasks[0]?.id).toBe("gh#001");
       expect(tasks[0]?.title).toBe("Test Issue #001");
       expect(tasks[0]?.description).toBe("Test description");
-      expect(tasks[0]?.status).toBe("TODO");
+      expect(tasks[0]?.status).toBe("TODO" as any);
     });
 
     test("should handle invalid JSON gracefully", () => {
@@ -154,8 +154,8 @@ describe("GitHubIssuesTaskBackend", () => {
       const tasks = backend.parseTasks(issuesJson);
 
       expect(tasks).toHaveLength(2);
-      expect(tasks[0]?.status).toBe("TODO");
-      expect(tasks[1]?.status).toBe("DONE");
+      expect(tasks[0]?.status).toBe("TODO" as any);
+      expect(tasks[1]?.status).toBe("DONE" as any);
     });
   });
 
@@ -166,7 +166,7 @@ describe("GitHubIssuesTaskBackend", () => {
           id: "#001",
           title: "Test Task",
           description: "Test description",
-          status: "TODO" as const,
+          status: "TODO" as any,
           specPath: PATH_TEST_PATTERNS.TASK_MD_001,
         },
       ];

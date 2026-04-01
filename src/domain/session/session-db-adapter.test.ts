@@ -38,7 +38,7 @@ const mockStorage = {
   ),
 };
 
-const mockPersistenceProvider: PersistenceProvider = {
+const mockPersistenceProvider: PersistenceProvider = ({
   initialize: mock(() => Promise.resolve()),
   getStorage: mock(() => mockStorage),
   getRawSqlConnection: mock(() => Promise.resolve({})),
@@ -48,7 +48,7 @@ const mockPersistenceProvider: PersistenceProvider = {
     supportsFullTextSearch: true,
   })),
   isInitialized: true,
-};
+}) as any;
 
 // Mock both PersistenceService and createSessionProvider at module level
 mock.module("../../persistence/service", () => ({
@@ -118,7 +118,7 @@ describe("createSessionProvider", () => {
     // Verify it calls the persistence layer
     expect(mockStorage.readState).toHaveBeenCalledTimes(1);
     expect(sessions).toHaveLength(2);
-    expect(sessions[0].session).toBe("test-session-1");
+    expect(sessions[0]!.session).toBe("test-session-1");
   });
 
   test("SessionDbAdapter.getSessionByTaskId() filters correctly", async () => {
@@ -149,13 +149,13 @@ describe("SessionDbAdapter", () => {
     // Clear all mock call counts
     mockStorage.readState.mockClear();
     mockStorage.initialize.mockClear();
-    mockPersistenceProvider.getStorage.mockClear();
+    (mockPersistenceProvider.getStorage as any).mockClear();
 
     adapter = new SessionDbAdapter(mockPersistenceProvider);
   });
 
   test("getStorage() initializes storage correctly", async () => {
-    await adapter.getStorage();
+    await (adapter as any).getStorage();
 
     expect(mockPersistenceProvider.getStorage).toHaveBeenCalledTimes(1);
     expect(mockStorage.initialize).toHaveBeenCalledTimes(1);

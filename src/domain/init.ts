@@ -40,7 +40,7 @@ export async function initializeProjectFromParams(params: InitializeProjectParam
 export interface InitializeProjectOptions {
   repoPath: string;
   backend: z.infer<typeof enumSchemas.backendType>;
-  ruleFormat: "cursor" | "generic";
+  ruleFormat: "cursor" | "generic" | "minsky";
   mcp?: {
     enabled: boolean;
     transport?: "stdio" | "sse" | "httpStream";
@@ -276,7 +276,7 @@ async function generateMcpRuleWithTemplateSystem(
   const config = {
     interface: "mcp" as const,
     mcpEnabled: true,
-    mcpTransport: mcpOptions?.transport || ("stdio" as const),
+    mcpTransport: (mcpOptions?.transport || "stdio") as "stdio" | "http",
     preferMcp: true, // For MCP-specific rule
     ruleFormat,
     outputDir: rulesDirPath,

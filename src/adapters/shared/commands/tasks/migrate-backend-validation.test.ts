@@ -63,10 +63,10 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         await command.execute(
           {
-            from: "markdown",
-            to: "minsky",
+            from: "markdown" as any,
+            to: "minsky" as any,
             execute: true,
-          },
+          } as any,
           mockContext
         );
 
@@ -124,10 +124,10 @@ describe("Migration Backend Validation Bug Fix", () => {
         try {
           result = await command.execute(
             {
-              from: "markdown",
-              to: "minsky",
+              from: "markdown" as any,
+              to: "minsky" as any,
               execute: true,
-            },
+            } as any,
             mockContext
           );
         } catch (error) {
@@ -185,10 +185,10 @@ describe("Migration Backend Validation Bug Fix", () => {
         try {
           result = await command.execute(
             {
-              from: "markdown",
-              to: "minsky",
+              from: "markdown" as any,
+              to: "minsky" as any,
               execute: true,
-            },
+            } as any,
             mockContext
           );
         } catch (error) {
@@ -238,11 +238,11 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         const result = await command.execute(
           {
-            from: "markdown",
-            to: "minsky",
+            from: "markdown" as any,
+            to: "minsky" as any,
             execute: true,
             json: true, // Use JSON format to get flat result structure
-          },
+          } as any,
           mockContext
         );
 
@@ -278,10 +278,10 @@ describe("Migration Backend Validation Bug Fix", () => {
       try {
         const result = await command.execute(
           {
-            from: "markdown",
-            to: "minsky",
+            from: "markdown" as any,
+            to: "minsky" as any,
             execute: false, // dry run
-          },
+          } as any,
           mockContext
         );
 

@@ -379,13 +379,15 @@ export class LocalGitBackend implements RepositoryBackend {
 
     const result = await sessionPr(
       {
-        sessionName: options.session,
-        title: options.title,
+        sessionName: options.session!,
+        title: options.title ?? "Update PR",
         body: options.body,
         // For local backend updates, we still might need conflict checking
         skipConflictCheck: false,
         noStatusUpdate: true,
         autoResolveDeleteConflicts: false,
+        debug: false,
+        draft: false,
       },
       { interface: "cli" }
     );
@@ -533,6 +535,7 @@ export class LocalGitBackend implements RepositoryBackend {
               reviewId: `local-${sessionRecord.session}`,
               approvedBy: "local-user",
               approvedAt: new Date().toISOString(), // We don't track when it was approved
+              prNumber: prId,
               platformData: { platform: "local", sessionName: sessionRecord.session },
             },
           ]
@@ -578,13 +581,15 @@ export class LocalGitBackend implements RepositoryBackend {
       log.info(`Local session has associated PR, auto-updating PR branch '${prBranch}'`);
 
       // Check if we're currently on the PR branch
-      const currentBranchName = await execGitWithTimeout(workdir, ["branch", "--show-current"], {
+      const { stdout: currentBranchOutput } = await execGitWithTimeout("branch-show-current", "branch --show-current", {
+        workdir,
         timeout: 10000,
       });
+      const currentBranchName = currentBranchOutput.trim();
 
       if (currentBranchName === prBranch) {
         // We're on the PR branch, push the updates
-        await execGitWithTimeout(workdir, ["push", "origin", prBranch], { timeout: 30000 });
+        await execGitWithTimeout("push", `push origin ${prBranch}`, { workdir, timeout: 30000 });
         log.info(`PR branch '${prBranch}' updated successfully`);
       } else {
         // We're on a different branch (probably session branch), need to update PR branch
@@ -594,20 +599,21 @@ export class LocalGitBackend implements RepositoryBackend {
 
         // Check if PR branch exists locally
         try {
-          await execGitWithTimeout(workdir, ["rev-parse", "--verify", prBranch], {
+          await execGitWithTimeout("rev-parse", `rev-parse --verify ${prBranch}`, {
+            workdir,
             timeout: 10000,
           });
           // PR branch exists locally, merge current changes into it
-          await execGitWithTimeout(workdir, ["checkout", prBranch], { timeout: 10000 });
-          await execGitWithTimeout(workdir, ["merge", currentBranchName], { timeout: 30000 });
-          await execGitWithTimeout(workdir, ["push", "origin", prBranch], { timeout: 30000 });
-          await execGitWithTimeout(workdir, ["checkout", currentBranchName], { timeout: 10000 });
+          await execGitWithTimeout("checkout", `checkout ${prBranch}`, { workdir, timeout: 10000 });
+          await execGitWithTimeout("merge", `merge ${currentBranchName}`, { workdir, timeout: 30000 });
+          await execGitWithTimeout("push", `push origin ${prBranch}`, { workdir, timeout: 30000 });
+          await execGitWithTimeout("checkout", `checkout ${currentBranchName}`, { workdir, timeout: 10000 });
           log.info(`PR branch '${prBranch}' updated with latest changes`);
         } catch {
           // PR branch doesn't exist locally, create it from current branch
-          await execGitWithTimeout(workdir, ["checkout", "-b", prBranch], { timeout: 10000 });
-          await execGitWithTimeout(workdir, ["push", "origin", prBranch], { timeout: 30000 });
-          await execGitWithTimeout(workdir, ["checkout", currentBranchName], { timeout: 10000 });
+          await execGitWithTimeout("checkout-b", `checkout -b ${prBranch}`, { workdir, timeout: 10000 });
+          await execGitWithTimeout("push", `push origin ${prBranch}`, { workdir, timeout: 30000 });
+          await execGitWithTimeout("checkout", `checkout ${currentBranchName}`, { workdir, timeout: 10000 });
           log.info(`PR branch '${prBranch}' created and pushed`);
         }
       }
@@ -644,18 +650,19 @@ export class LocalGitBackend implements RepositoryBackend {
     }
 
     const number = record.prBranch || `pr/${sessionName}`;
+    const prInfo = record.pullRequest as any;
     return {
       number,
       url: number,
       state: record.prApproved ? "approved" : "open",
-      title: record.pullRequest?.title,
-      body: record.pullRequest?.body,
+      title: prInfo?.title,
+      body: prInfo?.body,
       headBranch: number,
-      baseBranch: record.pullRequest?.baseBranch || "main",
+      baseBranch: prInfo?.baseBranch || "main",
       author: undefined,
-      createdAt: record.pullRequest?.createdAt,
-      updatedAt: record.pullRequest?.updatedAt,
-      mergedAt: record.pullRequest?.mergedAt,
+      createdAt: prInfo?.createdAt,
+      updatedAt: prInfo?.updatedAt,
+      mergedAt: prInfo?.mergedAt,
     };
   }
 

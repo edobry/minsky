@@ -682,13 +682,13 @@ export function createMockPersistenceProvider(
   options: MockPersistenceProviderOptions = {}
 ): PersistenceProvider {
   return createPartialMock<PersistenceProvider>({
-    capabilities: options.capabilities || {
+    capabilities: (options.capabilities || {
       sql: true,
       transactions: true,
       jsonb: true,
       vectorStorage: true,
       migrations: true,
-    },
+    }) as any,
     initialize: options.initialize || (() => Promise.resolve()),
     getDatabaseConnection:
       options.getDatabaseConnection ||
@@ -724,8 +724,8 @@ export function createMockPersistenceProvider(
             returning: () => Promise.resolve([]),
           }),
         });
-      }),
-    getStorage: options.getStorage || (() => ({})),
+      }) as any,
+    getStorage: options.getStorage || (() => ({}) as any),
     close: options.close || (() => Promise.resolve()),
     getCapabilities:
       options.getCapabilities ||
@@ -736,7 +736,7 @@ export function createMockPersistenceProvider(
         jsonb: true,
         migrations: true,
       })),
-  });
+  } as any);
 }
 
 /**

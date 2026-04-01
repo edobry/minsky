@@ -95,7 +95,7 @@ describe("Session PR Body Validation Bug Fix", () => {
           skipUpdate: true,
           autoResolveDeleteConflicts: false,
           skipConflictCheck: false,
-        },
+        } as any,
         {
           gitService: mockGitService,
           sessionDB: mockSessionProvider,
