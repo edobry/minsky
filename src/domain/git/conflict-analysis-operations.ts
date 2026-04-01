@@ -16,6 +16,7 @@ import {
   FileConflictStatus,
   ConflictType,
   ConflictSeverity,
+  ResolutionStrategy,
 } from "./conflict-detection-types";
 
 /**
@@ -169,10 +170,8 @@ export async function checkSessionChangesInBase(
 ): Promise<boolean> {
   try {
     // Get session commits not in base
-    const { stdout: sessionCommits } = await execGitWithTimeout(
-      "check-session-changes-commits",
-      `rev-list ${baseBranch}..${sessionBranch}`,
-      { workdir: repoPath }
+    const { stdout: sessionCommits } = await execAsync(
+      `git -C ${repoPath} rev-list ${baseBranch}..${sessionBranch}`
     );
 
     if (!sessionCommits.toString().trim()) {
@@ -289,4 +288,45 @@ export function analyzeConflictSeverity(conflictFiles: ConflictFile[]): {
   }
 
   return { conflictType, severity };
+}
+
+/**
+ * Parses merge conflict output to extract conflicting file paths
+ */
+export function parseMergeConflictOutput(output: string): string[] {
+  const files: string[] = [];
+  const regex = /CONFLICT \((.+?)\): Merge conflict in (.+)/g;
+  let match;
+  while ((match = regex.exec(output)) !== null) {
+    if (match[2]) files.push(match[2]);
+  }
+  return files;
+}
+
+/**
+ * Generates recovery commands for resolving conflicts
+ */
+export function generateRecoveryCommands(
+  conflictFiles: ConflictFile[],
+  conflictType: ConflictType
+): string[] {
+  const commands: string[] = [];
+
+  if (conflictType === ConflictType.DELETE_MODIFY) {
+    commands.push("# Accept file deletions (recommended)");
+    conflictFiles.filter((f) => f.deletionInfo).forEach((f) => commands.push(`git rm "${f.path}"`));
+    commands.push('git commit -m "resolve conflicts: accept file deletions"');
+  } else {
+    commands.push("# Check conflict status");
+    commands.push("git status");
+    commands.push("");
+    commands.push("# Edit each conflicted file to resolve <<<<<<< ======= >>>>>>> markers");
+    conflictFiles.forEach((f) => commands.push(`# Edit: ${f.path}`));
+    commands.push("");
+    commands.push("# After editing, add resolved files");
+    commands.push("git add .");
+    commands.push('git commit -m "resolve merge conflicts"');
+  }
+
+  return commands;
 }

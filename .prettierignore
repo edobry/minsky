@@ -1,0 +1,7 @@
+# Auto-generated conversation history — never needs formatting
+.specstory/
+
+# Build output
+dist/
+out/
+coverage/
