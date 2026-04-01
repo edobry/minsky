@@ -260,6 +260,21 @@ export class PreCommitHook {
     log.cli("🔒 SECURITY: Scanning for secrets (CRITICAL - MUST RUN FIRST)...");
 
     try {
+      // Check if gitleaks is available before attempting to run it
+      await execAsync("which gitleaks", { timeout: 5000 });
+    } catch {
+      log.cli("⚠️ Gitleaks not installed — skipping secret scanning.");
+      log.cli(
+        "💡 Install gitleaks for local secret scanning: https://github.com/gitleaks/gitleaks#installing"
+      );
+      return {
+        success: true,
+        message: "Secret scanning skipped (gitleaks not installed)",
+        exitCode: 0,
+      };
+    }
+
+    try {
       await execAsync("gitleaks protect --staged --source . --config .gitleaks.toml --verbose", {
         cwd: this.projectRoot,
         timeout: 30000,

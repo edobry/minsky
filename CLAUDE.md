@@ -29,7 +29,6 @@ Minsky exposes 80+ MCP tools. Use them for all task and session operations inste
 
 ## Build & Test
 
-- **Install**: `bun install` (required before running any checks; automated via SessionStart hook for web sessions)
 - **Runtime**: Bun (not Node.js)
 - **Tests**: `bun test --preload ./tests/setup.ts --timeout=15000 src tests/adapters tests/domain`
 - **Lint**: `bun run lint` (17 errors are auto-fixable with `--fix`)
