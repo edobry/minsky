@@ -135,13 +135,13 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     const subject = ctx.prNumber
       ? `Pull request #${ctx.prNumber} was not found in ${ctx.owner}/${ctx.repo}.`
       : `The repository ${ctx.owner}/${ctx.repo} was not found.`;
+    const prSuffix = ctx.prNumber ? `/pull/${ctx.prNumber}` : "";
     throw new MinskyError(
       `GitHub Not Found\n\n${subject}\n\n` +
         `To fix this:\n` +
         `  - Verify the repository/PR exists and is accessible\n` +
         `  - Check if the repository is private and you have access\n\n` +
-        `https://github.com/${ctx.owner}/${ctx.repo}` +
-        (ctx.prNumber ? `/pull/${ctx.prNumber}` : ""),
+        `https://github.com/${ctx.owner}/${ctx.repo}${prSuffix}`
     );
   }
 
@@ -182,13 +182,13 @@ export function handleOctokitError(error: unknown, ctx: ErrorContext): never {
     info.messageLower.includes("can not approve your own pull request") ||
     info.messageLower.includes("cannot approve your own pull request")
   ) {
+    const prLink = ctx.prNumber
+      ? `PR: https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}\n\n`
+      : "";
     throw new MinskyError(
       `Cannot Approve Your Own Pull Request\n\n` +
         `GitHub prevents authors from approving their own PR.\n\n` +
-        (ctx.prNumber
-          ? `PR: https://github.com/${ctx.owner}/${ctx.repo}/pull/${ctx.prNumber}\n\n`
-          : "") +
-        `Next steps:\n` +
+        `${prLink}Next steps:\n` +
         `  - Request a review from a maintainer\n` +
         `  - Have another collaborator approve the PR`,
     );
