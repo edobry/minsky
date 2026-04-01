@@ -95,7 +95,12 @@ export abstract class BaseRuleOperation<TParams, TResult> {
    * Get the rule directory path for a given format
    */
   protected getRuleDirPath(format: RuleFormat): string {
-    return join(this.deps.workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+    const formatDirMap: Record<RuleFormat, string> = {
+      cursor: ".cursor/rules",
+      generic: ".ai/rules",
+      minsky: ".minsky/rules",
+    };
+    return join(this.deps.workspacePath, formatDirMap[format]);
   }
 
   /**
@@ -119,7 +124,7 @@ export abstract class BaseRuleOperation<TParams, TResult> {
    * Get all formats to search when format is not specified
    */
   protected getFormatsToSearch(requestedFormat?: RuleFormat): RuleFormat[] {
-    return requestedFormat ? [requestedFormat] : ["cursor", "generic"];
+    return requestedFormat ? [requestedFormat] : ["minsky", "cursor", "generic"];
   }
 
   /**

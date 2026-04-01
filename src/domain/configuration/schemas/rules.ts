@@ -56,7 +56,7 @@ export const RULE_PRESETS: Record<string, string[]> = {
 
 export const rulesConfigSchema = z
   .object({
-    sourcePath: z.string().default(".cursor/rules"),
+    sourcePath: z.string().default(".minsky/rules"),
     targets: z.record(z.string(), rulesTargetSchema).default({}),
     presets: z.array(z.string()).default([]),
     enabled: z.array(z.string()).default([]),

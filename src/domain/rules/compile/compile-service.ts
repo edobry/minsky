@@ -10,6 +10,7 @@ import type { RuleService } from "../../rules";
 import type { CompileTarget, CompileResult, TargetOptions } from "./types";
 import { agentsMdTarget } from "./targets/agents-md";
 import { claudeMdTarget } from "./targets/claude-md";
+import { cursorRulesTarget } from "./targets/cursor-rules";
 import { resolveActiveRules } from "../rule-selection";
 
 export class CompileService {
@@ -122,6 +123,23 @@ async function compileDryRun(
     };
   }
 
+  if (target.id === "cursor-rules") {
+    const { buildCursorRulesContent } = await import("./targets/cursor-rules");
+    const outputDir =
+      options.outputPath || cursorRulesTarget.defaultOutputPath(workspacePath);
+    const { files, rulesIncluded, rulesSkipped } = buildCursorRulesContent(rules, outputDir);
+    const summary = files
+      .map(({ path: filePath, content }) => `// ${filePath}\n${content}`)
+      .join("\n\n");
+    return {
+      target: target.id,
+      filesWritten: [],
+      rulesIncluded,
+      rulesSkipped,
+      content: summary,
+    };
+  }
+
   // For unknown targets, fallback: actually compile and return result without content
   const result = await target.compile(rules, options, workspacePath);
   return { ...result, content: undefined as any };
@@ -134,5 +152,6 @@ export function createCompileService(): CompileService {
   const service = new CompileService();
   service.registerTarget(agentsMdTarget);
   service.registerTarget(claudeMdTarget);
+  service.registerTarget(cursorRulesTarget);
   return service;
 }
