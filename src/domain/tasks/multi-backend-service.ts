@@ -48,6 +48,27 @@ export interface TaskExportData {
   backend: string;
 }
 
+// Types for migration result tracking
+export interface MigrationResult {
+  success: boolean;
+  tasksMigrated: number;
+  errors: string[];
+  backupFile?: string;
+}
+
+// Types for collision detection between backends
+export interface TaskCollision {
+  taskId: string;
+  backends: string[];
+  conflictType: "id" | "title" | "both";
+}
+
+export interface CollisionReport {
+  collisions: TaskCollision[];
+  totalChecked: number;
+  hasConflicts: boolean;
+}
+
 // Public service interface - extends TaskServiceInterface for compatibility
 export interface TaskService extends TaskServiceInterface {
   // Multi-backend specific methods

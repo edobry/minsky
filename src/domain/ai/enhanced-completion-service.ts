@@ -1,4 +1,4 @@
-import { AICompletionService, CompletionParams, CompletionResult } from "./types";
+import { AICompletionService, AICompletionRequest, AICompletionResponse } from "./types";
 import { DefaultAICompletionService } from "./completion-service";
 import { IntelligentRetryService } from "./intelligent-retry-service";
 import {
@@ -21,7 +21,7 @@ export class EnhancedAICompletionService implements AICompletionService {
     this.retryService = retryService;
   }
 
-  async complete(params: CompletionParams): Promise<CompletionResult> {
+  async complete(params: AICompletionRequest): Promise<AICompletionResponse> {
     const { provider, model } = params;
 
     try {
