@@ -159,7 +159,8 @@ export async function updateTaskFromParams(params: any) {
     backend: params.backend,
   });
   log.debug("tasks.update created TaskService", {
-    backend: taskService.listBackends!().find((b) => b.prefix === params.backend)?.name || "default",
+    backend:
+      taskService.listBackends!().find((b) => b.prefix === params.backend)?.name || "default",
   });
 
   // Prepare updates object

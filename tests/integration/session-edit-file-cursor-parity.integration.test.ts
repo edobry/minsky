@@ -196,40 +196,43 @@ async function loggingApplyEditPattern(
     let capturedRequestBody: any = null;
     let capturedResponseBody: any = null;
 
-    global.fetch = Object.assign(async (input: any, init: any) => {
-      if (typeof input === "string" && input.includes("morphllm.com")) {
-        console.log("\n🔍 INTERCEPTED HTTP REQUEST TO MORPH:");
-        console.log("   URL:", input);
-        console.log("   Method:", init?.method || "GET");
-        console.log("   Headers:", JSON.stringify(init?.headers || {}, null, 2));
+    global.fetch = Object.assign(
+      async (input: any, init: any) => {
+        if (typeof input === "string" && input.includes("morphllm.com")) {
+          console.log("\n🔍 INTERCEPTED HTTP REQUEST TO MORPH:");
+          console.log("   URL:", input);
+          console.log("   Method:", init?.method || "GET");
+          console.log("   Headers:", JSON.stringify(init?.headers || {}, null, 2));
 
-        if (init?.body) {
-          try {
-            capturedRequestBody = JSON.parse(init.body);
-            console.log("   REQUEST BODY:", JSON.stringify(capturedRequestBody, null, 2));
-          } catch (e) {
-            console.log("   REQUEST BODY (raw):", init.body);
+          if (init?.body) {
+            try {
+              capturedRequestBody = JSON.parse(init.body);
+              console.log("   REQUEST BODY:", JSON.stringify(capturedRequestBody, null, 2));
+            } catch (e) {
+              console.log("   REQUEST BODY (raw):", init.body);
+            }
           }
         }
-      }
 
-      const response = await originalFetch(input, init);
+        const response = await originalFetch(input, init);
 
-      if (typeof input === "string" && input.includes("morphllm.com")) {
-        const responseClone = response.clone();
-        try {
-          capturedResponseBody = await responseClone.json();
-          console.log("\n📥 INTERCEPTED HTTP RESPONSE FROM MORPH:");
-          console.log("   Status:", response.status, response.statusText);
-          console.log("   Headers:", JSON.stringify([...response.headers.entries()], null, 2));
-          console.log("   RESPONSE BODY:", JSON.stringify(capturedResponseBody, null, 2));
-        } catch (e) {
-          console.log("   Response body could not be parsed as JSON");
+        if (typeof input === "string" && input.includes("morphllm.com")) {
+          const responseClone = response.clone();
+          try {
+            capturedResponseBody = await responseClone.json();
+            console.log("\n📥 INTERCEPTED HTTP RESPONSE FROM MORPH:");
+            console.log("   Status:", response.status, response.statusText);
+            console.log("   Headers:", JSON.stringify([...response.headers.entries()], null, 2));
+            console.log("   RESPONSE BODY:", JSON.stringify(capturedResponseBody, null, 2));
+          } catch (e) {
+            console.log("   Response body could not be parsed as JSON");
+          }
         }
-      }
 
-      return response;
-    }, { preconnect: () => {} });
+        return response;
+      },
+      { preconnect: () => {} }
+    );
 
     const response = await completionService.complete(completionParams);
 

@@ -43,7 +43,8 @@ export async function sessionReview(
     sessionDB: depsInput?.sessionDB || (await createSessionProvider()),
     gitService: depsInput?.gitService || createGitService(),
     taskService:
-      depsInput?.taskService || (await createConfiguredTaskService({ workspacePath: process.cwd() })),
+      depsInput?.taskService ||
+      (await createConfiguredTaskService({ workspacePath: process.cwd() })),
     workspaceUtils: depsInput?.workspaceUtils || WorkspaceUtils,
     getCurrentSession: depsInput?.getCurrentSession || getCurrentSession,
   };
