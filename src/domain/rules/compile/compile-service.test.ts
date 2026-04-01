@@ -24,7 +24,9 @@ function makeRule(id: string, content: string, opts: Partial<Rule> = {}): Rule {
 }
 
 // Mock target that captures calls
-function createMockTarget(id: string): CompileTarget & { compileCalled: boolean; lastRules: Rule[] } {
+function createMockTarget(
+  id: string
+): CompileTarget & { compileCalled: boolean; lastRules: Rule[] } {
   const mockTarget = {
     id,
     displayName: `Mock ${id}`,
@@ -35,7 +37,11 @@ function createMockTarget(id: string): CompileTarget & { compileCalled: boolean;
       return `${workspacePath}/mock-${id}.md`;
     },
 
-    async compile(rules: Rule[], options: TargetOptions, workspacePath: string): Promise<CompileResult> {
+    async compile(
+      rules: Rule[],
+      options: TargetOptions,
+      workspacePath: string
+    ): Promise<CompileResult> {
       mockTarget.compileCalled = true;
       mockTarget.lastRules = rules;
       return {

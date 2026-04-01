@@ -13,9 +13,11 @@ import type { CompileTarget, CompileResult, TargetOptions } from "../types";
 /**
  * Build CLAUDE.md content from always-apply rules
  */
-function buildClaudeMdContent(
-  allRules: Rule[]
-): { content: string; rulesIncluded: string[]; rulesSkipped: string[] } {
+function buildClaudeMdContent(allRules: Rule[]): {
+  content: string;
+  rulesIncluded: string[];
+  rulesSkipped: string[];
+} {
   const rulesIncluded: string[] = [];
   const rulesSkipped: string[] = [];
 
