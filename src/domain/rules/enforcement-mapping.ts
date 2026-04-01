@@ -295,8 +295,7 @@ export const ENFORCEMENT_MAPPINGS: EnforcementMapping[] = [
       {
         type: "git-hook",
         name: "pre-push: tests",
-        description:
-          "Pre-push hook runs the full test suite and blocks the push if any tests fail",
+        description: "Pre-push hook runs the full test suite and blocks the push if any tests fail",
         configPath: ".husky/pre-push",
       },
       {
