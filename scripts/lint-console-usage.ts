@@ -200,7 +200,9 @@ class ConsoleUsageLinter {
     return this.excludePatterns.some((pattern) => {
       // Convert glob patterns like "**/tests/integration/**" to path substring checks
       const innerPattern = pattern.replace(/^\*\*\//, "").replace(/\/\*\*$/, "");
-      return normalizedPath.includes(`/${innerPattern}/`) || normalizedPath.includes(`/${innerPattern}`);
+      return (
+        normalizedPath.includes(`/${innerPattern}/`) || normalizedPath.includes(`/${innerPattern}`)
+      );
     });
   }
 

@@ -268,7 +268,9 @@ describe("Enhanced Test Utilities", () => {
           // 3. Execute code under test with mocked dependencies
           const task = await typedDeps.taskService.getTask("#TEST_VALUE");
           const session = task
-            ? await typedDeps.sessionDB.getSession(`task#${(task as { id: string }).id.replace("#", "")}`)
+            ? await typedDeps.sessionDB.getSession(
+                `task#${(task as { id: string }).id.replace("#", "")}`
+              )
             : null;
 
           return { task, session };
