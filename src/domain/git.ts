@@ -1,20 +1,16 @@
-import { join, dirname } from "node:path";
+import { join } from "node:path";
 import { mkdir } from "node:fs/promises";
-import type { ExecException } from "node:child_process";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
 import {
   createSessionProvider,
-  type SessionRecord,
   type SessionProviderInterface,
 } from "./session";
 
 import {
   MinskyError,
   NothingToCommitError,
-  createSessionNotFoundMessage,
-  createErrorContext,
   getErrorMessage,
   getErrorCode,
 } from "../errors/index";
@@ -27,257 +23,78 @@ import {
   EnhancedMergeResult,
   SmartUpdateResult,
 } from "./git/conflict-detection";
-import { validateError, validateGitError } from "../schemas/error";
-import { validateDirectoryContents, validateExecResult, validateProcess } from "../schemas/runtime";
-import { modularGitCommandsManager } from "./git/git-commands-modular";
-import {
-  execGitWithTimeout,
-  gitFetchWithTimeout,
-  gitMergeWithTimeout,
-  gitPushWithTimeout,
-} from "../utils/git-exec";
-import {
-  preparePrImpl,
-  type PreparePrOptions,
-  type PreparePrResult,
-} from "./git/prepare-pr-operations";
-import { mergePrImpl, type MergePrOptions, type MergePrResult } from "./git/merge-pr-operations";
+import { preparePrImpl } from "./git/prepare-pr-operations";
+import { mergePrImpl } from "./git/merge-pr-operations";
 import { mergeBranchImpl } from "./git/merge-branch-operations";
-import {
-  prWithDependenciesImpl,
-  type PrOptions,
-  type PrResult,
-} from "./git/pr-generation-operations";
-import { pushImpl, type PushOptions, type PushResult } from "./git/push-operations";
-import {
-  cloneImpl,
-  type CloneOptions,
-  type CloneResult,
-  type CloneDependencies,
-} from "./git/clone-operations";
+import { prWithDependenciesImpl } from "./git/pr-generation-operations";
+import { pushImpl } from "./git/push-operations";
+import { cloneImpl, type CloneDependencies } from "./git/clone-operations";
+
+// Re-export all types from the dedicated types module
+export type {
+  GitServiceInterface,
+  PrTestDependencies,
+  PrDependencies,
+  BasicGitDependencies,
+  ExtendedGitDependencies,
+  BranchOptions,
+  BranchResult,
+  GitStatus,
+  StashResult,
+  PullResult,
+  MergeResult,
+  GitResult,
+  CloneOptions,
+  CloneResult,
+  PrOptions,
+  PrResult,
+  PushOptions,
+  PushResult,
+  PreparePrOptions,
+  PreparePrResult,
+  MergePrOptions,
+  MergePrResult,
+  ExecCallback,
+} from "./git/types";
+
+// Re-export *FromParams facade functions
+export {
+  createPullRequestFromParams,
+  commitChangesFromParams,
+  preparePrFromParams,
+  mergePrFromParams,
+  cloneFromParams,
+  branchFromParams,
+  pushFromParams,
+  mergeFromParams,
+  checkoutFromParams,
+  rebaseFromParams,
+} from "./git/git-params-facade";
+
+// Import types needed by GitService implementation
+import type {
+  GitServiceInterface,
+  PrDependencies,
+  BasicGitDependencies,
+  BranchOptions,
+  BranchResult,
+  GitStatus,
+  StashResult,
+  PullResult,
+  MergeResult,
+  CloneOptions,
+  CloneResult,
+  PrOptions,
+  PrResult,
+  PushOptions,
+  PushResult,
+  PreparePrOptions,
+  PreparePrResult,
+  MergePrOptions,
+  MergePrResult,
+} from "./git/types";
 
 const execAsync = promisify(exec);
-
-type ExecCallback = (error: ExecException | null, stdout: string, stderr: string) => void;
-
-/**
- * Interface for git service operations
- * This defines the contract for git-related functionality
- */
-export interface GitServiceInterface {
-  /**
-   * Clone a repository and set up a session workspace
-   */
-  clone(options: CloneOptions): Promise<CloneResult>;
-
-  /**
-   * Create and checkout a new branch
-   */
-  branch(options: BranchOptions): Promise<BranchResult>;
-
-  /**
-   * Create and checkout a new branch without requiring session in database
-   */
-  branchWithoutSession(options: {
-    repoName: string;
-    session: string;
-    branch: string;
-  }): Promise<BranchResult>;
-
-  /**
-   * Execute a git command in a repository
-   */
-  execInRepository(workdir: string, command: string): Promise<string>;
-
-  /**
-   * Get the working directory for a session
-   */
-  getSessionWorkdir(session: string): string;
-
-  /**
-   * Stash changes in a repository
-   */
-  stashChanges(repoPath: string): Promise<StashResult>;
-
-  /**
-   * Pull latest changes from a remote
-   */
-  pullLatest(repoPath: string, remote?: string): Promise<PullResult>;
-
-  /**
-   * Fetch latest changes from a remote (alias for pullLatest)
-   */
-  fetchLatest?(repoPath: string, remote?: string): Promise<PullResult>;
-
-  /**
-   * Merge a branch into the current branch
-   */
-  mergeBranch(repoPath: string, branch: string): Promise<MergeResult>;
-
-  /**
-   * Push changes to a remote
-   */
-  push(options: PushOptions): Promise<PushResult>;
-
-  /**
-   * Apply stashed changes
-   */
-  popStash(repoPath: string): Promise<StashResult>;
-
-  /**
-   * Get the status of a repository
-   */
-  getStatus(repoPath?: string): Promise<GitStatus>;
-
-  /**
-   * Get the current branch name
-   */
-  getCurrentBranch(repoPath: string): Promise<string>;
-
-  /**
-   * Check if repository has uncommitted changes
-   */
-  hasUncommittedChanges(repoPath: string): Promise<boolean>;
-
-  /**
-   * Fetch the default branch for a repository
-   */
-  fetchDefaultBranch(repoPath: string): Promise<string>;
-
-  /**
-   * Predict conflicts before performing merge operations
-   */
-  predictMergeConflicts(
-    repoPath: string,
-    sourceBranch: string,
-    targetBranch: string
-  ): Promise<ConflictPrediction>;
-
-  /**
-   * Analyze branch divergence between session and base branches
-   */
-  analyzeBranchDivergence(
-    repoPath: string,
-    sessionBranch: string,
-    baseBranch: string
-  ): Promise<BranchDivergenceAnalysis>;
-
-  /**
-   * Enhanced merge with conflict prediction and better handling
-   */
-  mergeWithConflictPrevention(
-    repoPath: string,
-    sourceBranch: string,
-    targetBranch: string,
-    options?: {
-      skipConflictCheck?: boolean;
-      autoResolveDeleteConflicts?: boolean;
-      dryRun?: boolean;
-    }
-  ): Promise<EnhancedMergeResult>;
-
-  /**
-   * Smart session update that detects already-merged changes
-   */
-  smartSessionUpdate(
-    repoPath: string,
-    sessionBranch: string,
-    baseBranch: string,
-    options?: {
-      skipIfAlreadyMerged?: boolean;
-      autoResolveConflicts?: boolean;
-    }
-  ): Promise<SmartUpdateResult>;
-
-  /**
-   * Stage all changes including deletions
-   */
-  stageAll?(repoPath?: string): Promise<void>;
-
-  /**
-   * Stage modified files
-   */
-  stageModified?(repoPath?: string): Promise<void>;
-
-  /**
-   * Commit staged changes
-   */
-  commit?(message: string, repoPath?: string, amend?: boolean): Promise<string>;
-
-  /**
-   * Create a pull request
-   */
-  pr?(options: PrOptions): Promise<PrResult>;
-
-  /**
-   * Prepare a pull request
-   */
-  preparePr?(options: PreparePrOptions): Promise<PreparePrResult>;
-
-  /**
-   * Merge a pull request
-   */
-  mergePr?(options: MergePrOptions): Promise<MergePrResult>;
-}
-
-// Define PrTestDependencies first so PrDependencies can extend it
-export interface PrTestDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-  getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (session: string) => string;
-  getSessionByTaskId?: (taskId: string) => Promise<any>;
-}
-
-// PrDependencies now extends the proper interface
-export interface PrDependencies extends PrTestDependencies {}
-
-export interface BasicGitDependencies {
-  execAsync: (command: string, options?: any) => Promise<{ stdout: string; stderr: string }>;
-}
-
-export interface ExtendedGitDependencies extends BasicGitDependencies {
-  getSession: (name: string) => Promise<any>;
-  getSessionWorkdir: (session: string) => string;
-  mkdir: (path: string, options?: any) => Promise<void>;
-  readdir: (path: string) => Promise<string[]>;
-  access: (path: string) => Promise<void>;
-}
-
-export interface BranchOptions {
-  session: string;
-  branch: string;
-}
-
-export interface BranchResult {
-  workdir: string;
-  branch: string;
-}
-
-export interface GitStatus {
-  modified: string[];
-  untracked: string[];
-  deleted: string[];
-}
-
-export interface StashResult {
-  workdir: string;
-  stashed: boolean;
-}
-
-export interface PullResult {
-  workdir: string;
-  updated: boolean;
-}
-
-export interface MergeResult {
-  workdir: string;
-  merged: boolean;
-  conflicts: boolean;
-}
-
-export interface GitResult {
-  workdir: string;
-}
 
 /**
  * Returns true when a caught git exec error represents "nothing to commit".
@@ -1088,106 +905,6 @@ export class GitService implements GitServiceInterface {
 }
 
 /**
- * Interface-agnostic function to create a pull request
- * MODULARIZED: Delegates to modular operation
- */
-export async function createPullRequestFromParams(params: {
-  session?: string;
-  repo?: string;
-  branch?: string;
-  taskId?: string;
-  debug?: boolean;
-  noStatusUpdate?: boolean;
-}): Promise<{ markdown: string; statusUpdateResult?: any }> {
-  return await modularGitCommandsManager.createPullRequestFromParams(params);
-}
-
-/**
- * Interface-agnostic function to commit changes
- * MODULARIZED: Delegates to modular operation
- */
-export async function commitChangesFromParams(params: {
-  message: string;
-  session?: string;
-  repo?: string;
-  all?: boolean;
-  amend?: boolean;
-  noStage?: boolean;
-}): Promise<{ commitHash: string; message: string }> {
-  return await modularGitCommandsManager.commitChangesFromParams(params);
-}
-
-/**
- * Interface-agnostic function to prepare a PR branch
- * MODULARIZED: Delegates to modular operation
- */
-export async function preparePrFromParams(params: {
-  session?: string;
-  repo?: string;
-  baseBranch?: string;
-  title?: string;
-  body?: string;
-  branchName?: string;
-  debug?: boolean;
-}): Promise<PreparePrResult> {
-  return await modularGitCommandsManager.preparePrFromParams(params);
-}
-
-/**
- * Interface-agnostic function to merge a PR branch
- * MODULARIZED: Delegates to modular operation
- */
-export async function mergePrFromParams(params: {
-  prBranch: string;
-  repo?: string;
-  baseBranch?: string;
-  session?: string;
-}): Promise<MergePrResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
-  return await modularGitCommandsManager.mergePrFromParams(params);
-}
-
-/**
- * Interface-agnostic function to clone a repository
- * MODULARIZED: Delegates to modular operation
- */
-export async function cloneFromParams(params: {
-  url: string;
-  workdir: string; // Explicit workdir path
-  session?: string;
-  branch?: string;
-}): Promise<CloneResult> {
-  return await modularGitCommandsManager.cloneFromParams(params);
-}
-
-/**
- * Interface-agnostic function to create a branch
- * MODULARIZED: Delegates to modular operation
- */
-export async function branchFromParams(params: {
-  session: string;
-  name: string;
-}): Promise<BranchResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
-  return await modularGitCommandsManager.branchFromParams(params);
-}
-
-/**
- * Interface-agnostic function to push changes to a remote repository
- * MODULARIZED: Delegates to modular operation
- */
-export async function pushFromParams(params: {
-  session?: string;
-  repo?: string;
-  remote?: string;
-  force?: boolean;
-  debug?: boolean;
-}): Promise<PushResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
-  return await modularGitCommandsManager.pushFromParams(params);
-}
-
-/**
  * Creates a default GitService implementation
  * This factory function provides a consistent way to get a git service with optional customization
  *
@@ -1196,70 +913,4 @@ export async function pushFromParams(params: {
  */
 export function createGitService(options?: { baseDir?: string }): GitServiceInterface {
   return new GitService(options?.baseDir);
-}
-
-/**
- * Interface-agnostic function to merge branches with conflict detection
- * MODULARIZED: Delegates to modular operation
- */
-export async function mergeFromParams(params: {
-  sourceBranch: string;
-  targetBranch?: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
-}): Promise<EnhancedMergeResult> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
-  return await modularGitCommandsManager.mergeFromParams(params);
-}
-
-/**
- * Interface-agnostic function to checkout/switch branches with conflict detection
- * MODULARIZED: Delegates to modular operation
- */
-export async function checkoutFromParams(params: {
-  branch: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
-}): Promise<{
-  workdir: string;
-  switched: boolean;
-  conflicts: boolean;
-  conflictDetails?: string;
-  warning?: { wouldLoseChanges: boolean; recommendedAction: string };
-}> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
-  return await modularGitCommandsManager.checkoutFromParams(params);
-}
-
-/**
- * Interface-agnostic function to rebase branches with conflict detection
- * MODULARIZED: Delegates to modular operation
- */
-export async function rebaseFromParams(params: {
-  baseBranch: string;
-  featureBranch?: string;
-  session?: string;
-  repo?: string;
-  preview?: boolean;
-  autoResolve?: boolean;
-  conflictStrategy?: string;
-}): Promise<{
-  workdir: string;
-  rebased: boolean;
-  conflicts: boolean;
-  conflictDetails?: string;
-  prediction?: {
-    canAutoResolve: boolean;
-    recommendations: string[];
-    overallComplexity: string;
-  };
-}> {
-  const { modularGitCommandsManager } = await import("./git/git-commands-modular");
-  return await modularGitCommandsManager.rebaseFromParams(params);
 }
