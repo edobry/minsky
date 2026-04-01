@@ -41,6 +41,7 @@ export interface Task {
   specPath?: string;
   backend?: string;
   description?: string;
+  metadata?: Record<string, any>;
   spec?: string;
 }
 

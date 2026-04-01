@@ -344,6 +344,19 @@ export interface WorkspaceUtilsInterface {
    * @returns The resolved workspace path
    */
   resolveWorkspacePath(options: { workspace?: string; sessionRepo?: string }): Promise<string>;
+
+  /**
+   * Get the repository workspace path for a session
+   * @param sessionName Optional session name
+   * @returns The workspace path
+   */
+  getRepoWorkspace?: (sessionName?: string) => string;
+
+  /**
+   * Get the current working directory
+   * @returns The current working directory path
+   */
+  getCurrentWorkingDirectory?: () => string;
 }
 
 /**
