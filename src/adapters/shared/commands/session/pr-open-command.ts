@@ -1,0 +1,51 @@
+/**
+ * Session PR Open Command
+ * Opens the pull request in the default web browser
+ */
+
+import { BaseSessionCommand, type SessionCommandDependencies } from "./base-session-command";
+import { type CommandExecutionContext } from "../../command-registry";
+import { MinskyError, getErrorMessage } from "../../../../errors/index";
+import { sessionPrOpenCommandParams } from "./session-parameters";
+import { sessionPrOpen } from "../../../../domain/session/commands/pr-subcommands";
+
+export class SessionPrOpenCommand extends BaseSessionCommand<any, any> {
+  getCommandId(): string {
+    return "session.pr.open";
+  }
+
+  getCommandName(): string {
+    return "open";
+  }
+
+  getCommandDescription(): string {
+    return "Open the pull request in the default web browser";
+  }
+
+  getParameterSchema(): Record<string, any> {
+    return sessionPrOpenCommandParams;
+  }
+
+  async executeCommand(params: any, _context: CommandExecutionContext): Promise<any> {
+    try {
+      const result = await sessionPrOpen({
+        sessionName: params.sessionName,
+        name: params.name,
+        task: params.task,
+        repo: params.repo,
+      });
+
+      return this.createSuccessResult({
+        message: `✅ Opened PR #${result.prNumber || "N/A"} for session '${result.sessionName}' in browser\n🔗 ${result.url}`,
+        url: result.url,
+        sessionName: result.sessionName,
+        prNumber: result.prNumber,
+      });
+    } catch (error) {
+      throw new MinskyError(`Failed to open session PR: ${getErrorMessage(error)}`);
+    }
+  }
+}
+
+export const createSessionPrOpenCommand = (deps?: SessionCommandDependencies) =>
+  new SessionPrOpenCommand(deps);
