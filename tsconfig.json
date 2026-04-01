@@ -36,7 +36,7 @@
     "noImplicitAny": false
   },
   "include": ["src", "types", "tests", ".eslintrc.cjs", ".prettierrc.cjs"],
-  "exclude": ["node_modules", "dist", "build", "codemods", "scripts", "src/scripts"]
+  "exclude": ["node_modules", "dist", "build", "codemods", "scripts", "src/scripts", "tests/fixtures", "tests/integration/fixtures"]
 }
 
 // Force TS Server to re-evaluate
