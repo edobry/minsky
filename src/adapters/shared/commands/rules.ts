@@ -191,7 +191,7 @@ const rulesGenerateCommandParams: CommandParameterMap = {
     defaultValue: false,
   },
   format: {
-    schema: z.enum(["cursor", "generic"]),
+    schema: z.enum(["cursor", "generic", "minsky"]),
     description: "Rule format for file system organization (cursor or generic)",
     required: false,
     defaultValue: "cursor",
@@ -854,6 +854,111 @@ export function registerRulesCommands(registry?: typeof sharedCommandRegistry): 
         log.error("Failed to compile rules", {
           error: getErrorMessage(error),
           target: targetId,
+        });
+        throw error;
+      }
+    },
+  });
+
+  // Register rules migrate command
+  targetRegistry.registerCommand({
+    id: "rules.migrate",
+    category: CommandCategory.RULES,
+    name: "migrate",
+    description: "Migrate rules from .cursor/rules/ to .minsky/rules/",
+    parameters: {
+      dryRun: {
+        schema: z.boolean(),
+        description: "Show what would be migrated without doing it",
+        required: false,
+        defaultValue: false,
+      },
+      force: {
+        schema: z.boolean(),
+        description: "Overwrite existing files in destination",
+        required: false,
+        defaultValue: false,
+      },
+    },
+    execute: async (params: { dryRun?: boolean; force?: boolean }) => {
+      log.debug("Executing rules.migrate command", { params });
+
+      const dryRun = params.dryRun || false;
+      const force = params.force || false;
+
+      try {
+        const workspacePath = await resolveWorkspacePath({});
+        const sourceDir = join(workspacePath, ".cursor/rules");
+        const destDir = join(workspacePath, ".minsky/rules");
+
+        // Check if source directory exists
+        let sourceEntries: string[];
+        try {
+          const entries = await fs.readdir(sourceDir);
+          sourceEntries = entries.filter((f) => f.endsWith(".mdc"));
+        } catch {
+          return {
+            success: false,
+            error: `Source directory does not exist: ${sourceDir}`,
+          };
+        }
+
+        if (sourceEntries.length === 0) {
+          return {
+            success: false,
+            error: `No .mdc files found in source directory: ${sourceDir}`,
+          };
+        }
+
+        // Create dest dir if needed (unless dry run)
+        if (!dryRun) {
+          await fs.mkdir(destDir, { recursive: true });
+        }
+
+        const migrated: string[] = [];
+        const skipped: string[] = [];
+
+        for (const filename of sourceEntries) {
+          const srcFile = join(sourceDir, filename);
+          const destFile = join(destDir, filename);
+
+          // Check if destination file already exists
+          let destExists = false;
+          try {
+            await fs.access(destFile);
+            destExists = true;
+          } catch {
+            destExists = false;
+          }
+
+          if (destExists && !force) {
+            skipped.push(filename);
+            continue;
+          }
+
+          if (!dryRun) {
+            const content = await fs.readFile(srcFile);
+            await fs.writeFile(destFile, content);
+          }
+          migrated.push(filename);
+        }
+
+        return {
+          success: true,
+          dryRun,
+          migrated,
+          skipped,
+          sourceDir,
+          destDir,
+          nextSteps: [
+            "Run `minsky rules compile --target cursor-rules` to regenerate .cursor/rules/ from the new canonical source",
+            "Add `.cursor/rules/` to your .gitignore",
+            "Run `git rm -r --cached .cursor/rules/` to untrack the old files",
+          ],
+        };
+      } catch (error) {
+        log.error("Failed to migrate rules", {
+          error: getErrorMessage(error as any),
         });
         throw error;
       }

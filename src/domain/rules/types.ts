@@ -29,7 +29,7 @@ export interface RuleMeta {
   [key: string]: any; // Allow for additional custom fields
 }
 
-export type RuleFormat = "cursor" | "generic";
+export type RuleFormat = "cursor" | "generic" | "minsky";
 
 export interface RuleOptions {
   format?: RuleFormat;

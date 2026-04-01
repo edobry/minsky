@@ -58,7 +58,7 @@ export interface RuleMeta {
   [key: string]: any; // Allow for additional custom fields
 }
 
-export type RuleFormat = "cursor" | "generic";
+export type RuleFormat = "cursor" | "generic" | "minsky";
 
 export interface RuleOptions {
   format?: RuleFormat;
@@ -109,7 +109,12 @@ export class RuleService {
   }
 
   private getRuleDirPath(format: RuleFormat): string {
-    const dirPath = join(this.workspacePath, format === "cursor" ? ".cursor/rules" : ".ai/rules");
+    const formatDirMap: Record<RuleFormat, string> = {
+      cursor: ".cursor/rules",
+      generic: ".ai/rules",
+      minsky: ".minsky/rules",
+    };
+    const dirPath = join(this.workspacePath, formatDirMap[format]);
     return dirPath;
   }
 
@@ -118,7 +123,7 @@ export class RuleService {
    */
   async listRules(options: RuleOptions = {}): Promise<Rule[]> {
     const rules: Rule[] = [];
-    const formats: RuleFormat[] = options.format ? [options.format] : ["cursor", "generic"];
+    const formats: RuleFormat[] = options.format ? [options.format] : ["minsky", "cursor", "generic"];
 
     for (const format of formats) {
       const dirPath = this.getRuleDirPath(format);
@@ -269,7 +274,7 @@ export class RuleService {
     }
 
     // Try to find in all formats if not found in the requested format or if no format was specified
-    const formatsToSearch: RuleFormat[] = ["cursor", "generic"];
+    const formatsToSearch: RuleFormat[] = ["minsky", "cursor", "generic"];
 
     for (const format of formatsToSearch) {
       // Skip if we already checked this format above
