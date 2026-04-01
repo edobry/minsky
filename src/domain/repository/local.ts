@@ -4,16 +4,9 @@ import { exec } from "child_process";
 import { promisify } from "util";
 import { createSessionProvider, type SessionProviderInterface } from "../session";
 import { normalizeRepositoryURI } from "../repository-uri";
-import { execGitWithTimeout, gitCloneWithTimeout, type GitExecOptions } from "../../utils/git-exec";
-import { normalizeRepoName } from "../repo-utils";
-import { MinskyError, getErrorMessage } from "../../errors/index";
+import { execGitWithTimeout, gitCloneWithTimeout } from "../../utils/git-exec";
+import { MinskyError } from "../../errors/index";
 import { log } from "../../utils/logger";
-import {
-  createPreparedMergeCommitPR,
-  mergePreparedMergeCommitPR,
-  type PreparedMergeCommitOptions,
-  type PreparedMergeCommitMergeOptions,
-} from "../git/prepared-merge-commit-workflow";
 import type {
   RepositoryBackend,
   RepositoryBackendConfig,
@@ -27,12 +20,27 @@ import type {
   ApprovalStatus,
   SessionUpdateEvent,
 } from "./index";
+import {
+  createPullRequest as _createPR,
+  updatePullRequest as _updatePR,
+  mergePullRequest as _mergePR,
+  getPullRequestDetails as _getPRDetails,
+  getPullRequestDiff as _getPRDiff,
+  type LocalContext,
+} from "./local-pr-operations";
+import {
+  approvePullRequest as _approvePR,
+  getPullRequestApprovalStatus as _getApprovalStatus,
+} from "./local-pr-approval";
 
 const execAsync = promisify(exec);
 
 /**
  * Local Git Repository Backend implementation
- * This is the default backend that uses a local git repository
+ * This is the default backend that uses a local git repository.
+ *
+ * PR and approval logic lives in local-pr-operations.ts and
+ * local-pr-approval.ts; this class is a thin delegation layer.
  */
 export class LocalGitBackend implements RepositoryBackend {
   private readonly baseDir: string;
@@ -41,10 +49,6 @@ export class LocalGitBackend implements RepositoryBackend {
   private sessionDB: SessionProviderInterface | null = null;
   private config: RepositoryBackendConfig;
 
-  /**
-   * Create a new LocalGitBackend instance
-   * @param config Backend configuration
-   */
   constructor(config: RepositoryBackendConfig) {
     const xdgStateHome = process.env.XDG_STATE_HOME || join(process.env.HOME || "", ".local/state");
     this.baseDir = join(xdgStateHome, "minsky");
@@ -53,9 +57,8 @@ export class LocalGitBackend implements RepositoryBackend {
     this.config = config;
   }
 
-  /**
-   * Initialize session database lazily
-   */
+  // ── Internal helpers ─────────────────────────────────────────────────
+
   private async getSessionDB(): Promise<SessionProviderInterface> {
     if (!this.sessionDB) {
       this.sessionDB = await createSessionProvider();
@@ -63,80 +66,49 @@ export class LocalGitBackend implements RepositoryBackend {
     return this.sessionDB;
   }
 
-  /**
-   * Get the backend type
-   * @returns Backend type identifier
-   */
-  getType(): string {
-    return "local";
-  }
-
-  /**
-   * Ensure the base directory exists
-   */
   private async ensureBaseDir(): Promise<void> {
     await mkdir(this.baseDir, { recursive: true });
   }
 
-  /**
-   * Get the session working directory path
-   * @param session Session identifier
-   * @returns Full path to the session working directory
-   */
   private getSessionWorkdir(session: string): string {
-    // Use consistent path structure with SessionDB: no repoName component
-    // This fixes the bug where LocalGitBackend and SessionDB used different paths
+    // Use consistent path structure with SessionDB: no repoName component.
+    // This fixes the bug where LocalGitBackend and SessionDB used different paths.
     return join(this.baseDir, "sessions", session);
   }
 
-  /**
-   * Clone the repository for a session
-   * @param session Session identifier
-   * @returns Clone result with workdir and session
-   */
+  /** Build a LocalContext for delegation to helper modules. */
+  private get ctx(): LocalContext {
+    return {
+      getSessionWorkdir: (s) => this.getSessionWorkdir(s),
+      getSessionDB: () => this.getSessionDB(),
+    };
+  }
+
+  // ── RepositoryBackend: basic operations ──────────────────────────────
+
+  getType(): string {
+    return "local";
+  }
+
   async clone(session: string): Promise<CloneResult> {
     await this.ensureBaseDir();
 
-    // Create the repo/sessions directory structure
     const sessionsDir = join(this.baseDir, this.repoName, "sessions");
     await mkdir(sessionsDir, { recursive: true });
 
-    // Get the workdir with sessions subdirectory
     const workdir = this.getSessionWorkdir(session);
-
-    // Clone the repository
     await gitCloneWithTimeout(this.repoUrl, workdir);
 
-    return {
-      workdir,
-      session,
-    };
+    return { workdir, session };
   }
 
-  /**
-   * Create a branch in the repository
-   * @param session Session identifier
-   * @param branch Branch name
-   * @returns Branch result with workdir and branch
-   */
   async branch(session: string, branch: string): Promise<BranchResult> {
     await this.ensureBaseDir();
     const workdir = this.getSessionWorkdir(session);
-
-    // Create the branch in the specified session's repo
     await execGitWithTimeout("local-create-branch", `checkout -b ${branch}`, { workdir });
-
-    return {
-      workdir,
-      branch,
-    };
+    return { workdir, branch };
   }
 
-  /**
-   * Get repository status
-   * @param session Session identifier
-   * @returns Object with repository status information
-   */
   async getStatus(session: string): Promise<RepoStatus> {
     const workdir = this.getSessionWorkdir(session);
     const { stdout: branchOutput } = await execAsync(
@@ -144,7 +116,6 @@ export class LocalGitBackend implements RepositoryBackend {
     );
     const branch = branchOutput.trim();
 
-    // Get ahead/behind counts
     let ahead = 0;
     let behind = 0;
     try {
@@ -156,8 +127,8 @@ export class LocalGitBackend implements RepositoryBackend {
         behind = parseInt(counts[0] || "0", 10);
         ahead = parseInt(counts[1] || "0", 10);
       }
-    } catch (error) {
-      // If no upstream branch is set, this will fail - that's okay
+    } catch {
+      // No upstream branch set — that's fine
     }
 
     const { stdout: statusOutput } = await execGitWithTimeout(
@@ -175,7 +146,6 @@ export class LocalGitBackend implements RepositoryBackend {
         file: line.substring(3),
       }));
 
-    // Get remote information
     const { stdout: remoteOutput } = await execGitWithTimeout("local-remote-list", "remote", {
       workdir,
     });
@@ -194,22 +164,12 @@ export class LocalGitBackend implements RepositoryBackend {
     };
   }
 
-  /**
-   * Get the repository path for a session
-   * @param session Session identifier
-   * @returns Full path to the repository
-   */
   async getPath(session: string): Promise<string> {
     return this.getSessionWorkdir(session);
   }
 
-  /**
-   * Validate the repository configuration
-   * @returns Promise that resolves if the repository is valid
-   */
   async validate(): Promise<Result> {
     try {
-      // If the repo is a local path, check if it has a .git directory
       if (!this.repoUrl.includes("://") && !this.repoUrl.includes("@")) {
         const { stdout } = await execAsync(
           `test -d "${this.repoUrl}/.git" && echo "true" || echo "false"`
@@ -218,9 +178,6 @@ export class LocalGitBackend implements RepositoryBackend {
           throw new Error(`Not a git repository: ${this.repoUrl}`);
         }
       }
-
-      // For remote repositories, we can't easily validate them without cloning
-      // For now, we'll just assume they're valid
     } catch (error) {
       const normalizedError = error instanceof Error ? error : new Error(String(error as any));
       return { success: false, message: `Invalid git repository: ${normalizedError.message}` };
@@ -230,58 +187,36 @@ export class LocalGitBackend implements RepositoryBackend {
 
   async push(branch?: string): Promise<any> {
     try {
-      // Use the base repository directory (not session-specific)
       const workdir = this.repoUrl;
-
-      // Build push command with optional branch
       let pushCommand = "push";
       if (branch) {
         pushCommand += ` origin ${branch}`;
       }
-
-      await execGitWithTimeout("push", pushCommand, {
-        workdir,
-        timeout: 60000,
-      });
+      await execGitWithTimeout("push", pushCommand, { workdir, timeout: 60000 });
       return { success: true, message: "Push completed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        message: `Push failed: ${errorMessage}`,
-      };
+      return { success: false, message: `Push failed: ${errorMessage}` };
     }
   }
 
   async pull(branch?: string): Promise<any> {
     try {
-      // Use the base repository directory (not session-specific)
       const workdir = this.repoUrl;
-
-      // Build pull command with optional branch
       let pullCommand = "pull";
       if (branch) {
         pullCommand += ` origin ${branch}`;
       }
-
-      await execGitWithTimeout("pull", pullCommand, {
-        workdir,
-        timeout: 60000,
-      });
+      await execGitWithTimeout("pull", pullCommand, { workdir, timeout: 60000 });
       return { success: true, message: "Pull completed successfully" };
     } catch (error) {
       const errorMessage = error instanceof Error ? error.message : String(error);
-      return {
-        success: false,
-        message: `Pull failed: ${errorMessage}`,
-      };
+      return { success: false, message: `Pull failed: ${errorMessage}` };
     }
   }
 
-  /**
-   * Create a pull request using prepared merge commit workflow
-   * This creates a PR branch with a merge commit prepared for approval
-   */
+  // ── RepositoryBackend: PR operations (delegated) ─────────────────────
+
   async createPullRequest(
     title: string,
     body: string,
@@ -290,324 +225,96 @@ export class LocalGitBackend implements RepositoryBackend {
     session?: string,
     draft?: boolean
   ): Promise<PRInfo> {
-    let workdir: string;
-
-    // Determine working directory
-    if (session) {
-      const sessionDB = await this.getSessionDB();
-      const record = await sessionDB.getSession(session);
-      if (!record) {
-        throw new MinskyError(`Session '${session}' not found in database`);
-      }
-      workdir = this.getSessionWorkdir(session);
-    } else {
-      // Use current working directory
-      workdir = process.cwd();
-    }
-
-    const options: PreparedMergeCommitOptions = {
-      title,
-      body,
-      sourceBranch,
-      baseBranch,
-      workdir,
-      session,
-    };
-
-    const prInfo = await createPreparedMergeCommitPR(options);
-
-    // After creating PR, update session record with local commit hash of PR branch
-    if (session) {
-      try {
-        const sessionDB = await this.getSessionDB();
-        const sessionRecord = await sessionDB.getSession(session);
-        if (sessionRecord) {
-          const prBranchName =
-            typeof prInfo.number === "string" ? String(prInfo.number) : `pr/${session}`;
-          const workdirPath = this.getSessionWorkdir(session);
-          const { stdout } = await execAsync(`git -C ${workdirPath} rev-parse ${prBranchName}`);
-          const commitHash = stdout.trim();
-          await sessionDB.updateSession(session, {
-            ...sessionRecord,
-            prBranch: prBranchName,
-            prState: {
-              branchName: prBranchName,
-              commitHash,
-              lastChecked: new Date().toISOString(),
-              createdAt: new Date().toISOString(),
-            },
-          });
-        }
-      } catch (err) {
-        log.debug("Local backend: unable to record PR commit hash", {
-          error: getErrorMessage(err as any),
-          session,
-        });
-      }
-    }
-
-    return prInfo;
+    return _createPR(this.ctx, title, body, sourceBranch, baseBranch, session, draft);
   }
 
-  /**
-   * Update an existing pull request (local backend)
-   * For local repositories, we treat the PR as a branch update
-   */
   async updatePullRequest(options: {
     prIdentifier?: string | number;
     title?: string;
     body?: string;
     session?: string;
   }): Promise<PRInfo> {
-    // For local repositories, updating a PR means updating the prepared merge commit
-    // This might involve git operations, so we keep the existing sessionPr workflow
-    // but with update semantics
-
-    if (!options.session) {
-      throw new MinskyError("Session is required for local repository PR updates");
-    }
-
-    const sessionDB = await this.getSessionDB();
-    const sessionRecord = await sessionDB.getSession(options.session);
-    if (!sessionRecord?.prBranch) {
-      throw new MinskyError(`No PR found for session '${options.session}'`);
-    }
-
-    // For local repos, we might need to recreate the prepared merge commit with new metadata
-    // This is more complex and may involve conflicts, so we delegate to the existing workflow
-    const { sessionPr } = await import("../session/commands/pr-command");
-
-    const result = await sessionPr(
-      {
-        sessionName: options.session!,
-        title: options.title ?? "Update PR",
-        body: options.body,
-        // For local backend updates, we still might need conflict checking
-        skipConflictCheck: false,
-        noStatusUpdate: true,
-        autoResolveDeleteConflicts: false,
-        debug: false,
-        draft: false,
-      },
-      { interface: "cli" }
-    );
-
-    return {
-      number: sessionRecord.prBranch || "unknown",
-      url: sessionRecord.prBranch || "local",
-      state: "open",
-      metadata: {
-        backend: "local",
-        workdir: this.getSessionWorkdir(options.session),
-      },
-    };
+    return _updatePR(this.ctx, options);
   }
 
-  /**
-   * Merge a pull request using the prepared merge commit workflow
-   * This merges the PR branch into the base branch
-   */
   async mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo> {
-    let workdir: string;
-
-    // Determine working directory
-    if (session) {
-      const sessionDB = await this.getSessionDB();
-      const record = await sessionDB.getSession(session);
-      if (!record) {
-        throw new MinskyError(`Session '${session}' not found in database`);
-      }
-      // FIXED: Use the main repository (repoUrl) instead of session workspace
-      // For local repositories, repoUrl is a local file path to the main repository
-      // where PR branches exist. Merge operations must happen there, not in the
-      // session workspace which is just a temporary development copy.
-      workdir = record.repoUrl;
-    } else {
-      workdir = process.cwd();
-    }
-
-    const options: PreparedMergeCommitMergeOptions = {
-      prIdentifier,
-      workdir,
-      session,
-    };
-
-    return await mergePreparedMergeCommitPR(options);
+    return _mergePR(this.ctx, prIdentifier, session);
   }
 
-  /**
-   * Approve a pull request in the local repository
-   * For local repositories, this updates the session record with prApproved: true.
-   * (GitHub backend would update GitHub, local backend updates session record)
-   */
+  async getPullRequestDetails(options: {
+    prIdentifier?: string | number;
+    session?: string;
+  }): Promise<any> {
+    return _getPRDetails(this.ctx, options);
+  }
+
+  async getPullRequestDiff(options: {
+    prIdentifier?: string | number;
+    session?: string;
+  }): Promise<any> {
+    return _getPRDiff(this.ctx, options);
+  }
+
+  // ── RepositoryBackend: approval operations (delegated) ───────────────
+
   async approvePullRequest(
     prIdentifier: string | number,
     reviewComment?: string
   ): Promise<ApprovalInfo> {
-    const prId = String(prIdentifier);
-
-    // Find session record by PR branch
-    const sessionDB = await this.getSessionDB();
-    const sessions = await sessionDB.listSessions();
-    const sessionRecord = sessions.find((s) => s.prBranch === prId);
-
-    if (!sessionRecord) {
-      throw new Error(`No session found with PR branch: ${prId}`);
-    }
-
-    // Get current git user for approval record
-    let approver = "local-user";
-    try {
-      const { stdout } = await execGitWithTimeout("get-user-name", "config user.name", {
-        workdir: process.cwd(),
-        timeout: 5000,
-      });
-      approver = stdout.trim() || "local-user";
-    } catch {
-      // Use default if git config fails
-    }
-
-    // Update session record with approval (this is where local backend stores approval)
-    await sessionDB.updateSession(sessionRecord.session, {
-      prApproved: true,
-    });
-
-    log.info("Local PR approved - session record updated", {
-      prIdentifier: prId,
-      sessionName: sessionRecord.session,
-      approver,
-    });
-
-    return {
-      reviewId: `local-${prId}-${Date.now()}`,
-      approvedBy: approver,
-      approvedAt: new Date().toISOString(),
-      comment: reviewComment,
-      prNumber: prId,
-      platformData: {
-        platform: "local",
-        prIdentifier: prId,
-        sessionName: sessionRecord.session,
-      },
-    };
+    return _approvePR(this.ctx, prIdentifier, reviewComment);
   }
 
-  /**
-   * Get approval status for a pull request in the local repository
-   * For local repositories, checks the session record for prApproved status.
-   */
   async getPullRequestApprovalStatus(prIdentifier: string | number): Promise<ApprovalStatus> {
-    const prId = String(prIdentifier);
-
-    // Find session record by PR branch
-    const sessionDB = await this.getSessionDB();
-    const sessions = await sessionDB.listSessions();
-    const sessionRecord = sessions.find((s) => s.prBranch === prId);
-
-    if (!sessionRecord) {
-      log.debug("No session found for PR approval status check", { prIdentifier: prId });
-      return {
-        isApproved: false,
-        approvals: [],
-        requiredApprovals: 1,
-        canMerge: false,
-        platformData: {
-          platform: "local",
-          prIdentifier: prId,
-          error: "No session found with this PR branch",
-        },
-      };
-    }
-
-    const isApproved = !!sessionRecord.prApproved;
-
-    log.debug("Local PR approval status", {
-      prIdentifier: prId,
-      sessionName: sessionRecord.session,
-      isApproved,
-    });
-
-    return {
-      isApproved,
-      approvals: isApproved
-        ? [
-            {
-              reviewId: `local-${sessionRecord.session}`,
-              approvedBy: "local-user",
-              approvedAt: new Date().toISOString(), // We don't track when it was approved
-              prNumber: prId,
-              platformData: { platform: "local", sessionName: sessionRecord.session },
-            },
-          ]
-        : [],
-      requiredApprovals: 1,
-      canMerge: isApproved,
-      platformData: {
-        platform: "local",
-        prIdentifier: prId,
-        sessionName: sessionRecord.session,
-      },
-    };
+    return _getApprovalStatus(this.ctx, prIdentifier);
   }
 
+  // ── RepositoryBackend: session hook ─────────────────────────────────
+
   /**
-   * Post-session-update hook: Auto-update PR branches for local repositories
-   * This ensures PRs stay current when sessions are updated with latest main
-   *
-   * Design note: Simple implementation now, structured for future work item integration
+   * Post-session-update hook: auto-update PR branches for local repositories.
+   * Ensures PRs stay current when sessions are updated with latest main.
    */
   async onSessionUpdated(event: SessionUpdateEvent): Promise<void> {
     const { session, workdir } = event;
     try {
-      // Check if session has an associated PR
       const hasPr = session.pullRequest || (session.prState && session.prState.exists);
-
       if (!hasPr) {
         log.debug(`Session '${session.session}' has no associated PR, skipping PR branch update`);
         return;
       }
 
-      // Determine PR branch name
       let prBranch: string;
       if (session.pullRequest?.headBranch) {
         prBranch = session.pullRequest.headBranch;
       } else if (session.prState?.branchName) {
         prBranch = session.prState.branchName;
       } else {
-        // Default PR branch naming convention
         prBranch = `pr/${session.session}`;
       }
 
       log.info(`Local session has associated PR, auto-updating PR branch '${prBranch}'`);
 
-      // Check if we're currently on the PR branch
       const { stdout: currentBranchOutput } = await execGitWithTimeout(
         "branch-show-current",
         "branch --show-current",
-        {
-          workdir,
-          timeout: 10000,
-        }
+        { workdir, timeout: 10000 }
       );
       const currentBranchName = currentBranchOutput.trim();
 
       if (currentBranchName === prBranch) {
-        // We're on the PR branch, push the updates
         await execGitWithTimeout("push", `push origin ${prBranch}`, { workdir, timeout: 30000 });
         log.info(`PR branch '${prBranch}' updated successfully`);
       } else {
-        // We're on a different branch (probably session branch), need to update PR branch
         log.debug(
           `Current branch '${currentBranchName}' differs from PR branch '${prBranch}', updating PR branch`
         );
 
-        // Check if PR branch exists locally
         try {
           await execGitWithTimeout("rev-parse", `rev-parse --verify ${prBranch}`, {
             workdir,
             timeout: 10000,
           });
-          // PR branch exists locally, merge current changes into it
+          // PR branch exists locally — merge current changes into it
           await execGitWithTimeout("checkout", `checkout ${prBranch}`, { workdir, timeout: 10000 });
           await execGitWithTimeout("merge", `merge ${currentBranchName}`, {
             workdir,
@@ -620,7 +327,7 @@ export class LocalGitBackend implements RepositoryBackend {
           });
           log.info(`PR branch '${prBranch}' updated with latest changes`);
         } catch {
-          // PR branch doesn't exist locally, create it from current branch
+          // PR branch doesn't exist locally — create it from current branch
           await execGitWithTimeout("checkout-b", `checkout -b ${prBranch}`, {
             workdir,
             timeout: 10000,
@@ -634,109 +341,9 @@ export class LocalGitBackend implements RepositoryBackend {
         }
       }
     } catch (error) {
-      // Don't fail the session update if PR update fails
       log.warn(
         `Failed to update PR branch: ${error instanceof Error ? error.message : String(error)}`
       );
     }
-  }
-
-  /**
-   * Backend-agnostic PR detail retrieval for Local backend
-   */
-  async getPullRequestDetails(options: { prIdentifier?: string | number; session?: string }) {
-    // For local backend, PR is represented by a branch (default pr/<session>)
-    let sessionName: string | undefined = options.session;
-    if (!sessionName && options.prIdentifier) {
-      const prId = String(options.prIdentifier);
-      // Try to find session by prBranch
-      const sessionDB = await this.getSessionDB();
-      const sessions = await sessionDB.listSessions();
-      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
-      sessionName = record?.session;
-    }
-    if (!sessionName) {
-      throw new MinskyError("Local backend requires session or prIdentifier to resolve PR details");
-    }
-
-    const sessionDB = await this.getSessionDB();
-    const record = await sessionDB.getSession(sessionName);
-    if (!record) {
-      throw new MinskyError(`Session '${sessionName}' not found`);
-    }
-
-    const number = record.prBranch || `pr/${sessionName}`;
-    const prInfo = record.pullRequest as any;
-    return {
-      number,
-      url: number,
-      state: record.prApproved ? "approved" : "open",
-      title: prInfo?.title,
-      body: prInfo?.body,
-      headBranch: number,
-      baseBranch: prInfo?.baseBranch || "main",
-      author: undefined,
-      createdAt: prInfo?.createdAt,
-      updatedAt: prInfo?.updatedAt,
-      mergedAt: prInfo?.mergedAt,
-    };
-  }
-
-  /**
-   * Backend-agnostic PR diff retrieval for Local backend
-   */
-  async getPullRequestDiff(options: { prIdentifier?: string | number; session?: string }) {
-    let sessionName: string | undefined = options.session;
-    let prBranch: string | undefined;
-
-    if (!sessionName && options.prIdentifier) {
-      const prId = String(options.prIdentifier);
-      const sessionDB = await this.getSessionDB();
-      const sessions = await sessionDB.listSessions();
-      const record = sessions.find((s) => s.prBranch === prId || `pr/${s.session}` === prId);
-      sessionName = record?.session;
-      prBranch = prId;
-    }
-
-    if (!sessionName) {
-      throw new MinskyError("Local backend requires session or prIdentifier to resolve PR diff");
-    }
-
-    const workdir = this.getSessionWorkdir(sessionName);
-    // Determine base branch (default main) and prBranch
-    const baseBranch = "main";
-    if (!prBranch) {
-      const sessionDB = await this.getSessionDB();
-      const sessionRecord = await sessionDB.getSession(sessionName);
-      prBranch = sessionRecord?.prBranch || `pr/${sessionName}`;
-    }
-
-    // Ensure we have latest
-    await execGitWithTimeout("fetch", "fetch origin", { workdir });
-
-    const diff = await execGitWithTimeout(
-      "diff",
-      `diff origin/${baseBranch}...origin/${prBranch}`,
-      { workdir }
-    );
-
-    // Compute stats via --shortstat
-    const shortstat = await execGitWithTimeout(
-      "diff-shortstat",
-      `diff --shortstat origin/${baseBranch}...origin/${prBranch}`,
-      { workdir }
-    );
-    const match = String(shortstat).match(
-      /(\d+) files? changed(?:, (\d+) insertions?\(\+\))?(?:, (\d+) deletions?\(-\))?/
-    );
-    const stats = match
-      ? {
-          filesChanged: parseInt(match[1] || "0", 10),
-          insertions: parseInt(match[2] || "0", 10),
-          deletions: parseInt(match[3] || "0", 10),
-        }
-      : undefined;
-
-    return { diff: String(diff), stats };
   }
 }

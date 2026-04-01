@@ -1,0 +1,65 @@
+/**
+ * Rules compile and migrate commands
+ */
+import { getErrorMessage } from "../../../../errors/index";
+import { CommandCategory, type CommandExecutionContext } from "../../command-registry";
+import { log } from "../../../../utils/logger";
+import { resolveWorkspacePath } from "../../../../domain/workspace";
+import { compileRules, migrateRules } from "../../../../domain/rules/rules-command-operations";
+import { rulesCompileCommandParams, rulesMigrateCommandParams } from "./rules-parameters";
+
+export function registerCompileMigrateCommands(targetRegistry: {
+  registerCommand: (cmd: any) => void;
+}): void {
+  targetRegistry.registerCommand({
+    id: "rules.compile",
+    category: CommandCategory.RULES,
+    name: "compile",
+    description: "Compile rules into a monolithic file (e.g., AGENTS.md or CLAUDE.md)",
+    parameters: rulesCompileCommandParams,
+    execute: async (
+      params: { target?: string; output?: string; dryRun?: boolean; check?: boolean },
+      _ctx?: CommandExecutionContext
+    ) => {
+      log.debug("Executing rules.compile command", { params });
+      try {
+        const workspacePath = await resolveWorkspacePath({});
+        return await compileRules({
+          workspacePath,
+          target: params.target,
+          output: params.output,
+          dryRun: params.dryRun,
+          check: params.check,
+        });
+      } catch (error) {
+        log.error("Failed to compile rules", {
+          error: getErrorMessage(error),
+          target: params.target || "agents.md",
+        });
+        throw error;
+      }
+    },
+  });
+
+  targetRegistry.registerCommand({
+    id: "rules.migrate",
+    category: CommandCategory.RULES,
+    name: "migrate",
+    description: "Migrate rules from .cursor/rules/ to .minsky/rules/",
+    parameters: rulesMigrateCommandParams,
+    execute: async (params: { dryRun?: boolean; force?: boolean }) => {
+      log.debug("Executing rules.migrate command", { params });
+      try {
+        const workspacePath = await resolveWorkspacePath({});
+        return await migrateRules({
+          workspacePath,
+          dryRun: params.dryRun || false,
+          force: params.force || false,
+        });
+      } catch (error) {
+        log.error("Failed to migrate rules", { error: getErrorMessage(error as any) });
+        throw error;
+      }
+    },
+  });
+}
