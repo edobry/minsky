@@ -28,15 +28,6 @@ import type {
   SessionUpdateEvent,
 } from "./index";
 
-// Define a global for process to avoid linting errors
-declare const process: {
-  env: {
-    XDG_STATE_HOME?: string;
-    HOME?: string;
-    [key: string]: string | undefined;
-  };
-  cwd(): string;
-};
 
 const execAsync = promisify(exec);
 
