@@ -1,5 +1,3 @@
-import { promisify } from "node:util";
-import { exec } from "node:child_process";
 import { normalizeRepoName } from "../repo-utils";
 import { MinskyError, getErrorMessage } from "../../errors/index";
 import { validateGitError } from "../../schemas/error";

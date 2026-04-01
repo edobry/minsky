@@ -4,10 +4,7 @@ import { createSessionProvider } from "../../session";
 import { log } from "../../../utils/logger";
 import { createGitService } from "../../git";
 import { execGitWithTimeout } from "../../../utils/git-exec";
-import { promisify } from "node:util";
-import { exec } from "node:child_process";
-
-const execAsync = promisify(exec);
+import { execAsync } from "../../../utils/exec";
 
 /**
  * Checkout a branch from parameters

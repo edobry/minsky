@@ -7,7 +7,7 @@ import { createSessionProvider } from "../session-db-adapter";
 import { sessionPr } from "./pr-command";
 import { resolveSessionContextWithFeedback } from "../session-context-resolver";
 import { createRepositoryBackendFromSession } from "../session-pr-operations";
-import { ResourceNotFoundError, ValidationError } from "../../errors/index";
+import { ResourceNotFoundError, ValidationError } from "../../../errors/index";
 
 /**
  * Session PR Create implementation

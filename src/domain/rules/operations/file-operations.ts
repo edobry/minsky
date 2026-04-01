@@ -7,8 +7,8 @@
 import { promises as fs } from "fs";
 import { existsSync } from "fs";
 import * as grayMatterNamespace from "gray-matter";
-import * as jsYaml from "js-yaml";
 import { HTTP_OK } from "../../../utils/constants";
+import { serializeYamlFrontmatter } from "../utils/yaml-frontmatter";
 import { getErrorMessage } from "../../../errors/index";
 import { BaseRuleOperation, type RuleOperationDependencies } from "./base-rule-operation";
 import { log } from "../../../utils/logger";
@@ -21,31 +21,6 @@ import {
 } from "../types";
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
-
-/**
- * Create a custom stringify function that doesn't add unnecessary quotes
- */
-function customMatterStringify(content: string, data: any): string {
-  // Use js-yaml's dump function directly with options to control quoting behavior
-  let yamlStr = jsYaml.dump(data, {
-    lineWidth: -1, // Don't wrap lines
-    noCompatMode: true, // Use YAML 1.2
-    quotingType: '"', // Use double quotes when necessary
-    forceQuotes: false, // Don't force quotes on all strings
-  });
-
-  // Post-process to ensure descriptions with special characters use double quotes
-  // Replace single-quoted descriptions with double-quoted ones
-  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (match, description) => {
-    // Check if description contains special characters that warrant quoting
-    if (description.includes(":") || description.includes("!") || description.includes("?")) {
-      return `description: \"${description}\"`;
-    }
-    return match;
-  });
-
-  return `---\\n${yamlStr}---\\n${content}`;
-}
 
 /**
  * Read Rule File Operation
@@ -182,7 +157,7 @@ export class WriteRuleFileOperation extends BaseRuleOperation<
     const cleanMeta = this.cleanMetadata(params.meta);
 
     // Use custom stringify function
-    const fileContent = customMatterStringify(params.content, cleanMeta);
+    const fileContent = serializeYamlFrontmatter(params.content, cleanMeta);
 
     // Write the file
     await (this.deps.fsPromises || fs).writeFile(filePath, fileContent, "utf-8");

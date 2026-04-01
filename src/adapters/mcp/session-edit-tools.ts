@@ -6,7 +6,7 @@ import type { CommandMapper } from "../../mcp/command-mapper";
 import { writeFile, stat } from "fs/promises";
 import { readTextFile } from "../../utils/fs";
 import { dirname } from "path";
-import { SessionPathResolver } from "./session-files";
+import { SessionPathResolver } from "../../domain/session/session-path-resolver";
 import { log } from "../../utils/logger";
 import { mkdir } from "fs/promises";
 import { Buffer } from "buffer";

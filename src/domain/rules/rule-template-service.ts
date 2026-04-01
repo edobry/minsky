@@ -10,35 +10,10 @@ import { RuleService, type RuleMeta as RuleMetadata } from "../rules";
 import { createTemplateContext, type RuleGenerationConfig } from "./template-system";
 import type { RuleFormat } from "./types";
 import * as grayMatterNamespace from "gray-matter";
-import * as jsYaml from "js-yaml";
 import { log } from "../../utils/logger";
+import { serializeYamlFrontmatter } from "./utils/yaml-frontmatter";
 
 const matter = grayMatterNamespace.default || grayMatterNamespace;
-
-/**
- * Add YAML frontmatter to content
- */
-function addFrontmatter(content: string, meta: RuleMetadata): string {
-  // Use js-yaml's dump function with options to control quoting behavior
-  let yamlStr = jsYaml.dump(meta, {
-    lineWidth: -1, // Don't wrap lines
-    noCompatMode: true, // Use YAML 1.2
-    quotingType: '"', // Use double quotes when necessary
-    forceQuotes: false, // Don't force quotes on all strings
-  });
-
-  // Post-process to ensure descriptions with special characters use double quotes
-  // Replace single-quoted descriptions with double-quoted ones
-  yamlStr = yamlStr.replace(/^description: '(.+)'$/gm, (_match, description) => {
-    // Check if description contains special characters that warrant quoting
-    if (description.includes(":") || description.includes("!") || description.includes("?")) {
-      return `description: "${description}"`;
-    }
-    return `description: "${description}"`;
-  });
-
-  return `---\n${yamlStr}---\n${content}`;
-}
 
 /**
  * Template for generating rule content and metadata
@@ -270,7 +245,7 @@ export class RuleTemplateService {
       // If metadata is provided, add YAML frontmatter
       let fileContent = content;
       if (meta) {
-        fileContent = addFrontmatter(content, meta);
+        fileContent = serializeYamlFrontmatter(content, meta);
       }
 
       fs.writeFileSync(rulePath, fileContent);

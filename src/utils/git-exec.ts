@@ -5,15 +5,12 @@
  * for the specific scenarios identified in Task 223.
  */
 
-import { exec } from "child_process";
-import { promisify } from "util";
+import { execAsync } from "./exec";
 import {
   createGitTimeoutErrorMessage,
   createMergeConflictErrorMessage,
 } from "../errors/enhanced-error-templates";
 import { MinskyError, getErrorMessage } from "../errors/index";
-
-const execAsync = promisify(exec);
 
 /**
  * Enhanced git execution options

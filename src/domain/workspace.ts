@@ -1,7 +1,6 @@
 import { promises as fs } from "fs";
 import { join } from "path";
-import { exec } from "child_process";
-import { promisify } from "util";
+import { execAsync } from "../utils/exec";
 import {
   createSessionProvider,
   type SessionProviderInterface,
@@ -14,8 +13,6 @@ import { sep } from "path";
 import { homedir } from "os";
 import { getErrorMessage, getErrorStack } from "../errors/index";
 import { getSessionsDir } from "../utils/paths";
-
-const execAsync = promisify(exec);
 
 /**
  * Options for resolving workspace paths
