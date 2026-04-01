@@ -21,12 +21,15 @@ export interface ComponentInput {
 
 export interface ComponentOutput {
   content: string;
+  id?: string;
+  name?: string;
   metadata: {
-    componentId: string;
-    generatedAt: string;
+    componentId?: string;
+    generatedAt?: string;
     tokenCount?: number;
     sections?: string[];
     totalTools?: number;
+    [key: string]: any;
   };
 }
 

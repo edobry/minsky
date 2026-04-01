@@ -85,6 +85,7 @@ export const SessionGetParametersSchema = z
     sessionName: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     task: TaskIdSchema.optional(),
+    json: z.boolean().optional(),
   })
   .merge(BaseBackendParametersSchema);
 
