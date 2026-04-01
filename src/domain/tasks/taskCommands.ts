@@ -376,7 +376,7 @@ export async function updateTaskFromParams(
       updates.title = params.title;
     }
     if (params.spec !== undefined) {
-      updates.spec = params.spec;
+      updates.specPath = params.spec;
     }
 
     // Update the task

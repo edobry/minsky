@@ -78,9 +78,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Execute the preparePr method
       await gitService.preparePr({
-        _session: "test-session",
+        session: "test-session",
         baseBranch: "main",
-        _title: "Test PR",
+        title: "Test PR",
         body: "Test PR body",
       });
 
@@ -110,7 +110,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Mock the CORRECT preparePr implementation
       const correctPreparePrSpy = mock(async (options: unknown) => {
-        const opts = options as { baseBranch?: string; _title?: string; body?: string };
+        const opts = options as { baseBranch?: string; title?: string; body?: string };
         const workdir = "/test/repo";
         const sourceBranch = "feature-branch";
         const baseBranch = opts.baseBranch || "main";
@@ -125,7 +125,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         await mockExecAsync(`git -C ${workdir} switch -C ${prBranch} origin/${baseBranch}`);
 
         // 3. Create commit message file with PR title/body
-        await mockExecAsync(`echo "${opts._title}" > ${workdir}/.pr_title`);
+        await mockExecAsync(`echo "${opts.title}" > ${workdir}/.pr_title`);
         if (opts.body) {
           await mockExecAsync(`echo "${opts.body}" >> ${workdir}/.pr_title`);
         }
@@ -139,7 +139,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
         return {
           prBranch,
           baseBranch,
-          _title: opts._title,
+          title: opts.title,
           body: opts.body,
         };
       });
@@ -149,9 +149,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
 
       // Execute the CORRECT preparePr method
       const result = await gitService.preparePr({
-        _session: "test-session",
+        session: "test-session",
         baseBranch: "main",
-        _title: "Test PR",
+        title: "Test PR",
         body: "Test PR body",
       });
 
@@ -175,7 +175,7 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // Verify result structure
       expect(result.prBranch).toBe(SESSION_TEST_PATTERNS.PR_FEATURE_BRANCH);
       expect(result.baseBranch).toBe("main");
-      expect(result._title).toBe("Test PR");
+      expect(result.title).toBe("Test PR");
 
       log.debug(
         "✅ CORRECT BEHAVIOR: PR branch created from base branch with prepared merge commit"
@@ -266,9 +266,9 @@ describe("Prepared Merge Commit Workflow (Task #144)", () => {
       // Should throw error on merge conflict
       await expect(
         gitService.preparePr({
-          _session: "test-session",
+          session: "test-session",
           baseBranch: "main",
-          _title: "Test PR",
+          title: "Test PR",
         })
       ).rejects.toThrow("Merge conflicts occurred");
 
