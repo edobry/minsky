@@ -1,0 +1,380 @@
+/**
+ * GitHub PR approval operations extracted from GitHubBackend.
+ *
+ * Contains: approvePullRequest, getPullRequestApprovalStatus,
+ * diagnoseMergeBlocker.
+ */
+
+import { Octokit } from "@octokit/rest";
+import { MinskyError, getErrorMessage } from "../../errors/index";
+import { log } from "../../utils/logger";
+import type { ApprovalInfo, ApprovalStatus } from "./approval-types";
+import {
+  handleOctokitError,
+  type ErrorContext,
+} from "./github-error-handler";
+import {
+  type GitHubContext,
+  requireGitHubToken,
+  createOctokit,
+  resolvePRNumber,
+  findPRNumberForBranch,
+} from "./github-pr-operations";
+
+// ── Approval operations ─────────────────────────────────────────────────
+
+/**
+ * Approve a GitHub pull request by creating an APPROVE review.
+ */
+export async function approvePullRequest(
+  gh: GitHubContext,
+  prIdentifier: string | number,
+  reviewComment?: string,
+): Promise<ApprovalInfo> {
+  const prNumber = await resolvePRNumber(
+    prIdentifier,
+    gh,
+    (branch) => {
+      const token = requireGitHubToken();
+      const ok = createOctokit(token);
+      return findPRNumberForBranch(branch, gh, ok);
+    },
+  );
+
+  try {
+    const githubToken = requireGitHubToken();
+    const octokit = createOctokit(githubToken);
+
+    // Validate PR exists and is open
+    const prResponse = await octokit.rest.pulls.get({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+    });
+
+    const pr = prResponse.data;
+
+    if (pr.state !== "open") {
+      throw new MinskyError(
+        `Pull request #${prNumber} is not open ` +
+          `(current state: ${pr.state})`,
+      );
+    }
+
+    // Create approval review
+    const reviewResponse = await octokit.rest.pulls.createReview({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+      body: reviewComment || "Approved via Minsky session workflow",
+      event: "APPROVE",
+    });
+
+    const review = reviewResponse.data;
+
+    // Get the current user info
+    const userResponse = await octokit.rest.users.getAuthenticated();
+    const approver = userResponse.data.login;
+
+    log.info("GitHub PR approved successfully", {
+      prNumber,
+      reviewId: review.id,
+      approver,
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+
+    return {
+      reviewId: String(review.id),
+      approvedBy: approver,
+      approvedAt: review.submitted_at || new Date().toISOString(),
+      comment: reviewComment,
+      prNumber,
+      metadata: {
+        github: {
+          reviewId: review.id,
+          reviewState: (review.state as any) || "APPROVED",
+          reviewerLogin: approver,
+          submittedAt: review.submitted_at || new Date().toISOString(),
+        },
+      },
+    };
+  } catch (error) {
+    if (error instanceof MinskyError) throw error;
+    handleOctokitError(error, {
+      operation: "approve pull request",
+      owner: gh.owner,
+      repo: gh.repo,
+      prNumber,
+    });
+  }
+}
+
+/**
+ * Get approval status for a GitHub pull request.
+ */
+export async function getPullRequestApprovalStatus(
+  gh: GitHubContext,
+  prIdentifier: string | number,
+): Promise<ApprovalStatus> {
+  const prNumber =
+    typeof prIdentifier === "string"
+      ? parseInt(prIdentifier, 10)
+      : prIdentifier;
+  if (isNaN(prNumber)) {
+    throw new MinskyError(`Invalid PR number: ${prIdentifier}`);
+  }
+
+  try {
+    const githubToken = requireGitHubToken();
+
+    const debugEnabled = (() => {
+      try {
+        const level = (log as any)?.config?.level;
+        return (
+          String(level).toLowerCase() === "debug" ||
+          String(process.env.LOGLEVEL).toLowerCase() === "debug"
+        );
+      } catch {
+        return false;
+      }
+    })();
+
+    const octokit = new Octokit({
+      auth: githubToken,
+      log: debugEnabled
+        ? {
+            debug: (msg: any) => log.systemDebug(String(msg)),
+            info: (msg: any) => log.systemDebug(String(msg)),
+            warn: (msg: any) => log.systemDebug(String(msg)),
+            error: (msg: any) => log.systemDebug(String(msg)),
+          }
+        : { debug: () => {}, info: () => {}, warn: () => {}, error: () => {} },
+    });
+
+    // Get PR details and reviews in parallel
+    const [prResponse, reviewsResponse] = await Promise.all([
+      octokit.rest.pulls.get({
+        owner: gh.owner,
+        repo: gh.repo,
+        pull_number: prNumber,
+      }),
+      octokit.rest.pulls.listReviews({
+        owner: gh.owner,
+        repo: gh.repo,
+        pull_number: prNumber,
+      }),
+    ]);
+
+    const pr = prResponse.data;
+    const reviews = reviewsResponse.data;
+
+    const approvals = reviews.filter((r) => r.state === "APPROVED");
+    const rejections = reviews.filter((r) => r.state === "CHANGES_REQUESTED");
+
+    // Determine required approvals from branch protection
+    let requiredApprovals = 0;
+    try {
+      const protection = await octokit.rest.repos.getBranchProtection({
+        owner: gh.owner,
+        repo: gh.repo,
+        branch: pr.base.ref,
+      });
+      const required =
+        protection.data.required_pull_request_reviews
+          ?.required_approving_review_count;
+      if (typeof required === "number" && required >= 0) {
+        requiredApprovals = required;
+      }
+    } catch (_e) {
+      requiredApprovals = 0;
+    }
+
+    const isApproved =
+      (requiredApprovals === 0 && rejections.length === 0) ||
+      (requiredApprovals > 0 &&
+        approvals.length >= requiredApprovals &&
+        rejections.length === 0);
+    const canMerge = isApproved && !!pr.mergeable && pr.state === "open";
+
+    return {
+      isApproved,
+      canMerge,
+      approvals: approvals.map((review) => ({
+        reviewId: String(review.id),
+        approvedBy: review.user?.login || "unknown",
+        approvedAt: review.submitted_at || "",
+        comment: review.body || undefined,
+        prNumber,
+      })),
+      requiredApprovals,
+      prState: (pr.state as any) || "open",
+      metadata: {
+        github: {
+          statusChecks: [],
+          branchProtection: {
+            requiredReviews: requiredApprovals,
+            dismissStaleReviews: false,
+            requireCodeOwnerReviews: false,
+            restrictPushes: false,
+          },
+          codeownersApproval: undefined,
+        },
+      },
+    };
+  } catch (error) {
+    throw new MinskyError(
+      `Failed to get GitHub PR approval status: ` +
+        `${getErrorMessage(error as any)}`,
+    );
+  }
+}
+
+// ── Merge blocker diagnosis ─────────────────────────────────────────────
+
+/**
+ * Diagnose why a PR cannot be merged and return a user-friendly
+ * description.
+ */
+export async function diagnoseMergeBlocker(
+  gh: GitHubContext,
+  prNumber: number,
+  octokit: Octokit,
+): Promise<string> {
+  try {
+    const prResp = await octokit.rest.pulls.get({
+      owner: gh.owner,
+      repo: gh.repo,
+      pull_number: prNumber,
+    });
+    const pr = prResp.data as any;
+
+    const reasons: string[] = [];
+
+    const mergeableState: string =
+      (pr.mergeable_state as string) || "unknown";
+    switch (mergeableState) {
+      case "dirty":
+        reasons.push(
+          "Merge conflicts detected. Resolve conflicts between head and base.",
+        );
+        break;
+      case "behind":
+        reasons.push(
+          `Head branch '${pr.head?.ref}' is behind '${pr.base?.ref}'. ` +
+            `Update the branch (merge or rebase).`,
+        );
+        break;
+      case "blocked":
+        reasons.push("Blocked by required reviews or status checks.");
+        break;
+      case "unstable":
+        reasons.push("Required status checks are failing or pending.");
+        break;
+      case "draft":
+        reasons.push(
+          "PR is in draft state. Mark it ready for review to allow merging.",
+        );
+        break;
+      case "unknown":
+        reasons.push(
+          "Mergeability is being calculated by GitHub. " +
+            "Retry in a few seconds.",
+        );
+        break;
+      case "clean":
+        break;
+    }
+
+    // Check repository merge method settings
+    const repoInfo = await octokit.rest.repos.get({
+      owner: gh.owner,
+      repo: gh.repo,
+    });
+    if (repoInfo?.data?.allow_merge_commit === false) {
+      reasons.push(
+        "Merge commits are disabled in repository settings. " +
+          "Use squash or rebase.",
+      );
+    }
+
+    // Inspect checks and combined statuses
+    const headSha: string = pr.head?.sha as string;
+    if (headSha) {
+      try {
+        const checks = await octokit.rest.checks.listForRef({
+          owner: gh.owner,
+          repo: gh.repo,
+          ref: headSha,
+          per_page: 100,
+        });
+        const failingChecks = checks.data.check_runs.filter(
+          (r: any) => r.conclusion && r.conclusion !== "success",
+        );
+        const pendingChecks = checks.data.check_runs.filter(
+          (r: any) => r.status !== "completed",
+        );
+        if (failingChecks.length > 0) {
+          const list = failingChecks
+            .slice(0, 5)
+            .map((r: any) => r.name)
+            .join(", ");
+          reasons.push(
+            `Failing checks: ${list}${
+              failingChecks.length > 5
+                ? ` (+${failingChecks.length - 5} more)`
+                : ""
+            }`,
+          );
+        } else if (pendingChecks.length > 0) {
+          const list = pendingChecks
+            .slice(0, 5)
+            .map((r: any) => r.name)
+            .join(", ");
+          reasons.push(`Pending checks: ${list}`);
+        } else {
+          const statuses = await octokit.rest.repos.getCombinedStatusForRef({
+            owner: gh.owner,
+            repo: gh.repo,
+            ref: headSha,
+          });
+          const failingStatuses = statuses.data.statuses.filter(
+            (s: any) => s.state !== "success",
+          );
+          if (failingStatuses.length > 0) {
+            const list = failingStatuses
+              .slice(0, 5)
+              .map(
+                (s: any) =>
+                  s.context || s.description || "status",
+              )
+              .join(", ");
+            reasons.push(
+              `Failing status checks: ${list}$${
+                failingStatuses.length > 5
+                  ? ` (+${failingStatuses.length - 5} more)`
+                  : ""
+              }`,
+            );
+          }
+        }
+      } catch (_e) {
+        // Ignore check fetching errors
+      }
+    }
+
+    if (reasons.length === 0) {
+      reasons.push(
+        "GitHub did not provide a specific reason. " +
+          "Check the PR page for details.",
+      );
+    }
+
+    return reasons.map((r) => `  - ${r}`).join("\n");
+  } catch (_e) {
+    return (
+      "  - Unable to diagnose blocker via GitHub API. " +
+      "Check the PR page for details."
+    );
+  }
+}
