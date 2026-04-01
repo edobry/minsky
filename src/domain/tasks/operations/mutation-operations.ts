@@ -4,7 +4,7 @@
  * Operations for modifying tasks (create, update status, delete).
  * Extracted from taskCommands.ts as part of modularization effort.
  */
-import { readFile } from "fs/promises";
+import { readTextFile } from "../../../utils/fs";
 import {
   taskStatusSetParamsSchema,
   taskCreateParamsSchema,
@@ -69,7 +69,7 @@ export class CreateTaskOperation extends BaseTaskOperation<TaskCreateParams, any
     // If description path is provided, read from file
     if (params.specPath) {
       try {
-        description = (await readFile(params.specPath, "utf-8")).toString();
+        description = await readTextFile(params.specPath);
       } catch (error) {
         throw new Error(`Failed to read description from file: ${params.specPath}`);
       }
@@ -109,7 +109,7 @@ export class CreateTaskFromTitleAndDescriptionOperation extends BaseTaskOperatio
     // If specPath is provided, read from file
     if (params.specPath) {
       try {
-        spec = (await readFile(params.specPath, "utf-8")).toString();
+        spec = await readTextFile(params.specPath);
       } catch (error) {
         throw new Error(`Failed to read spec from file: ${params.specPath}`);
       }

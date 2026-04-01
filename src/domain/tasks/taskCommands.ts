@@ -14,7 +14,7 @@ import {
 import type { Task } from "./types";
 
 import { ValidationError, ResourceNotFoundError } from "../../errors/index";
-import { readFile } from "fs/promises";
+import { readTextFile } from "../../utils/fs";
 import { createTaskIdParsingErrorMessage } from "../../errors/enhanced-error-templates";
 import { resolve, join } from "path";
 
@@ -490,9 +490,8 @@ export async function createTaskFromTitleAndDescription(
   let specContent = validParams.spec || "";
 
   if (validParams.specPath) {
-    const fs = await import("fs/promises");
     try {
-      specContent = (await fs.readFile(validParams.specPath, "utf-8")).toString();
+      specContent = await readTextFile(validParams.specPath);
     } catch (error) {
       throw new Error(
         `Failed to read spec from file ${validParams.specPath}: ${getErrorMessage(error)}`
@@ -569,7 +568,7 @@ export async function getTaskSpecContentFromParams(
     let content: string;
     try {
       const fullSpecPath = specPath.startsWith("/") ? specPath : join(workspacePath, specPath);
-      content = (await readFile(fullSpecPath, "utf8")) as string;
+      content = await readTextFile(fullSpecPath);
     } catch (error) {
       throw new ResourceNotFoundError(
         `Could not read specification file at ${specPath}`,
