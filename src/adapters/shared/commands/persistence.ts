@@ -218,11 +218,11 @@ async function runMigrationsWithDrizzleKit(options: {
       // Look for the database error cause
       const causeMatch = stderr.match(/cause:\s*error:\s*(.+?)(?:\n|$)/);
       if (causeMatch) {
-        const dbError = causeMatch[1];
+        const dbError = causeMatch[1] || "";
 
         // Look for the failing SQL
         const sqlMatch = stderr.match(/Failed query:\s*(.*?)(?:\n\nparams:|$)/s);
-        const sql = sqlMatch ? sqlMatch[1].trim() : "";
+        const sql = sqlMatch ? (sqlMatch[1] || "").trim() : "";
 
         if (sql) {
           // Try to extract just the first line of SQL for brevity

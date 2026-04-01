@@ -315,7 +315,7 @@ export function parseTaskSpecFromMarkdown(content: string): TaskSpecData {
   // Title is the text after the leading "# ", normalize legacy "Task: X" to just "X"
   const rawTitle = titleLine.replace(/^#\s+/, "");
   const noIdLegacyMatch = rawTitle.match(/^Task:\s*(.+)$/);
-  const title = noIdLegacyMatch ? noIdLegacyMatch[1] : rawTitle;
+  const title = noIdLegacyMatch ? (noIdLegacyMatch[1] || rawTitle) : rawTitle;
 
   // Extract description from the Context section
   const contextIndex = lines.findIndex((line) => line.trim() === "## Context");

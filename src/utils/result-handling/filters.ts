@@ -33,7 +33,9 @@ export function parseTime(value?: string | null): number | null {
   // Try absolute date (YYYY-MM-DD)
   const absMatch = v.match(/^(\d{4})-(\d{2})-(\d{2})$/);
   if (absMatch) {
-    const [_, y, m, d] = absMatch;
+    const y = absMatch[1] || "";
+    const m = absMatch[2] || "";
+    const d = absMatch[3] || "";
     const ts = Date.parse(`${y}-${m}-${d}T00:00:00Z`);
     return Number.isNaN(ts) ? null : ts;
   }
@@ -41,8 +43,8 @@ export function parseTime(value?: string | null): number | null {
   // Try relative format
   const relMatch = v.match(/^(\d+)([dhm])$/i);
   if (relMatch) {
-    const amount = parseInt(relMatch[1], 10);
-    const unit = relMatch[2].toLowerCase();
+    const amount = parseInt(relMatch[1] || "0", 10);
+    const unit = (relMatch[2] || "").toLowerCase();
     if (!Number.isFinite(amount) || amount <= 0) return null;
     const now = Date.now();
     switch (unit) {

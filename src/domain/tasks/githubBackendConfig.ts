@@ -43,8 +43,8 @@ function extractGitHubRepoFromRemote(
     const match = sshMatch || httpsMatch;
     if (match && match[1] && match[2]) {
       return {
-        owner: match[1],
-        repo: match[2].replace(/\.git$/, ""), // Remove .git suffix
+        owner: match[1] || "",
+        repo: (match[2] || "").replace(/\.git$/, ""), // Remove .git suffix
       };
     }
 
@@ -66,14 +66,14 @@ function extractGitHubRepoFromRemote(
         const upstreamMatch = upstreamSshMatch || upstreamHttpsMatch;
         if (upstreamMatch && upstreamMatch[1] && upstreamMatch[2]) {
           return {
-            owner: upstreamMatch[1],
-            repo: upstreamMatch[2].replace(/\.git$/, ""),
+            owner: upstreamMatch[1] || "",
+            repo: (upstreamMatch[2] || "").replace(/\.git$/, ""),
           };
         }
       } catch (error) {
         // Fallback: extract from path if it looks like a repo name
         const pathMatch = remoteUrl.match(/\/([^\/]+)$/);
-        if (pathMatch && pathMatch[1] === "minsky") {
+        if (pathMatch && (pathMatch[1] || "") === "minsky") {
           // Hardcoded fallback for known repository
           return {
             owner: "edobry",

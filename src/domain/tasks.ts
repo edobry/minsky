@@ -573,15 +573,15 @@ export class MarkdownTaskBackend implements TaskBackend {
 
       if (titleWithIdMatch && titleWithIdMatch[2]) {
         // Old format: "# Task #XXX: Title"
-        title = titleWithIdMatch[2];
-        existingId = `#${titleWithIdMatch[1]}`;
+        title = titleWithIdMatch[2] || "";
+        existingId = `#${titleWithIdMatch[1] || ""}`;
         hasTaskId = true;
       } else if (titleWithoutIdMatch && titleWithoutIdMatch[1]) {
         // Old format: "# Task: Title"
-        title = titleWithoutIdMatch[1];
+        title = titleWithoutIdMatch[1] || "";
       } else if (cleanTitleMatch && cleanTitleMatch[1]) {
         // New clean format: "# Title"
-        title = cleanTitleMatch[1];
+        title = cleanTitleMatch[1] || "";
         // Skip if this looks like an old task format to avoid false positives
         if (title.startsWith("Task ")) {
           throw new Error(
