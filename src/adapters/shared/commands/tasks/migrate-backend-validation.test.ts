@@ -22,6 +22,26 @@ import { mockModule, createMock } from "../../../../utils/test-utils/mocking";
 import type { CommandExecutionContext } from "../../command-registry";
 import type { TaskServiceInterface } from "../../../../domain/tasks";
 
+// Mock the logger module to prevent "log.cli is not a function" errors
+mock.module("../../../../utils/logger", () => ({
+  log: {
+    debug: mock(() => {}),
+    info: mock(() => {}),
+    warn: mock(() => {}),
+    error: mock(() => {}),
+    agent: mock(() => {}),
+    cli: mock(() => {}),
+    cliWarn: mock(() => {}),
+    cliError: mock(() => {}),
+    cliDebug: mock(() => {}),
+    systemDebug: mock(() => {}),
+    setLevel: mock(() => {}),
+    mode: "HUMAN",
+    isStructuredMode: mock(() => false),
+    isHumanMode: mock(() => true),
+  },
+}));
+
 describe("Migration Backend Validation Bug Fix", () => {
   let command: TasksMigrateBackendCommand;
   let mockContext: CommandExecutionContext;

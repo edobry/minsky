@@ -28,6 +28,7 @@ import type { SessionRecord, SessionProviderInterface } from "../../../src/domai
 import type { GitServiceInterface } from "../../../src/domain/git";
 import { createSessionProviderMock, createPartialMock } from "../../../src/utils/test-utils/typed-mocks";
 import { createSessionTestData, cleanupSessionTestData } from "./session-test-utilities";
+import { getSessionsDir } from "../../../src/utils/paths";
 
 // Set up automatic mock cleanup
 setupTestMocks();
@@ -368,7 +369,7 @@ describe("Session CLI Commands", () => {
       const mockExecAsync = mock(async (command: string) => {
         if (command === "git rev-parse --show-toplevel") {
           // Return a path that matches the session directory structure used by getSessionsDir()
-          return { stdout: `/Users/edobry/.local/state/minsky/sessions/workspace-session` };
+          return { stdout: join(getSessionsDir(), "workspace-session") };
         }
         return { stdout: "" };
       });
@@ -411,7 +412,7 @@ describe("Session CLI Commands", () => {
       const mockExecAsync = mock(async (command: string) => {
         if (command === "git rev-parse --show-toplevel") {
           // Return a path that matches the session directory structure used by getSessionsDir()
-          return { stdout: `/Users/edobry/.local/state/minsky/sessions/directory-session` };
+          return { stdout: join(getSessionsDir(), "directory-session") };
         }
         return { stdout: "" };
       });
@@ -425,7 +426,7 @@ describe("Session CLI Commands", () => {
       expect(result).toEqual({
         session: SESSION_TEST_PATTERNS.DIRECTORY_SESSION,
         upstreamRepository: "https://github.com/test/repo.git",
-        gitRoot: "/Users/edobry/.local/state/minsky/sessions/directory-session",
+        gitRoot: join(getSessionsDir(), "directory-session"),
       });
     });
   });

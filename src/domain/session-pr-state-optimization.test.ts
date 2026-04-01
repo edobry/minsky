@@ -50,6 +50,9 @@ const createMockGitServiceWithCallTracking = (branchExists: boolean = true) => {
       if (command.includes("ls-remote") && command.includes("pr/")) {
         return Promise.resolve(branchExists ? "remote-ref-exists" : "");
       }
+      if (command.includes("rev-parse")) {
+        return Promise.resolve(branchExists ? "abc123def456" : "");
+      }
       return Promise.resolve("");
     },
   });
@@ -187,6 +190,9 @@ describe("PR State Optimization (Task #275)", () => {
   describe("updatePrStateOnCreation", () => {
     test("should create PR state when PR branch is created", async () => {
       const sessionName = "new-pr-session";
+
+      // Set up session record so updatePrStateOnCreation can find it
+      mockSessionDB._setSession(sessionName, { session: sessionName });
 
       await updatePrStateOnCreation(sessionName, mockSessionDB as SessionProviderInterface);
 
