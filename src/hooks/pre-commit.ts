@@ -263,14 +263,13 @@ export class PreCommitHook {
       // Check if gitleaks is available before attempting to run it
       await execAsync("which gitleaks", { timeout: 5000 });
     } catch {
-      log.cli("⚠️ Gitleaks not installed — skipping secret scanning.");
-      log.cli(
-        "💡 Install gitleaks for local secret scanning: https://github.com/gitleaks/gitleaks#installing"
-      );
+      log.cli("❌ gitleaks is not installed. Secret scanning is mandatory.");
+      log.cli("💡 Install gitleaks: https://github.com/gitleaks/gitleaks#installing");
+      log.cli("💡 On macOS: brew install gitleaks | On Linux: see GitHub releases");
       return {
-        success: true,
-        message: "Secret scanning skipped (gitleaks not installed)",
-        exitCode: 0,
+        success: false,
+        message: "gitleaks not installed — secret scanning is required",
+        exitCode: 1,
       };
     }
 
@@ -366,7 +365,7 @@ export class PreCommitHook {
     try {
       await execAsync("bun run format", {
         cwd: this.projectRoot,
-        timeout: 30000,
+        timeout: 120000,
       });
       log.cli("✅ Code formatting completed.");
       return { success: true, message: "Code formatting passed", exitCode: 0 };

@@ -1,13 +1,17 @@
 #!/usr/bin/env bash
 echo "Running tests before push..."
 
-# Run tests with output suppressed, only show summary
-# The setup.ts mocks console but doesn't affect bun test's own output
-# So we pipe through tail to only show the summary line
-bun test --preload ./tests/setup.ts src tests/adapters tests/domain 2>&1 | tail -n 1
+# Run tests and capture exit code before piping
+# Using a temp file avoids PIPESTATUS which requires bash
+TEST_OUTPUT_FILE=$(mktemp)
+bun test --preload ./tests/setup.ts src tests/adapters tests/domain >"$TEST_OUTPUT_FILE" 2>&1
+TEST_EXIT_CODE=$?
 
-# Check if tests actually passed (PIPESTATUS[0] has the exit code of bun test)
-if [ ${PIPESTATUS[0]} -ne 0 ]; then
+# Show only the summary line
+tail -n 1 "$TEST_OUTPUT_FILE"
+rm -f "$TEST_OUTPUT_FILE"
+
+if [ $TEST_EXIT_CODE -ne 0 ]; then
   echo "❌ Tests must pass before pushing"
   echo "💡 Run 'bun test' locally to see detailed failure information"
   exit 1
