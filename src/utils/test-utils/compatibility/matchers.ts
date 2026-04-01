@@ -443,6 +443,9 @@ export function setupAsymmetricMatchers(): void {
     }
   } catch (error) {
     // Fail gracefully if bun:test is not available
-    log.warn("Failed to set up asymmetric matchers:", error instanceof Error ? error.message : String(error));
+    log.warn(
+      "Failed to set up asymmetric matchers:",
+      error instanceof Error ? error.message : String(error)
+    );
   }
 }

@@ -20,7 +20,14 @@ describe("Individual Service Mock Factories", () => {
       expect(await mockProvider.getSession("test")).toBeNull();
       expect(await mockProvider.getSessionByTaskId("123")).toBeNull();
       expect(await mockProvider.deleteSession("test")).toBe(true);
-      expect(await mockProvider.getRepoPath({ session: "test", repoName: "test-repo", repoUrl: "https://github.com/test/repo", createdAt: "2023-01-01T00:00:00Z" })).toBe("/mock/repo/path");
+      expect(
+        await mockProvider.getRepoPath({
+          session: "test",
+          repoName: "test-repo",
+          repoUrl: "https://github.com/test/repo",
+          createdAt: "2023-01-01T00:00:00Z",
+        })
+      ).toBe("/mock/repo/path");
       expect(await mockProvider.getSessionWorkdir("test")).toBe("/mock/session/workdir");
 
       // Test methods that require parameters
@@ -81,7 +88,13 @@ describe("Individual Service Mock Factories", () => {
     test(TEST_DESC_PATTERNS.CREATES_MOCK_DEFAULT, async () => {
       const mockService = createMockGitService();
 
-      expect(await mockService.clone({ repoUrl: "https://github.com/test/repo", workdir: "/mock/workdir", session: "test-session" })).toEqual({
+      expect(
+        await mockService.clone({
+          repoUrl: "https://github.com/test/repo",
+          workdir: "/mock/workdir",
+          session: "test-session",
+        })
+      ).toEqual({
         workdir: "/mock/workdir",
         session: "test-session",
       });
@@ -140,7 +153,13 @@ describe("Individual Service Mock Factories", () => {
 
       const mockService = createMockGitService(customOptions);
 
-      expect(await mockService.clone({ repoUrl: "https://github.com/test/repo", workdir: "/custom/workdir", session: "custom-session" })).toEqual({
+      expect(
+        await mockService.clone({
+          repoUrl: "https://github.com/test/repo",
+          workdir: "/custom/workdir",
+          session: "custom-session",
+        })
+      ).toEqual({
         workdir: "/custom/workdir",
         session: "custom-session",
       });
