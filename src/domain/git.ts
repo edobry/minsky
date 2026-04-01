@@ -3,10 +3,7 @@ import { mkdir } from "node:fs/promises";
 import { exec } from "node:child_process";
 import { promisify } from "node:util";
 import { normalizeRepoName } from "./repo-utils";
-import {
-  createSessionProvider,
-  type SessionProviderInterface,
-} from "./session";
+import { createSessionProvider, type SessionProviderInterface } from "./session";
 
 import {
   MinskyError,

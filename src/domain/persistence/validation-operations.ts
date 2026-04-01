@@ -16,9 +16,7 @@ import { getPostgresMigrationsStatus } from "./migration-operations";
 /**
  * Validate SQLite backend
  */
-export async function validateSqliteBackend(
-  filePath: string | undefined
-): Promise<{
+export async function validateSqliteBackend(filePath: string | undefined): Promise<{
   success: boolean;
   details: string;
   issues?: string[];
@@ -60,32 +58,20 @@ export async function validateSqliteBackend(
     }
 
     // Basic file validation
-    const { DatabaseIntegrityChecker } = await import(
-      "../storage/database-integrity-checker"
-    );
+    const { DatabaseIntegrityChecker } = await import("../storage/database-integrity-checker");
 
-    const integrityResult = await DatabaseIntegrityChecker.checkIntegrity(
-      "sqlite",
-      dbPath
-    );
+    const integrityResult = await DatabaseIntegrityChecker.checkIntegrity("sqlite", dbPath);
 
     if (!integrityResult.isValid) {
       issues.push("SQLite integrity check failed");
-      if (
-        Array.isArray(integrityResult.issues) &&
-        integrityResult.issues.length > 0
-      ) {
+      if (Array.isArray(integrityResult.issues) && integrityResult.issues.length > 0) {
         issues.push(...integrityResult.issues);
       }
       if (
         Array.isArray(integrityResult.suggestedActions) &&
         integrityResult.suggestedActions.length > 0
       ) {
-        suggestions.push(
-          ...integrityResult.suggestedActions.map(
-            (action) => action.description
-          )
-        );
+        suggestions.push(...integrityResult.suggestedActions.map((action) => action.description));
       }
     }
 
@@ -146,10 +132,7 @@ export async function validatePostgresBackend(): Promise<{
     }
 
     log.cli(
-      `Testing connection to: ${connectionString.replace(
-        /:\/\/[^:]+:[^@]+@/,
-        "://***:***@"
-      )}`
+      `Testing connection to: ${connectionString.replace(/:\/\/[^:]+:[^@]+@/, "://***:***@")}`
     );
 
     // Basic connection test
@@ -176,9 +159,7 @@ export async function validatePostgresBackend(): Promise<{
         const { getConfiguration } = await import("../configuration/index");
         const config = getConfiguration();
         const backend =
-          config.persistence?.backend ||
-          (config as any).sessiondb?.backend ||
-          "sqlite";
+          config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite";
 
         if (backend === "postgres") {
           const connectionString =
@@ -187,24 +168,17 @@ export async function validatePostgresBackend(): Promise<{
             (process.env as any).MINSKY_POSTGRES_URL;
 
           if (connectionString) {
-            const status =
-              await getPostgresMigrationsStatus(connectionString);
+            const status = await getPostgresMigrationsStatus(connectionString);
             if (status.pendingCount === 0) {
-              log.cli(
-                `✅ Schema up to date (${status.appliedCount} migrations applied)`
-              );
+              log.cli(`✅ Schema up to date (${status.appliedCount} migrations applied)`);
             } else {
-              log.cli(
-                `⚠️  Schema outdated: ${status.pendingCount} pending migrations`
-              );
+              log.cli(`⚠️  Schema outdated: ${status.pendingCount} pending migrations`);
               log.cli(`   Run: minsky persistence migrate --execute`);
             }
           }
         } else {
           // For SQLite, we could add similar migration checking in the future
-          log.cli(
-            "✅ Schema status: SQLite (migration checking not implemented)"
-          );
+          log.cli("✅ Schema status: SQLite (migration checking not implemented)");
         }
 
         // Test vector storage if supported
@@ -221,9 +195,7 @@ export async function validatePostgresBackend(): Promise<{
             }
           } catch (error) {
             // Vector storage issues are warnings, not critical failures
-            log.cli(
-              `⚠️ Vector storage test failed: ${getErrorMessage(error)}`
-            );
+            log.cli(`⚠️ Vector storage test failed: ${getErrorMessage(error)}`);
             suggestions.push(
               "Vector storage may need initialization - " +
                 "this is optional for basic functionality"
@@ -231,31 +203,24 @@ export async function validatePostgresBackend(): Promise<{
           }
         }
       } catch (error) {
-        issues.push(
-          `Database functionality error: ${getErrorMessage(error)}`
-        );
+        issues.push(`Database functionality error: ${getErrorMessage(error)}`);
         suggestions.push("Check database schema and permissions");
       }
     }
 
     return {
       success: issues.length === 0,
-      details:
-        issues.length === 0 ? "All checks passed" : "Some checks failed",
+      details: issues.length === 0 ? "All checks passed" : "Some checks failed",
       issues: issues.length > 0 ? issues : undefined,
       suggestions: suggestions.length > 0 ? suggestions : undefined,
     };
   } catch (error) {
-    issues.push(
-      `PostgreSQL validation error: ${getErrorMessage(error)}`
-    );
+    issues.push(`PostgreSQL validation error: ${getErrorMessage(error)}`);
     return {
       success: false,
       details: "PostgreSQL validation failed with error",
       issues,
-      suggestions: [
-        "Check PostgreSQL configuration and connection details",
-      ],
+      suggestions: ["Check PostgreSQL configuration and connection details"],
     };
   }
 }
