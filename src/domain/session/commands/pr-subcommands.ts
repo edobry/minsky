@@ -188,7 +188,7 @@ export async function sessionPrEdit(
   });
 
   const result = {
-    prBranch: sessionRecord.prBranch,
+    prBranch: sessionRecord.prBranch ?? "",
     baseBranch: sessionRecord.baseBranch || "main",
     title: params.title || sessionRecord.prState?.title,
     body: finalBody || sessionRecord.prState?.body,
@@ -434,7 +434,7 @@ export async function sessionPrGet(params: {
 
         if (pulls.length > 0) {
           // Found a PR! Repair the session record with essential workflow state only
-          const githubPr = pulls[0]; // Take the first (most recent)
+          const githubPr = pulls[0]!; // Non-null assertion safe because we checked length > 0
           const repairedPrData = {
             number: githubPr.number,
             url: githubPr.html_url,

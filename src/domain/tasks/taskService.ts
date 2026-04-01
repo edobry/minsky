@@ -216,12 +216,12 @@ export function extractGitHubInfoFromRepoUrl(url: string): { owner: string; repo
     // SSH: git@github.com:owner/repo.git
     const sshMatch = url.match(/^git@github.com:([^/]+)\/(.+?)(\.git)?$/);
     if (sshMatch) {
-      return { owner: sshMatch[1], repo: sshMatch[2] };
+      return { owner: sshMatch[1] || "", repo: sshMatch[2] || "" };
     }
     // HTTPS: https://github.com/owner/repo(.git)?
     const httpsMatch = url.match(/^https?:\/\/github.com\/([^/]+)\/(.+?)(\.git)?$/);
     if (httpsMatch) {
-      return { owner: httpsMatch[1], repo: httpsMatch[2] };
+      return { owner: httpsMatch[1] || "", repo: httpsMatch[2] || "" };
     }
     return null;
   } catch {

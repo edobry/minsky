@@ -329,7 +329,7 @@ export class TaskMigrationService {
       for (const [index, line] of lines.entries()) {
         const taskMatch = line.match(/\[([^\]]+)\]/);
         if (taskMatch) {
-          const taskId = taskMatch[1];
+          const taskId = taskMatch[1] || "";
           const validated = validateQualifiedTaskId(taskId);
 
           if (!validated) {

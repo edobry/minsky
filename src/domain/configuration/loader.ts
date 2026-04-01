@@ -367,7 +367,7 @@ export class ConfigurationLoader {
 
             // Extract the unknown key from the message
             const messageMatch = issue.message.match(/Unrecognized key\(s\) in object: '([^']+)'/);
-            const unknownKey = messageMatch ? messageMatch[1] : "unknown";
+            const unknownKey = messageMatch ? (messageMatch[1] || "unknown") : "unknown";
 
             // Create a clean, user-friendly warning message
             let warningMessage = `⚠️  Unknown configuration field '${unknownKey}'`;

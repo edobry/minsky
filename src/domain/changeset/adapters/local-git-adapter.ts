@@ -280,7 +280,7 @@ export class LocalGitChangesetAdapter implements ChangesetAdapter {
       const statsMatch = diffStats.match(
         /(\d+) files? changed(?:, (\d+) insertions?)?(?:, (\d+) deletions?)?/
       );
-      const filesChanged = statsMatch ? parseInt(statsMatch[1]) : 0;
+      const filesChanged = statsMatch ? parseInt(statsMatch[1] || "0") : 0;
       const additions = statsMatch && statsMatch[2] ? parseInt(statsMatch[2]) : 0;
       const deletions = statsMatch && statsMatch[3] ? parseInt(statsMatch[3]) : 0;
 

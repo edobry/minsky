@@ -22,7 +22,7 @@ export function extractRuleMentions(query: string): string[] {
 
   let match;
   while ((match = mentionPattern.exec(query)) !== null) {
-    mentions.push(match[1]);
+    mentions.push(match[1] || "");
   }
 
   return [...new Set(mentions)]; // Remove duplicates
