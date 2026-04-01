@@ -536,9 +536,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
 
   private requireGitHubContext(): GitHubContext {
     if (!this.owner || !this.repo) {
-      throw new MinskyError(
-        "GitHub owner and repo must be configured for PR operations"
-      );
+      throw new MinskyError("GitHub owner and repo must be configured for PR operations");
     }
     return { owner: this.owner, repo: this.repo };
   }
@@ -589,7 +587,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       workdir,
       session,
       draft || false,
-      () => this.getSessionDB(),
+      () => this.getSessionDB()
     );
   }
 
@@ -611,10 +609,8 @@ Repository: https://github.com/${this.owner}/${this.repo}
    */
   async mergePullRequest(prIdentifier: string | number, session?: string): Promise<MergeInfo> {
     const gh = this.requireGitHubContext();
-    return mergePR(
-      gh,
-      prIdentifier,
-      (prNum: number, octokit: Octokit) => diagnoseMergeBlocker(gh, prNum, octokit),
+    return mergePR(gh, prIdentifier, (prNum: number, octokit: Octokit) =>
+      diagnoseMergeBlocker(gh, prNum, octokit)
     );
   }
 
@@ -627,7 +623,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       gh,
       options,
       () => this.getSessionDB(),
-      (branch) => this.findPRNumberForBranch(branch),
+      (branch) => this.findPRNumberForBranch(branch)
     );
   }
 
@@ -640,7 +636,7 @@ Repository: https://github.com/${this.owner}/${this.repo}
       gh,
       options,
       () => this.getSessionDB(),
-      (branch) => this.findPRNumberForBranch(branch),
+      (branch) => this.findPRNumberForBranch(branch)
     );
   }
 

@@ -115,12 +115,9 @@ export async function runMigrationsWithDrizzleKit(options: {
         },
         sqlite: {
           path:
-            config.persistence?.sqlite?.dbPath ||
-            (config as any).sessiondb?.sqlite?.path ||
-            null,
+            config.persistence?.sqlite?.dbPath || (config as any).sessiondb?.sqlite?.path || null,
         },
-        backend:
-          config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
+        backend: config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
       };
 
       // Set environment variable that drizzle config will read
@@ -270,12 +267,9 @@ export async function checkAndGenerateMigrations(): Promise<{
         },
         sqlite: {
           path:
-            config.persistence?.sqlite?.dbPath ||
-            (config as any).sessiondb?.sqlite?.path ||
-            null,
+            config.persistence?.sqlite?.dbPath || (config as any).sessiondb?.sqlite?.path || null,
         },
-        backend:
-          config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
+        backend: config.persistence?.backend || (config as any).sessiondb?.backend || "sqlite",
       };
 
       // Set environment variable that drizzle config will read
@@ -350,9 +344,7 @@ export async function checkAndGenerateMigrations(): Promise<{
     return {};
   } catch (error) {
     log.error("Failed to check/generate migrations:", error);
-    throw new Error(
-      `Migration check/generation failed: ${getErrorMessage(error)}`
-    );
+    throw new Error(`Migration check/generation failed: ${getErrorMessage(error)}`);
   }
 }
 
@@ -396,9 +388,7 @@ async function runSqliteSchemaMigrations(
           .all();
         metaExists = Array.isArray(tables) && tables.length > 0;
         if (metaExists) {
-          const cnt = db
-            .query("SELECT COUNT(*) as count FROM __drizzle_migrations")
-            .get() as any;
+          const cnt = db.query("SELECT COUNT(*) as count FROM __drizzle_migrations").get() as any;
           appliedCount = parseInt(String(cnt?.count || 0), 10);
           const last = db
             .query(
@@ -726,9 +716,7 @@ async function runPostgresSchemaMigrations(
       `;
       metaExists = Boolean(meta?.[0]?.exists);
       if (metaExists) {
-        const rows = await sql<
-          { count: string; hash: string | null; created_at: string | null }[]
-        >`
+        const rows = await sql<{ count: string; hash: string | null; created_at: string | null }[]>`
           SELECT COUNT(*)::text as count,
                  MAX(hash) as hash,
                  MAX(created_at)::text as created_at
@@ -777,9 +765,7 @@ async function runPostgresSchemaMigrations(
       const pending = Math.max(files.length - appliedCount, 0);
       if (pending > 0) {
         log.cli("Running migrations (in order):");
-        files
-          .slice(appliedCount)
-          .forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
+        files.slice(appliedCount).forEach((f, i) => log.cli(`  ${i + 1}. ${basename(f)}`));
         log.cli("");
       }
     }
@@ -794,9 +780,7 @@ async function runPostgresSchemaMigrations(
         `;
         const applied2 = parseInt(cnt2?.[0]?.count || "0", 10);
         const last = cnt2?.[0]?.last || "";
-        log.cli(
-          `Applied ${Math.max(applied2 - appliedCount, 0)} migration(s) in ${ms}ms`
-        );
+        log.cli(`Applied ${Math.max(applied2 - appliedCount, 0)} migration(s) in ${ms}ms`);
         if (last) log.cli(`Latest applied: ${last}`);
       } catch {
         log.cli(`Applied migrations in ${ms}ms`);
@@ -812,8 +796,7 @@ async function runPostgresSchemaMigrations(
     backend,
     migrationsFolder: "./src/domain/storage/migrations/pg",
     message:
-      `Schema migration applied for postgres ` +
-      `(migrations: ./src/domain/storage/migrations/pg)`,
+      `Schema migration applied for postgres ` + `(migrations: ./src/domain/storage/migrations/pg)`,
   };
   {
     appliedPg.printed = true;
