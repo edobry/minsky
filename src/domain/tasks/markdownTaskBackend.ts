@@ -26,7 +26,7 @@ import type {
   TaskReadOperationResult,
   TaskWriteOperationResult,
 } from "../../types/tasks/taskData";
-import { TaskStatus, TASK_STATUS } from "./taskConstants";
+import { TaskStatus } from "./taskConstants";
 import { filterTasksByStatus } from "./task-filters";
 
 import {
@@ -47,7 +47,7 @@ import {
 } from "./taskIO";
 
 import { readdir } from "fs/promises";
-import { findTaskIndexById } from "./markdown-backend-task-matching";
+import { taskIdMatches, findTaskIndexById } from "./markdown-backend-task-matching";
 import { withGitStashCommitPush } from "./markdown-backend-git-ops";
 import {
   buildTaskFromObject,
@@ -56,10 +56,10 @@ import {
   toQualifiedId,
   generateTaskSpecification,
 } from "./markdown-backend-create-helpers";
+import { deleteTaskFromDatabase, deleteSpecFile } from "./markdown-backend-delete-helpers";
 
 /**
  * MarkdownTaskBackend implementation
- * Uses functional patterns to separate concerns
  */
 export class MarkdownTaskBackend implements TaskBackend {
   name = "markdown";
@@ -67,6 +67,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   private readonly workspacePath: string;
   private readonly tasksFilePath: string;
   private readonly tasksDirectory: string;
+  // Allow tests to override this via (backend as any).gitService
   private gitService: GitServiceInterface;
 
   constructor(config: TaskBackendConfig) {
@@ -75,8 +76,6 @@ export class MarkdownTaskBackend implements TaskBackend {
     this.tasksDirectory = join(this.workspacePath, "process", "tasks");
     this.gitService = (config as any).gitService || createGitService();
   }
-
-  // ---- Capability Discovery ----
 
   getCapabilities(): BackendCapabilities {
     return {
@@ -95,53 +94,28 @@ export class MarkdownTaskBackend implements TaskBackend {
     };
   }
 
-  // ---- Required TaskBackend Interface Methods ----
-
   async listTasks(options?: TaskListOptions): Promise<Task[]> {
     const result = await this.getTasksData();
     if (!result.success || !result.content) return [];
-    const tasks = this.parseTasks(result.content);
-    return filterTasksByStatus(tasks, options);
+    return filterTasksByStatus(this.parseTasks(result.content), options);
   }
 
   async getTask(id: string): Promise<Task | null> {
     const tasks = await this.listTasks({ all: true });
-    return (
-      tasks.find((task) => {
-        if (task.id === id) return true;
-        const taskLocal = task.id.includes("#") ? task.id.split("#").pop() : task.id;
-        const searchLocal = id.includes("#") ? id.split("#").pop() : id;
-        if (taskLocal === searchLocal) return true;
-        if (!/^#/.test(id) && task.id === `#${id}`) return true;
-        if (id.startsWith("#") && task.id === id.substring(1)) return true;
-        return false;
-      }) || null
-    );
+    return tasks.find((t) => taskIdMatches(t.id, id)) || null;
   }
 
   async getTaskStatus(id: string): Promise<string | undefined> {
-    const task = await this.getTask(id);
-    return task?.status;
+    return (await this.getTask(id))?.status;
   }
 
   async setTaskStatus(id: string, status: string): Promise<void> {
     log.debug("markdownTaskBackend setTaskStatus called", { id, status });
-
-    const result = await this.getTasksData();
-    if (!result.success || !result.content) {
-      throw new Error("Failed to read tasks data");
-    }
-
-    const tasks = this.parseTasks(result.content);
-    log.debug("stored task IDs", { taskIds: tasks.map((t) => t.id).slice(0, 5) });
+    const tasks = await this.readAndParseTasks();
 
     const taskIndex = findTaskIndexById(tasks, id);
-    log.debug("findIndex result", { searchId: id, taskIndex, found: taskIndex !== -1 });
-
     if (taskIndex === -1) throw new Error(`Task with id ${id} not found`);
-    const task = tasks[taskIndex];
-    if (!task) throw new Error(`Task with id ${id} not found`);
-
+    const task = tasks[taskIndex]!;
     const previousStatus = task.status;
 
     await withGitStashCommitPush({
@@ -150,42 +124,23 @@ export class MarkdownTaskBackend implements TaskBackend {
       commitMessage: `chore(${id}): update task status ${previousStatus} → ${status}`,
       action: async () => {
         task.status = status as TaskStatus;
-        const updatedContent = this.formatTasks(tasks);
-        const saveResult = await this.saveTasksData(updatedContent);
-        if (!saveResult.success) {
-          throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
-        }
+        await this.saveTasksOrThrow(tasks);
       },
     });
   }
 
   async updateTask(taskId: string, updates: Partial<Task>): Promise<Task> {
     log.debug("markdownTaskBackend updateTask called", { taskId, updates });
+    if (!(await this.getTask(taskId))) throw new Error(`Task not found: ${taskId}`);
 
-    const currentTask = await this.getTask(taskId);
-    if (!currentTask) throw new Error(`Task not found: ${taskId}`);
-
-    const result = await this.getTasksData();
-    if (!result.success || !result.content) {
-      throw new Error("Failed to read tasks data");
-    }
-
-    const tasks = this.parseTasks(result.content);
+    const tasks = await this.readAndParseTasks();
     const taskIndex = findTaskIndexById(tasks, taskId);
     if (taskIndex === -1) throw new Error(`Task not found: ${taskId}`);
 
-    const updatedTask = {
-      ...tasks[taskIndex]!,
-      ...updates,
-      id: tasks[taskIndex]!.id,
-    };
+    const updatedTask = { ...tasks[taskIndex]!, ...updates, id: tasks[taskIndex]!.id };
     tasks[taskIndex] = updatedTask as any;
 
-    const formattedContent = this.formatTasks(tasks);
-    const writeResult = await this.saveTasksData(formattedContent);
-    if (!writeResult.success) {
-      throw new Error(`Failed to save tasks: ${writeResult.error?.message}`);
-    }
+    await this.saveTasksOrThrow(tasks);
 
     return {
       id: updatedTask.id,
@@ -197,71 +152,12 @@ export class MarkdownTaskBackend implements TaskBackend {
   }
 
   async createTask(specPath: string | any, _options?: CreateTaskOptions): Promise<Task> {
-    const existingTasksResult = await this.getTasksData();
-    let existingTasks: TaskData[] = [];
-    if (existingTasksResult.success && existingTasksResult.content) {
-      existingTasks = this.parseTasks(existingTasksResult.content);
-    }
+    const existingTasks = await this.readExistingTasks();
 
     if (typeof specPath === "object" && specPath.title) {
       return this.createTaskFromObject(specPath, existingTasks);
     }
-
     return this.createTaskFromPath(specPath as string, existingTasks);
-  }
-
-  private async createTaskFromObject(
-    spec: { title: string; description?: string; id?: string },
-    existingTasks: TaskData[]
-  ): Promise<Task> {
-    const newTaskData = buildTaskFromObject(spec, existingTasks);
-    existingTasks.push(newTaskData);
-
-    const qualifiedId = toQualifiedId(newTaskData.id);
-    const commitMsg = `chore(task): create ${qualifiedId} ${spec.title}`;
-
-    await withGitStashCommitPush({
-      gitService: this.gitService,
-      workdir: this.workspacePath,
-      commitMessage: commitMsg,
-      action: async () => {
-        const formattedContent = this.formatTasks(existingTasks);
-        const writeResult = await this.saveTasksData(formattedContent);
-        if (!writeResult.success) {
-          throw new Error(`Failed to save tasks: ${writeResult.error?.message}`);
-        }
-      },
-    });
-
-    return taskDataToTask(newTaskData);
-  }
-
-  private async createTaskFromPath(specPath: string, existingTasks: TaskData[]): Promise<Task> {
-    const newTaskData = await buildTaskFromSpecPath(
-      specPath,
-      existingTasks,
-      this.workspacePath,
-      (content) => this.parseTaskSpec(content),
-      (path) => this.getTaskSpecData(path)
-    );
-
-    existingTasks.push(newTaskData);
-    const commitMsg = `chore(task): create ${newTaskData.id} ${newTaskData.title}`;
-
-    await withGitStashCommitPush({
-      gitService: this.gitService,
-      workdir: this.workspacePath,
-      commitMessage: commitMsg,
-      action: async () => {
-        const updatedContent = this.formatTasks(existingTasks);
-        const saveResult = await this.saveTasksData(updatedContent);
-        if (!saveResult.success) {
-          throw new Error(`Failed to save tasks: ${saveResult.error?.message}`);
-        }
-      },
-    });
-
-    return taskDataToTask(newTaskData);
   }
 
   async createTaskFromTitleAndDescription(
@@ -272,15 +168,14 @@ export class MarkdownTaskBackend implements TaskBackend {
     const taskSpecContent = generateTaskSpecification(title, description);
     const fsModule = await import("fs/promises");
     const path = await import("path");
-
     const tempDir = path.join(this.workspacePath, ".tmp");
-    const normalizedTitle = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
-    const tempSpecPath = path.join(tempDir, `temp-task-${normalizedTitle}-${Date.now()}.md`);
+    const slug = title.toLowerCase().replace(/[^a-z0-9]+/g, "-");
+    const tempSpecPath = path.join(tempDir, `temp-task-${slug}-${Date.now()}.md`);
 
     try {
       await fsModule.mkdir(tempDir, { recursive: true });
-    } catch (_error) {
-      // Directory already exists
+    } catch (_e) {
+      /* exists */
     }
 
     try {
@@ -288,15 +183,15 @@ export class MarkdownTaskBackend implements TaskBackend {
       const task = await this.createTask(tempSpecPath, options);
       try {
         await fsModule.unlink(tempSpecPath);
-      } catch (_error) {
-        // Ignore cleanup errors
+      } catch (_e) {
+        /* cleanup */
       }
       return task;
     } catch (error) {
       try {
         await fsModule.unlink(tempSpecPath);
-      } catch (_cleanupError) {
-        // Ignore cleanup errors
+      } catch (_e) {
+        /* cleanup */
       }
       throw error;
     }
@@ -307,7 +202,7 @@ export class MarkdownTaskBackend implements TaskBackend {
     spec: string,
     options: CreateTaskOptions = {}
   ): Promise<Task> {
-    return await this.createTaskFromTitleAndDescription(title, spec, options);
+    return this.createTaskFromTitleAndDescription(title, spec, options);
   }
 
   async deleteTask(id: string, _options?: DeleteTaskOptions): Promise<boolean> {
@@ -322,13 +217,10 @@ export class MarkdownTaskBackend implements TaskBackend {
         return false;
       }
 
-      // Delete from PostgreSQL tasks table (source of truth)
-      await this.deleteTaskFromDatabase(id);
+      await deleteTaskFromDatabase(id);
 
-      const updatedTasks = tasks.filter((task) => task.id !== taskToDelete.id);
-      const updatedContent = this.formatTasks(updatedTasks);
-      const saveResult = await this.saveTasksData(updatedContent);
-
+      const updatedTasks = tasks.filter((t) => t.id !== taskToDelete.id);
+      const saveResult = await this.saveTasksData(this.formatTasks(updatedTasks));
       if (!saveResult.success) {
         log.error(`Failed to save tasks after deleting ${id}:`, {
           error: saveResult.error?.message || "Unknown error",
@@ -337,50 +229,15 @@ export class MarkdownTaskBackend implements TaskBackend {
         return false;
       }
 
-      // Try to delete the spec file if it exists
       if (taskToDelete.specPath) {
-        await this.deleteSpecFile(taskToDelete.specPath);
+        await deleteSpecFile(taskToDelete.specPath, this.workspacePath);
       }
-
       return true;
     } catch (error) {
       log.error(`Failed to delete task ${id}:`, {
         error: getErrorMessage(error),
       });
       return false;
-    }
-  }
-
-  private async deleteTaskFromDatabase(id: string): Promise<void> {
-    try {
-      const { PersistenceService } = await import("../persistence/service");
-      const provider = PersistenceService.getProvider();
-      if (provider.capabilities.sql) {
-        const db = await provider.getDatabaseConnection?.();
-        if (db) {
-          const { tasksTable } = await import("../storage/schemas/task-embeddings");
-          const { eq } = await import("drizzle-orm");
-          const result = await db.delete(tasksTable).where(eq(tasksTable.id, id));
-          log.debug(`Deleted task ${id} from database`, {
-            rowCount: (result as any).rowCount,
-          });
-        }
-      }
-    } catch (dbError) {
-      log.debug(`Could not delete task ${id} from database: ${getErrorMessage(dbError as any)}`);
-    }
-  }
-
-  private async deleteSpecFile(specPath: string): Promise<void> {
-    try {
-      const fullSpecPath = specPath.startsWith("/") ? specPath : join(this.workspacePath, specPath);
-      if (await this.fileExists(fullSpecPath)) {
-        const { unlink } = await import("fs/promises");
-        await unlink(fullSpecPath);
-        log.debug(`Deleted spec file: ${fullSpecPath}`);
-      }
-    } catch (error) {
-      log.debug(`Could not delete spec file: ${getErrorMessage(error as any)}`);
     }
   }
 
@@ -414,8 +271,7 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   parseTaskSpec(content: string): TaskSpecData {
     const { data, content: markdownContent } = matter(content);
-    const spec = parseTaskSpecFromMarkdown(markdownContent);
-    return { ...spec, metadata: data || {} };
+    return { ...parseTaskSpecFromMarkdown(markdownContent), metadata: data || {} };
   }
 
   formatTaskSpec(spec: TaskSpecData): string {
@@ -454,7 +310,7 @@ export class MarkdownTaskBackend implements TaskBackend {
   async findTaskSpecFiles(taskId: string): Promise<string[]> {
     try {
       const files = await readdir(this.tasksDirectory);
-      return files.filter((file) => file.startsWith(`${taskId}-`));
+      return files.filter((f) => f.startsWith(`${taskId}-`));
     } catch (error) {
       log.error(`Failed to find task spec file for task #${taskId}`, {
         error: getErrorMessage(error),
@@ -465,6 +321,62 @@ export class MarkdownTaskBackend implements TaskBackend {
 
   isInTreeBackend(): boolean {
     return true;
+  }
+
+  // ---- Private helpers ----
+
+  private async readAndParseTasks(): Promise<TaskData[]> {
+    const result = await this.getTasksData();
+    if (!result.success || !result.content) throw new Error("Failed to read tasks data");
+    return this.parseTasks(result.content);
+  }
+
+  private async readExistingTasks(): Promise<TaskData[]> {
+    const result = await this.getTasksData();
+    if (result.success && result.content) return this.parseTasks(result.content);
+    return [];
+  }
+
+  private async saveTasksOrThrow(tasks: TaskData[]): Promise<void> {
+    const result = await this.saveTasksData(this.formatTasks(tasks));
+    if (!result.success) throw new Error(`Failed to save tasks: ${result.error?.message}`);
+  }
+
+  private async createTaskFromObject(
+    spec: { title: string; description?: string; id?: string },
+    existingTasks: TaskData[]
+  ): Promise<Task> {
+    const newTaskData = buildTaskFromObject(spec, existingTasks);
+    existingTasks.push(newTaskData);
+
+    await withGitStashCommitPush({
+      gitService: this.gitService,
+      workdir: this.workspacePath,
+      commitMessage: `chore(task): create ${toQualifiedId(newTaskData.id)} ${spec.title}`,
+      action: () => this.saveTasksOrThrow(existingTasks),
+    });
+
+    return taskDataToTask(newTaskData);
+  }
+
+  private async createTaskFromPath(specPath: string, existingTasks: TaskData[]): Promise<Task> {
+    const newTaskData = await buildTaskFromSpecPath(
+      specPath,
+      existingTasks,
+      this.workspacePath,
+      (content) => this.parseTaskSpec(content),
+      (path) => this.getTaskSpecData(path)
+    );
+    existingTasks.push(newTaskData);
+
+    await withGitStashCommitPush({
+      gitService: this.gitService,
+      workdir: this.workspacePath,
+      commitMessage: `chore(task): create ${newTaskData.id} ${newTaskData.title}`,
+      action: () => this.saveTasksOrThrow(existingTasks),
+    });
+
+    return taskDataToTask(newTaskData);
   }
 }
 
