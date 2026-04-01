@@ -2,6 +2,7 @@ import { mock } from "bun:test";
 import type { Task } from "./types";
 import type {
   TaskBackend,
+  MultiBackendTaskBackend,
   TaskSpec,
   TaskFilters,
   TaskExportData,
@@ -10,7 +11,7 @@ import type {
 import { createTaskService } from "./multi-backend-service";
 
 // Mock TaskBackend implementation for testing
-export function createMockBackend(name: string, prefix: string): TaskBackend {
+export function createMockBackend(name: string, prefix: string): MultiBackendTaskBackend {
   return {
     name,
     prefix,
@@ -122,18 +123,18 @@ export function createMockTaskService(): TaskService {
 // Helper function to create a service with pre-registered mock backends
 export function createTaskServiceWithMocks(): {
   service: TaskService;
-  mdBackend: TaskBackend;
-  ghBackend: TaskBackend;
-  jsonBackend: TaskBackend;
+  mdBackend: MultiBackendTaskBackend;
+  ghBackend: MultiBackendTaskBackend;
+  jsonBackend: MultiBackendTaskBackend;
 } {
   const service = createTaskService({ workspacePath: "/test/workspace" });
   const mdBackend = createMockBackend("Markdown", "md");
   const ghBackend = createMockBackend("GitHub Issues", "gh");
   const jsonBackend = createMockBackend("JSON File", "json");
 
-  service.registerBackend(mdBackend);
-  service.registerBackend(ghBackend);
-  service.registerBackend(jsonBackend);
+  service.registerBackend(mdBackend as unknown as TaskBackend);
+  service.registerBackend(ghBackend as unknown as TaskBackend);
+  service.registerBackend(jsonBackend as unknown as TaskBackend);
 
   return { service, mdBackend, ghBackend, jsonBackend };
 }
@@ -141,7 +142,7 @@ export function createTaskServiceWithMocks(): {
 // Helper to create a specific backend configuration for testing
 export function createBackendConfiguration(
   configs: Array<{ name: string; prefix: string }>
-): TaskBackend[] {
+): MultiBackendTaskBackend[] {
   return configs.map((config) => createMockBackend(config.name, config.prefix));
 }
 

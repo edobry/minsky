@@ -22,7 +22,6 @@ export {
 
 // Export legacy SessionDB and related functions
 export {
-  SessionDB,
   type SessionProviderInterface,
   type Session,
   sessionGet,
@@ -32,10 +31,9 @@ export {
   sessionDelete,
   sessionDir,
   sessionApprove,
-  sessionPr,
   createSessionProvider,
   sessionInspect,
-  sessionReview,
+  sessionReviewFromParams as sessionReview,
   type SessionReviewParams,
   type SessionReviewResult,
 } from "./session";

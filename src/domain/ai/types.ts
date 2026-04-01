@@ -106,6 +106,18 @@ export interface AIObjectGenerationRequest {
   provider?: string;
 }
 
+/**
+ * Tokenizer metadata for a specific AI model
+ */
+export interface TokenizerInfo {
+  id?: string; // e.g., "cl100k_base", "o200k_base"
+  type?: string; // e.g., "bpe", "sentencepiece"
+  source: "api" | "config" | "fallback";
+  library?: string; // preferred library: "gpt-tokenizer" | "tiktoken"
+  encoding?: string; // encoding name for the tokenizer library
+  [key: string]: unknown; // allow additional provider-specific fields
+}
+
 export interface AIModel {
   id: string;
   provider: string;
@@ -119,12 +131,7 @@ export interface AIModel {
     input: number;
     output: number;
   };
-  tokenizer?: {
-    id: string; // e.g., "cl100k_base", "o200k_base"
-    type: string; // e.g., "bpe", "sentencepiece"
-    source: "api" | "config" | "fallback";
-    library?: string; // preferred library: "gpt-tokenizer" | "tiktoken"
-  };
+  tokenizer?: TokenizerInfo;
 }
 
 // Configuration service types
