@@ -33,9 +33,9 @@
  * ```
  */
 
-import type { CommandExecutionContext } from "../types";
+import type { CommandExecutionContext } from "../command-registry";
 import { log } from "../../../utils/logger";
-import { getErrorMessage } from "../../../errors/utils";
+import { getErrorMessage } from "../../../errors/index";
 
 /**
  * Base interface for similarity search results

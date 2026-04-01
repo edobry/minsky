@@ -20,8 +20,8 @@ import {
 } from "../repository/index";
 import type { SessionRecord } from "./types";
 import type { ApprovalInfo } from "../repository/approval-types";
-import type { GitServiceInterface } from "../git/git-service-interface";
-import type { TaskServiceInterface } from "../tasks/task-service-interface";
+import type { GitServiceInterface } from "../git/types";
+import type { TaskServiceInterface } from "../tasks/taskService";
 import type { WorkspaceUtilsInterface } from "../workspace";
 
 /**

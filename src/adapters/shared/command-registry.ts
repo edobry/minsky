@@ -38,11 +38,15 @@ export enum CommandCategory {
  */
 export interface CommandExecutionContext {
   /** The interface that's invoking the command (cli, mcp, etc.) */
-  interface: string;
+  interface?: string;
   /** Debug mode flag */
   debug?: boolean;
+  /** Verbose mode flag */
+  verbose?: boolean;
   /** Format mode (json, text, etc.) */
   format?: string;
+  /** Workspace path for the current context */
+  workspacePath?: string;
 }
 
 /**

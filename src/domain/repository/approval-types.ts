@@ -59,6 +59,11 @@ export interface ApprovalInfo {
 
     [key: string]: any;
   };
+
+  /**
+   * Platform-specific data (alternative to metadata for direct platform info)
+   */
+  platformData?: Record<string, any>;
 }
 
 /**
@@ -88,7 +93,12 @@ export interface ApprovalStatus {
   /**
    * Current state of the pull request
    */
-  prState: "open" | "closed" | "merged" | "draft";
+  prState?: "open" | "closed" | "merged" | "draft";
+
+  /**
+   * Platform-specific data (alternative to metadata for direct platform info)
+   */
+  platformData?: Record<string, any>;
 
   /**
    * Platform-specific approval metadata

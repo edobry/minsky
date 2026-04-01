@@ -887,6 +887,7 @@ export async function approveSessionFromParams(
     workspaceUtils?: WorkspaceUtilsInterface;
     resolveRepoPath?: typeof resolveRepoPath;
     createRepositoryBackendForSession?: (workingDirectory: string) => Promise<any>;
+    createRepositoryBackend?: (sessionRecord: any) => Promise<any>;
     getCurrentSession?: (repoPath: string) => Promise<string | null>;
   }
 ): Promise<{

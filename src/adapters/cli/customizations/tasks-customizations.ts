@@ -13,6 +13,7 @@ import { log } from "../../../utils/logger";
 export function getTasksCustomizations(): {
   category: CommandCategory;
   options: CategoryCommandOptions;
+  [key: string]: any;
 } {
   return {
     category: CommandCategory.TASKS,

@@ -71,8 +71,6 @@ export type GitHubIssuesBackendConfig = z.infer<typeof githubIssuesBackendConfig
 export type MarkdownBackendConfig = z.infer<typeof markdownBackendConfigSchema>;
 export type JsonFileBackendConfig = z.infer<typeof jsonFileBackendConfigSchema>;
 export type BackendConfig = z.infer<typeof backendConfigSchema>;
-export type DetectionRule = z.infer<typeof detectionRuleSchema>;
-export type DetectionRules = z.infer<typeof detectionRulesSchema>;
 export type BackendFullConfig = z.infer<typeof backendFullConfigSchema>;
 
 /**

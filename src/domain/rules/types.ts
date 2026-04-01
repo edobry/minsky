@@ -35,6 +35,7 @@ export interface RuleOptions {
   format?: RuleFormat;
   tag?: string;
   debug?: boolean;
+  file?: string;
 }
 
 export interface CreateRuleOptions {

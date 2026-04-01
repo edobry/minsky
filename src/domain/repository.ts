@@ -108,6 +108,7 @@ export interface RepositoryConfig {
   type: RepositoryBackendType | "local" | "remote" | "github";
   path?: string; // Local repository path
   url?: string; // Remote repository URL
+  repoUrl?: string; // Alias for url - repository URL
   branch?: string; // Branch to checkout
 }
 

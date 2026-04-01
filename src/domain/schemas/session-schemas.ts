@@ -105,6 +105,7 @@ export const SessionDeleteParametersSchema = z
     name: SessionNameSchema.optional(),
     task: TaskIdSchema.optional(),
     force: ForceSchema,
+    json: z.boolean().optional(),
   })
   .merge(BaseBackendParametersSchema);
 
@@ -137,6 +138,7 @@ export const SessionDirectoryParametersSchema = z
     sessionName: SessionNameSchema.optional(),
     name: SessionNameSchema.optional(),
     task: TaskIdSchema.optional(),
+    json: z.boolean().optional(),
   })
   .merge(BaseBackendParametersSchema);
 
@@ -156,7 +158,7 @@ export const SessionPRParametersSchema = z
     debug: z.boolean().default(false),
     noStatusUpdate: z.boolean().default(false),
     skipConflictCheck: z.boolean().default(false),
-
+    skipUpdate: z.boolean().optional(),
     autoResolveDeleteConflicts: z.boolean().default(false),
     draft: z.boolean().default(false),
   })

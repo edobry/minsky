@@ -14,6 +14,7 @@ export interface RuleSuggestionRequest {
     currentFiles?: string[];
     recentCommits?: string[];
     projectType?: string;
+    workspacePath?: string;
   };
 }
 

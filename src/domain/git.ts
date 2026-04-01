@@ -34,7 +34,7 @@ import {
   gitFetchWithTimeout,
   gitMergeWithTimeout,
   gitPushWithTimeout,
-} from "../utils/git-exec-enhanced";
+} from "../utils/git-exec";
 import {
   preparePrImpl,
   type PreparePrOptions,
@@ -102,6 +102,11 @@ export interface GitServiceInterface {
    * Pull latest changes from a remote
    */
   pullLatest(repoPath: string, remote?: string): Promise<PullResult>;
+
+  /**
+   * Fetch latest changes from a remote (alias for pullLatest)
+   */
+  fetchLatest?(repoPath: string, remote?: string): Promise<PullResult>;
 
   /**
    * Merge a branch into the current branch

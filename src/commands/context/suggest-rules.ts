@@ -163,13 +163,6 @@ async function executeSuggestRules(query: string, options: SuggestRulesOptions):
       outputHumanReadableResults(response, query, totalTime);
     }
   }
-
-  // Output results
-  if (options.json) {
-    outputJsonResults(response);
-  } else {
-    outputHumanReadableResults(response, query, totalTime);
-  }
 }
 
 /**

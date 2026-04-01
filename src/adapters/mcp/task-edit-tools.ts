@@ -6,7 +6,7 @@
  * on task specs in-memory with backend delegation.
  */
 import { z } from "zod";
-import { CommandMapper } from "./command-mapper";
+import { CommandMapper } from "../../mcp/command-mapper";
 import { getTaskSpecContentFromParams, updateTaskFromParams } from "../../domain/tasks";
 import { log } from "../../utils/logger";
 import { applyEditPattern, countOccurrences } from "./session-edit-tools";

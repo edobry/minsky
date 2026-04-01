@@ -3,7 +3,7 @@
  *
  * Common utilities for the CLI interface
  */
-import { ensureError } from "../../../errors/index";
+import { ensureError, getErrorMessage } from "../../../errors/index";
 import { log } from "../../../utils/logger";
 
 // Re-export shared options functions needed by other modules

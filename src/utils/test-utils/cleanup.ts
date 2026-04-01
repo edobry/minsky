@@ -31,6 +31,7 @@ interface CleanupItem {
   type: "file" | "directory";
   created: number; // timestamp
   spec?: string;
+  description?: string;
 }
 
 /**
@@ -253,7 +254,7 @@ export function createCleanTempDir(prefix = "test-", spec?: string): string {
 
   // Register for automatic cleanup
   const manager = TestCleanupManager.getInstance();
-  manager.registerForCleanup(tempDir, "directory", description);
+  manager.registerForCleanup(tempDir, "directory", spec);
 
   return tempDir;
 }
@@ -277,7 +278,7 @@ export function createCleanTempFile(
 
   // Register for automatic cleanup
   const manager = TestCleanupManager.getInstance();
-  manager.registerForCleanup(tempFile, "file", description);
+  manager.registerForCleanup(tempFile, "file", spec);
 
   return tempFile;
 }

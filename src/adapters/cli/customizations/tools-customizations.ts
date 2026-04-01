@@ -3,7 +3,7 @@
  *
  * CLI customizations for tools-related commands
  */
-import type { CategoryCommandOptions } from "../types/cli-command-options";
+import type { CategoryCommandOptions } from "../../shared/bridges/cli";
 import { CommandCategory } from "../../shared/command-registry";
 
 /**
@@ -17,8 +17,8 @@ export function getToolsCustomizations(): {
     category: CommandCategory.TOOLS,
     options: {
       name: "tools",
-      description: "TOOLS commands",
-      commands: {
+      spec: "TOOLS commands",
+      commandOptions: {
         // All tools commands use default customization
       },
     },

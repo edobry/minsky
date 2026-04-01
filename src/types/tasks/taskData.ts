@@ -24,6 +24,8 @@ export interface TaskData {
   spec?: string;
   status: TaskStatus;
   specPath?: string;
+  backend?: string;
+  metadata?: Record<string, any>;
   worklog?: Array<{ timestamp: string; message: string }>;
   mergeInfo?: {
     commitHash?: string;
@@ -79,6 +81,7 @@ export interface TaskBackendConfig {
   workspacePath: string;
   taskFilePath?: string;
   taskSpecPath?: string;
+  gitService?: any;
 }
 
 /**

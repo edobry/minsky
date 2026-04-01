@@ -17,7 +17,7 @@
 
 import { describe, it, expect, beforeEach } from "bun:test";
 import { listTasksFromParams } from "./taskCommands";
-import type { TaskListParams } from "../../types/tasks/taskCommands";
+import type { TaskListParams } from "../../schemas/tasks";
 import { createConfiguredTaskService } from "./taskService";
 import type { TaskServiceInterface } from "./types";
 

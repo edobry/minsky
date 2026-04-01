@@ -12,6 +12,8 @@ export interface TaskServiceInterface {
     section?: string
   ): Promise<{ task: any; specPath: string; content: string; section?: string }>;
   getWorkspacePath(): string;
+  getBackendForTask?(taskId: string): Promise<string>;
+  listBackends?(): Array<{ name: string; prefix: string }>;
 }
 import { createMarkdownTaskBackend } from "./markdownTaskBackend";
 import { createJsonFileTaskBackend } from "./jsonFileTaskBackend";

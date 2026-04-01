@@ -13,14 +13,14 @@ import {
   CommandParameterMap,
   CommandCategory,
   CommandExecutionContext,
-} from "./legacy-command-registry";
-import {
-  SharedCommandRegistry as NewSharedCommandRegistry,
-  CommandDefinition as NewCommandDefinition,
-  SharedCommand as NewSharedCommand,
   createSharedCommandRegistry,
 } from "./command-registry";
 import { MinskyError } from "../../errors/index";
+
+// Type aliases for migration compatibility (new registry uses same types)
+type NewSharedCommandRegistry = SharedCommandRegistry;
+type NewCommandDefinition<T extends CommandParameterMap = CommandParameterMap, R = any> = CommandDefinition<T, R>;
+type NewSharedCommand<T extends CommandParameterMap = CommandParameterMap, R = any> = SharedCommand<T, R>;
 
 /**
  * Migration adapter that wraps both registries and provides compatibility

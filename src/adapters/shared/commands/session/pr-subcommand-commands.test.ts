@@ -20,7 +20,7 @@
 
 import { describe, it, expect, beforeEach, afterEach, mock, spyOn } from "bun:test";
 import { SessionPrCreateCommand } from "./pr-subcommand-commands";
-import type { CommandExecutionContext } from "../../types";
+import type { CommandExecutionContext } from "../../command-registry";
 import { createMock as createMockFunction } from "../../../../utils/test-utils/core/mock-functions";
 
 describe("Session PR Create Command - Task Parameter Bug Fix", () => {

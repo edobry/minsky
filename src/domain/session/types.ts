@@ -13,6 +13,7 @@ export interface SessionRecord {
   session: string;
   repoName: string;
   repoUrl: string;
+  repoPath?: string; // Local path to the repository
   createdAt: string;
   /** Task ID in storage format (plain number string, e.g., "283") */
   taskId?: string;
@@ -20,7 +21,8 @@ export interface SessionRecord {
   // Removed: branch (no longer stored persistently)
   prState?: {
     branchName: string;
-    commitHash: string; // Hash of the prepared merge commit
+    commitHash?: string; // Hash of the prepared merge commit
+    exists?: boolean; // Whether the PR branch exists
     lastChecked: string; // ISO timestamp
     createdAt?: string; // When PR branch was created
     mergedAt?: string; // When merged (for cleanup)

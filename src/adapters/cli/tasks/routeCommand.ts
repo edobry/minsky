@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { createTasksRouteCommand } from "../../shared/commands/tasks/routing-commands";
-import { createCommandHandler } from "../../shared/bridges/cli/command-handler";
+import { log } from "../../../utils/logger";
+import { handleCliError } from "../utils/error-handler";
 
 /**
  * Create the tasks route command
@@ -20,7 +21,23 @@ export function createRouteCommand(): Command {
     .option("--parallel", "Show parallel execution opportunities")
     .option("--json", "Output in JSON format");
 
-  command.action(createCommandHandler("tasks.route", routeCommand));
+  command.action(async (target: string, options: any) => {
+    try {
+      const result = await routeCommand.execute({
+        target,
+        strategy: options.strategy,
+        parallel: options.parallel,
+        json: options.json,
+      });
+      if (options.json) {
+        log.cli(JSON.stringify(result, null, 2));
+      } else {
+        log.cli(result.output || "");
+      }
+    } catch (error) {
+      handleCliError(error);
+    }
+  });
 
   return command;
 }

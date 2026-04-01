@@ -46,6 +46,7 @@ export interface TaskExportData {
   spec: TaskSpec;
   metadata: Record<string, unknown>;
   backend: string;
+  exportedAt?: string;
 }
 
 // Types for migration result tracking

@@ -34,8 +34,9 @@ describe("JsonFileStorage Core Tests", () => {
 
   interface TestState {
     entities: TestEntity[];
-    count: number;
+    count?: number;
     lastUpdated: string;
+    metadata?: Record<string, any>;
   }
 
   let storage: DatabaseStorage<TestState>;

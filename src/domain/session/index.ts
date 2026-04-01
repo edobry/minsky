@@ -6,7 +6,8 @@
 // Export the adapter and its interface
 export { SessionDbAdapter, createSessionProvider } from "./session-db-adapter";
 
-export type { SessionProviderInterface } from "./session-db-adapter";
+import type { SessionProviderInterface } from "./session-db-adapter";
+export type { SessionProviderInterface };
 
 // Export core session types
 export type { Session, SessionRecord } from "./types";

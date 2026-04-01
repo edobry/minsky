@@ -81,7 +81,7 @@ describe("createSessionProvider", () => {
 
     // Initialize configuration for testing
     try {
-      const { initializeConfiguration } = await import("../../configuration");
+      const { initializeConfiguration } = await import("../configuration");
       await initializeConfiguration();
     } catch (error) {
       // Configuration might already be initialized, that's OK

@@ -375,14 +375,14 @@ export class DefaultAICompletionService implements AICompletionService {
         model = anthropic(resolvedModel, {
           apiKey: providerConfig.apiKey,
           baseURL: providerConfig.baseURL,
-        });
+        } as any);
         break;
 
       case "google":
         model = google(resolvedModel, {
           apiKey: providerConfig.apiKey,
           baseURL: providerConfig.baseURL,
-        });
+        } as any);
         break;
 
       case "morph": {

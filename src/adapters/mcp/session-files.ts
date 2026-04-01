@@ -8,6 +8,7 @@ import { resolveSessionDirectory } from "../../domain/session/resolve-session-di
 import type { CommandMapper } from "../../mcp/command-mapper";
 import { log } from "../../utils/logger";
 import { getErrorMessage } from "../../errors/index";
+import type { ErrorContext } from "../../utils/semantic-error-classifier";
 import {
   FileReadSchema,
   FileWriteSchema,

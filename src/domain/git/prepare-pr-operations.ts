@@ -90,6 +90,7 @@ export interface PreparePrDependencies {
   gitFetch?: (workdir: string, timeout?: number) => Promise<void>;
   gitPush?: (workdir: string, branch: string, timeout?: number) => Promise<void>;
   execAsync?: (command: string) => Promise<{ stdout: string; stderr: string }>;
+  push?: (options: any) => Promise<any>;
 }
 
 /**

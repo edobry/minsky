@@ -494,6 +494,7 @@ export interface MockGitServiceOptions {
   getStatus?: () => Promise<{ modified: string[]; untracked: string[]; deleted: string[] }>;
   getCurrentBranch?: () => Promise<string>;
   hasUncommittedChanges?: () => Promise<boolean>;
+  fetchDefaultBranch?: (repoPath: string) => Promise<string>;
 }
 
 /**

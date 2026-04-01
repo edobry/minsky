@@ -1,7 +1,7 @@
 import { z } from "zod";
 import type { PostgresJsDatabase } from "drizzle-orm/postgres-js";
 import { TaskGraphService } from "../../../../domain/tasks/task-graph-service";
-import { TaskRoutingService } from "../../../../domain/tasks/task-routing-service";
+import { TaskRoutingService, type RouteStep } from "../../../../domain/tasks/task-routing-service";
 import { createConfiguredTaskService } from "../../../../domain/tasks/taskService";
 import { type CommandParameterMap } from "../../command-registry";
 

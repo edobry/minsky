@@ -65,12 +65,14 @@ export interface SessionRecord {
   session: string;
   repoName: string;
   repoUrl: string;
+  repoPath?: string; // Local path to the repository
   createdAt: string;
   taskId?: string;
   backendType?: "local" | "remote" | "github"; // Added for repository backend support
   prState?: {
     branchName: string;
-    exists: boolean;
+    exists?: boolean;
+    commitHash?: string; // Hash of the prepared merge commit
     lastChecked: string; // ISO timestamp
     createdAt?: string; // When PR branch was created
     mergedAt?: string; // When merged (for cleanup)

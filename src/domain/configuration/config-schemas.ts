@@ -183,7 +183,6 @@ export type AIConfig = z.infer<typeof AIConfigSchema>;
 export type AIProviderConfig = z.infer<typeof AIProviderConfigSchema>;
 export type GitHubConfig = z.infer<typeof GitHubConfigSchema>;
 export type LoggerConfig = z.infer<typeof LoggerConfigSchema>;
-export type DetectionRule = z.infer<typeof DetectionRuleSchema>;
 export type BackendConfig = z.infer<typeof BackendConfigSchema>;
 export type Config = z.infer<typeof ConfigSchema>;
 export type RepositoryConfig = z.infer<typeof RepositoryConfigSchema>;

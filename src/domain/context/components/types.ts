@@ -53,6 +53,9 @@ export interface ContextComponent {
 
   // Legacy method for backwards compatibility (can be removed later)
   generate?: (input: ComponentInput) => Promise<ComponentOutput>;
+
+  // Optional contextual focus method for adaptive components
+  getContextualFocus?: (userPrompt: string) => string;
 }
 
 // Registry interface

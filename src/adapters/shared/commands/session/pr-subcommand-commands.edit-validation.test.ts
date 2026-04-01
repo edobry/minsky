@@ -1,6 +1,6 @@
 import { describe, it, expect } from "bun:test";
 import { SessionPrEditCommand } from "./pr-subcommand-commands";
-import type { CommandExecutionContext } from "../../../schemas/command-registry";
+import type { CommandExecutionContext } from "../../command-registry";
 
 /** Unit tests focused on title/type handling for edit */
 describe("SessionPrEditCommand - title/type validation", () => {

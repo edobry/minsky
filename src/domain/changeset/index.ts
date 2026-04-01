@@ -14,7 +14,8 @@ export * from "./types";
 export * from "./adapter-interface";
 
 // Main service
-export { ChangesetService, createChangesetService } from "./changeset-service";
+import { ChangesetService, createChangesetService } from "./changeset-service";
+export { ChangesetService, createChangesetService };
 
 // Platform adapters
 export {

@@ -99,11 +99,13 @@ export interface AICompletionService {
 }
 
 export interface AIObjectGenerationRequest {
-  messages: Array<{ role: string; content: string }>;
+  messages?: Array<{ role: string; content: string }>;
   schema: any;
   model?: string;
   temperature?: number;
   provider?: string;
+  prompt?: string;
+  maxTokens?: number;
 }
 
 /**

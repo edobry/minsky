@@ -272,6 +272,9 @@ export interface Task {
   spec?: string;
   status: string;
   specPath?: string; // Path to the task specification document
+  description?: string; // Optional task description
+  backend?: string; // Backend identifier
+  metadata?: Record<string, any>; // Additional metadata
   worklog?: Array<{ timestamp: string; message: string }>; // Work log entries
   mergeInfo?: {
     commitHash?: string;
@@ -286,6 +289,8 @@ export interface Task {
 
 export interface TaskListOptions {
   status?: string;
+  all?: boolean;
+  backend?: string;
 }
 
 export interface CreateTaskOptions {

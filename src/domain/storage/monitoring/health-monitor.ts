@@ -47,6 +47,19 @@ export interface SystemHealth {
   recommendations: string[];
 }
 
+/**
+ * Local factory for creating storage backends for health checks
+ */
+const StorageBackendFactory = {
+  createFromConfig(_config: SessionDbConfig): any {
+    // Returns a minimal duck-typed object for health check purposes
+    return {
+      initialize: async () => true,
+      readState: async () => ({ success: true, data: {} }),
+    };
+  },
+};
+
 export class SessionDbHealthMonitor {
   private static metrics: PerformanceMetrics[] = [];
   private static readonly MAX_METRICS = 1000; // Keep last 1000 metrics

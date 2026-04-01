@@ -42,6 +42,8 @@ export interface CategoryCommandOptions {
   commandOptions?: Record<string, CliCommandOptions>;
   /** Whether to use category name as command prefix */
   usePrefix?: boolean;
+  /** Allow additional subcommand customization options */
+  [key: string]: any;
 }
 
 /**

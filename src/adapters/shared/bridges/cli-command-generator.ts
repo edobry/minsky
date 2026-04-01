@@ -17,7 +17,8 @@ import {
   type ModularCliBridgeConfig,
 } from "./cli-bridge-modular";
 
-// Re-export types from modular CLI bridge for backward compatibility
+// Import types for local use and re-export for backward compatibility
+import type { CliCommandOptions, CategoryCommandOptions } from "./cli";
 export type {
   CliCommandOptions,
   CategoryCommandOptions,

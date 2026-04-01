@@ -7,7 +7,7 @@ import {
   sessionRepair,
   SessionRepairParameters,
 } from "../../../../domain/session/commands/repair-command";
-import { CommandExecutionContext } from "../../command-types";
+import { type CommandExecutionContext } from "../../command-registry";
 import { log } from "../../../../utils/logger";
 
 export class SessionRepairCommand extends BaseSessionCommand<any, any> {

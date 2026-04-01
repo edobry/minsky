@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { createTasksAvailableCommand } from "../../shared/commands/tasks/routing-commands";
-import { createCommandHandler } from "../../shared/bridges/cli/command-handler";
+import { log } from "../../../utils/logger";
+import { handleCliError } from "../utils/error-handler";
 
 /**
  * Create the tasks available command
@@ -24,7 +25,26 @@ export function createAvailableCommand(): Command {
       0.5
     );
 
-  command.action(createCommandHandler("tasks.available", availableCommand));
+  command.action(async (options: any) => {
+    try {
+      const result = await availableCommand.execute({
+        status: options.status,
+        backend: options.backend,
+        limit: options.limit,
+        showEffort: options.showEffort,
+        showPriority: options.showPriority,
+        json: options.json,
+        minReadiness: options.minReadiness,
+      });
+      if (options.json) {
+        log.cli(JSON.stringify(result, null, 2));
+      } else {
+        log.cli(result.output || "");
+      }
+    } catch (error) {
+      handleCliError(error);
+    }
+  });
 
   return command;
 }

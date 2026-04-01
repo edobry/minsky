@@ -172,13 +172,12 @@ ${description}
 
     // Use the spec ID if available, otherwise generate a sequential ID
     let taskId: string;
+    // Get all existing tasks (needed for ID generation and for saving)
+    const tasks = await this.getAllTasks();
     if (spec.id && spec.id.trim()) {
       // TASK 283: Normalize spec ID to plain storage format
       taskId = validateQualifiedTaskId(spec.id) || spec.id;
     } else {
-      // Get all existing tasks to determine the new task's ID
-      const tasks = await this.getAllTasks();
-
       // TASK 283: Generate plain ID format for storage using proper max ID logic
       taskId = getNextTaskId(tasks); // Uses max existing ID + 1, returns plain format
     }

@@ -93,9 +93,9 @@ export class TasksStatusSetCommand extends BaseTaskCommand {
 
     // If no change, return a clear no-op message and skip update
     if (status === previousStatus) {
-      const message = `Task ${normalizedTaskId} status is already ${status} (no change)`;
+      const message = `Task ${validatedTaskId} status is already ${status} (no change)`;
       return this.formatResult(
-        this.createSuccessResult(normalizedTaskId, message, {
+        this.createSuccessResult(validatedTaskId, message, {
           previousStatus,
           newStatus: status,
           changed: false,

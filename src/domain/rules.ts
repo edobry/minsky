@@ -64,6 +64,7 @@ export interface RuleOptions {
   format?: RuleFormat;
   tag?: string;
   debug?: boolean; // Add debug option
+  file?: string;
 }
 
 export interface CreateRuleOptions {

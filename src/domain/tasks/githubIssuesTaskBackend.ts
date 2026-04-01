@@ -11,7 +11,7 @@ import { execSync } from "child_process";
 import { getErrorMessage } from "../../errors/index";
 import type { TaskData, TaskSpecData, TaskBackendConfig } from "../../types/tasks/taskData";
 import type { TaskReadOperationResult, TaskWriteOperationResult } from "../../types/tasks/taskData";
-import type { TaskBackend } from "./taskBackend";
+import type { TaskBackend } from "./types";
 import { log } from "../../utils/logger";
 import { TASK_STATUS, TaskStatus } from "./taskConstants";
 import { validateGitHubIssues, validateGitHubIssue, type GitHubIssue } from "../../schemas/storage";

@@ -45,6 +45,15 @@ export interface LoggerConfig {
   enableAgentLogs?: boolean;
 }
 
+/**
+ * @deprecated Detection rules were replaced by BackendDetectionService.
+ * Kept for backward compatibility with existing config files.
+ */
+export interface DetectionRule {
+  condition: string;
+  backend: string;
+}
+
 // Repository and Global User Configuration
 
 export interface RepositoryConfig {

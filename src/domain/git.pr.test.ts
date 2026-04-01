@@ -23,7 +23,7 @@ describe("GitService PR Functionality", () => {
     // Mock the child_process module to prevent any actual command execution
     mock.module("node:child_process", () => ({
       execSync: () => Buffer.from("mocked output"),
-      exec: (_command: unknown) => {
+      exec: (_command: unknown, callback: (err: null, stdout: string, stderr: string) => void) => {
         callback(null, "mocked output", "");
         return { _command };
       },

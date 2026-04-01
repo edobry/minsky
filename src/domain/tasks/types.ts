@@ -10,12 +10,24 @@
  * Defines what basic operations each backend supports
  */
 export interface BackendCapabilities {
-  canCreate: boolean;
-  canUpdate: boolean;
-  canDelete: boolean;
-  canList: boolean;
-  supportsMetadata: boolean;
-  supportsSearch: boolean;
+  canCreate?: boolean;
+  canUpdate?: boolean;
+  canDelete?: boolean;
+  canList?: boolean;
+  supportsMetadata?: boolean;
+  supportsSearch?: boolean;
+  supportsTaskCreation?: boolean;
+  supportsTaskUpdate?: boolean;
+  supportsTaskDeletion?: boolean;
+  supportsStatus?: boolean;
+  supportsSubtasks?: boolean;
+  supportsDependencies?: boolean;
+  supportsOriginalRequirements?: boolean;
+  supportsAiEnhancementTracking?: boolean;
+  supportsMetadataQuery?: boolean;
+  supportsFullTextSearch?: boolean;
+  supportsTransactions?: boolean;
+  supportsRealTimeSync?: boolean;
 }
 
 /**
@@ -66,7 +78,12 @@ export interface TaskBackend {
   getWorkspacePath(): string;
   getCapabilities(): BackendCapabilities;
 
-  // ---- Optional Metadata Methods ----
+  // ---- Optional Methods ----
+  createTask?(specPath: string | any, options?: any): Promise<Task>;
+  getTaskSpecPath?(taskId: string, title: string): string;
+  validateLocalId?(id: string): boolean;
+  exportTask?(id: string): Promise<any>;
+  importTask?(data: any): Promise<Task>;
   getTaskMetadata?(id: string): Promise<TaskMetadata | null>;
   setTaskMetadata?(id: string, metadata: TaskMetadata): Promise<void>;
 }
@@ -111,4 +128,5 @@ export interface TaskServiceOptions {
 export interface TaskBackendConfig {
   name: string;
   workspacePath: string;
+  gitService?: any;
 }
